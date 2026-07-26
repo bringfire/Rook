@@ -412,12 +412,12 @@ def test_task1_descriptor_reachability_accepts_exact_derived_removal() -> None:
         "source_descriptor",
         "resolved_unresolved_rows",
         "authority_descriptor_reachability",
-        "goal_projection",
+        "goal_unresolved_projection",
         "clause_ownership",
         "authority_reference_additions",
         "affected_clause_residual",
         "recipe_fingerprint",
-        "residual_equality",
+        "global_residual_equality",
     ]
 
 

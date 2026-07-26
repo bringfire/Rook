@@ -15,7 +15,7 @@
       "owned_region": "/authority_artifacts"
     },
     {
-      "equation_id": "goal_projection",
+      "equation_id": "goal_unresolved_projection",
       "owned_region": "/goal/projected_into/unresolved_intent_ids"
     },
     {
@@ -35,7 +35,7 @@
       "owned_region": "/recipe_fingerprint"
     },
     {
-      "equation_id": "residual_equality",
+      "equation_id": "global_residual_equality",
       "owned_region": "canonical_normalized_residual_projection"
     }
   ],
@@ -53,5 +53,5 @@
     "Assign every erased location to exactly one named equation before residual comparison.",
     "Compare canonical normalized residual projections without rewriting candidate bytes."
   ],
-  "policy_fingerprint": "sha256:8b1b6413364c50d71c6c4201f7f342acebe6352309b0684f361e37c17b66c857"
+  "policy_fingerprint": "sha256:8e67131297ba3e1f5c5aa7a68c4f70a900f0da64a450bcc6f1bdd2243a81864e"
 }

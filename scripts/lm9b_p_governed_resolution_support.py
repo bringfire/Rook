@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import threading
+import weakref
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -87,7 +89,7 @@ class IsolationGateResult:
     result_fingerprint: str
 
 
-def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolutionInputs:
+def _assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolutionInputs:
     required = {
         "sources",
         "isolation_policy_bytes",
@@ -265,6 +267,200 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
             )
         )
 
+    policy_instance_value = _derive_isolation_policy_instance_value(
+        parent_recipe=parent_recipe,
+        successor_envelope_fingerprint=successor.artifact_fingerprint,
+        correspondence=correspondence,
+        definition_id=policy["definition_id"],
+        definition_fingerprint=policy["policy_fingerprint"],
+        model_obligations=policy["model_obligations"],
+        normalization_profile=current_authority.normalization_profile,
+    )
+    policy_instance = IsolationPolicyInstance(
+        definition_id=policy["definition_id"],
+        definition_fingerprint=policy["policy_fingerprint"],
+        value=_freeze_json(policy_instance_value),
+        instance_fingerprint=PLANNER_SUPPORT.fingerprint(policy_instance_value),
+    )
+    inputs_identity = {
+        "parent_recipe_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(
+            source.final_recipe_bytes
+        ),
+        "successor_envelope_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(
+            successor_raw
+        ),
+        "successor_envelope_fingerprint": successor.artifact_fingerprint,
+        "carrier_compatibility_fingerprint": qualification_proof[
+            "compatibility_fingerprint"
+        ],
+        "migration_fingerprint": PLANNER_SUPPORT.fingerprint(migration),
+        "correspondence_fingerprint": PLANNER_SUPPORT.fingerprint(correspondence),
+        "policy_instance_fingerprint": policy_instance.instance_fingerprint,
+        "evaluation_rubric_fingerprint": rubric["rubric_fingerprint"],
+        "carrier_support_fingerprint": carrier_support[
+            "carrier_support_fingerprint"
+        ],
+        "reviewed_commit_sha": reviewed_commit,
+    }
+    inputs = VerifiedResolutionInputs(
+        parent_recipe_bytes=source.final_recipe_bytes,
+        parent_recipe=MappingProxyType(parent_recipe),
+        successor_envelope_bytes=successor_raw,
+        successor_envelope=successor.envelope,
+        current_authority=current_authority,
+        carrier_support_instrument=_freeze_json(carrier_support),
+        recipe_schema=frozen.recipe_schema,
+        normalization_profile=current_authority.normalization_profile,
+        exclusion_policy=frozen.exclusion_policy,
+        brief=frozen.brief,
+        authoring_contract=frozen.authoring_contract,
+        evaluation_rubric=MappingProxyType(rubric),
+        correspondence=tuple(correspondence),
+        migration_ledger=tuple(migration),
+        policy_instance=policy_instance,
+        historical_qualification_identity=(
+            qualification_proof["historical_qualification_identity"]
+        ),
+        carrier_compatibility_fingerprint=(
+            qualification_proof["compatibility_fingerprint"]
+        ),
+        reviewed_commit_sha=reviewed_commit,
+        inputs_fingerprint=PLANNER_SUPPORT.fingerprint(inputs_identity),
+    )
+    return inputs
+
+
+def _normalization_profile_projection(profile: object) -> dict[str, object]:
+    if type(profile) is not PLANNER_SUPPORT.NormalizationProfile:
+        raise ValueError("normalization profile identity is invalid")
+    return {
+        "profile_id": profile.profile_id,
+        "profile_fingerprint": profile.profile_fingerprint,
+        "rows": [
+            {
+                "path_pattern": row.path_pattern,
+                "sort_kind": row.sort_kind,
+                "field": row.field,
+                "admission": row.admission,
+                "matching": row.matching,
+            }
+            for row in profile.rows
+        ],
+    }
+
+
+def _resolution_inputs_proof_projection(
+    inputs: VerifiedResolutionInputs,
+) -> dict[str, object]:
+    authority = inputs.current_authority
+    return {
+        "parent_recipe_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(
+            inputs.parent_recipe_bytes
+        ),
+        "parent_recipe": inputs.parent_recipe,
+        "successor_envelope_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(
+            inputs.successor_envelope_bytes
+        ),
+        "successor_envelope": inputs.successor_envelope,
+        "current_authority": {
+            "artifacts": authority.artifacts,
+            "vocabularies": authority.vocabularies,
+            "payload_schema_registry": authority.payload_schema_registry,
+            "capability_registry": authority.capability_registry,
+            "recipe_schema": authority.recipe_schema,
+            "normalization_profile": _normalization_profile_projection(
+                authority.normalization_profile
+            ),
+            "attempt_context": authority.attempt_context,
+            "exclusion_policy": authority.exclusion_policy,
+            "evaluated_at": authority.evaluated_at,
+        },
+        "carrier_support_instrument": inputs.carrier_support_instrument,
+        "recipe_schema": inputs.recipe_schema,
+        "normalization_profile": _normalization_profile_projection(
+            inputs.normalization_profile
+        ),
+        "exclusion_policy": inputs.exclusion_policy,
+        "brief": inputs.brief,
+        "authoring_contract": inputs.authoring_contract,
+        "evaluation_rubric": inputs.evaluation_rubric,
+        "correspondence": inputs.correspondence,
+        "migration_ledger": inputs.migration_ledger,
+        "policy_instance": {
+            "definition_id": inputs.policy_instance.definition_id,
+            "definition_fingerprint": inputs.policy_instance.definition_fingerprint,
+            "value": inputs.policy_instance.value,
+            "instance_fingerprint": inputs.policy_instance.instance_fingerprint,
+        },
+        "historical_qualification_identity": (
+            inputs.historical_qualification_identity
+        ),
+        "carrier_compatibility_fingerprint": (
+            inputs.carrier_compatibility_fingerprint
+        ),
+        "reviewed_commit_sha": inputs.reviewed_commit_sha,
+        "inputs_fingerprint": inputs.inputs_fingerprint,
+    }
+
+
+def _build_resolution_inputs_capability():
+    lock = threading.RLock()
+    issued: dict[
+        int, tuple[weakref.ReferenceType[VerifiedResolutionInputs], str]
+    ] = {}
+
+    def derive(**kwargs: object) -> VerifiedResolutionInputs:
+        inputs = _assemble_verified_resolution_inputs(**kwargs)
+        snapshot = PLANNER_SUPPORT.fingerprint(
+            _resolution_inputs_proof_projection(inputs)
+        )
+        key = id(inputs)
+
+        def cleanup(
+            reference: weakref.ReferenceType[VerifiedResolutionInputs],
+        ) -> None:
+            with lock:
+                current = issued.get(key)
+                if current is not None and current[0] is reference:
+                    issued.pop(key, None)
+
+        reference = weakref.ref(inputs, cleanup)
+        with lock:
+            issued[key] = (reference, snapshot)
+        return inputs
+
+    def consume(inputs: object) -> None:
+        if type(inputs) is not VerifiedResolutionInputs:
+            raise TypeError("verified resolution inputs proof carrier is required")
+        with lock:
+            proof = issued.get(id(inputs))
+        if proof is None or proof[0]() is not inputs:
+            raise ValueError("resolution inputs proof carrier was not issued")
+        current = PLANNER_SUPPORT.fingerprint(
+            _resolution_inputs_proof_projection(inputs)
+        )
+        if current != proof[1]:
+            raise ValueError("resolution inputs proof carrier changed after issuance")
+
+    return derive, consume
+
+
+(
+    assemble_verified_resolution_inputs,
+    _consume_verified_resolution_inputs,
+) = _build_resolution_inputs_capability()
+
+
+def _derive_isolation_policy_instance_value(
+    *,
+    parent_recipe: Mapping[str, object],
+    successor_envelope_fingerprint: str,
+    correspondence: object,
+    definition_id: str,
+    definition_fingerprint: str,
+    model_obligations: object,
+    normalization_profile: object,
+) -> dict[str, object]:
     clause_occurrences = _clause_occurrences(parent_recipe)
     affected_ids = sorted(
         {
@@ -282,6 +478,7 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
         affected.append(
             {"clause_id": clause_id, "category": category, "pointer": pointer}
         )
+
     parent_reference_occurrences = _external_reference_occurrences(parent_recipe)
     unresolved_prefixes = tuple(
         f"/unresolved_intent/{index}"
@@ -317,75 +514,91 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
                 ),
             }
         )
-    policy_instance_value = {
-        "definition_id": policy["definition_id"],
-        "definition_fingerprint": policy["policy_fingerprint"],
+
+    residual_ownership = [
+        {
+            "equation_id": "source_descriptor",
+            "pointer": "/source_task/fingerprint",
+        },
+        {
+            "equation_id": "resolved_unresolved_rows",
+            "pointer": "/unresolved_intent",
+        },
+        {
+            "equation_id": "authority_descriptor_reachability",
+            "pointer": "/authority_artifacts",
+        },
+        {
+            "equation_id": "goal_unresolved_projection",
+            "pointer": "/goal/projected_into/unresolved_intent_ids",
+        },
+        *(
+            {
+                "equation_id": "authority_reference_additions",
+                "pointer": row["pointer"] + "/source_refs",
+            }
+            for row in affected
+        ),
+    ]
+    return {
+        "definition_id": definition_id,
+        "definition_fingerprint": definition_fingerprint,
         "parent_recipe_fingerprint": parent_recipe["recipe_fingerprint"],
-        "successor_envelope_fingerprint": successor.artifact_fingerprint,
+        "successor_envelope_fingerprint": successor_envelope_fingerprint,
         "correspondence_fingerprint": PLANNER_SUPPORT.fingerprint(correspondence),
+        "normalization_profile_id": normalization_profile.profile_id,
+        "normalization_profile_fingerprint": (
+            normalization_profile.profile_fingerprint
+        ),
         "affected_clauses": affected,
         "descriptor_removal_eligible_ids": descriptor_removal_eligible_ids,
         "descriptor_reference_ledger": descriptor_reference_ledger,
-        "model_obligations": copy.deepcopy(policy["model_obligations"]),
+        "residual_ownership": residual_ownership,
+        "model_obligations": copy.deepcopy(
+            PLANNER_SUPPORT._json_builtins(model_obligations)
+        ),
     }
-    policy_instance = IsolationPolicyInstance(
-        definition_id=policy["definition_id"],
-        definition_fingerprint=policy["policy_fingerprint"],
-        value=MappingProxyType(policy_instance_value),
-        instance_fingerprint=PLANNER_SUPPORT.fingerprint(policy_instance_value),
-    )
-    inputs_identity = {
-        "parent_recipe_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(
-            source.final_recipe_bytes
-        ),
-        "successor_envelope_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(
-            successor_raw
-        ),
-        "successor_envelope_fingerprint": successor.artifact_fingerprint,
-        "carrier_compatibility_fingerprint": qualification_proof[
-            "compatibility_fingerprint"
+
+
+def _validate_isolation_control(inputs: VerifiedResolutionInputs) -> None:
+    policy = inputs.policy_instance
+    if (
+        policy.definition_id != policy.value.get("definition_id")
+        or policy.definition_fingerprint
+        != policy.value.get("definition_fingerprint")
+        or policy.instance_fingerprint != PLANNER_SUPPORT.fingerprint(policy.value)
+    ):
+        raise ValueError("isolation policy instance identity is invalid")
+    expected = _derive_isolation_policy_instance_value(
+        parent_recipe=inputs.parent_recipe,
+        successor_envelope_fingerprint=inputs.successor_envelope[
+            "artifact_fingerprint"
         ],
-        "migration_fingerprint": PLANNER_SUPPORT.fingerprint(migration),
-        "correspondence_fingerprint": PLANNER_SUPPORT.fingerprint(correspondence),
-        "policy_instance_fingerprint": policy_instance.instance_fingerprint,
-        "evaluation_rubric_fingerprint": rubric["rubric_fingerprint"],
-        "carrier_support_fingerprint": carrier_support[
-            "carrier_support_fingerprint"
-        ],
-        "reviewed_commit_sha": reviewed_commit,
-    }
-    return VerifiedResolutionInputs(
-        parent_recipe_bytes=source.final_recipe_bytes,
-        parent_recipe=MappingProxyType(parent_recipe),
-        successor_envelope_bytes=successor_raw,
-        successor_envelope=successor.envelope,
-        current_authority=current_authority,
-        carrier_support_instrument=_freeze_json(carrier_support),
-        recipe_schema=frozen.recipe_schema,
-        normalization_profile=current_authority.normalization_profile,
-        exclusion_policy=frozen.exclusion_policy,
-        brief=frozen.brief,
-        authoring_contract=frozen.authoring_contract,
-        evaluation_rubric=MappingProxyType(rubric),
-        correspondence=tuple(correspondence),
-        migration_ledger=tuple(migration),
-        policy_instance=policy_instance,
-        historical_qualification_identity=(
-            qualification_proof["historical_qualification_identity"]
-        ),
-        carrier_compatibility_fingerprint=(
-            qualification_proof["compatibility_fingerprint"]
-        ),
-        reviewed_commit_sha=reviewed_commit,
-        inputs_fingerprint=PLANNER_SUPPORT.fingerprint(inputs_identity),
+        correspondence=inputs.correspondence,
+        definition_id=policy.definition_id,
+        definition_fingerprint=policy.definition_fingerprint,
+        model_obligations=policy.value.get("model_obligations"),
+        normalization_profile=inputs.normalization_profile,
     )
+    if PLANNER_SUPPORT._json_builtins(policy.value) != expected:
+        raise ValueError("isolation policy instance differs from verified inputs")
+    ownership = expected["residual_ownership"]
+    pointers = [row["pointer"] for row in ownership]
+    if len(pointers) != len(set(pointers)):
+        raise ValueError("isolation residual ownership overlaps or duplicates")
+    if (
+        policy.value["normalization_profile_id"]
+        != inputs.normalization_profile.profile_id
+        or policy.value["normalization_profile_fingerprint"]
+        != inputs.normalization_profile.profile_fingerprint
+    ):
+        raise ValueError("isolation normalization identity differs")
 
 
 def render_planner_revision_request(
     inputs: VerifiedResolutionInputs,
 ) -> RenderedRevisionRequest:
-    if type(inputs) is not VerifiedResolutionInputs:
-        raise TypeError("verified resolution inputs are required")
+    _consume_verified_resolution_inputs(inputs)
     payload = {
         "schema": "rook.lm9b_p.planner_revision_request:v1",
         "renderer_id": REVISION_RENDERER_ID,
@@ -421,8 +634,7 @@ def render_planner_revision_evaluation_request(
     *,
     candidate_recipe_bytes: bytes,
 ) -> RenderedRevisionRequest:
-    if type(inputs) is not VerifiedResolutionInputs:
-        raise TypeError("verified resolution inputs are required")
+    _consume_verified_resolution_inputs(inputs)
     if type(candidate_recipe_bytes) is not bytes:
         raise TypeError("exact candidate recipe bytes are required")
     candidate = PLANNER_SUPPORT.parse_strict_json(candidate_recipe_bytes)
@@ -463,7 +675,20 @@ def evaluate_resolution_isolation(
     inputs: VerifiedResolutionInputs,
     candidate_recipe_bytes: bytes,
 ) -> IsolationGateResult:
-    parent = copy.deepcopy(dict(inputs.parent_recipe))
+    _consume_verified_resolution_inputs(inputs)
+    _validate_isolation_control(inputs)
+    return _evaluate_resolution_isolation_verified(
+        inputs=inputs,
+        candidate_recipe_bytes=candidate_recipe_bytes,
+    )
+
+
+def _evaluate_resolution_isolation_verified(
+    *,
+    inputs: VerifiedResolutionInputs,
+    candidate_recipe_bytes: bytes,
+) -> IsolationGateResult:
+    parent = PLANNER_SUPPORT._json_builtins(inputs.parent_recipe)
     candidate = PLANNER_SUPPORT.parse_strict_json(candidate_recipe_bytes)
     if type(candidate) is not dict:
         raise ValueError("candidate recipe must be an object")
@@ -474,10 +699,36 @@ def evaluate_resolution_isolation(
     expected_source = copy.deepcopy(parent["source_task"])
     expected_source["fingerprint"] = successor_fingerprint
     source_ok = candidate.get("source_task") == expected_source
-    equations.append(_equation("source_descriptor", source_ok))
+    equations.append(
+        _equation(
+            "source_descriptor",
+            source_ok,
+            owned_pointers=("/source_task/fingerprint",),
+            inputs=(parent.get("source_task"), candidate.get("source_task")),
+        )
+    )
 
-    unresolved_ok = candidate.get("unresolved_intent") == []
-    equations.append(_equation("resolved_unresolved_rows", unresolved_ok))
+    resolved_semantic_keys = {
+        row["semantic_key"] for row in inputs.correspondence
+    }
+    expected_unresolved = [
+        copy.deepcopy(row)
+        for row in parent["unresolved_intent"]
+        if row["semantic_key"] not in resolved_semantic_keys
+    ]
+    unresolved_ok = candidate.get("unresolved_intent") == expected_unresolved
+    equations.append(
+        _equation(
+            "resolved_unresolved_rows",
+            unresolved_ok,
+            owned_pointers=("/unresolved_intent",),
+            inputs=(
+                parent.get("unresolved_intent"),
+                expected_unresolved,
+                candidate.get("unresolved_intent"),
+            ),
+        )
+    )
     candidate_reference_occurrences = _external_reference_occurrences(candidate)
     referenced_candidate_artifacts = {
         row["artifact_id"] for row in candidate_reference_occurrences
@@ -497,12 +748,48 @@ def evaluate_resolution_isolation(
     ]
     descriptor_ok = candidate.get("authority_artifacts") == expected_descriptors
     equations.append(
-        _equation("authority_descriptor_reachability", descriptor_ok)
+        _equation(
+            "authority_descriptor_reachability",
+            descriptor_ok,
+            owned_pointers=("/authority_artifacts",),
+            inputs=(
+                parent.get("authority_artifacts"),
+                candidate.get("authority_artifacts"),
+            ),
+        )
     )
-    expected_goal = copy.deepcopy(parent["goal"])
-    expected_goal["projected_into"]["unresolved_intent_ids"] = []
-    goal_ok = candidate.get("goal") == expected_goal
-    equations.append(_equation("goal_projection", goal_ok))
+    candidate_goal = candidate.get("goal")
+    resolved_intent_ids = {
+        row["parent_intent_id"] for row in inputs.correspondence
+    }
+    expected_goal_unresolved = [
+        intent_id
+        for intent_id in parent["goal"]["projected_into"][
+            "unresolved_intent_ids"
+        ]
+        if intent_id not in resolved_intent_ids
+    ]
+    candidate_goal_unresolved = (
+        candidate_goal.get("projected_into", {}).get("unresolved_intent_ids")
+        if type(candidate_goal) is dict
+        and type(candidate_goal.get("projected_into")) is dict
+        else None
+    )
+    goal_ok = (
+        candidate_goal_unresolved == expected_goal_unresolved
+    )
+    equations.append(
+        _equation(
+            "goal_unresolved_projection",
+            goal_ok,
+            owned_pointers=("/goal/projected_into/unresolved_intent_ids",),
+            inputs=(
+                parent["goal"]["projected_into"]["unresolved_intent_ids"],
+                expected_goal_unresolved,
+                candidate_goal_unresolved,
+            ),
+        )
+    )
 
     parent_occurrences = _clause_occurrences(parent)
     candidate_occurrences = _clause_occurrences(candidate)
@@ -524,7 +811,8 @@ def evaluate_resolution_isolation(
     clause_ownership_ok = True
     affected_clause_residual_ok = True
     reference_ok = True
-    equation_owned_clause_pointers: set[str] = set()
+    reference_evidence: list[dict[str, object]] = []
+    affected_residual_evidence: list[dict[str, object]] = []
     for row in inputs.policy_instance.value["affected_clauses"]:
         clause_id = row["clause_id"]
         parent_matches = parent_occurrences.get(clause_id, [])
@@ -536,14 +824,30 @@ def evaluate_resolution_isolation(
             or candidate_matches[0][1] != row["pointer"]
         ):
             clause_ownership_ok = False
+            reference_ok = False
+            affected_clause_residual_ok = False
+            reference_evidence.append(
+                {
+                    "clause_id": clause_id,
+                    "parent_matches": len(parent_matches),
+                    "candidate_matches": len(candidate_matches),
+                }
+            )
             continue
-        equation_owned_clause_pointers.add(row["pointer"])
         parent_clause = parent_matches[0][2]
         candidate_clause = candidate_matches[0][2]
         expected_refs = _ordered_unique_references(
             [*parent_clause["source_refs"], *required_refs_by_clause[clause_id]]
         )
         candidate_refs = candidate_clause.get("source_refs")
+        reference_evidence.append(
+            {
+                "clause_id": clause_id,
+                "parent_refs": parent_clause["source_refs"],
+                "required_refs": required_refs_by_clause[clause_id],
+                "candidate_refs": candidate_refs,
+            }
+        )
         if (
             type(candidate_refs) is not list
             or candidate_refs != expected_refs
@@ -559,23 +863,74 @@ def evaluate_resolution_isolation(
             for key, value in candidate_clause.items()
             if key != "source_refs"
         }
+        affected_residual_evidence.append(
+            {
+                "clause_id": clause_id,
+                "parent_residual": parent_rest,
+                "candidate_residual": candidate_rest,
+            }
+        )
         if parent_rest != candidate_rest:
             affected_clause_residual_ok = False
-    equations.append(_equation("clause_ownership", clause_ownership_ok))
-    equations.append(_equation("authority_reference_additions", reference_ok))
+    affected_pointers = tuple(
+        row["pointer"] for row in inputs.policy_instance.value["affected_clauses"]
+    )
+    source_ref_pointers = tuple(
+        pointer + "/source_refs" for pointer in affected_pointers
+    )
     equations.append(
-        _equation("affected_clause_residual", affected_clause_residual_ok)
+        _equation(
+            "clause_ownership",
+            clause_ownership_ok,
+            owned_pointers=affected_pointers,
+            inputs=(parent_occurrences, candidate_occurrences),
+        )
+    )
+    equations.append(
+        _equation(
+            "authority_reference_additions",
+            reference_ok,
+            owned_pointers=source_ref_pointers,
+            inputs=(reference_evidence,),
+        )
+    )
+    equations.append(
+        _equation(
+            "affected_clause_residual",
+            affected_clause_residual_ok,
+            owned_pointers=affected_pointers,
+            inputs=(affected_residual_evidence,),
+        )
     )
 
     claimed = candidate.get("recipe_fingerprint")
     candidate_projection = {
         key: value for key, value in candidate.items() if key != "recipe_fingerprint"
     }
-    normalized_candidate = PLANNER_SUPPORT.normalize_recipe(
-        copy.deepcopy(candidate_projection), inputs.normalization_profile
+    candidate_normalization_admitted = True
+    try:
+        normalized_candidate = PLANNER_SUPPORT.normalize_recipe(
+            copy.deepcopy(candidate_projection), inputs.normalization_profile
+        )
+    except ValueError:
+        # This path is unreachable after the required independent mechanical
+        # gate, but keeps the isolation function total for candidate-authored
+        # duplicate or occurrence-admission defects.  The parsed candidate is
+        # retained unchanged and cannot pass fingerprint or residual equality.
+        candidate_normalization_admitted = False
+        normalized_candidate = copy.deepcopy(candidate_projection)
+    fingerprint_ok = (
+        candidate_normalization_admitted
+        and claimed == PLANNER_SUPPORT.fingerprint(normalized_candidate)
     )
-    fingerprint_ok = claimed == PLANNER_SUPPORT.fingerprint(normalized_candidate)
-    equations.append(_equation("recipe_fingerprint", fingerprint_ok))
+    equations.append(
+        _equation(
+            "recipe_fingerprint",
+            fingerprint_ok,
+            owned_pointers=("/recipe_fingerprint",),
+            inputs=(claimed, normalized_candidate),
+        )
+    )
 
     parent_projection = {
         key: value for key, value in parent.items() if key != "recipe_fingerprint"
@@ -585,24 +940,39 @@ def evaluate_resolution_isolation(
     )
     parent_residual = copy.deepcopy(normalized_parent)
     candidate_residual = copy.deepcopy(normalized_candidate)
-    parent_residual["source_task"]["fingerprint"] = None
-    candidate_residual["source_task"]["fingerprint"] = None
-    parent_residual["unresolved_intent"] = []
-    candidate_residual["unresolved_intent"] = []
-    if descriptor_ok:
-        parent_residual["authority_artifacts"] = []
-        candidate_residual["authority_artifacts"] = []
-    parent_residual["goal"]["projected_into"]["unresolved_intent_ids"] = []
-    candidate_residual["goal"]["projected_into"]["unresolved_intent_ids"] = []
-    for row in inputs.policy_instance.value["affected_clauses"]:
-        if row["pointer"] not in equation_owned_clause_pointers:
+    equation_status = {
+        row["equation_id"]: row["passed"] for row in equations
+    }
+    consumed_locations: list[str] = []
+    for ownership in inputs.policy_instance.value["residual_ownership"]:
+        equation_id = ownership["equation_id"]
+        pointer = ownership["pointer"]
+        if equation_status.get(equation_id) is not True:
             continue
-        _clause_at_pointer(parent_residual, row["pointer"])["source_refs"] = []
-        _clause_at_pointer(candidate_residual, row["pointer"])["source_refs"] = []
+        _remove_json_pointer(parent_residual, pointer)
+        _remove_json_pointer(candidate_residual, pointer)
+        consumed_locations.append(pointer)
+    expected_consumed = [
+        row["pointer"]
+        for row in inputs.policy_instance.value["residual_ownership"]
+        if equation_status.get(row["equation_id"]) is True
+    ]
+    if consumed_locations != expected_consumed:
+        raise ValueError("isolation residual ownership was not exactly consumed")
     parent_residual_bytes = _canonical_bytes(parent_residual)
     candidate_residual_bytes = _canonical_bytes(candidate_residual)
-    residual_ok = parent_residual_bytes == candidate_residual_bytes
-    equations.append(_equation("residual_equality", residual_ok))
+    residual_ok = (
+        candidate_normalization_admitted
+        and parent_residual_bytes == candidate_residual_bytes
+    )
+    equations.append(
+        _equation(
+            "global_residual_equality",
+            residual_ok,
+            owned_pointers=(),
+            inputs=(parent_residual_bytes, candidate_residual_bytes),
+        )
+    )
     for equation in equations:
         if not equation["passed"]:
             differences.append(
@@ -663,21 +1033,21 @@ def _clause_occurrences(
         rows.append(("goal", "/goal", goal))
     for category in ("requires", "invariants"):
         collection = recipe.get(category)
-        if isinstance(collection, list):
+        if isinstance(collection, (list, tuple)):
             rows.extend(
                 (category, f"/{category}/{index}", clause)
                 for index, clause in enumerate(collection)
                 if isinstance(clause, Mapping)
             )
     maintains = recipe.get("maintains")
-    if isinstance(maintains, list):
+    if isinstance(maintains, (list, tuple)):
         for index, clause in enumerate(maintains):
             if not isinstance(clause, Mapping):
                 continue
             rows.append(("maintains", f"/maintains/{index}", clause))
             for nested_category in ("canonicalization", "postconditions"):
                 nested = clause.get(nested_category)
-                if isinstance(nested, list):
+                if isinstance(nested, (list, tuple)):
                     rows.extend(
                         (
                             nested_category,
@@ -693,15 +1063,6 @@ def _clause_occurrences(
         if isinstance(clause_id, str):
             by_id.setdefault(clause_id, []).append((category, pointer, clause))
     return by_id
-
-
-def _clause_at_pointer(recipe: dict[str, object], pointer: object) -> dict[str, object]:
-    if type(pointer) is not str:
-        raise ValueError("clause pointer must be a string")
-    value = PLANNER_SUPPORT.resolve_json_pointer(recipe, pointer)
-    if type(value) is not dict:
-        raise ValueError("clause pointer does not resolve to an object")
-    return value
 
 
 def _ordered_unique_references(
@@ -745,8 +1106,53 @@ def _external_reference_occurrences(
     return tuple(rows)
 
 
-def _equation(equation_id: str, passed: bool) -> Mapping[str, object]:
-    return MappingProxyType({"equation_id": equation_id, "passed": passed})
+def _remove_json_pointer(value: dict[str, object], pointer: str) -> None:
+    if type(pointer) is not str or not pointer.startswith("/"):
+        raise ValueError("isolation residual pointer is invalid")
+    tokens = [
+        part.replace("~1", "/").replace("~0", "~")
+        for part in pointer[1:].split("/")
+    ]
+    current: object = value
+    for token in tokens[:-1]:
+        if isinstance(current, dict) and token in current:
+            current = current[token]
+        elif isinstance(current, list) and token.isdigit() and int(token) < len(current):
+            current = current[int(token)]
+        else:
+            raise ValueError("isolation residual pointer does not resolve")
+    final = tokens[-1]
+    if isinstance(current, dict) and final in current:
+        del current[final]
+        return
+    if isinstance(current, list) and final.isdigit() and int(final) < len(current):
+        del current[int(final)]
+        return
+    raise ValueError("isolation residual pointer does not resolve")
+
+
+def _equation(
+    equation_id: str,
+    passed: bool,
+    *,
+    owned_pointers: tuple[object, ...],
+    inputs: tuple[object, ...],
+) -> Mapping[str, object]:
+    input_projection = [
+        PLANNER_SUPPORT.sha256_prefixed(item)
+        if isinstance(item, bytes)
+        else PLANNER_SUPPORT.fingerprint(item)
+        for item in inputs
+    ]
+    return MappingProxyType(
+        {
+            "equation_id": equation_id,
+            "status": "passed" if passed else "rejected",
+            "passed": passed,
+            "owned_pointers": tuple(owned_pointers),
+            "input_fingerprints": tuple(input_projection),
+        }
+    )
 
 
 __all__ = (

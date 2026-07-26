@@ -832,14 +832,16 @@ git commit -m "feat: close resolution authority and preflight"
 
 **Files:**
 - Modify: `scripts/lm9b_p_governed_resolution_support.py`
+- Modify: `scripts/lm9b_p_governed_resolution_artifacts.py`
 - Modify: `scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json`
 - Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_support.py`
+- Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_probe.py`
 
 **Interfaces:**
 - Consumes: `VerifiedResolutionInputs`, candidate bytes, existing normalization profile.
 - Produces: complete `IsolationPolicyInstance` and independently recomputable `IsolationGateResult`.
 
-- [ ] **Step 1: Write the parameterized isolation mutation table**
+- [x] **Step 1: Write the parameterized isolation mutation table**
 
 Cover these completed candidate failures after independently recomputing recipe
 fingerprints and canonical order where applicable:
@@ -881,7 +883,7 @@ ISOLATION_MUTATIONS = (
 Assert each returns completed status `isolation_rejected`, not control failure,
 when parent/policy inputs are valid.
 
-- [ ] **Step 2: Write policy-integrity control-failure tests**
+- [x] **Step 2: Write policy-integrity control-failure tests**
 
 Cover malformed or ambiguous parent/policy states:
 
@@ -901,7 +903,7 @@ POLICY_CONTROL_FAILURES = (
 These cases must raise a closed instrument error before issuing an isolation
 verdict.
 
-- [ ] **Step 3: Verify the thin isolation implementation fails the new table**
+- [x] **Step 3: Verify the thin isolation implementation fails the new table**
 
 Run:
 
@@ -913,7 +915,7 @@ Run:
 
 Expected: FAIL for unimplemented equations or accepted unauthorized changes.
 
-- [ ] **Step 4: Implement exact policy-instance derivation**
+- [x] **Step 4: Implement exact policy-instance derivation**
 
 Resolve each authenticated parent `affected_clause_id` to exactly one category
 and canonical pointer. Seal the category/pointer into the instance. The neutral
@@ -933,7 +935,7 @@ if candidate_references != normalize_reference_order(candidate_references):
     return isolation_rejection("reference_order")
 ```
 
-- [ ] **Step 5: Implement named equations and residual ownership**
+- [x] **Step 5: Implement named equations and residual ownership**
 
 Evaluate in this exact order:
 
@@ -957,7 +959,7 @@ overlapping owners, and unconsumed locations.
 Compare canonical normalized residual bytes directly. Keep original candidate
 bytes untouched.
 
-- [ ] **Step 6: Add a positive non-radial policy-mechanics witness**
+- [x] **Step 6: Add a positive non-radial policy-mechanics witness**
 
 Construct a test-only recipe pair using unrelated clause IDs and semantic keys
 but the same structural occurrence categories. Prove the shared gate accepts
@@ -974,7 +976,7 @@ rg -n "box_footprint|grid_spacing|minimum_height|maximum_height|radial_box_array
 
 Expected: no matches.
 
-- [ ] **Step 7: Run Task-3 suites**
+- [x] **Step 7: Run Task-3 suites**
 
 Run:
 
@@ -986,12 +988,15 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Task 3**
+- [x] **Step 8: Commit Task 3**
 
 ```powershell
 git add scripts/lm9b_p_governed_resolution_support.py `
+  scripts/lm9b_p_governed_resolution_artifacts.py `
   scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json `
-  mcp_server/tests/test_lm9b_p_governed_resolution_support.py
+  mcp_server/tests/test_lm9b_p_governed_resolution_support.py `
+  mcp_server/tests/test_lm9b_p_governed_resolution_probe.py `
+  docs/superpowers/plans/2026-07-25-lm9b-p-governed-resolution-checkpoint.md
 git commit -m "feat: enforce exact resolution isolation"
 ```
 

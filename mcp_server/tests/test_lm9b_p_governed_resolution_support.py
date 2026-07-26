@@ -6,6 +6,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -119,6 +120,392 @@ def _reclose_recipe(value: dict[str, object], inputs: object) -> bytes:
     )
     value["recipe_fingerprint"] = PLANNER_SUPPORT.fingerprint(normalized)
     return _canonical_bytes(value)
+
+
+ISOLATION_MUTATIONS = (
+    "wrong_source_task_fingerprint",
+    "other_source_descriptor_field",
+    "retained_unresolved_row",
+    "new_unresolved_row",
+    "wrong_goal_unresolved_ids",
+    "goal_statement",
+    "affected_clause_statement",
+    "affected_clause_id",
+    "affected_clause_category",
+    "affected_clause_location",
+    "missing_required_reference",
+    "extra_reference",
+    "duplicate_reference",
+    "noncanonical_reference_order",
+    "assumption",
+    "derived_fact",
+    "invariant",
+    "capability",
+    "shape",
+    "worker_slot",
+    "postcondition",
+    "authority_descriptor",
+    "remove_retained_descriptor",
+    "retain_derived_removable_descriptor",
+    "add_authority_descriptor",
+    "reorder_authority_descriptors",
+    "mutate_retained_authority_descriptor",
+    "unrelated_reference",
+    "claimed_fingerprint",
+)
+
+
+def _mutated_isolation_candidate(
+    mutation: str, inputs: object
+) -> tuple[dict[str, object], bool]:
+    candidate = json.loads(ISOLATED_SUCCESSOR_RECIPE.read_bytes())
+    parent = PLANNER_SUPPORT._json_builtins(inputs.parent_recipe)
+    affected = inputs.policy_instance.value["affected_clauses"][0]
+    category = affected["category"]
+    pointer = affected["pointer"]
+    clause = PLANNER_SUPPORT.resolve_json_pointer(candidate, pointer)
+    parent_clause = PLANNER_SUPPORT.resolve_json_pointer(parent, pointer)
+    reclose = True
+    if mutation == "wrong_source_task_fingerprint":
+        candidate["source_task"]["fingerprint"] = "sha256:" + "1" * 64
+    elif mutation == "other_source_descriptor_field":
+        candidate["source_task"]["artifact_kind"] = "other_task"
+    elif mutation == "retained_unresolved_row":
+        candidate["unresolved_intent"] = [parent["unresolved_intent"][0]]
+    elif mutation == "new_unresolved_row":
+        row = copy.deepcopy(parent["unresolved_intent"][0])
+        row["intent_id"] = "unresolved.unrelated"
+        row["semantic_key"] = "unrelated"
+        candidate["unresolved_intent"] = [row]
+    elif mutation == "wrong_goal_unresolved_ids":
+        candidate["goal"]["projected_into"]["unresolved_intent_ids"] = [
+            parent["unresolved_intent"][0]["intent_id"]
+        ]
+    elif mutation == "goal_statement":
+        candidate["goal"]["statement"] += " Changed."
+    elif mutation == "affected_clause_statement":
+        clause["statement"] += " Changed."
+    elif mutation == "affected_clause_id":
+        clause["clause_id"] = "maintain.changed"
+    elif mutation == "affected_clause_category":
+        candidate[category].remove(clause)
+        candidate["requires"].append(clause)
+    elif mutation == "affected_clause_location":
+        candidate[category].insert(
+            0,
+            {
+                **copy.deepcopy(parent_clause),
+                "clause_id": "maintain.unrelated.location",
+            },
+        )
+    elif mutation == "missing_required_reference":
+        clause["source_refs"].pop()
+    elif mutation == "extra_reference":
+        clause["source_refs"].append(
+            {
+                "kind": "artifact_value",
+                "artifact_id": "task_envelope",
+                "json_pointer": "/facts/unrelated",
+            }
+        )
+    elif mutation == "duplicate_reference":
+        clause["source_refs"].append(copy.deepcopy(clause["source_refs"][0]))
+        reclose = False
+    elif mutation == "noncanonical_reference_order":
+        clause["source_refs"].reverse()
+        reclose = False
+    elif mutation == "assumption":
+        candidate["assumptions"] = [{"assumption_id": "assumption.unrelated"}]
+    elif mutation == "derived_fact":
+        candidate["derived_facts"] = [
+            {"derived_fact_id": "derived.unrelated"}
+        ]
+    elif mutation == "invariant":
+        candidate["invariants"][0]["statement"] += " Changed."
+    elif mutation == "capability":
+        candidate["required_capabilities"]["entries"].append(
+            {"capability_id": "capability.unrelated"}
+        )
+    elif mutation == "shape":
+        candidate["shape"]["self"].append(
+            {"shape_id": "shape.unrelated", "statement": "Unrelated shape."}
+        )
+    elif mutation == "worker_slot":
+        candidate["worker_slots"]["entries"].append(
+            {"worker_slot_id": "worker.unrelated"}
+        )
+        reclose = False
+    elif mutation == "postcondition":
+        clause["postconditions"][0]["statement"] += " Changed."
+    elif mutation == "authority_descriptor":
+        candidate["authority_artifacts"][0]["artifact_kind"] = "other"
+    elif mutation == "remove_retained_descriptor":
+        candidate["authority_artifacts"] = []
+    elif mutation == "retain_derived_removable_descriptor":
+        candidate["authority_artifacts"].append(parent["authority_artifacts"][1])
+    elif mutation == "add_authority_descriptor":
+        candidate["authority_artifacts"].append(
+            {
+                "artifact_id": "unrelated_authority",
+                "artifact_kind": "task_authority",
+                "schema": "rook.unrelated:v1",
+                "fingerprint": "sha256:" + "2" * 64,
+            }
+        )
+    elif mutation == "reorder_authority_descriptors":
+        candidate["authority_artifacts"].append(parent["authority_artifacts"][1])
+        candidate["authority_artifacts"].reverse()
+        reclose = False
+    elif mutation == "mutate_retained_authority_descriptor":
+        candidate["authority_artifacts"][0]["fingerprint"] = "sha256:" + "3" * 64
+    elif mutation == "unrelated_reference":
+        candidate["goal"]["source_refs"].append(
+            {
+                "kind": "artifact_value",
+                "artifact_id": "task_envelope",
+                "json_pointer": "/facts/unrelated",
+            }
+        )
+    elif mutation == "claimed_fingerprint":
+        candidate["recipe_fingerprint"] = "sha256:" + "4" * 64
+        reclose = False
+    else:  # pragma: no cover - protects the table itself
+        raise AssertionError(mutation)
+    return candidate, reclose
+
+
+@pytest.mark.parametrize("mutation", ISOLATION_MUTATIONS)
+def test_task3_isolation_mutation_is_completed_rejection(mutation: str) -> None:
+    inputs = _resolution_inputs()
+    candidate, reclose = _mutated_isolation_candidate(mutation, inputs)
+    raw = _reclose_recipe(candidate, inputs) if reclose else _canonical_bytes(candidate)
+    result = SUPPORT.evaluate_resolution_isolation(
+        inputs=inputs,
+        candidate_recipe_bytes=raw,
+    )
+    assert result.status == "isolation_rejected"
+    assert result.bounded_differences
+
+
+POLICY_CONTROL_FAILURES = (
+    "unresolved_parent_clause_id",
+    "multiply_resolved_parent_clause_id",
+    "overlapping_equation_ownership",
+    "duplicate_erased_location",
+    "unconsumed_erased_location",
+    "normalization_identity_mismatch",
+    "policy_instance_fingerprint",
+    "parent_proof_carrier",
+)
+
+
+@pytest.mark.parametrize("mutation", POLICY_CONTROL_FAILURES)
+def test_task3_policy_control_failure_refuses_without_verdict(mutation: str) -> None:
+    issued = _resolution_inputs()
+    inputs = issued
+    if mutation == "parent_proof_carrier":
+        inputs = replace(issued)
+    elif mutation in {
+        "unresolved_parent_clause_id",
+        "multiply_resolved_parent_clause_id",
+    }:
+        parent = PLANNER_SUPPORT._json_builtins(issued.parent_recipe)
+        if mutation == "unresolved_parent_clause_id":
+            parent["unresolved_intent"][0]["affected_clause_ids"] = [
+                "maintain.absent"
+            ]
+        else:
+            parent["maintains"].append(copy.deepcopy(parent["maintains"][0]))
+        object.__setattr__(issued, "parent_recipe", MappingProxyType(parent))
+    elif mutation == "normalization_identity_mismatch":
+        object.__setattr__(
+            issued,
+            "normalization_profile",
+            replace(
+                issued.normalization_profile,
+                profile_fingerprint="sha256:" + "5" * 64,
+            ),
+        )
+    else:
+        policy = copy.deepcopy(
+            PLANNER_SUPPORT._json_builtins(issued.policy_instance.value)
+        )
+        if mutation == "overlapping_equation_ownership":
+            policy["residual_ownership"].append(
+                copy.deepcopy(policy["residual_ownership"][0])
+            )
+            policy["residual_ownership"][-1]["equation_id"] = (
+                "authority_reference_additions"
+            )
+        elif mutation == "duplicate_erased_location":
+            policy["residual_ownership"].append(
+                copy.deepcopy(policy["residual_ownership"][0])
+            )
+        elif mutation == "unconsumed_erased_location":
+            policy["residual_ownership"].append(
+                {
+                    "equation_id": "source_descriptor",
+                    "pointer": "/unconsumed",
+                }
+            )
+        policy_instance = replace(
+            issued.policy_instance,
+            value=MappingProxyType(policy),
+            instance_fingerprint=(
+                "sha256:" + "6" * 64
+                if mutation == "policy_instance_fingerprint"
+                else PLANNER_SUPPORT.fingerprint(policy)
+            ),
+        )
+        object.__setattr__(issued, "policy_instance", policy_instance)
+
+    if mutation != "parent_proof_carrier":
+        with pytest.raises(ValueError, match="policy|ownership|parent|normalization"):
+            SUPPORT._validate_isolation_control(inputs)
+    with pytest.raises((TypeError, ValueError), match="proof|policy|ownership|parent|normalization"):
+        SUPPORT.evaluate_resolution_isolation(
+            inputs=inputs,
+            candidate_recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+        )
+
+
+def test_task3_isolation_positive_has_exact_named_equation_order() -> None:
+    inputs = _resolution_inputs()
+    result = SUPPORT.evaluate_resolution_isolation(
+        inputs=inputs,
+        candidate_recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+    )
+    assert result.status == "isolated", [dict(row) for row in result.equations]
+    assert [row["equation_id"] for row in result.equations] == [
+        "source_descriptor",
+        "resolved_unresolved_rows",
+        "authority_descriptor_reachability",
+        "goal_unresolved_projection",
+        "clause_ownership",
+        "authority_reference_additions",
+        "affected_clause_residual",
+        "recipe_fingerprint",
+        "global_residual_equality",
+    ]
+    assert all(
+        set(row)
+        == {
+            "equation_id",
+            "status",
+            "passed",
+            "owned_pointers",
+            "input_fingerprints",
+        }
+        for row in result.equations
+    )
+    assert len(inputs.correspondence) == 5
+    assert {
+        row["category"] for row in inputs.policy_instance.value["affected_clauses"]
+    } == {"maintains"}
+    assert inputs.policy_instance.value["descriptor_removal_eligible_ids"] == (
+        "planning_policy",
+    )
+
+
+def test_task3_verified_inputs_capability_exposes_no_raw_issuer() -> None:
+    assert not hasattr(SUPPORT, "_register_verified_resolution_inputs")
+    assert not hasattr(SUPPORT, "_issue_verified_resolution_inputs")
+    assert SUPPORT.assemble_verified_resolution_inputs.__name__ == "derive"
+
+
+def _rewrite_fixture_value(value: object, replacements: dict[str, str]) -> object:
+    if isinstance(value, dict):
+        return {
+            replacements.get(key, key): _rewrite_fixture_value(item, replacements)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_rewrite_fixture_value(item, replacements) for item in value]
+    if isinstance(value, str):
+        rewritten = value
+        for old, new in replacements.items():
+            rewritten = rewritten.replace(old, new)
+        return rewritten
+    return value
+
+
+def test_task3_non_radial_policy_mechanics_witness_uses_same_gate() -> None:
+    issued = _resolution_inputs()
+    replacements = {
+        "box_footprint_x": "annotation_text",
+        "box_footprint_y": "annotation_count",
+        "grid_spacing": "leaders_enabled",
+        "minimum_height": "text_height",
+        "maximum_height": "leader_length",
+        "maintain.radial_box_array_semantics": "maintain.annotation_semantics",
+    }
+    parent = _rewrite_fixture_value(
+        PLANNER_SUPPORT._json_builtins(issued.parent_recipe), replacements
+    )
+    candidate = _rewrite_fixture_value(
+        json.loads(ISOLATED_SUCCESSOR_RECIPE.read_bytes()), replacements
+    )
+    successor = _rewrite_fixture_value(
+        PLANNER_SUPPORT._json_builtins(issued.successor_envelope), replacements
+    )
+    successor["artifact_fingerprint"] = TYPED_VALUES.fingerprint_without(
+        successor, "artifact_fingerprint"
+    )
+    candidate["source_task"]["fingerprint"] = successor["artifact_fingerprint"]
+    parent = json.loads(_reclose_recipe(parent, issued))
+    candidate_projection = {
+        key: value for key, value in candidate.items() if key != "recipe_fingerprint"
+    }
+    candidate = PLANNER_SUPPORT.normalize_recipe(
+        candidate_projection, issued.normalization_profile
+    )
+    candidate["recipe_fingerprint"] = PLANNER_SUPPORT.fingerprint(candidate)
+    candidate_raw = _canonical_bytes(candidate)
+    correspondence = tuple(
+        MappingProxyType(
+            {
+                **_rewrite_fixture_value(dict(row), replacements),
+                "successor_envelope_fingerprint": successor[
+                    "artifact_fingerprint"
+                ],
+            }
+        )
+        for row in issued.correspondence
+    )
+    policy_value = SUPPORT._derive_isolation_policy_instance_value(
+        parent_recipe=parent,
+        successor_envelope_fingerprint=successor["artifact_fingerprint"],
+        correspondence=correspondence,
+        definition_id=issued.policy_instance.definition_id,
+        definition_fingerprint=issued.policy_instance.definition_fingerprint,
+        model_obligations=issued.policy_instance.value["model_obligations"],
+        normalization_profile=issued.normalization_profile,
+    )
+    policy_instance = SUPPORT.IsolationPolicyInstance(
+        definition_id=issued.policy_instance.definition_id,
+        definition_fingerprint=issued.policy_instance.definition_fingerprint,
+        value=MappingProxyType(policy_value),
+        instance_fingerprint=PLANNER_SUPPORT.fingerprint(policy_value),
+    )
+    unrelated_inputs = replace(
+        issued,
+        parent_recipe=MappingProxyType(parent),
+        successor_envelope=MappingProxyType(successor),
+        correspondence=correspondence,
+        policy_instance=policy_instance,
+    )
+    result = SUPPORT._evaluate_resolution_isolation_verified(
+        inputs=unrelated_inputs,
+        candidate_recipe_bytes=candidate_raw,
+    )
+    assert result.status == "isolated", [dict(row) for row in result.equations]
+    assert policy_value["affected_clauses"] == [
+        {
+            "clause_id": "maintain.annotation_semantics",
+            "category": "maintains",
+            "pointer": "/maintains/0",
+        }
+    ]
 
 
 AUTHORITY_MUTATIONS = (

@@ -1515,8 +1515,13 @@ def _isolation_record(result: SUPPORT.IsolationGateResult) -> dict[str, object]:
     return {
         "schema": "rook.lm9b_p.governed_resolution_isolation_result:v1",
         "status": result.status,
-        "equations": [dict(row) for row in result.equations],
-        "bounded_differences": [dict(row) for row in result.bounded_differences],
+        "equations": [
+            PLANNER_SUPPORT._json_builtins(row) for row in result.equations
+        ],
+        "bounded_differences": [
+            PLANNER_SUPPORT._json_builtins(row)
+            for row in result.bounded_differences
+        ],
         "parent_residual_raw_sha256": _sha256(result.parent_residual_bytes),
         "candidate_residual_raw_sha256": _sha256(result.candidate_residual_bytes),
         "result_fingerprint": result.result_fingerprint,
