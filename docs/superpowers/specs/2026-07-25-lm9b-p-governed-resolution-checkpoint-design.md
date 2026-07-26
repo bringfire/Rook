@@ -472,8 +472,10 @@ maximum turns, token stop, or cost stop after rejected submissions
 -> probe_mechanically_rejected
 
 provider failure or terminal timeout
--> probe_inconclusive when evidence is complete and quiescent
+-> probe_inconclusive only when the adapter returned a complete quiescent
+   `ProviderCallFailure` carrying its exact `raw_request` and `raw_error`
 
+unexpected exception, incomplete/contradictory adapter evidence,
 ambiguous or still-live execution
 -> post_dispatch_unsealed
 ```
@@ -869,6 +871,13 @@ derives the exact LiteLLM invocation bytes from that configuration and the
 canonical Rook request; the adapter and public verifier share it and require
 the captured `raw_request` to match exactly.
 
+On `ProviderCallFailure`, the ledger preserves and hashes both `raw_request`
+and `raw_error`; public reconstruction again derives the expected request
+through the shared projection. An unexpected exception, malformed failure
+carrier, or request mismatch has crossed dispatch without complete trustworthy
+adapter evidence and therefore remains `post_dispatch_unsealed` with no
+classification.
+
 Adapter-authored `requested_model` and `requested_profile` fields must match
 the authorized role. Provider-originated `response_model`, response ID, system
 fingerprint, finish reason, and related metadata are preserved exactly without
@@ -1019,6 +1028,8 @@ The complete call ledger must prove:
   matches the authorized readiness route and role contract;
 - every captured LiteLLM `raw_request` equals the pure projection of model,
   temperature, timeout, messages, tools, tool choice, and fixed call options;
+- every sealable provider failure carries checksum-closed `raw_request` and
+  `raw_error`, while missing or contradictory failure evidence is unsealed;
 - provider-returned identity metadata is preserved under the explicit
   no-requested-model-equality policy;
 - aggregate usage remains within all attempt budgets;

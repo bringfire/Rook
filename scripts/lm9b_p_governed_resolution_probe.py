@@ -25,6 +25,7 @@ for _import_path in (_SCRIPTS_DIR, _MCP_SRC):
 
 import lm9b_p_governed_resolution_artifacts as ARTIFACTS
 import lm9b_p_governed_resolution_support as SUPPORT
+import lm9b_c_compiler_sufficiency_probe as PROVIDER_ADAPTER
 import lm9b_p_planner_recipe_transfer_artifacts as PLANNER_ARTIFACTS
 import lm9b_p_planner_recipe_transfer_probe as PLANNER_PROBE
 import lm9b_p_planner_recipe_transfer_support as PLANNER_SUPPORT
@@ -196,6 +197,7 @@ class _StagedCallLedger:
         self._active_calls: set[int] = set()
         self._pending_terminal_rows: dict[int, Mapping[str, object]] = {}
         self._adapter_identity_failures: set[int] = set()
+        self._adapter_evidence_failures: dict[int, str] = {}
         self._planner_call_plans: list[
             PLANNER_SUPPORT.PlannerProviderCallPlan
         ] = []
@@ -237,6 +239,17 @@ class _StagedCallLedger:
     def has_adapter_identity_failure(self) -> bool:
         with self._dispatch_lock:
             return bool(self._adapter_identity_failures)
+
+    def adapter_evidence_failure_for_role(self, role: str) -> str | None:
+        with self._dispatch_lock:
+            failures = [
+                failure
+                for index, failure in self._adapter_evidence_failures.items()
+                if self._rows[index]["role"] == role
+            ]
+            if len(failures) > 1:
+                raise ValueError("multiple adapter evidence failures were recorded")
+            return None if not failures else failures[0]
 
     def role_dispatch_complete(self, role: str) -> bool:
         with self._dispatch_lock:
@@ -358,6 +371,9 @@ class _StagedCallLedger:
                     ),
                     "canonical_request_json": request_bytes.decode("utf-8"),
                     "provider_claimed_raw_request_b64": None,
+                    "provider_claimed_raw_request_sha256": None,
+                    "provider_raw_error_b64": None,
+                    "provider_raw_error_sha256": None,
                     "raw_response_b64": None,
                     "raw_response_sha256": None,
                     "assistant_message": None,
@@ -385,7 +401,42 @@ class _StagedCallLedger:
                     ),
                     "terminal": True,
                 }
+                evidence_failure = "adapter_evidence_incomplete"
+                if isinstance(exc, PLANNER_SUPPORT.ProviderCallFailure):
+                    raw_request = exc.raw_request
+                    raw_error = exc.raw_error
+                    if type(raw_request) is bytes and type(raw_error) is bytes:
+                        terminal.update(
+                            {
+                                "provider_claimed_raw_request_b64": (
+                                    base64.b64encode(raw_request).decode("ascii")
+                                ),
+                                "provider_claimed_raw_request_sha256": (
+                                    PLANNER_SUPPORT.sha256_prefixed(raw_request)
+                                ),
+                                "provider_raw_error_b64": (
+                                    base64.b64encode(raw_error).decode("ascii")
+                                ),
+                                "provider_raw_error_sha256": (
+                                    PLANNER_SUPPORT.sha256_prefixed(raw_error)
+                                ),
+                            }
+                        )
+                        expected_request = (
+                            PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
+                                model=role_contract["model"],
+                                temperature=role_contract["temperature"],
+                                provider_request=request_value,
+                            )
+                        )
+                        evidence_failure = (
+                            "adapter_request_mismatch"
+                            if raw_request != expected_request
+                            else ""
+                        )
                 with self._dispatch_lock:
+                    if evidence_failure:
+                        self._adapter_evidence_failures[call_index] = evidence_failure
                     self._pending_terminal_rows[call_index] = MappingProxyType(
                         copy.deepcopy(terminal)
                     )
@@ -404,6 +455,9 @@ class _StagedCallLedger:
                         "provider_claimed_raw_request_b64": base64.b64encode(
                             response.raw_request
                         ).decode("ascii"),
+                        "provider_claimed_raw_request_sha256": (
+                            PLANNER_SUPPORT.sha256_prefixed(response.raw_request)
+                        ),
                         "raw_response_b64": base64.b64encode(
                             response.raw_response
                         ).decode("ascii"),
@@ -596,6 +650,20 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
             derived_stop_cause="planner_adapter_identity_mismatch",
             state="post_dispatch_unsealed",
         )
+    planner_evidence_failure = ledger.adapter_evidence_failure_for_role("planner")
+    if planner_evidence_failure is not None:
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=None,
+            isolation_result=None,
+            checkpoint_gate=None,
+            candidate_recipe_bytes=None,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause=f"planner_{planner_evidence_failure}",
+            state="post_dispatch_unsealed",
+        )
     if planner_session.termination in {"provider_failure", "timeout"}:
         if (
             ledger.has_unjoined_dispatch
@@ -724,6 +792,22 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
             candidate_recipe_bytes=candidate_raw,
             call_ledger=ledger.frozen_rows(),
             derived_stop_cause="evaluator_adapter_identity_mismatch",
+            state="post_dispatch_unsealed",
+        )
+    evaluator_evidence_failure = ledger.adapter_evidence_failure_for_role(
+        "planner_evaluator"
+    )
+    if evaluator_evidence_failure is not None:
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=evaluator_result,
+            isolation_result=isolation,
+            checkpoint_gate=checkpoint_gate,
+            candidate_recipe_bytes=candidate_raw,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause=f"evaluator_{evaluator_evidence_failure}",
             state="post_dispatch_unsealed",
         )
     if (

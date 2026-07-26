@@ -203,7 +203,31 @@ class _FakeProvider:
         response = self.responses.pop(0)
         if isinstance(response, BaseException):
             raise response
+        if callable(response):
+            return response(request)
         return response
+
+
+def _provider_failure_action(
+    *,
+    failure_type: str = "ProviderAPIError",
+    raw_request: bytes | None = None,
+    raw_error: bytes = b'{"provider":"failed"}\n',
+) -> object:
+    def fail(request: dict[str, object]) -> object:
+        captured_request = (
+            _expected_litellm_request_bytes(request)
+            if raw_request is None
+            else raw_request
+        )
+        raise PLANNER_SUPPORT.ProviderCallFailure(
+            failure_type=failure_type,
+            message="provider failed",
+            raw_request=captured_request,
+            raw_error=raw_error,
+        )
+
+    return fail
 
 
 def _install_role_providers(
@@ -1128,9 +1152,11 @@ def _task4_provider_scripts(case: str, preflight: object) -> tuple[list[object],
             )
         ], []
     if case == "planner_provider_failure":
-        return [RuntimeError("planner provider failed")], []
+        return [_provider_failure_action()], []
     if case == "planner_terminal_timeout":
-        return [TimeoutError("planner provider timed out")], []
+        return [
+            _provider_failure_action(failure_type="ProviderTimeoutError")
+        ], []
 
     candidate = ISOLATED_SUCCESSOR_RECIPE.read_bytes()
     if case == "isolation_rejected":
@@ -1151,9 +1177,11 @@ def _task4_provider_scripts(case: str, preflight: object) -> tuple[list[object],
         )
         return planner, [malformed]
     if case == "evaluator_provider_failure":
-        return planner, [RuntimeError("evaluator provider failed")]
+        return planner, [_provider_failure_action()]
     if case == "evaluator_terminal_timeout":
-        return planner, [TimeoutError("evaluator provider timed out")]
+        return planner, [
+            _provider_failure_action(failure_type="ProviderTimeoutError")
+        ]
     return planner, [_evaluator_turn("semantically_faithful")]
 
 
@@ -1205,6 +1233,144 @@ def test_task4_complete_outcome_table_stops_at_first_terminal_boundary(
         "planner_evaluator"
     ] * expected_evaluator_calls
     assert "compiler" not in roles
+
+
+def _run_task4_raised_call(
+    *,
+    role: str,
+    raised_action: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[object, object, dict[str, object]]:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    accepted = _planner_turn(
+        recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+        call_id="planner-1",
+    )
+    planner = _FakeProvider(
+        [raised_action] if role == "planner" else [accepted],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider(
+        [raised_action] if role == "planner_evaluator" else [],
+        staging_path=preflight.attempt.staging_path,
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+    row = next(item for item in result.call_ledger if item["role"] == role)
+    return preflight, result, row
+
+
+@pytest.mark.parametrize("role", ("planner", "planner_evaluator"))
+def test_task4_provider_call_failure_retains_reconstructible_adapter_evidence(
+    role: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight, result, row = _run_task4_raised_call(
+        role=role,
+        raised_action=_provider_failure_action(),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.state == "terminal_evidence_complete"
+    assert result.classification == "probe_inconclusive"
+    request = json.loads(row["canonical_request_json"])
+    raw_request = base64.b64decode(
+        row["provider_claimed_raw_request_b64"], validate=True
+    )
+    raw_error = base64.b64decode(row["provider_raw_error_b64"], validate=True)
+    assert raw_request == _expected_litellm_request_bytes(request)
+    assert row["provider_claimed_raw_request_sha256"] == (
+        PLANNER_SUPPORT.sha256_prefixed(raw_request)
+    )
+    assert raw_error == b'{"provider":"failed"}\n'
+    assert row["provider_raw_error_sha256"] == (
+        PLANNER_SUPPORT.sha256_prefixed(raw_error)
+    )
+
+    reclosed_ledger = [copy.deepcopy(item) for item in result.call_ledger]
+    mutated = next(item for item in reclosed_ledger if item["role"] == role)
+    contradictory_request = b'{"wrong":"reclosed"}\n'
+    mutated["provider_claimed_raw_request_b64"] = base64.b64encode(
+        contradictory_request
+    ).decode("ascii")
+    mutated["provider_claimed_raw_request_sha256"] = (
+        PLANNER_SUPPORT.sha256_prefixed(contradictory_request)
+    )
+    with pytest.raises(ValueError, match="LiteLLM failure request"):
+        RESOLUTION_ARTIFACTS.verify_resolution_call_ledger(
+            preflight=preflight,
+            planner_session=result.planner_session,
+            evaluator_result=result.evaluator_result,
+            isolation_result=result.isolation_result,
+            classification=result.classification,
+            candidate_recipe_bytes=result.candidate_recipe_bytes,
+            call_ledger=tuple(reclosed_ledger),
+            derived_stop_cause=result.derived_stop_cause,
+        )
+
+
+@pytest.mark.parametrize("role", ("planner", "planner_evaluator"))
+def test_task4_wrong_provider_failure_request_is_post_dispatch_unsealed(
+    role: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _preflight, result, row = _run_task4_raised_call(
+        role=role,
+        raised_action=_provider_failure_action(
+            raw_request=b'{"wrong":"request"}\n'
+        ),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    stop_role = "evaluator" if role == "planner_evaluator" else "planner"
+    assert result.derived_stop_cause == f"{stop_role}_adapter_request_mismatch"
+    assert base64.b64decode(
+        row["provider_claimed_raw_request_b64"], validate=True
+    ) == b'{"wrong":"request"}\n'
+
+
+@pytest.mark.parametrize("role", ("planner", "planner_evaluator"))
+@pytest.mark.parametrize("exception_type", (RuntimeError, TimeoutError))
+def test_task4_exception_without_adapter_evidence_is_post_dispatch_unsealed(
+    role: str,
+    exception_type: type[BaseException],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _preflight, result, _row = _run_task4_raised_call(
+        role=role,
+        raised_action=exception_type("failed without adapter evidence"),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    stop_role = "evaluator" if role == "planner_evaluator" else "planner"
+    assert result.derived_stop_cause == f"{stop_role}_adapter_evidence_incomplete"
 
 
 def test_task4_evaluator_request_is_parent_comparison_blind_and_authority_current() -> None:
@@ -1815,7 +1981,7 @@ def test_task4_call_ledger_derives_planner_termination_from_provider_evidence(
     head_sha = preflight.record["reviewed_commit_sha"]
     readiness, manifest, route = _fresh_readiness(head_sha)
     planner = _FakeProvider(
-        [RuntimeError("planner failed")],
+        [_provider_failure_action()],
         staging_path=preflight.attempt.staging_path,
     )
     monkeypatch.setattr(

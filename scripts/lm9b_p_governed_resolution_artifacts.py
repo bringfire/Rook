@@ -1854,6 +1854,12 @@ def verify_resolution_call_ledger(
                 planner_session.turns
             ):
                 raise ValueError("Planner ledger contains a call after terminal failure")
+            _verify_provider_failure_from_call_row(
+                row,
+                role="Planner",
+                role_contract=preflight.record["instrument_contracts"]["planner"],
+                provider_request=request,
+            )
             exception_type = row.get("exception_type")
             failure_type = row.get("failure_type")
             provider_terminal = (
@@ -2024,6 +2030,14 @@ def verify_resolution_call_ledger(
                 outcome="returned", response=response
             )
         elif evaluator_row["outcome"] == "raised":
+            _verify_provider_failure_from_call_row(
+                evaluator_row,
+                role="evaluator",
+                role_contract=preflight.record["instrument_contracts"]["evaluator"],
+                provider_request=(
+                    PLANNER_SUPPORT.parse_archive_json(evaluator_raw)
+                ),
+            )
             reconstructed_evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
                 outcome="raised",
                 exception_type=evaluator_row.get("exception_type"),
@@ -2118,6 +2132,16 @@ def _provider_turn_from_call_row(
         row.get("provider_metadata"),
     )
     if evidence == (None, None, None, None, None):
+        if any(
+            row.get(name) is not None
+            for name in (
+                "provider_claimed_raw_request_sha256",
+                "provider_raw_error_b64",
+                "provider_raw_error_sha256",
+                "raw_response_sha256",
+            )
+        ):
+            raise ValueError(f"{role} ledger partial adapter evidence differs")
         return None
     if any(value is None for value in evidence):
         raise ValueError(f"{role} ledger provider evidence is incomplete")
@@ -2130,6 +2154,13 @@ def _provider_turn_from_call_row(
     )
     if row.get("raw_response_sha256") != _sha256(response.raw_response):
         raise ValueError(f"{role} ledger response hash differs")
+    if (
+        row.get("provider_claimed_raw_request_sha256")
+        != _sha256(response.raw_request)
+        or row.get("provider_raw_error_b64") is not None
+        or row.get("provider_raw_error_sha256") is not None
+    ):
+        raise ValueError(f"{role} ledger returned adapter evidence differs")
     expected_adapter_request = (
         PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
             model=role_contract["model"],
@@ -2147,6 +2178,40 @@ def _provider_turn_from_call_row(
     ):
         raise ValueError(f"{role} ledger requested provider identity differs")
     return response
+
+
+def _verify_provider_failure_from_call_row(
+    row: Mapping[str, object],
+    *,
+    role: str,
+    role_contract: Mapping[str, object],
+    provider_request: Mapping[str, object],
+) -> None:
+    if row.get("exception_type") != "ProviderCallFailure":
+        raise ValueError(f"{role} ledger failure lacks adapter evidence")
+    request_b64 = row.get("provider_claimed_raw_request_b64")
+    error_b64 = row.get("provider_raw_error_b64")
+    if type(request_b64) is not str or type(error_b64) is not str:
+        raise ValueError(f"{role} ledger provider failure evidence is incomplete")
+    raw_request = base64.b64decode(request_b64, validate=True)
+    raw_error = base64.b64decode(error_b64, validate=True)
+    if (
+        row.get("provider_claimed_raw_request_sha256") != _sha256(raw_request)
+        or row.get("provider_raw_error_sha256") != _sha256(raw_error)
+        or row.get("raw_response_b64") is not None
+        or row.get("raw_response_sha256") is not None
+        or row.get("assistant_message") is not None
+        or row.get("usage") is not None
+        or row.get("provider_metadata") is not None
+    ):
+        raise ValueError(f"{role} ledger provider failure evidence differs")
+    expected_request = PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
+        model=role_contract["model"],
+        temperature=role_contract["temperature"],
+        provider_request=provider_request,
+    )
+    if raw_request != expected_request:
+        raise ValueError(f"{role} ledger LiteLLM failure request differs")
 
 
 def _derive_planner_ledger_stop_cause(

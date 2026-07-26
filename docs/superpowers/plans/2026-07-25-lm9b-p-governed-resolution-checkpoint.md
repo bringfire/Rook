@@ -18,7 +18,7 @@
 - Make no readiness, Planner, evaluator, compiler, Rhino, Grasshopper, or mutation provider contact during implementation, testing, review, merge, or development-preflight generation.
 - Use fake providers and fake readiness records in tests. Real readiness and scientific dispatch require a separately reviewed post-merge preflight and explicit authorization.
 - Keep `gpt-5.4`, `litellm.completion.tool_calling.no_parallel:v1`, temperature `0.0`, Planner bounds `6 / 16,384 / 180s / 600s / 120,000 / $10`, and evaluator bounds `1 / 8,192 / 180s` unchanged.
-- Preserve existing controller semantics: maximum turns, token stop, or cost stop after rejected submissions means `probe_mechanically_rejected`; provider failure or terminal timeout means `probe_inconclusive` when evidence is complete and quiescent.
+- Preserve existing controller semantics: maximum turns, token stop, or cost stop after rejected submissions means `probe_mechanically_rejected`; provider failure or terminal timeout means `probe_inconclusive` only when complete quiescent adapter request/error evidence is retained, while incomplete raised-call evidence remains `post_dispatch_unsealed`.
 - Do not add dependencies, product code, LM9A authority, a new recipe dialect, a new provider adapter, a new readiness protocol, a shadow classifier, deterministic recipe patching, automatic retry, or compiler behavior.
 - Request and preserve no hidden chain-of-thought; retain only ordinary provider response, tool arguments, usage, timing, and metadata exposed by the established adapters.
 - Keep radial semantic keys, radial values, clause IDs, category expectations, and count `5` in fixtures/tests/policy-instance evidence only. Neutral modules must not interpret semantic-key meaning.
@@ -1145,6 +1145,10 @@ Prove:
   authorized role identities;
 - captured LiteLLM request bytes equal the shared pure projection of the exact
   Rook request and authorized adapter configuration;
+- a sealable `ProviderCallFailure` retains hashed `raw_request` and `raw_error`,
+  with the request independently rederived through that same projection;
+- an unexpected exception or incomplete/contradictory failure carrier yields
+  `post_dispatch_unsealed`, never a sealable inconclusive result;
 - provider-returned identity metadata is preserved without claiming equality
   with the requested model/profile;
 - aggregate token/cost/time values obey existing bounds and stop ordering;
@@ -1194,8 +1198,10 @@ adapter-authored requested model/profile fields distinct from preserved
 provider-returned metadata, with no requested/returned equality claim. Derive
 dynamic timeouts from controller-captured
 deadline state, publish immutable terminal rows only after evidence capture and
-owned-context join, and state/test evaluator visibility as parent/comparison
-blindness with authenticated opaque historical identity tokens preserved.
+owned-context join, retain and reconstruct `ProviderCallFailure` request/error
+evidence, refuse incomplete raised-call evidence as unsealed, and state/test
+evaluator visibility as parent/comparison blindness with authenticated opaque
+historical identity tokens preserved.
 
 ---
 
