@@ -34,7 +34,7 @@ namespace RookBim.Revit
             this.presetResolver = new RevitPresetResolver();
         }
 
-        public BimStatusResponse Status()
+        public BimStatusResponse Status(BimDiagnosticContext diagnostics)
         {
             try
             {
@@ -74,7 +74,7 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ActiveDocument()
+        public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)
         {
             return ExecuteInDocumentContext(
                 "active_document",
@@ -88,7 +88,7 @@ namespace RookBim.Revit
                 });
         }
 
-        public BimApiResponse QueryElements(BimQueryElementsRequest request)
+        public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)
         {
             return ExecuteInDocumentContext(
                 "query_elements",
@@ -99,14 +99,14 @@ namespace RookBim.Revit
                 });
         }
 
-        public BimApiResponse ListCategories()
+        public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)
         {
             return ExecuteInDocumentContext(
                 "list_categories",
                 (_uidoc, document) => BimApiResponse.Ok(categories.List(document)));
         }
 
-        public BimApiResponse ElementInfo(BimElementRequest request)
+        public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)
         {
             try
             {
@@ -143,7 +143,7 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ElementParameters(BimElementRequest request)
+        public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)
         {
             try
             {
@@ -184,7 +184,7 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse SelectElements(BimSelectElementsRequest request)
+        public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)
         {
             try
             {
@@ -211,7 +211,7 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ClearSelection()
+        public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)
         {
             try
             {
@@ -238,7 +238,7 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ExportPreset(BimExportPresetRequest request)
+        public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)
         {
             if (request == null)
             {
@@ -309,7 +309,7 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ExportElements(BimExportElementsRequest request)
+        public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)
         {
             if (request == null)
             {

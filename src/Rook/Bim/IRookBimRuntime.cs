@@ -2,24 +2,24 @@ namespace Rook.Bim
 {
     public interface IRookBimRuntime
     {
-        BimStatusResponse Status();
+        BimStatusResponse Status(BimDiagnosticContext diagnostics);
 
-        BimApiResponse ActiveDocument();
+        BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics);
 
-        BimApiResponse ListCategories();
+        BimApiResponse ListCategories(BimDiagnosticContext diagnostics);
 
-        BimApiResponse QueryElements(BimQueryElementsRequest request);
+        BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request);
 
-        BimApiResponse ElementInfo(BimElementRequest request);
+        BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request);
 
-        BimApiResponse ElementParameters(BimElementRequest request);
+        BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request);
 
-        BimApiResponse SelectElements(BimSelectElementsRequest request);
+        BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request);
 
-        BimApiResponse ClearSelection();
+        BimApiResponse ClearSelection(BimDiagnosticContext diagnostics);
 
-        BimApiResponse ExportElements(BimExportElementsRequest request);
+        BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request);
 
-        BimApiResponse ExportPreset(BimExportPresetRequest request);
+        BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request);
     }
 }

@@ -12,7 +12,7 @@ namespace Rook.Tests.Bim
                 "not_rhino_inside",
                 "Rhino is not running inside Revit.");
 
-            var status = runtime.Status();
+            var status = runtime.Status(BimDiagnosticContext.Disabled);
 
             Assert.False(status.Available);
             Assert.Equal("not_rhino_inside", status.ErrorCode);
@@ -28,13 +28,13 @@ namespace Rook.Tests.Bim
                 "not_rhino_inside",
                 configuredMessage);
 
-            AssertUnavailable(runtime.ActiveDocument(), configuredMessage);
-            AssertUnavailable(runtime.ListCategories(), configuredMessage);
-            AssertUnavailable(runtime.QueryElements(new BimQueryElementsRequest()), configuredMessage);
-            AssertUnavailable(runtime.ElementInfo(new BimElementRequest()), configuredMessage);
-            AssertUnavailable(runtime.ElementParameters(new BimElementRequest()), configuredMessage);
-            AssertUnavailable(runtime.SelectElements(new BimSelectElementsRequest()), configuredMessage);
-            AssertUnavailable(runtime.ClearSelection(), configuredMessage);
+            AssertUnavailable(runtime.ActiveDocument(BimDiagnosticContext.Disabled), configuredMessage);
+            AssertUnavailable(runtime.ListCategories(BimDiagnosticContext.Disabled), configuredMessage);
+            AssertUnavailable(runtime.QueryElements(BimDiagnosticContext.Disabled, new BimQueryElementsRequest()), configuredMessage);
+            AssertUnavailable(runtime.ElementInfo(BimDiagnosticContext.Disabled, new BimElementRequest()), configuredMessage);
+            AssertUnavailable(runtime.ElementParameters(BimDiagnosticContext.Disabled, new BimElementRequest()), configuredMessage);
+            AssertUnavailable(runtime.SelectElements(BimDiagnosticContext.Disabled, new BimSelectElementsRequest()), configuredMessage);
+            AssertUnavailable(runtime.ClearSelection(BimDiagnosticContext.Disabled), configuredMessage);
         }
 
         private static void AssertUnavailable(BimApiResponse response, string expectedMessage)

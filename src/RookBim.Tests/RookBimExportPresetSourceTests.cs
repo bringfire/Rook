@@ -124,7 +124,9 @@ namespace RookBim.Tests
         {
             var src = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
 
-            Assert.Contains("public BimApiResponse ExportPreset(BimExportPresetRequest request)", src);
+            Assert.Contains(
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)",
+                src);
             Assert.Contains("RevitPresetResolver", src);
             Assert.Contains("ExportResolved", src);
             Assert.Contains("ExportDispatchTimeout", src);

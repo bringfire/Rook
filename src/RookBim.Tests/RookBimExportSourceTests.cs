@@ -124,7 +124,9 @@ namespace RookBim.Tests
         {
             var src = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
 
-            Assert.Contains("public BimApiResponse ExportElements(BimExportElementsRequest request)", src);
+            Assert.Contains(
+                "public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)",
+                src);
             Assert.Contains("private readonly RevitExportService export", src);
             Assert.Contains("ExportDispatchTimeout", src);
             Assert.Contains("export.Export(", src);
