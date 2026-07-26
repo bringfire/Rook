@@ -685,6 +685,7 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         "invocation_fingerprint",
         "dirty_checkout",
         "role_membership_substitution",
+        "route_identity_substitution",
     ),
 )
 def test_task2_precontact_refusal_has_zero_dispatch(
@@ -728,6 +729,21 @@ def test_task2_precontact_refusal_has_zero_dispatch(
             manifest_fingerprint=manifest.manifest_fingerprint,
         )
         record["routes"][0]["member_roles"] = ["compiler"]
+    elif mutation == "route_identity_substitution":
+        changed_route = replace(
+            route,
+            adapter_path="forged.adapter",
+            provider="forged-provider",
+            model="forged-model",
+            credential_source=("FORGED_CREDENTIAL",),
+        )
+        manifest = READINESS.RouteManifest(
+            routes=(changed_route,),
+            manifest_fingerprint=manifest.manifest_fingerprint,
+        )
+        record["routes"][0]["request_fingerprint"] = (
+            READINESS.request_fingerprint(changed_route)
+        )
     if mutation in {
         "missing_route",
         "extra_role",
@@ -736,6 +752,7 @@ def test_task2_precontact_refusal_has_zero_dispatch(
         "wrong_manifest",
         "wrong_commit",
         "role_membership_substitution",
+        "route_identity_substitution",
     }:
         record["record_fingerprint"] = READINESS.record_fingerprint(record)
     invocation = _invocation(preflight, record)

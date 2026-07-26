@@ -6,6 +6,7 @@ import hashlib
 import base64
 import inspect
 import json
+import os
 import re
 import stat
 import subprocess
@@ -411,7 +412,9 @@ def assemble_task1_resolution_instrument(
         ),
         lambda _model: "OPENAI_API_KEY",
     )
-    readiness_route_roles = readiness_route_role_projection(readiness_manifest)
+    readiness_route_identity = readiness_route_identity_projection(
+        readiness_manifest
+    )
     outcome_table = {
         "mechanically_rejected": "probe_mechanically_rejected",
         "isolation_rejected": "probe_resolution_isolation_failure",
@@ -581,12 +584,12 @@ def assemble_task1_resolution_instrument(
             ),
             "canary_protocol_fingerprint": READINESS.canary_protocol_fingerprint(),
             "route_manifest_fingerprint": readiness_manifest.manifest_fingerprint,
-            "route_role_projection": readiness_route_roles,
-            "route_role_projection_fingerprint": PLANNER_SUPPORT.fingerprint(
-                readiness_route_roles
+            "route_identity_projection": readiness_route_identity,
+            "route_identity_projection_fingerprint": PLANNER_SUPPORT.fingerprint(
+                readiness_route_identity
             ),
-            "route_role_projection_source_fingerprint": (
-                _callable_source_fingerprint(readiness_route_role_projection)
+            "route_identity_projection_source_fingerprint": (
+                _callable_source_fingerprint(readiness_route_identity_projection)
             ),
             "freshness_window_s": READINESS.FROZEN_MAX_AGE_S,
         },
@@ -944,18 +947,38 @@ def build_resolution_invocation_binding(
     return MappingProxyType(value)
 
 
-def readiness_route_role_projection(
+def readiness_route_identity_projection(
     manifest: READINESS.RouteManifest,
 ) -> list[dict[str, object]]:
     if type(manifest) is not READINESS.RouteManifest:
         raise TypeError("readiness route manifest is required")
-    return [
-        {
-            "route_fingerprint": route.route_fingerprint,
-            "member_roles": list(route.member_roles),
+    rows: list[dict[str, object]] = []
+    route_fingerprints: list[str] = []
+    for route in manifest.routes:
+        identity = {
+            "adapter_path": route.adapter_path,
+            "provider": route.provider,
+            "model": route.model,
+            "credential_source": list(route.credential_source),
         }
-        for route in manifest.routes
-    ]
+        recomputed = READINESS.canonical_fingerprint(identity)
+        if route.route_fingerprint != recomputed:
+            raise ValueError(
+                "readiness route fingerprint differs from complete route identity"
+            )
+        route_fingerprints.append(recomputed)
+        rows.append(
+            {
+                "route_fingerprint": route.route_fingerprint,
+                **identity,
+                "member_roles": list(route.member_roles),
+            }
+        )
+    if manifest.manifest_fingerprint != READINESS.canonical_fingerprint(
+        route_fingerprints
+    ):
+        raise ValueError("readiness manifest fingerprint differs from route set")
+    return rows
 
 
 def _launch_invocation_contract() -> dict[str, object]:
@@ -1002,6 +1025,8 @@ def verify_resolution_invocation_binding(
 def _path_has_reparse_ambiguity(path: Path) -> bool:
     try:
         attributes = path.lstat().st_file_attributes
+    except FileNotFoundError:
+        return False
     except AttributeError:
         return path.is_symlink()
     return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
@@ -1101,12 +1126,52 @@ def verify_resolution_preflight(
 def reserve_resolution_staging(preflight: VerifiedResolutionPreflight) -> Path:
     if type(preflight) is not VerifiedResolutionPreflight:
         raise TypeError("verified resolution preflight is required")
-    if preflight.attempt.destination == preflight.attempt.staging_path:
-        raise ValueError("resolution staging must differ from destination")
-    if preflight.attempt.destination.exists():
+    _verify_reservation_path_separation(preflight.attempt, staging_exists=False)
+    staging = preflight.attempt.staging_path
+    staging.mkdir(parents=False, exist_ok=False)
+    try:
+        _verify_reservation_path_separation(preflight.attempt, staging_exists=True)
+    except Exception:
+        if staging.is_dir() and not _path_has_reparse_ambiguity(staging):
+            staging.rmdir()
+        raise
+    return staging
+
+
+def _verify_reservation_path_separation(
+    attempt: AttemptBinding, *, staging_exists: bool
+) -> None:
+    root = attempt.resolution_root
+    destination = attempt.destination
+    staging = attempt.staging_path
+    if (
+        not root.is_absolute()
+        or not destination.is_absolute()
+        or not staging.is_absolute()
+        or root.resolve() != root
+        or destination.parent.resolve() != root
+        or staging.parent.resolve() != root
+        or destination == staging
+    ):
+        raise ValueError("resolution reservation paths are not canonically separated")
+    if _path_has_reparse_ambiguity(root):
+        raise ValueError("resolution root has reparse-point ambiguity")
+    destination_entry = os.path.lexists(destination)
+    staging_entry = os.path.lexists(staging)
+    if destination_entry:
+        if _path_has_reparse_ambiguity(destination):
+            raise ValueError("resolution destination has reparse or alias ambiguity")
         raise FileExistsError("resolution destination already exists")
-    preflight.attempt.staging_path.mkdir(parents=False, exist_ok=False)
-    return preflight.attempt.staging_path
+    if staging_entry != staging_exists:
+        raise FileExistsError("resolution staging existence differs")
+    if staging_entry and _path_has_reparse_ambiguity(staging):
+        raise ValueError("resolution staging has reparse-point ambiguity")
+    destination_physical = destination.resolve(strict=False)
+    staging_physical = staging.resolve(strict=False)
+    if destination_physical == staging_physical:
+        raise ValueError("resolution destination physically aliases staging")
+    if not _paths_share_filesystem(root, destination.parent):
+        raise ValueError("resolution staging and destination filesystem differ")
 
 
 def require_clean_reviewed_checkout(repo_root: Path, reviewed_commit_sha: str) -> None:
@@ -1748,7 +1813,7 @@ __all__ = (
     "load_verified_resolution_sources",
     "reserve_resolution_staging",
     "require_clean_reviewed_checkout",
-    "readiness_route_role_projection",
+    "readiness_route_identity_projection",
     "seal_task1_resolution_checkpoint",
     "verify_historical_carrier_qualification_compatibility",
     "verify_resolution_preflight",

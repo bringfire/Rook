@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -228,6 +229,34 @@ def test_task2_attempt_binding_rejects_destination_equal_to_staging(
             resolution_root=root,
             destination=root / ".attempt-01.staging",
         )
+
+
+def test_task2_reservation_rejects_dangling_destination_alias_to_staging(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    instrument = _instrument()
+    attempt = ARTIFACTS.bind_resolution_attempt(
+        instrument=instrument,
+        attempt_id="attempt-01",
+        resolution_root=root,
+        destination=root / "result",
+    )
+    preflight = ARTIFACTS.write_resolution_preflight(
+        destination=tmp_path / "preflight",
+        instrument=instrument,
+        attempt_binding=attempt,
+    )
+    preflight.attempt.destination.symlink_to(
+        preflight.attempt.staging_path,
+        target_is_directory=True,
+    )
+    assert os.path.lexists(preflight.attempt.destination)
+    assert preflight.attempt.destination.exists() is False
+    with pytest.raises(ValueError, match="alias|reparse|destination"):
+        ARTIFACTS.reserve_resolution_staging(preflight)
+    assert preflight.attempt.staging_path.exists() is False
 
 
 @pytest.mark.parametrize("mutation", ("derivative_path", "derivative_identity"))
