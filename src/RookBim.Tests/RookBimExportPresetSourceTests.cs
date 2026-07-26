@@ -81,18 +81,20 @@ namespace RookBim.Tests
                 "public sealed class RevitRookBimRuntime : IRookBimRuntime",
                 "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)");
 
-            Assert.Contains(
-                RemoveWhitespace(
-                    "query.Query(document, activeView, selector, diagnostics)"),
-                RemoveWhitespace(resolve));
-            Assert.DoesNotContain(
-                RemoveWhitespace(
-                    "query.Query(document, activeView, selector)"),
-                RemoveWhitespace(resolve));
-            Assert.Contains(
-                RemoveWhitespace(
-                    "presetResolver.Resolve(document, view, request, diagnostics)"),
-                RemoveWhitespace(exportPreset));
+            AssertSingleInvocationArguments(
+                resolve,
+                "query.Query",
+                "document",
+                "activeView",
+                "selector",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                exportPreset,
+                "presetResolver.Resolve",
+                "document",
+                "view",
+                "request",
+                "diagnostics");
         }
 
         [Fact]
@@ -118,32 +120,22 @@ namespace RookBim.Tests
                 "internal sealed class RevitExportService",
                 "private object BuildValidation(Document document, BimExportCounts counts, double scale, string targetUnits, BimExportArtifactPaths paths, string sidecarJson, RevitPresetContext? presetContext, object? summary, RevitRelationshipIndex relationships, object? modelAudit)");
 
-            Assert.Contains(
-                RemoveWhitespace(
-                    "Document = RevitIdentitySerializer.DocumentIdentity(document)"),
-                RemoveWhitespace(buildResult));
-            Assert.Contains(
-                RemoveWhitespace(
-                    "RevitIdentitySerializer.DocumentIdentity(document).Guid"),
-                RemoveWhitespace(resolve));
-            Assert.Contains(
-                RemoveWhitespace(
-                    "RevitIdentitySerializer.DocumentIdentity(document)"),
-                RemoveWhitespace(buildSidecar));
-            Assert.Contains(
-                RemoveWhitespace(
-                    "RevitIdentitySerializer.DocumentIdentity(document)"),
-                RemoveWhitespace(buildValidation));
-            Assert.DoesNotContain("diagnostics", buildResult);
-            Assert.DoesNotContain(
-                RemoveWhitespace("DocumentIdentity(document, diagnostics"),
-                RemoveWhitespace(resolve));
-            Assert.DoesNotContain(
-                RemoveWhitespace("DocumentIdentity(document, diagnostics"),
-                RemoveWhitespace(buildSidecar));
-            Assert.DoesNotContain(
-                RemoveWhitespace("DocumentIdentity(document, diagnostics"),
-                RemoveWhitespace(buildValidation));
+            AssertSingleInvocationArguments(
+                buildResult,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+            AssertSingleInvocationArguments(
+                resolve,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+            AssertSingleInvocationArguments(
+                buildSidecar,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+            AssertSingleInvocationArguments(
+                buildValidation,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
         }
 
         [Fact]
@@ -210,10 +202,13 @@ namespace RookBim.Tests
             Assert.Contains("presetResolver.Resolve", exportPreset);
             Assert.Contains("ExportResolved", exportPreset);
             Assert.Contains("ExportDispatchTimeout", exportPreset);
-            Assert.Contains(
-                RemoveWhitespace(
-                    "presetResolver.Resolve(document, view, request, diagnostics)"),
-                RemoveWhitespace(exportPreset));
+            AssertSingleInvocationArguments(
+                exportPreset,
+                "presetResolver.Resolve",
+                "document",
+                "view",
+                "request",
+                "diagnostics");
         }
 
         private static string ExtractExecutableMember(
@@ -227,9 +222,15 @@ namespace RookBim.Tests
                 memberDeclaration);
         }
 
-        private static string RemoveWhitespace(string value)
+        private static void AssertSingleInvocationArguments(
+            string source,
+            string invocationTarget,
+            params string[] expectedArguments)
         {
-            return RookBimModuleSourceTests.RemoveWhitespace(value);
+            RookBimModuleSourceTests.AssertSingleInvocationArguments(
+                source,
+                invocationTarget,
+                expectedArguments);
         }
 
         internal static string Read(string relativePath)

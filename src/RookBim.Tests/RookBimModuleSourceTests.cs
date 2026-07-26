@@ -421,6 +421,82 @@ Assert.Contains(""required"", member);";
                 AssertNoWholeSourceAssertions(weakContract));
         }
 
+        [Theory]
+        [InlineData(
+            "query.Query(document, activeView, (selector));")]
+        [InlineData(
+            "var selectorAlias = (selector);\n" +
+            "query /* decoy */ . Query(document, activeView, selectorAlias);")]
+        [InlineData(
+            "query.Query(document, activeView, selector, " +
+            "(BimDiagnosticContext.Disabled));")]
+        [InlineData(
+            "var contextAlias = BimDiagnosticContext.Disabled;\n" +
+            "query.Query(document, activeView, selector, contextAlias);")]
+        public void SourceInvocationAudit_Task9RejectsUntracedOrWrongContextQueryCalls(
+            string mutatedMemberBody)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutatedMemberBody,
+                    "query.Query",
+                    "document",
+                    "activeView",
+                    "selector",
+                    "diagnostics"));
+        }
+
+        [Theory]
+        [InlineData(
+            "RevitIdentitySerializer.DocumentIdentity(" +
+            "(document), BimDiagnosticContext.Disabled);")]
+        [InlineData(
+            "RevitIdentitySerializer.DocumentIdentity(" +
+            "document, (diagnostics));")]
+        [InlineData(
+            "var documentAlias = (document);\n" +
+            "var contextAlias = diagnostics;\n" +
+            "RevitIdentitySerializer.DocumentIdentity(" +
+            "documentAlias, contextAlias);")]
+        [InlineData(
+            "RevitIdentitySerializer.DocumentIdentity(otherDocument);")]
+        public void SourceInvocationAudit_Task9RejectsDetailedOrWrongDocumentIdentityCalls(
+            string mutatedMemberBody)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutatedMemberBody,
+                    "RevitIdentitySerializer.DocumentIdentity",
+                    "document"));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ResolvesCorrectDirectAliasesAcrossCommentsAndParentheses()
+        {
+            var queryMember =
+                "var documentAlias = (document);\n" +
+                "var selectorAlias = selector;\n" +
+                "var contextAlias = (diagnostics);\n" +
+                "query /* masked */ . Query(" +
+                "documentAlias, activeView, (selectorAlias), contextAlias);";
+            var identityMember =
+                "var documentAlias = (document);\n" +
+                "RevitIdentitySerializer /* masked */ . DocumentIdentity(" +
+                "(documentAlias));";
+
+            AssertSingleInvocationArguments(
+                queryMember,
+                "query.Query",
+                "document",
+                "activeView",
+                "selector",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                identityMember,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+        }
+
         [Fact]
         public void SourceContracts_Task8PositivesBindExactMembers()
         {
@@ -3013,6 +3089,282 @@ Assert.Contains(""required"", member);";
             return new string(value
                 .Where(character => !char.IsWhiteSpace(character))
                 .ToArray());
+        }
+
+        internal static void AssertSingleInvocationArguments(
+            string source,
+            string invocationTarget,
+            params string[] expectedArguments)
+        {
+            var code = Lex(source).CodeMask;
+            var aliases = DirectLocalAliases(code);
+            var invocations = FindInvocationArguments(code, invocationTarget);
+
+            var invocation = Assert.Single(invocations);
+            Assert.Equal(expectedArguments.Length, invocation.Count);
+            for (var index = 0; index < expectedArguments.Length; index++)
+            {
+                Assert.Equal(
+                    expectedArguments[index],
+                    ResolveInvocationArgument(invocation[index], aliases));
+            }
+        }
+
+        private static IReadOnlyList<IReadOnlyList<string>> FindInvocationArguments(
+            string code,
+            string invocationTarget)
+        {
+            var targetParts = invocationTarget.Split('.');
+            if (targetParts.Length == 0 ||
+                targetParts.Any(part =>
+                    part.Length == 0 ||
+                    !IsIdentifierStart(part[0]) ||
+                    part.Any(character => !IsIdentifierCharacter(character))))
+            {
+                throw new ArgumentException(
+                    "Invocation target must be a dotted identifier.",
+                    nameof(invocationTarget));
+            }
+
+            var invocations = new List<IReadOnlyList<string>>();
+            for (var candidate = 0; candidate < code.Length; candidate++)
+            {
+                if (!IsIdentifierStart(code[candidate]))
+                {
+                    continue;
+                }
+
+                var cursor = candidate;
+                if (!TryReadIdentifier(code, ref cursor, out var identifier) ||
+                    !string.Equals(identifier, targetParts[0], StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var matchesTarget = true;
+                for (var partIndex = 1; partIndex < targetParts.Length; partIndex++)
+                {
+                    cursor = NextNonWhitespace(code, cursor, code.Length);
+                    if (cursor < 0 || code[cursor] != '.')
+                    {
+                        matchesTarget = false;
+                        break;
+                    }
+
+                    cursor = NextNonWhitespace(code, cursor + 1, code.Length);
+                    if (cursor < 0 ||
+                        !TryReadIdentifier(code, ref cursor, out identifier) ||
+                        !string.Equals(identifier, targetParts[partIndex], StringComparison.Ordinal))
+                    {
+                        matchesTarget = false;
+                        break;
+                    }
+                }
+
+                if (!matchesTarget)
+                {
+                    continue;
+                }
+
+                cursor = NextNonWhitespace(code, cursor, code.Length);
+                if (cursor < 0 || code[cursor] != '(')
+                {
+                    continue;
+                }
+
+                var close = FindClosingParenthesis(code, cursor);
+                invocations.Add(SplitTopLevelArguments(code, cursor + 1, close));
+            }
+
+            return invocations;
+        }
+
+        private static bool TryReadIdentifier(
+            string code,
+            ref int cursor,
+            out string identifier)
+        {
+            if (cursor < 0 ||
+                cursor >= code.Length ||
+                !IsIdentifierStart(code[cursor]))
+            {
+                identifier = string.Empty;
+                return false;
+            }
+
+            var start = cursor++;
+            while (cursor < code.Length && IsIdentifierCharacter(code[cursor]))
+            {
+                cursor++;
+            }
+
+            identifier = code.Substring(start, cursor - start);
+            return true;
+        }
+
+        private static int FindClosingParenthesis(string code, int open)
+        {
+            var depth = 0;
+            for (var index = open; index < code.Length; index++)
+            {
+                if (code[index] == '(')
+                {
+                    depth++;
+                }
+                else if (code[index] == ')' && --depth == 0)
+                {
+                    return index;
+                }
+            }
+
+            throw new InvalidOperationException(
+                "Invocation parenthesis did not close at index " + open + ".");
+        }
+
+        private static IReadOnlyList<string> SplitTopLevelArguments(
+            string code,
+            int start,
+            int end)
+        {
+            var arguments = new List<string>();
+            var argumentStart = start;
+            var parentheses = 0;
+            var brackets = 0;
+            var braces = 0;
+            for (var index = start; index < end; index++)
+            {
+                switch (code[index])
+                {
+                    case '(':
+                        parentheses++;
+                        break;
+                    case ')':
+                        if (--parentheses < 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Unexpected closing parenthesis in invocation arguments.");
+                        }
+
+                        break;
+                    case '[':
+                        brackets++;
+                        break;
+                    case ']':
+                        if (--brackets < 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Unexpected closing bracket in invocation arguments.");
+                        }
+
+                        break;
+                    case '{':
+                        braces++;
+                        break;
+                    case '}':
+                        if (--braces < 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Unexpected closing brace in invocation arguments.");
+                        }
+
+                        break;
+                    case ',':
+                        if (parentheses == 0 && brackets == 0 && braces == 0)
+                        {
+                            arguments.Add(code.Substring(
+                                argumentStart,
+                                index - argumentStart));
+                            argumentStart = index + 1;
+                        }
+
+                        break;
+                }
+            }
+
+            if (parentheses != 0 || brackets != 0 || braces != 0)
+            {
+                throw new InvalidOperationException(
+                    "Invocation arguments contain an unbalanced delimiter.");
+            }
+
+            var finalArgument = code.Substring(argumentStart, end - argumentStart);
+            if (arguments.Count > 0 || !string.IsNullOrWhiteSpace(finalArgument))
+            {
+                arguments.Add(finalArgument);
+            }
+
+            return arguments;
+        }
+
+        private static IReadOnlyDictionary<string, string> DirectLocalAliases(
+            string code)
+        {
+            var aliases = new Dictionary<string, string>(StringComparer.Ordinal);
+            var ambiguous = new HashSet<string>(StringComparer.Ordinal);
+            var assignments = Regex.Matches(
+                code,
+                @"(?<![A-Za-z0-9_])var\s+" +
+                @"(?<target>@?[A-Za-z_][A-Za-z0-9_]*)\s*=\s*" +
+                @"(?<expression>[^;]*);",
+                RegexOptions.CultureInvariant);
+            foreach (Match assignment in assignments)
+            {
+                var target = NormalizeIdentifier(
+                    assignment.Groups["target"].Value);
+                var expression = StripOuterParentheses(RemoveWhitespace(
+                    assignment.Groups["expression"].Value));
+                if (!IsDirectAliasExpression(expression))
+                {
+                    continue;
+                }
+
+                if (aliases.ContainsKey(target))
+                {
+                    aliases.Remove(target);
+                    ambiguous.Add(target);
+                    continue;
+                }
+
+                if (!ambiguous.Contains(target))
+                {
+                    aliases.Add(target, expression);
+                }
+            }
+
+            return aliases;
+        }
+
+        private static bool IsDirectAliasExpression(string expression)
+        {
+            return Regex.IsMatch(
+                expression,
+                @"^@?[A-Za-z_][A-Za-z0-9_]*" +
+                @"(?:\.@?[A-Za-z_][A-Za-z0-9_]*)*$",
+                RegexOptions.CultureInvariant);
+        }
+
+        private static string ResolveInvocationArgument(
+            string argument,
+            IReadOnlyDictionary<string, string> aliases)
+        {
+            var expression = StripOuterParentheses(RemoveWhitespace(argument));
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            while (Regex.IsMatch(
+                       expression,
+                       @"^@?[A-Za-z_][A-Za-z0-9_]*$",
+                       RegexOptions.CultureInvariant))
+            {
+                var identifier = NormalizeIdentifier(expression);
+                if (!visited.Add(identifier) ||
+                    !aliases.TryGetValue(identifier, out expression))
+                {
+                    return identifier;
+                }
+
+                expression = StripOuterParentheses(expression);
+            }
+
+            return expression;
         }
 
         private static string ExecutableCode(string source)
