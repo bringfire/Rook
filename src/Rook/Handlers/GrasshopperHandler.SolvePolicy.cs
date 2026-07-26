@@ -101,7 +101,9 @@ namespace Rook.Handlers
                 currentMutationIsRookDriven: true);
 
             // Inspect solver state after any schedule-time repair.
-            var state = solverStateOverride ?? GhSolverState.Inspect(document);
+            var state = readiness.RepairHeld
+                ? GhSolverState.Inspect(document)
+                : solverStateOverride ?? GhSolverState.Inspect(document);
 
             // Decide (pure).
             return GhSolvePolicy.Decide(

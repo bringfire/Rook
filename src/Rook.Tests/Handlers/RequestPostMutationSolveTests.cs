@@ -169,6 +169,31 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void RequestPostMutationSolve_RirRepairHeldOverridesStaleDisabledState()
+        {
+            FakeDoc.EnableSolutions = true;
+            var document = new FakeDoc { Enabled = false };
+            var originalState = GhSolverState.Inspect(document);
+            var handler = CreateHandlerForRirRepair(
+                isRhinoInside: () => true,
+                getActiveDocument: () => document);
+
+            var outcome = handler.RequestPostMutationSolve(
+                document,
+                System.Array.Empty<object>(),
+                requestSolve: true,
+                delayMs: 1,
+                solverStateOverride: originalState);
+
+            Assert.True(outcome.RirRepairAttempted);
+            Assert.True(outcome.RirRepairHeld);
+            Assert.True(document.Enabled);
+            Assert.True(outcome.SolveScheduled);
+            Assert.False(outcome.SolverLocked);
+            Assert.Single(document.Scheduled);
+        }
+
+        [Fact]
         public void RequestPostMutationSolve_StaticSolverDisabledDoesNotRepairOrSchedule()
         {
             FakeDoc.EnableSolutions = false;
