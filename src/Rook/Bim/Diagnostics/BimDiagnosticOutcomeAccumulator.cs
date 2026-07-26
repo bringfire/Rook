@@ -3,7 +3,7 @@ using System.Threading;
 
 namespace Rook.Bim
 {
-    internal sealed class BimDiagnosticObservationAdmission : IDisposable
+    internal sealed class BimDiagnosticObservationAdmission
     {
         private BimDiagnosticOutcomeAccumulator? owner;
         private bool observed;
@@ -36,11 +36,6 @@ namespace Rook.Bim
         {
             var current = Interlocked.Exchange(ref owner, null);
             return current?.ReleaseObservationAdmission();
-        }
-
-        public void Dispose()
-        {
-            Release();
         }
     }
 

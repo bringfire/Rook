@@ -51,6 +51,11 @@ namespace Rook.Tests.Bim.Diagnostics
                 typeof(BimDiagnosticObservationAdmission));
             AssertNoContextOrCallbackMembers(
                 typeof(BimDiagnosticDeferredCompletionState));
+            Assert.False(typeof(IDisposable).IsAssignableFrom(
+                typeof(BimDiagnosticObservationAdmission)));
+            Assert.Null(typeof(BimDiagnosticObservationAdmission).GetMethod(
+                "Dispose", BindingFlags.Instance | BindingFlags.Public |
+                BindingFlags.NonPublic));
         }
 
         [Fact]
@@ -114,31 +119,36 @@ namespace Rook.Tests.Bim.Diagnostics
                     BimDiagnosticDetailCode.None,
                     3,
                     BimDiagnosticFailureImpact.Production)));
-            Assert.True(captureEntered.Wait(TimeSpan.FromSeconds(5)));
-
-            var completion = Task.Run(() => scope.Session.CompleteRequest(
-                scope.Context, BimDiagnosticOutcome.Failure));
-            var accumulator = Assert.IsType<BimDiagnosticOutcomeAccumulator>(
-                scope.Context.Accumulator);
-            var sealingStarted = SpinWait.SpinUntil(() =>
+            Task? completion = null;
+            var completedBeforeRelease = false;
+            var envelopeCountBeforeRelease = -1;
+            try
             {
-                var competingAdmission = accumulator.TryBeginObservation();
-                if (competingAdmission == null)
+                Assert.True(captureEntered.Wait(TimeSpan.FromSeconds(5)));
+                completion = Task.Run(() => scope.Session.CompleteRequest(
+                    scope.Context, BimDiagnosticOutcome.Failure));
+                completedBeforeRelease = await Task.WhenAny(
+                    completion, Task.Delay(TimeSpan.FromSeconds(1))) ==
+                    completion;
+                Assert.True(completedBeforeRelease);
+                var accumulator =
+                    Assert.IsType<BimDiagnosticOutcomeAccumulator>(
+                        scope.Context.Accumulator);
+                Assert.Null(accumulator.TryBeginObservation());
+                envelopeCountBeforeRelease = scope.Sink.Envelopes.Count;
+            }
+            finally
+            {
+                releaseCapture.Set();
+                if (completion == null)
                 {
-                    return true;
+                    await observation;
                 }
-
-                competingAdmission.Dispose();
-                return false;
-            }, TimeSpan.FromSeconds(5));
-            Assert.True(sealingStarted);
-
-            var completedBeforeRelease = await Task.WhenAny(
-                completion, Task.Delay(TimeSpan.FromSeconds(1))) == completion;
-            var envelopeCountBeforeRelease = scope.Sink.Envelopes.Count;
-
-            releaseCapture.Set();
-            await Task.WhenAll(observation, completion);
+                else
+                {
+                    await Task.WhenAll(observation, completion);
+                }
+            }
 
             Assert.True(completedBeforeRelease);
             Assert.Equal(0, envelopeCountBeforeRelease);
@@ -193,26 +203,34 @@ namespace Rook.Tests.Bim.Diagnostics
             };
 
             thread.Start();
+            try
+            {
+                Assert.True(finished.Wait(TimeSpan.FromSeconds(1)),
+                    "same-thread completion deadlocked while capturing StackTrace");
+                Assert.Null(observedFailure);
+                Assert.Equal(1, exception.StackTraceReads);
+                Assert.Collection(
+                    sink.Envelopes,
+                    envelope => Assert.Equal(
+                        BimDiagnosticRecordKind.Failure, envelope.Kind),
+                    envelope =>
+                    {
+                        Assert.Equal(
+                            BimDiagnosticRecordKind.Terminal, envelope.Kind);
+                        Assert.Equal(
+                            BimDiagnosticOutcome.Failure, envelope.Outcome);
+                    });
+                var snapshot = TestDiagnostics.Snapshot(context);
+                Assert.Equal(BimDiagnosticStage.RevitCategoryName,
+                    snapshot.FirstFailureStage);
 
-            Assert.True(finished.Wait(TimeSpan.FromSeconds(1)),
-                "same-thread completion deadlocked while capturing StackTrace");
-            Assert.Null(observedFailure);
-            Assert.Equal(1, exception.StackTraceReads);
-            Assert.Collection(
-                sink.Envelopes,
-                envelope => Assert.Equal(
-                    BimDiagnosticRecordKind.Failure, envelope.Kind),
-                envelope =>
-                {
-                    Assert.Equal(BimDiagnosticRecordKind.Terminal, envelope.Kind);
-                    Assert.Equal(BimDiagnosticOutcome.Failure, envelope.Outcome);
-                });
-            var snapshot = TestDiagnostics.Snapshot(context);
-            Assert.Equal(BimDiagnosticStage.RevitCategoryName,
-                snapshot.FirstFailureStage);
-
-            session.CompleteRequest(context, BimDiagnosticOutcome.Success);
-            Assert.Equal(2, sink.Envelopes.Count);
+                session.CompleteRequest(context, BimDiagnosticOutcome.Success);
+                Assert.Equal(2, sink.Envelopes.Count);
+            }
+            finally
+            {
+                JoinOrAbort(thread);
+            }
         }
 
         [Fact]
@@ -248,10 +266,208 @@ namespace Rook.Tests.Bim.Diagnostics
             };
 
             thread.Start();
+            try
+            {
+                Assert.True(finished.Wait(TimeSpan.FromSeconds(1)),
+                    "synchronous sink completion deadlocked the observation");
+                Assert.Null(observedFailure);
+                Assert.Collection(
+                    sink.Envelopes,
+                    envelope => Assert.Equal(
+                        BimDiagnosticRecordKind.Failure, envelope.Kind),
+                    envelope =>
+                    {
+                        Assert.Equal(
+                            BimDiagnosticRecordKind.Terminal, envelope.Kind);
+                        Assert.Equal(
+                            BimDiagnosticOutcome.Failure, envelope.Outcome);
+                    });
+            }
+            finally
+            {
+                JoinOrAbort(thread);
+            }
+        }
 
-            Assert.True(finished.Wait(TimeSpan.FromSeconds(1)),
-                "synchronous sink completion deadlocked the observation");
-            Assert.Null(observedFailure);
+        [Fact]
+        public void ObserveException_ReentrantThrowingSinkStillAttemptsTerminal()
+        {
+            var sink = new ReentrantThrowingFailureSink();
+            var session = new BimDiagnosticSession(true, sink);
+            var context = session.CreateContext("list_categories");
+            sink.Configure(session, context);
+            using var finished = new ManualResetEventSlim(false);
+            string? observedFailure = null;
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    session.ObserveException(
+                        context,
+                        BimDiagnosticStage.RevitCategoryName,
+                        new InvalidOperationException("private failure"),
+                        BimDiagnosticFields.None);
+                }
+                catch (Exception caught)
+                {
+                    observedFailure = caught.GetType().FullName;
+                }
+                finally
+                {
+                    finished.Set();
+                }
+            })
+            {
+                IsBackground = true
+            };
+
+            thread.Start();
+            try
+            {
+                Assert.True(finished.Wait(TimeSpan.FromSeconds(1)),
+                    "throwing synchronous sink deadlocked the observation");
+                Assert.Null(observedFailure);
+                Assert.Equal(
+                    new[]
+                    {
+                        BimDiagnosticRecordKind.Failure,
+                        BimDiagnosticRecordKind.Terminal
+                    },
+                    sink.Attempts);
+                var terminal = Assert.Single(sink.Accepted);
+                Assert.Equal(BimDiagnosticRecordKind.Terminal, terminal.Kind);
+                var snapshot = TestDiagnostics.Snapshot(context);
+                Assert.Equal(1, snapshot.RequestDroppedCount);
+                Assert.Equal(
+                    BimDiagnosticStage.RevitCategoryName,
+                    snapshot.LastStage);
+            }
+            finally
+            {
+                JoinOrAbort(thread);
+            }
+        }
+
+        [Fact]
+        public void ObserveException_ValidationFailureStillAttemptsDeferredTerminal()
+        {
+            var sink = new ThrowingTerminalSink();
+            var session = new BimDiagnosticSession(true, sink);
+            var context = session.CreateContext("list_categories");
+            var exception = new ReentrantCompletionStackException(
+                session, context);
+
+            var failure = Assert.Throws<ArgumentOutOfRangeException>(() =>
+                session.ObserveException(
+                    context,
+                    (BimDiagnosticStage)999,
+                    exception,
+                    BimDiagnosticFields.None));
+
+            Assert.Equal("value", failure.ParamName);
+            Assert.Equal(
+                BimDiagnosticRecordKind.Terminal,
+                Assert.Single(sink.Attempts));
+            var snapshot = TestDiagnostics.Snapshot(context);
+            Assert.Null(snapshot.LastStage);
+            Assert.Equal(1, snapshot.RequestDroppedCount);
+            Assert.Null(context.Accumulator!.TryBeginObservation());
+            session.CompleteRequest(context, BimDiagnosticOutcome.Success);
+            Assert.Single(sink.Attempts);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void ObserveException_TwoAdmissionsEmitTerminalAfterBothFailures(
+            bool reverseReleaseOrder)
+        {
+            var sink = new InMemoryBimDiagnosticEnvelopeSink();
+            var session = new BimDiagnosticSession(true, sink);
+            var context = session.CreateContext("list_categories");
+            using var firstEntered = new ManualResetEventSlim(false);
+            using var secondEntered = new ManualResetEventSlim(false);
+            using var releaseFirst = new ManualResetEventSlim(false);
+            using var releaseSecond = new ManualResetEventSlim(false);
+            var firstException = new BlockingStackException(
+                firstEntered, releaseFirst);
+            var secondException = new BlockingStackException(
+                secondEntered, releaseSecond);
+            string? firstFailure = null;
+            string? secondFailure = null;
+            var firstThread = ObservationThread(
+                session, context, firstException,
+                value => firstFailure = value);
+            var secondThread = ObservationThread(
+                session, context, secondException,
+                value => secondFailure = value);
+
+            firstThread.Start();
+            secondThread.Start();
+            try
+            {
+                Assert.True(firstEntered.Wait(TimeSpan.FromSeconds(5)));
+                Assert.True(secondEntered.Wait(TimeSpan.FromSeconds(5)));
+                session.CompleteRequest(
+                    context, BimDiagnosticOutcome.Failure);
+                Assert.Empty(sink.Envelopes);
+
+                var firstToRelease = reverseReleaseOrder
+                    ? releaseSecond
+                    : releaseFirst;
+                var secondToRelease = reverseReleaseOrder
+                    ? releaseFirst
+                    : releaseSecond;
+                var firstToJoin = reverseReleaseOrder
+                    ? secondThread
+                    : firstThread;
+                var secondToJoin = reverseReleaseOrder
+                    ? firstThread
+                    : secondThread;
+
+                firstToRelease.Set();
+                Assert.True(firstToJoin.Join(TimeSpan.FromSeconds(5)));
+                var firstEnvelope = Assert.Single(sink.Envelopes);
+                Assert.Equal(
+                    BimDiagnosticRecordKind.Failure, firstEnvelope.Kind);
+
+                secondToRelease.Set();
+                Assert.True(secondToJoin.Join(TimeSpan.FromSeconds(5)));
+                Assert.Null(firstFailure);
+                Assert.Null(secondFailure);
+                Assert.Collection(
+                    sink.Envelopes,
+                    envelope => Assert.Equal(
+                        BimDiagnosticRecordKind.Failure, envelope.Kind),
+                    envelope => Assert.Equal(
+                        BimDiagnosticRecordKind.Failure, envelope.Kind),
+                    envelope => Assert.Equal(
+                        BimDiagnosticRecordKind.Terminal, envelope.Kind));
+            }
+            finally
+            {
+                releaseFirst.Set();
+                releaseSecond.Set();
+                JoinOrAbort(firstThread);
+                JoinOrAbort(secondThread);
+            }
+        }
+
+        [Fact]
+        public void CompleteRequest_AfterFinalAdmissionReleaseEmitsOneTerminal()
+        {
+            var sink = new InMemoryBimDiagnosticEnvelopeSink();
+            var session = new BimDiagnosticSession(true, sink);
+            var context = session.CreateContext("list_categories");
+
+            session.ObserveException(
+                context,
+                BimDiagnosticStage.RevitCategoryName,
+                new InvalidOperationException("private failure"),
+                BimDiagnosticFields.None);
+            session.CompleteRequest(context, BimDiagnosticOutcome.Success);
+            session.CompleteRequest(context, BimDiagnosticOutcome.Failure);
+
             Assert.Collection(
                 sink.Envelopes,
                 envelope => Assert.Equal(
@@ -259,7 +475,7 @@ namespace Rook.Tests.Bim.Diagnostics
                 envelope =>
                 {
                     Assert.Equal(BimDiagnosticRecordKind.Terminal, envelope.Kind);
-                    Assert.Equal(BimDiagnosticOutcome.Failure, envelope.Outcome);
+                    Assert.Equal(BimDiagnosticOutcome.Success, envelope.Outcome);
                 });
         }
 
@@ -356,6 +572,8 @@ namespace Rook.Tests.Bim.Diagnostics
             Assert.DoesNotContain("Monitor.Wait", accumulatorSource);
             Assert.DoesNotContain("Action<", accumulatorSource);
             Assert.DoesNotContain("Func<", accumulatorSource);
+            Assert.DoesNotContain("IDisposable", accumulatorSource);
+            Assert.DoesNotContain("void Dispose", accumulatorSource);
 
             var enqueue = Extract(
                 source,
@@ -521,6 +739,135 @@ namespace Rook.Tests.Bim.Diagnostics
                 }
 
                 return true;
+            }
+        }
+
+        private sealed class ReentrantThrowingFailureSink :
+            IBimDiagnosticEnvelopeSink
+        {
+            private readonly object sync = new object();
+            private readonly List<BimDiagnosticRecordKind> attempts =
+                new List<BimDiagnosticRecordKind>();
+            private readonly List<BimDiagnosticEnvelope> accepted =
+                new List<BimDiagnosticEnvelope>();
+            private BimDiagnosticSession? session;
+            private BimDiagnosticContext? context;
+
+            internal IReadOnlyList<BimDiagnosticRecordKind> Attempts
+            {
+                get
+                {
+                    lock (sync)
+                    {
+                        return attempts.ToArray();
+                    }
+                }
+            }
+
+            internal IReadOnlyList<BimDiagnosticEnvelope> Accepted
+            {
+                get
+                {
+                    lock (sync)
+                    {
+                        return accepted.ToArray();
+                    }
+                }
+            }
+
+            internal void Configure(
+                BimDiagnosticSession session,
+                BimDiagnosticContext context)
+            {
+                this.session = session;
+                this.context = context;
+            }
+
+            public bool TryEnqueue(BimDiagnosticEnvelope envelope)
+            {
+                lock (sync)
+                {
+                    attempts.Add(envelope.Kind);
+                }
+
+                if (envelope.Kind == BimDiagnosticRecordKind.Failure)
+                {
+                    session!.CompleteRequest(
+                        context!, BimDiagnosticOutcome.Failure);
+                    throw new InvalidOperationException(
+                        "diagnostic sink rejected the failure");
+                }
+
+                lock (sync)
+                {
+                    accepted.Add(envelope);
+                }
+
+                return true;
+            }
+        }
+
+        private sealed class ThrowingTerminalSink : IBimDiagnosticEnvelopeSink
+        {
+            private readonly List<BimDiagnosticRecordKind> attempts =
+                new List<BimDiagnosticRecordKind>();
+
+            internal IReadOnlyList<BimDiagnosticRecordKind> Attempts =>
+                attempts.ToArray();
+
+            public bool TryEnqueue(BimDiagnosticEnvelope envelope)
+            {
+                attempts.Add(envelope.Kind);
+                throw new InvalidOperationException(
+                    "diagnostic terminal sink failure");
+            }
+        }
+
+        private static Thread ObservationThread(
+            BimDiagnosticSession session,
+            BimDiagnosticContext context,
+            Exception exception,
+            Action<string?> recordFailure)
+        {
+            return new Thread(() =>
+            {
+                try
+                {
+                    session.ObserveException(
+                        context,
+                        BimDiagnosticStage.RevitCategoryName,
+                        exception,
+                        BimDiagnosticFields.None);
+                }
+                catch (Exception caught)
+                {
+                    recordFailure(caught.GetType().FullName);
+                }
+            })
+            {
+                IsBackground = true
+            };
+        }
+
+        private static void JoinOrAbort(Thread thread)
+        {
+            if (thread.Join(TimeSpan.FromSeconds(5)))
+            {
+                return;
+            }
+
+            try
+            {
+                thread.Abort();
+            }
+            catch (ThreadStateException)
+            {
+            }
+
+            if (!thread.Join(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException(
+                    "The diagnostic test thread did not terminate after abort.");
             }
         }
 
