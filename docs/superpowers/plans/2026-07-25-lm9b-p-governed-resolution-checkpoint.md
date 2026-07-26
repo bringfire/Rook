@@ -492,7 +492,7 @@ Expected: FAIL at the first `NotImplementedError("task1 walking witness")`
 inside the real resolution transition, not during import, fixture loading, or
 readiness verification.
 
-- [ ] **Step 10: Implement the thinnest complete walking path**
+- [x] **Step 10: Implement the thinnest complete walking path**
 
 Implement only the positive path needed by the witness:
 
@@ -535,7 +535,7 @@ Mark the initial archive record with:
 This label prevents the walking witness from being mistaken for the completed
 instrument.
 
-- [ ] **Step 11: Run the vertical witness and focused compatibility suite**
+- [x] **Step 11: Run the vertical witness and focused compatibility suite**
 
 Run:
 
@@ -548,7 +548,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 12: Commit Task 1 and stop for independent review**
+- [x] **Step 12: Commit Task 1 and stop for independent review**
 
 ```powershell
 git add scripts/lm9b_p_governed_resolution_support.py `

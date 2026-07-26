@@ -1,0 +1,53 @@
+{
+  "schema": "rook.lm9b_p.governed_resolution_isolation_policy:v1",
+  "definition_id": "lm9b_p.governed_resolution_isolation_policy:v1",
+  "equations": [
+    {
+      "equation_id": "source_descriptor",
+      "owned_region": "/source_task/fingerprint"
+    },
+    {
+      "equation_id": "resolved_unresolved_rows",
+      "owned_region": "/unresolved_intent"
+    },
+    {
+      "equation_id": "authority_descriptor_reachability",
+      "owned_region": "/authority_artifacts"
+    },
+    {
+      "equation_id": "goal_projection",
+      "owned_region": "/goal/projected_into/unresolved_intent_ids"
+    },
+    {
+      "equation_id": "clause_ownership",
+      "owned_region": "derived_exact_clause_occurrences"
+    },
+    {
+      "equation_id": "authority_reference_additions",
+      "owned_region": "derived_exact_clause_source_refs"
+    },
+    {
+      "equation_id": "recipe_fingerprint",
+      "owned_region": "/recipe_fingerprint"
+    },
+    {
+      "equation_id": "residual_equality",
+      "owned_region": "canonical_normalized_residual_projection"
+    }
+  ],
+  "model_obligations": [
+    "Emit one complete successor rook.planner_graph_recipe:v1, not a patch.",
+    "Consume supplied facts through their actual authority references.",
+    "Resolve exactly the mapped unresolved entries.",
+    "Remove only recipe authority descriptors whose complete parent references belonged exclusively to the resolved unresolved entries and which have no surviving reference; preserve every retained descriptor byte-identically and in order.",
+    "Preserve every unrelated normalized semantic element.",
+    "Introduce no additional material change."
+  ],
+  "gate_obligations": [
+    "Derive all permitted keys, pointers, and clause locations from verified inputs.",
+    "Derive removable authority descriptors from complete parent and candidate reference reachability without interpreting artifact IDs.",
+    "Assign every erased location to exactly one named equation before residual comparison.",
+    "Compare canonical normalized residual projections without rewriting candidate bytes."
+  ],
+  "policy_fingerprint": "sha256:1da1b117e3db5f8abc5d84dcb6103e4d131cbec1b25ea80945da513f0dc0cb3e"
+}
