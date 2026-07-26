@@ -11,6 +11,90 @@ namespace RookBim.Tests
         private static readonly string RepoRoot = FindRepoRoot();
 
         [Fact]
+        public void SourceExtractor_IgnoresCommentedOutDeclarationsAndCalls()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    // public void Target(string value) { CommentOnly(); }
+    public void Target(string value)
+    {
+        ActualCall();
+    }
+}";
+
+            var target = ExtractMethod(source, "public void Target(string value)");
+
+            Assert.Contains("ActualCall();", target);
+            Assert.DoesNotContain("CommentOnly();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_BindsTheRequestedOverloadAndExcludesSiblingBodies()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target(int value)
+    {
+        InertSiblingCall();
+    }
+
+    public void Target(string value)
+    {
+        RequestedOverloadCall();
+    }
+}";
+
+            var target = ExtractMethod(source, "public void Target(string value)");
+
+            Assert.Contains("RequestedOverloadCall();", target);
+            Assert.DoesNotContain("InertSiblingCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_PreservesCommentMarkersAndBracesInsideLiterals()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target(string value)
+    {
+        var text = ""} // not a comment /* still text {"";
+        var close = '}';
+        var slash = '/';
+        ActualCall();
+    }
+}";
+
+            var target = ExtractMethod(source, "public void Target(string value)");
+
+            Assert.Contains("// not a comment /* still text", target);
+            Assert.Contains("var close = '}';", target);
+            Assert.Contains("ActualCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_CodeMaskDoesNotTreatStringContentAsAnExecutableCall()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target()
+    {
+        var decoy = ""RequiredCall();"";
+        ActualCall();
+    }
+}";
+
+            var target = ExtractMethod(source, "public void Target()");
+            var executableCode = ExecutableCode(target);
+
+            Assert.Contains("ActualCall();", executableCode);
+            Assert.DoesNotContain("RequiredCall();", executableCode);
+        }
+
+        [Fact]
         public void RookBimProject_TargetsNet48AndReferencesRevitApisPrivately()
         {
             var project = LoadProject("src/RookBim/RookBim.csproj");
@@ -90,13 +174,10 @@ namespace RookBim.Tests
             var module = Read("src/RookBim/RookBimModule.cs");
             var activate = ExtractMethod(module, "public static void Activate()");
 
-            var registrationIndex = activate.IndexOf(
-                "BimDiagnostics.RegisterModuleMetadata(typeof(RookBimModule).Assembly);",
-                StringComparison.Ordinal);
-            var loadCheckIndex = activate.IndexOf("IsLoaded(", StringComparison.Ordinal);
-
-            Assert.True(registrationIndex >= 0);
-            Assert.True(loadCheckIndex > registrationIndex);
+            Assert.Equal(
+                RemoveWhitespace(
+                    "BimDiagnostics.RegisterModuleMetadata(typeof(RookBimModule).Assembly);"),
+                RemoveWhitespace(FirstExecutableStatement(activate)));
             Assert.DoesNotContain("InitializeFromEnvironment", activate);
             Assert.DoesNotContain("GetEnvironmentVariable", activate);
         }
@@ -105,21 +186,22 @@ namespace RookBim.Tests
         public void RevitDispatcher_CarriesExplicitContextThroughQueuedWorkItem()
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
+            var invoke = ExecutableCode(ExtractMethod(
+                dispatcher,
+                "public Task<T> Invoke<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
+            var invokeAbandonable = ExecutableCode(ExtractMethod(
+                dispatcher,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
+            var workItemConstructor = ExecutableCode(ExtractMethod(
+                dispatcher,
+                "public RevitApiWorkItem(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
+            var execute = ExecutableCode(
+                ExtractMethod(dispatcher, "public void Execute()"));
 
-            Assert.Contains(
-                "public Task<T> Invoke<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)",
-                dispatcher);
-            Assert.Contains(
-                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)",
-                dispatcher);
-            Assert.Contains("private readonly BimDiagnosticContext diagnostics;", dispatcher);
-            Assert.Contains(
-                "public RevitApiWorkItem(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)",
-                dispatcher);
-            Assert.Contains("this.diagnostics = diagnostics", dispatcher);
-            Assert.Contains("new RevitApiWorkItem<T>(diagnostics, work)", dispatcher);
-
-            var execute = ExtractMethod(dispatcher, "public void Execute()");
+            Assert.Contains("InvokeAbandonable(diagnostics, work).Task", invoke);
+            Assert.Contains("new RevitApiWorkItem<T>(diagnostics, work)", invokeAbandonable);
+            Assert.Contains("this.diagnostics = diagnostics", workItemConstructor);
+            Assert.Contains("this.work = work", workItemConstructor);
             Assert.Contains("BimDiagnosticStage.RevitDispatchExecute", execute);
             Assert.Contains("work(ActiveUIApplication())", execute);
             Assert.Contains("BimDiagnostics.ObserveException(", execute);
@@ -130,20 +212,23 @@ namespace RookBim.Tests
                 execute.IndexOf("work(ActiveUIApplication())", StringComparison.Ordinal) <
                 execute.IndexOf("BimDiagnosticOutcome.Success", StringComparison.Ordinal));
 
-            Assert.DoesNotContain("AsyncLocal", dispatcher);
-            Assert.DoesNotContain("[ThreadStatic]", dispatcher);
-            Assert.DoesNotContain("ThreadLocal", dispatcher);
-            Assert.DoesNotContain("CurrentCorrelation", dispatcher);
-            Assert.DoesNotContain("CurrentDiagnostics", dispatcher);
-            Assert.DoesNotContain("CurrentContext", dispatcher);
-            Assert.DoesNotContain("GlobalCorrelation", dispatcher);
+            var uncommentedDispatcher = StripCommentsPreservingLiterals(dispatcher);
+            Assert.DoesNotContain("AsyncLocal", uncommentedDispatcher);
+            Assert.DoesNotContain("[ThreadStatic]", uncommentedDispatcher);
+            Assert.DoesNotContain("ThreadLocal", uncommentedDispatcher);
+            Assert.DoesNotContain("CurrentCorrelation", uncommentedDispatcher);
+            Assert.DoesNotContain("CurrentDiagnostics", uncommentedDispatcher);
+            Assert.DoesNotContain("CurrentContext", uncommentedDispatcher);
+            Assert.DoesNotContain("GlobalCorrelation", uncommentedDispatcher);
         }
 
         [Fact]
         public void RevitDispatcher_ObservesEnqueueAtTheExistingBoundaries()
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
-            var invoke = ExtractMethod(dispatcher, "internal RevitApiDispatch<T> InvokeAbandonable<T>(");
+            var invoke = ExecutableCode(ExtractMethod(
+                dispatcher,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
 
             var startIndex = invoke.IndexOf("BimDiagnosticOutcome.Start", StringComparison.Ordinal);
             var enqueueIndex = invoke.IndexOf("EnqueueIdlingAction", StringComparison.Ordinal);
@@ -234,7 +319,9 @@ namespace RookBim.Tests
         {
             var runtime = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
-            var resolve = ExtractMethod(runtime, "private static View? ResolveActiveGraphicalView(");
+            var resolve = ExecutableCode(ExtractMethod(
+                runtime,
+                "private static View? ResolveActiveGraphicalView(UIDocument uidoc, BimQueryScope scope, BimDiagnosticContext diagnostics)"));
 
             var documentReturnIndex = resolve.IndexOf(
                 "if (scope != BimQueryScope.ActiveView)", StringComparison.Ordinal);
@@ -259,10 +346,21 @@ namespace RookBim.Tests
         {
             var runtime = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
-            var dispatch = ExtractMethod(runtime, "private T Dispatch<T>(");
-            var dispatchWithTimeout = ExtractMethod(runtime, "private T DispatchWithTimeout<T>(");
-            var activeDocument = ExtractMethod(runtime, "public BimApiResponse ActiveDocument(");
-            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
+            var dispatch = ExecutableCode(ExtractMethod(
+                runtime,
+                "private T Dispatch<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
+            var dispatchWithTimeout = ExecutableCode(ExtractMethod(
+                runtime,
+                "private T DispatchWithTimeout<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work, TimeSpan timeout)"));
+            var documentContext = ExecutableCode(ExtractMethod(
+                runtime,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)"));
+            var activeDocument = ExecutableCode(ExtractMethod(
+                runtime,
+                "public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)"));
+            var queryElements = ExecutableCode(ExtractMethod(
+                runtime,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)"));
 
             Assert.True(
                 dispatch.IndexOf("var capturedDiagnostics = diagnostics;", StringComparison.Ordinal) <
@@ -293,30 +391,57 @@ namespace RookBim.Tests
                 "ResolveActiveGraphicalView(\n" +
                 "                        uidoc, request.EffectiveScope, diagnostics)",
                 queryElements);
-            Assert.DoesNotContain("AsyncLocal", runtime);
-            Assert.DoesNotContain("[ThreadStatic]", runtime);
-            Assert.DoesNotContain("ThreadLocal", runtime);
-            Assert.DoesNotContain("CurrentCorrelation", runtime);
-            Assert.DoesNotContain("CurrentDiagnostics", runtime);
-            Assert.DoesNotContain("CurrentContext", runtime);
-            Assert.DoesNotContain("GlobalCorrelation", runtime);
+            Assert.Contains("Dispatch(diagnostics, uiapp =>", documentContext);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
+            Assert.Contains("AcquireDocument(uidoc, diagnostics)", documentContext);
+
+            var uncommentedRuntime = StripCommentsPreservingLiterals(runtime);
+            Assert.DoesNotContain("AsyncLocal", uncommentedRuntime);
+            Assert.DoesNotContain("[ThreadStatic]", uncommentedRuntime);
+            Assert.DoesNotContain("ThreadLocal", uncommentedRuntime);
+            Assert.DoesNotContain("CurrentCorrelation", uncommentedRuntime);
+            Assert.DoesNotContain("CurrentDiagnostics", uncommentedRuntime);
+            Assert.DoesNotContain("CurrentContext", uncommentedRuntime);
+            Assert.DoesNotContain("GlobalCorrelation", uncommentedRuntime);
         }
 
         [Fact]
         public void RevitRuntime_InstrumentsEveryExistingDocumentAcquisitionWithoutCachingReads()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var status = ExtractMethod(runtime, "public BimStatusResponse Status(");
-            var elementInfo = ExtractMethod(runtime, "public BimApiResponse ElementInfo(");
-            var parameters = ExtractMethod(runtime, "public BimApiResponse ElementParameters(");
-            var select = ExtractMethod(runtime, "public BimApiResponse SelectElements(");
-            var clear = ExtractMethod(runtime, "public BimApiResponse ClearSelection(");
-            var preset = ExtractMethod(runtime, "public BimApiResponse ExportPreset(");
-            var export = ExtractMethod(runtime, "public BimApiResponse ExportElements(");
-            var documentContext = ExtractMethod(runtime, "private BimApiResponse ExecuteInDocumentContext(");
-            var acquireUiDocument = ExtractMethod(runtime, "private static UIDocument? AcquireActiveUiDocument(");
-            var acquireDocument = ExtractMethod(runtime, "private static Document? AcquireDocument(");
-            var acquireActiveDocument = ExtractMethod(runtime, "private static Document? AcquireActiveDocument(");
+            var status = ExecutableCode(ExtractMethod(
+                runtime,
+                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)"));
+            var elementInfo = ExecutableCode(ExtractMethod(
+                runtime,
+                "public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)"));
+            var parameters = ExecutableCode(ExtractMethod(
+                runtime,
+                "public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)"));
+            var select = ExecutableCode(ExtractMethod(
+                runtime,
+                "public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)"));
+            var clear = ExecutableCode(ExtractMethod(
+                runtime,
+                "public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)"));
+            var preset = ExecutableCode(ExtractMethod(
+                runtime,
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)"));
+            var export = ExecutableCode(ExtractMethod(
+                runtime,
+                "public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)"));
+            var documentContext = ExecutableCode(ExtractMethod(
+                runtime,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)"));
+            var acquireUiDocument = ExecutableCode(ExtractMethod(
+                runtime,
+                "private static UIDocument? AcquireActiveUiDocument(UIApplication uiapp, BimDiagnosticContext diagnostics)"));
+            var acquireDocument = ExecutableCode(ExtractMethod(
+                runtime,
+                "private static Document? AcquireDocument(UIDocument uidoc, BimDiagnosticContext diagnostics)"));
+            var acquireActiveDocument = ExecutableCode(ExtractMethod(
+                runtime,
+                "private static Document? AcquireActiveDocument(UIApplication uiapp, BimDiagnosticContext diagnostics)"));
 
             Assert.Equal(1, CountOccurrences(status, "AcquireActiveDocument(uiapp, diagnostics)"));
             AssertAcquisitionCounts(documentContext, expectedUiDocument: 1, expectedDocument: 2);
@@ -349,12 +474,12 @@ namespace RookBim.Tests
         {
             var serializer = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
-            var detailed = ExtractMethod(
+            var detailed = ExecutableCode(ExtractMethod(
                 serializer,
-                "public static BimDocumentIdentity DocumentIdentity(\n            Document document,");
-            var central = ExtractMethod(
+                "public static BimDocumentIdentity DocumentIdentity(Document document, BimDiagnosticContext diagnostics, bool includeAuxiliaryState)"));
+            var central = ExecutableCode(ExtractMethod(
                 serializer,
-                "private static Guid? GetWorksharingCentralGUID(\n            Document document,");
+                "private static Guid? GetWorksharingCentralGUID(Document document, BimDiagnosticContext diagnostics)"));
 
             var centralCall = detailed.IndexOf(
                 "GetWorksharingCentralGUID(document, diagnostics)", StringComparison.Ordinal);
@@ -393,15 +518,15 @@ namespace RookBim.Tests
         {
             var serializer = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
-            var untraced = ExtractMethod(
+            var untraced = ExecutableCode(ExtractMethod(
                 serializer,
-                "public static BimDocumentIdentity DocumentIdentity(Document document)");
-            var element = ExtractMethod(
+                "public static BimDocumentIdentity DocumentIdentity(Document document)"));
+            var element = ExecutableCode(ExtractMethod(
                 serializer,
-                "public static BimElementIdentity ElementIdentity(Element element)");
-            var resolve = ExtractMethod(
+                "public static BimElementIdentity ElementIdentity(Element element)"));
+            var resolve = ExecutableCode(ExtractMethod(
                 serializer,
-                "public static BimElementResolveResult Resolve(Document document, BimElementIdentity? identity)");
+                "public static BimElementResolveResult Resolve(Document document, BimElementIdentity? identity)"));
 
             Assert.DoesNotContain("BimDiagnostic", untraced);
             Assert.Contains("DocumentIdentity(document)", element);
@@ -415,13 +540,15 @@ namespace RookBim.Tests
         {
             var serializer = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
-            var detailed = ExtractMethod(
+            var detailed = ExecutableCode(ExtractMethod(
                 serializer,
-                "public static BimDocumentIdentity DocumentIdentity(\n            Document document,");
-            var state = ExtractMethod(serializer, "private static void ProbeDocumentState(");
-            var classify = ExtractMethod(
+                "public static BimDocumentIdentity DocumentIdentity(Document document, BimDiagnosticContext diagnostics, bool includeAuxiliaryState)"));
+            var state = ExecutableCode(ExtractMethod(
                 serializer,
-                "private static BimDiagnosticDetailCode ClassifyDocumentState(");
+                "private static void ProbeDocumentState(Document document, BimDiagnosticContext diagnostics)"));
+            var classify = ExecutableCode(ExtractMethod(
+                serializer,
+                "private static BimDiagnosticDetailCode ClassifyDocumentState(BimAuxiliaryProbeResult<bool> isModelInCloud, BimAuxiliaryProbeResult<bool> isDetached, BimAuxiliaryProbeResult<ModelPath> centralModelPath, BimAuxiliaryProbeResult<bool>? empty, BimAuxiliaryProbeResult<bool>? serverPath, BimAuxiliaryProbeResult<bool>? cloudPath)"));
 
             var dtoIndex = detailed.IndexOf("var result = new BimDocumentIdentity", StringComparison.Ordinal);
             var probeIndex = detailed.IndexOf("ProbeDocumentState(document, diagnostics);", StringComparison.Ordinal);
@@ -1008,35 +1135,403 @@ namespace RookBim.Tests
             Assert.Equal(1, CountOccurrences(source, enabledExpression));
         }
 
-        private static string ExtractMethod(string source, string signatureStartText)
+        private static string ExtractMethod(string source, string declaration)
         {
-            var signatureStart = source.IndexOf(
-                signatureStartText,
-                StringComparison.Ordinal);
-            if (signatureStart < 0)
+            var lexed = Lex(source);
+            var declarationStart = FindIgnoringWhitespace(
+                lexed.CodeMask, declaration);
+            if (declarationStart < 0)
+            {
                 throw new InvalidOperationException(
-                    "Method not found: " + signatureStartText);
+                    "Method not found: " + declaration);
+            }
 
-            var bodyStart = source.IndexOf('{', signatureStart);
+            var bodyStart = lexed.CodeMask.IndexOf(
+                '{', declarationStart);
             if (bodyStart < 0)
+            {
                 throw new InvalidOperationException(
-                    "Method body not found: " + signatureStartText);
+                    "Method body not found: " + declaration);
+            }
+
+            var declarationTerminator = lexed.CodeMask.IndexOf(
+                ';', declarationStart, bodyStart - declarationStart);
+            if (declarationTerminator >= 0)
+            {
+                throw new InvalidOperationException(
+                    "Declaration has no block body: " + declaration);
+            }
 
             var depth = 0;
-            for (var i = bodyStart; i < source.Length; i++)
+            for (var index = bodyStart; index < lexed.CodeMask.Length; index++)
             {
-                if (source[i] == '{')
+                if (lexed.CodeMask[index] == '{')
+                {
                     depth++;
-                else if (source[i] == '}')
+                }
+                else if (lexed.CodeMask[index] == '}')
                 {
                     depth--;
                     if (depth == 0)
-                        return source.Substring(signatureStart, i - signatureStart + 1);
+                    {
+                        return lexed.WithoutComments.Substring(
+                            declarationStart,
+                            index - declarationStart + 1);
+                    }
                 }
             }
 
             throw new InvalidOperationException(
                 "Brace did not close at index " + bodyStart);
+        }
+
+        private static string FirstExecutableStatement(string method)
+        {
+            var lexed = Lex(method);
+            var bodyStart = lexed.CodeMask.IndexOf('{');
+            if (bodyStart < 0)
+            {
+                throw new InvalidOperationException("Method body not found.");
+            }
+
+            var statementStart = bodyStart + 1;
+            while (statementStart < lexed.CodeMask.Length &&
+                   char.IsWhiteSpace(lexed.CodeMask[statementStart]))
+            {
+                statementStart++;
+            }
+
+            var parentheses = 0;
+            var brackets = 0;
+            var braces = 0;
+            for (var index = statementStart; index < lexed.CodeMask.Length; index++)
+            {
+                switch (lexed.CodeMask[index])
+                {
+                    case '(':
+                        parentheses++;
+                        break;
+                    case ')':
+                        parentheses--;
+                        break;
+                    case '[':
+                        brackets++;
+                        break;
+                    case ']':
+                        brackets--;
+                        break;
+                    case '{':
+                        braces++;
+                        break;
+                    case '}':
+                        if (braces == 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Method has no executable statement.");
+                        }
+
+                        braces--;
+                        break;
+                    case ';':
+                        if (parentheses == 0 && brackets == 0 && braces == 0)
+                        {
+                            return lexed.WithoutComments.Substring(
+                                statementStart,
+                                index - statementStart + 1).Trim();
+                        }
+
+                        break;
+                }
+            }
+
+            throw new InvalidOperationException(
+                "First executable statement did not terminate.");
+        }
+
+        private static string RemoveWhitespace(string value)
+        {
+            return new string(value
+                .Where(character => !char.IsWhiteSpace(character))
+                .ToArray());
+        }
+
+        private static string StripCommentsPreservingLiterals(string source)
+        {
+            return Lex(source).WithoutComments;
+        }
+
+        private static string ExecutableCode(string source)
+        {
+            return Lex(source).CodeMask;
+        }
+
+        private static int FindIgnoringWhitespace(
+            string source,
+            string pattern)
+        {
+            var significantPattern = new string(pattern
+                .Where(character => !char.IsWhiteSpace(character))
+                .ToArray());
+            if (significantPattern.Length == 0)
+            {
+                throw new ArgumentException(
+                    "Declaration must contain a non-whitespace character.",
+                    nameof(pattern));
+            }
+
+            for (var candidate = 0; candidate < source.Length; candidate++)
+            {
+                if (char.IsWhiteSpace(source[candidate]) ||
+                    source[candidate] != significantPattern[0])
+                {
+                    continue;
+                }
+
+                var sourceIndex = candidate;
+                var patternIndex = 0;
+                while (sourceIndex < source.Length &&
+                       patternIndex < significantPattern.Length)
+                {
+                    if (char.IsWhiteSpace(source[sourceIndex]))
+                    {
+                        sourceIndex++;
+                        continue;
+                    }
+
+                    if (source[sourceIndex] != significantPattern[patternIndex])
+                    {
+                        break;
+                    }
+
+                    sourceIndex++;
+                    patternIndex++;
+                }
+
+                if (patternIndex == significantPattern.Length)
+                {
+                    return candidate;
+                }
+            }
+
+            return -1;
+        }
+
+        private static LexedSource Lex(string source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            var withoutComments = source.ToCharArray();
+            var codeMask = source.ToCharArray();
+            var index = 0;
+            while (index < source.Length)
+            {
+                if (source[index] == '/' && index + 1 < source.Length &&
+                    source[index + 1] == '/')
+                {
+                    Blank(withoutComments, index);
+                    Blank(withoutComments, index + 1);
+                    Blank(codeMask, index);
+                    Blank(codeMask, index + 1);
+                    index += 2;
+                    while (index < source.Length &&
+                           source[index] != '\r' &&
+                           source[index] != '\n')
+                    {
+                        Blank(withoutComments, index);
+                        Blank(codeMask, index);
+                        index++;
+                    }
+
+                    continue;
+                }
+
+                if (source[index] == '/' && index + 1 < source.Length &&
+                    source[index + 1] == '*')
+                {
+                    Blank(withoutComments, index);
+                    Blank(withoutComments, index + 1);
+                    Blank(codeMask, index);
+                    Blank(codeMask, index + 1);
+                    index += 2;
+                    while (index < source.Length)
+                    {
+                        if (source[index] == '*' && index + 1 < source.Length &&
+                            source[index + 1] == '/')
+                        {
+                            Blank(withoutComments, index);
+                            Blank(withoutComments, index + 1);
+                            Blank(codeMask, index);
+                            Blank(codeMask, index + 1);
+                            index += 2;
+                            break;
+                        }
+
+                        Blank(withoutComments, index);
+                        Blank(codeMask, index);
+                        index++;
+                    }
+
+                    continue;
+                }
+
+                if (source[index] == '"')
+                {
+                    var quoteCount = CountRun(source, index, '"');
+                    if (quoteCount >= 3)
+                    {
+                        index = MaskRawString(codeMask, source, index, quoteCount);
+                    }
+                    else
+                    {
+                        index = IsVerbatimString(source, index)
+                            ? MaskVerbatimString(codeMask, source, index)
+                            : MaskEscapedLiteral(codeMask, source, index, '"');
+                    }
+
+                    continue;
+                }
+
+                if (source[index] == '\'')
+                {
+                    index = MaskEscapedLiteral(codeMask, source, index, '\'');
+                    continue;
+                }
+
+                index++;
+            }
+
+            return new LexedSource(
+                new string(withoutComments),
+                new string(codeMask));
+        }
+
+        private static int MaskEscapedLiteral(
+            char[] codeMask,
+            string source,
+            int start,
+            char terminator)
+        {
+            var index = start;
+            Blank(codeMask, index++);
+            while (index < source.Length)
+            {
+                var current = source[index];
+                Blank(codeMask, index++);
+                if (current == '\\' && index < source.Length)
+                {
+                    Blank(codeMask, index++);
+                }
+                else if (current == terminator)
+                {
+                    break;
+                }
+            }
+
+            return index;
+        }
+
+        private static int MaskVerbatimString(
+            char[] codeMask,
+            string source,
+            int start)
+        {
+            var index = start;
+            Blank(codeMask, index++);
+            while (index < source.Length)
+            {
+                if (source[index] == '"')
+                {
+                    Blank(codeMask, index++);
+                    if (index < source.Length && source[index] == '"')
+                    {
+                        Blank(codeMask, index++);
+                        continue;
+                    }
+
+                    break;
+                }
+
+                Blank(codeMask, index++);
+            }
+
+            return index;
+        }
+
+        private static int MaskRawString(
+            char[] codeMask,
+            string source,
+            int start,
+            int delimiterLength)
+        {
+            var index = start;
+            for (var offset = 0; offset < delimiterLength; offset++)
+            {
+                Blank(codeMask, index++);
+            }
+
+            while (index < source.Length)
+            {
+                if (source[index] == '"' &&
+                    CountRun(source, index, '"') >= delimiterLength)
+                {
+                    for (var offset = 0; offset < delimiterLength; offset++)
+                    {
+                        Blank(codeMask, index++);
+                    }
+
+                    break;
+                }
+
+                Blank(codeMask, index++);
+            }
+
+            return index;
+        }
+
+        private static bool IsVerbatimString(string source, int quoteIndex)
+        {
+            return quoteIndex > 0 && source[quoteIndex - 1] == '@' ||
+                quoteIndex > 1 &&
+                source[quoteIndex - 2] == '@' &&
+                source[quoteIndex - 1] == '$';
+        }
+
+        private static int CountRun(
+            string source,
+            int start,
+            char value)
+        {
+            var index = start;
+            while (index < source.Length && source[index] == value)
+            {
+                index++;
+            }
+
+            return index - start;
+        }
+
+        private static void Blank(char[] value, int index)
+        {
+            if (value[index] != '\r' && value[index] != '\n')
+            {
+                value[index] = ' ';
+            }
+        }
+
+        private sealed class LexedSource
+        {
+            public LexedSource(string withoutComments, string codeMask)
+            {
+                WithoutComments = withoutComments;
+                CodeMask = codeMask;
+            }
+
+            public string WithoutComments { get; }
+
+            public string CodeMask { get; }
         }
 
         private static string FindRepoRoot()
