@@ -256,6 +256,11 @@ namespace RookBim.Revit
                 return null;
             }
 
+            if (!SupportsWorksharingCentralGuid(document))
+            {
+                return null;
+            }
+
             return ReadWorksharingCentralGuid(
                 () => document.WorksharingCentralGUID);
         }
@@ -290,6 +295,11 @@ namespace RookBim.Revit
                 return null;
             }
 
+            if (!SupportsWorksharingCentralGuid(document, diagnostics))
+            {
+                return null;
+            }
+
             return ReadWorksharingCentralGuid(
                 () => diagnostics.Enabled
                     ? BimDiagnosticProbe.Production(
@@ -301,6 +311,100 @@ namespace RookBim.Revit
                             ? BimDiagnosticDetailCode.Null
                             : BimDiagnosticDetailCode.True)
                     : document.WorksharingCentralGUID);
+        }
+
+        private static bool SupportsWorksharingCentralGuid(Document document)
+        {
+            try
+            {
+                if (document.IsModelInCloud)
+                {
+                    return true;
+                }
+
+                var modelPath = document.GetWorksharingCentralModelPath();
+                return modelPath != null &&
+                    (modelPath.ServerPath || modelPath.CloudPath);
+            }
+            catch (Autodesk.Revit.Exceptions.InapplicableDataException)
+            {
+                return false;
+            }
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            {
+                return false;
+            }
+            catch (Autodesk.Revit.Exceptions.InternalException)
+            {
+                return false;
+            }
+        }
+
+        private static bool SupportsWorksharingCentralGuid(
+            Document document,
+            BimDiagnosticContext diagnostics)
+        {
+            if (!diagnostics.Enabled)
+            {
+                return SupportsWorksharingCentralGuid(document);
+            }
+
+            try
+            {
+                var isModelInCloud = BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentIsModelInCloud,
+                    () => document.IsModelInCloud,
+                    BimDiagnosticFields.None,
+                    BooleanDetail);
+                if (isModelInCloud)
+                {
+                    return true;
+                }
+
+                var modelPath = BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentCentralModelPath,
+                    () => document.GetWorksharingCentralModelPath(),
+                    BimDiagnosticFields.None,
+                    value => value == null
+                        ? BimDiagnosticDetailCode.Null
+                        : BimDiagnosticDetailCode.True);
+                if (modelPath == null)
+                {
+                    return false;
+                }
+
+                var serverPath = BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentModelPathServer,
+                    () => modelPath.ServerPath,
+                    BimDiagnosticFields.None,
+                    BooleanDetail);
+                if (serverPath)
+                {
+                    return true;
+                }
+
+                return BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentModelPathCloud,
+                    () => modelPath.CloudPath,
+                    BimDiagnosticFields.None,
+                    BooleanDetail);
+            }
+            catch (Autodesk.Revit.Exceptions.InapplicableDataException)
+            {
+                return false;
+            }
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            {
+                return false;
+            }
+            catch (Autodesk.Revit.Exceptions.InternalException)
+            {
+                return false;
+            }
         }
 
         private static Guid? ReadWorksharingCentralGuid(Func<Guid> read)

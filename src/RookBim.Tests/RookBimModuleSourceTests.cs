@@ -1462,6 +1462,92 @@ Assert.Contains(""required"", member);";
         }
 
         [Fact]
+        public void RevitIdentitySerializer_SkipsCentralGuidForFileBasedWorksharing()
+        {
+            var serializer = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
+            var legacyCentral = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static Guid? GetWorksharingCentralGUID(Document document)");
+            var detailedCentral = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static Guid? GetWorksharingCentralGUID(Document document, BimDiagnosticContext diagnostics)");
+            var legacySupport = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static bool SupportsWorksharingCentralGuid(Document document)");
+            var detailedSupport = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static bool SupportsWorksharingCentralGuid(Document document, BimDiagnosticContext diagnostics)");
+
+            Assert.True(
+                legacyCentral.IndexOf(
+                    "SupportsWorksharingCentralGuid(document)", StringComparison.Ordinal) <
+                legacyCentral.IndexOf(
+                    "ReadWorksharingCentralGuid(", StringComparison.Ordinal));
+            Assert.True(
+                detailedCentral.IndexOf(
+                    "SupportsWorksharingCentralGuid(document, diagnostics)", StringComparison.Ordinal) <
+                detailedCentral.IndexOf(
+                    "ReadWorksharingCentralGuid(", StringComparison.Ordinal));
+            Assert.Contains("if (!SupportsWorksharingCentralGuid(document))", legacyCentral);
+            Assert.Contains(
+                "if (!SupportsWorksharingCentralGuid(document, diagnostics))",
+                detailedCentral);
+
+            Assert.Contains("document.IsModelInCloud", legacySupport);
+            Assert.Contains("document.GetWorksharingCentralModelPath()", legacySupport);
+            Assert.Contains("modelPath.ServerPath", legacySupport);
+            Assert.Contains("modelPath.CloudPath", legacySupport);
+            Assert.DoesNotContain("WorksharingCentralGUID", legacySupport);
+
+            Assert.Contains("if (!diagnostics.Enabled)", detailedSupport);
+            Assert.Contains("return SupportsWorksharingCentralGuid(document);", detailedSupport);
+            Assert.Contains("BimDiagnosticProbe.Production", detailedSupport);
+            Assert.DoesNotContain("BimDiagnosticProbe.Auxiliary", detailedSupport);
+            Assert.Contains("BimDiagnosticStage.RevitDocumentIsModelInCloud", detailedSupport);
+            Assert.Contains("BimDiagnosticStage.RevitDocumentCentralModelPath", detailedSupport);
+            Assert.Contains("BimDiagnosticStage.RevitDocumentModelPathServer", detailedSupport);
+            Assert.Contains("BimDiagnosticStage.RevitDocumentModelPathCloud", detailedSupport);
+            Assert.DoesNotContain("WorksharingCentralGUID", detailedSupport);
+
+            var legacyCloudIndex = legacySupport.IndexOf("document.IsModelInCloud", StringComparison.Ordinal);
+            var legacyModelPathIndex = legacySupport.IndexOf("document.GetWorksharingCentralModelPath()", StringComparison.Ordinal);
+            var legacyServerIndex = legacySupport.IndexOf("modelPath.ServerPath", StringComparison.Ordinal);
+            var legacyCloudPathIndex = legacySupport.IndexOf("modelPath.CloudPath", StringComparison.Ordinal);
+            Assert.True(
+                legacyCloudIndex >= 0 &&
+                legacyModelPathIndex > legacyCloudIndex &&
+                legacyServerIndex > legacyModelPathIndex &&
+                legacyCloudPathIndex > legacyServerIndex);
+
+            var detailedCloudIndex = detailedSupport.IndexOf("BimDiagnosticStage.RevitDocumentIsModelInCloud", StringComparison.Ordinal);
+            var detailedModelPathIndex = detailedSupport.IndexOf("BimDiagnosticStage.RevitDocumentCentralModelPath", StringComparison.Ordinal);
+            var detailedServerIndex = detailedSupport.IndexOf("BimDiagnosticStage.RevitDocumentModelPathServer", StringComparison.Ordinal);
+            var detailedCloudPathIndex = detailedSupport.IndexOf("BimDiagnosticStage.RevitDocumentModelPathCloud", StringComparison.Ordinal);
+            Assert.True(
+                detailedCloudIndex >= 0 &&
+                detailedModelPathIndex > detailedCloudIndex &&
+                detailedServerIndex > detailedModelPathIndex &&
+                detailedCloudPathIndex > detailedServerIndex);
+            Assert.DoesNotContain(".Known", detailedSupport);
+
+            foreach (var exceptionType in new[]
+            {
+                "InapplicableDataException",
+                "InvalidOperationException",
+                "InternalException"
+            })
+            {
+                Assert.Equal(1, CountOccurrences(legacySupport, exceptionType));
+                Assert.Equal(1, CountOccurrences(detailedSupport, exceptionType));
+            }
+        }
+
+        [Fact]
         public void RevitIdentitySerializer_KeepsOneArgumentElementPathsUntraced()
         {
             var serializer = NormalizeLineEndings(
