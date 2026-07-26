@@ -234,6 +234,24 @@ namespace Rook.Tests.Bim.Diagnostics
             Assert.Null(BimDiagnosticJsonEncoder.Encode(record));
         }
 
+        [Fact]
+        public void Encode_AcceptsExactly16384BytesIncludingNewlineAndDropsNextByte()
+        {
+            var baseline = Assert.IsType<string>(BimDiagnosticJsonEncoder.Encode(
+                CreateRecord(correlationId: string.Empty)));
+            var fixedBytes = Encoding.UTF8.GetByteCount(baseline);
+            var exactPadding = new string('x', (16 * 1024) - fixedBytes);
+
+            var exact = Assert.IsType<string>(BimDiagnosticJsonEncoder.Encode(
+                CreateRecord(correlationId: exactPadding)));
+            var over = BimDiagnosticJsonEncoder.Encode(
+                CreateRecord(correlationId: exactPadding + "x"));
+
+            Assert.Equal(16 * 1024, Encoding.UTF8.GetByteCount(exact));
+            Assert.EndsWith("\n", exact, StringComparison.Ordinal);
+            Assert.Null(over);
+        }
+
         public static IEnumerable<object[]> RecordKindCases => Cases(
             (BimDiagnosticRecordKind.Milestone, "milestone"),
             (BimDiagnosticRecordKind.Failure, "failure"),

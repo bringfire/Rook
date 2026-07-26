@@ -91,6 +91,40 @@ namespace Rook.Tests.Bim.Diagnostics
         }
 
         [Fact]
+        public void RedactStack_RemovesSpaceBearingFileServerAndCloudUris()
+        {
+            var stack =
+                "at Example.Type.File() file:///C:/Snowdon Towers/Model.rvt\n" +
+                "at Example.Type.Server() rsn://server/Shared Models/School.rvt\n" +
+                "at Example.Type.Cloud() cloud://tenant/Project Files/Walls.rvt\n" +
+                "at Example.Type.Source() in file:///C:/Source Trees/Probe.cs:line 73";
+
+            var redacted = BimDiagnosticRedactor.RedactStack(stack);
+
+            Assert.Contains("Example.Type.File()", redacted);
+            Assert.Contains("Example.Type.Server()", redacted);
+            Assert.Contains("Example.Type.Cloud()", redacted);
+            Assert.Contains("Example.Type.Source()", redacted);
+            Assert.Contains(":line 73", redacted);
+            Assert.DoesNotContain("Snowdon Towers", redacted,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Model.rvt", redacted,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Shared Models", redacted,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("School.rvt", redacted,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Project Files", redacted,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Walls.rvt", redacted,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Source Trees", redacted,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Probe.cs", redacted,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public void Capture_BoundsRedactedStackTo8192Characters()
         {
             var capture = BimDiagnosticExceptionCapture.Capture(
@@ -134,8 +168,33 @@ namespace Rook.Tests.Bim.Diagnostics
             Assert.Equal(8, Flatten(firstRoot).Count() - 1);
             Assert.True(firstRoot.Truncated);
             Assert.Equal(
-                firstRoot.InnerExceptions.Select(item => item.TypeName),
-                secondRoot.InnerExceptions.Select(item => item.TypeName));
+                Enumerable.Range(0, 8),
+                firstRoot.InnerExceptions.Select(item => item.HResult));
+            Assert.Equal(
+                firstRoot.InnerExceptions.Select(item => item.HResult),
+                secondRoot.InnerExceptions.Select(item => item.HResult));
+        }
+
+        [Fact]
+        public void Capture_NestedAggregateUsesOneGlobalEightInnerBudget()
+        {
+            var exception = new AggregateException(
+                new AggregateException(Enumerable.Range(0, 6)
+                    .Select(index => (Exception)new IndexedException(index))),
+                new AggregateException(Enumerable.Range(6, 6)
+                    .Select(index => (Exception)new IndexedException(index))));
+
+            var capture = BimDiagnosticExceptionCapture.Capture(exception);
+
+            var root = Assert.IsType<BimDiagnosticExceptionInfo>(capture.Root);
+            Assert.Equal(8, Flatten(root).Count() - 1);
+            Assert.True(root.Truncated);
+            Assert.Equal(2, root.InnerExceptions.Count);
+            Assert.Equal(Enumerable.Range(0, 6),
+                root.InnerExceptions[0].InnerExceptions
+                    .Select(item => item.HResult));
+            Assert.Empty(root.InnerExceptions[1].InnerExceptions);
+            Assert.True(root.InnerExceptions[1].Truncated);
         }
 
         [Fact]
