@@ -1170,7 +1170,8 @@ def _verify_reservation_path_separation(
     staging_physical = staging.resolve(strict=False)
     if destination_physical == staging_physical:
         raise ValueError("resolution destination physically aliases staging")
-    if not _paths_share_filesystem(root, destination.parent):
+    filesystem_peer = staging if staging_exists else destination.parent
+    if not _paths_share_filesystem(root, filesystem_peer):
         raise ValueError("resolution staging and destination filesystem differ")
 
 

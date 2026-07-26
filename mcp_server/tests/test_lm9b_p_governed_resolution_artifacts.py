@@ -259,6 +259,47 @@ def test_task2_reservation_rejects_dangling_destination_alias_to_staging(
     assert preflight.attempt.staging_path.exists() is False
 
 
+def test_task2_reservation_checks_created_staging_filesystem(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    instrument = _instrument()
+    attempt = ARTIFACTS.bind_resolution_attempt(
+        instrument=instrument,
+        attempt_id="attempt-01",
+        resolution_root=root,
+        destination=root / "result",
+    )
+    preflight = ARTIFACTS.write_resolution_preflight(
+        destination=tmp_path / "preflight",
+        instrument=instrument,
+        attempt_binding=attempt,
+    )
+    real_same_filesystem = ARTIFACTS._paths_share_filesystem
+    observed_pairs: list[tuple[Path, Path]] = []
+
+    def refuse_created_staging(left: Path, right: Path) -> bool:
+        observed_pairs.append((left, right))
+        if right == preflight.attempt.staging_path:
+            return False
+        return real_same_filesystem(left, right)
+
+    monkeypatch.setattr(
+        ARTIFACTS,
+        "_paths_share_filesystem",
+        refuse_created_staging,
+    )
+    with pytest.raises(ValueError, match="filesystem"):
+        ARTIFACTS.reserve_resolution_staging(preflight)
+    assert (
+        preflight.attempt.resolution_root,
+        preflight.attempt.staging_path,
+    ) in observed_pairs
+    assert preflight.attempt.staging_path.exists() is False
+
+
 @pytest.mark.parametrize("mutation", ("derivative_path", "derivative_identity"))
 def test_task2_physical_loader_pins_official_derivative_before_verification(
     mutation: str,

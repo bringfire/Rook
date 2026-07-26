@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import base64
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -686,6 +687,7 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         "dirty_checkout",
         "role_membership_substitution",
         "route_identity_substitution",
+        "route_identity_reclosed_substitution",
     ),
 )
 def test_task2_precontact_refusal_has_zero_dispatch(
@@ -744,6 +746,36 @@ def test_task2_precontact_refusal_has_zero_dispatch(
         record["routes"][0]["request_fingerprint"] = (
             READINESS.request_fingerprint(changed_route)
         )
+    elif mutation == "route_identity_reclosed_substitution":
+        changed_identity = {
+            "adapter_path": "forged.adapter",
+            "provider": "forged-provider",
+            "model": "forged-model",
+            "credential_source": ["FORGED_CREDENTIAL"],
+        }
+        changed_route_fingerprint = READINESS.canonical_fingerprint(
+            changed_identity
+        )
+        changed_route = replace(
+            route,
+            route_fingerprint=changed_route_fingerprint,
+            adapter_path=changed_identity["adapter_path"],
+            provider=changed_identity["provider"],
+            model=changed_identity["model"],
+            credential_source=tuple(changed_identity["credential_source"]),
+        )
+        manifest = READINESS.RouteManifest(
+            routes=(changed_route,),
+            manifest_fingerprint=READINESS.canonical_fingerprint(
+                [changed_route_fingerprint]
+            ),
+        )
+        record["route_manifest_fingerprint"] = manifest.manifest_fingerprint
+        record["routes"][0]["route_fingerprint"] = changed_route_fingerprint
+        record["routes"][0]["request_fingerprint"] = (
+            READINESS.request_fingerprint(changed_route)
+        )
+        credential_present = {changed_route_fingerprint: True}
     if mutation in {
         "missing_route",
         "extra_role",
@@ -753,6 +785,7 @@ def test_task2_precontact_refusal_has_zero_dispatch(
         "wrong_commit",
         "role_membership_substitution",
         "route_identity_substitution",
+        "route_identity_reclosed_substitution",
     }:
         record["record_fingerprint"] = READINESS.record_fingerprint(record)
     invocation = _invocation(preflight, record)
@@ -803,6 +836,54 @@ def test_task2_precontact_refusal_has_zero_dispatch(
     assert calls == {"planner": 0, "planner_evaluator": 0}
     assert not preflight.attempt.staging_path.exists()
     assert not preflight.attempt.destination.exists()
+    assert not list(preflight.attempt.resolution_root.glob("**/dispatch_started*"))
+
+
+def test_task2_run_refuses_dangling_destination_alias_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    record, manifest, route = _fresh_readiness(head_sha)
+    invocation = _invocation(preflight, record)
+
+    def create_dangling_alias(*_args: object) -> None:
+        preflight.attempt.destination.symlink_to(
+            preflight.attempt.staging_path,
+            target_is_directory=True,
+        )
+
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS,
+        "require_clean_reviewed_checkout",
+        create_dangling_alias,
+    )
+    calls = {"planner": 0, "planner_evaluator": 0}
+
+    def planner_provider(_request: object) -> object:
+        calls["planner"] += 1
+        raise AssertionError("Planner was dispatched")
+
+    def evaluator_provider(_request: object) -> object:
+        calls["planner_evaluator"] += 1
+        raise AssertionError("evaluator was dispatched")
+
+    with pytest.raises(ValueError, match="alias|reparse|destination"):
+        RESOLUTION_PROBE.run_resolution_attempt(
+            preflight=preflight,
+            invocation_binding=invocation,
+            readiness_record=record,
+            readiness_manifest=manifest,
+            head_sha=head_sha,
+            now_iso="2026-07-25T20:00:06Z",
+            credential_present={route.route_fingerprint: True},
+            planner_provider=planner_provider,
+            evaluator_provider=evaluator_provider,
+        )
+    assert calls == {"planner": 0, "planner_evaluator": 0}
+    assert os.path.lexists(preflight.attempt.destination)
+    assert preflight.attempt.staging_path.exists() is False
     assert not list(preflight.attempt.resolution_root.glob("**/dispatch_started*"))
 
 
