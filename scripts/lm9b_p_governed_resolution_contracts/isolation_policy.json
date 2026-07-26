@@ -4,39 +4,48 @@
   "equations": [
     {
       "equation_id": "source_descriptor",
-      "owned_region": "/source_task/fingerprint"
+      "owned_region": "/source_task/fingerprint",
+      "inspected_region": "/source_task"
     },
     {
       "equation_id": "resolved_unresolved_rows",
-      "owned_region": "/unresolved_intent"
+      "owned_region": "/unresolved_intent",
+      "inspected_region": "/unresolved_intent"
     },
     {
       "equation_id": "authority_descriptor_reachability",
-      "owned_region": "/authority_artifacts"
+      "owned_region": "/authority_artifacts",
+      "inspected_region": "/authority_artifacts"
     },
     {
       "equation_id": "goal_unresolved_projection",
-      "owned_region": "/goal/projected_into/unresolved_intent_ids"
+      "owned_region": "/goal/projected_into/unresolved_intent_ids",
+      "inspected_region": "/goal/projected_into/unresolved_intent_ids"
     },
     {
       "equation_id": "clause_ownership",
-      "owned_region": "derived_exact_clause_occurrences"
+      "owned_region": null,
+      "inspected_region": "derived_exact_clause_occurrences"
     },
     {
       "equation_id": "authority_reference_additions",
-      "owned_region": "derived_exact_clause_source_refs"
+      "owned_region": "derived_exact_clause_source_refs",
+      "inspected_region": "derived_exact_clause_source_refs"
     },
     {
       "equation_id": "affected_clause_residual",
-      "owned_region": "derived_exact_affected_clause_residuals"
+      "owned_region": null,
+      "inspected_region": "derived_exact_affected_clause_residuals"
     },
     {
       "equation_id": "recipe_fingerprint",
-      "owned_region": "/recipe_fingerprint"
+      "owned_region": "/recipe_fingerprint",
+      "inspected_region": "/recipe_fingerprint"
     },
     {
       "equation_id": "global_residual_equality",
-      "owned_region": "canonical_normalized_residual_projection"
+      "owned_region": null,
+      "inspected_region": "canonical_normalized_residual_projection"
     }
   ],
   "model_obligations": [
@@ -53,5 +62,5 @@
     "Assign every erased location to exactly one named equation before residual comparison.",
     "Compare canonical normalized residual projections without rewriting candidate bytes."
   ],
-  "policy_fingerprint": "sha256:8e67131297ba3e1f5c5aa7a68c4f70a900f0da64a450bcc6f1bdd2243a81864e"
+  "policy_fingerprint": "sha256:b30da82c012b2350dd855525d6d6935cb8714db76ff59e96c2cee733ac8facd1"
 }

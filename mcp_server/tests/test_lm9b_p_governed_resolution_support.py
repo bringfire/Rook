@@ -93,7 +93,16 @@ def _load_with_successor(
 
 
 def _resolution_inputs():
-    sources = ARTIFACTS.load_verified_resolution_sources(
+    sources = _resolution_sources()
+    return ARTIFACTS.assemble_resolution_instrument(
+        sources=sources,
+        isolation_policy_path=ARTIFACTS.ISOLATION_POLICY_PATH,
+        evaluation_rubric_path=ARTIFACTS.EVALUATION_RUBRIC_PATH,
+    ).inputs
+
+
+def _resolution_sources():
+    return ARTIFACTS.load_verified_resolution_sources(
         historical_source_dir=HISTORICAL_SOURCE,
         derivative_archive=DERIVATIVE_ARCHIVE,
         derivative_identity=ARTIFACTS.OFFICIAL_DERIVATIVE_IDENTITY,
@@ -104,11 +113,57 @@ def _resolution_inputs():
         repo_root=ROOT,
         successor_envelope_path=ARTIFACTS.SUCCESSOR_ENVELOPE_PATH,
     )
-    return ARTIFACTS.assemble_resolution_instrument(
-        sources=sources,
-        isolation_policy_path=ARTIFACTS.ISOLATION_POLICY_PATH,
-        evaluation_rubric_path=ARTIFACTS.EVALUATION_RUBRIC_PATH,
-    ).inputs
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "empty_equations",
+        "reordered_equations",
+        "missing_equation",
+        "extra_equation",
+        "wrong_owned_region",
+        "empty_gate_obligations",
+        "changed_gate_obligation",
+        "changed_model_obligation",
+        "extra_field",
+    ),
+)
+def test_task3_fully_reclosed_policy_substitution_refuses_before_issuance(
+    mutation: str,
+) -> None:
+    policy = json.loads(ARTIFACTS.ISOLATION_POLICY_PATH.read_bytes())
+    if mutation == "empty_equations":
+        policy["equations"] = []
+    elif mutation == "reordered_equations":
+        policy["equations"].reverse()
+    elif mutation == "missing_equation":
+        policy["equations"].pop()
+    elif mutation == "extra_equation":
+        policy["equations"].append(
+            {"equation_id": "extra", "owned_region": "/extra"}
+        )
+    elif mutation == "wrong_owned_region":
+        policy["equations"][0]["owned_region"] = "/source_task"
+    elif mutation == "empty_gate_obligations":
+        policy["gate_obligations"] = []
+    elif mutation == "changed_gate_obligation":
+        policy["gate_obligations"][0] = "Changed gate obligation."
+    elif mutation == "changed_model_obligation":
+        policy["model_obligations"][0] = "Changed model obligation."
+    else:
+        policy["extra"] = True
+    policy["policy_fingerprint"] = PLANNER_SUPPORT.fingerprint_without(
+        policy, "policy_fingerprint"
+    )
+    with pytest.raises(ValueError, match="isolation policy"):
+        SUPPORT.assemble_verified_resolution_inputs(
+            sources=_resolution_sources(),
+            isolation_policy_bytes=_canonical_bytes(policy),
+            evaluation_rubric_bytes=(
+                ARTIFACTS.EVALUATION_RUBRIC_PATH.read_bytes()
+            ),
+        )
 
 
 def _reclose_recipe(value: dict[str, object], inputs: object) -> bytes:
@@ -122,28 +177,31 @@ def _reclose_recipe(value: dict[str, object], inputs: object) -> bytes:
     return _canonical_bytes(value)
 
 
-ISOLATION_MUTATIONS = (
+ISOLATION_REACHABLE_MUTATIONS = (
+    "goal_statement",
+    "affected_clause_statement",
+    "missing_required_reference",
+    "invariant",
+    "postcondition",
+)
+
+MECHANICAL_REJECTION_MUTATIONS = (
     "wrong_source_task_fingerprint",
     "other_source_descriptor_field",
     "retained_unresolved_row",
     "new_unresolved_row",
     "wrong_goal_unresolved_ids",
-    "goal_statement",
-    "affected_clause_statement",
     "affected_clause_id",
     "affected_clause_category",
     "affected_clause_location",
-    "missing_required_reference",
     "extra_reference",
     "duplicate_reference",
     "noncanonical_reference_order",
     "assumption",
     "derived_fact",
-    "invariant",
     "capability",
     "shape",
     "worker_slot",
-    "postcondition",
     "authority_descriptor",
     "remove_retained_descriptor",
     "retain_derived_removable_descriptor",
@@ -151,7 +209,16 @@ ISOLATION_MUTATIONS = (
     "reorder_authority_descriptors",
     "mutate_retained_authority_descriptor",
     "unrelated_reference",
+)
+
+FINGERPRINT_RESUBMISSION_MUTATIONS = (
     "claimed_fingerprint",
+)
+
+ISOLATION_MUTATIONS = (
+    *ISOLATION_REACHABLE_MUTATIONS,
+    *MECHANICAL_REJECTION_MUTATIONS,
+    *FINGERPRINT_RESUBMISSION_MUTATIONS,
 )
 
 
@@ -274,11 +341,37 @@ def _mutated_isolation_candidate(
     return candidate, reclose
 
 
-@pytest.mark.parametrize("mutation", ISOLATION_MUTATIONS)
-def test_task3_isolation_mutation_is_completed_rejection(mutation: str) -> None:
+@pytest.mark.parametrize(
+    ("mutation", "expected_mechanical_status"),
+    (
+        *((row, "mechanically_accepted") for row in ISOLATION_REACHABLE_MUTATIONS),
+        *(
+            (row, "probe_mechanically_rejected")
+            for row in MECHANICAL_REJECTION_MUTATIONS
+        ),
+        *(
+            (row, "fingerprint_resubmission_required")
+            for row in FINGERPRINT_RESUBMISSION_MUTATIONS
+        ),
+    ),
+)
+def test_task3_isolation_mutation_is_attributed_to_first_reached_boundary(
+    mutation: str,
+    expected_mechanical_status: str,
+) -> None:
     inputs = _resolution_inputs()
     candidate, reclose = _mutated_isolation_candidate(mutation, inputs)
     raw = _reclose_recipe(candidate, inputs) if reclose else _canonical_bytes(candidate)
+    mechanical = PLANNER_SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=raw,
+        authority=inputs.current_authority,
+        recipe_schema=inputs.recipe_schema,
+        normalization_profile=inputs.normalization_profile,
+        exclusion_policy=inputs.exclusion_policy,
+    )
+    assert mechanical.status == expected_mechanical_status
+    if expected_mechanical_status != "mechanically_accepted":
+        return
     result = SUPPORT.evaluate_resolution_isolation(
         inputs=inputs,
         candidate_recipe_bytes=raw,
@@ -394,6 +487,7 @@ def test_task3_isolation_positive_has_exact_named_equation_order() -> None:
             "status",
             "passed",
             "owned_pointers",
+            "inspected_pointers",
             "input_fingerprints",
         }
         for row in result.equations
@@ -404,6 +498,21 @@ def test_task3_isolation_positive_has_exact_named_equation_order() -> None:
     } == {"maintains"}
     assert inputs.policy_instance.value["descriptor_removal_eligible_ids"] == (
         "planning_policy",
+    )
+    equation_rows = {row["equation_id"]: row for row in result.equations}
+    assert equation_rows["clause_ownership"]["owned_pointers"] == ()
+    assert equation_rows["affected_clause_residual"]["owned_pointers"] == ()
+    owners = [
+        pointer
+        for row in result.equations
+        for pointer in row["owned_pointers"]
+    ]
+    assert len(owners) == len(set(owners))
+    assert not any(
+        left != right
+        and (left.startswith(right + "/") or right.startswith(left + "/"))
+        for left in owners
+        for right in owners
     )
 
 
@@ -429,7 +538,16 @@ def _rewrite_fixture_value(value: object, replacements: dict[str, str]) -> objec
     return value
 
 
-def test_task3_non_radial_policy_mechanics_witness_uses_same_gate() -> None:
+def test_task3_pure_comparison_refuses_authority_carrier() -> None:
+    issued = _resolution_inputs()
+    with pytest.raises(TypeError, match="comparison inputs"):
+        SUPPORT._evaluate_resolution_isolation_comparison(
+            comparison_inputs=issued,
+            candidate_recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+        )
+
+
+def test_task3_non_radial_policy_mechanics_witness_uses_pure_comparison() -> None:
     issued = _resolution_inputs()
     replacements = {
         "box_footprint_x": "annotation_text",
@@ -487,15 +605,15 @@ def test_task3_non_radial_policy_mechanics_witness_uses_same_gate() -> None:
         value=MappingProxyType(policy_value),
         instance_fingerprint=PLANNER_SUPPORT.fingerprint(policy_value),
     )
-    unrelated_inputs = replace(
-        issued,
+    comparison_inputs = SUPPORT.IsolationComparisonInputs(
         parent_recipe=MappingProxyType(parent),
-        successor_envelope=MappingProxyType(successor),
+        successor_envelope_fingerprint=successor["artifact_fingerprint"],
         correspondence=correspondence,
         policy_instance=policy_instance,
+        normalization_profile=issued.normalization_profile,
     )
-    result = SUPPORT._evaluate_resolution_isolation_verified(
-        inputs=unrelated_inputs,
+    result = SUPPORT._evaluate_resolution_isolation_comparison(
+        comparison_inputs=comparison_inputs,
         candidate_recipe_bytes=candidate_raw,
     )
     assert result.status == "isolated", [dict(row) for row in result.equations]

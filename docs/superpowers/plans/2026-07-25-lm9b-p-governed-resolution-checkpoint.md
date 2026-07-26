@@ -843,32 +843,35 @@ git commit -m "feat: close resolution authority and preflight"
 
 - [x] **Step 1: Write the parameterized isolation mutation table**
 
-Cover these completed candidate failures after independently recomputing recipe
-fingerprints and canonical order where applicable:
+Partition candidate mutations by the first boundary they truthfully reach after
+independently recomputing recipe fingerprints and canonical order where
+applicable:
 
 ```python
-ISOLATION_MUTATIONS = (
+ISOLATION_REACHABLE_MUTATIONS = (
+    "goal_statement",
+    "affected_clause_statement",
+    "missing_required_reference",
+    "invariant",
+    "postcondition",
+)
+MECHANICAL_REJECTION_MUTATIONS = (
     "wrong_source_task_fingerprint",
     "other_source_descriptor_field",
     "retained_unresolved_row",
     "new_unresolved_row",
     "wrong_goal_unresolved_ids",
-    "goal_statement",
-    "affected_clause_statement",
     "affected_clause_id",
     "affected_clause_category",
     "affected_clause_location",
-    "missing_required_reference",
     "extra_reference",
     "duplicate_reference",
     "noncanonical_reference_order",
     "assumption",
     "derived_fact",
-    "invariant",
     "capability",
     "shape",
     "worker_slot",
-    "postcondition",
     "authority_descriptor",
     "remove_retained_descriptor",
     "retain_derived_removable_descriptor",
@@ -876,12 +879,15 @@ ISOLATION_MUTATIONS = (
     "reorder_authority_descriptors",
     "mutate_retained_authority_descriptor",
     "unrelated_reference",
+)
+FINGERPRINT_RESUBMISSION_MUTATIONS = (
     "claimed_fingerprint",
 )
 ```
 
-Assert each returns completed status `isolation_rejected`, not control failure,
-when parent/policy inputs are valid.
+Assert the mechanical gate first. Only the five mechanically accepted rows may
+be evaluated as completed `isolation_rejected` outcomes. The other rows stop at
+their observed mechanical or fingerprint-resubmission boundary.
 
 - [x] **Step 2: Write policy-integrity control-failure tests**
 
@@ -961,9 +967,11 @@ bytes untouched.
 
 - [x] **Step 6: Add a positive non-radial policy-mechanics witness**
 
-Construct a test-only recipe pair using unrelated clause IDs and semantic keys
-but the same structural occurrence categories. Prove the shared gate accepts
-without adding any semantic-key or radial branch to source.
+Construct pure comparison inputs for a test-only recipe pair using unrelated
+clause IDs and semantic keys but the same structural occurrence categories.
+Prove the policy mechanics accept without claiming that the pair traversed the
+closure-issued authority carrier or public gate, and without adding any
+semantic-key or radial branch to source.
 
 Scan neutral sources:
 

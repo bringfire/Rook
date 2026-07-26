@@ -38,6 +38,55 @@ REVISION_SYSTEM_PROMPT = (
     "unrelated semantics."
 )
 
+_ISOLATION_POLICY_SCHEMA_ID = (
+    "rook.lm9b_p.governed_resolution_isolation_policy:v1"
+)
+_ISOLATION_POLICY_DEFINITION_ID = (
+    "lm9b_p.governed_resolution_isolation_policy:v1"
+)
+_ISOLATION_POLICY_FINGERPRINT = (
+    "sha256:b30da82c012b2350dd855525d6d6935cb8714db76ff59e96c2cee733ac8facd1"
+)
+_ISOLATION_POLICY_FIELDS = {
+    "schema",
+    "definition_id",
+    "equations",
+    "model_obligations",
+    "gate_obligations",
+    "policy_fingerprint",
+}
+_ISOLATION_POLICY_EQUATIONS = (
+    ("source_descriptor", "/source_task/fingerprint", "/source_task"),
+    ("resolved_unresolved_rows", "/unresolved_intent", "/unresolved_intent"),
+    (
+        "authority_descriptor_reachability",
+        "/authority_artifacts",
+        "/authority_artifacts",
+    ),
+    (
+        "goal_unresolved_projection",
+        "/goal/projected_into/unresolved_intent_ids",
+        "/goal/projected_into/unresolved_intent_ids",
+    ),
+    ("clause_ownership", None, "derived_exact_clause_occurrences"),
+    (
+        "authority_reference_additions",
+        "derived_exact_clause_source_refs",
+        "derived_exact_clause_source_refs",
+    ),
+    (
+        "affected_clause_residual",
+        None,
+        "derived_exact_affected_clause_residuals",
+    ),
+    ("recipe_fingerprint", "/recipe_fingerprint", "/recipe_fingerprint"),
+    (
+        "global_residual_equality",
+        None,
+        "canonical_normalized_residual_projection",
+    ),
+)
+
 
 @dataclass(frozen=True)
 class RenderedRevisionRequest:
@@ -54,6 +103,15 @@ class IsolationPolicyInstance:
     definition_fingerprint: str
     value: Mapping[str, object]
     instance_fingerprint: str
+
+
+@dataclass(frozen=True)
+class IsolationComparisonInputs:
+    parent_recipe: Mapping[str, object]
+    successor_envelope_fingerprint: str
+    correspondence: tuple[Mapping[str, object], ...]
+    policy_instance: IsolationPolicyInstance
+    normalization_profile: object
 
 
 @dataclass(frozen=True)
@@ -161,10 +219,7 @@ def _assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolutio
         raise ValueError("resolution evaluator rubric identity is invalid")
     if any("spacing choice absent" in item.casefold() for item in rubric.get("scenario_obligations", [])):
         raise ValueError("resolution evaluator rubric retains stale spacing authority")
-    if type(policy) is not dict or policy.get("policy_fingerprint") != (
-        PLANNER_SUPPORT.fingerprint_without(policy, "policy_fingerprint")
-    ):
-        raise ValueError("resolution isolation policy identity is invalid")
+    _validate_isolation_policy_definition(policy)
 
     replacement = PLANNER_ARTIFACTS.planner_input_record_from_bytes(
         role="evaluation_rubric",
@@ -328,6 +383,41 @@ def _assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolutio
         inputs_fingerprint=PLANNER_SUPPORT.fingerprint(inputs_identity),
     )
     return inputs
+
+
+def _validate_isolation_policy_definition(policy: object) -> None:
+    if type(policy) is not dict or set(policy) != _ISOLATION_POLICY_FIELDS:
+        raise ValueError("resolution isolation policy shape is invalid")
+    if (
+        policy.get("schema") != _ISOLATION_POLICY_SCHEMA_ID
+        or policy.get("definition_id") != _ISOLATION_POLICY_DEFINITION_ID
+        or policy.get("policy_fingerprint") != _ISOLATION_POLICY_FINGERPRINT
+        or policy.get("policy_fingerprint")
+        != PLANNER_SUPPORT.fingerprint_without(policy, "policy_fingerprint")
+    ):
+        raise ValueError("resolution isolation policy identity is invalid")
+    expected_equations = [
+        {
+            "equation_id": equation_id,
+            "owned_region": owned_region,
+            "inspected_region": inspected_region,
+        }
+        for equation_id, owned_region, inspected_region
+        in _ISOLATION_POLICY_EQUATIONS
+    ]
+    if policy.get("equations") != expected_equations:
+        raise ValueError("resolution isolation policy equations are invalid")
+    for field in ("model_obligations", "gate_obligations"):
+        rows = policy.get(field)
+        if (
+            type(rows) is not list
+            or not rows
+            or any(type(row) is not str or not row for row in rows)
+            or len(rows) != len(set(rows))
+        ):
+            raise ValueError(
+                f"resolution isolation policy {field} are invalid"
+            )
 
 
 def _normalization_profile_projection(profile: object) -> dict[str, object]:
@@ -561,7 +651,31 @@ def _derive_isolation_policy_instance_value(
 
 
 def _validate_isolation_control(inputs: VerifiedResolutionInputs) -> None:
-    policy = inputs.policy_instance
+    _validate_isolation_comparison_control(
+        _isolation_comparison_inputs_from_verified(inputs)
+    )
+
+
+def _isolation_comparison_inputs_from_verified(
+    inputs: VerifiedResolutionInputs,
+) -> IsolationComparisonInputs:
+    return IsolationComparisonInputs(
+        parent_recipe=inputs.parent_recipe,
+        successor_envelope_fingerprint=inputs.successor_envelope[
+            "artifact_fingerprint"
+        ],
+        correspondence=inputs.correspondence,
+        policy_instance=inputs.policy_instance,
+        normalization_profile=inputs.normalization_profile,
+    )
+
+
+def _validate_isolation_comparison_control(
+    comparison_inputs: IsolationComparisonInputs,
+) -> None:
+    if type(comparison_inputs) is not IsolationComparisonInputs:
+        raise TypeError("isolation comparison inputs are required")
+    policy = comparison_inputs.policy_instance
     if (
         policy.definition_id != policy.value.get("definition_id")
         or policy.definition_fingerprint
@@ -570,27 +684,35 @@ def _validate_isolation_control(inputs: VerifiedResolutionInputs) -> None:
     ):
         raise ValueError("isolation policy instance identity is invalid")
     expected = _derive_isolation_policy_instance_value(
-        parent_recipe=inputs.parent_recipe,
-        successor_envelope_fingerprint=inputs.successor_envelope[
-            "artifact_fingerprint"
-        ],
-        correspondence=inputs.correspondence,
+        parent_recipe=comparison_inputs.parent_recipe,
+        successor_envelope_fingerprint=(
+            comparison_inputs.successor_envelope_fingerprint
+        ),
+        correspondence=comparison_inputs.correspondence,
         definition_id=policy.definition_id,
         definition_fingerprint=policy.definition_fingerprint,
         model_obligations=policy.value.get("model_obligations"),
-        normalization_profile=inputs.normalization_profile,
+        normalization_profile=comparison_inputs.normalization_profile,
     )
     if PLANNER_SUPPORT._json_builtins(policy.value) != expected:
         raise ValueError("isolation policy instance differs from verified inputs")
     ownership = expected["residual_ownership"]
     pointers = [row["pointer"] for row in ownership]
-    if len(pointers) != len(set(pointers)):
+    if len(pointers) != len(set(pointers)) or any(
+        left != right
+        and (
+            left.startswith(right + "/")
+            or right.startswith(left + "/")
+        )
+        for left in pointers
+        for right in pointers
+    ):
         raise ValueError("isolation residual ownership overlaps or duplicates")
     if (
         policy.value["normalization_profile_id"]
-        != inputs.normalization_profile.profile_id
+        != comparison_inputs.normalization_profile.profile_id
         or policy.value["normalization_profile_fingerprint"]
-        != inputs.normalization_profile.profile_fingerprint
+        != comparison_inputs.normalization_profile.profile_fingerprint
     ):
         raise ValueError("isolation normalization identity differs")
 
@@ -677,24 +799,25 @@ def evaluate_resolution_isolation(
 ) -> IsolationGateResult:
     _consume_verified_resolution_inputs(inputs)
     _validate_isolation_control(inputs)
-    return _evaluate_resolution_isolation_verified(
-        inputs=inputs,
+    return _evaluate_resolution_isolation_comparison(
+        comparison_inputs=_isolation_comparison_inputs_from_verified(inputs),
         candidate_recipe_bytes=candidate_recipe_bytes,
     )
 
 
-def _evaluate_resolution_isolation_verified(
+def _evaluate_resolution_isolation_comparison(
     *,
-    inputs: VerifiedResolutionInputs,
+    comparison_inputs: IsolationComparisonInputs,
     candidate_recipe_bytes: bytes,
 ) -> IsolationGateResult:
-    parent = PLANNER_SUPPORT._json_builtins(inputs.parent_recipe)
+    _validate_isolation_comparison_control(comparison_inputs)
+    parent = PLANNER_SUPPORT._json_builtins(comparison_inputs.parent_recipe)
     candidate = PLANNER_SUPPORT.parse_strict_json(candidate_recipe_bytes)
     if type(candidate) is not dict:
         raise ValueError("candidate recipe must be an object")
     equations: list[Mapping[str, object]] = []
     differences: list[Mapping[str, object]] = []
-    successor_fingerprint = inputs.successor_envelope["artifact_fingerprint"]
+    successor_fingerprint = comparison_inputs.successor_envelope_fingerprint
 
     expected_source = copy.deepcopy(parent["source_task"])
     expected_source["fingerprint"] = successor_fingerprint
@@ -704,12 +827,13 @@ def _evaluate_resolution_isolation_verified(
             "source_descriptor",
             source_ok,
             owned_pointers=("/source_task/fingerprint",),
+            inspected_pointers=("/source_task",),
             inputs=(parent.get("source_task"), candidate.get("source_task")),
         )
     )
 
     resolved_semantic_keys = {
-        row["semantic_key"] for row in inputs.correspondence
+        row["semantic_key"] for row in comparison_inputs.correspondence
     }
     expected_unresolved = [
         copy.deepcopy(row)
@@ -722,6 +846,7 @@ def _evaluate_resolution_isolation_verified(
             "resolved_unresolved_rows",
             unresolved_ok,
             owned_pointers=("/unresolved_intent",),
+            inspected_pointers=("/unresolved_intent",),
             inputs=(
                 parent.get("unresolved_intent"),
                 expected_unresolved,
@@ -734,7 +859,9 @@ def _evaluate_resolution_isolation_verified(
         row["artifact_id"] for row in candidate_reference_occurrences
     }
     eligible_ids = tuple(
-        inputs.policy_instance.value["descriptor_removal_eligible_ids"]
+        comparison_inputs.policy_instance.value[
+            "descriptor_removal_eligible_ids"
+        ]
     )
     removable_ids = tuple(
         artifact_id
@@ -752,6 +879,7 @@ def _evaluate_resolution_isolation_verified(
             "authority_descriptor_reachability",
             descriptor_ok,
             owned_pointers=("/authority_artifacts",),
+            inspected_pointers=("/authority_artifacts",),
             inputs=(
                 parent.get("authority_artifacts"),
                 candidate.get("authority_artifacts"),
@@ -760,7 +888,7 @@ def _evaluate_resolution_isolation_verified(
     )
     candidate_goal = candidate.get("goal")
     resolved_intent_ids = {
-        row["parent_intent_id"] for row in inputs.correspondence
+        row["parent_intent_id"] for row in comparison_inputs.correspondence
     }
     expected_goal_unresolved = [
         intent_id
@@ -783,6 +911,7 @@ def _evaluate_resolution_isolation_verified(
             "goal_unresolved_projection",
             goal_ok,
             owned_pointers=("/goal/projected_into/unresolved_intent_ids",),
+            inspected_pointers=("/goal/projected_into/unresolved_intent_ids",),
             inputs=(
                 parent["goal"]["projected_into"]["unresolved_intent_ids"],
                 expected_goal_unresolved,
@@ -794,7 +923,7 @@ def _evaluate_resolution_isolation_verified(
     parent_occurrences = _clause_occurrences(parent)
     candidate_occurrences = _clause_occurrences(candidate)
     required_refs_by_clause: dict[str, list[dict[str, object]]] = {}
-    for row in inputs.correspondence:
+    for row in comparison_inputs.correspondence:
         intent = next(
             item
             for item in parent["unresolved_intent"]
@@ -813,7 +942,7 @@ def _evaluate_resolution_isolation_verified(
     reference_ok = True
     reference_evidence: list[dict[str, object]] = []
     affected_residual_evidence: list[dict[str, object]] = []
-    for row in inputs.policy_instance.value["affected_clauses"]:
+    for row in comparison_inputs.policy_instance.value["affected_clauses"]:
         clause_id = row["clause_id"]
         parent_matches = parent_occurrences.get(clause_id, [])
         candidate_matches = candidate_occurrences.get(clause_id, [])
@@ -873,7 +1002,8 @@ def _evaluate_resolution_isolation_verified(
         if parent_rest != candidate_rest:
             affected_clause_residual_ok = False
     affected_pointers = tuple(
-        row["pointer"] for row in inputs.policy_instance.value["affected_clauses"]
+        row["pointer"]
+        for row in comparison_inputs.policy_instance.value["affected_clauses"]
     )
     source_ref_pointers = tuple(
         pointer + "/source_refs" for pointer in affected_pointers
@@ -882,7 +1012,8 @@ def _evaluate_resolution_isolation_verified(
         _equation(
             "clause_ownership",
             clause_ownership_ok,
-            owned_pointers=affected_pointers,
+            owned_pointers=(),
+            inspected_pointers=affected_pointers,
             inputs=(parent_occurrences, candidate_occurrences),
         )
     )
@@ -891,6 +1022,7 @@ def _evaluate_resolution_isolation_verified(
             "authority_reference_additions",
             reference_ok,
             owned_pointers=source_ref_pointers,
+            inspected_pointers=source_ref_pointers,
             inputs=(reference_evidence,),
         )
     )
@@ -898,7 +1030,8 @@ def _evaluate_resolution_isolation_verified(
         _equation(
             "affected_clause_residual",
             affected_clause_residual_ok,
-            owned_pointers=affected_pointers,
+            owned_pointers=(),
+            inspected_pointers=affected_pointers,
             inputs=(affected_residual_evidence,),
         )
     )
@@ -910,7 +1043,8 @@ def _evaluate_resolution_isolation_verified(
     candidate_normalization_admitted = True
     try:
         normalized_candidate = PLANNER_SUPPORT.normalize_recipe(
-            copy.deepcopy(candidate_projection), inputs.normalization_profile
+            copy.deepcopy(candidate_projection),
+            comparison_inputs.normalization_profile,
         )
     except ValueError:
         # This path is unreachable after the required independent mechanical
@@ -928,6 +1062,7 @@ def _evaluate_resolution_isolation_verified(
             "recipe_fingerprint",
             fingerprint_ok,
             owned_pointers=("/recipe_fingerprint",),
+            inspected_pointers=("/recipe_fingerprint",),
             inputs=(claimed, normalized_candidate),
         )
     )
@@ -936,7 +1071,8 @@ def _evaluate_resolution_isolation_verified(
         key: value for key, value in parent.items() if key != "recipe_fingerprint"
     }
     normalized_parent = PLANNER_SUPPORT.normalize_recipe(
-        copy.deepcopy(parent_projection), inputs.normalization_profile
+        copy.deepcopy(parent_projection),
+        comparison_inputs.normalization_profile,
     )
     parent_residual = copy.deepcopy(normalized_parent)
     candidate_residual = copy.deepcopy(normalized_candidate)
@@ -944,7 +1080,9 @@ def _evaluate_resolution_isolation_verified(
         row["equation_id"]: row["passed"] for row in equations
     }
     consumed_locations: list[str] = []
-    for ownership in inputs.policy_instance.value["residual_ownership"]:
+    for ownership in comparison_inputs.policy_instance.value[
+        "residual_ownership"
+    ]:
         equation_id = ownership["equation_id"]
         pointer = ownership["pointer"]
         if equation_status.get(equation_id) is not True:
@@ -954,7 +1092,9 @@ def _evaluate_resolution_isolation_verified(
         consumed_locations.append(pointer)
     expected_consumed = [
         row["pointer"]
-        for row in inputs.policy_instance.value["residual_ownership"]
+        for row in comparison_inputs.policy_instance.value[
+            "residual_ownership"
+        ]
         if equation_status.get(row["equation_id"]) is True
     ]
     if consumed_locations != expected_consumed:
@@ -970,6 +1110,7 @@ def _evaluate_resolution_isolation_verified(
             "global_residual_equality",
             residual_ok,
             owned_pointers=(),
+            inspected_pointers=(),
             inputs=(parent_residual_bytes, candidate_residual_bytes),
         )
     )
@@ -1136,6 +1277,7 @@ def _equation(
     passed: bool,
     *,
     owned_pointers: tuple[object, ...],
+    inspected_pointers: tuple[object, ...],
     inputs: tuple[object, ...],
 ) -> Mapping[str, object]:
     input_projection = [
@@ -1150,12 +1292,14 @@ def _equation(
             "status": "passed" if passed else "rejected",
             "passed": passed,
             "owned_pointers": tuple(owned_pointers),
+            "inspected_pointers": tuple(inspected_pointers),
             "input_fingerprints": tuple(input_projection),
         }
     )
 
 
 __all__ = (
+    "IsolationComparisonInputs",
     "IsolationGateResult",
     "IsolationPolicyInstance",
     "RenderedRevisionRequest",
