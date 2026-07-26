@@ -72,22 +72,27 @@ namespace RookBim.Tests
         {
             var preset = Read("src/RookBim/Revit/RevitPresetResolver.cs");
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var resolve = ExtractExecutableMember(
+                preset,
+                "internal sealed class RevitPresetResolver",
+                "public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request, BimDiagnosticContext diagnostics)");
+            var exportPreset = ExtractExecutableMember(
+                runtime,
+                "public sealed class RevitRookBimRuntime : IRookBimRuntime",
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)");
 
             Assert.Contains(
-                CollapseWhitespace(
-                    "public RevitPresetResolution Resolve(Document document, View? activeView, " +
-                    "BimExportPresetRequest request, BimDiagnosticContext diagnostics)"),
-                CollapseWhitespace(preset));
-            Assert.Contains(
-                "query.Query(document, activeView, selector, diagnostics)",
-                preset);
+                RemoveWhitespace(
+                    "query.Query(document, activeView, selector, diagnostics)"),
+                RemoveWhitespace(resolve));
             Assert.DoesNotContain(
-                "query.Query(document, activeView, selector);",
-                preset);
+                RemoveWhitespace(
+                    "query.Query(document, activeView, selector)"),
+                RemoveWhitespace(resolve));
             Assert.Contains(
-                CollapseWhitespace(
+                RemoveWhitespace(
                     "presetResolver.Resolve(document, view, request, diagnostics)"),
-                CollapseWhitespace(runtime));
+                RemoveWhitespace(exportPreset));
         }
 
         [Fact]
@@ -96,19 +101,49 @@ namespace RookBim.Tests
             var query = Read("src/RookBim/Revit/RevitQueryService.cs");
             var preset = Read("src/RookBim/Revit/RevitPresetResolver.cs");
             var export = Read("src/RookBim/Revit/RevitExportService.cs");
+            var buildResult = ExtractExecutableMember(
+                query,
+                "internal sealed class RevitQueryService",
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+            var resolve = ExtractExecutableMember(
+                preset,
+                "internal sealed class RevitPresetResolver",
+                "public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request, BimDiagnosticContext diagnostics)");
+            var buildSidecar = ExtractExecutableMember(
+                export,
+                "internal sealed class RevitExportService",
+                "private object BuildSidecar(Document document, BimExportElementsRequest request, IReadOnlyList<Element> elements, bool truncated, List<object> elementRecords, List<object> roomRecords, RevitPresetContext? presetContext)");
+            var buildValidation = ExtractExecutableMember(
+                export,
+                "internal sealed class RevitExportService",
+                "private object BuildValidation(Document document, BimExportCounts counts, double scale, string targetUnits, BimExportArtifactPaths paths, string sidecarJson, RevitPresetContext? presetContext, object? summary, RevitRelationshipIndex relationships, object? modelAudit)");
 
             Assert.Contains(
-                "Document = RevitIdentitySerializer.DocumentIdentity(document)",
-                query);
+                RemoveWhitespace(
+                    "Document = RevitIdentitySerializer.DocumentIdentity(document)"),
+                RemoveWhitespace(buildResult));
             Assert.Contains(
-                "RevitIdentitySerializer.DocumentIdentity(document).Guid",
-                preset);
+                RemoveWhitespace(
+                    "RevitIdentitySerializer.DocumentIdentity(document).Guid"),
+                RemoveWhitespace(resolve));
             Assert.Contains(
-                "RevitIdentitySerializer.DocumentIdentity(document)",
-                export);
-            Assert.DoesNotContain("DocumentIdentity(document, diagnostics", query);
-            Assert.DoesNotContain("DocumentIdentity(document, diagnostics", preset);
-            Assert.DoesNotContain("DocumentIdentity(document, diagnostics", export);
+                RemoveWhitespace(
+                    "RevitIdentitySerializer.DocumentIdentity(document)"),
+                RemoveWhitespace(buildSidecar));
+            Assert.Contains(
+                RemoveWhitespace(
+                    "RevitIdentitySerializer.DocumentIdentity(document)"),
+                RemoveWhitespace(buildValidation));
+            Assert.DoesNotContain("diagnostics", buildResult);
+            Assert.DoesNotContain(
+                RemoveWhitespace("DocumentIdentity(document, diagnostics"),
+                RemoveWhitespace(resolve));
+            Assert.DoesNotContain(
+                RemoveWhitespace("DocumentIdentity(document, diagnostics"),
+                RemoveWhitespace(buildSidecar));
+            Assert.DoesNotContain(
+                RemoveWhitespace("DocumentIdentity(document, diagnostics"),
+                RemoveWhitespace(buildValidation));
         }
 
         [Fact]
@@ -166,23 +201,35 @@ namespace RookBim.Tests
         [Fact]
         public void Runtime_WiresExportPresetThroughResolverAndExportTimeout()
         {
-            var src = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var exportPreset = ExtractExecutableMember(
+                runtime,
+                "public sealed class RevitRookBimRuntime : IRookBimRuntime",
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)");
 
+            Assert.Contains("presetResolver.Resolve", exportPreset);
+            Assert.Contains("ExportResolved", exportPreset);
+            Assert.Contains("ExportDispatchTimeout", exportPreset);
             Assert.Contains(
-                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)",
-                src);
-            Assert.Contains("RevitPresetResolver", src);
-            Assert.Contains("ExportResolved", src);
-            Assert.Contains("ExportDispatchTimeout", src);
-            Assert.Contains(
-                CollapseWhitespace(
+                RemoveWhitespace(
                     "presetResolver.Resolve(document, view, request, diagnostics)"),
-                CollapseWhitespace(src));
+                RemoveWhitespace(exportPreset));
         }
 
-        private static string CollapseWhitespace(string value)
+        private static string ExtractExecutableMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
         {
-            return string.Concat(value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            return RookBimModuleSourceTests.ExtractExecutableMember(
+                source,
+                typeDeclaration,
+                memberDeclaration);
+        }
+
+        private static string RemoveWhitespace(string value)
+        {
+            return RookBimModuleSourceTests.RemoveWhitespace(value);
         }
 
         internal static string Read(string relativePath)
