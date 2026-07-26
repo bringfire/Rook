@@ -9,6 +9,8 @@ namespace RookBim
     {
         public static void Activate()
         {
+            BimDiagnostics.RegisterModuleMetadata(typeof(RookBimModule).Assembly);
+
             if (!IsLoaded("RevitAPIUI") || !IsLoaded("RhinoInside.Revit"))
             {
                 RookBimRuntimeRegistry.Install(
