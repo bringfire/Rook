@@ -498,6 +498,128 @@ Assert.Contains(""required"", member);";
         }
 
         [Fact]
+        public void SourceInvocationAudit_Task9ActualQueryElementsRejectsAnAddedUntracedCall()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                queryElements,
+                "query.Query(document, view, (request));");
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertTask9QueryElementsCallContract(mutated));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualBuildResultRejectsAnAddedDetailedIdentityCall()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var buildResult = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                buildResult,
+                "var contextAlias = BimDiagnosticContext.Disabled;\n" +
+                "RevitIdentitySerializer.DocumentIdentity(" +
+                "(document), contextAlias, includeAuxiliaryState: false);");
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertTask9BuildResultIdentityCallContract(mutated));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualQueryElementsRejectsAReassignedContextAlias()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var mutated = ReplaceSingle(
+                queryElements,
+                "return query.Query(document, view, effectiveRequest, diagnostics);",
+                "var contextAlias = diagnostics;\n" +
+                "contextAlias = BimDiagnosticContext.Disabled;\n" +
+                "return query.Query(document, view, effectiveRequest, contextAlias);");
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutated,
+                    "query.Query",
+                    "document",
+                    "view",
+                    "effectiveRequest",
+                    "diagnostics"));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualBuildResultRejectsAReassignedDocumentAlias()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var buildResult = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+            var mutated = ReplaceSingle(
+                buildResult,
+                "return new BimQueryElementsResult",
+                "var documentAlias = document;\n" +
+                "documentAlias = otherDocument;\n" +
+                "return new BimQueryElementsResult");
+            mutated = ReplaceSingle(
+                mutated,
+                "RevitIdentitySerializer.DocumentIdentity(document)",
+                "RevitIdentitySerializer.DocumentIdentity(documentAlias)");
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutated,
+                    "RevitIdentitySerializer.DocumentIdentity",
+                    "document"));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualQueryElementsIgnoresLongerReceiverIdentifiers()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                queryElements,
+                "somequery.Query(document, view, request, diagnostics);");
+
+            AssertSingleInvocationArguments(
+                mutated,
+                "query.Query",
+                "document",
+                "view",
+                "effectiveRequest",
+                "diagnostics");
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ResolvesExplicitlyTypedDirectAliases()
+        {
+            const string member =
+                "BimDiagnosticContext contextAlias = diagnostics;\n" +
+                "query.Query(document, view, request, contextAlias);";
+
+            AssertSingleInvocationArguments(
+                member,
+                "query.Query",
+                "document",
+                "view",
+                "request",
+                "diagnostics");
+        }
+
+        [Fact]
         public void SourceContracts_Task8PositivesBindExactMembers()
         {
             var source = Read(
@@ -1699,26 +1821,48 @@ Assert.Contains(""required"", member);";
                 QueryServiceType,
                 "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
 
-            Assert.Contains("LiveCategories(document, diagnostics)", list);
-            Assert.Contains("LiveCategories(document, diagnostics)", resolve);
-            Assert.Contains(
-                RemoveWhitespace(
-                    "RevitIdentitySerializer.DocumentIdentity(document, diagnostics, includeAuxiliaryState: false)"),
-                RemoveWhitespace(list));
-            Assert.Contains(
-                RemoveWhitespace(
-                    "RevitIdentitySerializer.DocumentIdentity(document, diagnostics, includeAuxiliaryState: false)"),
-                RemoveWhitespace(resolve));
-            Assert.Contains("categories.List(document, diagnostics)", listCategories);
-            Assert.Contains("query.Query(document, view, effectiveRequest, diagnostics)", queryElements);
-            Assert.Contains("categories.Resolve(document, categoryName, diagnostics)", query);
-            Assert.Contains(
-                "return Query(document, activeView, request, BimDiagnosticContext.Disabled);",
-                untracedQuery);
-            Assert.Contains(
-                "Document = RevitIdentitySerializer.DocumentIdentity(document)",
-                buildResult);
-            Assert.DoesNotContain("diagnostics", buildResult);
+            AssertSingleInvocationArguments(
+                list,
+                "LiveCategories",
+                "document",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                resolve,
+                "LiveCategories",
+                "document",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                list,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document",
+                "diagnostics",
+                "includeAuxiliaryState:false");
+            AssertSingleInvocationArguments(
+                resolve,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document",
+                "diagnostics",
+                "includeAuxiliaryState:false");
+            AssertSingleInvocationArguments(
+                listCategories,
+                "categories.List",
+                "document",
+                "diagnostics");
+            AssertTask9QueryElementsCallContract(queryElements);
+            AssertSingleInvocationArguments(
+                query,
+                "categories.Resolve",
+                "document",
+                "categoryName",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                FirstExecutableStatement(untracedQuery),
+                "Query",
+                "document",
+                "activeView",
+                "request",
+                "BimDiagnosticContext.Disabled");
+            AssertTask9BuildResultIdentityCallContract(buildResult);
         }
 
         [Fact]
@@ -1774,7 +1918,11 @@ Assert.Contains(""required"", member);";
             Assert.Contains("return ExecuteInDocumentContext", listCategories);
             Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
             Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
-            Assert.Contains("categories.List(document, diagnostics)", listCategories);
+            AssertSingleInvocationArguments(
+                listCategories,
+                "categories.List",
+                "document",
+                "diagnostics");
             Assert.DoesNotContain("BimErrorCode.NotRhinoInside", listCategories);
             Assert.Contains("BimErrorCode.InternalError", documentContext);
         }
@@ -1789,7 +1937,12 @@ Assert.Contains(""required"", member);";
                 "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
 
             Assert.Contains("private readonly RevitCategoryResolver categories", service);
-            Assert.Contains("categories.Resolve(document, categoryName, diagnostics)", query);
+            AssertSingleInvocationArguments(
+                query,
+                "categories.Resolve",
+                "document",
+                "categoryName",
+                "diagnostics");
             Assert.Contains("BimErrorCode.AmbiguousCategory", query);
             Assert.Contains("BimErrorCode.CategoryNotQueryable", query);
             Assert.Contains("Data = new { resolution = resolution }", service);
@@ -1899,7 +2052,7 @@ Assert.Contains(""required"", member);";
             Assert.Contains("return ExecuteInDocumentContext", queryElements);
             Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
             Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
-            Assert.Contains("query.Query(document, view, effectiveRequest, diagnostics)", queryElements);
+            AssertTask9QueryElementsCallContract(queryElements);
             Assert.DoesNotContain("LaterToolUnavailable", queryElements);
         }
 
@@ -1997,7 +2150,12 @@ Assert.Contains(""required"", member);";
                 QueryServiceType,
                 "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
 
-            Assert.Contains("categories.Resolve(document, categoryName, diagnostics)", query);
+            AssertSingleInvocationArguments(
+                query,
+                "categories.Resolve",
+                "document",
+                "categoryName",
+                "diagnostics");
             Assert.DoesNotContain("NormalizeCategoryCandidate", service);
             Assert.DoesNotContain("TrimTrailingPluralS", service);
             Assert.DoesNotContain("ResolveBuiltInCategory", service);
@@ -2486,7 +2644,7 @@ Assert.Contains(""required"", member);";
             var assignments = Regex.Matches(
                 source.CodeMask,
                 @"(?<![A-Za-z0-9_])var\s+" +
-                @"(?<target>@?[A-Za-z_][A-Za-z0-9_]*)\s*=\s*" +
+                @"(?<target>@?[A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*" +
                 @"(?<expression>[^;]*);",
                 RegexOptions.CultureInvariant);
 
@@ -3091,26 +3249,65 @@ Assert.Contains(""required"", member);";
                 .ToArray());
         }
 
+        private static void AssertTask9QueryElementsCallContract(string source)
+        {
+            AssertSingleInvocationArguments(
+                source,
+                "query.Query",
+                "document",
+                "view",
+                "effectiveRequest",
+                "diagnostics");
+        }
+
+        private static void AssertTask9BuildResultIdentityCallContract(string source)
+        {
+            AssertSingleInvocationArguments(
+                source,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+        }
+
+        private static string InsertBeforeFinalClosingBrace(
+            string source,
+            string insertion)
+        {
+            var close = source.LastIndexOf('}');
+            Assert.True(close >= 0, "Expected an extracted member body.");
+            return source.Insert(close, insertion + Environment.NewLine);
+        }
+
+        private static string ReplaceSingle(
+            string source,
+            string oldValue,
+            string newValue)
+        {
+            Assert.Equal(1, CountOccurrences(source, oldValue));
+            return source.Replace(oldValue, newValue);
+        }
+
         internal static void AssertSingleInvocationArguments(
             string source,
             string invocationTarget,
             params string[] expectedArguments)
         {
             var code = Lex(source).CodeMask;
-            var aliases = DirectLocalAliases(code);
             var invocations = FindInvocationArguments(code, invocationTarget);
 
             var invocation = Assert.Single(invocations);
-            Assert.Equal(expectedArguments.Length, invocation.Count);
+            var aliases = DirectLocalAliases(code, invocation.Start);
+            Assert.Equal(expectedArguments.Length, invocation.Arguments.Count);
             for (var index = 0; index < expectedArguments.Length; index++)
             {
                 Assert.Equal(
                     expectedArguments[index],
-                    ResolveInvocationArgument(invocation[index], aliases));
+                    ResolveInvocationArgument(
+                        invocation.Arguments[index],
+                        aliases));
             }
         }
 
-        private static IReadOnlyList<IReadOnlyList<string>> FindInvocationArguments(
+        private static IReadOnlyList<SourceInvocation> FindInvocationArguments(
             string code,
             string invocationTarget)
         {
@@ -3126,10 +3323,17 @@ Assert.Contains(""required"", member);";
                     nameof(invocationTarget));
             }
 
-            var invocations = new List<IReadOnlyList<string>>();
+            var invocations = new List<SourceInvocation>();
             for (var candidate = 0; candidate < code.Length; candidate++)
             {
                 if (!IsIdentifierStart(code[candidate]))
+                {
+                    continue;
+                }
+
+                if ((candidate > 0 &&
+                     IsIdentifierCharacter(code[candidate - 1])) ||
+                    PreviousNonWhitespaceIsDot(code, candidate))
                 {
                     continue;
                 }
@@ -3173,10 +3377,25 @@ Assert.Contains(""required"", member);";
                 }
 
                 var close = FindClosingParenthesis(code, cursor);
-                invocations.Add(SplitTopLevelArguments(code, cursor + 1, close));
+                invocations.Add(new SourceInvocation(
+                    candidate,
+                    SplitTopLevelArguments(code, cursor + 1, close)));
             }
 
             return invocations;
+        }
+
+        private static bool PreviousNonWhitespaceIsDot(string code, int start)
+        {
+            for (var index = start - 1; index >= 0; index--)
+            {
+                if (!char.IsWhiteSpace(code[index]))
+                {
+                    return code[index] == '.';
+                }
+            }
+
+            return false;
         }
 
         private static bool TryReadIdentifier(
@@ -3297,13 +3516,16 @@ Assert.Contains(""required"", member);";
         }
 
         private static IReadOnlyDictionary<string, string> DirectLocalAliases(
-            string code)
+            string code,
+            int end)
         {
             var aliases = new Dictionary<string, string>(StringComparer.Ordinal);
-            var ambiguous = new HashSet<string>(StringComparer.Ordinal);
+            var tainted = new HashSet<string>(StringComparer.Ordinal);
             var assignments = Regex.Matches(
-                code,
-                @"(?<![A-Za-z0-9_])var\s+" +
+                code.Substring(0, end),
+                @"(?<![A-Za-z0-9_.])" +
+                @"(?:(?<declaration>var|@?[A-Z][A-Za-z0-9_]*" +
+                @"(?:\.@?[A-Za-z_][A-Za-z0-9_]*)*(?:\?)?(?:\[\])?)\s+)?" +
                 @"(?<target>@?[A-Za-z_][A-Za-z0-9_]*)\s*=\s*" +
                 @"(?<expression>[^;]*);",
                 RegexOptions.CultureInvariant);
@@ -3311,27 +3533,43 @@ Assert.Contains(""required"", member);";
             {
                 var target = NormalizeIdentifier(
                     assignment.Groups["target"].Value);
+                var isDeclaration = assignment.Groups["declaration"].Success;
+                if (!isDeclaration &&
+                    !aliases.ContainsKey(target) &&
+                    !tainted.Contains(target))
+                {
+                    continue;
+                }
+
                 var expression = StripOuterParentheses(RemoveWhitespace(
                     assignment.Groups["expression"].Value));
                 if (!IsDirectAliasExpression(expression))
                 {
-                    continue;
-                }
-
-                if (aliases.ContainsKey(target))
-                {
                     aliases.Remove(target);
-                    ambiguous.Add(target);
+                    tainted.Add(target);
                     continue;
                 }
 
-                if (!ambiguous.Contains(target))
-                {
-                    aliases.Add(target, expression);
-                }
+                aliases[target] = expression;
+                tainted.Remove(target);
             }
 
             return aliases;
+        }
+
+        private sealed class SourceInvocation
+        {
+            public SourceInvocation(
+                int start,
+                IReadOnlyList<string> arguments)
+            {
+                Start = start;
+                Arguments = arguments;
+            }
+
+            public int Start { get; }
+
+            public IReadOnlyList<string> Arguments { get; }
         }
 
         private static bool IsDirectAliasExpression(string expression)
