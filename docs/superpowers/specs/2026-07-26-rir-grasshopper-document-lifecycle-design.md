@@ -281,7 +281,7 @@ It does not collapse the global and instance flags before applying host policy.
 
 ### Policy matrix
 
-| Host and state | Decision | Classification |
+| Host and state | Decision | `scheduleClassification` |
 |---|---|---|
 | Solve not requested | Do not schedule | `solve_not_requested` |
 | RiR, registration known false | Do not schedule | `rir_document_unregistered` |
@@ -297,16 +297,47 @@ It does not collapse the global and instance flags before applying host policy.
 | Standalone, global unknown, instance false | Do not schedule | `document_solver_disabled` |
 | Standalone, global unknown, instance true or unknown | Preserve current safe asynchronous fail-open behavior | `solver_state_unknown`; verification deferred |
 | Standalone, global true, instance unknown | Preserve current safe asynchronous fail-open behavior | `solver_state_unknown`; verification deferred |
-| Any host, state otherwise permits scheduling, scheduling API absent | Do not schedule | `schedule_api_unavailable`; `solveScheduled = false` |
-| Any host, scheduling adapter rejects or invocation throws | No schedule was accepted | `schedule_request_failed`; `solveScheduled = false` |
 
-The table first decides whether host and solver state permit a schedule attempt. Scheduling capability is then applied only to rows which would schedule:
+`scheduleClassification` records the host/policy decision above. It does not claim that reflection succeeded or that Grasshopper solved.
 
-- if the reflected `ScheduleSolution(int)` API is absent, do not invoke anything and return `schedule_api_unavailable` with `solveScheduled = false`;
-- if the scheduling adapter rejects the request or invocation throws, return `schedule_request_failed` with `solveScheduled = false` and a bounded warning;
-- if invocation returns without rejection or exception, `solveScheduled = true` means only that Grasshopper accepted the asynchronous scheduling call. It never means that a solution completed or that RiR deferred/replayed it.
+### Acceptance matrix
 
-API-unavailable and invocation-failure outcomes are conclusive about Rook's attempt and do not set verification-deferred merely because a schedule did not occur. The bounded failure result may contain the exception type already allowed by route conventions, but never a raw exception, stack trace, arbitrary message, path, or document content. A missing scheduling API or failed invocation never causes an `Enabled` write or a synchronous fallback.
+Scheduling capability is evaluated only when policy permits an attempt. `scheduleAcceptance` is a separate authoritative closed value:
+
+| Invocation state | `scheduleAcceptance` | `scheduleFailureCode` | Required behavior |
+|---|---|---|---|
+| Policy does not permit an attempt | `not_attempted` | `null` | Do not inspect or invoke the scheduling API |
+| Standalone suspension restoration fails | `not_attempted` | `standalone_solver_restore_failed` | Preserve the committed mutation result; do not invoke or retry |
+| Pre-invocation validation rejects | `not_attempted` | `schedule_precondition_rejected` | Do not invoke |
+| Supported method is absent | `unavailable` | `schedule_api_unavailable` | Do not invoke |
+| `ScheduleSolution(delay)` returns | `accepted` | `null` | Mark completion verification deferred |
+| `MethodInfo.Invoke` begins and throws | `unknown` | `schedule_acceptance_unknown` | Mark verification deferred and never retry |
+
+The existing `solveScheduled` boolean remains temporarily for compatibility and is derived only as `scheduleAcceptance == accepted`. It is not authoritative. In particular, `solveScheduled = false` does not prove that Grasshopper has no pending schedule when acceptance is `unknown`.
+
+Method absence and a rejection proven to occur before invocation are conclusive. A thrown target invocation is not: Grasshopper writes `m_scheduleDelay` before `StartSchedule`, so an exception can leave partially accepted scheduling state. That path records a bounded exception type, sets `scheduleAcceptance = unknown`, leaves verification deferred, and never retries. No path includes a raw exception, stack trace, arbitrary message, path, or document content.
+
+The reflection adapter classifies a `TargetInvocationException` as target-entry evidence and therefore `unknown`. A reflection/validation failure may be `not_attempted` only when its type and call position prove that the target method was not entered. Any ambiguity resolves to `unknown`; exception-message parsing never decides acceptance.
+
+### Immediate invocation boundary
+
+Rook has one scheduler: Grasshopper's own `GH_Document.ScheduleSolution(int)`. The five-second `Task.Run`/Rhino-UI redispatch handoff is removed. When policy permits scheduling, Rook invokes `ScheduleSolution` exactly once with `delay >= 1` from the existing Rhino UI-thread callback before constructing or returning the HTTP response.
+
+For `/gh/edit`, the normative order is:
+
+```text
+perform mutations
+→ ExpireSolution(false) for each dirty object
+→ capture the committed structural snapshot
+→ restore standalone document suspension
+→ inspect the post-restoration schedule preconditions
+→ invoke ScheduleSolution(delay >= 1) exactly once
+→ project scheduleAcceptance and build the response
+```
+
+Other mutation routes follow the same ordering relative to their own committed readback or snapshot: expiration and response evidence precede the one scheduling invocation, and invocation precedes callback return. A positive Grasshopper delay only arms its timer; the actual solution is marshalled to the editor UI later. Rook never calls `NewSolution`, never uses delay zero, never waits for solution completion, and never falls back to synchronous solving.
+
+Inside RiR, batch suspension is a no-op, so there is no restoration step and no Rook `Enabled` write. In standalone Rhino, restoration is attempted on every exit path. On the successful path it completes before scheduling. If restoration fails, Rook does not invoke `ScheduleSolution`; it retains the mutation's actual success or failure, reports `scheduleFailureCode = standalone_solver_restore_failed` with `scheduleAcceptance = not_attempted`, includes the observed final solver state when available, and performs no retry. Cleanup/finally paths cannot silently swallow restoration failure.
 
 `global_solver_unavailable` is deliberately neutral. The public getter returns false when Grasshopper cannot solve as well as when its underlying global flag is disabled, and RiR temporarily disables that flag during document registration. Rook must not label every false result a user lock.
 
@@ -314,9 +345,9 @@ API-unavailable and invocation-failure outcomes are conclusive about Rook's atte
 
 ### RiR batch suspension
 
-Inside RiR, `GhDocumentSolveSuspension.Begin` is a no-op and never writes `document.Enabled`. The normal mutation path continues to use non-synchronous expiration and one asynchronous schedule request.
+Inside RiR, `GhDocumentSolveSuspension.Begin` is a no-op and never writes `document.Enabled`. The normal mutation path continues to use non-synchronous expiration and one positive-delay asynchronous schedule request before callback return.
 
-Standalone Rhino retains the current batch suspension behavior in this change. Any later attempt to simplify standalone suspension requires its own evidence and design; it is outside this incident boundary.
+Standalone Rhino retains batch suspension during mutation, but restores it immediately after the structural snapshot and before the one scheduling invocation. The obsolete five-second restore/schedule delay is not retained. Any later attempt to remove standalone suspension entirely requires its own evidence and design; it is outside this incident boundary.
 
 ### Removal of readiness repair
 
@@ -345,6 +376,8 @@ New/open success data includes bounded evidence equivalent to:
 
 Post-mutation responses add a neutral schedule classification and registration-known/registered evidence. They retain existing fields unless removal is separately versioned.
 
+`scheduleClassification`, `scheduleAcceptance`, and nullable `scheduleFailureCode` are additive closed fields. `scheduleClassification` explains the host/policy decision; `scheduleAcceptance` authoritatively describes invocation acceptance; `scheduleFailureCode` records the bounded execution failure when present. `solveScheduled` is retained as a deprecated compatibility projection which is true only for `accepted`. Consumers must use `scheduleAcceptance` to distinguish `not_attempted`, `unavailable`, and `unknown`; they must not interpret a false boolean as proof that Grasshopper scheduled nothing.
+
 The result shape must not expose internal document objects, raw filesystem paths beyond the route's existing response, arbitrary callback data, or exception objects.
 
 ## Cleanup and doctrine
@@ -356,7 +389,9 @@ The implementation deletes or supersedes:
 - manual open through `GH_DocumentIO` in the route;
 - `GhSolveReadinessCoordinator` and its tests;
 - RiR delayed `Enabled` restoration;
+- `RequestDeferredPostMutationSolve`, its `Task.Run`/UI redispatch scheduler, and the five-second dispatch delay;
 - tests that require successful RiR repair writes;
+- tests that require post-response scheduling or delayed standalone restoration;
 - tests that assert registration is irrelevant;
 - the claim in `2026-06-13-rir-gh-solver-enabled-race-design.md` that `DocumentServer.AddDocument` is rejected.
 
@@ -418,12 +453,18 @@ Tests must cover every policy row, including:
 - unregistered RiR does not pretend scheduling is useful;
 - unknown registration cannot be reported as registered;
 - registered RiR with known-global/unknown-instance state makes one safe asynchronous request without flag writes and reports `rir_instance_solver_state_unknown`;
-- a missing scheduling method reports `schedule_api_unavailable` and `solveScheduled = false`;
-- a scheduling adapter rejection or thrown invocation reports `schedule_request_failed` and `solveScheduled = false` without synchronous fallback;
-- `solveScheduled = true` proves only accepted asynchronous invocation, never completed computation;
+- a missing scheduling method reports `scheduleFailureCode = schedule_api_unavailable`, `scheduleAcceptance = unavailable`, and `solveScheduled = false`;
+- pre-invocation rejection reports `scheduleFailureCode = schedule_precondition_rejected`, `scheduleAcceptance = not_attempted`, and performs no invocation;
+- a returning invocation reports `scheduleAcceptance = accepted`, makes the compatibility boolean true, and keeps completion verification deferred until a later proving event;
+- a fake target which mutates schedule state and then throws reports `scheduleFailureCode = schedule_acceptance_unknown`, sets `scheduleAcceptance = unknown`, remains verification-deferred, and is never retried;
+- a false `solveScheduled` value with unknown acceptance is never interpreted as proof of no pending Grasshopper schedule;
+- the five-second dispatch constant, `Task.Run` handoff, and second UI dispatch are absent;
+- `/gh/edit` orders dirty expiration, structural snapshot, standalone restoration, one positive-delay invocation, and response construction exactly as specified;
+- the schedule method is invoked exactly once before callback return while the actual solution callback does not begin synchronously;
+- standalone restoration precedes invocation, runs on every success/failure exit, and a failed restore reports `scheduleFailureCode = standalone_solver_restore_failed` without scheduling;
 - `rir_mediated_schedule_requested` remains verification-deferred;
 - no response claims actual RiR deferral without a later proving event;
-- standalone combined-state and suspension behavior remains unchanged;
+- standalone combined-state policy and mutation-time suspension remain intact, with restoration moved to the specified pre-invocation boundary;
 - the global solver flag is never written by Rook;
 - instance `Enabled` is never written on an RiR path;
 - deprecated repair fields remain present and neutral.
@@ -438,10 +479,11 @@ Acceptance requires a fresh Revit/Rhino/RiR process and records exact versions a
 4. Reopen the same path: the existing reference is reused; document count does not grow.
 5. Failure/rollback exercise using a controlled test seam or safe fixture: previous canvas restored and new registration removed.
 6. Ordinary slider-to-panel mutation: actual volatile output, not events alone.
-7. Registered RiR document with instance disabled: asynchronous request, disabled attempt, activation-gated successful replay.
+7. Registered RiR document with instance disabled: one positive-delay invocation returns before the response, followed later by an activation-gated successful replay.
 8. Real RiR components: Active Document, Document Identity, Document Worksharing, Active View, View Identity, Query Rooms, and Query Views compute without errors.
 9. Global solver unavailable and restored: no forced `Enabled` write, no crash, and later host restoration remains functional.
 10. Standalone Rhino new/open/mutation behavior.
+11. `/gh/edit` response contains no five-second handoff: invocation is observed once before callback return, while `SolutionStart` remains asynchronous.
 
 Source-contract tests and event counts alone cannot satisfy this gate. Component phase and output data must prove execution.
 

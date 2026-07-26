@@ -231,9 +231,24 @@ Each Revit work item resolves one immutable `RevitDocumentIdentityEvidence` snap
 
 The operation passes that snapshot explicitly to document and element identity projection. Every element identity in a query/list/export response reuses the same snapshot; projection never calls back into document classification, GUID, ModelPath, normalization, or hashing. Element projection verifies by reference that `element.Document` is the snapshot's owner before copying document evidence.
 
-Identity-consuming operations likewise resolve the active-document snapshot once, compare every incoming identity against that same snapshot, and complete all document-identity validation before any selection, mutation, export, `UniqueId`, or `ElementId` lookup. A batch never recomputes active-document evidence per identity and never partially acts on identities before a later document-evidence failure.
+Identity-consuming operations likewise resolve the active-document snapshot once, compare every caller-supplied or persisted identity against that same snapshot, and complete all document-identity validation before any selection, mutation, export, `UniqueId`, or `ElementId` lookup. A batch never recomputes active-document evidence per identity and never partially acts on identities before a later document-evidence failure.
 
 The snapshot lifetime is exactly one operation. It is not stored in static state, `AsyncLocal`, a global dictionary, a `Document`-keyed cache, or a handler field, and it is not reused by a later request. Cross-request or document-lifecycle caching requires a separate invalidation design and is outside this specification.
+
+### Trusted live-element boundary
+
+Caller-supplied or persisted identities are untrusted wire evidence and always pass through document-key comparison. Live `Autodesk.Revit.DB.Element` references returned by a Rook-owned query against the captured `Document` in the same Revit operation are already trusted operation state; they must not be serialized and immediately re-resolved merely to authorize their continued use.
+
+`src/RookBim` introduces an internal query-execution result containing both the public `BimQueryElementsResult` projection and the corresponding ordered live `Element` references. The live references:
+
+- never enter `src/Rook` contracts or any shared DTO;
+- never cross the Revit API-context boundary;
+- are never serialized, persisted, cached, placed in deferred work, or reused by another request;
+- are accepted only when `ReferenceEquals(element.Document, capturedDocument)` within that operation.
+
+Selector export consumes this internal live list directly. Preset resolution carries the same live references across its same-operation category queries and deduplicates them within the captured document by `ElementId.Value`, not by serializing a document GUID and resolving the identity again. Public query responses still project wire summaries using the operation-scoped document-evidence snapshot; an unavailable document key therefore produces null keys without discarding the live references.
+
+Identity-list export remains a separate untrusted path: it compares every supplied identity to the active snapshot and fails closed before lookup or export when evidence is unavailable, invalid, or mismatched. Selector and preset exports are active-document queries rather than identity authorization, so they remain available for unsaved, detached, or probe-rejected document classes when their ordinary query/export preconditions pass. This exception does not authorize any caller-provided identity and cannot escape the same operation.
 
 ### Identity-read failure containment
 
@@ -241,7 +256,7 @@ The resolver reads each classification, GUID, ModelPath, conversion, and normali
 
 If a required identity input fails with an expected exception, the snapshot records a bounded unavailable reason, emits `DocumentKey = null`/`DocumentKeySource = unavailable`, and retains no exception object. Other independent DTO evidence may still be read. Diagnostics observe the exact failed stage and bounded exception facts but do not change the returned snapshot.
 
-Identity-producing routes—including `active_document`, `list_categories`, and query/list responses—continue their otherwise successful work and return HTTP 200 with `documentKey: null` when trustworthy identity evidence is unavailable. Element identities produced by that operation also carry a null document key. Identity-consuming routes fail closed with `document_identity_unavailable` before element lookup or side effects. Thus failure of `CreationGUID`, ModelPath, a host-specific GUID, conversion, normalization, or hashing cannot recreate the original route-wide `list_categories` failure.
+Identity-producing routes—including `active_document`, `list_categories`, and query/list responses—continue their otherwise successful work and return HTTP 200 with `documentKey: null` when trustworthy identity evidence is unavailable. Element identities produced by that operation also carry a null document key. Routes consuming caller-supplied or persisted identities fail closed with `document_identity_unavailable` before element lookup or side effects. Thus failure of `CreationGUID`, ModelPath, a host-specific GUID, conversion, normalization, or hashing cannot recreate the original route-wide `list_categories` failure.
 
 ## Document-class matrix
 
@@ -259,7 +274,7 @@ Identity-producing routes—including `active_document`, `list_categories`, and 
 
 Linked RVT documents do not bypass this matrix. The active host document must match first; current linked-evidence policy then applies separately.
 
-The matrix makes functional changes explicit: identity-based operations on unsaved and detached documents are unsupported in this design, and any saved class rejected by the CreationGUID probe also fails closed.
+The matrix makes functional changes explicit: operations authorized by caller-supplied or persisted identities are unsupported on unsaved and detached documents, and any saved class rejected by the CreationGUID probe also fails closed. Same-operation selector/preset queries follow the trusted live-element boundary instead.
 
 ## Canonicalization and key derivation
 
@@ -274,10 +289,20 @@ The Windows canonicalizer is byte-contract code and executes this exact sequence
 3. Reject device/NT namespace prefixes `\\?\`, `\\.\`, and `\??\` using ordinal-ignore-case comparison.
 4. Accept only a drive-absolute form beginning with `[A-Za-z]:\`, or a UNC form beginning with `\\` and containing non-empty server and share segments. Reject relative, root-relative, drive-relative, URI, and incomplete UNC forms before calling `Path.GetFullPath`.
 5. Call `System.IO.Path.GetFullPath` exactly once to collapse `.`/`..` segments and redundant separators. Replace any `/` in its result with `\` and repeat the device/absolute-form validation.
-6. Obtain `Path.GetPathRoot`. Reject a null/empty root. If the full path is longer than the root, remove all trailing `\`; otherwise preserve the drive root (`C:\`) or UNC share root (`\\SERVER\SHARE\`) including its final separator.
+6. Obtain `Path.GetPathRoot` and reject a null/empty or incomplete root. A drive root has the canonical form `C:\` and retains its final separator. A UNC share root has the canonical form `\\SERVER\SHARE` with no final separator. Remove trailing `\` from every UNC result and from non-root drive paths; if a drive result equals its root, preserve the one root separator.
 7. Apply `ToUpperInvariant()` to the entire resulting string. Apply no Unicode normalization and perform no trimming.
 
-The canonical output therefore always uses `\`, has an uppercase invariant representation, and preserves an absolute Windows root. The resolver performs no filesystem existence lookup, symlink/junction resolution, 8.3-name expansion, network access, or mapped-drive-to-UNC conversion.
+The canonical output therefore always uses `\`, has an uppercase invariant representation, preserves a drive-root separator, and omits a UNC-share-root separator. The resolver performs no filesystem existence lookup, symlink/junction resolution, 8.3-name expansion, network access, or mapped-drive-to-UNC conversion.
+
+Golden canonical-text/UTF-8 vectors are normative:
+
+| Input | Canonical text | UTF-8 bytes (hex) |
+|---|---|---|
+| `C:\` | `C:\` | `433a5c` |
+| `c:/Models/../A.rvt` | `C:\A.RVT` | `433a5c412e525654` |
+| `\\server\share` | `\\SERVER\SHARE` | `5c5c5345525645525c5348415245` |
+| `\\server\share\` | `\\SERVER\SHARE` | `5c5c5345525645525c5348415245` |
+| `\\server\share\folder\..\` | `\\SERVER\SHARE` | `5c5c5345525645525c5348415245` |
 
 Mapped-drive and UNC representations can therefore produce a safe false negative. They can never authorize a different model because the key also requires the probe-approved `CreationGUID`.
 
@@ -361,7 +386,7 @@ Diagnostics record stage, outcome, detail code, exception type, and HResult unde
 - titles or filenames;
 - request identities.
 
-Expected identity-read exceptions follow the failure-containment contract above whether diagnostics are enabled or disabled: producing routes continue with unavailable evidence, and consuming routes fail closed. Optional diagnostic-only probes catch locally and never affect the snapshot. The diagnostic flag must not select a different key, matching result, HTTP status, or route-success outcome.
+Expected identity-read exceptions follow the failure-containment contract above whether diagnostics are enabled or disabled: producing routes continue with unavailable evidence, while routes consuming caller-supplied or persisted identities fail closed. Optional diagnostic-only probes catch locally and never affect the snapshot. The diagnostic flag must not select a different key, matching result, HTTP status, or route-success outcome.
 
 ## Cleanup and doctrine
 
@@ -372,6 +397,8 @@ The implementation replaces rather than layers over obsolete behavior. It remove
 - scattered direct document-identity property reads;
 - boolean `DocumentMatches`;
 - the unconditional `true` result for missing persistent GUID evidence;
+- selector-export serialization/re-resolution of same-operation query results;
+- preset serialization/re-resolution and document-GUID-based deduplication of same-operation live elements;
 - tests requiring `PathFallback` to remain absent from executable identity design;
 - tests that treat unavailable document evidence as a universal match;
 - Phase 1 language declaring `path_fallback` only diagnostic/non-stable without describing the new versioned key contract.
@@ -380,7 +407,7 @@ The Phase 1 design receives a superseded notice linking here. Historical context
 
 Compatibility fields retained intentionally are not behavior owners. No new compatibility resolver runs in parallel with `RevitDocumentIdentityResolver`.
 
-Cleanup is limited to document identity production and comparison. It does not authorize unrelated export, selection, category, link, or diagnostic refactoring.
+Cleanup is limited to document identity production/comparison and removal of the two diagnosed same-operation export round-trips. It does not authorize unrelated export, selection, category, link, or diagnostic refactoring.
 
 ## Commit and deployment boundaries
 
@@ -390,7 +417,7 @@ Expected reviewable boundaries are:
 
 1. Operator-assisted CreationGUID probe and durable redacted report; update this specification with the approved decision.
 2. Pure key contract/derivation and comparison tests, kept behavior-neutral and unused by production routes.
-3. One production resolver cutover that adds contract fields, centralizes all document classes, removes fail-open matching and incorrect GUID branches, replaces obsolete tests, and updates doctrine.
+3. One production resolver cutover that adds contract fields, centralizes all document classes, removes fail-open matching and incorrect GUID branches, carries trusted query elements internally for selector/preset export, replaces obsolete tests, and updates doctrine.
 
 No production identity implementation or deployment occurs before step 1 is reviewed. Any preparatory code must remain unused and behavior-neutral until the resolver cutover.
 
@@ -420,7 +447,8 @@ Tests must cover:
 - key prefix/source/version validation;
 - golden byte/hash vectors for every source payload;
 - byte-exact Windows case and separator normalization for drive and UNC paths;
-- drive-root and UNC-share-root preservation plus non-root trailing-separator removal;
+- drive roots preserve one trailing separator while UNC share roots omit it;
+- `\\server\share`, `\\server\share\`, and `\\server\share\folder\..\` produce the exact same canonical text and UTF-8 bytes shown above;
 - rejection of empty, relative, drive-relative, root-relative, URI, incomplete UNC, embedded-NUL, and device-namespace paths;
 - strict UTF-8 without BOM and lowercase 64-character SHA-256 output;
 - mapped/UNC differences produce non-match, not normalization guesses;
@@ -442,6 +470,11 @@ Tests must cover:
 - consumers return HTTP 409 `document_identity_unavailable` or HTTP 400 `document_identity_invalid` as specified, before lookup or side effects;
 - for an applicable document class, one operation producing 1,000 element identities reads each required `CreationGUID`, host GUID, and central ModelPath exactly once, performs one conversion/normalization/key derivation, and performs zero inapplicable host-property reads;
 - one batch of 1,000 incoming identities resolves active-document evidence exactly once and performs no per-identity document-property reads;
+- explicit identity-list export with unavailable evidence fails closed before `GetElement` or export work;
+- selector export with unavailable identity evidence consumes same-operation live elements directly and remains available when ordinary query/export preconditions pass;
+- preset export with unavailable identity evidence carries and deduplicates same-operation live elements without `DocumentIdentity`, `ElementIdentity`, or `Resolve` round-trips;
+- live elements never appear in shared DTOs, serialized output, caches, deferred work, or a later operation;
+- a live element whose `Document` is not the captured document is rejected before internal use;
 - a later request receives a new snapshot rather than cached evidence;
 - diagnostic enabled/disabled paths choose identical identity results;
 - diagnostics do not persist keys, paths, GUIDs, titles, or filenames;
@@ -471,6 +504,8 @@ The matrix must include:
 - unsaved and detached fail-closed fixtures.
 
 Live acceptance also repeats `active_document`, `list_categories`, query, selection, and export smoke tests with diagnostics enabled and disabled. Source-contract tests alone cannot approve Revit host behavior.
+
+For every available class with unavailable identity evidence, live acceptance distinguishes the two export trust paths: selector/preset export succeeds from same-operation query elements, while identity-list export returns `document_identity_unavailable` before element lookup or file output.
 
 ## Deployment gate
 
