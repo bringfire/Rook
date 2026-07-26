@@ -402,6 +402,16 @@ namespace Rook.Bim
                 return string.Empty;
             }
 
+            for (var index = 0; index < value.Length; index++)
+            {
+                var character = value[index];
+                if (!char.IsLetterOrDigit(character) && character != '.' &&
+                    character != '_' && character != '+' && character != '`')
+                {
+                    return string.Empty;
+                }
+            }
+
             return value.Length <= MaximumExceptionTypeLength
                 ? value : value.Substring(0, MaximumExceptionTypeLength);
         }

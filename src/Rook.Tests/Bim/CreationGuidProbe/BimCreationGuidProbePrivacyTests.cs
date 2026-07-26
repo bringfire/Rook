@@ -15,6 +15,11 @@ namespace Rook.Tests.Bim.CreationGuidProbe
         public void PublicReportSerialization_NeverEmitsRawProbeFixtures()
         {
             // Break caught: projecting a raw identity/path/title/message into the public report.
+            const string rawTitle = "Top Secret Model";
+            const string rawProjectPath = @"\\secret-server\secret-share\model.rvt";
+            const string rawFamilyPath = @"\\secret-server\secret-share\family.rfa";
+            const string rawGuid = "01234567-89ab-cdef-0123-456789abcdef";
+            var rawException = new InvalidOperationException("line one\nsecret message");
             var session = new BimCreationGuidProbeSession(new BimCreationGuidProbeProvenance
             {
                 ProcessId = 36032,
@@ -33,16 +38,23 @@ namespace Rook.Tests.Bim.CreationGuidProbe
                     DocumentClass = BimCreationGuidProbeDocumentClass.SavedNonWorksharedProject,
                     CreationGuidFirstStatus = BimCreationGuidProbeReadStatus.Success,
                     CreationGuidSecondStatus = BimCreationGuidProbeReadStatus.Success,
-                    CreationGuid = Guid.Parse("01234567-89ab-cdef-0123-456789abcdef"),
+                    CreationGuid = Guid.Parse(rawGuid),
                     CreationGuidNonEmpty = true,
                     CreationGuidStable = true,
                     DocumentPathStatus = BimCreationGuidProbeReadStatus.Success,
-                    CanonicalDocumentPath = @"\\secret-server\secret-share\model.rvt",
+                    CanonicalDocumentPath = caseId == BimCreationGuidProbeCase.SavedFamily
+                        ? rawFamilyPath
+                        : caseId == BimCreationGuidProbeCase.UnsavedProject
+                            ? rawTitle
+                            : rawProjectPath,
                     FailureFacts = new[]
                     {
                         new BimCreationGuidProbeFailureFact(
                             BimCreationGuidProbeStage.DocumentPath,
-                            "System.InvalidOperationException", -2146233088)
+                            caseId == BimCreationGuidProbeCase.SavedProjectInitial
+                                ? "System.InvalidOperationException"
+                                : rawException.ToString(),
+                            rawException.HResult)
                     },
                 };
                 Assert.Equal(BimCreationGuidProbeSessionCode.Captured,
@@ -57,10 +69,21 @@ namespace Rook.Tests.Bim.CreationGuidProbe
             options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
             var json = JsonSerializer.Serialize(report, options);
 
+            var unsavedProject = report.Captures.Single(capture =>
+                capture.CaseId == BimCreationGuidProbeCase.UnsavedProject);
+            var savedFamily = report.Captures.Single(capture =>
+                capture.CaseId == BimCreationGuidProbeCase.SavedFamily);
+            Assert.Null(unsavedProject.DocumentPathAlias);
+            Assert.NotNull(savedFamily.DocumentPathAlias);
+            Assert.All(report.Captures, capture => Assert.Equal(
+                capture.CaseId == BimCreationGuidProbeCase.SavedProjectInitial
+                    ? "System.InvalidOperationException"
+                    : string.Empty,
+                Assert.Single(capture.FailureFacts).ExceptionType));
             foreach (var rawValue in new[]
             {
-                "Top Secret Model", ".rvt", ".rfa", @"\\secret-server\secret-share",
-                "01234567-89ab-cdef-0123-456789abcdef", "line one", "secret message"
+                rawTitle, ".rvt", ".rfa", @"\\secret-server\secret-share",
+                rawGuid, "line one", "secret message"
             })
             {
                 Assert.DoesNotContain(rawValue, json, StringComparison.OrdinalIgnoreCase);
