@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using Rook.Handlers;
 using Rook.InternalBridge;
 using Xunit;
@@ -17,7 +18,15 @@ namespace Rook.Tests.Handlers
             public static bool EnableSolutions { get; set; } = true;
             public bool Enabled { get; set; } = true;
             public List<int> Scheduled = new();
-            public void ScheduleSolution(int ms) => Scheduled.Add(ms);
+            public bool? EnabledWhenScheduled { get; private set; }
+            public ManualResetEventSlim ScheduleCalled { get; } = new(false);
+
+            public void ScheduleSolution(int ms)
+            {
+                EnabledWhenScheduled = Enabled;
+                Scheduled.Add(ms);
+                ScheduleCalled.Set();
+            }
         }
 
         [Fact]
@@ -191,6 +200,31 @@ namespace Rook.Tests.Handlers
             Assert.True(outcome.SolveScheduled);
             Assert.False(outcome.SolverLocked);
             Assert.Single(document.Scheduled);
+        }
+
+        [Fact]
+        public void RequestDeferredPostMutationSolve_RirResetBeforeDispatchRepairsAgain()
+        {
+            FakeDoc.EnableSolutions = true;
+            var document = new FakeDoc { Enabled = false };
+            var originalState = GhSolverState.Inspect(document);
+            var handler = CreateHandlerForRirRepair(
+                isRhinoInside: () => true,
+                getActiveDocument: () => document);
+
+            var outcome = handler.RequestDeferredPostMutationSolve(
+                document,
+                requestSolve: true,
+                delayMs: 1,
+                dispatchDelayMs: 1,
+                solverStateOverride: originalState,
+                beforeScheduleOnUiThread: () => document.Enabled = false);
+
+            Assert.True(outcome.RirRepairAttempted);
+            Assert.True(outcome.RirRepairHeld);
+            Assert.True(outcome.SolveScheduled);
+            Assert.True(document.ScheduleCalled.Wait(2000));
+            Assert.True(document.EnabledWhenScheduled);
         }
 
         [Fact]

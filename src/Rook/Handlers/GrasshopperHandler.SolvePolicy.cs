@@ -72,7 +72,12 @@ namespace Rook.Handlers
                 if (delayMs < 1) delayMs = 1;
                 if (dispatchDelayMs < 1) dispatchDelayMs = 1;
 
-                if (!TryScheduleDeferred(document, delayMs, dispatchDelayMs, beforeScheduleOnUiThread))
+                if (!TryScheduleDeferred(
+                    document,
+                    requestSolve,
+                    delayMs,
+                    dispatchDelayMs,
+                    beforeScheduleOnUiThread))
                 {
                     outcome = MarkScheduleUnavailable(outcome);
                 }
@@ -127,8 +132,9 @@ namespace Rook.Handlers
             catch { return false; }
         }
 
-        private static bool TryScheduleDeferred(
+        private bool TryScheduleDeferred(
             object document,
+            bool requestSolve,
             int delayMs,
             int dispatchDelayMs,
             Action? beforeScheduleOnUiThread)
@@ -150,7 +156,16 @@ namespace Rook.Handlers
                             }
                             finally
                             {
-                                TrySchedule(document, delayMs);
+                                // RIR can disable the document again while this
+                                // callback is waiting for the response handoff.
+                                // Re-run readiness at the actual scheduling
+                                // boundary and decide from current state, never
+                                // from the pre-handoff solver snapshot.
+                                var dispatchOutcome = DecidePostMutationSolve(
+                                    document,
+                                    requestSolve);
+                                if (dispatchOutcome.SolveScheduled)
+                                    TrySchedule(document, delayMs);
                             }
                         });
                     }
