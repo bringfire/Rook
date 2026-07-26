@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using Rook.Bim;
 using Xunit;
@@ -93,6 +94,132 @@ namespace Rook.Tests.Bim.Diagnostics
                 envelope.OriginalAccumulator.Snapshot().RequestDroppedCount);
             Assert.Null(envelope.Envelope.Accumulator);
             sink.Dispose();
+        }
+
+        [Fact]
+        public void Stop_ClosesAdmissionAndWriterDrainsEveryAcceptedEnvelope()
+        {
+            var fileSystem = new BlockingWriteFileSystem();
+            var sink = CreateSink(capacity: 4, fileSystem: fileSystem);
+            var writing = Envelope(BimDiagnosticRecordKind.Failure);
+            var queued = Envelope(BimDiagnosticRecordKind.Failure);
+            var late = Envelope(BimDiagnosticRecordKind.Failure);
+            try
+            {
+                Assert.True(sink.TryEnqueue(writing.Envelope));
+                sink.Start();
+                Assert.True(fileSystem.WriteEntered.Wait(TimeSpan.FromSeconds(5)));
+                Assert.True(sink.TryEnqueue(queued.Envelope));
+
+                sink.Dispose();
+                Assert.False(sink.TryEnqueue(late.Envelope));
+                Assert.Null(late.Envelope.Accumulator);
+                Assert.Equal(1, late.OriginalAccumulator.Snapshot()
+                    .RequestDroppedCount);
+
+                fileSystem.ReleaseWrite.Set();
+                Assert.True(fileSystem.WriterExited.Wait(TimeSpan.FromSeconds(5)));
+                Assert.Null(writing.Envelope.Accumulator);
+                Assert.Null(queued.Envelope.Accumulator);
+                Assert.Equal(1, sink.Snapshot().DroppedCount);
+            }
+            finally
+            {
+                fileSystem.ReleaseWrite.Set();
+                sink.Dispose();
+                fileSystem.WriterExited.Wait(TimeSpan.FromSeconds(5));
+            }
+        }
+
+        [Fact]
+        public void Dispose_WriterBeyondJoinKeepsSignalAliveUntilWriterExits()
+        {
+            var fileSystem = new BlockingWriteFileSystem();
+            var sink = CreateSink(fileSystem: fileSystem);
+            var envelope = Envelope(BimDiagnosticRecordKind.Failure);
+            try
+            {
+                Assert.True(sink.TryEnqueue(envelope.Envelope));
+                sink.Start();
+                Assert.True(fileSystem.WriteEntered.Wait(TimeSpan.FromSeconds(5)));
+
+                var stopwatch = Stopwatch.StartNew();
+                sink.Dispose();
+                stopwatch.Stop();
+
+                Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));
+                Assert.False(GetSignal(sink).SafeWaitHandle.IsClosed);
+                fileSystem.ReleaseWrite.Set();
+                Assert.True(fileSystem.WriterExited.Wait(TimeSpan.FromSeconds(5)));
+                Assert.True(SpinWait.SpinUntil(
+                    () => GetSignal(sink).SafeWaitHandle.IsClosed,
+                    TimeSpan.FromSeconds(5)));
+                Assert.Null(envelope.Envelope.Accumulator);
+            }
+            finally
+            {
+                fileSystem.ReleaseWrite.Set();
+                sink.Dispose();
+                fileSystem.WriterExited.Wait(TimeSpan.FromSeconds(5));
+            }
+        }
+
+        [Fact]
+        public void ConcurrentStartAndDispose_NeverPublishesAWriterAfterStop()
+        {
+            for (var iteration = 0; iteration < 32; iteration++)
+            {
+                var fileSystem = new MemoryFileSystem();
+                var sink = CreateSink(fileSystem: fileSystem);
+                using var barrier = new Barrier(3);
+                Exception? startFailure = null;
+                Exception? disposeFailure = null;
+                var starter = new Thread(() =>
+                {
+                    try
+                    {
+                        barrier.SignalAndWait();
+                        sink.Start();
+                    }
+                    catch (Exception exception)
+                    {
+                        startFailure = exception;
+                    }
+                }) { IsBackground = true };
+                var disposer = new Thread(() =>
+                {
+                    try
+                    {
+                        barrier.SignalAndWait();
+                        sink.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        disposeFailure = exception;
+                    }
+                }) { IsBackground = true };
+                starter.Start();
+                disposer.Start();
+                barrier.SignalAndWait();
+                Assert.True(starter.Join(TimeSpan.FromSeconds(5)));
+                Assert.True(disposer.Join(TimeSpan.FromSeconds(5)));
+                try
+                {
+                    Assert.Null(startFailure);
+                    Assert.Null(disposeFailure);
+                    var writer = GetWriterThread(sink);
+                    Assert.True(writer == null ||
+                        SpinWait.SpinUntil(() => !writer.IsAlive,
+                            TimeSpan.FromSeconds(5)));
+                    Assert.Equal(BimDiagnosticSinkState.Stopped,
+                        sink.Snapshot().State);
+                    Assert.True(GetSignal(sink).SafeWaitHandle.IsClosed);
+                }
+                finally
+                {
+                    sink.Dispose();
+                }
+            }
         }
 
         [Fact]
@@ -244,8 +371,8 @@ namespace Rook.Tests.Bim.Diagnostics
             {
                 "encoder" => _ => throw new InvalidOperationException("private"),
                 "invalid" => _ => "not-json\n",
-                "oversize" => _ => "{" + new string('x', 16 * 1024) +
-                    "}\n",
+                "oversize" => _ => "{\"x\":\"" +
+                    new string('x', 16 * 1024) + "\"}\n",
                 _ => _ => "{}\n"
             };
             using var sink = CreateSink(
@@ -269,6 +396,65 @@ namespace Rook.Tests.Bim.Diagnostics
             Assert.Equal(expectedState, status.State);
             Assert.Equal(1, status.DroppedCount);
             Assert.Equal(1, envelope.OriginalAccumulator.Snapshot()
+                .RequestDroppedCount);
+            Assert.Null(envelope.Envelope.Accumulator);
+        }
+
+        [Theory]
+        [InlineData("{not-json}\n")]
+        [InlineData("{\"x\":}\n")]
+        public void Writer_RejectsBraceDelimitedMalformedJson(string encoded)
+        {
+            Assert.ThrowsAny<JsonException>(() =>
+                JsonDocument.Parse(encoded.TrimEnd('\n')));
+            var fileSystem = new MemoryFileSystem();
+            using var sink = CreateSink(
+                fileSystem: fileSystem,
+                encoder: _ => encoded);
+            var envelope = Envelope(BimDiagnosticRecordKind.Failure);
+            Assert.True(sink.TryEnqueue(envelope.Envelope));
+
+            sink.Start();
+            WaitUntil(() => sink.Snapshot().DroppedCount == 1);
+            var status = sink.Snapshot();
+            sink.Dispose();
+
+            Assert.Equal(BimDiagnosticSinkState.Degraded, status.State);
+            Assert.Equal(BimDiagnosticSinkFailureCode.RecordInvalid,
+                status.FailureCode);
+            Assert.Equal(1, status.DroppedCount);
+            Assert.Equal(1, envelope.OriginalAccumulator.Snapshot()
+                .RequestDroppedCount);
+            Assert.Empty(fileSystem.Bytes);
+            Assert.Null(envelope.Envelope.Accumulator);
+        }
+
+        [Fact]
+        public void Writer_AcceptsNestedJsonWithEscapedContent()
+        {
+            const string encoded =
+                "{\"x\":[1,true,null,{\"y\":\"escaped\\\\n\"}]}\n";
+            using (JsonDocument.Parse(encoded.TrimEnd('\n')))
+            {
+            }
+            var fileSystem = new MemoryFileSystem();
+            using var sink = CreateSink(
+                fileSystem: fileSystem,
+                encoder: _ => encoded);
+            var envelope = Envelope(BimDiagnosticRecordKind.Failure);
+            Assert.True(sink.TryEnqueue(envelope.Envelope));
+
+            sink.Start();
+            WaitUntil(() => fileSystem.Bytes.Length ==
+                Encoding.UTF8.GetByteCount(encoded));
+            var status = sink.Snapshot();
+            sink.Dispose();
+
+            Assert.Equal(BimDiagnosticSinkFailureCode.None,
+                status.FailureCode);
+            Assert.Equal(0, status.DroppedCount);
+            Assert.Equal(encoded, Encoding.UTF8.GetString(fileSystem.Bytes));
+            Assert.Equal(0, envelope.OriginalAccumulator.Snapshot()
                 .RequestDroppedCount);
             Assert.Null(envelope.Envelope.Accumulator);
         }
@@ -448,6 +634,20 @@ namespace Rook.Tests.Bim.Diagnostics
                 "Timed out waiting for the diagnostic writer.");
         }
 
+        private static AutoResetEvent GetSignal(BimDiagnosticSink sink)
+        {
+            return (AutoResetEvent)typeof(BimDiagnosticSink).GetField(
+                "signal", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(sink)!;
+        }
+
+        private static Thread? GetWriterThread(BimDiagnosticSink sink)
+        {
+            return (Thread?)typeof(BimDiagnosticSink).GetField(
+                "writerThread", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(sink);
+        }
+
         private sealed class EnvelopeCase
         {
             internal EnvelopeCase(BimDiagnosticEnvelope envelope,
@@ -554,6 +754,63 @@ namespace Rook.Tests.Bim.Diagnostics
             protected override void Dispose(bool disposing)
             {
                 // The fake remains readable after the writer closes it.
+            }
+        }
+
+        private sealed class BlockingWriteFileSystem : IBimDiagnosticFileSystem
+        {
+            private readonly BlockingWriteStream stream;
+
+            internal BlockingWriteFileSystem()
+            {
+                stream = new BlockingWriteStream(
+                    WriteEntered, ReleaseWrite, WriterExited);
+            }
+
+            internal ManualResetEventSlim WriteEntered { get; } =
+                new ManualResetEventSlim(false);
+            internal ManualResetEventSlim ReleaseWrite { get; } =
+                new ManualResetEventSlim(false);
+            internal ManualResetEventSlim WriterExited { get; } =
+                new ManualResetEventSlim(false);
+
+            public void CreateDirectory(string path)
+            {
+            }
+
+            public Stream OpenWrite(string path)
+            {
+                return stream;
+            }
+        }
+
+        private sealed class BlockingWriteStream : MemoryStream
+        {
+            private readonly ManualResetEventSlim writeEntered;
+            private readonly ManualResetEventSlim releaseWrite;
+            private readonly ManualResetEventSlim writerExited;
+
+            internal BlockingWriteStream(
+                ManualResetEventSlim writeEntered,
+                ManualResetEventSlim releaseWrite,
+                ManualResetEventSlim writerExited)
+            {
+                this.writeEntered = writeEntered;
+                this.releaseWrite = releaseWrite;
+                this.writerExited = writerExited;
+            }
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                writeEntered.Set();
+                releaseWrite.Wait();
+                base.Write(buffer, offset, count);
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                writerExited.Set();
+                base.Dispose(disposing);
             }
         }
     }

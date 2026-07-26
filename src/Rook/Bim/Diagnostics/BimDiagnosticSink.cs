@@ -32,7 +32,8 @@ namespace Rook.Bim
     }
 
     internal sealed class BimDiagnosticSink :
-        IBimDiagnosticEnvelopeSink, IDisposable
+        IBimDiagnosticEnvelopeSink, IBimDiagnosticSinkStatus,
+        IBimDiagnosticDropReporter, IDisposable
     {
         private const int ProductionCapacity = 1024;
         private const int MaximumRecordBytes = 16 * 1024;
@@ -57,6 +58,8 @@ namespace Rook.Bim
         private int started;
         private int stopping;
         private int disposed;
+        private int processExitSubscribed;
+        private int signalDisposed;
         private int state = (int)BimDiagnosticSinkState.Starting;
         private int firstFailureCode = (int)BimDiagnosticSinkFailureCode.None;
         private long droppedCount;
@@ -129,6 +132,21 @@ namespace Rook.Bim
             var admitted = false;
             try
             {
+                currentState = (BimDiagnosticSinkState)Volatile.Read(ref state);
+                if (Volatile.Read(ref stopping) != 0 ||
+                    Volatile.Read(ref disposed) != 0 ||
+                    currentState == BimDiagnosticSinkState.Failed ||
+                    currentState == BimDiagnosticSinkState.FileLimitReached ||
+                    currentState == BimDiagnosticSinkState.Stopped)
+                {
+                    var failure = currentState ==
+                        BimDiagnosticSinkState.FileLimitReached
+                            ? BimDiagnosticSinkFailureCode.FileLimitReached
+                            : BimDiagnosticSinkFailureCode.QueueFull;
+                    Drop(envelope, failure);
+                    return false;
+                }
+
                 if (queue.Count < capacity)
                 {
                     queue.Enqueue(envelope);
@@ -164,30 +182,42 @@ namespace Rook.Bim
 
         internal void Start()
         {
-            if (Interlocked.CompareExchange(ref started, 1, 0) != 0 ||
-                Volatile.Read(ref disposed) != 0)
+            var failed = false;
+            lock (sync)
             {
-                return;
+                if (started != 0 || disposed != 0 || stopping != 0)
+                {
+                    return;
+                }
+
+                started = 1;
+                try
+                {
+                    AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+                    processExitSubscribed = 1;
+                    var thread = new Thread(WriterMain)
+                    {
+                        IsBackground = true,
+                        Name = "RookBimDiagnosticWriter"
+                    };
+                    thread.Start();
+                    writerThread = thread;
+                }
+                catch (Exception)
+                {
+                    stopping = 1;
+                    failed = true;
+                }
             }
 
-            try
+            if (failed)
             {
-                AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
-                var thread = new Thread(WriterMain)
-                {
-                    IsBackground = true,
-                    Name = "RookBimDiagnosticWriter"
-                };
-                writerThread = thread;
-                thread.Start();
-            }
-            catch (Exception)
-            {
+                UnsubscribeProcessExit();
                 FailWithoutWriter(BimDiagnosticSinkFailureCode.FileOpenFailure);
             }
         }
 
-        internal BimDiagnosticSinkSnapshot Snapshot()
+        public BimDiagnosticSinkSnapshot Snapshot()
         {
             return new BimDiagnosticSinkSnapshot(
                 (BimDiagnosticSinkState)Volatile.Read(ref state),
@@ -196,16 +226,40 @@ namespace Rook.Bim
                 Volatile.Read(ref droppedCount));
         }
 
+        public void RecordDrop(
+            BimDiagnosticOutcomeAccumulator? accumulator,
+            BimDiagnosticSinkFailureCode failureCode)
+        {
+            try
+            {
+                BimDiagnosticContracts.ValidateSinkFailureCode(failureCode);
+                if (failureCode == BimDiagnosticSinkFailureCode.None)
+                {
+                    return;
+                }
+
+                accumulator?.RecordDrop();
+                RecordGlobalDrop(failureCode);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            lock (sync)
             {
-                return;
+                if (disposed != 0)
+                {
+                    return;
+                }
+
+                disposed = 1;
             }
 
-            AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
+            UnsubscribeProcessExit();
             Stop(ProcessExitJoinMilliseconds);
-            signal.Dispose();
         }
 
         private void OnProcessExit(object? sender, EventArgs eventArgs)
@@ -215,28 +269,47 @@ namespace Rook.Bim
 
         private void Stop(int joinMilliseconds)
         {
-            Interlocked.Exchange(ref stopping, 1);
-            try
+            Thread? thread;
+            lock (sync)
             {
-                signal.Set();
+                stopping = 1;
+                thread = writerThread;
+                if (Volatile.Read(ref signalDisposed) == 0)
+                {
+                    signal.Set();
+                }
             }
-            catch (ObjectDisposedException)
-            {
-            }
-            var thread = Volatile.Read(ref writerThread);
+
             if (thread == null)
             {
                 DrainAsDropped(BimDiagnosticSinkFailureCode.QueueFull);
                 Volatile.Write(ref state, (int)BimDiagnosticSinkState.Stopped);
+                if (Volatile.Read(ref disposed) != 0)
+                {
+                    DisposeSignalOnce();
+                }
                 return;
             }
 
             if (thread != Thread.CurrentThread)
             {
-                thread.Join(joinMilliseconds);
+                try
+                {
+                    thread.Join(joinMilliseconds);
+                }
+                catch (ThreadStateException)
+                {
+                }
             }
 
-            Volatile.Write(ref state, (int)BimDiagnosticSinkState.Stopped);
+            if (!thread.IsAlive)
+            {
+                Volatile.Write(ref state, (int)BimDiagnosticSinkState.Stopped);
+                if (Volatile.Read(ref disposed) != 0)
+                {
+                    DisposeSignalOnce();
+                }
+            }
         }
 
         private void WriterMain()
@@ -303,6 +376,29 @@ namespace Rook.Bim
                     {
                     }
                 }
+
+                if (Volatile.Read(ref disposed) != 0)
+                {
+                    Volatile.Write(ref state,
+                        (int)BimDiagnosticSinkState.Stopped);
+                    DisposeSignalOnce();
+                }
+            }
+        }
+
+        private void UnsubscribeProcessExit()
+        {
+            if (Interlocked.Exchange(ref processExitSubscribed, 0) != 0)
+            {
+                AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
+            }
+        }
+
+        private void DisposeSignalOnce()
+        {
+            if (Interlocked.Exchange(ref signalDisposed, 1) == 0)
+            {
+                signal.Dispose();
             }
         }
 
@@ -570,7 +666,317 @@ namespace Rook.Bim
                 }
             }
 
+            var position = 0;
+            var end = value.Length - 1;
+            SkipJsonWhitespace(value, ref position, end);
+            if (!ParseJsonObject(value, ref position, end, 0))
+            {
+                return false;
+            }
+
+            SkipJsonWhitespace(value, ref position, end);
+            return position == end;
+        }
+
+        private static bool ParseJsonValue(
+            string value, ref int position, int end, int depth)
+        {
+            if (depth > 64 || position >= end)
+            {
+                return false;
+            }
+
+            switch (value[position])
+            {
+                case '{':
+                    return ParseJsonObject(value, ref position, end, depth);
+                case '[':
+                    return ParseJsonArray(value, ref position, end, depth);
+                case '"':
+                    return ParseJsonString(value, ref position, end);
+                case 't':
+                    return ParseJsonLiteral(value, ref position, end, "true");
+                case 'f':
+                    return ParseJsonLiteral(value, ref position, end, "false");
+                case 'n':
+                    return ParseJsonLiteral(value, ref position, end, "null");
+                default:
+                    return ParseJsonNumber(value, ref position, end);
+            }
+        }
+
+        private static bool ParseJsonObject(
+            string value, ref int position, int end, int depth)
+        {
+            if (depth > 64 || position >= end || value[position] != '{')
+            {
+                return false;
+            }
+
+            position++;
+            SkipJsonWhitespace(value, ref position, end);
+            if (position < end && value[position] == '}')
+            {
+                position++;
+                return true;
+            }
+
+            while (position < end)
+            {
+                if (!ParseJsonString(value, ref position, end))
+                {
+                    return false;
+                }
+
+                SkipJsonWhitespace(value, ref position, end);
+                if (position >= end || value[position++] != ':')
+                {
+                    return false;
+                }
+
+                SkipJsonWhitespace(value, ref position, end);
+                if (!ParseJsonValue(value, ref position, end, depth + 1))
+                {
+                    return false;
+                }
+
+                SkipJsonWhitespace(value, ref position, end);
+                if (position < end && value[position] == '}')
+                {
+                    position++;
+                    return true;
+                }
+
+                if (position >= end || value[position++] != ',')
+                {
+                    return false;
+                }
+
+                SkipJsonWhitespace(value, ref position, end);
+            }
+
+            return false;
+        }
+
+        private static bool ParseJsonArray(
+            string value, ref int position, int end, int depth)
+        {
+            if (depth > 64 || position >= end || value[position] != '[')
+            {
+                return false;
+            }
+
+            position++;
+            SkipJsonWhitespace(value, ref position, end);
+            if (position < end && value[position] == ']')
+            {
+                position++;
+                return true;
+            }
+
+            while (position < end)
+            {
+                if (!ParseJsonValue(value, ref position, end, depth + 1))
+                {
+                    return false;
+                }
+
+                SkipJsonWhitespace(value, ref position, end);
+                if (position < end && value[position] == ']')
+                {
+                    position++;
+                    return true;
+                }
+
+                if (position >= end || value[position++] != ',')
+                {
+                    return false;
+                }
+
+                SkipJsonWhitespace(value, ref position, end);
+            }
+
+            return false;
+        }
+
+        private static bool ParseJsonString(
+            string value, ref int position, int end)
+        {
+            if (position >= end || value[position++] != '"')
+            {
+                return false;
+            }
+
+            while (position < end)
+            {
+                var character = value[position++];
+                if (character == '"')
+                {
+                    return true;
+                }
+
+                if (character < 0x20)
+                {
+                    return false;
+                }
+
+                if (character == '\\')
+                {
+                    if (position >= end)
+                    {
+                        return false;
+                    }
+
+                    var escape = value[position++];
+                    if (escape == 'u')
+                    {
+                        for (var digit = 0; digit < 4; digit++)
+                        {
+                            if (position >= end ||
+                                !IsHexadecimal(value[position++]))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                    else if (escape != '"' && escape != '\\' &&
+                             escape != '/' && escape != 'b' &&
+                             escape != 'f' && escape != 'n' &&
+                             escape != 'r' && escape != 't')
+                    {
+                        return false;
+                    }
+                }
+                else if (char.IsHighSurrogate(character))
+                {
+                    if (position >= end ||
+                        !char.IsLowSurrogate(value[position++]))
+                    {
+                        return false;
+                    }
+                }
+                else if (char.IsLowSurrogate(character))
+                {
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool ParseJsonNumber(
+            string value, ref int position, int end)
+        {
+            var start = position;
+            if (position < end && value[position] == '-')
+            {
+                position++;
+            }
+
+            if (position >= end)
+            {
+                return false;
+            }
+
+            if (value[position] == '0')
+            {
+                position++;
+                if (position < end && char.IsDigit(value[position]))
+                {
+                    return false;
+                }
+            }
+            else if (value[position] >= '1' && value[position] <= '9')
+            {
+                do
+                {
+                    position++;
+                }
+                while (position < end && value[position] >= '0' &&
+                       value[position] <= '9');
+            }
+            else
+            {
+                return false;
+            }
+
+            if (position < end && value[position] == '.')
+            {
+                position++;
+                var fractionStart = position;
+                while (position < end && value[position] >= '0' &&
+                       value[position] <= '9')
+                {
+                    position++;
+                }
+
+                if (position == fractionStart)
+                {
+                    return false;
+                }
+            }
+
+            if (position < end &&
+                (value[position] == 'e' || value[position] == 'E'))
+            {
+                position++;
+                if (position < end &&
+                    (value[position] == '+' || value[position] == '-'))
+                {
+                    position++;
+                }
+
+                var exponentStart = position;
+                while (position < end && value[position] >= '0' &&
+                       value[position] <= '9')
+                {
+                    position++;
+                }
+
+                if (position == exponentStart)
+                {
+                    return false;
+                }
+            }
+
+            return position > start;
+        }
+
+        private static bool ParseJsonLiteral(
+            string value, ref int position, int end, string literal)
+        {
+            if (position > end - literal.Length)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < literal.Length; index++)
+            {
+                if (value[position + index] != literal[index])
+                {
+                    return false;
+                }
+            }
+
+            position += literal.Length;
             return true;
+        }
+
+        private static void SkipJsonWhitespace(
+            string value, ref int position, int end)
+        {
+            while (position < end &&
+                   (value[position] == ' ' || value[position] == '\t'))
+            {
+                position++;
+            }
+        }
+
+        private static bool IsHexadecimal(char value)
+        {
+            return value >= '0' && value <= '9' ||
+                value >= 'a' && value <= 'f' ||
+                value >= 'A' && value <= 'F';
         }
 
         private static int CurrentProcessId()

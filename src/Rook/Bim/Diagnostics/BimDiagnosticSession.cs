@@ -9,6 +9,84 @@ namespace Rook.Bim
         bool TryEnqueue(BimDiagnosticEnvelope envelope);
     }
 
+    internal interface IBimDiagnosticSinkStatus
+    {
+        BimDiagnosticSinkSnapshot Snapshot();
+    }
+
+    internal interface IBimDiagnosticDropReporter
+    {
+        void RecordDrop(
+            BimDiagnosticOutcomeAccumulator? accumulator,
+            BimDiagnosticSinkFailureCode failureCode);
+    }
+
+    internal sealed class FailedBimDiagnosticSink :
+        IBimDiagnosticEnvelopeSink, IBimDiagnosticSinkStatus,
+        IBimDiagnosticDropReporter
+    {
+        private readonly BimDiagnosticSinkFailureCode failureCode;
+        private long droppedCount = 1;
+
+        internal FailedBimDiagnosticSink(
+            BimDiagnosticSinkFailureCode failureCode)
+        {
+            BimDiagnosticContracts.ValidateSinkFailureCode(failureCode);
+            if (failureCode == BimDiagnosticSinkFailureCode.None)
+            {
+                throw new ArgumentOutOfRangeException(nameof(failureCode));
+            }
+
+            this.failureCode = failureCode;
+        }
+
+        public bool TryEnqueue(BimDiagnosticEnvelope envelope)
+        {
+            if (envelope == null)
+            {
+                throw new ArgumentNullException(nameof(envelope));
+            }
+
+            if (envelope.MarkDropped(failureCode))
+            {
+                IncrementDropCount();
+            }
+
+            envelope.ReleaseAccumulator();
+            return false;
+        }
+
+        public void RecordDrop(
+            BimDiagnosticOutcomeAccumulator? accumulator,
+            BimDiagnosticSinkFailureCode ignoredFailureCode)
+        {
+            accumulator?.RecordDrop();
+            IncrementDropCount();
+        }
+
+        public BimDiagnosticSinkSnapshot Snapshot()
+        {
+            return new BimDiagnosticSinkSnapshot(
+                BimDiagnosticSinkState.Failed,
+                failureCode,
+                Volatile.Read(ref droppedCount));
+        }
+
+        private void IncrementDropCount()
+        {
+            while (true)
+            {
+                var current = Volatile.Read(ref droppedCount);
+                if (current == long.MaxValue ||
+                    Interlocked.CompareExchange(
+                        ref droppedCount, current + 1, current) == current)
+                {
+                    return;
+                }
+            }
+        }
+    }
+
     internal sealed class BimDiagnosticEnvelope
     {
         private BimDiagnosticOutcomeAccumulator? accumulator;
@@ -255,8 +333,8 @@ namespace Rook.Bim
                     metadata.ModuleCommit);
             }
 
-            var sinkSnapshot = sink is BimDiagnosticSink boundedSink
-                ? boundedSink.Snapshot()
+            var sinkSnapshot = sink is IBimDiagnosticSinkStatus statusSink
+                ? statusSink.Snapshot()
                 : new BimDiagnosticSinkSnapshot(
                     BimDiagnosticSinkState.Ready,
                     BimDiagnosticSinkFailureCode.None,
@@ -388,11 +466,34 @@ namespace Rook.Bim
             finally
             {
                 var deferredRouteOutcome = admission.Release();
-                if (deferredRouteOutcome.HasValue)
+                if (deferredRouteOutcome.HasValue &&
+                    context.CorrelationId != null)
                 {
                     EnqueueTerminal(
                         context, accumulator, deferredRouteOutcome.Value);
                 }
+            }
+        }
+
+        internal void RecordInvalid(BimDiagnosticContext? context)
+        {
+            try
+            {
+                var accumulator = context != null && context.Enabled
+                    ? context.Accumulator
+                    : null;
+                if (sink is IBimDiagnosticDropReporter reporter)
+                {
+                    reporter.RecordDrop(accumulator,
+                        BimDiagnosticSinkFailureCode.RecordInvalid);
+                }
+                else
+                {
+                    accumulator?.RecordDrop();
+                }
+            }
+            catch (Exception)
+            {
             }
         }
 

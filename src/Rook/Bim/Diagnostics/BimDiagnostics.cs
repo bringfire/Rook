@@ -188,6 +188,7 @@ namespace Rook.Bim
                 }
 
                 IBimDiagnosticEnvelopeSink? sink = null;
+                var sinkFactoryFailed = false;
                 if (enabled)
                 {
                     try
@@ -196,6 +197,9 @@ namespace Rook.Bim
                     }
                     catch (Exception)
                     {
+                        sink = new FailedBimDiagnosticSink(
+                            BimDiagnosticSinkFailureCode.FileOpenFailure);
+                        sinkFactoryFailed = true;
                     }
                 }
 
@@ -206,19 +210,29 @@ namespace Rook.Bim
                 if (enabled)
                 {
                     var context = created.CreateUncorrelatedContext("initialize");
-                    created.Observe(context,
-                        BimDiagnosticStage.CoreInitialize,
-                        BimDiagnosticOutcome.Start,
-                        BimDiagnosticFields.None);
-                    if (sink is BimDiagnosticSink boundedSink)
+                    if (sinkFactoryFailed)
                     {
-                        boundedSink.Start();
+                        created.Observe(context,
+                            BimDiagnosticStage.CoreInitialize,
+                            BimDiagnosticOutcome.Failure,
+                            BimDiagnosticFields.None);
                     }
+                    else
+                    {
+                        created.Observe(context,
+                            BimDiagnosticStage.CoreInitialize,
+                            BimDiagnosticOutcome.Start,
+                            BimDiagnosticFields.None);
+                        if (sink is BimDiagnosticSink boundedSink)
+                        {
+                            boundedSink.Start();
+                        }
 
-                    created.Observe(context,
-                        BimDiagnosticStage.CoreInitialize,
-                        BimDiagnosticOutcome.Success,
-                        BimDiagnosticFields.None);
+                        created.Observe(context,
+                            BimDiagnosticStage.CoreInitialize,
+                            BimDiagnosticOutcome.Success,
+                            BimDiagnosticFields.None);
+                    }
                 }
 
                 return created;
@@ -347,9 +361,14 @@ namespace Rook.Bim
             BimDiagnosticOutcome outcome,
             BimDiagnosticFields fields)
         {
+            var current = Volatile.Read(ref session);
             try
             {
-                Volatile.Read(ref session).Observe(context, stage, outcome, fields);
+                current.Observe(context, stage, outcome, fields);
+            }
+            catch (ArgumentException)
+            {
+                current.RecordInvalid(context);
             }
             catch (Exception)
             {
@@ -362,10 +381,15 @@ namespace Rook.Bim
             Exception exception,
             BimDiagnosticFields fields)
         {
+            var current = Volatile.Read(ref session);
             try
             {
-                Volatile.Read(ref session).ObserveException(
+                current.ObserveException(
                     context, stage, exception, fields);
+            }
+            catch (ArgumentException)
+            {
+                current.RecordInvalid(context);
             }
             catch (Exception)
             {

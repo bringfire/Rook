@@ -107,6 +107,38 @@ namespace Rook.Tests.Bim.Diagnostics
         }
 
         [Fact]
+        public void Initialize_EnabledSinkFactoryFailurePublishesBoundedFailure()
+        {
+            var reads = 0;
+            var sinkCreations = 0;
+            var bootstrap = new BimDiagnosticBootstrap(
+                _ =>
+                {
+                    reads++;
+                    return "1";
+                },
+                _ =>
+                {
+                    sinkCreations++;
+                    throw new InvalidOperationException("private factory failure");
+                },
+                CreateAssembly("FailedCore", new Version(2, 0, 0, 0),
+                    "2.0.0+faded"));
+
+            var session = bootstrap.Initialize();
+            var status = session.SnapshotStatus();
+
+            Assert.True(status.Enabled);
+            Assert.Equal(BimDiagnosticSinkState.Failed, status.SinkState);
+            Assert.Equal(BimDiagnosticSinkFailureCode.FileOpenFailure,
+                status.FailureCode);
+            Assert.Equal(2, status.DroppedCount);
+            Assert.Equal(1, reads);
+            Assert.Equal(1, sinkCreations);
+            Assert.Same(session, bootstrap.Initialize());
+        }
+
+        [Fact]
         public void Provenance_IsImmediateBoundedAndModuleRegistrationIsAtomic()
         {
             var reads = 0;
@@ -165,46 +197,58 @@ namespace Rook.Tests.Bim.Diagnostics
             var second = CreateAssembly(
                 "AtomicModuleB", new Version(3, 0, 0, 0), "3.0.0+bbbb");
             using var start = new ManualResetEventSlim(false);
-            var remaining = 2;
+            using var firstPublication = new CountdownEvent(2);
+            using var releaseWriters = new ManualResetEventSlim(false);
             var firstWriter = new Thread(() =>
             {
                 start.Wait();
+                bootstrap.RegisterModuleMetadata(first);
+                firstPublication.Signal();
+                releaseWriters.Wait();
                 for (var index = 0; index < 1000; index++)
                 {
                     bootstrap.RegisterModuleMetadata(first);
                 }
-
-                Interlocked.Decrement(ref remaining);
             }) { IsBackground = true };
             var secondWriter = new Thread(() =>
             {
                 start.Wait();
+                bootstrap.RegisterModuleMetadata(second);
+                firstPublication.Signal();
+                releaseWriters.Wait();
                 for (var index = 0; index < 1000; index++)
                 {
                     bootstrap.RegisterModuleMetadata(second);
                 }
-
-                Interlocked.Decrement(ref remaining);
             }) { IsBackground = true };
             firstWriter.Start();
             secondWriter.Start();
             start.Set();
-
-            while (Volatile.Read(ref remaining) != 0)
+            try
             {
+                Assert.True(firstPublication.Wait(TimeSpan.FromSeconds(5)));
                 var status = bootstrap.SnapshotStatus();
-                var unavailable = status.ModuleVersion == "unavailable" &&
-                    status.ModuleCommit == "unavailable";
                 var firstPair = status.ModuleVersion == "2.0.0.0" &&
                     status.ModuleCommit == "aaaa";
                 var secondPair = status.ModuleVersion == "3.0.0.0" &&
                     status.ModuleCommit == "bbbb";
-                Assert.True(unavailable || firstPair || secondPair,
+                Assert.True(firstPair || secondPair,
                     "module provenance exposed fields from different registrations");
+            }
+            finally
+            {
+                releaseWriters.Set();
             }
 
             Assert.True(firstWriter.Join(TimeSpan.FromSeconds(5)));
             Assert.True(secondWriter.Join(TimeSpan.FromSeconds(5)));
+            var finalStatus = bootstrap.SnapshotStatus();
+            Assert.True(
+                finalStatus.ModuleVersion == "2.0.0.0" &&
+                finalStatus.ModuleCommit == "aaaa" ||
+                finalStatus.ModuleVersion == "3.0.0.0" &&
+                finalStatus.ModuleCommit == "bbbb",
+                "final module provenance exposed a mixed registration");
         }
 
         [Theory]
@@ -282,10 +326,68 @@ namespace Rook.Tests.Bim.Diagnostics
                 Assert.NotNull(request);
                 Assert.NotNull(status);
                 Assert.True(status.Enabled);
-                Assert.Equal(1, request.RequestDroppedCount);
+                Assert.Equal(2, request.RequestDroppedCount);
                 Assert.Equal(BimDiagnosticStage.HandlerRuntime,
                     request.FirstFailureStage);
                 Assert.False(BimDiagnostics.CreateContext(string.Empty).Enabled);
+            }
+        }
+
+        [Fact]
+        public void Facade_InvalidObservationsPublishExactDropEvidence()
+        {
+            using var sink = new BimDiagnosticSink(
+                "C:\\not-started-diagnostic-path",
+                new BimDiagnosticProvenance(
+                    typeof(BimDiagnosticsConfigurationTests).Assembly));
+            var replacement = new BimDiagnosticSession(true, sink);
+            using (BimDiagnostics.PushSessionForTests(replacement))
+            {
+                var invalidStage = BimDiagnostics.CreateContext("stage");
+                var invalidOutcome = BimDiagnostics.CreateContext("outcome");
+                var invalidFields = BimDiagnostics.CreateContext("fields");
+                var nullException = BimDiagnostics.CreateContext("exception");
+
+                BimDiagnostics.Observe(invalidStage,
+                    (BimDiagnosticStage)int.MaxValue,
+                    BimDiagnosticOutcome.Start,
+                    BimDiagnosticFields.None);
+                BimDiagnostics.Observe(invalidOutcome,
+                    BimDiagnosticStage.HandlerRuntime,
+                    (BimDiagnosticOutcome)int.MaxValue,
+                    BimDiagnosticFields.None);
+                BimDiagnostics.Observe(invalidFields,
+                    BimDiagnosticStage.HandlerRuntime,
+                    BimDiagnosticOutcome.Start,
+                    new BimDiagnosticFields(
+                        (BimDiagnosticDetailCode)int.MaxValue,
+                        null,
+                        BimDiagnosticFailureImpact.None));
+                BimDiagnostics.ObserveException(nullException,
+                    BimDiagnosticStage.HandlerRuntime,
+                    null!,
+                    BimDiagnosticFields.None);
+
+                var status = BimDiagnostics.SnapshotStatus();
+                Assert.Equal(BimDiagnosticSinkState.Degraded,
+                    status.SinkState);
+                Assert.Equal(BimDiagnosticSinkFailureCode.RecordInvalid,
+                    status.FailureCode);
+                Assert.Equal(4, status.DroppedCount);
+                Assert.Equal(1, BimDiagnostics.SnapshotRequest(invalidStage)
+                    .RequestDroppedCount);
+                Assert.Equal(1, BimDiagnostics.SnapshotRequest(invalidOutcome)
+                    .RequestDroppedCount);
+                Assert.Equal(1, BimDiagnostics.SnapshotRequest(invalidFields)
+                    .RequestDroppedCount);
+                Assert.Equal(1, BimDiagnostics.SnapshotRequest(nullException)
+                    .RequestDroppedCount);
+
+                var queue = (Queue<BimDiagnosticEnvelope>)typeof(
+                    BimDiagnosticSink).GetField("queue",
+                        BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .GetValue(sink)!;
+                Assert.Empty(queue);
             }
         }
 
