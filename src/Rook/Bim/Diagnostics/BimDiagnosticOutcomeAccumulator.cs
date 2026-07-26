@@ -32,14 +32,23 @@ namespace Rook.Bim
             observed = true;
         }
 
-        public void Dispose()
+        internal BimDiagnosticOutcome? Release()
         {
             var current = Interlocked.Exchange(ref owner, null);
-            if (current != null)
-            {
-                current.ReleaseObservationAdmission();
-            }
+            return current?.ReleaseObservationAdmission();
         }
+
+        public void Dispose()
+        {
+            Release();
+        }
+    }
+
+    internal struct BimDiagnosticDeferredCompletionState
+    {
+        internal bool Requested;
+        internal bool Claimed;
+        internal BimDiagnosticOutcome Outcome;
     }
 
     internal sealed class BimDiagnosticOutcomeAccumulator
@@ -47,6 +56,7 @@ namespace Rook.Bim
         private readonly object gate = new object();
         private bool sealedForObservations;
         private int activeObservationAdmissions;
+        private BimDiagnosticDeferredCompletionState deferredCompletion;
         private bool hasLastObservation;
         private long lastObservationSequence;
         private BimDiagnosticStage lastStage;
@@ -103,36 +113,53 @@ namespace Rook.Bim
             }
         }
 
-        internal void ReleaseObservationAdmission()
+        internal BimDiagnosticOutcome? ReleaseObservationAdmission()
         {
             lock (gate)
             {
                 if (activeObservationAdmissions <= 0)
                 {
-                    return;
+                    return null;
                 }
 
                 activeObservationAdmissions--;
-                if (activeObservationAdmissions == 0)
+                if (activeObservationAdmissions == 0 &&
+                    deferredCompletion.Requested &&
+                    !deferredCompletion.Claimed)
                 {
-                    Monitor.PulseAll(gate);
+                    deferredCompletion.Claimed = true;
+                    return deferredCompletion.Outcome;
                 }
+
+                return null;
             }
         }
 
-        internal bool TrySeal()
+        internal bool TryRequestCompletion(
+            BimDiagnosticOutcome routeOutcome,
+            out BimDiagnosticOutcome? terminalOutcome)
         {
             lock (gate)
             {
+                terminalOutcome = null;
                 if (sealedForObservations)
                 {
                     return false;
                 }
 
-                sealedForObservations = true;
-                while (activeObservationAdmissions > 0)
+                BimDiagnosticContracts.ValidateOutcome(routeOutcome);
+                if (routeOutcome == BimDiagnosticOutcome.Start)
                 {
-                    Monitor.Wait(gate);
+                    throw new ArgumentOutOfRangeException(nameof(routeOutcome));
+                }
+
+                sealedForObservations = true;
+                deferredCompletion.Requested = true;
+                deferredCompletion.Outcome = routeOutcome;
+                if (activeObservationAdmissions == 0)
+                {
+                    deferredCompletion.Claimed = true;
+                    terminalOutcome = routeOutcome;
                 }
 
                 return true;

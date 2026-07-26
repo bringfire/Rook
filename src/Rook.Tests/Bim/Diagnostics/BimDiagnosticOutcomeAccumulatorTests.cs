@@ -26,12 +26,16 @@ namespace Rook.Tests.Bim.Diagnostics
         }
 
         [Fact]
-        public void TrySeal_RejectsFurtherObservationsWhileDelayedDropsRemainTrackedAndSaturate()
+        public void Completion_RejectsFurtherObservationsWhileDelayedDropsRemainTrackedAndSaturate()
         {
             var state = new BimDiagnosticOutcomeAccumulator();
 
-            Assert.True(state.TrySeal());
-            Assert.False(state.TrySeal());
+            Assert.True(state.TryRequestCompletion(
+                BimDiagnosticOutcome.Success, out var terminalOutcome));
+            Assert.Equal(BimDiagnosticOutcome.Success, terminalOutcome);
+            Assert.False(state.TryRequestCompletion(
+                BimDiagnosticOutcome.Failure, out terminalOutcome));
+            Assert.Null(terminalOutcome);
             Assert.False(state.Observe(Success(1, BimDiagnosticStage.HandlerRuntime)));
 
             state.RecordDrop(long.MaxValue - 1);

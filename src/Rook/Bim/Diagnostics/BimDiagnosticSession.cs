@@ -228,13 +228,15 @@ namespace Rook.Bim
                 return;
             }
 
-            using (var admission = accumulator.TryBeginObservation())
+            var admission = accumulator.TryBeginObservation();
+            if (admission == null)
             {
-                if (admission == null)
-                {
-                    return;
-                }
+                return;
+            }
 
+            BimDiagnosticOutcome? deferredRouteOutcome = null;
+            try
+            {
                 var capture = BimDiagnosticExceptionCapture.Capture(exception);
                 var root = capture.Root;
                 var effectiveFields = capture.DetailCode ==
@@ -258,6 +260,16 @@ namespace Rook.Bim
                 Enqueue(context, accumulator, BimDiagnosticRecordKind.Failure,
                     observation, timestampUtc, root);
             }
+            finally
+            {
+                deferredRouteOutcome = admission.Release();
+            }
+
+            if (deferredRouteOutcome.HasValue)
+            {
+                EnqueueTerminal(
+                    context, accumulator, deferredRouteOutcome.Value);
+            }
         }
 
         internal void CompleteRequest(
@@ -265,17 +277,23 @@ namespace Rook.Bim
             BimDiagnosticOutcome routeOutcome)
         {
             if (!TryGetAccumulator(context, out var accumulator) ||
-                !accumulator.TrySeal())
+                !accumulator.TryRequestCompletion(
+                    routeOutcome, out var terminalOutcome))
             {
                 return;
             }
 
-            BimDiagnosticContracts.ValidateOutcome(routeOutcome);
-            if (routeOutcome == BimDiagnosticOutcome.Start)
+            if (terminalOutcome.HasValue)
             {
-                throw new ArgumentOutOfRangeException(nameof(routeOutcome));
+                EnqueueTerminal(context, accumulator, terminalOutcome.Value);
             }
+        }
 
+        private void EnqueueTerminal(
+            BimDiagnosticContext context,
+            BimDiagnosticOutcomeAccumulator accumulator,
+            BimDiagnosticOutcome routeOutcome)
+        {
             var sequence = NextSequence();
             var envelope = new BimDiagnosticEnvelope(
                 BimDiagnosticRecordKind.Terminal,
