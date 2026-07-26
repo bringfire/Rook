@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -8,6 +9,16 @@ namespace RookBim.Tests
 {
     public class RookBimModuleSourceTests
     {
+        private const string ModuleType =
+            "public static class RookBimModule";
+        private const string DispatcherType =
+            "public sealed class RevitApiDispatcher";
+        private const string WorkItemType =
+            "private sealed class RevitApiWorkItem<T>";
+        private const string RuntimeType =
+            "public sealed class RevitRookBimRuntime : IRookBimRuntime";
+        private const string IdentitySerializerType =
+            "public static class RevitIdentitySerializer";
         private static readonly string RepoRoot = FindRepoRoot();
 
         [Fact]
@@ -23,7 +34,10 @@ internal sealed class Fixture
     }
 }";
 
-            var target = ExtractMethod(source, "public void Target(string value)");
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
 
             Assert.Contains("ActualCall();", target);
             Assert.DoesNotContain("CommentOnly();", target);
@@ -46,14 +60,17 @@ internal sealed class Fixture
     }
 }";
 
-            var target = ExtractMethod(source, "public void Target(string value)");
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
 
             Assert.Contains("RequestedOverloadCall();", target);
             Assert.DoesNotContain("InertSiblingCall();", target);
         }
 
         [Fact]
-        public void SourceExtractor_PreservesCommentMarkersAndBracesInsideLiterals()
+        public void SourceExtractor_LiteralsDoNotCorruptExecutableMemberBoundaries()
         {
             var source = @"
 internal sealed class Fixture
@@ -67,10 +84,13 @@ internal sealed class Fixture
     }
 }";
 
-            var target = ExtractMethod(source, "public void Target(string value)");
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
 
-            Assert.Contains("// not a comment /* still text", target);
-            Assert.Contains("var close = '}';", target);
+            Assert.DoesNotContain("// not a comment /* still text", target);
+            Assert.DoesNotContain("var close = '}';", target);
             Assert.Contains("ActualCall();", target);
         }
 
@@ -87,11 +107,114 @@ internal sealed class Fixture
     }
 }";
 
-            var target = ExtractMethod(source, "public void Target()");
-            var executableCode = ExecutableCode(target);
+            var executableCode = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target()");
 
             Assert.Contains("ActualCall();", executableCode);
             Assert.DoesNotContain("RequiredCall();", executableCode);
+        }
+
+        [Fact]
+        public void SourceExtractor_TargetMethodStringCannotSatisfyPositiveCallContract()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target()
+    {
+        var decoy = ""RequiredCall();"";
+        ActualCall();
+    }
+}";
+
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target()");
+
+            Assert.DoesNotContain("RequiredCall();", target);
+            Assert.Contains("ActualCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_InertOverloadCannotSatisfyTargetOverloadContract()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target(int value)
+    {
+        RequiredCall();
+    }
+
+    public void Target(string value)
+    {
+        ActualCall();
+    }
+}";
+
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
+
+            Assert.DoesNotContain("RequiredCall();", target);
+            Assert.Contains("ActualCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_SiblingTypeCannotSatisfyTargetTypeContract()
+        {
+            var source = @"
+internal sealed class SiblingFixture
+{
+    public void Target(string value)
+    {
+        RequiredCall();
+    }
+}
+
+internal sealed class Fixture
+{
+    public void Target(string value)
+    {
+        ActualCall();
+    }
+}";
+
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
+
+            Assert.DoesNotContain("RequiredCall();", target);
+            Assert.Contains("ActualCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_DuplicateMatchingDeclarationsFailClosed()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target(string value)
+    {
+        FirstCall();
+    }
+
+    public void Target(string value)
+    {
+        SecondCall();
+    }
+}";
+
+            Assert.Throws<InvalidOperationException>(() =>
+                ExtractExecutableMember(
+                    source,
+                    "internal sealed class Fixture",
+                    "public void Target(string value)"));
         }
 
         [Fact]
@@ -172,7 +295,10 @@ internal sealed class Fixture
         public void RookBimModuleActivate_RegistersModuleMetadataBeforeAnyLoadCheck()
         {
             var module = Read("src/RookBim/RookBimModule.cs");
-            var activate = ExtractMethod(module, "public static void Activate()");
+            var activate = ExtractExecutableMember(
+                module,
+                ModuleType,
+                "public static void Activate()");
 
             Assert.Equal(
                 RemoveWhitespace(
@@ -186,17 +312,22 @@ internal sealed class Fixture
         public void RevitDispatcher_CarriesExplicitContextThroughQueuedWorkItem()
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
-            var invoke = ExecutableCode(ExtractMethod(
+            var invoke = ExtractExecutableMember(
                 dispatcher,
-                "public Task<T> Invoke<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
-            var invokeAbandonable = ExecutableCode(ExtractMethod(
+                DispatcherType,
+                "public Task<T> Invoke<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var invokeAbandonable = ExtractExecutableMember(
                 dispatcher,
-                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
-            var workItemConstructor = ExecutableCode(ExtractMethod(
+                DispatcherType,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var workItemConstructor = ExtractExecutableMember(
                 dispatcher,
-                "public RevitApiWorkItem(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
-            var execute = ExecutableCode(
-                ExtractMethod(dispatcher, "public void Execute()"));
+                WorkItemType,
+                "public RevitApiWorkItem(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var execute = ExtractExecutableMember(
+                dispatcher,
+                WorkItemType,
+                "public void Execute()");
 
             Assert.Contains("InvokeAbandonable(diagnostics, work).Task", invoke);
             Assert.Contains("new RevitApiWorkItem<T>(diagnostics, work)", invokeAbandonable);
@@ -212,23 +343,24 @@ internal sealed class Fixture
                 execute.IndexOf("work(ActiveUIApplication())", StringComparison.Ordinal) <
                 execute.IndexOf("BimDiagnosticOutcome.Success", StringComparison.Ordinal));
 
-            var uncommentedDispatcher = StripCommentsPreservingLiterals(dispatcher);
-            Assert.DoesNotContain("AsyncLocal", uncommentedDispatcher);
-            Assert.DoesNotContain("[ThreadStatic]", uncommentedDispatcher);
-            Assert.DoesNotContain("ThreadLocal", uncommentedDispatcher);
-            Assert.DoesNotContain("CurrentCorrelation", uncommentedDispatcher);
-            Assert.DoesNotContain("CurrentDiagnostics", uncommentedDispatcher);
-            Assert.DoesNotContain("CurrentContext", uncommentedDispatcher);
-            Assert.DoesNotContain("GlobalCorrelation", uncommentedDispatcher);
+            var executableDispatcher = ExecutableCode(dispatcher);
+            Assert.DoesNotContain("AsyncLocal", executableDispatcher);
+            Assert.DoesNotContain("[ThreadStatic]", executableDispatcher);
+            Assert.DoesNotContain("ThreadLocal", executableDispatcher);
+            Assert.DoesNotContain("CurrentCorrelation", executableDispatcher);
+            Assert.DoesNotContain("CurrentDiagnostics", executableDispatcher);
+            Assert.DoesNotContain("CurrentContext", executableDispatcher);
+            Assert.DoesNotContain("GlobalCorrelation", executableDispatcher);
         }
 
         [Fact]
         public void RevitDispatcher_ObservesEnqueueAtTheExistingBoundaries()
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
-            var invoke = ExecutableCode(ExtractMethod(
+            var invoke = ExtractExecutableMember(
                 dispatcher,
-                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
+                DispatcherType,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
 
             var startIndex = invoke.IndexOf("BimDiagnosticOutcome.Start", StringComparison.Ordinal);
             var enqueueIndex = invoke.IndexOf("EnqueueIdlingAction", StringComparison.Ordinal);
@@ -308,10 +440,14 @@ internal sealed class Fixture
         {
             var runtime = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var resolve = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private static View? ResolveActiveGraphicalView(UIDocument uidoc, BimQueryScope scope, BimDiagnosticContext diagnostics)");
 
-            Assert.Contains("uidoc.ActiveGraphicalView", runtime);
-            Assert.DoesNotContain("uidoc.ActiveView", runtime);
-            Assert.DoesNotContain("document.ActiveView", runtime);
+            Assert.Contains("uidoc.ActiveGraphicalView", resolve);
+            Assert.DoesNotContain("uidoc.ActiveView", ExecutableCode(runtime));
+            Assert.DoesNotContain("document.ActiveView", ExecutableCode(runtime));
         }
 
         [Fact]
@@ -319,9 +455,10 @@ internal sealed class Fixture
         {
             var runtime = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
-            var resolve = ExecutableCode(ExtractMethod(
+            var resolve = ExtractExecutableMember(
                 runtime,
-                "private static View? ResolveActiveGraphicalView(UIDocument uidoc, BimQueryScope scope, BimDiagnosticContext diagnostics)"));
+                RuntimeType,
+                "private static View? ResolveActiveGraphicalView(UIDocument uidoc, BimQueryScope scope, BimDiagnosticContext diagnostics)");
 
             var documentReturnIndex = resolve.IndexOf(
                 "if (scope != BimQueryScope.ActiveView)", StringComparison.Ordinal);
@@ -346,21 +483,26 @@ internal sealed class Fixture
         {
             var runtime = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
-            var dispatch = ExecutableCode(ExtractMethod(
+            var dispatch = ExtractExecutableMember(
                 runtime,
-                "private T Dispatch<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)"));
-            var dispatchWithTimeout = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "private T Dispatch<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var dispatchWithTimeout = ExtractExecutableMember(
                 runtime,
-                "private T DispatchWithTimeout<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work, TimeSpan timeout)"));
-            var documentContext = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "private T DispatchWithTimeout<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work, TimeSpan timeout)");
+            var documentContext = ExtractExecutableMember(
                 runtime,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)"));
-            var activeDocument = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
+            var activeDocument = ExtractExecutableMember(
                 runtime,
-                "public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)"));
-            var queryElements = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)");
+            var queryElements = ExtractExecutableMember(
                 runtime,
-                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)"));
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
 
             Assert.True(
                 dispatch.IndexOf("var capturedDiagnostics = diagnostics;", StringComparison.Ordinal) <
@@ -395,53 +537,64 @@ internal sealed class Fixture
             Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
             Assert.Contains("AcquireDocument(uidoc, diagnostics)", documentContext);
 
-            var uncommentedRuntime = StripCommentsPreservingLiterals(runtime);
-            Assert.DoesNotContain("AsyncLocal", uncommentedRuntime);
-            Assert.DoesNotContain("[ThreadStatic]", uncommentedRuntime);
-            Assert.DoesNotContain("ThreadLocal", uncommentedRuntime);
-            Assert.DoesNotContain("CurrentCorrelation", uncommentedRuntime);
-            Assert.DoesNotContain("CurrentDiagnostics", uncommentedRuntime);
-            Assert.DoesNotContain("CurrentContext", uncommentedRuntime);
-            Assert.DoesNotContain("GlobalCorrelation", uncommentedRuntime);
+            var executableRuntime = ExecutableCode(runtime);
+            Assert.DoesNotContain("AsyncLocal", executableRuntime);
+            Assert.DoesNotContain("[ThreadStatic]", executableRuntime);
+            Assert.DoesNotContain("ThreadLocal", executableRuntime);
+            Assert.DoesNotContain("CurrentCorrelation", executableRuntime);
+            Assert.DoesNotContain("CurrentDiagnostics", executableRuntime);
+            Assert.DoesNotContain("CurrentContext", executableRuntime);
+            Assert.DoesNotContain("GlobalCorrelation", executableRuntime);
         }
 
         [Fact]
         public void RevitRuntime_InstrumentsEveryExistingDocumentAcquisitionWithoutCachingReads()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var status = ExecutableCode(ExtractMethod(
+            var status = ExtractExecutableMember(
                 runtime,
-                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)"));
-            var elementInfo = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)");
+            var elementInfo = ExtractExecutableMember(
                 runtime,
-                "public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)"));
-            var parameters = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)");
+            var parameters = ExtractExecutableMember(
                 runtime,
-                "public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)"));
-            var select = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)");
+            var select = ExtractExecutableMember(
                 runtime,
-                "public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)"));
-            var clear = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)");
+            var clear = ExtractExecutableMember(
                 runtime,
-                "public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)"));
-            var preset = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)");
+            var preset = ExtractExecutableMember(
                 runtime,
-                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)"));
-            var export = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)");
+            var export = ExtractExecutableMember(
                 runtime,
-                "public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)"));
-            var documentContext = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)");
+            var documentContext = ExtractExecutableMember(
                 runtime,
-                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)"));
-            var acquireUiDocument = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
+            var acquireUiDocument = ExtractExecutableMember(
                 runtime,
-                "private static UIDocument? AcquireActiveUiDocument(UIApplication uiapp, BimDiagnosticContext diagnostics)"));
-            var acquireDocument = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "private static UIDocument? AcquireActiveUiDocument(UIApplication uiapp, BimDiagnosticContext diagnostics)");
+            var acquireDocument = ExtractExecutableMember(
                 runtime,
-                "private static Document? AcquireDocument(UIDocument uidoc, BimDiagnosticContext diagnostics)"));
-            var acquireActiveDocument = ExecutableCode(ExtractMethod(
+                RuntimeType,
+                "private static Document? AcquireDocument(UIDocument uidoc, BimDiagnosticContext diagnostics)");
+            var acquireActiveDocument = ExtractExecutableMember(
                 runtime,
-                "private static Document? AcquireActiveDocument(UIApplication uiapp, BimDiagnosticContext diagnostics)"));
+                RuntimeType,
+                "private static Document? AcquireActiveDocument(UIApplication uiapp, BimDiagnosticContext diagnostics)");
 
             Assert.Equal(1, CountOccurrences(status, "AcquireActiveDocument(uiapp, diagnostics)"));
             AssertAcquisitionCounts(documentContext, expectedUiDocument: 1, expectedDocument: 2);
@@ -474,12 +627,14 @@ internal sealed class Fixture
         {
             var serializer = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
-            var detailed = ExecutableCode(ExtractMethod(
+            var detailed = ExtractExecutableMember(
                 serializer,
-                "public static BimDocumentIdentity DocumentIdentity(Document document, BimDiagnosticContext diagnostics, bool includeAuxiliaryState)"));
-            var central = ExecutableCode(ExtractMethod(
+                IdentitySerializerType,
+                "public static BimDocumentIdentity DocumentIdentity(Document document, BimDiagnosticContext diagnostics, bool includeAuxiliaryState)");
+            var central = ExtractExecutableMember(
                 serializer,
-                "private static Guid? GetWorksharingCentralGUID(Document document, BimDiagnosticContext diagnostics)"));
+                IdentitySerializerType,
+                "private static Guid? GetWorksharingCentralGUID(Document document, BimDiagnosticContext diagnostics)");
 
             var centralCall = detailed.IndexOf(
                 "GetWorksharingCentralGUID(document, diagnostics)", StringComparison.Ordinal);
@@ -510,7 +665,7 @@ internal sealed class Fixture
                 central,
                 "catch (Autodesk.Revit.Exceptions.InvalidOperationException)"));
             Assert.DoesNotContain("InternalException", central);
-            Assert.DoesNotContain("InternalException", serializer);
+            Assert.DoesNotContain("InternalException", ExecutableCode(serializer));
         }
 
         [Fact]
@@ -518,15 +673,18 @@ internal sealed class Fixture
         {
             var serializer = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
-            var untraced = ExecutableCode(ExtractMethod(
+            var untraced = ExtractExecutableMember(
                 serializer,
-                "public static BimDocumentIdentity DocumentIdentity(Document document)"));
-            var element = ExecutableCode(ExtractMethod(
+                IdentitySerializerType,
+                "public static BimDocumentIdentity DocumentIdentity(Document document)");
+            var element = ExtractExecutableMember(
                 serializer,
-                "public static BimElementIdentity ElementIdentity(Element element)"));
-            var resolve = ExecutableCode(ExtractMethod(
+                IdentitySerializerType,
+                "public static BimElementIdentity ElementIdentity(Element element)");
+            var resolve = ExtractExecutableMember(
                 serializer,
-                "public static BimElementResolveResult Resolve(Document document, BimElementIdentity? identity)"));
+                IdentitySerializerType,
+                "public static BimElementResolveResult Resolve(Document document, BimElementIdentity? identity)");
 
             Assert.DoesNotContain("BimDiagnostic", untraced);
             Assert.Contains("DocumentIdentity(document)", element);
@@ -540,15 +698,18 @@ internal sealed class Fixture
         {
             var serializer = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
-            var detailed = ExecutableCode(ExtractMethod(
+            var detailed = ExtractExecutableMember(
                 serializer,
-                "public static BimDocumentIdentity DocumentIdentity(Document document, BimDiagnosticContext diagnostics, bool includeAuxiliaryState)"));
-            var state = ExecutableCode(ExtractMethod(
+                IdentitySerializerType,
+                "public static BimDocumentIdentity DocumentIdentity(Document document, BimDiagnosticContext diagnostics, bool includeAuxiliaryState)");
+            var state = ExtractExecutableMember(
                 serializer,
-                "private static void ProbeDocumentState(Document document, BimDiagnosticContext diagnostics)"));
-            var classify = ExecutableCode(ExtractMethod(
+                IdentitySerializerType,
+                "private static void ProbeDocumentState(Document document, BimDiagnosticContext diagnostics)");
+            var classify = ExtractExecutableMember(
                 serializer,
-                "private static BimDiagnosticDetailCode ClassifyDocumentState(BimAuxiliaryProbeResult<bool> isModelInCloud, BimAuxiliaryProbeResult<bool> isDetached, BimAuxiliaryProbeResult<ModelPath> centralModelPath, BimAuxiliaryProbeResult<bool>? empty, BimAuxiliaryProbeResult<bool>? serverPath, BimAuxiliaryProbeResult<bool>? cloudPath)"));
+                IdentitySerializerType,
+                "private static BimDiagnosticDetailCode ClassifyDocumentState(BimAuxiliaryProbeResult<bool> isModelInCloud, BimAuxiliaryProbeResult<bool> isDetached, BimAuxiliaryProbeResult<ModelPath> centralModelPath, BimAuxiliaryProbeResult<bool>? empty, BimAuxiliaryProbeResult<bool>? serverPath, BimAuxiliaryProbeResult<bool>? cloudPath)");
 
             var dtoIndex = detailed.IndexOf("var result = new BimDocumentIdentity", StringComparison.Ordinal);
             var probeIndex = detailed.IndexOf("ProbeDocumentState(document, diagnostics);", StringComparison.Ordinal);
@@ -590,9 +751,18 @@ internal sealed class Fixture
         {
             var runtime = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
-            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
-            var exportPreset = ExtractMethod(runtime, "public BimApiResponse ExportPreset(");
-            var exportElements = ExtractMethod(runtime, "public BimApiResponse ExportElements(");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var exportPreset = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)");
+            var exportElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)");
 
             Assert.Contains(
                 "ResolveActiveGraphicalView(\n" +
@@ -607,7 +777,7 @@ internal sealed class Fixture
                 "                            ? ResolveActiveGraphicalView(\n" +
                 "                                uidoc, request.Selector!.EffectiveScope, diagnostics)\n" +
                 "                            : null",
-                NormalizeLineEndings(exportElements));
+                exportElements);
 
             var presetDocumentIndex = exportPreset.IndexOf(
                 "var document = AcquireDocument(uidoc, diagnostics)!;",
@@ -634,7 +804,10 @@ internal sealed class Fixture
         public void RevitRuntime_ActiveDocumentSerializesItsViewInsideTheOperationBoundary()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var activeDocument = ExtractMethod(runtime, "public BimApiResponse ActiveDocument(");
+            var activeDocument = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)");
 
             Assert.Contains("return ExecuteInDocumentContext", activeDocument);
             Assert.Contains("View = SerializeActiveView(uidoc, diagnostics)", activeDocument);
@@ -679,7 +852,10 @@ internal sealed class Fixture
         public void RevitTask7_DispatchDoesNotMaskFaultedTasksWithAggregateException()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var dispatch = ExtractMethod(runtime, "private T Dispatch<T>(");
+            var dispatch = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private T Dispatch<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
 
             Assert.DoesNotContain(".Wait(DispatchTimeout)", dispatch);
             Assert.Contains("Task.WaitAny", dispatch);
@@ -1135,6 +1311,219 @@ internal sealed class Fixture
             Assert.Equal(1, CountOccurrences(source, enabledExpression));
         }
 
+        private static string ExtractExecutableMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
+        {
+            var code = Lex(source).CodeMask;
+            var type = FindUniqueBlockDeclaration(
+                code,
+                typeDeclaration,
+                0,
+                code.Length,
+                containingBodyStart: null);
+            var member = FindUniqueBlockDeclaration(
+                code,
+                memberDeclaration,
+                type.BodyStart + 1,
+                type.BodyEnd,
+                type.BodyStart);
+
+            return code.Substring(
+                member.DeclarationStart,
+                member.BodyEnd - member.DeclarationStart + 1);
+        }
+
+        private static SourceBlock FindUniqueBlockDeclaration(
+            string code,
+            string declaration,
+            int searchStart,
+            int searchEnd,
+            int? containingBodyStart)
+        {
+            var significantDeclaration = new string(declaration
+                .Where(character => !char.IsWhiteSpace(character))
+                .ToArray());
+            if (significantDeclaration.Length == 0)
+            {
+                throw new ArgumentException(
+                    "Declaration must contain a non-whitespace character.",
+                    nameof(declaration));
+            }
+
+            var matches = new List<SourceBlock>();
+            for (var candidate = searchStart; candidate < searchEnd; candidate++)
+            {
+                if (char.IsWhiteSpace(code[candidate]) ||
+                    code[candidate] != significantDeclaration[0] ||
+                    HasIdentifierPrefix(code, candidate, significantDeclaration[0]))
+                {
+                    continue;
+                }
+
+                if (!TryMatchIgnoringWhitespace(
+                        code,
+                        candidate,
+                        searchEnd,
+                        significantDeclaration,
+                        out var declarationEnd))
+                {
+                    continue;
+                }
+
+                var bodyStart = NextNonWhitespace(code, declarationEnd, searchEnd);
+                if (bodyStart < 0 || code[bodyStart] != '{')
+                {
+                    continue;
+                }
+
+                if (containingBodyStart.HasValue &&
+                    BraceDepth(
+                        code,
+                        containingBodyStart.Value + 1,
+                        candidate) != 0)
+                {
+                    continue;
+                }
+
+                var bodyEnd = FindClosingBrace(code, bodyStart, searchEnd);
+                matches.Add(new SourceBlock(candidate, bodyStart, bodyEnd));
+            }
+
+            if (matches.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "Expected exactly one declaration for '" + declaration +
+                    "' but found " + matches.Count + ".");
+            }
+
+            return matches[0];
+        }
+
+        private static bool TryMatchIgnoringWhitespace(
+            string source,
+            int candidate,
+            int searchEnd,
+            string significantPattern,
+            out int matchEnd)
+        {
+            var sourceIndex = candidate;
+            var patternIndex = 0;
+            while (sourceIndex < searchEnd &&
+                   patternIndex < significantPattern.Length)
+            {
+                if (char.IsWhiteSpace(source[sourceIndex]))
+                {
+                    sourceIndex++;
+                    continue;
+                }
+
+                if (source[sourceIndex] != significantPattern[patternIndex])
+                {
+                    matchEnd = -1;
+                    return false;
+                }
+
+                sourceIndex++;
+                patternIndex++;
+            }
+
+            matchEnd = sourceIndex;
+            return patternIndex == significantPattern.Length;
+        }
+
+        private static bool HasIdentifierPrefix(
+            string source,
+            int candidate,
+            char patternStart)
+        {
+            if (!IsIdentifierCharacter(patternStart))
+            {
+                return false;
+            }
+
+            for (var index = candidate - 1; index >= 0; index--)
+            {
+                if (char.IsWhiteSpace(source[index]))
+                {
+                    continue;
+                }
+
+                return IsIdentifierCharacter(source[index]);
+            }
+
+            return false;
+        }
+
+        private static bool IsIdentifierCharacter(char value)
+        {
+            return char.IsLetterOrDigit(value) || value == '_';
+        }
+
+        private static int NextNonWhitespace(
+            string source,
+            int start,
+            int searchEnd)
+        {
+            for (var index = start; index < searchEnd; index++)
+            {
+                if (!char.IsWhiteSpace(source[index]))
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
+        private static int BraceDepth(
+            string source,
+            int start,
+            int end)
+        {
+            var depth = 0;
+            for (var index = start; index < end; index++)
+            {
+                if (source[index] == '{')
+                {
+                    depth++;
+                }
+                else if (source[index] == '}')
+                {
+                    depth--;
+                }
+            }
+
+            return depth;
+        }
+
+        private static int FindClosingBrace(
+            string source,
+            int bodyStart,
+            int searchEnd)
+        {
+            var depth = 0;
+            for (var index = bodyStart; index < searchEnd; index++)
+            {
+                if (source[index] == '{')
+                {
+                    depth++;
+                }
+                else if (source[index] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        return index;
+                    }
+                }
+            }
+
+            throw new InvalidOperationException(
+                "Brace did not close at index " + bodyStart + ".");
+        }
+
         private static string ExtractMethod(string source, string declaration)
         {
             var lexed = Lex(source);
@@ -1253,11 +1642,6 @@ internal sealed class Fixture
             return new string(value
                 .Where(character => !char.IsWhiteSpace(character))
                 .ToArray());
-        }
-
-        private static string StripCommentsPreservingLiterals(string source)
-        {
-            return Lex(source).WithoutComments;
         }
 
         private static string ExecutableCode(string source)
@@ -1532,6 +1916,25 @@ internal sealed class Fixture
             public string WithoutComments { get; }
 
             public string CodeMask { get; }
+        }
+
+        private sealed class SourceBlock
+        {
+            public SourceBlock(
+                int declarationStart,
+                int bodyStart,
+                int bodyEnd)
+            {
+                DeclarationStart = declarationStart;
+                BodyStart = bodyStart;
+                BodyEnd = bodyEnd;
+            }
+
+            public int DeclarationStart { get; }
+
+            public int BodyStart { get; }
+
+            public int BodyEnd { get; }
         }
 
         private static string FindRepoRoot()
