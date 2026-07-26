@@ -205,6 +205,147 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Dispatch_DisabledDiagnosticsJsonSerializerFailureUsesFixedMinimalFallback()
+        {
+            const string hostileMarker = "hostile-json-serializer-marker";
+            var serializerCalls = 0;
+            var session = new BimDiagnosticSession(false, null);
+            var runtime = new RecordingRuntime();
+
+            using (BimDiagnostics.PushSessionForTests(session))
+            using (InstallRuntime(runtime))
+            {
+                var response = new BimHandler(
+                    () => true,
+                    value =>
+                    {
+                        Interlocked.Increment(ref serializerCalls);
+                        throw new JsonException(hostileMarker);
+                    }).Dispatch("{\"op\":\"active_document\"}");
+                var serializedResponse = JsonSerializer.Serialize(response);
+                var data = ToJsonElement(response.Data);
+
+                Assert.Equal(1, serializerCalls);
+                Assert.False(response.Success);
+                Assert.Equal(500, response.HttpStatus);
+                Assert.Equal("internal_error", data.GetProperty("errorCode").GetString());
+                Assert.Equal("BIM dispatch failed.", data.GetProperty("message").GetString());
+                Assert.DoesNotContain(hostileMarker, serializedResponse, StringComparison.Ordinal);
+                Assert.Null(response.Diagnostic);
+            }
+        }
+
+        [Fact]
+        public void Dispatch_DisabledDiagnosticsArgumentSerializerFailureUsesFixedMinimalFallback()
+        {
+            const string hostileMarker = "hostile-argument-serializer-marker";
+            var serializerCalls = 0;
+            var session = new BimDiagnosticSession(false, null);
+            var runtime = new RecordingRuntime();
+
+            using (BimDiagnostics.PushSessionForTests(session))
+            using (InstallRuntime(runtime))
+            {
+                var response = new BimHandler(
+                    () => true,
+                    value =>
+                    {
+                        Interlocked.Increment(ref serializerCalls);
+                        throw new ArgumentException(hostileMarker);
+                    }).Dispatch("{\"op\":\"active_document\"}");
+                var serializedResponse = JsonSerializer.Serialize(response);
+                var data = ToJsonElement(response.Data);
+
+                Assert.Equal(1, serializerCalls);
+                Assert.False(response.Success);
+                Assert.Equal(500, response.HttpStatus);
+                Assert.Equal("internal_error", data.GetProperty("errorCode").GetString());
+                Assert.Equal("BIM dispatch failed.", data.GetProperty("message").GetString());
+                Assert.DoesNotContain(hostileMarker, serializedResponse, StringComparison.Ordinal);
+                Assert.Null(response.Diagnostic);
+            }
+        }
+
+        [Fact]
+        public void Dispatch_RejectedDiagnosticObservationCannotChangeSerializerFailureResponse()
+        {
+            const string hostileMarker = "hostile-rejected-observation-marker";
+            var serializerCalls = 0;
+            var sink = new RecordingSink();
+            var session = new BimDiagnosticSession(true, sink);
+            var runtime = new PrematureCompletionRuntime();
+
+            using (BimDiagnostics.PushSessionForTests(session))
+            using (InstallRuntime(runtime))
+            {
+                var response = new BimHandler(
+                    () => true,
+                    value =>
+                    {
+                        Interlocked.Increment(ref serializerCalls);
+                        throw new JsonException(hostileMarker);
+                    }).Dispatch("{\"op\":\"active_document\"}");
+                var serializedResponse = JsonSerializer.Serialize(response);
+                var data = ToJsonElement(response.Data);
+
+                Assert.Equal(1, serializerCalls);
+                Assert.DoesNotContain(sink.Envelopes, envelope =>
+                    envelope.Kind == BimDiagnosticRecordKind.Failure &&
+                    envelope.Stage == BimDiagnosticStage.HandlerSerialize);
+                Assert.Equal(500, response.HttpStatus);
+                Assert.Equal("internal_error", data.GetProperty("errorCode").GetString());
+                Assert.Equal("BIM dispatch failed.", data.GetProperty("message").GetString());
+                Assert.DoesNotContain(hostileMarker, serializedResponse, StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
+        public async Task Dispatch_ConcurrentRequestsDoNotShareSerializerFailureControlState()
+        {
+            var serializerEntered = new ManualResetEventSlim(false);
+            var releaseSerializer = new ManualResetEventSlim(false);
+            var serializerCalls = 0;
+            var session = new BimDiagnosticSession(false, null);
+            var runtime = new RecordingRuntime();
+
+            using (BimDiagnostics.PushSessionForTests(session))
+            using (InstallRuntime(runtime))
+            {
+                var handler = new BimHandler(
+                    () => true,
+                    value =>
+                    {
+                        Interlocked.Increment(ref serializerCalls);
+                        serializerEntered.Set();
+                        if (!releaseSerializer.Wait(TimeSpan.FromSeconds(10)))
+                        {
+                            throw new TimeoutException("Serializer release timed out.");
+                        }
+
+                        throw new JsonException("concurrent serializer failure");
+                    });
+
+                var serializationFailure = Task.Run(() =>
+                    handler.Dispatch("{\"op\":\"active_document\"}"));
+                Assert.True(serializerEntered.Wait(TimeSpan.FromSeconds(10)));
+
+                var argumentFailure = await Task.Run(() => handler.Dispatch(
+                    "{\"op\":\"element_info\",\"identity\":{\"elementId\":\"not-an-integer\"}}"));
+                releaseSerializer.Set();
+                var serializationResponse = await serializationFailure;
+                var argumentData = ToJsonElement(argumentFailure.Data);
+                var serializationData = ToJsonElement(serializationResponse.Data);
+
+                Assert.Equal(1, serializerCalls);
+                Assert.Equal(400, argumentFailure.HttpStatus);
+                Assert.Equal("invalid_scope", argumentData.GetProperty("errorCode").GetString());
+                Assert.Equal(500, serializationResponse.HttpStatus);
+                Assert.Equal("internal_error",
+                    serializationData.GetProperty("errorCode").GetString());
+            }
+        }
+
+        [Fact]
         public void Dispatch_SerializerFailureUsesMinimalFallbackAfterEarlierProductionFailure()
         {
             var sink = new RecordingSink();
@@ -500,6 +641,26 @@ namespace Rook.Tests.Handlers
             Assert.DoesNotContain("Fail(", fallback);
         }
 
+        [Fact]
+        public void Source_UsesRequestLocalSerializerFailureMarkerBeforeBestEffortObservation()
+        {
+            var source = ReadSourceFile("src", "Rook", "Handlers", "BimHandler.cs");
+            var dispatch = ExtractFunctionBySignature(source, "public ApiResponse Dispatch(");
+            var wrapper = ExtractFunctionBySignature(source,
+                "private JsonNode? SerializeForWire(");
+
+            Assert.DoesNotContain("HasSerializationFailure", source);
+            Assert.DoesNotContain("SnapshotRequest", dispatch);
+            Assert.Contains("new DispatchControlState()", dispatch);
+            Assert.Contains("DispatchControlState control", wrapper);
+            Assert.True(wrapper.IndexOf("control.SerializationFailed = true",
+                    StringComparison.Ordinal) <
+                wrapper.IndexOf("BimDiagnostics.ObserveException(",
+                    StringComparison.Ordinal));
+            Assert.Contains("throw;", wrapper);
+            Assert.DoesNotContain("throw ex", wrapper);
+        }
+
         private static IEnumerable<BimDiagnosticEnvelope> Terminals(RecordingSink sink)
         {
             return sink.Envelopes.Where(envelope =>
@@ -739,6 +900,18 @@ namespace Rook.Tests.Handlers
                         BimDiagnosticDetailCode.None,
                         null,
                         BimDiagnosticFailureImpact.Production));
+                return BimApiResponse.Ok(new JsonObject { ["kind"] = "active_document" });
+            }
+        }
+
+        private sealed class PrematureCompletionRuntime : RecordingRuntime
+        {
+            public override BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)
+            {
+                Record(diagnostics);
+                BimDiagnostics.CompleteRequest(
+                    diagnostics,
+                    BimDiagnosticOutcome.Success);
                 return BimApiResponse.Ok(new JsonObject { ["kind"] = "active_document" });
             }
         }
