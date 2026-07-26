@@ -50,6 +50,10 @@ class _AdapterIdentityMismatch(RuntimeError):
     pass
 
 
+class _AdapterEvidenceMismatch(RuntimeError):
+    pass
+
+
 def _construct_resolution_role_provider(
     *, role: str, model: str, temperature: float
 ) -> object:
@@ -442,6 +446,17 @@ class _StagedCallLedger:
                                 ),
                             }
                         )
+                        try:
+                            self._persist_and_reread(
+                                self._calls / f"{prefix}-adapter-request.json",
+                                raw_request,
+                            )
+                            self._persist_and_reread(
+                                self._calls / f"{prefix}-adapter-error.bin",
+                                raw_error,
+                            )
+                        except (OSError, ValueError):
+                            evidence_failure = "adapter_failure_capture_failure"
                         expected_request = (
                             PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
                                 model=role_contract["model"],
@@ -449,11 +464,12 @@ class _StagedCallLedger:
                                 provider_request=request_value,
                             )
                         )
-                        evidence_failure = (
-                            "adapter_request_mismatch"
-                            if raw_request != expected_request
-                            else ""
-                        )
+                        if evidence_failure != "adapter_failure_capture_failure":
+                            evidence_failure = (
+                                "adapter_request_mismatch"
+                                if raw_request != expected_request
+                                else ""
+                            )
                 with self._dispatch_lock:
                     if evidence_failure:
                         self._adapter_evidence_failures[call_index] = evidence_failure
@@ -510,6 +526,32 @@ class _StagedCallLedger:
                         self._response_capture_failures[call_index] = failure_locus
                     raise
                 terminal.update(captured)
+                try:
+                    projected_message = (
+                        PROVIDER_ADAPTER.project_litellm_assistant_message(
+                            response.raw_response
+                        )
+                    )
+                except (TypeError, ValueError):
+                    projected_message = None
+                if projected_message != response.assistant_message:
+                    terminal.update(
+                        {
+                            "outcome": "raised",
+                            "exception_type": "_AdapterEvidenceMismatch",
+                            "failure_type": "AdapterEvidenceMismatch",
+                        }
+                    )
+                    with self._dispatch_lock:
+                        self._adapter_evidence_failures[call_index] = (
+                            "adapter_response_projection_mismatch"
+                        )
+                        self._pending_terminal_rows[call_index] = MappingProxyType(
+                            copy.deepcopy(terminal)
+                        )
+                    raise _AdapterEvidenceMismatch(
+                        "adapter assistant differs from raw response projection"
+                    )
                 metadata = response.provider_metadata
                 if (
                     not isinstance(metadata, Mapping)

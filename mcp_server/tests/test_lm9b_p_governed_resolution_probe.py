@@ -99,6 +99,25 @@ def _expected_litellm_request_bytes(
     return _canonical_bytes(value) + b"\n"
 
 
+def _litellm_response_bytes(
+    assistant_message: dict[str, object], *, response_id: str
+) -> bytes:
+    return _canonical_bytes(
+        {
+            "id": response_id,
+            "model": "gpt-5.4-2026-03-05",
+            "created": 1785000000,
+            "choices": [
+                {
+                    "message": assistant_message,
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"total_tokens": 50},
+        }
+    ) + b"\n"
+
+
 def _planner_turn(
     *,
     recipe_bytes: bytes,
@@ -112,23 +131,26 @@ def _planner_turn(
         ensure_ascii=False,
         separators=(",", ":"),
     )
+    assistant_message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": "submit_planner_recipe",
+                    "arguments": arguments,
+                },
+            }
+        ],
+    }
     return PLANNER_SUPPORT.ProviderTurn(
         raw_request=b'{"adapter":"planner-request"}',
-        raw_response=(f'{{"planner_turn":"{call_id}"}}').encode("utf-8"),
-        assistant_message={
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": call_id,
-                    "type": "function",
-                    "function": {
-                        "name": "submit_planner_recipe",
-                        "arguments": arguments,
-                    },
-                }
-            ],
-        },
+        raw_response=_litellm_response_bytes(
+            assistant_message, response_id=f"response-{call_id}"
+        ),
+        assistant_message=assistant_message,
         usage={"total_tokens": total_tokens, "cost_usd": cost_usd},
         provider_metadata={
             "model_identity": "gpt-5.4",
@@ -156,23 +178,26 @@ def _evaluator_turn(
         {"evaluation_json": json.dumps(report, separators=(",", ":"))},
         separators=(",", ":"),
     )
+    assistant_message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "evaluator-1",
+                "type": "function",
+                "function": {
+                    "name": "submit_planner_evaluation",
+                    "arguments": arguments,
+                },
+            }
+        ],
+    }
     return PLANNER_SUPPORT.ProviderTurn(
         raw_request=b'{"adapter":"evaluator-request"}',
-        raw_response=b'{"evaluator":"faithful"}',
-        assistant_message={
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "evaluator-1",
-                    "type": "function",
-                    "function": {
-                        "name": "submit_planner_evaluation",
-                        "arguments": arguments,
-                    },
-                }
-            ],
-        },
+        raw_response=_litellm_response_bytes(
+            assistant_message, response_id="response-evaluator-1"
+        ),
+        assistant_message=assistant_message,
         usage={"total_tokens": 25, "cost_usd": 0.001},
         provider_metadata={
             "model_identity": "gpt-5.4",
@@ -1171,9 +1196,17 @@ def _task4_provider_scripts(case: str, preflight: object) -> tuple[list[object],
     if case == "evaluation_inconclusive":
         return planner, [_evaluator_turn("evaluation_inconclusive")]
     if case == "evaluator_malformed":
+        malformed_message = {
+            "role": "assistant",
+            "content": "malformed",
+            "tool_calls": [],
+        }
         malformed = replace(
             _evaluator_turn(),
-            assistant_message={"role": "assistant", "content": "malformed"},
+            raw_response=_litellm_response_bytes(
+                malformed_message, response_id="response-evaluator-malformed"
+            ),
+            assistant_message=malformed_message,
         )
         return planner, [malformed]
     if case == "evaluator_provider_failure":
@@ -2475,13 +2508,15 @@ def test_task5_rename_reconciliation_never_overwrites_or_invents_result(
             if (path / "post_dispatch_unsealed.json").is_file()
         ]
         assert marked
-        if rename_case in {"destination_appears_before_rename", "both_exist"}:
+        if rename_case in {
+            "destination_appears_before_rename",
+            "invalid_destination_only",
+            "both_exist",
+        }:
             assert set(marked) == {
                 _preflight.attempt.staging_path,
                 _preflight.attempt.destination,
             }
-        if rename_case == "invalid_destination_only":
-            assert marked == [_preflight.attempt.destination]
 
 
 def test_task5_ready_proof_is_reconstructed_and_forgery_refused(
@@ -2498,3 +2533,216 @@ def test_task5_ready_proof_is_reconstructed_and_forgery_refused(
     forged = replace(proof, recipe_fingerprint="sha256:" + "4" * 64)
     with pytest.raises(ValueError, match="differs from public reconstruction"):
         RESOLUTION_ARTIFACTS.consume_resolution_ready_proof(forged)
+
+
+@pytest.mark.parametrize(
+    "failed_member",
+    sorted(
+        RESOLUTION_ARTIFACTS.resolution_archive_member_paths(
+            candidate_present=True,
+            isolation_evaluated=True,
+            evaluator_dispatched=True,
+        )
+    ),
+)
+def test_task5_each_archive_write_failure_preserves_complete_runtime_capture(
+    failed_member: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    original_open = Path.open
+
+    def fail_member_write(path: Path, mode: str = "r", *args: object, **kwargs: object):
+        if path.name == failed_member and mode == "xb":
+            raise OSError(f"injected {failed_member} write failure")
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_member_write)
+    preflight, result = _task5_ready_result(
+        monkeypatch, tmp_path, expect_sealed=False
+    )
+    assert result.state == "post_dispatch_unsealed"
+    runtime = preflight.attempt.staging_path / ".resolution-runtime"
+    assert runtime.is_dir()
+    calls = runtime / "calls"
+    assert len(
+        [path for path in calls.glob("*-request.json") if "-adapter-" not in path.name]
+    ) == 3
+    assert len(list(calls.glob("*-dispatch_started.json"))) == 3
+    assert len(list(calls.glob("*-adapter-request.json"))) == 3
+    assert len(list(calls.glob("*-adapter-response.bin"))) == 3
+    assert not (preflight.attempt.staging_path / "classification.json").exists()
+    assert (preflight.attempt.staging_path / "post_dispatch_unsealed.json").is_file()
+    assert set(path.name for path in preflight.attempt.staging_path.iterdir()) == {
+        ".archive-candidate",
+        ".resolution-runtime",
+        "post_dispatch_unsealed.json",
+    }
+
+
+def test_task5_raised_call_capture_is_durable_before_archive_write(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    original_open = Path.open
+
+    def fail_source_write(path: Path, mode: str = "r", *args: object, **kwargs: object):
+        if path.name == "source.json" and mode == "xb":
+            raise OSError("injected source write failure")
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_source_write)
+    preflight, result, _row = _run_task4_raised_call(
+        role="planner",
+        raised_action=_provider_failure_action(),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+    assert result.state == "post_dispatch_unsealed"
+    calls = preflight.attempt.staging_path / ".resolution-runtime" / "calls"
+    assert (calls / "00-planner-adapter-request.json").is_file()
+    assert (calls / "00-planner-adapter-error.bin").is_file()
+
+
+def test_task5_reclosed_semantic_claim_must_match_raw_provider_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    archive = result.sealed_checkpoint.archive_dir
+    ledger_path = archive / "call-ledger.json"
+    ledger = json.loads(ledger_path.read_bytes())
+    evaluator_call = ledger["calls"][-1]
+    original_raw = evaluator_call["raw_response_b64"]
+    changed_turn = _evaluator_turn("semantically_unfaithful")
+    evaluator_call["assistant_message"] = changed_turn.assistant_message
+    ledger_path.write_bytes(_canonical_bytes(ledger))
+
+    evaluator_path = archive / "evaluator.json"
+    evaluator = json.loads(evaluator_path.read_bytes())
+    evaluator["assistant_message"] = changed_turn.assistant_message
+    evaluator["recommendation"] = "semantically_unfaithful"
+    evaluator_path.write_bytes(_canonical_bytes(evaluator))
+    classification_path = archive / "classification.json"
+    classification = json.loads(classification_path.read_bytes())
+    classification["classification"] = "probe_planner_failure"
+    classification["derived_stop_cause"] = "semantic_unfaithful"
+    classification_path.write_bytes(_canonical_bytes(classification))
+    record_path = archive / "record.json"
+    record = json.loads(record_path.read_bytes())
+    record["classification"] = "probe_planner_failure"
+    record["derived_stop_cause"] = "semantic_unfaithful"
+    record_path.write_bytes(_canonical_bytes(record))
+    assert evaluator_call["raw_response_b64"] == original_raw
+    changed_identity = _reclose_task1_checkpoint(archive)
+
+    with pytest.raises(ValueError, match="raw provider response projection"):
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            archive, expected_identity=changed_identity
+        )
+
+
+def test_task5_execution_refuses_assistant_not_derived_from_raw_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    turn = _planner_turn(recipe_bytes=b"{}", call_id="planner-1")
+    changed_message = copy.deepcopy(turn.assistant_message)
+    changed_message["tool_calls"][0]["function"]["arguments"] = (
+        '{"recipe_json":"{\\"schema\\":\\"altered\\"}"}'
+    )
+    planner = _FakeProvider(
+        [replace(turn, assistant_message=changed_message)],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider([], staging_path=preflight.attempt.staging_path)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    assert result.derived_stop_cause == (
+        "planner_adapter_response_projection_mismatch"
+    )
+    assert not evaluator.requests
+
+
+def test_task5_public_verifier_rejects_unexpected_empty_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    archive = result.sealed_checkpoint.archive_dir
+    (archive / "unexpected-empty-directory").mkdir()
+    with pytest.raises(ValueError, match="physical membership"):
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            archive,
+            expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        )
+
+
+def test_task5_public_verifier_rejects_reparse_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    archive = result.sealed_checkpoint.archive_dir
+    alias = tmp_path / "checkpoint-alias"
+    completed = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(alias), str(archive)],
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        pytest.skip("Windows junction creation is unavailable")
+    with pytest.raises(ValueError, match="reparse|physical destination"):
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            alias,
+            expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        )
+
+
+def test_task5_ready_proof_uses_verifier_snapshot_not_replaced_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    archive = result.sealed_checkpoint.archive_dir
+    original_authority = json.loads((archive / "authority.json").read_bytes())
+    original_read_bytes = Path.read_bytes
+
+    def replacement_read(path: Path) -> bytes:
+        if path == archive / "authority.json":
+            changed = {**original_authority, "inputs_fingerprint": "sha256:" + "9" * 64}
+            return _canonical_bytes(changed)
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", replacement_read)
+    proof = RESOLUTION_ARTIFACTS.issue_resolution_ready_proof(
+        result.sealed_checkpoint
+    )
+    assert dict(proof.successor_authority_records[0]) == original_authority
+
+
+def test_task5_instrument_binds_ready_proof_issuer_and_consumer_sources(
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    contract = preflight.record["instrument_contracts"]["ready_proof"]
+    assert contract["issuer_source_fingerprint"].startswith("sha256:")
+    assert contract["consumer_source_fingerprint"].startswith("sha256:")

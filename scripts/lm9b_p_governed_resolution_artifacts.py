@@ -254,6 +254,7 @@ class SealedResolutionCheckpoint:
     classification: str
     exact_recipe_bytes: bytes | None
     state: str = "sealed"
+    _snapshot_members: Mapping[str, bytes] | None = None
 
 
 @dataclass(frozen=True)
@@ -775,7 +776,18 @@ def assemble_task1_resolution_instrument(
             "finalization_equation": "same_filesystem_no_clobber_path_rename:v1",
         },
         "launch_invocation": _launch_invocation_contract(),
-        "ready_proof": dict(READY_PROOF_CONTRACT),
+        "ready_proof": {
+            **dict(READY_PROOF_CONTRACT),
+            "issuer_source_fingerprint": _callable_source_fingerprint(
+                issue_resolution_ready_proof
+            ),
+            "consumer_source_fingerprint": _callable_source_fingerprint(
+                consume_resolution_ready_proof
+            ),
+            "snapshot_verifier_source_fingerprint": _callable_source_fingerprint(
+                verify_sealed_resolution_checkpoint
+            ),
+        },
         "role_call_budgets": {
             "planner": PLANNER_SUPPORT.PLANNER_MAX_TURNS,
             "planner_evaluator": 1,
@@ -1189,6 +1201,117 @@ def _path_has_reparse_ambiguity(path: Path) -> bool:
 
 def _paths_share_filesystem(left: Path, right: Path) -> bool:
     return left.stat().st_dev == right.stat().st_dev
+
+
+def _lexical_absolute_path(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _is_reparse_stat(value: os.stat_result) -> bool:
+    return stat.S_ISLNK(value.st_mode) or bool(
+        getattr(value, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    )
+
+
+def _require_non_reparse_components(path: Path) -> None:
+    current = _lexical_absolute_path(path)
+    components = [current, *current.parents]
+    for component in reversed(components):
+        try:
+            value = os.lstat(component)
+        except OSError as exc:
+            raise ValueError("archive path component cannot be inspected") from exc
+        if _is_reparse_stat(value):
+            raise ValueError("archive path contains a reparse component")
+
+
+def _read_regular_file_nonfollowing(path: Path) -> bytes:
+    before = os.lstat(path)
+    if _is_reparse_stat(before) or not stat.S_ISREG(before.st_mode):
+        raise ValueError("archive member is not a non-reparse regular file")
+    with path.open("rb") as stream:
+        opened_before = os.fstat(stream.fileno())
+        raw = stream.read()
+        opened_after = os.fstat(stream.fileno())
+    after = os.lstat(path)
+    def path_identity(value: os.stat_result) -> tuple[object, ...]:
+        return (
+            value.st_dev,
+            value.st_ino,
+            value.st_mode,
+            value.st_size,
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+        )
+
+    def cross_api_identity(value: os.stat_result) -> tuple[object, ...]:
+        # Windows can expose distinct creation-time precision through lstat
+        # and fstat for the same file. Continuity is therefore checked within
+        # each API, while the shared object identity is compared across them.
+        return (
+            value.st_dev,
+            value.st_ino,
+            value.st_mode,
+            value.st_size,
+            value.st_mtime_ns,
+        )
+
+    if (
+        path_identity(before) != path_identity(after)
+        or path_identity(opened_before) != path_identity(opened_after)
+        or cross_api_identity(before) != cross_api_identity(opened_before)
+        or len(raw) != before.st_size
+    ):
+        raise ValueError("archive member changed during snapshot capture")
+    return raw
+
+
+def _read_flat_archive_snapshot(archive_dir: Path) -> tuple[Path, dict[str, bytes]]:
+    archive = _lexical_absolute_path(archive_dir)
+    _require_non_reparse_components(archive)
+    root_stat = os.lstat(archive)
+    if _is_reparse_stat(root_stat) or not stat.S_ISDIR(root_stat.st_mode):
+        raise ValueError("archive root is not a non-reparse directory")
+    def admitted_names() -> list[str]:
+        names: list[str] = []
+        with os.scandir(archive) as entries:
+            for entry in entries:
+                value = entry.stat(follow_symlinks=False)
+                if (
+                    entry.is_symlink()
+                    or _is_reparse_stat(value)
+                    or not stat.S_ISREG(value.st_mode)
+                ):
+                    raise ValueError(
+                        "archive physical membership contains a non-file"
+                    )
+                names.append(entry.name)
+        return names
+
+    names = admitted_names()
+    if len(names) != len(set(names)):
+        raise ValueError("archive physical membership contains duplicate names")
+    snapshot = {
+        name: _read_regular_file_nonfollowing(archive / name)
+        for name in sorted(names)
+    }
+    after_root = os.lstat(archive)
+    root_identity = lambda value: (  # noqa: E731
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+    if (
+        _is_reparse_stat(after_root)
+        or root_identity(root_stat) != root_identity(after_root)
+        or sorted(admitted_names()) != sorted(names)
+    ):
+        raise ValueError("archive physical root changed during snapshot capture")
+    _require_non_reparse_components(archive)
+    return archive, snapshot
 
 
 def write_resolution_preflight(
@@ -2350,6 +2473,14 @@ def _provider_turn_from_call_row(
     )
     if row.get("raw_response_sha256") != _sha256(response.raw_response):
         raise ValueError(f"{role} ledger response hash differs")
+    if response.assistant_message != (
+        PROVIDER_ADAPTER.project_litellm_assistant_message(
+            response.raw_response
+        )
+    ):
+        raise ValueError(
+            f"{role} assistant differs from raw provider response projection"
+        )
     if (
         row.get("provider_claimed_raw_request_sha256")
         != _sha256(response.raw_request)
@@ -3135,6 +3266,20 @@ def _verify_staged_execution_snapshot(
                 != adapter_response
             ):
                 raise ValueError("staged adapter evidence differs from call ledger")
+        if row.get("outcome") == "raised" and row.get("provider_raw_error_b64") is not None:
+            adapter_request = base64.b64decode(
+                row["provider_claimed_raw_request_b64"], validate=True
+            )
+            adapter_error = base64.b64decode(
+                row["provider_raw_error_b64"], validate=True
+            )
+            if (
+                (calls_dir / f"{prefix}-adapter-request.json").read_bytes()
+                != adapter_request
+                or (calls_dir / f"{prefix}-adapter-error.bin").read_bytes()
+                != adapter_error
+            ):
+                raise ValueError("staged adapter failure differs from call ledger")
     return runtime
 
 
@@ -3324,24 +3469,25 @@ def seal_resolution_checkpoint(
             raw_members,
         )
     )
-    _remove_verified_runtime(runtime)
     staging = preflight.attempt.staging_path
-    if any(staging.iterdir()):
+    if set(path.name for path in staging.iterdir()) != {".resolution-runtime"}:
         raise ValueError("reserved staging contains unexpected members")
+    archive_candidate = staging / ".archive-candidate"
+    archive_candidate.mkdir(parents=False, exist_ok=False)
     for relative, raw in raw_members.items():
-        path = staging / relative
+        path = archive_candidate / relative
         with path.open("xb") as stream:
             stream.write(raw)
         if path.read_bytes() != raw:
             raise ValueError("resolution archive member reread differs")
     _verify_resolution_checkpoint_archive(
-        staging,
+        archive_candidate,
         expected_identity=checkpoint_identity,
         enforce_public_location=False,
         verified_preflight=preflight,
     )
     try:
-        staging.rename(preflight.attempt.destination)
+        archive_candidate.rename(preflight.attempt.destination)
     except OSError:
         return reconcile_resolution_rename(
             staging_dir=staging,
@@ -3349,12 +3495,20 @@ def seal_resolution_checkpoint(
             expected_identity=checkpoint_identity,
             preflight=preflight,
         )
-    return SealedResolutionCheckpoint(
-        archive_dir=preflight.attempt.destination,
-        checkpoint_identity=checkpoint_identity,
-        classification=classification,
-        exact_recipe_bytes=candidate_recipe_bytes,
+    sealed = _verify_resolution_checkpoint_archive(
+        preflight.attempt.destination,
+        expected_identity=checkpoint_identity,
+        enforce_public_location=True,
+        verified_preflight=preflight,
     )
+    try:
+        _remove_verified_runtime(runtime)
+        staging.rmdir()
+    except OSError:
+        # The official archive is already verified. Retaining redundant raw
+        # capture is safer than weakening or retracting that sealed result.
+        pass
+    return sealed
 
 
 def _verify_resolution_checkpoint_archive(
@@ -3364,14 +3518,12 @@ def _verify_resolution_checkpoint_archive(
     enforce_public_location: bool,
     verified_preflight: VerifiedResolutionPreflight | None = None,
 ) -> SealedResolutionCheckpoint:
-    archive = Path(archive_dir).resolve()
-    files = {
-        path.relative_to(archive).as_posix()
-        for path in archive.rglob("*")
-        if path.is_file()
-    }
-    record = _object_bytes((archive / "record.json").read_bytes(), "checkpoint record")
-    boundary = _object_bytes((archive / "boundary.json").read_bytes(), "boundary")
+    archive, physical_snapshot = _read_flat_archive_snapshot(archive_dir)
+    files = set(physical_snapshot)
+    if "record.json" not in files or "boundary.json" not in files:
+        raise ValueError("resolution checkpoint root members are absent")
+    record = _object_bytes(physical_snapshot["record.json"], "checkpoint record")
+    boundary = _object_bytes(physical_snapshot["boundary.json"], "boundary")
     expected_members = resolution_archive_member_paths(
         candidate_present=boundary.get("candidate_present"),
         isolation_evaluated=boundary.get("isolation_evaluated"),
@@ -3379,15 +3531,17 @@ def _verify_resolution_checkpoint_archive(
     )
     if files != expected_members:
         raise ValueError("resolution checkpoint membership is not closed")
-    destination = Path(str(record.get("canonical_destination", ""))).resolve()
+    destination = _lexical_absolute_path(
+        Path(str(record.get("canonical_destination", "")))
+    )
     if enforce_public_location and archive != destination:
         raise ValueError("resolution checkpoint physical destination differs")
     raw_members = {
-        relative: (archive / relative).read_bytes()
+        relative: physical_snapshot[relative]
         for relative in sorted(expected_members - {"checksums.json"})
     }
     checksums = _object_bytes(
-        (archive / "checksums.json").read_bytes(), "checkpoint checksums"
+        physical_snapshot["checksums.json"], "checkpoint checksums"
     )
     if checksums != _checksums(
         "rook.lm9b_p.governed_resolution_checkpoint_checksums:v1", raw_members
@@ -3573,6 +3727,7 @@ def _verify_resolution_checkpoint_archive(
         checkpoint_identity=identity,
         classification=classification,
         exact_recipe_bytes=candidate_raw,
+        _snapshot_members=MappingProxyType(dict(physical_snapshot)),
     )
 
 
@@ -3599,15 +3754,24 @@ def reconcile_resolution_rename(
     staging = Path(staging_dir).resolve()
     final = Path(destination).resolve()
     staging_exists = staging.is_dir()
+    archive_candidate = staging / ".archive-candidate"
+    candidate_exists = archive_candidate.is_dir()
     destination_exists = final.is_dir()
-    if destination_exists and not staging_exists:
+    if destination_exists and not candidate_exists:
         try:
-            return _verify_resolution_checkpoint_archive(
+            sealed = _verify_resolution_checkpoint_archive(
                 final,
                 expected_identity=expected_identity,
                 enforce_public_location=True,
                 verified_preflight=preflight,
             )
+            runtime = staging / ".resolution-runtime"
+            try:
+                _remove_verified_runtime(runtime)
+                staging.rmdir()
+            except OSError:
+                pass
+            return sealed
         except (OSError, ValueError, TypeError):
             pass
     if staging_exists and destination_exists:
@@ -3652,15 +3816,18 @@ def issue_resolution_ready_proof(
         verified.exact_recipe_bytes
     ) is not bytes:
         raise ValueError("only a publicly verified ready checkpoint can issue proof")
+    snapshot = verified._snapshot_members
+    if snapshot is None:
+        raise ValueError("public verifier did not issue an immutable snapshot")
     recipe = PLANNER_SUPPORT.parse_archive_json(verified.exact_recipe_bytes)
     authority = _object_bytes(
-        (verified.archive_dir / "authority.json").read_bytes(), "authority"
+        snapshot["authority.json"], "authority"
     )
     gate = _object_bytes(
-        (verified.archive_dir / "checkpoint-gate.json").read_bytes(), "gate"
+        snapshot["checkpoint-gate.json"], "gate"
     )
     isolation = _object_bytes(
-        (verified.archive_dir / "isolation.json").read_bytes(), "isolation"
+        snapshot["isolation.json"], "isolation"
     )
     return VerifiedResolutionReady(
         checkpoint=verified,
