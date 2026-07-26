@@ -1438,7 +1438,7 @@ def _planner_protocol_rejection(
     return None, None, _reject(code, path, message), None
 
 
-def _planner_submission_from_message(
+def derive_planner_submission_from_message(
     message: Mapping[str, object],
 ) -> tuple[bytes | None, bytes | None, MechanicalGateResult | None, str | None]:
     tool_calls = message.get("tool_calls", [])
@@ -1628,7 +1628,7 @@ def run_planner_session(
             recipe_bytes,
             protocol_rejection,
             tool_call_id,
-        ) = _planner_submission_from_message(response.assistant_message)
+        ) = derive_planner_submission_from_message(response.assistant_message)
 
         if monotonic() - started >= PLANNER_OVERALL_DEADLINE_S:
             turns.append(
@@ -1704,6 +1704,7 @@ __all__ = (
     "build_planner_evaluator_provider_call_request",
     "build_planner_mechanical_feedback_message",
     "build_planner_provider_call_request",
+    "derive_planner_submission_from_message",
     "derive_planner_evaluation_result",
     "evaluate_mechanical_gate",
     "fingerprint",

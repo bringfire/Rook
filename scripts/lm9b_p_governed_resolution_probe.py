@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import base64
 import json
 import sys
 from dataclasses import dataclass
@@ -132,27 +133,14 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
     if isolation.status != "isolated":
         raise ValueError("Task-1 walking witness candidate failed isolation")
 
-    evaluator_payload = {
-        "schema": "rook.lm9b_p.planner_revision_evaluation_request:v1",
-        "renderer_id": "lm9b_p.planner_revision_evaluation_renderer:v1",
-        "brief": inputs.brief,
-        "successor_authority": {"artifacts": inputs.current_authority.artifacts},
-        "final_recipe_json": candidate_raw.decode("utf-8"),
-        "final_recipe_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(candidate_raw),
-        "evaluation_rubric": inputs.evaluation_rubric,
-        "evaluation_report_contract": {
-            "argument": "evaluation_json",
-            "report_schema": PLANNER_SUPPORT.PLANNER_EVALUATION_REPORT_SCHEMA,
-            "recommendation_meanings": (
-                PLANNER_SUPPORT.PLANNER_EVALUATION_RECOMMENDATION_MEANINGS
-            ),
-        },
-    }
-    evaluator_user_prompt = _canonical_bytes(evaluator_payload).decode("utf-8")
+    rendered_evaluator = SUPPORT.render_planner_revision_evaluation_request(
+        inputs,
+        candidate_recipe_bytes=candidate_raw,
+    )
     evaluator_request_bytes = (
         PLANNER_SUPPORT.build_planner_evaluator_provider_call_request(
             system_prompt=PLANNER_SUPPORT.PLANNER_EVALUATOR_SYSTEM_PROMPT,
-            user_prompt=evaluator_user_prompt,
+            user_prompt=rendered_evaluator.raw_bytes.decode("utf-8"),
         )
     )
     evaluator_responses: list[PLANNER_SUPPORT.ProviderTurn] = []
@@ -186,6 +174,7 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         checkpoint_gate=checkpoint_gate,
         isolation_result=isolation,
         evaluator_turn=evaluator_responses[0],
+        evaluator_request_bytes=evaluator_request_bytes,
         evaluator_result=evaluator_result,
         classification=classification,
     )
@@ -208,9 +197,34 @@ def _recording_provider(provider: object, ledger: list[dict[str, object]], *, ro
                 "call_index": len(ledger) + 1,
                 "role": role,
                 "request_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(request_bytes),
-                "request": json.loads(request_bytes),
+                "canonical_request_json": request_bytes.decode("utf-8"),
                 "raw_response_sha256": (
                     PLANNER_SUPPORT.sha256_prefixed(response.raw_response)
+                    if type(response) is PLANNER_SUPPORT.ProviderTurn
+                    else None
+                ),
+                "provider_raw_request_b64": (
+                    base64.b64encode(response.raw_request).decode("ascii")
+                    if type(response) is PLANNER_SUPPORT.ProviderTurn
+                    else None
+                ),
+                "raw_response_b64": (
+                    base64.b64encode(response.raw_response).decode("ascii")
+                    if type(response) is PLANNER_SUPPORT.ProviderTurn
+                    else None
+                ),
+                "assistant_message": (
+                    PLANNER_SUPPORT._json_builtins(response.assistant_message)
+                    if type(response) is PLANNER_SUPPORT.ProviderTurn
+                    else None
+                ),
+                "usage": (
+                    PLANNER_SUPPORT._json_builtins(response.usage)
+                    if type(response) is PLANNER_SUPPORT.ProviderTurn
+                    else None
+                ),
+                "provider_metadata": (
+                    PLANNER_SUPPORT._json_builtins(response.provider_metadata)
                     if type(response) is PLANNER_SUPPORT.ProviderTurn
                     else None
                 ),

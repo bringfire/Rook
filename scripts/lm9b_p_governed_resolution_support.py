@@ -26,6 +26,9 @@ import lm9_typed_fact_carrier_artifacts as CARRIER
 
 
 REVISION_RENDERER_ID = "lm9b_p.planner_revision_request_renderer:v1"
+REVISION_EVALUATION_RENDERER_ID = (
+    "lm9b_p.planner_revision_evaluation_renderer:v1"
+)
 REVISION_SYSTEM_PROMPT = (
     "Revise the exact parent Planner recipe under the visible successor authority "
     "and isolation obligations. Submit one complete recipe through "
@@ -115,10 +118,19 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
         or derivative.classification != "probe_candidate_blocked"
     ):
         raise ValueError("parent derivative is not the faithful blocked observation")
+    # Runtime import avoids a module-import cycle while still requiring the
+    # artifacts module's process-local, closure-issued proof capability.
+    import lm9b_p_governed_resolution_artifacts as RESOLUTION_ARTIFACTS
+
+    qualification_proof = (
+        RESOLUTION_ARTIFACTS.consume_verified_carrier_qualification(
+            qualification
+        )
+    )
     if (
         type(reviewed_commit) is not str
         or not reviewed_commit
-        or getattr(qualification, "consuming_commit_sha", None) != reviewed_commit
+        or qualification_proof["consuming_commit_sha"] != reviewed_commit
     ):
         raise ValueError("carrier compatibility is not bound to the consuming commit")
     for raw, label in (
@@ -321,7 +333,9 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
             successor_raw
         ),
         "successor_envelope_fingerprint": successor.artifact_fingerprint,
-        "carrier_compatibility_fingerprint": qualification.compatibility_fingerprint,
+        "carrier_compatibility_fingerprint": qualification_proof[
+            "compatibility_fingerprint"
+        ],
         "migration_fingerprint": PLANNER_SUPPORT.fingerprint(migration),
         "correspondence_fingerprint": PLANNER_SUPPORT.fingerprint(correspondence),
         "policy_instance_fingerprint": policy_instance.instance_fingerprint,
@@ -344,10 +358,10 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
         migration_ledger=tuple(migration),
         policy_instance=policy_instance,
         historical_qualification_identity=(
-            qualification.historical_qualification_identity
+            qualification_proof["historical_qualification_identity"]
         ),
         carrier_compatibility_fingerprint=(
-            qualification.compatibility_fingerprint
+            qualification_proof["compatibility_fingerprint"]
         ),
         reviewed_commit_sha=reviewed_commit,
         inputs_fingerprint=PLANNER_SUPPORT.fingerprint(inputs_identity),
@@ -374,9 +388,6 @@ def render_planner_revision_request(
             "definition_id": inputs.policy_instance.definition_id,
             "definition_fingerprint": inputs.policy_instance.definition_fingerprint,
             "instance_fingerprint": inputs.policy_instance.instance_fingerprint,
-            "descriptor_removal_eligible_ids": inputs.policy_instance.value[
-                "descriptor_removal_eligible_ids"
-            ],
             "model_obligations": inputs.policy_instance.value["model_obligations"],
         },
         "terminal_submission_contract": PLANNER_SUPPORT.planner_tool_definition(),
@@ -384,6 +395,48 @@ def render_planner_revision_request(
     raw = _canonical_bytes(payload)
     return RenderedRevisionRequest(
         renderer_id=REVISION_RENDERER_ID,
+        payload=MappingProxyType(payload),
+        raw_bytes=raw,
+        raw_sha256=PLANNER_SUPPORT.sha256_prefixed(raw),
+        canonical_fingerprint=PLANNER_SUPPORT.fingerprint(payload),
+    )
+
+
+def render_planner_revision_evaluation_request(
+    inputs: VerifiedResolutionInputs,
+    *,
+    candidate_recipe_bytes: bytes,
+) -> RenderedRevisionRequest:
+    if type(inputs) is not VerifiedResolutionInputs:
+        raise TypeError("verified resolution inputs are required")
+    if type(candidate_recipe_bytes) is not bytes:
+        raise TypeError("exact candidate recipe bytes are required")
+    candidate = PLANNER_SUPPORT.parse_strict_json(candidate_recipe_bytes)
+    if type(candidate) is not dict:
+        raise ValueError("candidate recipe must be an object")
+    payload = {
+        "schema": "rook.lm9b_p.planner_revision_evaluation_request:v1",
+        "renderer_id": REVISION_EVALUATION_RENDERER_ID,
+        "brief": inputs.brief,
+        "successor_authority": {
+            "artifacts": inputs.current_authority.artifacts,
+        },
+        "final_recipe_json": candidate_recipe_bytes.decode("utf-8"),
+        "final_recipe_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(
+            candidate_recipe_bytes
+        ),
+        "evaluation_rubric": inputs.evaluation_rubric,
+        "evaluation_report_contract": {
+            "argument": "evaluation_json",
+            "report_schema": PLANNER_SUPPORT.PLANNER_EVALUATION_REPORT_SCHEMA,
+            "recommendation_meanings": (
+                PLANNER_SUPPORT.PLANNER_EVALUATION_RECOMMENDATION_MEANINGS
+            ),
+        },
+    }
+    raw = _canonical_bytes(payload)
+    return RenderedRevisionRequest(
+        renderer_id=REVISION_EVALUATION_RENDERER_ID,
         payload=MappingProxyType(payload),
         raw_bytes=raw,
         raw_sha256=PLANNER_SUPPORT.sha256_prefixed(raw),
@@ -454,7 +507,8 @@ def evaluate_resolution_isolation(
         for clause_id in intent["affected_clause_ids"]:
             required_refs_by_clause.setdefault(clause_id, []).append(reference)
 
-    clause_ok = True
+    clause_ownership_ok = True
+    affected_clause_residual_ok = True
     reference_ok = True
     for row in inputs.policy_instance.value["affected_clauses"]:
         clause_id = row["clause_id"]
@@ -466,7 +520,7 @@ def evaluate_resolution_isolation(
             or candidate_matches[0][0] != row["category"]
             or candidate_matches[0][1] != row["pointer"]
         ):
-            clause_ok = False
+            clause_ownership_ok = False
             continue
         parent_clause = parent_matches[0][2]
         candidate_clause = candidate_matches[0][2]
@@ -490,9 +544,12 @@ def evaluate_resolution_isolation(
             if key != "source_refs"
         }
         if parent_rest != candidate_rest:
-            clause_ok = False
-    equations.append(_equation("clause_ownership", clause_ok))
+            affected_clause_residual_ok = False
+    equations.append(_equation("clause_ownership", clause_ownership_ok))
     equations.append(_equation("authority_reference_additions", reference_ok))
+    equations.append(
+        _equation("affected_clause_residual", affected_clause_residual_ok)
+    )
 
     claimed = candidate.get("recipe_fingerprint")
     candidate_projection = {
@@ -672,4 +729,5 @@ __all__ = (
     "assemble_verified_resolution_inputs",
     "evaluate_resolution_isolation",
     "render_planner_revision_request",
+    "render_planner_revision_evaluation_request",
 )

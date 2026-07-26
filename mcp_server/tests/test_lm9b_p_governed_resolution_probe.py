@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import copy
+import base64
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -251,6 +255,45 @@ def _reclose_recipe(value: dict[str, object], inputs: object) -> bytes:
     return _canonical_bytes(value)
 
 
+def _reclose_task1_checkpoint(archive: Path) -> str:
+    member_paths = sorted(
+        path.name for path in archive.iterdir() if path.name != "checksums.json"
+    )
+    raw_members = {name: (archive / name).read_bytes() for name in member_paths}
+    identity_rows = [
+        {
+            "path": name,
+            "raw_sha256": PLANNER_SUPPORT.sha256_prefixed(raw),
+        }
+        for name, raw in sorted(raw_members.items())
+        if name != "record.json"
+    ]
+    identity = PLANNER_SUPPORT.fingerprint(
+        {
+            "schema": RESOLUTION_ARTIFACTS.CHECKPOINT_SCHEMA_ID,
+            "canonical_destination": str(archive.resolve()),
+            "members": identity_rows,
+        }
+    )
+    record = json.loads(raw_members["record.json"])
+    record["canonical_destination"] = str(archive.resolve())
+    record["checkpoint_identity"] = identity
+    (archive / "record.json").write_bytes(_canonical_bytes(record))
+    raw_members["record.json"] = (archive / "record.json").read_bytes()
+    checksums = {
+        "schema": "rook.lm9b_p.governed_resolution_checkpoint_checksums:v1",
+        "members": [
+            {
+                "path": name,
+                "raw_sha256": PLANNER_SUPPORT.sha256_prefixed(raw),
+            }
+            for name, raw in sorted(raw_members.items())
+        ],
+    }
+    (archive / "checksums.json").write_bytes(_canonical_bytes(checksums))
+    return identity
+
+
 @pytest.mark.parametrize(
     "mutation",
     (
@@ -309,6 +352,54 @@ def test_task1_descriptor_reachability_accepts_exact_derived_removal() -> None:
         candidate_recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
     )
     assert result.status == "isolated"
+    assert [row["equation_id"] for row in result.equations] == [
+        "source_descriptor",
+        "resolved_unresolved_rows",
+        "authority_descriptor_reachability",
+        "goal_projection",
+        "clause_ownership",
+        "authority_reference_additions",
+        "affected_clause_residual",
+        "recipe_fingerprint",
+        "residual_equality",
+    ]
+
+
+def test_task1_revision_renderer_keeps_descriptor_reachability_generic() -> None:
+    _head, _source, _derivative, _compatibility, inputs = (
+        _verified_resolution_inputs()
+    )
+    rendered = RESOLUTION_SUPPORT.render_planner_revision_request(inputs)
+    visible_policy = rendered.payload["isolation_policy"]
+    assert "descriptor_removal_eligible_ids" not in visible_policy
+    assert any(
+        "descriptors whose complete parent references" in obligation
+        for obligation in visible_policy["model_obligations"]
+    )
+
+
+def test_task1_assembler_rejects_forged_qualification_carrier() -> None:
+    head, source, derivative, compatibility, _inputs = _verified_resolution_inputs()
+    duck_typed = SimpleNamespace(
+        consuming_commit_sha=compatibility.consuming_commit_sha,
+        historical_qualification_identity=(
+            compatibility.historical_qualification_identity
+        ),
+        compatibility_fingerprint=compatibility.compatibility_fingerprint,
+    )
+    for forged in (replace(compatibility), duck_typed):
+        with pytest.raises((TypeError, ValueError), match="closure-issued"):
+            RESOLUTION_SUPPORT.assemble_verified_resolution_inputs(
+                historical_source=source,
+                parent_derivative=derivative,
+                carrier_qualification=forged,
+                successor_envelope_bytes=CARRIER.RADIAL_FIXTURE_PATH.read_bytes(),
+                payload_schema_bytes=CARRIER.PAYLOAD_SCHEMA_PATH.read_bytes(),
+                semantic_registry_bytes=CARRIER.REGISTRY_PATH.read_bytes(),
+                isolation_policy_bytes=ISOLATION_POLICY.read_bytes(),
+                evaluation_rubric_bytes=EVALUATION_RUBRIC.read_bytes(),
+                reviewed_commit_sha=head,
+            )
 
 
 def test_task1_two_turn_vertical_witness_publicly_verifies(
@@ -420,9 +511,79 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
     assert result.isolation_result is not None
     assert result.isolation_result.status == "isolated"
     assert result.sealed_checkpoint is not None
+    planner_evidence = json.loads(
+        (result.sealed_checkpoint.archive_dir / "planner-session.json").read_bytes()
+    )
+    accepted_message = planner_evidence["calls"][1]["assistant_message"]
+    _arguments, emitted_recipe, _rejection, _call_id = (
+        PLANNER_SUPPORT.derive_planner_submission_from_message(accepted_message)
+    )
+    assert emitted_recipe == ISOLATED_SUCCESSOR_RECIPE.read_bytes()
+    evaluator_evidence = json.loads(
+        (result.sealed_checkpoint.archive_dir / "evaluator.json").read_bytes()
+    )
+    dispatched = base64.b64decode(evaluator_evidence["dispatched_request_b64"])
+    provider_claimed = base64.b64decode(
+        evaluator_evidence["provider_claimed_raw_request_b64"]
+    )
+    assert dispatched != provider_claimed
+    rendered_evaluator = (
+        RESOLUTION_SUPPORT.render_planner_revision_evaluation_request(
+            preflight.instrument.inputs,
+            candidate_recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+        )
+    )
+    assert dispatched == PLANNER_SUPPORT.build_planner_evaluator_provider_call_request(
+        system_prompt=PLANNER_SUPPORT.PLANNER_EVALUATOR_SYSTEM_PROMPT,
+        user_prompt=rendered_evaluator.raw_bytes.decode("utf-8"),
+    )
     verified = RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
         result.sealed_checkpoint.archive_dir,
         expected_identity=result.sealed_checkpoint.checkpoint_identity,
     )
     assert verified.classification == "probe_candidate_ready"
     assert verified.exact_recipe_bytes == ISOLATED_SUCCESSOR_RECIPE.read_bytes()
+
+    planner_tamper = tmp_path / "planner-provenance-tamper"
+    shutil.copytree(result.sealed_checkpoint.archive_dir, planner_tamper)
+    changed_candidate = json.loads(
+        (planner_tamper / "candidate-recipe.json").read_bytes()
+    )
+    changed_candidate["goal"]["statement"] += " Unauthorized change."
+    changed_candidate_raw = _reclose_recipe(
+        changed_candidate, preflight.instrument.inputs
+    )
+    (planner_tamper / "candidate-recipe.json").write_bytes(changed_candidate_raw)
+    changed_session = json.loads(
+        (planner_tamper / "planner-session.json").read_bytes()
+    )
+    changed_session["final_recipe_raw_sha256"] = (
+        PLANNER_SUPPORT.sha256_prefixed(changed_candidate_raw)
+    )
+    (planner_tamper / "planner-session.json").write_bytes(
+        _canonical_bytes(changed_session)
+    )
+    planner_tamper_identity = _reclose_task1_checkpoint(planner_tamper)
+    with pytest.raises(ValueError, match="accepted Planner tool bytes differ"):
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            planner_tamper,
+            expected_identity=planner_tamper_identity,
+        )
+
+    evaluator_tamper = tmp_path / "evaluator-request-tamper"
+    shutil.copytree(result.sealed_checkpoint.archive_dir, evaluator_tamper)
+    changed_evaluator = json.loads(
+        (evaluator_tamper / "evaluator.json").read_bytes()
+    )
+    changed_evaluator["dispatched_request_b64"] = base64.b64encode(
+        b'{"messages":[]}'
+    ).decode("ascii")
+    (evaluator_tamper / "evaluator.json").write_bytes(
+        _canonical_bytes(changed_evaluator)
+    )
+    evaluator_tamper_identity = _reclose_task1_checkpoint(evaluator_tamper)
+    with pytest.raises(ValueError, match="evaluator dispatch differs"):
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            evaluator_tamper,
+            expected_identity=evaluator_tamper_identity,
+        )

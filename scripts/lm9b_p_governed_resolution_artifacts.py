@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import re
 import subprocess
 import sys
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -99,7 +101,7 @@ class ResolutionInstrument:
     instrument_fingerprint: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class VerifiedCarrierQualificationCompatibility:
     archive_dir: Path
     historical_qualification_identity: str
@@ -184,7 +186,7 @@ def assemble_task1_resolution_instrument(
     )
 
 
-def verify_historical_carrier_qualification_compatibility(
+def _verify_historical_carrier_qualification_compatibility_unsealed(
     *,
     archive_dir: Path,
     expected_identity: str,
@@ -364,6 +366,53 @@ def verify_historical_carrier_qualification_compatibility(
         comparison_rows=tuple(comparison_rows),
         compatibility_fingerprint=TYPED_VALUES.fingerprint(compatibility_value),
     )
+
+
+def _seal_compatibility_verifier(verifier):
+    issued: weakref.WeakKeyDictionary[
+        VerifiedCarrierQualificationCompatibility, Mapping[str, object]
+    ] = weakref.WeakKeyDictionary()
+
+    def verify_and_issue(**kwargs: object) -> VerifiedCarrierQualificationCompatibility:
+        result = verifier(**kwargs)
+        if type(result) is not VerifiedCarrierQualificationCompatibility:
+            raise TypeError("compatibility verifier returned the wrong carrier type")
+        snapshot = _compatibility_snapshot(result)
+        issued[result] = snapshot
+        return result
+
+    def consume(
+        value: object,
+    ) -> Mapping[str, object]:
+        if type(value) is not VerifiedCarrierQualificationCompatibility:
+            raise TypeError("closure-issued carrier compatibility is required")
+        snapshot = issued.get(value)
+        if snapshot is None or snapshot != _compatibility_snapshot(value):
+            raise ValueError("carrier compatibility proof is not closure-issued")
+        return MappingProxyType(dict(snapshot))
+
+    return verify_and_issue, consume
+
+
+def _compatibility_snapshot(
+    value: VerifiedCarrierQualificationCompatibility,
+) -> dict[str, object]:
+    return {
+        "archive_dir": str(value.archive_dir),
+        "historical_qualification_identity": value.historical_qualification_identity,
+        "historical_commit_sha": value.historical_commit_sha,
+        "consuming_commit_sha": value.consuming_commit_sha,
+        "comparison_rows": [dict(row) for row in value.comparison_rows],
+        "compatibility_fingerprint": value.compatibility_fingerprint,
+    }
+
+
+(
+    verify_historical_carrier_qualification_compatibility,
+    consume_verified_carrier_qualification,
+) = _seal_compatibility_verifier(
+    _verify_historical_carrier_qualification_compatibility_unsealed
+)
 
 
 def bind_resolution_attempt(
@@ -615,13 +664,12 @@ def verify_sealed_resolution_checkpoint(
 
     candidate_raw = raw_members["candidate-recipe.json"]
     planner = _object_bytes(raw_members["planner-session.json"], "planner session")
-    if (
-        planner.get("termination") != "mechanically_accepted"
-        or planner.get("final_recipe_raw_sha256") != _sha256(candidate_raw)
-        or planner.get("call_count") != 2
-        or [row.get("turn_index") for row in planner.get("turns", [])] != [1, 2]
-    ):
-        raise ValueError("checkpoint Planner ledger is invalid")
+    _verify_task1_planner_evidence(
+        planner,
+        inputs=inputs,
+        initial_request=instrument.initial_request,
+        candidate_raw=candidate_raw,
+    )
     gate = PLANNER_SUPPORT.evaluate_mechanical_gate(
         recipe_bytes=candidate_raw,
         authority=inputs.current_authority,
@@ -644,6 +692,21 @@ def verify_sealed_resolution_checkpoint(
         raise ValueError("sealed ready checkpoint did not pass isolation")
 
     evaluator_row = _object_bytes(raw_members["evaluator.json"], "evaluator")
+    rendered_evaluator = SUPPORT.render_planner_revision_evaluation_request(
+        inputs,
+        candidate_recipe_bytes=candidate_raw,
+    )
+    expected_evaluator_request = (
+        PLANNER_SUPPORT.build_planner_evaluator_provider_call_request(
+            system_prompt=PLANNER_SUPPORT.PLANNER_EVALUATOR_SYSTEM_PROMPT,
+            user_prompt=rendered_evaluator.raw_bytes.decode("utf-8"),
+        )
+    )
+    dispatched_evaluator_request = base64.b64decode(
+        evaluator_row["dispatched_request_b64"], validate=True
+    )
+    if dispatched_evaluator_request != expected_evaluator_request:
+        raise ValueError("evaluator dispatch differs from reconstructed request")
     provider_turn = _provider_turn_from_record(evaluator_row)
     evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
         outcome="returned", response=provider_turn
@@ -686,6 +749,7 @@ def seal_task1_resolution_checkpoint(
     checkpoint_gate: PLANNER_SUPPORT.MechanicalGateResult,
     isolation_result: SUPPORT.IsolationGateResult,
     evaluator_turn: PLANNER_SUPPORT.ProviderTurn,
+    evaluator_request_bytes: bytes,
     evaluator_result: PLANNER_SUPPORT.PlannerEvaluationResult,
     classification: str,
 ) -> SealedResolutionCheckpoint:
@@ -717,7 +781,11 @@ def seal_task1_resolution_checkpoint(
             for turn in planner_session.turns
         ],
     }
-    evaluator_record = _provider_turn_record(evaluator_turn, evaluator_result)
+    evaluator_record = _provider_turn_record(
+        evaluator_turn,
+        evaluator_result,
+        dispatched_request_bytes=evaluator_request_bytes,
+    )
     classification_record = {
         "schema": "rook.lm9b_p.governed_resolution_classification:v1",
         "classification": classification,
@@ -821,11 +889,18 @@ def _isolation_record(result: SUPPORT.IsolationGateResult) -> dict[str, object]:
 def _provider_turn_record(
     turn: PLANNER_SUPPORT.ProviderTurn,
     result: PLANNER_SUPPORT.PlannerEvaluationResult,
+    *,
+    dispatched_request_bytes: bytes,
 ) -> dict[str, object]:
     return {
         "schema": "rook.lm9b_p.governed_resolution_evaluator:v1",
-        "raw_request": turn.raw_request.decode("utf-8"),
-        "raw_response": turn.raw_response.decode("utf-8"),
+        "dispatched_request_b64": base64.b64encode(
+            dispatched_request_bytes
+        ).decode("ascii"),
+        "provider_claimed_raw_request_b64": base64.b64encode(
+            turn.raw_request
+        ).decode("ascii"),
+        "raw_response_b64": base64.b64encode(turn.raw_response).decode("ascii"),
         "assistant_message": PLANNER_SUPPORT._json_builtins(turn.assistant_message),
         "usage": PLANNER_SUPPORT._json_builtins(turn.usage),
         "provider_metadata": PLANNER_SUPPORT._json_builtins(turn.provider_metadata),
@@ -837,12 +912,118 @@ def _provider_turn_from_record(
     record: Mapping[str, object],
 ) -> PLANNER_SUPPORT.ProviderTurn:
     return PLANNER_SUPPORT.ProviderTurn(
-        raw_request=record["raw_request"].encode("utf-8"),
-        raw_response=record["raw_response"].encode("utf-8"),
+        raw_request=base64.b64decode(
+            record["provider_claimed_raw_request_b64"], validate=True
+        ),
+        raw_response=base64.b64decode(record["raw_response_b64"], validate=True),
         assistant_message=record["assistant_message"],
         usage=record["usage"],
         provider_metadata=record["provider_metadata"],
     )
+
+
+def _verify_task1_planner_evidence(
+    planner: Mapping[str, object],
+    *,
+    inputs: SUPPORT.VerifiedResolutionInputs,
+    initial_request: SUPPORT.RenderedRevisionRequest,
+    candidate_raw: bytes,
+) -> None:
+    calls = planner.get("calls")
+    turns = planner.get("turns")
+    if (
+        planner.get("termination") != "mechanically_accepted"
+        or planner.get("final_recipe_raw_sha256") != _sha256(candidate_raw)
+        or planner.get("call_count") != 2
+        or type(calls) is not list
+        or type(turns) is not list
+        or len(calls) != 2
+        or len(turns) != 2
+        or [row.get("call_index") for row in calls] != [1, 2]
+        or [row.get("role") for row in calls] != ["planner", "planner"]
+        or [row.get("turn_index") for row in turns] != [1, 2]
+    ):
+        raise ValueError("checkpoint Planner ledger is invalid")
+    messages: list[dict[str, object]] = [
+        {"role": "system", "content": SUPPORT.REVISION_SYSTEM_PROMPT},
+        {"role": "user", "content": initial_request.raw_bytes.decode("utf-8")},
+    ]
+    accepted_recipe: bytes | None = None
+    for index, (call, turn_row) in enumerate(zip(calls, turns, strict=True), 1):
+        if type(call) is not dict or type(turn_row) is not dict:
+            raise ValueError("Planner call evidence row is malformed")
+        request_text = call.get("canonical_request_json")
+        if type(request_text) is not str:
+            raise ValueError("Planner canonical request evidence is absent")
+        request_raw = request_text.encode("utf-8")
+        request_value = PLANNER_SUPPORT.materialize_planner_provider_call_request(
+            request_raw
+        )
+        rebuilt_request = PLANNER_SUPPORT.build_planner_provider_call_request(
+            messages=messages,
+            provider_timeout_s=request_value["provider_timeout_s"],
+        )
+        if (
+            rebuilt_request != request_raw
+            or call.get("request_raw_sha256") != _sha256(request_raw)
+        ):
+            raise ValueError("Planner request does not follow the transcript")
+        response = PLANNER_SUPPORT.ProviderTurn(
+            raw_request=base64.b64decode(
+                call["provider_raw_request_b64"], validate=True
+            ),
+            raw_response=base64.b64decode(call["raw_response_b64"], validate=True),
+            assistant_message=call["assistant_message"],
+            usage=call["usage"],
+            provider_metadata=call["provider_metadata"],
+        )
+        if call.get("raw_response_sha256") != _sha256(response.raw_response):
+            raise ValueError("Planner response hash differs from captured bytes")
+        tool_arguments, recipe_bytes, protocol_rejection, tool_call_id = (
+            PLANNER_SUPPORT.derive_planner_submission_from_message(
+                response.assistant_message
+            )
+        )
+        gate = protocol_rejection
+        if recipe_bytes is not None:
+            gate = PLANNER_SUPPORT.evaluate_mechanical_gate(
+                recipe_bytes=recipe_bytes,
+                authority=inputs.current_authority,
+                recipe_schema=inputs.recipe_schema,
+                normalization_profile=inputs.normalization_profile,
+                exclusion_policy=inputs.exclusion_policy,
+            )
+        if gate is None:
+            raise ValueError("Planner submission produced no gate result")
+        expected_turn = {
+            "turn_index": index,
+            "raw_response_sha256": _sha256(response.raw_response),
+            "tool_arguments_sha256": (
+                None if tool_arguments is None else _sha256(tool_arguments)
+            ),
+            "gate_status": gate.status,
+            "usage": PLANNER_SUPPORT._json_builtins(response.usage),
+            "elapsed_ms": turn_row.get("elapsed_ms"),
+        }
+        if (
+            type(turn_row.get("elapsed_ms")) is not int
+            or turn_row["elapsed_ms"] < 0
+            or turn_row != expected_turn
+        ):
+            raise ValueError("Planner turn row differs from captured response")
+        if gate.status == "mechanically_accepted":
+            if index != len(calls) or recipe_bytes != candidate_raw:
+                raise ValueError("accepted Planner tool bytes differ from candidate")
+            accepted_recipe = recipe_bytes
+            continue
+        messages.append(dict(response.assistant_message))
+        messages.append(
+            PLANNER_SUPPORT.build_planner_mechanical_feedback_message(
+                gate, tool_call_id
+            )
+        )
+    if accepted_recipe != candidate_raw:
+        raise ValueError("Planner evidence does not derive the sealed candidate")
 
 
 def _object_bytes(raw: bytes, label: str) -> dict[str, object]:
@@ -941,6 +1122,7 @@ __all__ = (
     "VerifiedResolutionPreflight",
     "assemble_task1_resolution_instrument",
     "bind_resolution_attempt",
+    "consume_verified_carrier_qualification",
     "reserve_resolution_staging",
     "seal_task1_resolution_checkpoint",
     "verify_historical_carrier_qualification_compatibility",

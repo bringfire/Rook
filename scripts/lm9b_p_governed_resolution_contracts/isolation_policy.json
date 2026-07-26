@@ -27,6 +27,10 @@
       "owned_region": "derived_exact_clause_source_refs"
     },
     {
+      "equation_id": "affected_clause_residual",
+      "owned_region": "derived_exact_affected_clause_residuals"
+    },
+    {
       "equation_id": "recipe_fingerprint",
       "owned_region": "/recipe_fingerprint"
     },
@@ -49,5 +53,5 @@
     "Assign every erased location to exactly one named equation before residual comparison.",
     "Compare canonical normalized residual projections without rewriting candidate bytes."
   ],
-  "policy_fingerprint": "sha256:1da1b117e3db5f8abc5d84dcb6103e4d131cbec1b25ea80945da513f0dc0cb3e"
+  "policy_fingerprint": "sha256:8b1b6413364c50d71c6c4201f7f342acebe6352309b0684f361e37c17b66c857"
 }
