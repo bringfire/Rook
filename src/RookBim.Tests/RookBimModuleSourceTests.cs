@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Xunit;
 
@@ -223,9 +224,170 @@ internal sealed class Fixture
             var source = Read(
                 "src/RookBim.Tests/RookBimModuleSourceTests.cs");
 
-            Assert.DoesNotContain(
-                "ExtractMethod(",
-                ExecutableCode(source));
+            AssertNoLegacySourceMatchingIdentifiers(source);
+        }
+
+        [Fact]
+        public void SourceIdentifierAudit_RejectsWhitespaceSeparatedLegacyDeclarationsAndReferences()
+        {
+            var declaration = @"
+internal sealed class Fixture
+{
+    private static string ExtractMethod
+    /* layout */
+    (
+        string source)
+    {
+        return source;
+    }
+}";
+            var reference = @"
+internal sealed class Fixture
+{
+
+    public void Target()
+    {
+        var reference = FindIgnoringWhitespace;
+    }
+}";
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoLegacySourceMatchingIdentifiers(declaration));
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoLegacySourceMatchingIdentifiers(reference));
+        }
+
+        [Fact]
+        public void SourceIdentifierAudit_IgnoresLegacyNamesInCommentsAndLiterals()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    // ExtractMethod (source)
+    /* FindIgnoringWhitespace */
+    public void Target()
+    {
+        var call = ""ExtractMethod (source)"";
+        var reference = @""FindIgnoringWhitespace"";
+        var longerNames = ExtractMethodology + FindIgnoringWhitespaceSuffix;
+    }
+}";
+
+            AssertNoLegacySourceMatchingIdentifiers(source);
+        }
+
+        [Theory]
+        [InlineData("var value = $\"{ExtractMethod (source)}\";")]
+        [InlineData("var value = $@\"{FindIgnoringWhitespace}\";")]
+        [InlineData("var value = @$\"{FindIgnoringWhitespace}\";")]
+        [InlineData("var value = $\"\"\"{ExtractMethod(source)}\"\"\";")]
+        [InlineData("var value = $$\"\"\"{{FindIgnoringWhitespace}}\"\"\";")]
+        public void SourceIdentifierAudit_RejectsLegacyNamesInInterpolatedExpressions(
+            string source)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoLegacySourceMatchingIdentifiers(source));
+        }
+
+        [Fact]
+        public void SourceIdentifierAudit_IgnoresLegacyNamesInInterpolatedLiteralText()
+        {
+            var source =
+                "var ordinary = $\"ExtractMethod {actual}\";\n" +
+                "var verbatim = $@\"FindIgnoringWhitespace {actual}\";\n" +
+                "var raw = $\"\"\"ExtractMethod FindIgnoringWhitespace {actual}\"\"\";";
+
+            AssertNoLegacySourceMatchingIdentifiers(source);
+        }
+
+        [Fact]
+        public void SourceContractAudit_DistinguishesWholeSourcePositivesFromNegativesAndLiterals()
+        {
+            var source = @"
+Assert.Contains(
+    ""required"",
+    runtime);
+Assert.DoesNotContain(""forbidden"", runtime);
+var decoy = ""Assert.Contains(\""required\"", runtime);"";
+Assert.Contains(""required"", member);";
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(source, "runtime"));
+            AssertNoWholeSourcePositiveContains(source, "dispatcher");
+
+            var moduleSource = "Assert.Contains(\"required\", module);";
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(moduleSource, "module"));
+        }
+
+        [Theory]
+        [InlineData("Assert.Contains(\"required\", (runtime));")]
+        [InlineData("Assert.Contains(\"required\", NormalizeLineEndings(runtime));")]
+        public void SourceContractAudit_RejectsWrappedWholeSourceActualArguments(
+            string source)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(source, "runtime"));
+        }
+
+        [Fact]
+        public void SourceContracts_Task8GuardNamesCurrentWholeSourceVariables()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+            var guard = ExtractSourceMember(
+                source,
+                "public class RookBimModuleSourceTests",
+                "public void SourceContracts_Task8PositivesBindExactMembers()");
+
+            Assert.Contains("\"module\"", guard);
+            Assert.DoesNotContain("\"text\"", guard);
+        }
+
+        [Fact]
+        public void SourceContracts_Task8PositivesBindExactMembers()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+
+            AssertNoWholeSourcePositiveContains(
+                ExtractExecutableMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RookBimModuleActivate_InstallsRevitRuntimeFromOptionalAssembly()"),
+                "module");
+            AssertNoWholeSourcePositiveContains(
+                ExtractExecutableMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_UsesRhinoInsideHostContextDispatcherWithoutTransactions()"),
+                "dispatcher");
+            AssertNoWholeSourcePositiveContains(
+                ExtractExecutableMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_RuntimeUsesDispatcherForStatusAndActiveDocument()"),
+                "runtime",
+                "context",
+                "serializer");
+            AssertNoWholeSourcePositiveContains(
+                ExtractExecutableMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_ElementIdSerializationUsesBoundedNullableConversion()"),
+                "serializer");
+            AssertNoWholeSourcePositiveContains(
+                ExtractExecutableMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_DispatchDoesNotMaskFaultedTasksWithAggregateException()"),
+                "runtime");
+            AssertNoWholeSourcePositiveContains(
+                ExtractExecutableMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_StatusDispatchFailureKeepsRookBimRuntime()"),
+                "runtime");
         }
 
         [Fact]
@@ -342,17 +504,24 @@ internal sealed class Fixture
         [Fact]
         public void RookBimModuleActivate_InstallsRevitRuntimeFromOptionalAssembly()
         {
-            var text = Read("src/RookBim/RookBimModule.cs");
+            var module = Read("src/RookBim/RookBimModule.cs");
+            var activate = ExtractExecutableMember(
+                module,
+                ModuleType,
+                "public static void Activate()");
+            var activateSource = ExtractSourceMember(
+                module,
+                ModuleType,
+                "public static void Activate()");
 
-            Assert.Contains("public static class RookBimModule", text);
-            Assert.Contains("public static void Activate()", text);
-            Assert.Contains("IsLoaded(\"RevitAPIUI\")", text);
-            Assert.Contains("IsLoaded(\"RhinoInside.Revit\")", text);
-            Assert.Contains("new RookBimUnavailableRuntime", text);
-            Assert.Contains("\"not_rhino_inside\"", text);
-            Assert.Contains("RookBimRuntimeRegistry.Install", text);
-            Assert.Contains("new RevitRookBimRuntime()", text);
-            Assert.Contains("\"RookBim.dll\"", text);
+            Assert.Equal(2, CountOccurrences(activate, "IsLoaded("));
+            Assert.Contains("IsLoaded(\"RevitAPIUI\")", activateSource);
+            Assert.Contains("IsLoaded(\"RhinoInside.Revit\")", activateSource);
+            Assert.Contains("new RookBimUnavailableRuntime", activate);
+            Assert.Contains("\"not_rhino_inside\"", activateSource);
+            Assert.Contains("RookBimRuntimeRegistry.Install", activate);
+            Assert.Contains("new RevitRookBimRuntime()", activate);
+            Assert.Contains("\"RookBim.dll\"", activateSource);
         }
 
         [Fact]
@@ -443,19 +612,49 @@ internal sealed class Fixture
         public void RevitTask7_UsesRhinoInsideHostContextDispatcherWithoutTransactions()
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
+            var revitTypeName = ExtractSourceDirectMember(
+                dispatcher,
+                DispatcherType,
+                "private const string RevitTypeName = \"RhinoInside.Revit.Revit\";");
+            var invokeAbandonable = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var enqueue = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "private static void EnqueueIdlingAction(Action action)");
+            var activeApplication = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "private static UIApplication ActiveUIApplication()");
+            var resolveType = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "private static Type ResolveRhinoInsideType(string typeName)");
+            var completion = ExtractExecutableDirectMember(
+                dispatcher,
+                WorkItemType,
+                "private readonly TaskCompletionSource<T> completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);");
             var revitFiles = Directory
                 .GetFiles(Path.Combine(RepoRoot, "src", "RookBim", "Revit"), "*.cs")
                 .Select(File.ReadAllText);
             var combined = string.Join(Environment.NewLine, revitFiles);
 
-            Assert.Contains("RhinoInside.Revit.Revit", dispatcher);
-            Assert.Contains("EnqueueIdlingAction", dispatcher);
-            Assert.Contains("ActiveUIApplication", dispatcher);
-            Assert.Contains("Type.GetType", dispatcher);
-            Assert.Contains("AppDomain.CurrentDomain", dispatcher);
-            Assert.Contains("TargetInvocationException", dispatcher);
-            Assert.Contains("TaskCompletionSource", dispatcher);
-            Assert.Contains("new Action(item.Execute)", dispatcher);
+            Assert.Equal(
+                "private const string RevitTypeName = \"RhinoInside.Revit.Revit\";",
+                revitTypeName.Trim());
+            Assert.Contains("EnqueueIdlingAction(new Action(item.Execute))", invokeAbandonable);
+            Assert.Contains("ResolveRhinoInsideType(RevitTypeName)", enqueue);
+            Assert.Contains("ResolveRhinoInsideType(RevitTypeName)", activeApplication);
+            Assert.Contains("Type.GetType", resolveType);
+            Assert.Contains("AppDomain.CurrentDomain", resolveType);
+            Assert.Contains("TargetInvocationException", enqueue);
+            Assert.Contains("TargetInvocationException", activeApplication);
+            Assert.Equal(
+                RemoveWhitespace(
+                    "private readonly TaskCompletionSource<T> completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);"),
+                RemoveWhitespace(completion));
             Assert.DoesNotContain("Task.Run", dispatcher);
             Assert.DoesNotContain("ExternalEvent.Create", dispatcher);
             Assert.DoesNotContain("IExternalEventHandler", dispatcher);
@@ -468,24 +667,57 @@ internal sealed class Fixture
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
             var context = Read("src/RookBim/Revit/RevitContext.cs");
             var serializer = Read("src/RookBim/Revit/RevitIdentitySerializer.cs");
+            var dispatcherField = ExtractExecutableDirectMember(
+                runtime,
+                RuntimeType,
+                "private readonly RevitApiDispatcher dispatcher;");
+            var dispatch = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private T Dispatch<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var status = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)");
+            var statusSource = ExtractSourceMember(
+                runtime,
+                RuntimeType,
+                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)");
+            var documentContext = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
+            var activeUiDocument = ExtractExecutableMember(
+                context,
+                "public static class RevitContext",
+                "public static UIDocument? ActiveUiDocument(UIApplication uiapp)");
+            var activeDocument = ExtractExecutableMember(
+                context,
+                "public static class RevitContext",
+                "public static Document? ActiveDocument(UIApplication uiapp)");
+            var legacyIdentity = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimDocumentIdentity DocumentIdentity(Document document)");
 
-            Assert.Contains("RevitApiDispatcher", runtime);
-            Assert.Contains("dispatcher.InvokeAbandonable", runtime);
-            Assert.Contains("ActiveDocument(UIApplication", context);
-            Assert.Contains("ActiveUiDocument(UIApplication", context);
-            Assert.Contains("ActiveUIDocument", context);
-            Assert.Contains("GetWorksharingCentralGUID", serializer);
-            Assert.Contains("GuidSource", serializer);
-            Assert.Contains("BimDocumentGuidSource.Unavailable", serializer);
-            Assert.DoesNotContain("PathFallback", serializer);
+            Assert.Equal(
+                RemoveWhitespace("private readonly RevitApiDispatcher dispatcher;"),
+                RemoveWhitespace(dispatcherField));
+            Assert.Contains("dispatcher.InvokeAbandonable", dispatch);
+            Assert.Contains("ActiveUiDocument(uiapp)?.Document", activeDocument);
+            Assert.Contains("uiapp?.ActiveUIDocument", activeUiDocument);
+            Assert.Contains("GetWorksharingCentralGUID(document)", legacyIdentity);
+            Assert.Contains("GuidSource", legacyIdentity);
+            Assert.Contains("BimDocumentGuidSource.Unavailable", legacyIdentity);
+            Assert.DoesNotContain("PathFallback", ExecutableCode(serializer));
 
-            Assert.Contains("Available = true", runtime);
-            Assert.Contains("Runtime = \"rookbim\"", runtime);
-            Assert.Contains("Host = \"revit\"", runtime);
-            Assert.Contains("Module = ModuleName", runtime);
-            Assert.Contains("ErrorCode = \"no_active_document\"", runtime);
-            Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
-            Assert.Contains("409", runtime);
+            Assert.Contains("Available = true", status);
+            Assert.Contains("Runtime = \"rookbim\"", statusSource);
+            Assert.Contains("Host = \"revit\"", statusSource);
+            Assert.Contains("Module = ModuleName", status);
+            Assert.Contains("ErrorCode = \"no_active_document\"", statusSource);
+            Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
+            Assert.Contains("409", documentContext);
         }
 
         [Fact]
@@ -897,14 +1129,37 @@ internal sealed class Fixture
         public void RevitTask7_ElementIdSerializationUsesBoundedNullableConversion()
         {
             var serializer = Read("src/RookBim/Revit/RevitIdentitySerializer.cs");
+            var invalidElementId = ExtractExecutableDirectMember(
+                serializer,
+                IdentitySerializerType,
+                "private const int InvalidElementIdValue = -1;");
+            var viewIdentity = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimViewIdentity ViewIdentity(View view)");
+            var elementIdentity = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimElementIdentity ElementIdentity(Element element)");
+            var toInt32OrNull = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static int? ToInt32OrNull(ElementId? id)");
 
-            Assert.Contains("private const int InvalidElementIdValue = -1;", serializer);
-            Assert.Contains("Id = ToInt32OrNull(view.Id) ?? InvalidElementIdValue", serializer);
-            Assert.Contains("ElementId = ToInt32OrNull(element.Id)", serializer);
-            Assert.Contains("private static int? ToInt32OrNull(ElementId? id)", serializer);
-            Assert.Contains("if (value < int.MinValue || value > int.MaxValue)", serializer);
-            Assert.Contains("return null;", serializer);
-            Assert.DoesNotContain("Convert.ToInt32", serializer);
+            Assert.Equal(
+                RemoveWhitespace("private const int InvalidElementIdValue = -1;"),
+                RemoveWhitespace(invalidElementId));
+            Assert.Contains(
+                "Id = ToInt32OrNull(view.Id) ?? InvalidElementIdValue",
+                viewIdentity);
+            Assert.Contains(
+                "ElementId = ToInt32OrNull(element.Id)",
+                elementIdentity);
+            Assert.Contains(
+                "if (value < int.MinValue || value > int.MaxValue)",
+                toInt32OrNull);
+            Assert.Contains("return null;", toInt32OrNull);
+            Assert.DoesNotContain("Convert.ToInt32", ExecutableCode(serializer));
         }
 
         [Fact]
@@ -955,18 +1210,26 @@ internal sealed class Fixture
                 runtime,
                 RuntimeType,
                 "private T Dispatch<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var describeException = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private static string DescribeDispatchException(Exception ex)");
 
             Assert.DoesNotContain(".Wait(DispatchTimeout)", dispatch);
             Assert.Contains("Task.WaitAny", dispatch);
             Assert.Contains("dispatch.Task.GetAwaiter().GetResult();", dispatch);
-            Assert.Contains("DescribeDispatchException", runtime);
-            Assert.Contains("AggregateException", runtime);
+            Assert.Contains("AggregateException", describeException);
+            Assert.Contains("aggregate.Flatten()", describeException);
         }
 
         [Fact]
         public void RevitTask7_StatusDispatchFailureKeepsRookBimRuntime()
         {
             var runtime = NormalizeLineEndings(Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var status = ExtractSourceMember(
+                runtime,
+                RuntimeType,
+                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)");
 
             Assert.Contains(
                 "catch (Exception ex)\n" +
@@ -981,8 +1244,8 @@ internal sealed class Fixture
                 "                    Module = ModuleName\n" +
                 "                };\n" +
                 "            }",
-                runtime);
-            Assert.DoesNotContain("Runtime = \"unavailable\"", runtime);
+                status);
+            Assert.DoesNotContain("Runtime = \"unavailable\"", status);
         }
 
         [Fact]
@@ -1493,6 +1756,321 @@ internal sealed class Fixture
             Assert.Equal(1, CountOccurrences(source, enabledExpression));
         }
 
+        private static void AssertNoLegacySourceMatchingIdentifiers(string source)
+        {
+            var identifiers = ExecutableIdentifierTokens(source);
+            Assert.DoesNotContain("ExtractMethod", identifiers);
+            Assert.DoesNotContain("FindIgnoringWhitespace", identifiers);
+        }
+
+        private static IReadOnlyList<string> ExecutableIdentifierTokens(
+            string source)
+        {
+            var identifiers = new List<string>();
+            AddIdentifierTokens(ExecutableCode(source), identifiers);
+            foreach (var expression in InterpolatedExpressions(source))
+            {
+                identifiers.AddRange(ExecutableIdentifierTokens(expression));
+            }
+
+            return identifiers;
+        }
+
+        private static void AddIdentifierTokens(
+            string code,
+            ICollection<string> identifiers)
+        {
+            for (var index = 0; index < code.Length;)
+            {
+                var identifierStart = index;
+                if (code[index] == '@' &&
+                    index + 1 < code.Length &&
+                    IsIdentifierStart(code[index + 1]))
+                {
+                    identifierStart = ++index;
+                }
+                else if (!IsIdentifierStart(code[index]))
+                {
+                    index++;
+                    continue;
+                }
+
+                index++;
+                while (index < code.Length &&
+                       IsIdentifierCharacter(code[index]))
+                {
+                    index++;
+                }
+
+                identifiers.Add(code.Substring(
+                    identifierStart,
+                    index - identifierStart));
+            }
+        }
+
+        private static IReadOnlyList<string> InterpolatedExpressions(
+            string source)
+        {
+            var expressions = new List<string>();
+            var outsideCode = ExecutableCode(source);
+            for (var index = 0; index < source.Length;)
+            {
+                if (outsideCode[index] == '$' &&
+                    TryCollectInterpolatedExpressions(
+                        source,
+                        outsideCode,
+                        index,
+                        expressions,
+                        out var stringEnd))
+                {
+                    index = stringEnd;
+                    continue;
+                }
+
+                index++;
+            }
+
+            return expressions;
+        }
+
+        private static bool TryCollectInterpolatedExpressions(
+            string source,
+            string outsideCode,
+            int dollarStart,
+            ICollection<string> expressions,
+            out int stringEnd)
+        {
+            var dollarCount = CountRun(source, dollarStart, '$');
+            var quoteIndex = dollarStart + dollarCount;
+            var verbatim = false;
+            if (quoteIndex < source.Length && source[quoteIndex] == '@')
+            {
+                verbatim = true;
+                quoteIndex++;
+            }
+            else if (dollarStart > 0 &&
+                     source[dollarStart - 1] == '@' &&
+                     outsideCode[dollarStart - 1] == '@')
+            {
+                verbatim = true;
+            }
+
+            if (quoteIndex >= source.Length || source[quoteIndex] != '"')
+            {
+                stringEnd = dollarStart + 1;
+                return false;
+            }
+
+            var quoteCount = CountRun(source, quoteIndex, '"');
+            if (quoteCount >= 3 && !verbatim)
+            {
+                stringEnd = CollectRawInterpolatedExpressions(
+                    source,
+                    quoteIndex,
+                    quoteCount,
+                    dollarCount,
+                    expressions);
+                return true;
+            }
+
+            if (quoteCount != 1 || dollarCount != 1)
+            {
+                stringEnd = dollarStart + 1;
+                return false;
+            }
+
+            stringEnd = CollectQuotedInterpolatedExpressions(
+                source,
+                quoteIndex,
+                verbatim,
+                expressions);
+            return true;
+        }
+
+        private static int CollectQuotedInterpolatedExpressions(
+            string source,
+            int quoteIndex,
+            bool verbatim,
+            ICollection<string> expressions)
+        {
+            var index = quoteIndex + 1;
+            while (index < source.Length)
+            {
+                if (source[index] == '"')
+                {
+                    if (verbatim &&
+                        index + 1 < source.Length &&
+                        source[index + 1] == '"')
+                    {
+                        index += 2;
+                        continue;
+                    }
+
+                    return index + 1;
+                }
+
+                if (!verbatim && source[index] == '\\')
+                {
+                    index = Math.Min(index + 2, source.Length);
+                    continue;
+                }
+
+                if (source[index] == '{')
+                {
+                    if (index + 1 < source.Length &&
+                        source[index + 1] == '{')
+                    {
+                        index += 2;
+                        continue;
+                    }
+
+                    var expressionStart = index + 1;
+                    var expressionEnd = FindInterpolationExpressionEnd(
+                        source,
+                        expressionStart,
+                        closingBraceCount: 1);
+                    if (expressionEnd < 0)
+                    {
+                        return source.Length;
+                    }
+
+                    expressions.Add(source.Substring(
+                        expressionStart,
+                        expressionEnd - expressionStart));
+                    index = expressionEnd + 1;
+                    continue;
+                }
+
+                index++;
+            }
+
+            return source.Length;
+        }
+
+        private static int CollectRawInterpolatedExpressions(
+            string source,
+            int quoteIndex,
+            int quoteCount,
+            int dollarCount,
+            ICollection<string> expressions)
+        {
+            var index = quoteIndex + quoteCount;
+            while (index < source.Length)
+            {
+                if (source[index] == '"' &&
+                    CountRun(source, index, '"') >= quoteCount)
+                {
+                    return index + quoteCount;
+                }
+
+                if (source[index] == '{' &&
+                    CountRun(source, index, '{') >= dollarCount)
+                {
+                    var expressionStart = index + dollarCount;
+                    var expressionEnd = FindInterpolationExpressionEnd(
+                        source,
+                        expressionStart,
+                        dollarCount);
+                    if (expressionEnd < 0)
+                    {
+                        return source.Length;
+                    }
+
+                    expressions.Add(source.Substring(
+                        expressionStart,
+                        expressionEnd - expressionStart));
+                    index = expressionEnd + dollarCount;
+                    continue;
+                }
+
+                index++;
+            }
+
+            return source.Length;
+        }
+
+        private static int FindInterpolationExpressionEnd(
+            string source,
+            int expressionStart,
+            int closingBraceCount)
+        {
+            var remainder = source.Substring(expressionStart);
+            var code = ExecutableCode(remainder);
+            var braces = 0;
+            for (var offset = 0; offset < code.Length; offset++)
+            {
+                if (code[offset] == '{')
+                {
+                    braces++;
+                    continue;
+                }
+
+                if (code[offset] != '}')
+                {
+                    continue;
+                }
+
+                if (braces > 0)
+                {
+                    braces--;
+                    continue;
+                }
+
+                if (CountRun(code, offset, '}') >= closingBraceCount)
+                {
+                    return expressionStart + offset;
+                }
+            }
+
+            return -1;
+        }
+
+        private static void AssertNoWholeSourcePositiveContains(
+            string source,
+            params string[] wholeSourceIdentifiers)
+        {
+            var code = ExecutableCode(source);
+            foreach (var identifier in wholeSourceIdentifiers)
+            {
+                var pattern =
+                    @"\bAssert\s*\.\s*Contains\s*\([^;]*\b" +
+                    Regex.Escape(identifier) +
+                    @"\b[^;]*\)\s*;";
+                Assert.False(
+                    Regex.IsMatch(
+                        code,
+                        pattern,
+                        RegexOptions.CultureInvariant |
+                        RegexOptions.Singleline),
+                    "Positive Assert.Contains references whole-source identifier '" +
+                    identifier + "'.");
+            }
+        }
+
+        private static string ExtractSourceMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
+        {
+            var lexed = Lex(source);
+            var type = FindUniqueBlockDeclaration(
+                lexed.CodeMask,
+                typeDeclaration,
+                0,
+                lexed.CodeMask.Length,
+                containingBodyStart: null);
+            var member = FindUniqueBlockDeclaration(
+                lexed.CodeMask,
+                memberDeclaration,
+                type.BodyStart + 1,
+                type.BodyEnd,
+                type.BodyStart);
+
+            return lexed.WithoutComments.Substring(
+                member.DeclarationStart,
+                member.BodyEnd - member.DeclarationStart + 1);
+        }
+
         private static string ExtractExecutableMember(
             string source,
             string typeDeclaration,
@@ -1529,6 +2107,46 @@ internal sealed class Fixture
                 0,
                 code.Length,
                 containingBodyStart: null);
+            var member = FindUniqueDirectMemberDeclaration(
+                code,
+                code,
+                type,
+                memberDeclaration);
+
+            return code.Substring(
+                member.Start,
+                member.End - member.Start);
+        }
+
+        private static string ExtractSourceDirectMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
+        {
+            var lexed = Lex(source);
+            var type = FindUniqueBlockDeclaration(
+                lexed.CodeMask,
+                typeDeclaration,
+                0,
+                lexed.CodeMask.Length,
+                containingBodyStart: null);
+            var member = FindUniqueDirectMemberDeclaration(
+                lexed.CodeMask,
+                lexed.WithoutComments,
+                type,
+                memberDeclaration);
+
+            return lexed.WithoutComments.Substring(
+                member.Start,
+                member.End - member.Start);
+        }
+
+        private static SourceSpan FindUniqueDirectMemberDeclaration(
+            string code,
+            string declarationSource,
+            SourceBlock type,
+            string memberDeclaration)
+        {
             var significantDeclaration = new string(memberDeclaration
                 .Where(character => !char.IsWhiteSpace(character))
                 .ToArray());
@@ -1544,10 +2162,10 @@ internal sealed class Fixture
                  candidate < type.BodyEnd;
                  candidate++)
             {
-                if (char.IsWhiteSpace(code[candidate]) ||
-                    code[candidate] != significantDeclaration[0] ||
+                if (char.IsWhiteSpace(declarationSource[candidate]) ||
+                    declarationSource[candidate] != significantDeclaration[0] ||
                     HasIdentifierPrefix(
-                        code,
+                        declarationSource,
                         candidate,
                         significantDeclaration[0]) ||
                     BraceDepth(code, type.BodyStart + 1, candidate) != 0)
@@ -1556,7 +2174,7 @@ internal sealed class Fixture
                 }
 
                 if (TryMatchIgnoringWhitespace(
-                        code,
+                        declarationSource,
                         candidate,
                         type.BodyEnd,
                         significantDeclaration,
@@ -1573,9 +2191,7 @@ internal sealed class Fixture
                     memberDeclaration + "' but found " + matches.Count + ".");
             }
 
-            return code.Substring(
-                matches[0].Start,
-                matches[0].End - matches[0].Start);
+            return matches[0];
         }
 
         private static SourceBlock FindUniqueBlockDeclaration(
@@ -1702,6 +2318,11 @@ internal sealed class Fixture
         private static bool IsIdentifierCharacter(char value)
         {
             return char.IsLetterOrDigit(value) || value == '_';
+        }
+
+        private static bool IsIdentifierStart(char value)
+        {
+            return char.IsLetter(value) || value == '_';
         }
 
         private static int NextNonWhitespace(
