@@ -11,6 +11,9 @@ namespace Rook.Bim
 
     internal sealed class BimDiagnosticEnvelope
     {
+        private BimDiagnosticOutcomeAccumulator? accumulator;
+        private int dropRecorded;
+
         internal BimDiagnosticEnvelope(
             BimDiagnosticRecordKind kind,
             long sequence,
@@ -41,7 +44,7 @@ namespace Rook.Bim
             Outcome = outcome;
             Fields = fields;
             ExceptionInfo = exceptionInfo;
-            Accumulator = accumulator;
+            this.accumulator = accumulator;
         }
 
         internal BimDiagnosticRecordKind Kind { get; }
@@ -76,7 +79,32 @@ namespace Rook.Bim
             get { return ExceptionInfo == null ? (int?)null : ExceptionInfo.HResult; }
         }
 
-        internal BimDiagnosticOutcomeAccumulator? Accumulator { get; }
+        internal BimDiagnosticOutcomeAccumulator? Accumulator
+        {
+            get { return Volatile.Read(ref accumulator); }
+        }
+
+        internal bool MarkDropped(BimDiagnosticSinkFailureCode failureCode)
+        {
+            BimDiagnosticContracts.ValidateSinkFailureCode(failureCode);
+            if (failureCode == BimDiagnosticSinkFailureCode.None)
+            {
+                throw new ArgumentOutOfRangeException(nameof(failureCode));
+            }
+
+            if (Interlocked.Exchange(ref dropRecorded, 1) != 0)
+            {
+                return false;
+            }
+
+            Volatile.Read(ref accumulator)?.RecordDrop();
+            return true;
+        }
+
+        internal void ReleaseAccumulator()
+        {
+            Interlocked.Exchange(ref accumulator, null);
+        }
     }
 
     internal sealed class BimDiagnosticRecord
@@ -161,11 +189,27 @@ namespace Rook.Bim
         private static long nextSequence;
         private readonly bool enabled;
         private readonly IBimDiagnosticEnvelopeSink? sink;
+        private readonly BimDiagnosticProvenance provenance;
 
         internal BimDiagnosticSession(bool enabled, IBimDiagnosticEnvelopeSink? sink)
+            : this(enabled, sink,
+                new BimDiagnosticProvenance(typeof(BimDiagnostics).Assembly))
         {
+        }
+
+        internal BimDiagnosticSession(
+            bool enabled,
+            IBimDiagnosticEnvelopeSink? sink,
+            BimDiagnosticProvenance provenance)
+        {
+            if (provenance == null)
+            {
+                throw new ArgumentNullException(nameof(provenance));
+            }
+
             this.enabled = enabled;
             this.sink = sink;
+            this.provenance = provenance;
         }
 
         internal BimDiagnosticContext CreateContext(string operation)
@@ -173,6 +217,88 @@ namespace Rook.Bim
             return enabled
                 ? BimDiagnosticContext.CreateEnabled(operation)
                 : BimDiagnosticContext.Disabled;
+        }
+
+        internal BimDiagnosticContext CreateUncorrelatedContext(string operation)
+        {
+            return enabled
+                ? BimDiagnosticContext.CreateEnabledUncorrelated(operation)
+                : BimDiagnosticContext.Disabled;
+        }
+
+        internal BimDiagnosticRequestSnapshot SnapshotRequest(
+            BimDiagnosticContext context)
+        {
+            if (context == null)
+            {
+                throw new ArgumentNullException(nameof(context));
+            }
+
+            return context.Enabled && context.Accumulator != null
+                ? context.Accumulator.Snapshot()
+                : EmptyRequestSnapshot();
+        }
+
+        internal BimDiagnosticStatusSnapshot SnapshotStatus()
+        {
+            var metadata = provenance.Snapshot();
+            if (!enabled)
+            {
+                return new BimDiagnosticStatusSnapshot(
+                    false,
+                    BimDiagnosticSinkState.Disabled,
+                    BimDiagnosticSinkFailureCode.None,
+                    0,
+                    metadata.CoreVersion,
+                    metadata.CoreCommit,
+                    metadata.ModuleVersion,
+                    metadata.ModuleCommit);
+            }
+
+            var sinkSnapshot = sink is BimDiagnosticSink boundedSink
+                ? boundedSink.Snapshot()
+                : new BimDiagnosticSinkSnapshot(
+                    BimDiagnosticSinkState.Ready,
+                    BimDiagnosticSinkFailureCode.None,
+                    0);
+            return new BimDiagnosticStatusSnapshot(
+                true,
+                sinkSnapshot.State,
+                sinkSnapshot.FailureCode,
+                sinkSnapshot.DroppedCount,
+                metadata.CoreVersion,
+                metadata.CoreCommit,
+                metadata.ModuleVersion,
+                metadata.ModuleCommit);
+        }
+
+        internal void RegisterModuleMetadata(System.Reflection.Assembly assembly)
+        {
+            if (assembly == null)
+            {
+                throw new ArgumentNullException(nameof(assembly));
+            }
+
+            var context = CreateUncorrelatedContext("module_metadata");
+            Observe(context, BimDiagnosticStage.ModuleMetadata,
+                BimDiagnosticOutcome.Start, BimDiagnosticFields.None);
+            provenance.RegisterModule(assembly);
+            Observe(context, BimDiagnosticStage.ModuleMetadata,
+                BimDiagnosticOutcome.Success, BimDiagnosticFields.None);
+        }
+
+        internal void Stop()
+        {
+            if (sink is IDisposable disposable)
+            {
+                try
+                {
+                    disposable.Dispose();
+                }
+                catch (Exception)
+                {
+                }
+            }
         }
 
         internal void Observe(
@@ -281,7 +407,7 @@ namespace Rook.Bim
                 return;
             }
 
-            if (terminalOutcome.HasValue)
+            if (terminalOutcome.HasValue && context.CorrelationId != null)
             {
                 EnqueueTerminal(context, accumulator, terminalOutcome.Value);
             }
@@ -306,7 +432,7 @@ namespace Rook.Bim
                 BimDiagnosticFields.None,
                 null,
                 accumulator);
-            Offer(envelope, accumulator);
+            Offer(envelope);
         }
 
         private static bool TryGetAccumulator(
@@ -349,16 +475,15 @@ namespace Rook.Bim
                 observation.Fields,
                 exceptionInfo,
                 accumulator);
-            Offer(envelope, accumulator);
+            Offer(envelope);
         }
 
-        private void Offer(
-            BimDiagnosticEnvelope envelope,
-            BimDiagnosticOutcomeAccumulator accumulator)
+        private void Offer(BimDiagnosticEnvelope envelope)
         {
             if (sink == null)
             {
-                accumulator.RecordDrop();
+                envelope.MarkDropped(BimDiagnosticSinkFailureCode.QueueFull);
+                envelope.ReleaseAccumulator();
                 return;
             }
 
@@ -366,13 +491,21 @@ namespace Rook.Bim
             {
                 if (!sink.TryEnqueue(envelope))
                 {
-                    accumulator.RecordDrop();
+                    envelope.MarkDropped(BimDiagnosticSinkFailureCode.QueueFull);
+                    envelope.ReleaseAccumulator();
                 }
             }
             catch (Exception)
             {
-                accumulator.RecordDrop();
+                envelope.MarkDropped(BimDiagnosticSinkFailureCode.QueueFull);
+                envelope.ReleaseAccumulator();
             }
+        }
+
+        private static BimDiagnosticRequestSnapshot EmptyRequestSnapshot()
+        {
+            return new BimDiagnosticRequestSnapshot(
+                null, null, null, null, null, null, 0);
         }
 
         private static long NextSequence()
