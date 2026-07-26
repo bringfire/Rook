@@ -22,8 +22,7 @@ namespace Rook.Bim
             BimDiagnosticStage stage,
             BimDiagnosticOutcome outcome,
             BimDiagnosticFields fields,
-            string? exceptionTypeName,
-            int? exceptionHResult,
+            BimDiagnosticExceptionInfo? exceptionInfo,
             BimDiagnosticOutcomeAccumulator? accumulator)
         {
             BimDiagnosticContracts.ValidateRecordKind(kind);
@@ -41,9 +40,7 @@ namespace Rook.Bim
             Stage = stage;
             Outcome = outcome;
             Fields = fields;
-            ExceptionTypeName =
-                BimDiagnosticContracts.BoundExceptionTypeName(exceptionTypeName);
-            ExceptionHResult = exceptionHResult;
+            ExceptionInfo = exceptionInfo;
             Accumulator = accumulator;
         }
 
@@ -67,9 +64,17 @@ namespace Rook.Bim
 
         internal BimDiagnosticFields Fields { get; }
 
-        internal string? ExceptionTypeName { get; }
+        internal BimDiagnosticExceptionInfo? ExceptionInfo { get; }
 
-        internal int? ExceptionHResult { get; }
+        internal string? ExceptionTypeName
+        {
+            get { return ExceptionInfo?.TypeName; }
+        }
+
+        internal int? ExceptionHResult
+        {
+            get { return ExceptionInfo == null ? (int?)null : ExceptionInfo.HResult; }
+        }
 
         internal BimDiagnosticOutcomeAccumulator? Accumulator { get; }
     }
@@ -118,8 +123,7 @@ namespace Rook.Bim
             CoreCommit = BimDiagnosticContracts.BoundProvenance(coreCommit);
             ModuleVersion = BimDiagnosticContracts.BoundProvenance(moduleVersion);
             ModuleCommit = BimDiagnosticContracts.BoundProvenance(moduleCommit);
-            ExceptionTypeName = envelope.ExceptionTypeName;
-            ExceptionHResult = envelope.ExceptionHResult;
+            ExceptionInfo = envelope.ExceptionInfo;
         }
 
         internal BimDiagnosticRecordKind Kind { get; }
@@ -144,8 +148,12 @@ namespace Rook.Bim
         internal string CoreCommit { get; }
         internal string ModuleVersion { get; }
         internal string ModuleCommit { get; }
-        internal string? ExceptionTypeName { get; }
-        internal int? ExceptionHResult { get; }
+        internal BimDiagnosticExceptionInfo? ExceptionInfo { get; }
+        internal string? ExceptionTypeName { get { return ExceptionInfo?.TypeName; } }
+        internal int? ExceptionHResult
+        {
+            get { return ExceptionInfo == null ? (int?)null : ExceptionInfo.HResult; }
+        }
     }
 
     internal sealed class BimDiagnosticSession
@@ -220,25 +228,31 @@ namespace Rook.Bim
                 return;
             }
 
+            var capture = BimDiagnosticExceptionCapture.Capture(exception);
+            var root = capture.Root;
+            var effectiveFields = capture.DetailCode ==
+                BimDiagnosticDetailCode.ExceptionCaptureFailed
+                ? new BimDiagnosticFields(
+                    BimDiagnosticDetailCode.ExceptionCaptureFailed,
+                    fields.ItemIndex,
+                    fields.FailureImpact)
+                : fields;
             var sequence = NextSequence();
             var timestampUtc = DateTime.UtcNow;
-            var typeName = BimDiagnosticContracts.BoundExceptionTypeName(
-                exception.GetType().FullName);
-            var hresult = exception.HResult;
             var observation = new BimDiagnosticObservation(
                 sequence,
                 stage,
                 BimDiagnosticOutcome.Failure,
-                fields,
-                typeName,
-                hresult);
+                effectiveFields,
+                root?.TypeName,
+                root == null ? (int?)null : root.HResult);
             if (!accumulator.Observe(observation))
             {
                 return;
             }
 
             Enqueue(context, accumulator, BimDiagnosticRecordKind.Failure,
-                observation, timestampUtc);
+                observation, timestampUtc, root);
         }
 
         internal void CompleteRequest(
@@ -270,7 +284,6 @@ namespace Rook.Bim
                 routeOutcome,
                 BimDiagnosticFields.None,
                 null,
-                null,
                 accumulator);
             Offer(envelope, accumulator);
         }
@@ -299,7 +312,8 @@ namespace Rook.Bim
             BimDiagnosticOutcomeAccumulator accumulator,
             BimDiagnosticRecordKind kind,
             BimDiagnosticObservation observation,
-            DateTime timestampUtc)
+            DateTime timestampUtc,
+            BimDiagnosticExceptionInfo? exceptionInfo = null)
         {
             var envelope = new BimDiagnosticEnvelope(
                 kind,
@@ -312,8 +326,7 @@ namespace Rook.Bim
                 observation.Stage,
                 observation.Outcome,
                 observation.Fields,
-                observation.ExceptionTypeName,
-                observation.ExceptionHResult,
+                exceptionInfo,
                 accumulator);
             Offer(envelope, accumulator);
         }
