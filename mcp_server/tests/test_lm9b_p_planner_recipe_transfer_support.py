@@ -72,6 +72,25 @@ def test_planner_turn_request_materialization_is_fresh() -> None:
     assert one["tools"] is not two["tools"]
 
 
+def test_planner_call_plan_derives_timeout_from_preceding_deadline_state() -> None:
+    messages = [{"role": "user", "content": "x"}]
+    plan = SUPPORT.build_planner_provider_call_plan(
+        turn_index=1,
+        messages=messages,
+        session_started_monotonic_s=1000.0,
+        call_started_monotonic_s=1421.0,
+    )
+    assert plan.elapsed_before_call_s == 421.0
+    assert plan.remaining_before_call_s == 179.0
+    assert plan.provider_timeout_s == 179.0
+    assert plan.request_bytes == SUPPORT.build_planner_provider_call_request(
+        messages=messages,
+        provider_timeout_s=179.0,
+    )
+    assert plan.request_raw_sha256 == SUPPORT.sha256_prefixed(plan.request_bytes)
+    assert plan.preceding_transcript_fingerprint == SUPPORT.fingerprint(messages)
+
+
 def test_planner_turn_request_builder_has_no_ambient_inputs_or_contact() -> None:
     tree = ast.parse(inspect.getsource(SUPPORT.build_planner_provider_call_request))
     forbidden_names = {

@@ -9,9 +9,11 @@ import json
 import sys
 import threading
 import time
+import weakref
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -24,6 +26,7 @@ for _import_path in (_SCRIPTS_DIR, _MCP_SRC):
 import lm9b_p_governed_resolution_artifacts as ARTIFACTS
 import lm9b_p_governed_resolution_support as SUPPORT
 import lm9b_p_planner_recipe_transfer_artifacts as PLANNER_ARTIFACTS
+import lm9b_p_planner_recipe_transfer_probe as PLANNER_PROBE
 import lm9b_p_planner_recipe_transfer_support as PLANNER_SUPPORT
 import lm9b_p_readiness_contract as READINESS
 
@@ -42,6 +45,138 @@ class ResolutionAttemptResult:
     state: str
 
 
+class _AdapterIdentityMismatch(RuntimeError):
+    pass
+
+
+def _construct_resolution_role_provider(
+    *, role: str, model: str, temperature: float
+) -> object:
+    if role not in {"planner", "planner_evaluator"}:
+        raise ValueError("resolution cannot construct an unregistered role adapter")
+    return PLANNER_PROBE.build_planner_evaluator_provider(
+        model=model,
+        temperature=temperature,
+    )
+
+
+def _resolution_role_adapter_api() -> tuple[Callable[..., object], Callable[..., object]]:
+    registry: weakref.WeakKeyDictionary[object, object] = weakref.WeakKeyDictionary()
+    registry_lock = threading.Lock()
+
+    class IssuedResolutionRoleAdapters:
+        __slots__ = ("__weakref__",)
+
+    def derive(
+        *,
+        preflight: ARTIFACTS.VerifiedResolutionPreflight,
+        readiness_manifest: READINESS.RouteManifest,
+    ) -> object:
+        if type(preflight) is not ARTIFACTS.VerifiedResolutionPreflight:
+            raise TypeError("verified resolution preflight is required")
+        expected_projection = preflight.record["instrument_contracts"]["readiness"][
+            "route_identity_projection"
+        ]
+        actual_projection = ARTIFACTS.readiness_route_identity_projection(
+            readiness_manifest
+        )
+        if actual_projection != expected_projection:
+            raise ValueError("role-adapter route differs from resolution preflight")
+        providers: dict[str, object] = {}
+        expected_response_identities: dict[str, Mapping[str, object]] = {}
+        provider_snapshots: dict[str, Mapping[str, object]] = {}
+        for role, contract_key in (
+            ("planner", "planner"),
+            ("planner_evaluator", "evaluator"),
+        ):
+            matching_routes = [
+                route for route in readiness_manifest.routes if role in route.member_roles
+            ]
+            if len(matching_routes) != 1:
+                raise ValueError("resolution role has no unique readiness route")
+            route = matching_routes[0]
+            contract = preflight.record["instrument_contracts"][contract_key]
+            if (
+                route.model != contract["model"]
+                or route.adapter_path != "litellm.completion"
+                or contract["provider_profile"]
+                != "litellm.completion.tool_calling.no_parallel:v1"
+                or contract["temperature"] != 0.0
+            ):
+                raise ValueError("resolution role configuration differs from route")
+            provider = _construct_resolution_role_provider(
+                role=role,
+                model=route.model,
+                temperature=contract["temperature"],
+            )
+            identity = getattr(provider, "identity", None)
+            expected_adapter_identity = {
+                "adapter_path": route.adapter_path,
+                "model": route.model,
+                "profile_identity": contract["provider_profile"],
+                "temperature": contract["temperature"],
+            }
+            if (
+                not isinstance(identity, Mapping)
+                or dict(identity) != expected_adapter_identity
+                or getattr(provider, "model", None) != route.model
+                or getattr(provider, "temperature", None) != contract["temperature"]
+                or getattr(provider, "profile_identity", None)
+                != contract["provider_profile"]
+            ):
+                raise ValueError("constructed resolution role adapter identity mismatch")
+            providers[role] = provider
+            expected_response_identities[role] = MappingProxyType(
+                {
+                    "model_identity": route.model,
+                    "profile_identity": contract["provider_profile"],
+                }
+            )
+            provider_snapshots[role] = MappingProxyType(
+                {
+                    "provider": provider,
+                    "adapter_identity": MappingProxyType(expected_adapter_identity),
+                    "route_fingerprint": route.route_fingerprint,
+                }
+            )
+        issued = IssuedResolutionRoleAdapters()
+        with registry_lock:
+            registry[issued] = (
+                MappingProxyType(providers),
+                MappingProxyType(expected_response_identities),
+                MappingProxyType(provider_snapshots),
+            )
+        return issued
+
+    def consume(issued: object, *, role: str) -> tuple[object, Mapping[str, object]]:
+        if type(issued) is not IssuedResolutionRoleAdapters:
+            raise TypeError("closure-issued resolution role adapters are required")
+        with registry_lock:
+            snapshot = registry.get(issued)
+        if snapshot is None:
+            raise ValueError("resolution role-adapter issuance is unknown")
+        providers, expected_response_identities, provider_snapshots = snapshot
+        if role not in providers:
+            raise ValueError("resolution role adapter is not registered")
+        provider = providers[role]
+        provider_snapshot = provider_snapshots[role]
+        if (
+            provider_snapshot["provider"] is not provider
+            or dict(getattr(provider, "identity", {}))
+            != dict(provider_snapshot["adapter_identity"])
+        ):
+            raise ValueError("resolution role adapter changed after issuance")
+        return provider, expected_response_identities[role]
+
+    return derive, consume
+
+
+(
+    _derive_resolution_role_adapters,
+    _consume_resolution_role_adapter,
+) = _resolution_role_adapter_api()
+
+
 class _StagedCallLedger:
     """Persist immutable adapter-boundary requests before each dispatch."""
 
@@ -57,7 +192,13 @@ class _StagedCallLedger:
         self._calls = self._runtime / "calls"
         self._runtime.mkdir(parents=False, exist_ok=False)
         self._calls.mkdir(parents=False, exist_ok=False)
-        self._rows: list[dict[str, object]] = []
+        self._rows: list[Mapping[str, object]] = []
+        self._active_calls: set[int] = set()
+        self._pending_terminal_rows: dict[int, Mapping[str, object]] = {}
+        self._adapter_identity_failures: set[int] = set()
+        self._planner_call_plans: list[
+            PLANNER_SUPPORT.PlannerProviderCallPlan
+        ] = []
         self._dispatch_lock = threading.Lock()
         self._role_open = {"planner": True, "planner_evaluator": True}
         attempt = {
@@ -89,11 +230,53 @@ class _StagedCallLedger:
 
     @property
     def has_unjoined_dispatch(self) -> bool:
-        return any(row["terminal"] is False for row in self._rows)
+        with self._dispatch_lock:
+            return bool(self._active_calls)
+
+    @property
+    def has_adapter_identity_failure(self) -> bool:
+        with self._dispatch_lock:
+            return bool(self._adapter_identity_failures)
 
     def role_dispatch_complete(self, role: str) -> bool:
-        rows = [row for row in self._rows if row["role"] == role]
-        return bool(rows) and all(row["terminal"] is True for row in rows)
+        with self._dispatch_lock:
+            rows = [row for row in self._rows if row["role"] == role]
+            return bool(rows) and not any(
+                index in self._active_calls
+                for index, row in enumerate(self._rows)
+                if row["role"] == role
+            )
+
+    def record_planner_call_plan(
+        self, plan: PLANNER_SUPPORT.PlannerProviderCallPlan
+    ) -> None:
+        if type(plan) is not PLANNER_SUPPORT.PlannerProviderCallPlan:
+            raise TypeError("controller-issued Planner call plan is required")
+        with self._dispatch_lock:
+            expected_turn = len(self._planner_call_plans) + 1
+            if plan.turn_index != expected_turn:
+                raise ValueError("Planner call plans are not contiguous")
+            self._planner_call_plans.append(plan)
+
+    def complete_quiescent_call(self, role: str, quiescent: bool) -> None:
+        if type(quiescent) is not bool:
+            raise TypeError("provider call quiescence must be Boolean")
+        with self._dispatch_lock:
+            active = [
+                index
+                for index in sorted(self._active_calls)
+                if self._rows[index]["role"] == role
+            ]
+            if len(active) != 1:
+                raise ValueError("provider call completion has no unique dispatch")
+            if not quiescent:
+                return
+            call_index = active[0]
+            terminal = self._pending_terminal_rows.pop(call_index, None)
+            if terminal is None:
+                raise ValueError("provider call completed before evidence capture")
+            self._rows[call_index] = terminal
+            self._active_calls.remove(call_index)
 
     def close_role(self, role: str) -> None:
         with self._dispatch_lock:
@@ -105,6 +288,7 @@ class _StagedCallLedger:
         *,
         role: str,
         materialize: Callable[[bytes], dict[str, object]],
+        expected_response_identity: Mapping[str, object],
     ) -> Callable[[dict[str, object]], object]:
         if role not in {"planner", "planner_evaluator"}:
             raise ValueError("unregistered resolution provider role")
@@ -114,17 +298,41 @@ class _StagedCallLedger:
             # The role-specific materializer replays the code-owned builder and
             # rejects drift before the irreversible dispatch marker.
             materialize(request_bytes)
-            call_index = len(self._rows)
-            prefix = f"{call_index:02d}-{role}"
-            request_path = self._calls / f"{prefix}-request.json"
-            self._persist_and_reread(request_path, request_bytes)
-            request_value = materialize(request_path.read_bytes())
             role_contract = self._preflight.record["instrument_contracts"][
                 "planner" if role == "planner" else "evaluator"
             ]
             with self._dispatch_lock:
                 if not self._role_open[role]:
                     raise RuntimeError("resolution role dispatch is closed")
+                call_index = len(self._rows)
+                prefix = f"{call_index:02d}-{role}"
+                request_path = self._calls / f"{prefix}-request.json"
+                self._persist_and_reread(request_path, request_bytes)
+                request_value = materialize(request_path.read_bytes())
+                deadline_state = None
+                if role == "planner":
+                    if len(self._planner_call_plans) != call_index + 1:
+                        raise ValueError(
+                            "Planner dispatch lacks its controller call plan"
+                        )
+                    plan = self._planner_call_plans[call_index]
+                    if (
+                        plan.request_bytes != request_bytes
+                        or plan.request_raw_sha256
+                        != PLANNER_SUPPORT.sha256_prefixed(request_bytes)
+                    ):
+                        raise ValueError(
+                            "Planner request differs from controller call plan"
+                        )
+                    deadline_state = {
+                        "turn_index": plan.turn_index,
+                        "session_started_monotonic_s": (
+                            plan.session_started_monotonic_s
+                        ),
+                        "call_started_monotonic_s": plan.call_started_monotonic_s,
+                        "elapsed_before_call_s": plan.elapsed_before_call_s,
+                        "remaining_before_call_s": plan.remaining_before_call_s,
+                    }
                 marker = {
                     "schema": "rook.lm9b_p.governed_resolution_dispatch_started:v1",
                     "call_index": call_index,
@@ -134,6 +342,7 @@ class _StagedCallLedger:
                         request_value["messages"]
                     ),
                     "provider_timeout_s": request_value["provider_timeout_s"],
+                    "controller_deadline_state": deadline_state,
                     "role_contract_fingerprint": PLANNER_SUPPORT.fingerprint(
                         role_contract
                     ),
@@ -160,26 +369,37 @@ class _StagedCallLedger:
                     "elapsed_ms": None,
                     "terminal": False,
                 }
-                self._rows.append(row)
+                self._rows.append(MappingProxyType(copy.deepcopy(row)))
+                self._active_calls.add(call_index)
             started = time.monotonic()
             try:
                 response = provider(request_value)
             except BaseException as exc:
-                row["outcome"] = "raised"
-                row["exception_type"] = type(exc).__name__
-                row["failure_type"] = getattr(exc, "failure_type", None)
-                row["elapsed_ms"] = max(
-                    0, int((time.monotonic() - started) * 1000)
-                )
-                row["terminal"] = True
+                terminal = {
+                    **row,
+                    "outcome": "raised",
+                    "exception_type": type(exc).__name__,
+                    "failure_type": getattr(exc, "failure_type", None),
+                    "elapsed_ms": max(
+                        0, int((time.monotonic() - started) * 1000)
+                    ),
+                    "terminal": True,
+                }
+                with self._dispatch_lock:
+                    self._pending_terminal_rows[call_index] = MappingProxyType(
+                        copy.deepcopy(terminal)
+                    )
                 raise
-            row["outcome"] = "returned"
-            row["elapsed_ms"] = max(
-                0, int((time.monotonic() - started) * 1000)
-            )
-            row["terminal"] = True
+            terminal = {
+                **row,
+                "outcome": "returned",
+                "elapsed_ms": max(
+                    0, int((time.monotonic() - started) * 1000)
+                ),
+                "terminal": True,
+            }
             if type(response) is PLANNER_SUPPORT.ProviderTurn:
-                row.update(
+                terminal.update(
                     {
                         "provider_claimed_raw_request_b64": base64.b64encode(
                             response.raw_request
@@ -199,12 +419,42 @@ class _StagedCallLedger:
                         ),
                     }
                 )
+                metadata = response.provider_metadata
+                if (
+                    not isinstance(metadata, Mapping)
+                    or metadata.get("model_identity")
+                    != expected_response_identity["model_identity"]
+                    or metadata.get("profile_identity")
+                    != expected_response_identity["profile_identity"]
+                ):
+                    terminal.update(
+                        {
+                            "outcome": "raised",
+                            "exception_type": "_AdapterIdentityMismatch",
+                            "failure_type": "AdapterIdentityMismatch",
+                        }
+                    )
+                    with self._dispatch_lock:
+                        self._adapter_identity_failures.add(call_index)
+                        self._pending_terminal_rows[call_index] = MappingProxyType(
+                            copy.deepcopy(terminal)
+                        )
+                    raise _AdapterIdentityMismatch(
+                        "returned provider identity differs from authorized role"
+                    )
+            with self._dispatch_lock:
+                self._pending_terminal_rows[call_index] = MappingProxyType(
+                    copy.deepcopy(terminal)
+                )
             return response
 
         return invoke
 
     def frozen_rows(self) -> tuple[Mapping[str, object], ...]:
-        return tuple(copy.deepcopy(self._rows))
+        with self._dispatch_lock:
+            return tuple(
+                PLANNER_SUPPORT._json_builtins(row) for row in self._rows
+            )
 
     def remove_runtime_after_capture(self) -> None:
         for path in sorted(self._calls.iterdir()):
@@ -235,8 +485,6 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         "head_sha",
         "now_iso",
         "credential_present",
-        "planner_provider",
-        "evaluator_provider",
     }
     if set(_kwargs) != required:
         raise ValueError("resolution attempt arguments are incomplete or contain extras")
@@ -295,6 +543,18 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
     )
     if preflight.attempt.destination.exists() or preflight.attempt.staging_path.exists():
         raise FileExistsError("resolution destination or staging already exists")
+    role_adapters = _derive_resolution_role_adapters(
+        preflight=preflight,
+        readiness_manifest=readiness_manifest,
+    )
+    planner_adapter, planner_response_identity = _consume_resolution_role_adapter(
+        role_adapters, role="planner"
+    )
+    evaluator_adapter, evaluator_response_identity = (
+        _consume_resolution_role_adapter(
+            role_adapters, role="planner_evaluator"
+        )
+    )
     ARTIFACTS.reserve_resolution_staging(preflight)
     ledger = _StagedCallLedger(
         preflight=preflight,
@@ -302,9 +562,10 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         readiness_verified_at=_kwargs["now_iso"],
     )
     planner_provider = ledger.wrap(
-        _kwargs["planner_provider"],
+        planner_adapter,
         role="planner",
         materialize=PLANNER_SUPPORT.materialize_planner_provider_call_request,
+        expected_response_identity=planner_response_identity,
     )
     inputs = preflight.instrument.inputs
     planner_session = PLANNER_SUPPORT.run_planner_session(
@@ -315,9 +576,26 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         recipe_schema=inputs.recipe_schema,
         normalization_profile=inputs.normalization_profile,
         exclusion_policy=inputs.exclusion_policy,
+        call_plan_observer=ledger.record_planner_call_plan,
+        call_completion_observer=lambda quiescent: ledger.complete_quiescent_call(
+            "planner", quiescent
+        ),
     )
     ledger.close_role("planner")
     planner_stop = _planner_stop_cause(planner_session)
+    if ledger.has_adapter_identity_failure:
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=None,
+            isolation_result=None,
+            checkpoint_gate=None,
+            candidate_recipe_bytes=None,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause="planner_adapter_identity_mismatch",
+            state="post_dispatch_unsealed",
+        )
     if planner_session.termination in {"provider_failure", "timeout"}:
         if (
             ledger.has_unjoined_dispatch
@@ -414,7 +692,7 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
     evaluator_responses: list[PLANNER_SUPPORT.ProviderTurn] = []
 
     def evaluator_provider(request: dict[str, object]) -> object:
-        response = _kwargs["evaluator_provider"](request)
+        response = evaluator_adapter(request)
         if type(response) is PLANNER_SUPPORT.ProviderTurn:
             evaluator_responses.append(response)
         return response
@@ -425,12 +703,29 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         materialize=(
             PLANNER_SUPPORT.materialize_planner_evaluator_provider_call_request
         ),
+        expected_response_identity=evaluator_response_identity,
     )
     evaluator_result = PLANNER_SUPPORT.run_planner_evaluation(
         provider=staged_evaluator_provider,
         provider_call_request_bytes=evaluator_request_bytes,
     )
+    ledger.complete_quiescent_call(
+        "planner_evaluator", evaluator_result.quiescent
+    )
     ledger.close_role("planner_evaluator")
+    if ledger.has_adapter_identity_failure:
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=evaluator_result,
+            isolation_result=isolation,
+            checkpoint_gate=checkpoint_gate,
+            candidate_recipe_bytes=candidate_raw,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause="evaluator_adapter_identity_mismatch",
+            state="post_dispatch_unsealed",
+        )
     if (
         not evaluator_result.quiescent
         or ledger.has_unjoined_dispatch

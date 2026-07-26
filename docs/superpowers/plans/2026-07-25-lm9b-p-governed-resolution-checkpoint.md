@@ -103,12 +103,15 @@
   - `lm9b_p_evaluator_only_continuation_artifacts.verify_sealed_derivative_archive()`
 - Produces:
   - `build_planner_provider_call_request(*, messages, provider_timeout_s) -> bytes`
+  - `build_planner_provider_call_plan(*, turn_index, messages, session_started_monotonic_s, call_started_monotonic_s) -> PlannerProviderCallPlan`
   - `materialize_planner_provider_call_request(raw_bytes: bytes) -> dict[str, object]`
   - `build_planner_mechanical_feedback_message(gate_result, tool_call_id) -> dict[str, object]`
   - `assemble_verified_resolution_inputs(*, historical_source, parent_derivative, carrier_qualification, successor_envelope_bytes, payload_schema_bytes, semantic_registry_bytes, isolation_policy_bytes, evaluation_rubric_bytes, reviewed_commit_sha) -> VerifiedResolutionInputs`
   - `render_planner_revision_request(inputs) -> RenderedRevisionRequest`
   - `evaluate_resolution_isolation(*, inputs, candidate_recipe_bytes) -> IsolationGateResult`
-  - `run_resolution_attempt(*, preflight, readiness_record, readiness_manifest, head_sha, now_iso, credential_present, planner_provider, evaluator_provider) -> ResolutionAttemptResult`
+  - `run_resolution_attempt(*, preflight, invocation_binding, readiness_record, readiness_manifest, head_sha, now_iso, credential_present) -> ResolutionAttemptResult`
+  - role adapters are constructed internally and issued only after exact route,
+    model, profile, temperature, and concrete-adapter verification
   - `verify_sealed_resolution_checkpoint(archive_dir, *, expected_identity) -> SealedResolutionCheckpoint`
   - `verify_historical_carrier_qualification_compatibility(*, archive_dir, expected_identity, repo_root, consuming_commit_sha) -> VerifiedCarrierQualificationCompatibility`
   - `bind_resolution_attempt(*, instrument, attempt_id, resolution_root, destination) -> AttemptBinding`
@@ -1021,7 +1024,8 @@ git commit -m "feat: enforce exact resolution isolation"
 - Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_artifacts.py`
 
 **Interfaces:**
-- Consumes: exact preflight, fake/real role adapters, existing controller/evaluator/classifier.
+- Consumes: exact preflight, internally constructed fake/real role adapters,
+  existing controller/evaluator/classifier.
 - Produces: closed call ledger, terminal `ResolutionAttemptResult`, parent-blind evaluator request, and deterministic outcome evidence.
 
 - [x] **Step 1: Write the complete outcome table**
@@ -1065,9 +1069,11 @@ assert set(request) == {
 }
 ```
 
-Assert it contains no parent recipe, correspondence, policy instance, isolation
-report, deterministic approval, expected classification, session transcript,
-R01, or compiler context.
+Assert it contains no separate parent recipe, correspondence, policy instance,
+isolation report, deterministic approval, expected classification, session
+transcript, or compiler context. Scan keys and scalar values. Permit opaque
+R01-labelled identities only where exact authenticated successor authority
+retains them; do not rewrite that authority.
 
 Mutate system prompt, tool schema, profile, model, limits, dynamic timeout,
 feedback, report contract, and rubric after reclosing authored fingerprints;
@@ -1086,8 +1092,10 @@ build canonical adapter-boundary bytes
 -> reread exact bytes
 -> materialize fresh request object
 -> write dispatch_started
--> call configured adapter exactly once
--> capture terminal evidence
+-> consume the closure-issued adapter bound to the readiness route
+-> call that configured adapter exactly once
+-> capture complete response/error evidence
+-> publish one immutable terminal row only after the owned context joins
 ```
 
 After reservation, do not reread the external historical archive, derivative,
@@ -1131,6 +1139,10 @@ Prove:
 - no calls after terminal state;
 - each request reconstructs from prior transcript, gate, builder, timeout, and
   fixed controls;
+- each dynamic timeout derives from controller-captured preceding deadline
+  state through the shared call-plan builder;
+- concrete adapters and returned model/profile metadata match authorized role
+  identities;
 - aggregate token/cost/time values obey existing bounds and stop ordering;
 - no unknown or compiler role exists.
 
@@ -1168,6 +1180,15 @@ git add scripts/lm9b_p_governed_resolution_support.py `
   mcp_server/tests/test_lm9b_p_governed_resolution_artifacts.py
 git commit -m "feat: close resolution attempt outcomes"
 ```
+
+- [x] **Step 10: Close Task-4 executable-transition provenance review**
+
+Remove caller-supplied provider capabilities; construct closure-issued role
+adapters from the verified route and role contracts, then verify returned
+model/profile metadata. Derive dynamic timeouts from controller-captured
+deadline state, publish immutable terminal rows only after evidence capture and
+owned-context join, and state/test evaluator visibility as parent/comparison
+blindness with authenticated opaque historical identity tokens preserved.
 
 ---
 

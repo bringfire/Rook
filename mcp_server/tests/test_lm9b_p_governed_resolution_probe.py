@@ -110,7 +110,10 @@ def _planner_turn(
             ],
         },
         usage={"total_tokens": total_tokens, "cost_usd": cost_usd},
-        provider_metadata={"model_identity": "gpt-5.4"},
+        provider_metadata={
+            "model_identity": "gpt-5.4",
+            "profile_identity": "litellm.completion.tool_calling.no_parallel:v1",
+        },
     )
 
 
@@ -151,7 +154,10 @@ def _evaluator_turn(
             ],
         },
         usage={"total_tokens": 25, "cost_usd": 0.001},
-        provider_metadata={"model_identity": "gpt-5.4"},
+        provider_metadata={
+            "model_identity": "gpt-5.4",
+            "profile_identity": "litellm.completion.tool_calling.no_parallel:v1",
+        },
     )
 
 
@@ -161,6 +167,15 @@ class _FakeProvider:
         self.staging_path = staging_path
         self.requests: list[bytes] = []
         self.staging_existed_at_every_call: list[bool] = []
+        self.model = "gpt-5.4"
+        self.temperature = 0.0
+        self.profile_identity = "litellm.completion.tool_calling.no_parallel:v1"
+        self.identity = {
+            "adapter_path": "litellm.completion",
+            "model": self.model,
+            "profile_identity": self.profile_identity,
+            "temperature": self.temperature,
+        }
 
     def __call__(self, request: dict[str, object]) -> object:
         self.staging_existed_at_every_call.append(self.staging_path.is_dir())
@@ -169,6 +184,61 @@ class _FakeProvider:
         if isinstance(response, BaseException):
             raise response
         return response
+
+
+def _install_role_providers(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    planner: object,
+    evaluator: object,
+) -> None:
+    providers = {"planner": planner, "planner_evaluator": evaluator}
+    for provider in providers.values():
+        setattr(provider, "model", "gpt-5.4")
+        setattr(provider, "temperature", 0.0)
+        setattr(
+            provider,
+            "profile_identity",
+            "litellm.completion.tool_calling.no_parallel:v1",
+        )
+        setattr(
+            provider,
+            "identity",
+            {
+                "adapter_path": "litellm.completion",
+                "model": "gpt-5.4",
+                "profile_identity": (
+                    "litellm.completion.tool_calling.no_parallel:v1"
+                ),
+                "temperature": 0.0,
+            },
+        )
+
+    def construct(*, role: str, model: str, temperature: float) -> object:
+        assert model == "gpt-5.4"
+        assert temperature == 0.0
+        return providers[role]
+
+    monkeypatch.setattr(
+        RESOLUTION_PROBE,
+        "_construct_resolution_role_provider",
+        construct,
+    )
+
+
+def _run_resolution_attempt(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    planner_provider: object,
+    evaluator_provider: object,
+    **kwargs: object,
+) -> object:
+    _install_role_providers(
+        monkeypatch,
+        planner=planner_provider,
+        evaluator=evaluator_provider,
+    )
+    return RESOLUTION_PROBE.run_resolution_attempt(**kwargs)
 
 
 def _fresh_readiness(head_sha: str):
@@ -545,7 +615,8 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         [_evaluator_turn()],
         staging_path=attempt.staging_path,
     )
-    result = RESOLUTION_PROBE.run_resolution_attempt(
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
         preflight=preflight,
         invocation_binding=_invocation(preflight, readiness_record),
         readiness_record=readiness_record,
@@ -831,7 +902,8 @@ def test_task2_precontact_refusal_has_zero_dispatch(
         "readiness"
     )
     with pytest.raises((TypeError, ValueError), match=expected_error):
-        RESOLUTION_PROBE.run_resolution_attempt(
+        _run_resolution_attempt(
+            monkeypatch=monkeypatch,
             preflight=preflight,
             invocation_binding=invocation,
             readiness_record=record,
@@ -879,7 +951,8 @@ def test_task2_run_refuses_dangling_destination_alias_before_dispatch(
         raise AssertionError("evaluator was dispatched")
 
     with pytest.raises(ValueError, match="alias|reparse|destination"):
-        RESOLUTION_PROBE.run_resolution_attempt(
+        _run_resolution_attempt(
+            monkeypatch=monkeypatch,
             preflight=preflight,
             invocation_binding=invocation,
             readiness_record=record,
@@ -960,7 +1033,8 @@ def test_task2_precontact_identity_or_destination_refusal_has_zero_dispatch(
         raise AssertionError("evaluator was dispatched")
 
     with pytest.raises((TypeError, ValueError, FileExistsError)):
-        RESOLUTION_PROBE.run_resolution_attempt(
+        _run_resolution_attempt(
+            monkeypatch=monkeypatch,
             preflight=preflight,
             invocation_binding=invocation,
             readiness_record=record,
@@ -1067,7 +1141,8 @@ def test_task4_complete_outcome_table_stops_at_first_terminal_boundary(
         RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
     )
 
-    result = RESOLUTION_PROBE.run_resolution_attempt(
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
         preflight=preflight,
         invocation_binding=_invocation(preflight, readiness),
         readiness_record=readiness,
@@ -1093,7 +1168,7 @@ def test_task4_complete_outcome_table_stops_at_first_terminal_boundary(
     assert "compiler" not in roles
 
 
-def test_task4_evaluator_request_is_parent_blind_and_authority_current() -> None:
+def test_task4_evaluator_request_is_parent_comparison_blind_and_authority_current() -> None:
     *_prefix, inputs = _verified_resolution_inputs()
     rendered = RESOLUTION_SUPPORT.render_planner_revision_evaluation_request(
         inputs,
@@ -1112,14 +1187,13 @@ def test_task4_evaluator_request_is_parent_blind_and_authority_current() -> None
         "evaluation_rubric",
         "evaluation_report_contract",
     }
-    forbidden = {
+    forbidden_keys = {
         "parent_recipe",
         "correspondence",
         "policy_instance",
         "isolation_report",
         "expected_classification",
         "session_transcript",
-        "r01",
         "compiler_context",
         "mechanical_gate_accepted",
         "isolation_accepted",
@@ -1135,7 +1209,172 @@ def test_task4_evaluator_request_is_parent_blind_and_authority_current() -> None
             return {nested for item in value for nested in keys(item)}
         return set()
 
-    assert forbidden.isdisjoint(keys(request))
+    assert forbidden_keys.isdisjoint(keys(request))
+
+    def values(value: object, path: str = "") -> list[tuple[str, object]]:
+        if isinstance(value, dict):
+            return [
+                nested
+                for key, item in value.items()
+                for nested in values(item, f"{path}/{key}")
+            ]
+        if isinstance(value, list):
+            return [
+                nested
+                for index, item in enumerate(value)
+                for nested in values(item, f"{path}/{index}")
+            ]
+        return [(path, value)]
+
+    scalar_values = values(request)
+    r01_paths = {
+        path
+        for path, value in scalar_values
+        if isinstance(value, str) and "r01" in value.casefold()
+    }
+    assert r01_paths == {
+        "/attempt_context/environment_session_id",
+        "/attempt_context/task_session_id",
+        "/authority_context/artifacts/environment_snapshot/environment_session_id",
+        "/authority_context/artifacts/environment_snapshot/payload_schema",
+        "/authority_context/artifacts/planning_policy/policy_registry_id",
+        "/authority_context/artifacts/task_envelope/task_session_id",
+        "/authority_context/artifacts/task_envelope/value_bindings/2/provenance/issuer_id",
+        "/authority_context/artifacts/task_envelope/value_bindings/3/provenance/issuer_id",
+        "/authority_context/artifacts/task_envelope/value_bindings/4/provenance/issuer_id",
+        "/authority_context/artifacts/task_envelope/value_bindings/8/provenance/issuer_id",
+        "/authority_context/artifacts/task_envelope/value_bindings/9/provenance/issuer_id",
+        "/authority_context/artifacts/task_envelope/value_bindings/10/provenance/issuer_id",
+        "/authority_context/artifacts/task_envelope/value_bindings/11/provenance/issuer_id",
+    }
+    prohibited_control_values = {
+        "probe_candidate_ready",
+        "probe_resolution_isolation_failure",
+        "source_descriptor",
+        "affected_clause_residual",
+        "residual_equality",
+    }
+    assert prohibited_control_values.isdisjoint(
+        {value for _path, value in scalar_values if isinstance(value, str)}
+    )
+
+
+def test_task4_arbitrary_caller_provider_is_not_an_execution_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    calls = {"planner": 0, "planner_evaluator": 0}
+
+    def arbitrary(_request: object) -> object:
+        calls["planner"] += 1
+        raise AssertionError("arbitrary caller provider was dispatched")
+
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    with pytest.raises(ValueError, match="arguments"):
+        RESOLUTION_PROBE.run_resolution_attempt(
+            preflight=preflight,
+            invocation_binding=_invocation(preflight, readiness),
+            readiness_record=readiness,
+            readiness_manifest=manifest,
+            head_sha=head_sha,
+            now_iso="2026-07-25T20:00:06Z",
+            credential_present={route.route_fingerprint: True},
+            planner_provider=arbitrary,
+            evaluator_provider=arbitrary,
+        )
+    assert calls == {"planner": 0, "planner_evaluator": 0}
+    assert not preflight.attempt.staging_path.exists()
+
+
+def test_task4_constructed_adapter_identity_is_bound_before_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    constructed = _FakeProvider([], staging_path=preflight.attempt.staging_path)
+    constructed.identity = {**constructed.identity, "adapter_path": "forged.adapter"}
+    monkeypatch.setattr(
+        RESOLUTION_PROBE,
+        "_construct_resolution_role_provider",
+        lambda **_kwargs: constructed,
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    with pytest.raises(ValueError, match="adapter identity"):
+        RESOLUTION_PROBE.run_resolution_attempt(
+            preflight=preflight,
+            invocation_binding=_invocation(preflight, readiness),
+            readiness_record=readiness,
+            readiness_manifest=manifest,
+            head_sha=head_sha,
+            now_iso="2026-07-25T20:00:06Z",
+            credential_present={route.route_fingerprint: True},
+        )
+    assert not preflight.attempt.staging_path.exists()
+
+
+@pytest.mark.parametrize("role", ("planner", "planner_evaluator"))
+def test_task4_returned_role_identity_mismatch_is_post_dispatch_unsealed(
+    role: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    planner_turn = _planner_turn(
+        recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+        call_id="planner-1",
+    )
+    evaluator_turn = _evaluator_turn()
+    if role == "planner":
+        planner_turn = replace(
+            planner_turn,
+            provider_metadata={
+                **planner_turn.provider_metadata,
+                "model_identity": "gpt-5.3",
+            },
+        )
+    else:
+        evaluator_turn = replace(
+            evaluator_turn,
+            provider_metadata={
+                **evaluator_turn.provider_metadata,
+                "profile_identity": "altered.profile:v1",
+            },
+        )
+    planner = _FakeProvider(
+        [planner_turn], staging_path=preflight.attempt.staging_path
+    )
+    evaluator = _FakeProvider(
+        [evaluator_turn], staging_path=preflight.attempt.staging_path
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    assert result.call_ledger[-1]["failure_type"] == "AdapterIdentityMismatch"
 
 
 @pytest.mark.parametrize(
@@ -1187,7 +1426,8 @@ def test_task4_reclosed_request_or_control_drift_refuses_before_dispatch(
         RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
     )
     with pytest.raises(ValueError, match="instrument|preflight"):
-        RESOLUTION_PROBE.run_resolution_attempt(
+        _run_resolution_attempt(
+            monkeypatch=monkeypatch,
             preflight=preflight,
             invocation_binding=_invocation(preflight, readiness),
             readiness_record=readiness,
@@ -1228,7 +1468,8 @@ def test_task4_provider_mutation_cannot_change_staged_or_ledger_request_bytes(
     monkeypatch.setattr(
         RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
     )
-    result = RESOLUTION_PROBE.run_resolution_attempt(
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
         preflight=preflight,
         invocation_binding=_invocation(preflight, readiness),
         readiness_record=readiness,
@@ -1277,7 +1518,8 @@ def test_task4_terminal_evidence_retains_exact_staged_execution_snapshot(
     monkeypatch.setattr(
         RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
     )
-    result = RESOLUTION_PROBE.run_resolution_attempt(
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
         preflight=preflight,
         invocation_binding=_invocation(preflight, readiness),
         readiness_record=readiness,
@@ -1354,7 +1596,8 @@ def test_task4_execution_uses_only_frozen_snapshot_after_reservation(
     monkeypatch.setattr(
         RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
     )
-    result = RESOLUTION_PROBE.run_resolution_attempt(
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
         preflight=preflight,
         invocation_binding=_invocation(preflight, readiness),
         readiness_record=readiness,
@@ -1380,6 +1623,7 @@ def test_task4_execution_uses_only_frozen_snapshot_after_reservation(
         "usage",
         "elapsed",
         "stop_cause",
+        "returned_identity",
     ),
 )
 def test_task4_public_call_ledger_reconstruction_rejects_reclosed_claims(
@@ -1405,7 +1649,8 @@ def test_task4_public_call_ledger_reconstruction_rejects_reclosed_claims(
     monkeypatch.setattr(
         RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
     )
-    result = RESOLUTION_PROBE.run_resolution_attempt(
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
         preflight=preflight,
         invocation_binding=_invocation(preflight, readiness),
         readiness_record=readiness,
@@ -1424,12 +1669,29 @@ def test_task4_public_call_ledger_reconstruction_rejects_reclosed_claims(
         ledger[0]["role"] = "compiler"
     elif mutation == "dynamic_timeout":
         request = json.loads(ledger[0]["canonical_request_json"])
-        request["provider_timeout_s"] = PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S + 1
+        request["provider_timeout_s"] = PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S - 1
         ledger[0]["canonical_request_json"] = _canonical_bytes(request).decode()
         ledger[0]["request_raw_sha256"] = PLANNER_SUPPORT.sha256_prefixed(
             ledger[0]["canonical_request_json"].encode()
         )
         ledger[0]["provider_timeout_s"] = request["provider_timeout_s"]
+        marker = {
+            "schema": ledger[0]["schema"],
+            "call_index": ledger[0]["call_index"],
+            "role": ledger[0]["role"],
+            "request_raw_sha256": ledger[0]["request_raw_sha256"],
+            "preceding_transcript_fingerprint": ledger[0][
+                "preceding_transcript_fingerprint"
+            ],
+            "provider_timeout_s": ledger[0]["provider_timeout_s"],
+            "controller_deadline_state": ledger[0]["controller_deadline_state"],
+            "role_contract_fingerprint": ledger[0][
+                "role_contract_fingerprint"
+            ],
+        }
+        ledger[0]["dispatch_marker_raw_sha256"] = (
+            PLANNER_SUPPORT.sha256_prefixed(_canonical_bytes(marker))
+        )
     elif mutation == "request":
         ledger[0]["preceding_transcript_fingerprint"] = "sha256:" + "8" * 64
     elif mutation == "usage":
@@ -1442,8 +1704,12 @@ def test_task4_public_call_ledger_reconstruction_rejects_reclosed_claims(
         )
     elif mutation == "stop_cause":
         stop_cause = "max_turns"
+    elif mutation == "returned_identity":
+        ledger[0]["provider_metadata"]["model_identity"] = "gpt-5.3"
 
-    with pytest.raises(ValueError, match="ledger|request|timeout|usage|stop"):
+    with pytest.raises(
+        ValueError, match="ledger|request|timeout|usage|stop|identity"
+    ):
         RESOLUTION_ARTIFACTS.verify_resolution_call_ledger(
             preflight=preflight,
             planner_session=result.planner_session,
@@ -1470,7 +1736,8 @@ def test_task4_call_ledger_derives_planner_termination_from_provider_evidence(
     monkeypatch.setattr(
         RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
     )
-    result = RESOLUTION_PROBE.run_resolution_attempt(
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
         preflight=preflight,
         invocation_binding=_invocation(preflight, readiness),
         readiness_record=readiness,
@@ -1547,7 +1814,8 @@ def test_task4_still_live_timeout_is_post_dispatch_unsealed(
         RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
     )
     try:
-        result = RESOLUTION_PROBE.run_resolution_attempt(
+        result = _run_resolution_attempt(
+            monkeypatch=monkeypatch,
             preflight=preflight,
             invocation_binding=_invocation(preflight, readiness),
             readiness_record=readiness,
@@ -1570,3 +1838,74 @@ def test_task4_still_live_timeout_is_post_dispatch_unsealed(
         )
     )
     assert len(markers) == (1 if role == "planner" else 2)
+
+
+def test_task4_terminal_row_is_not_published_before_evidence_capture_and_join(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    capture_entered = threading.Event()
+    release_capture = threading.Event()
+    bounded_call = PLANNER_SUPPORT._bounded_provider_call
+
+    def short_bounded_call(
+        provider: object,
+        request: dict[str, object],
+        *,
+        timeout_s: float,
+    ) -> object:
+        return bounded_call(provider, request, timeout_s=min(timeout_s, 0.2))
+
+    monkeypatch.setattr(PLANNER_SUPPORT, "_bounded_provider_call", short_bounded_call)
+
+    class BlockingMetadata(dict):
+        def items(self):
+            capture_entered.set()
+            release_capture.wait(5)
+            return super().items()
+
+    planner_turn = replace(
+        _planner_turn(
+            recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+            call_id="planner-1",
+        ),
+        provider_metadata=BlockingMetadata(
+            {
+                "model_identity": "gpt-5.4",
+                "profile_identity": (
+                    "litellm.completion.tool_calling.no_parallel:v1"
+                ),
+            }
+        ),
+    )
+    planner = _FakeProvider(
+        [planner_turn], staging_path=preflight.attempt.staging_path
+    )
+    evaluator = _FakeProvider([], staging_path=preflight.attempt.staging_path)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    try:
+        result = _run_resolution_attempt(
+            monkeypatch=monkeypatch,
+            preflight=preflight,
+            invocation_binding=_invocation(preflight, readiness),
+            readiness_record=readiness,
+            readiness_manifest=manifest,
+            head_sha=head_sha,
+            now_iso="2026-07-25T20:00:06Z",
+            credential_present={route.route_fingerprint: True},
+            planner_provider=planner,
+            evaluator_provider=evaluator,
+        )
+        assert capture_entered.is_set()
+    finally:
+        release_capture.set()
+
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    assert result.call_ledger[-1]["terminal"] is False
+    assert result.call_ledger[-1]["provider_metadata"] is None

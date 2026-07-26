@@ -393,8 +393,10 @@ The obligations state generically:
 - preserve every unrelated normalized semantic element;
 - introduce no additional material change.
 
-The request hides R01, compiler information, expected topology, evaluator
-feedback, expected classification, and expected successor structure.
+The request hides R01 compiler meaning and context, expected topology,
+evaluator feedback, expected classification, and expected successor structure.
+Exact historical authority may retain opaque R01-labelled identity tokens;
+those tokens are not rewritten or presented as compiler information.
 
 ## 9. Required shared Planner-request extraction
 
@@ -410,15 +412,20 @@ transcript state
 -> canonical provider-adapter request value and bytes
 ```
 
-The builder becomes the sole construction path for:
+One pure call-plan builder derives the timeout and exact provider request from
+the controller's captured session-start and call-start monotonic state. The
+provider-request builder remains its sole request construction path. Together
+they become the sole construction path for:
 
 - existing first-authorship execution;
 - governed-resolution execution;
 - response-dependent request reconstruction by public verifiers.
 
-It performs no clock read, randomness, environment lookup, filesystem access,
-or provider contact. The controller computes the remaining call timeout and
-passes it as an explicit builder input.
+Neither builder performs a clock read, randomness, environment lookup,
+filesystem access, or provider contact. The controller captures the preceding
+deadline state; the call-plan builder derives elapsed time, remaining time,
+and the call timeout. Public verification reconstructs that equation rather
+than accepting the timeout recorded in the request.
 
 The existing mechanical-feedback renderer remains the sole feedback path and
 must also be reusable by reconstruction. The extraction changes no controller
@@ -650,6 +657,13 @@ The evaluator does not see the parent recipe, correspondence map, isolation
 policy/report, expected classification, Planner session, compiler context, or
 mechanical/isolation approval statements.
 
+This is parent-recipe/comparison blindness, not an assertion that every
+historical label disappears. Exact successor authority legitimately retains
+opaque historical session, schema, policy, and issuer identities. Visibility
+tests inspect keys and scalar values: they permit those tokens only at their
+authenticated current-authority locations and reject separate parent,
+comparison, isolation-control, outcome, or compiler content.
+
 The new rubric states generically:
 
 > Values present in verified successor authority are supplied facts, not
@@ -843,9 +857,15 @@ For each Planner turn and the conditional evaluator call:
 3. Persist and reread the canonical bytes.
 4. Materialize a fresh mutable request object from those bytes.
 5. Persist the per-call `dispatch_started` marker.
-6. Enter the configured role adapter exactly once.
+6. Consume the closure-issued role adapter whose concrete identity was bound
+   to the verified readiness route and preflight, then enter it exactly once.
 7. Preserve returned response/error, assistant message, tool arguments, usage,
    timing, requested identity, and returned provider/model metadata.
+
+Arbitrary caller-supplied callables are not dispatch capabilities. Before
+reservation, adapter construction must match the authorized adapter path,
+model, profile, temperature, and route. Returned model/profile metadata must
+also match the authorized role or the attempt becomes post-dispatch unsealed.
 
 These bytes freeze the request at Rook's provider-adapter boundary. LiteLLM or
 the upstream provider may transform it internally; the archive does not claim
@@ -900,6 +920,12 @@ another identity.
 A timeout is complete and quiescent only when the adapter terminally returns
 or raises and every owned execution context has joined. Otherwise it is
 ambiguous and unsealed.
+
+`terminal: true` is an immutable publication made only after complete response
+or error capture and explicit controller confirmation that the owned execution
+context has joined. A `dispatch_started` row may remain visible while capture
+or execution is incomplete, but it is never mutated into a terminal claim in
+place.
 
 ### 17.4 Atomic finalization
 
@@ -978,6 +1004,10 @@ The complete call ledger must prove:
   termination;
 - no call after a terminal condition;
 - every dispatch marker binds its request and preceding transcript/gate state;
+- each Planner timeout reconstructs from the captured preceding deadline
+  state through the shared call-plan and request builders;
+- every concrete adapter and returned model/profile identity matches the
+  authorized readiness route and role contract;
 - aggregate usage remains within all attempt budgets;
 - no unregistered role or compiler call exists.
 

@@ -92,6 +92,7 @@ CONTRACT_IDS = MappingProxyType(
         "ready_proof": "lm9b_p.governed_resolution_ready_proof:v1",
         "readiness_schema": READINESS.SCHEMA_ID,
         "readiness_verifier": "lm9b_p.readiness_launch_verifier:v1",
+        "role_adapter_binding": "lm9b_p.resolution_role_adapter_binding:v1",
     }
 )
 _PREFLIGHT_MEMBERS = frozenset(
@@ -479,6 +480,11 @@ def assemble_task1_resolution_instrument(
                     PLANNER_SUPPORT.build_planner_provider_call_request
                 )
             ),
+            "call_plan_builder_source_fingerprint": (
+                _callable_source_fingerprint(
+                    PLANNER_SUPPORT.build_planner_provider_call_plan
+                )
+            ),
             "feedback_renderer_source_fingerprint": _callable_source_fingerprint(
                 PLANNER_SUPPORT.build_planner_mechanical_feedback_message
             ),
@@ -507,7 +513,7 @@ def assemble_task1_resolution_instrument(
             ),
             "model": "gpt-5.4",
             "provider_profile": "litellm.completion.tool_calling.no_parallel:v1",
-            "temperature": None,
+            "temperature": 0.0,
             "temperature_field_present": False,
             "max_calls": PLANNER_SUPPORT.PLANNER_MAX_TURNS,
             "max_completion_tokens": PLANNER_SUPPORT.PLANNER_MAX_COMPLETION_TOKENS,
@@ -554,7 +560,7 @@ def assemble_task1_resolution_instrument(
             ),
             "model": "gpt-5.4",
             "provider_profile": "litellm.completion.tool_calling.no_parallel:v1",
-            "temperature": None,
+            "temperature": 0.0,
             "temperature_field_present": False,
             "max_calls": 1,
             "max_completion_tokens": (
@@ -593,6 +599,27 @@ def assemble_task1_resolution_instrument(
             "route_identity_projection_fingerprint": PLANNER_SUPPORT.fingerprint(
                 readiness_route_identity
             ),
+            "role_adapter_binding": {
+                "contract_id": CONTRACT_IDS["role_adapter_binding"],
+                "execution_module_raw_sha256": _sha256(
+                    (_SCRIPTS_DIR / "lm9b_p_governed_resolution_probe.py").read_bytes()
+                ),
+                "constructor": (
+                    "lm9b_p_planner_recipe_transfer_probe."
+                    "build_planner_evaluator_provider"
+                ),
+                "authorized_roles": ["planner", "planner_evaluator"],
+                "adapter_identity_fields": [
+                    "adapter_path",
+                    "model",
+                    "profile_identity",
+                    "temperature",
+                ],
+                "returned_identity_fields": [
+                    "model_identity",
+                    "profile_identity",
+                ],
+            },
             "route_identity_projection_source_fingerprint": (
                 _callable_source_fingerprint(readiness_route_identity_projection)
             ),
@@ -1745,6 +1772,8 @@ def verify_resolution_call_ledger(
     cost_complete = True
     accepted_recipe: bytes | None = None
     provider_terminal: str | None = None
+    session_started_monotonic_s: float | None = None
+    prior_call_started_monotonic_s: float | None = None
     for row in typed_calls[:planner_count]:
         request_raw = _verify_dispatch_row(
             row,
@@ -1755,12 +1784,51 @@ def verify_resolution_call_ledger(
         request = PLANNER_SUPPORT.materialize_planner_provider_call_request(
             request_raw
         )
-        expected_request = PLANNER_SUPPORT.build_planner_provider_call_request(
+        deadline_state = row.get("controller_deadline_state")
+        if type(deadline_state) is not dict or set(deadline_state) != {
+            "turn_index",
+            "session_started_monotonic_s",
+            "call_started_monotonic_s",
+            "elapsed_before_call_s",
+            "remaining_before_call_s",
+        }:
+            raise ValueError("Planner ledger deadline state is malformed")
+        expected_plan = PLANNER_SUPPORT.build_planner_provider_call_plan(
+            turn_index=turn_cursor + 1,
             messages=messages,
-            provider_timeout_s=request["provider_timeout_s"],
+            session_started_monotonic_s=deadline_state[
+                "session_started_monotonic_s"
+            ],
+            call_started_monotonic_s=deadline_state["call_started_monotonic_s"],
         )
-        if expected_request != request_raw:
-            raise ValueError("Planner ledger request differs from transcript")
+        expected_deadline_state = {
+            "turn_index": expected_plan.turn_index,
+            "session_started_monotonic_s": (
+                expected_plan.session_started_monotonic_s
+            ),
+            "call_started_monotonic_s": expected_plan.call_started_monotonic_s,
+            "elapsed_before_call_s": expected_plan.elapsed_before_call_s,
+            "remaining_before_call_s": expected_plan.remaining_before_call_s,
+        }
+        if (
+            deadline_state != expected_deadline_state
+            or expected_plan.request_bytes != request_raw
+            or expected_plan.provider_timeout_s != request["provider_timeout_s"]
+        ):
+            raise ValueError(
+                "Planner ledger request differs from controller deadline state"
+            )
+        if session_started_monotonic_s is None:
+            session_started_monotonic_s = expected_plan.session_started_monotonic_s
+        elif expected_plan.session_started_monotonic_s != session_started_monotonic_s:
+            raise ValueError("Planner ledger session deadline origin changed")
+        if (
+            prior_call_started_monotonic_s is not None
+            and expected_plan.call_started_monotonic_s
+            < prior_call_started_monotonic_s
+        ):
+            raise ValueError("Planner ledger call clock moved backwards")
+        prior_call_started_monotonic_s = expected_plan.call_started_monotonic_s
         if row["outcome"] == "raised":
             if row is not typed_calls[planner_count - 1] or turn_cursor != len(
                 planner_session.turns
@@ -1781,7 +1849,11 @@ def verify_resolution_call_ledger(
             continue
         if row["outcome"] != "returned":
             raise ValueError("Planner ledger outcome is not complete")
-        response = _provider_turn_from_call_row(row, role="Planner")
+        response = _provider_turn_from_call_row(
+            row,
+            role="Planner",
+            role_contract=preflight.record["instrument_contracts"]["planner"],
+        )
         if response is None:
             if row is not typed_calls[planner_count - 1]:
                 raise ValueError("Planner ledger continues after invalid provider return")
@@ -1904,6 +1976,8 @@ def verify_resolution_call_ledger(
             role_contract=preflight.record["instrument_contracts"]["evaluator"],
             maximum_timeout=PLANNER_SUPPORT.PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
         )
+        if evaluator_row.get("controller_deadline_state") is not None:
+            raise ValueError("evaluator ledger contains Planner deadline state")
         rendered = SUPPORT.render_planner_revision_evaluation_request(
             inputs,
             candidate_recipe_bytes=candidate_recipe_bytes,
@@ -1918,7 +1992,9 @@ def verify_resolution_call_ledger(
             raise ValueError("evaluator ledger request differs from reconstruction")
         if evaluator_row["outcome"] == "returned":
             response = _provider_turn_from_call_row(
-                evaluator_row, role="evaluator"
+                evaluator_row,
+                role="evaluator",
+                role_contract=preflight.record["instrument_contracts"]["evaluator"],
             )
             reconstructed_evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
                 outcome="returned", response=response
@@ -1985,6 +2061,7 @@ def _verify_dispatch_row(
             request.get("messages")
         ),
         "provider_timeout_s": timeout,
+        "controller_deadline_state": row.get("controller_deadline_state"),
         "role_contract_fingerprint": PLANNER_SUPPORT.fingerprint(role_contract),
     }
     marker_raw = _json_bytes(marker)
@@ -2003,7 +2080,10 @@ def _verify_dispatch_row(
 
 
 def _provider_turn_from_call_row(
-    row: Mapping[str, object], *, role: str
+    row: Mapping[str, object],
+    *,
+    role: str,
+    role_contract: Mapping[str, object],
 ) -> PLANNER_SUPPORT.ProviderTurn | None:
     evidence = (
         row.get("provider_claimed_raw_request_b64"),
@@ -2025,6 +2105,13 @@ def _provider_turn_from_call_row(
     )
     if row.get("raw_response_sha256") != _sha256(response.raw_response):
         raise ValueError(f"{role} ledger response hash differs")
+    if (
+        response.provider_metadata.get("model_identity")
+        != role_contract.get("model")
+        or response.provider_metadata.get("profile_identity")
+        != role_contract.get("provider_profile")
+    ):
+        raise ValueError(f"{role} ledger returned provider identity differs")
     return response
 
 

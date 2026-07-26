@@ -1115,6 +1115,21 @@ class _BoundedProviderCall:
     quiescent: bool
 
 
+@dataclass(frozen=True)
+class PlannerProviderCallPlan:
+    """Controller-owned state used to derive one Planner provider request."""
+
+    turn_index: int
+    session_started_monotonic_s: float
+    call_started_monotonic_s: float
+    elapsed_before_call_s: float
+    remaining_before_call_s: float
+    provider_timeout_s: float
+    preceding_transcript_fingerprint: str
+    request_raw_sha256: str
+    request_bytes: bytes
+
+
 def _bounded_provider_call(
     provider: Callable[[dict[str, object]], ProviderTurn],
     request: dict[str, object],
@@ -1211,6 +1226,49 @@ def build_planner_provider_call_request(
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def build_planner_provider_call_plan(
+    *,
+    turn_index: int,
+    messages: Sequence[Mapping[str, object]],
+    session_started_monotonic_s: float,
+    call_started_monotonic_s: float,
+) -> PlannerProviderCallPlan:
+    """Derive the timeout and request from the controller's deadline state."""
+
+    if type(turn_index) is not int or turn_index < 1:
+        raise ValueError("Planner call-plan turn index must be positive")
+    for label, value in (
+        ("session start", session_started_monotonic_s),
+        ("call start", call_started_monotonic_s),
+    ):
+        if type(value) not in (int, float) or not math.isfinite(float(value)):
+            raise ValueError(f"Planner {label} must be finite")
+    session_start = float(session_started_monotonic_s)
+    call_start = float(call_started_monotonic_s)
+    elapsed = call_start - session_start
+    if elapsed < 0:
+        raise ValueError("Planner call cannot precede the session start")
+    remaining = PLANNER_OVERALL_DEADLINE_S - elapsed
+    if remaining <= 0:
+        raise ValueError("Planner call plan has no remaining deadline")
+    timeout = min(PLANNER_PROVIDER_TIMEOUT_S, remaining)
+    request_bytes = build_planner_provider_call_request(
+        messages=messages,
+        provider_timeout_s=timeout,
+    )
+    return PlannerProviderCallPlan(
+        turn_index=turn_index,
+        session_started_monotonic_s=session_start,
+        call_started_monotonic_s=call_start,
+        elapsed_before_call_s=elapsed,
+        remaining_before_call_s=remaining,
+        provider_timeout_s=timeout,
+        preceding_transcript_fingerprint=fingerprint(list(messages)),
+        request_raw_sha256=sha256_prefixed(request_bytes),
+        request_bytes=request_bytes,
+    )
 
 
 def materialize_planner_provider_call_request(
@@ -1548,6 +1606,8 @@ def run_planner_session(
     normalization_profile: NormalizationProfile,
     exclusion_policy: Mapping[str, object],
     monotonic: Callable[[], float] = time.monotonic,
+    call_plan_observer: Callable[[PlannerProviderCallPlan], None] | None = None,
+    call_completion_observer: Callable[[bool], None] | None = None,
 ) -> PlannerSessionResult:
     """Run one bounded Planner session with deterministic mechanical feedback."""
 
@@ -1577,14 +1637,19 @@ def run_planner_session(
         )
 
     for turn_index in range(1, PLANNER_MAX_TURNS + 1):
-        remaining_s = PLANNER_OVERALL_DEADLINE_S - (monotonic() - started)
-        if remaining_s <= 0:
+        call_started = monotonic()
+        if call_started - started >= PLANNER_OVERALL_DEADLINE_S:
             return finish("timeout")
-        call_timeout_s = min(PLANNER_PROVIDER_TIMEOUT_S, remaining_s)
-        request_bytes = build_planner_provider_call_request(
+        call_plan = build_planner_provider_call_plan(
+            turn_index=turn_index,
             messages=messages,
-            provider_timeout_s=call_timeout_s,
+            session_started_monotonic_s=started,
+            call_started_monotonic_s=call_started,
         )
+        if call_plan_observer is not None:
+            call_plan_observer(call_plan)
+        call_timeout_s = call_plan.provider_timeout_s
+        request_bytes = call_plan.request_bytes
         request = materialize_planner_provider_call_request(request_bytes)
         turn_started = monotonic()
         try:
@@ -1595,6 +1660,8 @@ def run_planner_session(
             )
         except Exception:
             return finish("provider_failure")
+        if call_completion_observer is not None:
+            call_completion_observer(outcome.quiescent)
         if outcome.timed_out:
             return finish("timeout")
         if isinstance(outcome.exception, ProviderCallFailure):
@@ -1700,10 +1767,12 @@ __all__ = (
     "PlannerTurnRecord",
     "ProviderCallFailure",
     "ProviderTurn",
+    "PlannerProviderCallPlan",
     "StrictJsonError",
     "build_planner_evaluator_provider_call_request",
     "build_planner_mechanical_feedback_message",
     "build_planner_provider_call_request",
+    "build_planner_provider_call_plan",
     "derive_planner_submission_from_message",
     "derive_planner_evaluation_result",
     "evaluate_mechanical_gate",
