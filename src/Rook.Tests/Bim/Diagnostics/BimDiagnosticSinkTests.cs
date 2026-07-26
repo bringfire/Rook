@@ -272,6 +272,126 @@ namespace Rook.Tests.Bim.Diagnostics
         }
 
         [Fact]
+        public void WriterExit_BeforeDisposePublishesExitAndClosesSignal()
+        {
+            var fileSystem = new MemoryFileSystem
+            {
+                FailureMode = "directory"
+            };
+            var sink = CreateSink(fileSystem: fileSystem);
+            var accepted = Envelope(BimDiagnosticRecordKind.Failure);
+            var late = Envelope(BimDiagnosticRecordKind.Failure);
+            try
+            {
+                Assert.True(sink.TryEnqueue(accepted.Envelope));
+                sink.Start();
+                WaitUntil(() =>
+                {
+                    var writer = GetWriterThread(sink);
+                    return writer != null && !writer.IsAlive;
+                });
+
+                Assert.True(GetSignal(sink).SafeWaitHandle.IsClosed);
+                Assert.Equal(1, GetPrivateInt(sink, "writerExited"));
+                Assert.Equal(BimDiagnosticSinkState.Failed,
+                    sink.Snapshot().State);
+                Assert.False(sink.TryEnqueue(late.Envelope));
+                Assert.Null(accepted.Envelope.Accumulator);
+                Assert.Null(late.Envelope.Accumulator);
+                Assert.Equal(1, accepted.OriginalAccumulator.Snapshot()
+                    .RequestDroppedCount);
+                Assert.Equal(1, late.OriginalAccumulator.Snapshot()
+                    .RequestDroppedCount);
+                Assert.Null(Record.Exception(sink.Dispose));
+            }
+            finally
+            {
+                sink.Dispose();
+            }
+        }
+
+        [Fact]
+        public void Dispose_TimeoutAtWriterExitHandoffLeavesWriterAsSignalOwner()
+        {
+            var fileSystem = new ExitHandoffFileSystem();
+            var sink = CreateSink(fileSystem: fileSystem);
+            sink.Start();
+            WaitUntil(() => sink.Snapshot().State ==
+                BimDiagnosticSinkState.Ready);
+            var writer = Assert.IsType<Thread>(GetWriterThread(sink));
+            var sync = GetSync(sink);
+            try
+            {
+                lock (sync)
+                {
+                    writer.Abort();
+                    Assert.True(fileSystem.Finalizing.Wait(
+                        TimeSpan.FromSeconds(5)));
+
+                    var stopwatch = Stopwatch.StartNew();
+                    sink.Dispose();
+                    stopwatch.Stop();
+
+                    Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));
+                    Assert.False(GetSignal(sink).SafeWaitHandle.IsClosed);
+                }
+
+                Assert.True(writer.Join(TimeSpan.FromSeconds(5)));
+                WaitUntil(() => GetSignal(sink).SafeWaitHandle.IsClosed);
+                Assert.Equal(1, GetPrivateInt(sink, "writerExited"));
+                Assert.Equal(1, GetPrivateInt(sink, "signalDisposed"));
+            }
+            finally
+            {
+                if (writer.IsAlive)
+                {
+                    writer.Abort();
+                    writer.Join(TimeSpan.FromSeconds(5));
+                }
+
+                sink.Dispose();
+            }
+        }
+
+        [Fact]
+        public void UnexpectedWriterExit_FailsAdmissionBeforeClosingSignal()
+        {
+            var sink = CreateSink();
+            sink.Start();
+            WaitUntil(() => sink.Snapshot().State ==
+                BimDiagnosticSinkState.Ready);
+            var writer = Assert.IsType<Thread>(GetWriterThread(sink));
+            var late = Envelope(BimDiagnosticRecordKind.Failure);
+            try
+            {
+                writer.Abort();
+                Assert.True(writer.Join(TimeSpan.FromSeconds(5)));
+
+                var status = sink.Snapshot();
+                Assert.Equal(BimDiagnosticSinkState.Failed, status.State);
+                Assert.Equal(BimDiagnosticSinkFailureCode.FileWriteFailure,
+                    status.FailureCode);
+                Assert.Equal(1, status.DroppedCount);
+                Assert.Equal(1, GetPrivateInt(sink, "writerExited"));
+                Assert.True(GetSignal(sink).SafeWaitHandle.IsClosed);
+                Assert.False(sink.TryEnqueue(late.Envelope));
+                Assert.Null(late.Envelope.Accumulator);
+                Assert.Equal(1, late.OriginalAccumulator.Snapshot()
+                    .RequestDroppedCount);
+            }
+            finally
+            {
+                if (writer.IsAlive)
+                {
+                    writer.Abort();
+                    writer.Join(TimeSpan.FromSeconds(5));
+                }
+
+                sink.Dispose();
+            }
+        }
+
+        [Fact]
         public void ConcurrentStartAndDispose_NeverPublishesAWriterAfterStop()
         {
             for (var iteration = 0; iteration < 32; iteration++)
@@ -1004,6 +1124,44 @@ namespace Rook.Tests.Bim.Diagnostics
             protected override void Dispose(bool disposing)
             {
                 writerExited.Set();
+                base.Dispose(disposing);
+            }
+        }
+
+        private sealed class ExitHandoffFileSystem : IBimDiagnosticFileSystem
+        {
+            private readonly ExitHandoffStream stream;
+
+            internal ExitHandoffFileSystem()
+            {
+                stream = new ExitHandoffStream(Finalizing);
+            }
+
+            internal ManualResetEventSlim Finalizing { get; } =
+                new ManualResetEventSlim(false);
+
+            public void CreateDirectory(string path)
+            {
+            }
+
+            public Stream OpenWrite(string path)
+            {
+                return stream;
+            }
+        }
+
+        private sealed class ExitHandoffStream : MemoryStream
+        {
+            private readonly ManualResetEventSlim finalizing;
+
+            internal ExitHandoffStream(ManualResetEventSlim finalizing)
+            {
+                this.finalizing = finalizing;
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                finalizing.Set();
                 base.Dispose(disposing);
             }
         }

@@ -59,6 +59,7 @@ namespace Rook.Bim
         private int stopping;
         private int disposed;
         private int processExitSubscribed;
+        private int writerExited;
         private int signalDisposed;
         private int state = (int)BimDiagnosticSinkState.Starting;
         private int firstFailureCode = (int)BimDiagnosticSinkFailureCode.None;
@@ -274,7 +275,7 @@ namespace Rook.Bim
             {
                 stopping = 1;
                 thread = writerThread;
-                if (Volatile.Read(ref signalDisposed) == 0)
+                if (writerExited == 0 && signalDisposed == 0)
                 {
                     signal.Set();
                 }
@@ -283,10 +284,13 @@ namespace Rook.Bim
             if (thread == null)
             {
                 DrainAsDropped(BimDiagnosticSinkFailureCode.QueueFull);
-                Volatile.Write(ref state, (int)BimDiagnosticSinkState.Stopped);
-                if (Volatile.Read(ref disposed) != 0)
+                lock (sync)
                 {
-                    DisposeSignalOnce();
+                    state = (int)BimDiagnosticSinkState.Stopped;
+                    if (disposed != 0)
+                    {
+                        DisposeSignalUnderLock();
+                    }
                 }
                 return;
             }
@@ -302,14 +306,6 @@ namespace Rook.Bim
                 }
             }
 
-            if (!thread.IsAlive)
-            {
-                Volatile.Write(ref state, (int)BimDiagnosticSinkState.Stopped);
-                if (Volatile.Read(ref disposed) != 0)
-                {
-                    DisposeSignalOnce();
-                }
-            }
         }
 
         private void WriterMain()
@@ -377,11 +373,44 @@ namespace Rook.Bim
                     }
                 }
 
-                if (Volatile.Read(ref disposed) != 0)
+                var unexpectedExit = false;
+                lock (sync)
                 {
-                    Volatile.Write(ref state,
-                        (int)BimDiagnosticSinkState.Stopped);
-                    DisposeSignalOnce();
+                    var shutdownRequested = stopping != 0;
+                    stopping = 1;
+                    var currentState = (BimDiagnosticSinkState)state;
+                    if (currentState != BimDiagnosticSinkState.Failed &&
+                        currentState !=
+                            BimDiagnosticSinkState.FileLimitReached)
+                    {
+                        if (shutdownRequested || disposed != 0)
+                        {
+                            state = (int)BimDiagnosticSinkState.Stopped;
+                        }
+                        else
+                        {
+                            unexpectedExit = true;
+                            RecordGlobalDrop(
+                                BimDiagnosticSinkFailureCode.FileWriteFailure);
+                        }
+                    }
+                }
+
+                try
+                {
+                    if (unexpectedExit)
+                    {
+                        DrainAsDropped(
+                            BimDiagnosticSinkFailureCode.FileWriteFailure);
+                    }
+                }
+                finally
+                {
+                    lock (sync)
+                    {
+                        writerExited = 1;
+                        DisposeSignalUnderLock();
+                    }
                 }
             }
         }
@@ -398,11 +427,16 @@ namespace Rook.Bim
         {
             lock (sync)
             {
-                if (signalDisposed == 0)
-                {
-                    signalDisposed = 1;
-                    signal.Dispose();
-                }
+                DisposeSignalUnderLock();
+            }
+        }
+
+        private void DisposeSignalUnderLock()
+        {
+            if (signalDisposed == 0)
+            {
+                signalDisposed = 1;
+                signal.Dispose();
             }
         }
 
