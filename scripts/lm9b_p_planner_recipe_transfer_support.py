@@ -13,7 +13,7 @@ import time
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, Mapping, NoReturn
+from typing import Callable, Literal, Mapping, NoReturn, Sequence
 
 from jsonschema import Draft202012Validator
 from rook.validation_kernel.canonical_json import canonical_fingerprint, sha256_prefixed
@@ -1187,6 +1187,47 @@ def planner_evaluator_tool_definition() -> dict[str, object]:
     }
 
 
+def build_planner_provider_call_request(
+    *,
+    messages: Sequence[Mapping[str, object]],
+    provider_timeout_s: float,
+) -> bytes:
+    if (
+        type(provider_timeout_s) not in (int, float)
+        or not math.isfinite(float(provider_timeout_s))
+        or provider_timeout_s <= 0
+    ):
+        raise ValueError("Planner provider timeout must be positive and finite")
+    value = {
+        "messages": json.loads(json.dumps(list(messages), ensure_ascii=False)),
+        "tools": [planner_tool_definition()],
+        "tool_choice": "auto",
+        "max_completion_tokens": PLANNER_MAX_COMPLETION_TOKENS,
+        "provider_timeout_s": float(provider_timeout_s),
+    }
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def materialize_planner_provider_call_request(
+    raw_bytes: bytes,
+) -> dict[str, object]:
+    value = parse_archive_json(raw_bytes)
+    if type(value) is not dict:
+        raise ValueError("Planner provider request must be an object")
+    rebuilt = build_planner_provider_call_request(
+        messages=value.get("messages", []),
+        provider_timeout_s=value.get("provider_timeout_s"),
+    )
+    if rebuilt != raw_bytes:
+        raise ValueError("Planner provider request differs from builder contract")
+    return json.loads(raw_bytes)
+
+
 def build_planner_evaluator_provider_call_request(
     *,
     system_prompt: str,
@@ -1364,7 +1405,7 @@ def run_planner_evaluation(
     )
 
 
-def _planner_feedback_message(
+def build_planner_mechanical_feedback_message(
     gate_result: MechanicalGateResult,
     tool_call_id: str | None,
 ) -> dict[str, object]:
@@ -1540,13 +1581,11 @@ def run_planner_session(
         if remaining_s <= 0:
             return finish("timeout")
         call_timeout_s = min(PLANNER_PROVIDER_TIMEOUT_S, remaining_s)
-        request = {
-            "messages": json.loads(json.dumps(messages, ensure_ascii=False)),
-            "tools": [planner_tool_definition()],
-            "tool_choice": "auto",
-            "max_completion_tokens": PLANNER_MAX_COMPLETION_TOKENS,
-            "provider_timeout_s": call_timeout_s,
-        }
+        request_bytes = build_planner_provider_call_request(
+            messages=messages,
+            provider_timeout_s=call_timeout_s,
+        )
+        request = materialize_planner_provider_call_request(request_bytes)
         turn_started = monotonic()
         try:
             outcome = _bounded_provider_call(
@@ -1629,7 +1668,9 @@ def run_planner_session(
             return finish("mechanically_accepted", gate_result.final_recipe_bytes)
 
         messages.append(dict(response.assistant_message))
-        messages.append(_planner_feedback_message(gate_result, tool_call_id))
+        messages.append(
+            build_planner_mechanical_feedback_message(gate_result, tool_call_id)
+        )
         if total_tokens >= PLANNER_TOKEN_STOP_THRESHOLD:
             return finish("mechanically_rejected")
         if cost_complete and total_cost >= PLANNER_COST_STOP_THRESHOLD_USD:
@@ -1661,12 +1702,15 @@ __all__ = (
     "ProviderTurn",
     "StrictJsonError",
     "build_planner_evaluator_provider_call_request",
+    "build_planner_mechanical_feedback_message",
+    "build_planner_provider_call_request",
     "derive_planner_evaluation_result",
     "evaluate_mechanical_gate",
     "fingerprint",
     "fingerprint_without",
     "load_normalization_profile",
     "materialize_planner_evaluator_provider_call_request",
+    "materialize_planner_provider_call_request",
     "normalization_profile_from_value",
     "normalize_recipe",
     "parse_archive_json",
