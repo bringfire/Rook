@@ -9,6 +9,11 @@ namespace Rook.Handlers
 {
     public sealed class BimHandler
     {
+        private sealed class DispatchControlState
+        {
+            internal bool SerializationFailed { get; set; }
+        }
+
         private readonly Func<bool> rhinoInsideProvider;
         private readonly Func<object?, JsonNode?> wireSerializer;
 
@@ -56,6 +61,7 @@ namespace Rook.Handlers
         public ApiResponse Dispatch(string? body)
         {
             BimDiagnostics.InitializeFromEnvironment();
+            var control = new DispatchControlState();
             var unparsedDiagnostics =
                 BimDiagnostics.CreateUncorrelatedContext("unparsed");
             Dictionary<string, JsonElement> args;
@@ -78,6 +84,7 @@ namespace Rook.Handlers
                 ObserveDeserializeFailure(unparsedDiagnostics, ex);
                 return Fail(
                     unparsedDiagnostics,
+                    control,
                     BimErrorCode.InvalidScope,
                     ex.Message,
                     400);
@@ -87,6 +94,7 @@ namespace Rook.Handlers
                 ObserveDeserializeFailure(unparsedDiagnostics, ex);
                 return Fail(
                     unparsedDiagnostics,
+                    control,
                     BimErrorCode.InvalidScope,
                     $"Invalid BIM request JSON: {ex.Message}",
                     400);
@@ -97,6 +105,7 @@ namespace Rook.Handlers
             {
                 return Fail(
                     unparsedDiagnostics,
+                    control,
                     BimErrorCode.InvalidScope,
                     "BIM request missing required 'op' discriminator.",
                     400);
@@ -106,6 +115,7 @@ namespace Rook.Handlers
             {
                 return Fail(
                     unparsedDiagnostics,
+                    control,
                     BimErrorCode.InvalidScope,
                     $"Unknown BIM op '{op}'.",
                     400);
@@ -115,12 +125,12 @@ namespace Rook.Handlers
             ApiResponse? response = null;
             try
             {
-                response = DispatchAcceptedRequest(diagnostics, op!, body);
+                response = DispatchAcceptedRequest(diagnostics, control, op!, body);
                 return response;
             }
             catch (JsonException ex)
             {
-                if (HasSerializationFailure(diagnostics))
+                if (control.SerializationFailed)
                 {
                     response = BuildMinimalInternalError(diagnostics, ex);
                 }
@@ -128,6 +138,7 @@ namespace Rook.Handlers
                 {
                     response = Fail(
                         diagnostics,
+                        control,
                         BimErrorCode.InvalidScope,
                         $"Invalid BIM request JSON: {ex.Message}",
                         400);
@@ -137,10 +148,11 @@ namespace Rook.Handlers
             }
             catch (ArgumentException ex)
             {
-                response = HasSerializationFailure(diagnostics)
+                response = control.SerializationFailed
                     ? BuildMinimalInternalError(diagnostics, ex)
                     : Fail(
                         diagnostics,
+                        control,
                         BimErrorCode.InvalidScope,
                         ex.Message,
                         400);
@@ -163,60 +175,71 @@ namespace Rook.Handlers
 
         private ApiResponse DispatchAcceptedRequest(
             BimDiagnosticContext diagnostics,
+            DispatchControlState control,
             string op,
             string? body)
         {
             if (string.Equals(op, "status", StringComparison.Ordinal) &&
                 !IsRunningAsRhinoInside())
             {
-                return DispatchStandaloneStatus(diagnostics);
+                return DispatchStandaloneStatus(diagnostics, control);
             }
 
             RookBimModuleLoader.TryActivate();
             var runtime = RookBimRuntimeRegistry.Current;
             return op switch
             {
-                "status" => DispatchStatus(runtime, diagnostics),
+                "status" => DispatchStatus(runtime, diagnostics, control),
                 "active_document" => FromBimResponse(
                     diagnostics,
+                    control,
                     "active_document",
                     InvokeRuntime(diagnostics, () => runtime.ActiveDocument(diagnostics))),
                 "list_categories" => FromBimResponse(
                     diagnostics,
+                    control,
                     "list_categories",
                     InvokeRuntime(diagnostics, () => runtime.ListCategories(diagnostics))),
-                "query_elements" => DispatchQueryElements(runtime, diagnostics, body),
+                "query_elements" => DispatchQueryElements(
+                    runtime, diagnostics, control, body),
                 "element_info" => DispatchTypedRequest<BimElementRequest>(
                     diagnostics,
+                    control,
                     "element_info",
                     body,
                     request => runtime.ElementInfo(diagnostics, request)),
                 "element_parameters" => DispatchTypedRequest<BimElementRequest>(
                     diagnostics,
+                    control,
                     "element_parameters",
                     body,
                     request => runtime.ElementParameters(diagnostics, request)),
                 "select_elements" => DispatchTypedRequest<BimSelectElementsRequest>(
                     diagnostics,
+                    control,
                     "select_elements",
                     body,
                     request => runtime.SelectElements(diagnostics, request)),
                 "clear_selection" => FromBimResponse(
                     diagnostics,
+                    control,
                     "clear_selection",
                     InvokeRuntime(diagnostics, () => runtime.ClearSelection(diagnostics))),
                 "export_elements" => DispatchTypedRequest<BimExportElementsRequest>(
                     diagnostics,
+                    control,
                     "export_elements",
                     body,
                     request => runtime.ExportElements(diagnostics, request)),
                 "export_preset" => DispatchTypedRequest<BimExportPresetRequest>(
                     diagnostics,
+                    control,
                     "export_preset",
                     body,
                     request => runtime.ExportPreset(diagnostics, request)),
                 _ => Fail(
                     diagnostics,
+                    control,
                     BimErrorCode.InvalidScope,
                     $"Unknown BIM op '{op}'.",
                     400),
@@ -226,6 +249,7 @@ namespace Rook.Handlers
         private ApiResponse DispatchQueryElements(
             IRookBimRuntime runtime,
             BimDiagnosticContext diagnostics,
+            DispatchControlState control,
             string? body)
         {
             var request = DeserializeRequest<BimQueryElementsRequest>(diagnostics, body);
@@ -234,6 +258,7 @@ namespace Rook.Handlers
             {
                 return Fail(
                     diagnostics,
+                    control,
                     validation.ErrorCode,
                     validation.Message ?? "BIM query validation failed.",
                     400);
@@ -241,6 +266,7 @@ namespace Rook.Handlers
 
             return FromBimResponse(
                 diagnostics,
+                control,
                 "query_elements",
                 InvokeRuntime(
                     diagnostics,
@@ -249,6 +275,7 @@ namespace Rook.Handlers
 
         private ApiResponse DispatchTypedRequest<T>(
             BimDiagnosticContext diagnostics,
+            DispatchControlState control,
             string op,
             string? body,
             Func<T, BimApiResponse> runtimeCall)
@@ -257,6 +284,7 @@ namespace Rook.Handlers
             var request = DeserializeRequest<T>(diagnostics, body);
             return FromBimResponse(
                 diagnostics,
+                control,
                 op,
                 InvokeRuntime(diagnostics, () => runtimeCall(request)));
         }
@@ -302,14 +330,6 @@ namespace Rook.Handlers
                     BimDiagnosticDetailCode.None,
                     null,
                     BimDiagnosticFailureImpact.Production));
-        }
-
-        private static bool HasSerializationFailure(
-            BimDiagnosticContext diagnostics)
-        {
-            var snapshot = BimDiagnostics.SnapshotRequest(diagnostics);
-            return snapshot.LastStage == BimDiagnosticStage.HandlerSerialize &&
-                snapshot.LastOutcome == BimDiagnosticOutcome.Failure;
         }
 
         private static T InvokeRuntime<T>(
@@ -379,7 +399,8 @@ namespace Rook.Handlers
 
         private ApiResponse DispatchStatus(
             IRookBimRuntime runtime,
-            BimDiagnosticContext diagnostics)
+            BimDiagnosticContext diagnostics,
+            DispatchControlState control)
         {
             var status = InvokeRuntime(
                 diagnostics,
@@ -389,11 +410,12 @@ namespace Rook.Handlers
                 DiagnosticReasonFromStatus(status),
                 "status");
 
-            return Ok(diagnostics, status, diagnostic);
+            return Ok(diagnostics, control, status, diagnostic);
         }
 
         private ApiResponse DispatchStandaloneStatus(
-            BimDiagnosticContext diagnostics)
+            BimDiagnosticContext diagnostics,
+            DispatchControlState control)
         {
             var status = new BimStatusResponse
             {
@@ -408,6 +430,7 @@ namespace Rook.Handlers
 
             return Ok(
                 diagnostics,
+                control,
                 status,
                 BuildDiagnosticForReason("not_rhino_inside", "status"));
         }
@@ -426,12 +449,13 @@ namespace Rook.Handlers
 
         private ApiResponse FromBimResponse(
             BimDiagnosticContext diagnostics,
+            DispatchControlState control,
             string op,
             BimApiResponse response)
         {
             if (response.Success)
             {
-                var data = SerializeForWire(diagnostics, response.Data);
+                var data = SerializeForWire(diagnostics, control, response.Data);
                 return new ApiResponse
                 {
                     Success = true,
@@ -443,6 +467,7 @@ namespace Rook.Handlers
 
             return Fail(
                 diagnostics,
+                control,
                 response.ErrorCode,
                 response.Message ?? "BIM operation failed.",
                 response.HttpStatus,
@@ -454,10 +479,11 @@ namespace Rook.Handlers
 
         private ApiResponse Ok(
             BimDiagnosticContext diagnostics,
+            DispatchControlState control,
             object? data,
             JsonObject? diagnostic = null)
         {
-            var wireData = SerializeForWire(diagnostics, data);
+            var wireData = SerializeForWire(diagnostics, control, data);
             return new ApiResponse
             {
                 Success = true,
@@ -469,6 +495,7 @@ namespace Rook.Handlers
 
         private ApiResponse Fail(
             BimDiagnosticContext diagnostics,
+            DispatchControlState control,
             BimErrorCode code,
             string message,
             int httpStatus,
@@ -483,7 +510,7 @@ namespace Rook.Handlers
 
             if (details != null)
             {
-                data["details"] = SerializeForWire(diagnostics, details);
+                data["details"] = SerializeForWire(diagnostics, control, details);
             }
 
             return new ApiResponse
@@ -527,6 +554,7 @@ namespace Rook.Handlers
 
         private JsonNode? SerializeForWire(
             BimDiagnosticContext diagnostics,
+            DispatchControlState control,
             object? value)
         {
             BimDiagnostics.Observe(
@@ -546,6 +574,7 @@ namespace Rook.Handlers
             }
             catch (Exception ex)
             {
+                control.SerializationFailed = true;
                 BimDiagnostics.ObserveException(
                     diagnostics,
                     BimDiagnosticStage.HandlerSerialize,
