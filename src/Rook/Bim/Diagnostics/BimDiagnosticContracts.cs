@@ -1,6 +1,6 @@
 using System;
 
-namespace Rook.Bim.Diagnostics
+namespace Rook.Bim
 {
     public enum BimDiagnosticStage
     {

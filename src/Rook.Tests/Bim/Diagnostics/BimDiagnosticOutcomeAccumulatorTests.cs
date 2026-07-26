@@ -1,5 +1,5 @@
 using System;
-using Rook.Bim.Diagnostics;
+using Rook.Bim;
 using Xunit;
 
 namespace Rook.Tests.Bim.Diagnostics
