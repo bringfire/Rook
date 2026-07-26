@@ -70,6 +70,11 @@ The carrier qualification is a prerequisite instrument observation, not user
 authority and not a model observation. The archived `probe_candidate_blocked`
 inside it is a reconstructed historical-parent control.
 
+Its commit identity is permanently
+`d6330a61a21d56abf16af6ba3b8f1678ede2c3ec`. The later resolution commit is a
+separate consuming-instrument identity; it does not regenerate, relabel, or
+claim to be the qualification commit.
+
 ## 3. Experimental fixture
 
 The radial fixture supplies these exact values:
@@ -194,6 +199,33 @@ Read-only loaders independently verify:
 - current code-owned carrier contracts and source identities;
 - exact successor-envelope bytes;
 - reviewed checkout commit and cleanliness.
+
+The carrier prerequisite is verified as two separately recorded proofs:
+
+```text
+historical qualification binding:
+  closed archive membership, checksums, physical destination, identity,
+  snapshot, and sole commit d6330a61
+
+forward compatibility comparison:
+  qualified carrier components == exact components reused by the
+  later resolution checkout
+```
+
+The compatibility comparison covers exact current and qualified identities or
+bytes for `lm9_semantic_typed_values.py`,
+`lm9_typed_fact_carrier_artifacts.py`, the sealed JSON-Schema profile, semantic
+value registry, forward payload schema, qualification runtime, and every
+relevant helper/profile/registry/payload contract identity. Source bytes not
+stored directly in the qualification are compared with their exact Git object
+bytes at `d6330a61`; the typed-value helper must also match the source hash
+already sealed in the qualification snapshot.
+
+This layer does not call the commit-current public qualification verifier from
+a later checkout, weaken it, or add an ignore-commit mode. Any mismatch in a
+reused carrier component refuses before preflight or contact. The archive
+records the historical qualification identity and the compatibility result as
+distinct records and fingerprints.
 
 They return immutable verified proof carriers and exact bytes. Downstream pure
 components receive no paths and do not reread archives, fixtures, Git state,
@@ -597,6 +629,11 @@ The new rubric states generically:
 > Values present in verified successor authority are supplied facts, not
 > unresolved intent or Planner inventions.
 
+Its scenario obligations remove the historical statement that spacing is
+absent from task authority. The successor task envelope now supplies spacing;
+retaining the stale obligation would make the evaluator instrument contradict
+its verified current authority.
+
 The historical rubric remains immutable. Recommendation vocabulary remains:
 
 ```text
@@ -726,6 +763,12 @@ manifest and recomputes `instrument_fingerprint` from that manifest. Execution
 must refuse before contact if any individual contract identity, fingerprint,
 route-manifest identity, or aggregate value differs; equality of the reviewed
 commit alone is never sufficient.
+
+The preflight binds the resolution-ready proof **contract**—its schema,
+contract fingerprint, closed fields, issuance predicate, and reconstruction
+equations. It never binds, predicts, reserves, or serializes a future
+proof-instance identity. A proof instance can exist only after a sealed
+`probe_candidate_ready` checkpoint has been publicly reconstructed.
 
 Launch evidence records the supplied approved-preflight fingerprint, explicit
 transmit flag, reviewed commit, readiness identity, and attempt identity. It
@@ -957,7 +1000,7 @@ The first implementation task must walk the real reversible transition:
 pinned production source and derivative
 -> exact qualified radial successor envelope
 -> authority composition and value-free map
--> resolution preflight
+-> resolution preflight write and public verification
 -> fresh fake readiness through the real readiness verifier
 -> atomic reservation
 -> fake Planner turn 1: mechanically invalid submission
@@ -975,6 +1018,11 @@ pinned production source and derivative
 The static candidate is test evidence only. Production code contains no recipe
 constructor or patcher. Compiler-specific entry points are patched to raise and
 must remain untouched. An independent review stop follows this witness.
+
+The readiness check in this witness occurs inside the real resolution
+orchestrator immediately before reservation; a test-side precheck is not a
+substitute. Reservation uses atomic direct-child staging creation with
+`exist_ok=False` and completes before the first fake Planner dispatch.
 
 ### 21.2 Parameterized outcome table
 
