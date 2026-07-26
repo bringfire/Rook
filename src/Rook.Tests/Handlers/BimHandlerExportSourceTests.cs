@@ -24,7 +24,7 @@ namespace Rook.Tests.Handlers
             var src = Read("src/Rook/Handlers/BimHandler.cs");
 
             Assert.Contains("\"export_elements\"", src);
-            Assert.Contains("runtime.ExportElements(", src);
+            Assert.Contains("runtime.ExportElements(diagnostics,", src);
             Assert.Contains("DeserializeRequest<BimExportElementsRequest>(body)", src);
             Assert.Contains("POST /bim/export-elements", src);
 

@@ -16,7 +16,7 @@ namespace Rook.Bim
             this.module = module;
         }
 
-        public BimStatusResponse Status()
+        public BimStatusResponse Status(BimDiagnosticContext diagnostics)
         {
             return new BimStatusResponse
             {
@@ -29,47 +29,47 @@ namespace Rook.Bim
             };
         }
 
-        public BimApiResponse ActiveDocument()
+        public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)
         {
             return Unavailable();
         }
 
-        public BimApiResponse ListCategories()
+        public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)
         {
             return Unavailable();
         }
 
-        public BimApiResponse QueryElements(BimQueryElementsRequest request)
+        public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)
         {
             return Unavailable();
         }
 
-        public BimApiResponse ElementInfo(BimElementRequest request)
+        public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)
         {
             return Unavailable();
         }
 
-        public BimApiResponse ElementParameters(BimElementRequest request)
+        public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)
         {
             return Unavailable();
         }
 
-        public BimApiResponse SelectElements(BimSelectElementsRequest request)
+        public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)
         {
             return Unavailable();
         }
 
-        public BimApiResponse ClearSelection()
+        public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)
         {
             return Unavailable();
         }
 
-        public BimApiResponse ExportElements(BimExportElementsRequest request)
+        public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)
         {
             return Unavailable();
         }
 
-        public BimApiResponse ExportPreset(BimExportPresetRequest request)
+        public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)
         {
             return Unavailable();
         }

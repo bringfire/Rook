@@ -84,28 +84,30 @@ namespace Rook.Handlers
             try
             {
                 var runtime = RookBimRuntimeRegistry.Current;
+                // Task 5 temporary migration scaffold; Task 6 creates the accepted request context.
+                var diagnostics = BimDiagnosticContext.Disabled;
                 return op switch
                 {
-                    "status" => DispatchStatus(runtime),
-                    "active_document" => FromBimResponse("active_document", runtime.ActiveDocument()),
-                    "list_categories" => FromBimResponse("list_categories", runtime.ListCategories()),
-                    "query_elements" => DispatchQueryElements(runtime, body),
+                    "status" => DispatchStatus(runtime, diagnostics),
+                    "active_document" => FromBimResponse("active_document", runtime.ActiveDocument(diagnostics)),
+                    "list_categories" => FromBimResponse("list_categories", runtime.ListCategories(diagnostics)),
+                    "query_elements" => DispatchQueryElements(runtime, diagnostics, body),
                     "element_info" => FromBimResponse(
                         "element_info",
-                        runtime.ElementInfo(DeserializeRequest<BimElementRequest>(body))),
+                        runtime.ElementInfo(diagnostics, DeserializeRequest<BimElementRequest>(body))),
                     "element_parameters" => FromBimResponse(
                         "element_parameters",
-                        runtime.ElementParameters(DeserializeRequest<BimElementRequest>(body))),
+                        runtime.ElementParameters(diagnostics, DeserializeRequest<BimElementRequest>(body))),
                     "select_elements" => FromBimResponse(
                         "select_elements",
-                        runtime.SelectElements(DeserializeRequest<BimSelectElementsRequest>(body))),
-                    "clear_selection" => FromBimResponse("clear_selection", runtime.ClearSelection()),
+                        runtime.SelectElements(diagnostics, DeserializeRequest<BimSelectElementsRequest>(body))),
+                    "clear_selection" => FromBimResponse("clear_selection", runtime.ClearSelection(diagnostics)),
                     "export_elements" => FromBimResponse(
                         "export_elements",
-                        runtime.ExportElements(DeserializeRequest<BimExportElementsRequest>(body))),
+                        runtime.ExportElements(diagnostics, DeserializeRequest<BimExportElementsRequest>(body))),
                     "export_preset" => FromBimResponse(
                         "export_preset",
-                        runtime.ExportPreset(DeserializeRequest<BimExportPresetRequest>(body))),
+                        runtime.ExportPreset(diagnostics, DeserializeRequest<BimExportPresetRequest>(body))),
                     _ => Fail(BimErrorCode.InvalidScope, $"Unknown BIM op '{op}'.", 400),
                 };
             }
@@ -123,7 +125,10 @@ namespace Rook.Handlers
             }
         }
 
-        private static ApiResponse DispatchQueryElements(IRookBimRuntime runtime, string? body)
+        private static ApiResponse DispatchQueryElements(
+            IRookBimRuntime runtime,
+            BimDiagnosticContext diagnostics,
+            string? body)
         {
             var request = DeserializeRequest<BimQueryElementsRequest>(body);
             var validation = request.Validate();
@@ -135,7 +140,7 @@ namespace Rook.Handlers
                     400);
             }
 
-            return FromBimResponse("query_elements", runtime.QueryElements(request));
+            return FromBimResponse("query_elements", runtime.QueryElements(diagnostics, request));
         }
 
         private static T DeserializeRequest<T>(string? body)
@@ -181,9 +186,11 @@ namespace Rook.Handlers
             return value.GetString();
         }
 
-        private static ApiResponse DispatchStatus(IRookBimRuntime runtime)
+        private static ApiResponse DispatchStatus(
+            IRookBimRuntime runtime,
+            BimDiagnosticContext diagnostics)
         {
-            var status = runtime.Status();
+            var status = runtime.Status(diagnostics);
             var diagnostic = BuildDiagnosticForReason(
                 DiagnosticReasonFromStatus(status),
                 "status");

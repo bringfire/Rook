@@ -14,7 +14,7 @@ namespace Rook.Tests.Handlers
             var src = Read("src/Rook/Handlers/BimHandler.cs");
 
             Assert.Contains("\"export_preset\"", src);
-            Assert.Contains("runtime.ExportPreset(DeserializeRequest<BimExportPresetRequest>(body))", src);
+            Assert.Contains("runtime.ExportPreset(diagnostics, DeserializeRequest<BimExportPresetRequest>(body))", src);
             Assert.Contains("\"export_preset\" => \"POST /bim/export-preset\"", src);
             Assert.Contains("BimErrorCode.UnknownPreset => \"unknown_preset\"", src);
             Assert.Contains("BimErrorCode.NoCategoriesResolved => \"no_categories_resolved\"", src);
