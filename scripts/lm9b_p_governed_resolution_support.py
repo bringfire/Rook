@@ -61,6 +61,7 @@ class VerifiedResolutionInputs:
     successor_envelope_bytes: bytes
     successor_envelope: Mapping[str, object]
     current_authority: object
+    carrier_support_instrument: Mapping[str, object]
     recipe_schema: Mapping[str, object]
     normalization_profile: object
     exclusion_policy: Mapping[str, object]
@@ -88,40 +89,35 @@ class IsolationGateResult:
 
 def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolutionInputs:
     required = {
-        "historical_source",
-        "parent_derivative",
-        "carrier_qualification",
-        "successor_envelope_bytes",
-        "payload_schema_bytes",
-        "semantic_registry_bytes",
+        "sources",
         "isolation_policy_bytes",
         "evaluation_rubric_bytes",
-        "reviewed_commit_sha",
     }
     if set(_kwargs) != required:
         raise ValueError("resolution input set is incomplete or contains extras")
-    source = _kwargs["historical_source"]
-    derivative = _kwargs["parent_derivative"]
-    qualification = _kwargs["carrier_qualification"]
-    successor_raw = _kwargs["successor_envelope_bytes"]
-    payload_schema_raw = _kwargs["payload_schema_bytes"]
-    registry_raw = _kwargs["semantic_registry_bytes"]
+    sources = _kwargs["sources"]
     policy_raw = _kwargs["isolation_policy_bytes"]
     rubric_raw = _kwargs["evaluation_rubric_bytes"]
-    reviewed_commit = _kwargs["reviewed_commit_sha"]
-    if type(source) is not CONT_ARTIFACTS.VerifiedHistoricalSource:
-        raise TypeError("verified historical source is required")
-    if type(derivative) is not CONT_ARTIFACTS.SealedDerivative:
-        raise TypeError("verified parent derivative is required")
+    # Runtime import avoids a module-import cycle. The consumer requires the
+    # exact closure-issued physical-source carrier and returns its retained,
+    # immutable verification projection; this assembler performs no I/O.
+    import lm9b_p_governed_resolution_artifacts as RESOLUTION_ARTIFACTS
+
+    source_proof = RESOLUTION_ARTIFACTS.consume_verified_resolution_sources(
+        sources
+    )
+    source = source_proof["historical_source"]
+    derivative = source_proof["parent_derivative"]
+    qualification = source_proof["carrier_qualification"]
+    successor_raw = sources.exact_successor_bytes
+    payload_schema_raw = sources.exact_contract_bytes["forward_payload_schema"]
+    registry_raw = sources.exact_contract_bytes["semantic_value_registry"]
+    reviewed_commit = sources.reviewed_commit_sha
     if (
         derivative.evaluator_result.recommendation != "semantically_faithful"
         or derivative.classification != "probe_candidate_blocked"
     ):
         raise ValueError("parent derivative is not the faithful blocked observation")
-    # Runtime import avoids a module-import cycle while still requiring the
-    # artifacts module's process-local, closure-issued proof capability.
-    import lm9b_p_governed_resolution_artifacts as RESOLUTION_ARTIFACTS
-
     qualification_proof = (
         RESOLUTION_ARTIFACTS.consume_verified_carrier_qualification(
             qualification
@@ -143,60 +139,17 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
         if type(raw) is not bytes:
             raise TypeError(f"exact {label} bytes are required")
 
-    runtime = TYPED_VALUES.current_runtime_identity()
-    registry = CARRIER._verified_registry(registry_raw, runtime)
-    records = {record.role: record for record in source.input_records}
-    attempt_context = records["attempt_context"].value
-    environment = records["authority.environment_snapshot"].value
-    if not isinstance(attempt_context, Mapping) or not isinstance(environment, Mapping):
-        raise ValueError("historical authority records are invalid")
-    issuer = environment.get("issuer")
-    if not isinstance(issuer, Mapping):
-        raise ValueError("historical environment issuer is invalid")
-    unit_context_index = TYPED_VALUES.derive_verified_unit_context_index(
-        environment_artifact_bytes=records[
-            "authority.environment_snapshot"
-        ].raw_bytes,
-        environment_payload_schema_bytes=CARRIER._environment_payload_schema_bytes(
-            records
-        ),
-        attempt_context_bytes=records["attempt_context"].raw_bytes,
-        expected_artifact_fingerprint=environment["artifact_fingerprint"],
-        expected_issuer_id=issuer["authority_id"],
-        expected_environment_session_id=attempt_context["environment_session_id"],
-        expected_task_session_id=attempt_context["task_session_id"],
-        evaluated_at=attempt_context["evaluated_at"],
-    )
-    successor = CARRIER.validate_forward_task_envelope(
-        successor_raw,
-        payload_schema_raw_bytes=payload_schema_raw,
-        registry_raw_bytes=registry_raw,
-        unit_context_index=unit_context_index,
-        runtime=runtime,
-    )
-    parent_recipe = TYPED_VALUES.parse_strict_json(
-        source.final_recipe_bytes, label="blocked parent recipe"
-    )
-    if type(parent_recipe) is not dict:
-        raise ValueError("blocked parent recipe must be an object")
-    parent_values = CARRIER.reconstruct_observed_historical_task_values(
-        source,
-        registry=registry,
-        unit_context_index=unit_context_index,
-    )
-    parent_bindings = CARRIER.historical_task_bindings(source)
-    partition = CARRIER.derive_authority_partition(
-        parent_values=parent_values,
-        parent_bindings=parent_bindings,
-        successor=successor,
-        parent_recipe=parent_recipe,
-    )
-    migration = CARRIER.verify_exact_migration(
-        parent_values=parent_values,
-        parent_bindings=parent_bindings,
-        successor=successor,
-        partition=partition,
-    )
+    successor = source_proof["successor"]
+    parent_recipe = source_proof["parent_recipe"]
+    partition = source_proof["partition"]
+    migration = source_proof["migration"]
+    parent_keys = set(partition.parent_keys)
+    unresolved_keys = set(partition.required_delta_keys)
+    successor_keys = set(partition.successor_keys)
+    if parent_keys & unresolved_keys:
+        raise ValueError("parent established and unresolved keys overlap")
+    if successor_keys != parent_keys | unresolved_keys:
+        raise ValueError("successor key set differs from P union U")
 
     rubric = PLANNER_SUPPORT.parse_strict_json(rubric_raw)
     policy = PLANNER_SUPPORT.parse_strict_json(policy_raw)
@@ -226,9 +179,65 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
     )
     artifacts = dict(frozen.authority.artifacts)
     artifacts["task_envelope"] = successor.envelope
+    historical_payload_registry = PLANNER_SUPPORT._json_builtins(
+        frozen.authority.payload_schema_registry
+    )
+    environment_schema_id = artifacts["environment_snapshot"]["payload_schema"]
+    environment_entries = [
+        copy.deepcopy(row)
+        for row in historical_payload_registry["entries"]
+        if row["schema_id"] == environment_schema_id
+    ]
+    if len(environment_entries) != 1:
+        raise ValueError("historical environment payload schema is not unique")
+    forward_payload_schema = PLANNER_SUPPORT.parse_strict_json(payload_schema_raw)
+    semantic_value_registry = PLANNER_SUPPORT.parse_strict_json(registry_raw)
+    if type(forward_payload_schema) is not dict or type(
+        semantic_value_registry
+    ) is not dict:
+        raise ValueError("carrier-support contract is not an object")
+    successor_payload_registry = {
+        "schema": "rook.payload_schema_registry:v1",
+        "registry_id": "payload_schema_registry",
+        "registry_version": "lm9b_p.governed_resolution_payload_schemas:v1",
+        "json_schema_dialect": TYPED_VALUES.DIALECT,
+        "schema_evaluator_profile": TYPED_VALUES.PROFILE_ID,
+        "entries": [
+            environment_entries[0],
+            {
+                "schema_id": TYPED_VALUES.FORWARD_PAYLOAD_SCHEMA_ID,
+                "schema_fingerprint": TYPED_VALUES.fingerprint(
+                    forward_payload_schema
+                ),
+                "schema_document": forward_payload_schema,
+            },
+        ],
+    }
+    successor_payload_registry["registry_fingerprint"] = (
+        TYPED_VALUES.fingerprint(successor_payload_registry)
+    )
+    carrier_support = {
+        "schema": "rook.lm9b_p.governed_resolution_carrier_support:v1",
+        "payload_schema_registry": successor_payload_registry,
+        "semantic_value_registry": semantic_value_registry,
+        "profile": CARRIER.value_for_evidence(
+            TYPED_VALUES.build_profile_identity(source_proof["runtime"]).value
+        ),
+        "typed_value_helper_contract_id": TYPED_VALUES.HELPER_CONTRACT_ID,
+        "forward_payload_schema_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(
+            payload_schema_raw
+        ),
+        "semantic_value_registry_raw_sha256": PLANNER_SUPPORT.sha256_prefixed(
+            registry_raw
+        ),
+    }
+    carrier_support["carrier_support_fingerprint"] = PLANNER_SUPPORT.fingerprint(
+        carrier_support
+    )
     current_authority = replace(
         frozen.authority,
         artifacts=MappingProxyType(artifacts),
+        payload_schema_registry=_freeze_json(successor_payload_registry),
     )
 
     unresolved_rows = {
@@ -340,6 +349,9 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
         "correspondence_fingerprint": PLANNER_SUPPORT.fingerprint(correspondence),
         "policy_instance_fingerprint": policy_instance.instance_fingerprint,
         "evaluation_rubric_fingerprint": rubric["rubric_fingerprint"],
+        "carrier_support_fingerprint": carrier_support[
+            "carrier_support_fingerprint"
+        ],
         "reviewed_commit_sha": reviewed_commit,
     }
     return VerifiedResolutionInputs(
@@ -348,6 +360,7 @@ def assemble_verified_resolution_inputs(**_kwargs: object) -> VerifiedResolution
         successor_envelope_bytes=successor_raw,
         successor_envelope=successor.envelope,
         current_authority=current_authority,
+        carrier_support_instrument=_freeze_json(carrier_support),
         recipe_schema=frozen.recipe_schema,
         normalization_profile=current_authority.normalization_profile,
         exclusion_policy=frozen.exclusion_policy,
@@ -381,6 +394,7 @@ def render_planner_revision_request(
         "successor_authority": {
             "artifacts": inputs.current_authority.artifacts,
         },
+        "carrier_support_instrument": inputs.carrier_support_instrument,
         "clarification_correspondence": inputs.correspondence,
         "recipe_schema": inputs.recipe_schema,
         "authoring_contract": inputs.authoring_contract,
@@ -624,6 +638,16 @@ def _canonical_bytes(value: object) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def _freeze_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {key: _freeze_json(item) for key, item in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_json(item) for item in value)
+    return value
 
 
 def _clause_occurrences(

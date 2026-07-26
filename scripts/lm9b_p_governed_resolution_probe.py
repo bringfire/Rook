@@ -38,6 +38,7 @@ class ResolutionAttemptResult:
 def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
     required = {
         "preflight",
+        "invocation_binding",
         "readiness_record",
         "readiness_manifest",
         "head_sha",
@@ -62,6 +63,15 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
     readiness_manifest = _kwargs["readiness_manifest"]
     if type(readiness_record) is not dict:
         raise TypeError("readiness record must be an object")
+    expected_manifest_fingerprint = preflight.record["instrument_contracts"][
+        "readiness"
+    ]["route_manifest_fingerprint"]
+    if (
+        type(readiness_manifest) is not READINESS.RouteManifest
+        or readiness_manifest.manifest_fingerprint
+        != expected_manifest_fingerprint
+    ):
+        raise ValueError("resolution readiness route manifest differs from preflight")
     decision = READINESS.verify_launch_readiness(
         record=readiness_record,
         manifest=readiness_manifest,
@@ -71,6 +81,22 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
     )
     if not decision.ok:
         raise ValueError("resolution readiness refused: " + "; ".join(decision.failures))
+    expected_invocation = ARTIFACTS.build_resolution_invocation_binding(
+        supplied_preflight_fingerprint=preflight.preflight_fingerprint,
+        transmit=True,
+        reviewed_commit_sha=head_sha,
+        readiness_identity=readiness_record.get("record_fingerprint"),
+        attempt_id=preflight.attempt.attempt_id,
+        attempt_fingerprint=preflight.attempt.attempt_fingerprint,
+    )
+    ARTIFACTS.verify_resolution_invocation_binding(
+        _kwargs["invocation_binding"], expected=expected_invocation
+    )
+    ARTIFACTS.require_clean_reviewed_checkout(
+        ARTIFACTS._REPO_ROOT, preflight.record["reviewed_commit_sha"]
+    )
+    if preflight.attempt.destination.exists() or preflight.attempt.staging_path.exists():
+        raise FileExistsError("resolution destination or staging already exists")
     ARTIFACTS.reserve_resolution_staging(preflight)
 
     planner_calls: list[dict[str, object]] = []

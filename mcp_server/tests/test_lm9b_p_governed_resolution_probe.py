@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import base64
-import importlib.util
 import json
 import shutil
 import subprocess
@@ -16,6 +15,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
+MCP_SRC = ROOT / "mcp_server" / "src"
+for entry in (SCRIPTS, MCP_SRC):
+    if str(entry) not in sys.path:
+        sys.path.insert(0, str(entry))
 HISTORICAL_SOURCE = Path(
     r"C:\Users\bring\rook-lm9b-p-attempts\2026-07-22-visibility-intervention"
 )
@@ -51,28 +54,18 @@ EVALUATION_RUBRIC = (
 )
 
 
-def _load_script(name: str):
-    path = SCRIPTS / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-PLANNER_SUPPORT = _load_script("lm9b_p_planner_recipe_transfer_support")
-PLANNER_ARTIFACTS = _load_script("lm9b_p_planner_recipe_transfer_artifacts")
-CONT_ARTIFACTS = _load_script("lm9b_p_evaluator_only_continuation_artifacts")
-TYPED_VALUES = _load_script("lm9_semantic_typed_values")
-CARRIER = _load_script("lm9_typed_fact_carrier_artifacts")
-QUALIFICATION = _load_script("lm9_typed_fact_carrier_qualification")
-READINESS = _load_script("lm9b_p_readiness_contract")
-RESOLUTION_SUPPORT = _load_script("lm9b_p_governed_resolution_support")
-RESOLUTION_ARTIFACTS = _load_script("lm9b_p_governed_resolution_artifacts")
-RESOLUTION_PROBE = _load_script("lm9b_p_governed_resolution_probe")
-COMPILER_SUPPORT = _load_script("lm9b_c_compiler_sufficiency_support")
-COMPILER_PROBE = _load_script("lm9b_c_compiler_sufficiency_probe")
+import lm9_semantic_typed_values as TYPED_VALUES
+import lm9_typed_fact_carrier_artifacts as CARRIER
+import lm9_typed_fact_carrier_qualification as QUALIFICATION
+import lm9b_c_compiler_sufficiency_probe as COMPILER_PROBE
+import lm9b_c_compiler_sufficiency_support as COMPILER_SUPPORT
+import lm9b_p_evaluator_only_continuation_artifacts as CONT_ARTIFACTS
+import lm9b_p_governed_resolution_artifacts as RESOLUTION_ARTIFACTS
+import lm9b_p_governed_resolution_probe as RESOLUTION_PROBE
+import lm9b_p_governed_resolution_support as RESOLUTION_SUPPORT
+import lm9b_p_planner_recipe_transfer_artifacts as PLANNER_ARTIFACTS
+import lm9b_p_planner_recipe_transfer_support as PLANNER_SUPPORT
+import lm9b_p_readiness_contract as READINESS
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -205,43 +198,73 @@ def _fresh_readiness(head_sha: str):
     return record, manifest, route
 
 
+def _invocation(preflight, readiness_record):
+    return RESOLUTION_ARTIFACTS.build_resolution_invocation_binding(
+        supplied_preflight_fingerprint=preflight.preflight_fingerprint,
+        transmit=True,
+        reviewed_commit_sha=preflight.record["reviewed_commit_sha"],
+        readiness_identity=readiness_record["record_fingerprint"],
+        attempt_id=preflight.attempt.attempt_id,
+        attempt_fingerprint=preflight.attempt.attempt_fingerprint,
+    )
+
+
+def _task2_preflight(tmp_path: Path):
+    sources = RESOLUTION_ARTIFACTS.load_verified_resolution_sources(
+        historical_source_dir=HISTORICAL_SOURCE,
+        derivative_archive=DERIVATIVE_ARCHIVE,
+        derivative_identity=DERIVATIVE_IDENTITY,
+        carrier_qualification_archive=CARRIER_QUALIFICATION,
+        carrier_qualification_identity=CARRIER_QUALIFICATION_IDENTITY,
+        repo_root=ROOT,
+        successor_envelope_path=CARRIER.RADIAL_FIXTURE_PATH,
+    )
+    instrument = RESOLUTION_ARTIFACTS.assemble_resolution_instrument(
+        sources=sources,
+        isolation_policy_path=ISOLATION_POLICY,
+        evaluation_rubric_path=EVALUATION_RUBRIC,
+    )
+    root = tmp_path / "resolution-root"
+    root.mkdir()
+    attempt = RESOLUTION_ARTIFACTS.bind_resolution_attempt(
+        instrument=instrument,
+        attempt_id="task2-precontact",
+        resolution_root=root,
+        destination=root / "task2-precontact",
+    )
+    return RESOLUTION_ARTIFACTS.write_resolution_preflight(
+        destination=tmp_path / "preflight",
+        instrument=instrument,
+        attempt_binding=attempt,
+    )
+
+
 def _boom(*_args: object, **_kwargs: object) -> object:
     raise AssertionError("compiler entry was reached")
 
 
 def _verified_resolution_inputs():
-    head_sha = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    source = CONT_ARTIFACTS.verify_historical_source()
-    derivative = CONT_ARTIFACTS.verify_sealed_derivative_archive(
-        DERIVATIVE_ARCHIVE,
-        expected_derivative_identity=DERIVATIVE_IDENTITY,
-    )
-    compatibility = (
-        RESOLUTION_ARTIFACTS.verify_historical_carrier_qualification_compatibility(
-            archive_dir=CARRIER_QUALIFICATION,
-            expected_identity=CARRIER_QUALIFICATION_IDENTITY,
-            repo_root=ROOT,
-            consuming_commit_sha=head_sha,
-        )
+    sources = RESOLUTION_ARTIFACTS.load_verified_resolution_sources(
+        historical_source_dir=HISTORICAL_SOURCE,
+        derivative_archive=DERIVATIVE_ARCHIVE,
+        derivative_identity=DERIVATIVE_IDENTITY,
+        carrier_qualification_archive=CARRIER_QUALIFICATION,
+        carrier_qualification_identity=CARRIER_QUALIFICATION_IDENTITY,
+        repo_root=ROOT,
+        successor_envelope_path=CARRIER.RADIAL_FIXTURE_PATH,
     )
     inputs = RESOLUTION_SUPPORT.assemble_verified_resolution_inputs(
-        historical_source=source,
-        parent_derivative=derivative,
-        carrier_qualification=compatibility,
-        successor_envelope_bytes=CARRIER.RADIAL_FIXTURE_PATH.read_bytes(),
-        payload_schema_bytes=CARRIER.PAYLOAD_SCHEMA_PATH.read_bytes(),
-        semantic_registry_bytes=CARRIER.REGISTRY_PATH.read_bytes(),
+        sources=sources,
         isolation_policy_bytes=ISOLATION_POLICY.read_bytes(),
         evaluation_rubric_bytes=EVALUATION_RUBRIC.read_bytes(),
-        reviewed_commit_sha=head_sha,
     )
-    return head_sha, source, derivative, compatibility, inputs
+    return (
+        sources.reviewed_commit_sha,
+        sources.historical_source,
+        sources.parent_derivative,
+        sources.carrier_qualification,
+        inputs,
+    )
 
 
 def _reclose_recipe(value: dict[str, object], inputs: object) -> bytes:
@@ -292,6 +315,38 @@ def _reclose_task1_checkpoint(archive: Path) -> str:
     }
     (archive / "checksums.json").write_bytes(_canonical_bytes(checksums))
     return identity
+
+
+def _reclose_preflight(preflight, mutate) -> object:
+    record_path = preflight.archive_dir / "record.json"
+    record = json.loads(record_path.read_bytes())
+    mutate(record)
+    record["preflight_fingerprint"] = PLANNER_SUPPORT.fingerprint_without(
+        record, "preflight_fingerprint"
+    )
+    record_path.write_bytes(_canonical_bytes(record))
+    raw_members = {
+        "record.json": record_path.read_bytes(),
+        "initial-request.json": (
+            preflight.archive_dir / "initial-request.json"
+        ).read_bytes(),
+    }
+    checksums = {
+        "schema": "rook.lm9b_p.governed_resolution_preflight_checksums:v1",
+        "members": [
+            {
+                "path": name,
+                "raw_sha256": PLANNER_SUPPORT.sha256_prefixed(raw),
+            }
+            for name, raw in sorted(raw_members.items())
+        ],
+    }
+    (preflight.archive_dir / "checksums.json").write_bytes(
+        _canonical_bytes(checksums)
+    )
+    return replace(
+        preflight, preflight_fingerprint=record["preflight_fingerprint"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -378,27 +433,27 @@ def test_task1_revision_renderer_keeps_descriptor_reachability_generic() -> None
     )
 
 
-def test_task1_assembler_rejects_forged_qualification_carrier() -> None:
-    head, source, derivative, compatibility, _inputs = _verified_resolution_inputs()
-    duck_typed = SimpleNamespace(
-        consuming_commit_sha=compatibility.consuming_commit_sha,
-        historical_qualification_identity=(
-            compatibility.historical_qualification_identity
-        ),
-        compatibility_fingerprint=compatibility.compatibility_fingerprint,
+def test_task1_assembler_rejects_forged_resolution_source_carrier() -> None:
+    sources = RESOLUTION_ARTIFACTS.load_verified_resolution_sources(
+        historical_source_dir=HISTORICAL_SOURCE,
+        derivative_archive=DERIVATIVE_ARCHIVE,
+        derivative_identity=DERIVATIVE_IDENTITY,
+        carrier_qualification_archive=CARRIER_QUALIFICATION,
+        carrier_qualification_identity=CARRIER_QUALIFICATION_IDENTITY,
+        repo_root=ROOT,
+        successor_envelope_path=CARRIER.RADIAL_FIXTURE_PATH,
     )
-    for forged in (replace(compatibility), duck_typed):
+    duck_typed = SimpleNamespace(
+        exact_successor_bytes=sources.exact_successor_bytes,
+        exact_contract_bytes=sources.exact_contract_bytes,
+        reviewed_commit_sha=sources.reviewed_commit_sha,
+    )
+    for forged in (replace(sources), duck_typed):
         with pytest.raises((TypeError, ValueError), match="closure-issued"):
             RESOLUTION_SUPPORT.assemble_verified_resolution_inputs(
-                historical_source=source,
-                parent_derivative=derivative,
-                carrier_qualification=forged,
-                successor_envelope_bytes=CARRIER.RADIAL_FIXTURE_PATH.read_bytes(),
-                payload_schema_bytes=CARRIER.PAYLOAD_SCHEMA_PATH.read_bytes(),
-                semantic_registry_bytes=CARRIER.REGISTRY_PATH.read_bytes(),
+                sources=forged,
                 isolation_policy_bytes=ISOLATION_POLICY.read_bytes(),
                 evaluation_rubric_bytes=EVALUATION_RUBRIC.read_bytes(),
-                reviewed_commit_sha=head,
             )
 
 
@@ -417,34 +472,24 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         capture_output=True,
         text=True,
     ).stdout.strip()
-    source = CONT_ARTIFACTS.verify_historical_source()
-    derivative = CONT_ARTIFACTS.verify_sealed_derivative_archive(
-        DERIVATIVE_ARCHIVE,
-        expected_derivative_identity=DERIVATIVE_IDENTITY,
+    sources = RESOLUTION_ARTIFACTS.load_verified_resolution_sources(
+        historical_source_dir=HISTORICAL_SOURCE,
+        derivative_archive=DERIVATIVE_ARCHIVE,
+        derivative_identity=DERIVATIVE_IDENTITY,
+        carrier_qualification_archive=CARRIER_QUALIFICATION,
+        carrier_qualification_identity=CARRIER_QUALIFICATION_IDENTITY,
+        repo_root=ROOT,
+        successor_envelope_path=CARRIER.RADIAL_FIXTURE_PATH,
     )
-    compatibility = (
-        RESOLUTION_ARTIFACTS.verify_historical_carrier_qualification_compatibility(
-            archive_dir=CARRIER_QUALIFICATION,
-            expected_identity=CARRIER_QUALIFICATION_IDENTITY,
-            repo_root=ROOT,
-            consuming_commit_sha=head_sha,
-        )
-    )
+    compatibility = sources.carrier_qualification
     assert compatibility.historical_commit_sha == CARRIER_COMMIT
     assert compatibility.consuming_commit_sha == head_sha
 
-    inputs = RESOLUTION_SUPPORT.assemble_verified_resolution_inputs(
-        historical_source=source,
-        parent_derivative=derivative,
-        carrier_qualification=compatibility,
-        successor_envelope_bytes=CARRIER.RADIAL_FIXTURE_PATH.read_bytes(),
-        payload_schema_bytes=CARRIER.PAYLOAD_SCHEMA_PATH.read_bytes(),
-        semantic_registry_bytes=CARRIER.REGISTRY_PATH.read_bytes(),
-        isolation_policy_bytes=ISOLATION_POLICY.read_bytes(),
-        evaluation_rubric_bytes=EVALUATION_RUBRIC.read_bytes(),
-        reviewed_commit_sha=head_sha,
+    instrument = RESOLUTION_ARTIFACTS.assemble_resolution_instrument(
+        sources=sources,
+        isolation_policy_path=ISOLATION_POLICY,
+        evaluation_rubric_path=EVALUATION_RUBRIC,
     )
-    instrument = RESOLUTION_ARTIFACTS.assemble_task1_resolution_instrument(inputs)
     resolution_root = tmp_path / "resolution-root"
     resolution_root.mkdir()
     attempt = RESOLUTION_ARTIFACTS.bind_resolution_attempt(
@@ -473,6 +518,9 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
     } & set(ready_contract)
 
     readiness_record, readiness_manifest, route = _fresh_readiness(head_sha)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
     planner = _FakeProvider(
         [
             _planner_turn(recipe_bytes=b"{}", call_id="planner-1"),
@@ -489,6 +537,7 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
     )
     result = RESOLUTION_PROBE.run_resolution_attempt(
         preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness_record),
         readiness_record=readiness_record,
         readiness_manifest=readiness_manifest,
         head_sha=head_sha,
@@ -587,3 +636,192 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
             evaluator_tamper,
             expected_identity=evaluator_tamper_identity,
         )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "stale",
+        "missing_route",
+        "extra_role",
+        "wrong_model",
+        "wrong_route",
+        "wrong_canary_protocol",
+        "wrong_manifest",
+        "wrong_commit",
+        "missing_credential",
+        "invocation_fingerprint",
+        "dirty_checkout",
+    ),
+)
+def test_task2_precontact_refusal_has_zero_dispatch(
+    mutation: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    record, manifest, route = _fresh_readiness(head_sha)
+    now_iso = "2026-07-25T20:00:06Z"
+    credential_present = {route.route_fingerprint: True}
+    if mutation == "stale":
+        now_iso = "2026-07-25T21:00:06Z"
+    elif mutation == "missing_route":
+        record["routes"] = []
+    elif mutation == "extra_role":
+        record["routes"][0]["member_roles"].append("compiler")
+    elif mutation == "wrong_model":
+        changed_route = replace(route, model="gpt-5.3")
+        manifest = READINESS.RouteManifest(
+            routes=(changed_route,),
+            manifest_fingerprint=READINESS.canonical_fingerprint(
+                [changed_route.route_fingerprint]
+            ),
+        )
+    elif mutation == "wrong_route":
+        record["routes"][0]["route_fingerprint"] = "sha256:" + "9" * 64
+    elif mutation == "wrong_canary_protocol":
+        record["canary_protocol_fingerprint"] = "sha256:" + "8" * 64
+    elif mutation == "wrong_manifest":
+        record["route_manifest_fingerprint"] = "sha256:" + "7" * 64
+    elif mutation == "wrong_commit":
+        record["reviewed_commit_sha"] = "0" * 40
+    elif mutation == "missing_credential":
+        credential_present[route.route_fingerprint] = False
+    if mutation in {
+        "missing_route",
+        "extra_role",
+        "wrong_route",
+        "wrong_canary_protocol",
+        "wrong_manifest",
+        "wrong_commit",
+    }:
+        record["record_fingerprint"] = READINESS.record_fingerprint(record)
+    invocation = _invocation(preflight, record)
+    if mutation == "invocation_fingerprint":
+        invocation = dict(invocation)
+        invocation["attempt_id"] = "other-attempt"
+    if mutation == "dirty_checkout":
+        monkeypatch.setattr(
+            RESOLUTION_ARTIFACTS,
+            "require_clean_reviewed_checkout",
+            lambda *_a: (_ for _ in ()).throw(ValueError("reviewed checkout is dirty")),
+            raising=False,
+        )
+    else:
+        monkeypatch.setattr(
+            RESOLUTION_ARTIFACTS,
+            "require_clean_reviewed_checkout",
+            lambda *_a: None,
+            raising=False,
+        )
+    calls = {"planner": 0, "planner_evaluator": 0}
+
+    def planner_provider(_request: object) -> object:
+        calls["planner"] += 1
+        raise AssertionError("Planner was dispatched")
+
+    def evaluator_provider(_request: object) -> object:
+        calls["planner_evaluator"] += 1
+        raise AssertionError("evaluator was dispatched")
+
+    expected_error = (
+        "invocation" if mutation == "invocation_fingerprint" else
+        "dirty" if mutation == "dirty_checkout" else
+        "readiness"
+    )
+    with pytest.raises((TypeError, ValueError), match=expected_error):
+        RESOLUTION_PROBE.run_resolution_attempt(
+            preflight=preflight,
+            invocation_binding=invocation,
+            readiness_record=record,
+            readiness_manifest=manifest,
+            head_sha=head_sha,
+            now_iso=now_iso,
+            credential_present=credential_present,
+            planner_provider=planner_provider,
+            evaluator_provider=evaluator_provider,
+        )
+    assert calls == {"planner": 0, "planner_evaluator": 0}
+    assert not preflight.attempt.staging_path.exists()
+    assert not preflight.attempt.destination.exists()
+    assert not list(preflight.attempt.resolution_root.glob("**/dispatch_started*"))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "execution_wrong_commit",
+        "altered_preflight",
+        "altered_qualification_identity",
+        "altered_contract_manifest",
+        "destination_exists",
+        "staging_exists",
+    ),
+)
+def test_task2_precontact_identity_or_destination_refusal_has_zero_dispatch(
+    mutation: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    record, manifest, route = _fresh_readiness(head_sha)
+    if mutation == "altered_preflight":
+        preflight = _reclose_preflight(
+            preflight,
+            lambda value: value.__setitem__(
+                "carrier_compatibility_fingerprint", "sha256:" + "1" * 64
+            ),
+        )
+    elif mutation == "altered_qualification_identity":
+        preflight = _reclose_preflight(
+            preflight,
+            lambda value: value.__setitem__(
+                "historical_qualification_identity", "sha256:" + "2" * 64
+            ),
+        )
+    elif mutation == "altered_contract_manifest":
+        def mutate_contract(value: dict[str, object]) -> None:
+            value["instrument_contracts"]["decision"][
+                "classifier_contract_id"
+            ] = "lm9b_p.evaluated_recipe_classification:altered"
+            value["instrument_fingerprint"] = PLANNER_SUPPORT.fingerprint(
+                value["instrument_contracts"]
+            )
+
+        preflight = _reclose_preflight(preflight, mutate_contract)
+    elif mutation == "destination_exists":
+        preflight.attempt.destination.mkdir()
+    elif mutation == "staging_exists":
+        preflight.attempt.staging_path.mkdir()
+    invocation = _invocation(preflight, record)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS,
+        "require_clean_reviewed_checkout",
+        lambda *_a: None,
+    )
+    calls = {"planner": 0, "planner_evaluator": 0}
+
+    def planner_provider(_request: object) -> object:
+        calls["planner"] += 1
+        raise AssertionError("Planner was dispatched")
+
+    def evaluator_provider(_request: object) -> object:
+        calls["planner_evaluator"] += 1
+        raise AssertionError("evaluator was dispatched")
+
+    with pytest.raises((TypeError, ValueError, FileExistsError)):
+        RESOLUTION_PROBE.run_resolution_attempt(
+            preflight=preflight,
+            invocation_binding=invocation,
+            readiness_record=record,
+            readiness_manifest=manifest,
+            head_sha=("0" * 40 if mutation == "execution_wrong_commit" else head_sha),
+            now_iso="2026-07-25T20:00:06Z",
+            credential_present={route.route_fingerprint: True},
+            planner_provider=planner_provider,
+            evaluator_provider=evaluator_provider,
+        )
+    assert calls == {"planner": 0, "planner_evaluator": 0}
+    assert not list(preflight.attempt.resolution_root.glob("**/dispatch_started*"))

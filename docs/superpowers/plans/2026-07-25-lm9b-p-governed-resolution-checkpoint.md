@@ -586,7 +586,7 @@ Task 2 until explicitly approved.
   - `verify_resolution_preflight(archive_dir, *, expected_fingerprint) -> VerifiedResolutionPreflight`
   - exact closed instrument-contract manifest.
 
-- [ ] **Step 1: Write the source/authority mutation table before hardening**
+- [x] **Step 1: Write the source/authority mutation table before hardening**
 
 Parameterize fully reclosed mutations for:
 
@@ -619,7 +619,7 @@ Each mutation must reclose the successor envelope, binding fingerprints,
 carrier fingerprints, and authored downstream identities before expecting
 refusal from the authoritative parent/successor equation.
 
-- [ ] **Step 2: Run the authority table and verify red cases expose missing equations**
+- [x] **Step 2: Run the authority table and verify red cases expose missing equations**
 
 Run:
 
@@ -632,7 +632,7 @@ Run:
 Expected: at least one reclosed mutation is incorrectly accepted by the thin
 Task-1 implementation.
 
-- [ ] **Step 3: Implement physical loading and pure assembly separation**
+- [x] **Step 3: Implement physical loading and pure assembly separation**
 
 Define:
 
@@ -686,7 +686,7 @@ reconstruction, partition, and exact migration. Derive the value-free map from
 parent unresolved rows and successor bindings without values or typed-value
 fingerprints.
 
-- [ ] **Step 4: Implement closed semantic-authority and carrier-instrument composition**
+- [x] **Step 4: Implement closed semantic-authority and carrier-instrument composition**
 
 Build the current gate authority from:
 
@@ -710,7 +710,7 @@ the existing mechanical gate sees the composed authority.
 
 Do not modify `evaluate_mechanical_gate()`.
 
-- [ ] **Step 5: Implement the complete instrument-contract manifest**
+- [x] **Step 5: Implement the complete instrument-contract manifest**
 
 Create a closed mapping with exact IDs and source-derived fingerprints for:
 
@@ -742,7 +742,7 @@ and reconstruction equations. The preflight must contain no future proof
 instance, instance fingerprint, checkpoint identity, or eligible recipe
 identity; add a test that rejects any such response-dependent field.
 
-- [ ] **Step 6: Write preflight and attempt-binding red tests**
+- [x] **Step 6: Write preflight and attempt-binding red tests**
 
 Add exact cases:
 
@@ -767,7 +767,7 @@ PRECONTACT_REFUSALS = (
 Every case asserts Planner/evaluator counters remain zero and no
 `dispatch_started` marker exists.
 
-- [ ] **Step 7: Implement preflight, path validation, and atomic reservation**
+- [x] **Step 7: Implement preflight, path validation, and atomic reservation**
 
 Use the exact attempt grammar:
 
@@ -795,13 +795,13 @@ with renewed explicit invocation, fresh readiness, exact unchanged inputs, and
 no destination or staging residue. There is no automatic readiness retry. The
 first durable dispatch marker permanently consumes both identities.
 
-- [ ] **Step 8: Add readiness drift/refusal coverage**
+- [x] **Step 8: Add readiness drift/refusal coverage**
 
 Use the existing verifier for stale, missing, extra-role, wrong-model,
 wrong-route, wrong-canary-protocol, wrong-manifest, wrong-commit, and missing
 credential-presence rows. Do not modify readiness protocol code.
 
-- [ ] **Step 9: Run Task-2 focused suites**
+- [x] **Step 9: Run Task-2 focused suites**
 
 Run:
 
@@ -814,7 +814,7 @@ Run:
 
 Expected: PASS with all pre-dispatch cases proving zero dispatch.
 
-- [ ] **Step 10: Commit Task 2**
+- [x] **Step 10: Commit Task 2**
 
 ```powershell
 git add scripts/lm9b_p_governed_resolution_support.py `

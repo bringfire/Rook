@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import base64
+import inspect
 import json
 import re
+import stat
 import subprocess
 import sys
 import weakref
@@ -57,21 +59,37 @@ EVALUATION_RUBRIC_PATH = (
 PREFLIGHT_SCHEMA_ID = "rook.lm9b_p.governed_resolution_preflight:v1"
 CHECKPOINT_SCHEMA_ID = "rook.lm9b_p.governed_resolution_checkpoint:v1"
 ATTEMPT_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
-READY_PROOF_CONTRACT = MappingProxyType(
+ATTEMPT_ID_MAX_LENGTH = 64
+INVOCATION_SCHEMA_ID = "rook.lm9b_p.governed_resolution_invocation_binding:v1"
+_READY_PROOF_VALUE = {
+    "contract_id": "lm9b_p.governed_resolution_ready_proof:v1",
+    "closed_fields": [
+        "checkpoint_identity",
+        "exact_recipe_bytes",
+        "recipe_fingerprint",
+        "successor_authority_records",
+        "mechanical_gate_fingerprint",
+        "isolation_result_fingerprint",
+    ],
+    "issuance_predicate": (
+        "publicly reconstructed probe_candidate_ready checkpoint only"
+    ),
+    "reconstruction": "rerun public checkpoint verifier at bound destination",
+}
+_READY_PROOF_VALUE["contract_fingerprint"] = PLANNER_SUPPORT.fingerprint(
+    _READY_PROOF_VALUE
+)
+READY_PROOF_CONTRACT = MappingProxyType(_READY_PROOF_VALUE)
+CONTRACT_IDS = MappingProxyType(
     {
-        "contract_id": "lm9b_p.governed_resolution_ready_proof:v1",
-        "closed_fields": [
-            "checkpoint_identity",
-            "exact_recipe_bytes",
-            "recipe_fingerprint",
-            "successor_authority_records",
-            "mechanical_gate_fingerprint",
-            "isolation_result_fingerprint",
-        ],
-        "issuance_predicate": (
-            "publicly reconstructed probe_candidate_ready checkpoint only"
-        ),
-        "reconstruction": "rerun public checkpoint verifier at bound destination",
+        "blocker_projection": "lm9b_p.explicit_blocker_projection:v1",
+        "classifier": "lm9b_p.evaluated_recipe_classification:v1",
+        "outcome_equations": "lm9b_p.governed_resolution_outcome_equations:v1",
+        "archive_seal": "lm9b_p.governed_resolution_archive_seal:v1",
+        "public_verifier": "lm9b_p.governed_resolution_public_verifier:v1",
+        "ready_proof": "lm9b_p.governed_resolution_ready_proof:v1",
+        "readiness_schema": READINESS.SCHEMA_ID,
+        "readiness_verifier": "lm9b_p.readiness_launch_verifier:v1",
     }
 )
 _PREFLIGHT_MEMBERS = frozenset(
@@ -99,6 +117,16 @@ class ResolutionInstrument:
     initial_request: SUPPORT.RenderedRevisionRequest
     contract_manifest: Mapping[str, object]
     instrument_fingerprint: str
+
+
+@dataclass(frozen=True, eq=False)
+class VerifiedResolutionSources:
+    historical_source: CONT_ARTIFACTS.VerifiedHistoricalSource
+    parent_derivative: CONT_ARTIFACTS.SealedDerivative
+    carrier_qualification: VerifiedCarrierQualificationCompatibility
+    exact_successor_bytes: bytes
+    exact_contract_bytes: Mapping[str, bytes]
+    reviewed_commit_sha: str
 
 
 @dataclass(frozen=True, eq=False)
@@ -139,44 +167,450 @@ class SealedResolutionCheckpoint:
     state: str = "sealed"
 
 
+def _load_verified_resolution_sources_unsealed(
+    **_kwargs: object,
+) -> tuple[VerifiedResolutionSources, Mapping[str, object]]:
+    required = {
+        "historical_source_dir",
+        "derivative_archive",
+        "derivative_identity",
+        "carrier_qualification_archive",
+        "carrier_qualification_identity",
+        "repo_root",
+        "successor_envelope_path",
+    }
+    if set(_kwargs) != required:
+        raise ValueError("resolution source set is incomplete or contains extras")
+    historical_dir = Path(_kwargs["historical_source_dir"]).resolve()
+    derivative_archive = Path(_kwargs["derivative_archive"]).resolve()
+    qualification_archive = Path(
+        _kwargs["carrier_qualification_archive"]
+    ).resolve()
+    repo_root = Path(_kwargs["repo_root"]).resolve()
+    successor_path = Path(_kwargs["successor_envelope_path"]).resolve()
+    if historical_dir != CONT_ARTIFACTS.PRODUCTION_SOURCE_PINS.source_root.resolve():
+        raise ValueError("historical source location differs from production pin")
+    if successor_path != SUCCESSOR_ENVELOPE_PATH.resolve():
+        raise ValueError("successor envelope location differs from reviewed fixture")
+    reviewed_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    _require_reviewed_file(
+        repo_root, successor_path, reviewed_commit, label="successor envelope"
+    )
+    _require_reviewed_file(
+        repo_root,
+        CARRIER.PAYLOAD_SCHEMA_PATH.resolve(),
+        reviewed_commit,
+        label="forward payload schema",
+    )
+    _require_reviewed_file(
+        repo_root,
+        CARRIER.REGISTRY_PATH.resolve(),
+        reviewed_commit,
+        label="semantic value registry",
+    )
+    source = CONT_ARTIFACTS.verify_historical_source()
+    if source.source_root.resolve() != historical_dir:
+        raise ValueError("historical verifier returned a different source")
+    derivative = CONT_ARTIFACTS.verify_sealed_derivative_archive(
+        derivative_archive,
+        expected_derivative_identity=_kwargs["derivative_identity"],
+    )
+    qualification = verify_historical_carrier_qualification_compatibility(
+        archive_dir=qualification_archive,
+        expected_identity=_kwargs["carrier_qualification_identity"],
+        repo_root=repo_root,
+        consuming_commit_sha=reviewed_commit,
+    )
+    successor_raw = successor_path.read_bytes()
+    contract_bytes = MappingProxyType(
+        {
+            "forward_payload_schema": CARRIER.PAYLOAD_SCHEMA_PATH.read_bytes(),
+            "semantic_value_registry": CARRIER.REGISTRY_PATH.read_bytes(),
+        }
+    )
+    runtime = TYPED_VALUES.current_runtime_identity()
+    registry = CARRIER._verified_registry(
+        contract_bytes["semantic_value_registry"], runtime
+    )
+    records = {record.role: record for record in source.input_records}
+    attempt_context = records["attempt_context"].value
+    environment = records["authority.environment_snapshot"].value
+    if not isinstance(attempt_context, Mapping) or not isinstance(
+        environment, Mapping
+    ):
+        raise ValueError("historical authority records are invalid")
+    issuer = environment.get("issuer")
+    if not isinstance(issuer, Mapping):
+        raise ValueError("historical environment issuer is invalid")
+    unit_context_index = TYPED_VALUES.derive_verified_unit_context_index(
+        environment_artifact_bytes=records[
+            "authority.environment_snapshot"
+        ].raw_bytes,
+        environment_payload_schema_bytes=CARRIER._environment_payload_schema_bytes(
+            records
+        ),
+        attempt_context_bytes=records["attempt_context"].raw_bytes,
+        expected_artifact_fingerprint=environment["artifact_fingerprint"],
+        expected_issuer_id=issuer["authority_id"],
+        expected_environment_session_id=attempt_context["environment_session_id"],
+        expected_task_session_id=attempt_context["task_session_id"],
+        evaluated_at=attempt_context["evaluated_at"],
+    )
+    successor = CARRIER.validate_forward_task_envelope(
+        successor_raw,
+        payload_schema_raw_bytes=contract_bytes["forward_payload_schema"],
+        registry_raw_bytes=contract_bytes["semantic_value_registry"],
+        unit_context_index=unit_context_index,
+        runtime=runtime,
+    )
+    parent_recipe = TYPED_VALUES.parse_strict_json(
+        source.final_recipe_bytes, label="blocked parent recipe"
+    )
+    if type(parent_recipe) is not dict:
+        raise ValueError("blocked parent recipe must be an object")
+    parent_values = CARRIER.reconstruct_observed_historical_task_values(
+        source,
+        registry=registry,
+        unit_context_index=unit_context_index,
+    )
+    parent_bindings = CARRIER.historical_task_bindings(source)
+    partition = CARRIER.derive_authority_partition(
+        parent_values=parent_values,
+        parent_bindings=parent_bindings,
+        successor=successor,
+        parent_recipe=parent_recipe,
+    )
+    migration = CARRIER.verify_exact_migration(
+        parent_values=parent_values,
+        parent_bindings=parent_bindings,
+        successor=successor,
+        partition=partition,
+    )
+    carrier = VerifiedResolutionSources(
+        historical_source=source,
+        parent_derivative=derivative,
+        carrier_qualification=qualification,
+        exact_successor_bytes=successor_raw,
+        exact_contract_bytes=contract_bytes,
+        reviewed_commit_sha=reviewed_commit,
+    )
+    projection = MappingProxyType(
+        {
+            "historical_source": source,
+            "parent_derivative": derivative,
+            "carrier_qualification": qualification,
+            "runtime": runtime,
+            "registry": registry,
+            "unit_context_index": unit_context_index,
+            "successor": successor,
+            "parent_recipe": MappingProxyType(parent_recipe),
+            "parent_values": parent_values,
+            "parent_bindings": parent_bindings,
+            "partition": partition,
+            "migration": tuple(migration),
+        }
+    )
+    return carrier, projection
+
+
+def _seal_resolution_source_loader(loader):
+    issued: weakref.WeakKeyDictionary[
+        VerifiedResolutionSources, Mapping[str, object]
+    ] = weakref.WeakKeyDictionary()
+
+    def load_and_issue(**kwargs: object) -> VerifiedResolutionSources:
+        result, projection = loader(**kwargs)
+        if type(result) is not VerifiedResolutionSources:
+            raise TypeError("resolution source loader returned the wrong carrier")
+        issued[result] = MappingProxyType(
+            {
+                "snapshot": _resolution_sources_snapshot(result),
+                "projection": projection,
+            }
+        )
+        return result
+
+    def consume(value: object) -> Mapping[str, object]:
+        if type(value) is not VerifiedResolutionSources:
+            raise TypeError("closure-issued resolution sources are required")
+        retained = issued.get(value)
+        if (
+            retained is None
+            or retained["snapshot"] != _resolution_sources_snapshot(value)
+        ):
+            raise ValueError("resolution sources are not closure-issued")
+        return retained["projection"]
+
+    return load_and_issue, consume
+
+
+def _resolution_sources_snapshot(value: VerifiedResolutionSources) -> dict[str, object]:
+    return {
+        "historical_source_identity": dict(value.historical_source.identity_value),
+        "parent_derivative_identity": value.parent_derivative.derivative_archive_identity,
+        "carrier_compatibility_fingerprint": (
+            value.carrier_qualification.compatibility_fingerprint
+        ),
+        "successor_raw_sha256": _sha256(value.exact_successor_bytes),
+        "contract_raw_sha256": {
+            key: _sha256(raw) for key, raw in value.exact_contract_bytes.items()
+        },
+        "reviewed_commit_sha": value.reviewed_commit_sha,
+    }
+
+
+load_verified_resolution_sources, consume_verified_resolution_sources = (
+    _seal_resolution_source_loader(_load_verified_resolution_sources_unsealed)
+)
+
+
+def assemble_resolution_instrument(**_kwargs: object) -> ResolutionInstrument:
+    if set(_kwargs) != {
+        "sources",
+        "isolation_policy_path",
+        "evaluation_rubric_path",
+    }:
+        raise ValueError("resolution instrument inputs are incomplete or contain extras")
+    sources = _kwargs["sources"]
+    consume_verified_resolution_sources(sources)
+    policy_path = Path(_kwargs["isolation_policy_path"]).resolve()
+    rubric_path = Path(_kwargs["evaluation_rubric_path"]).resolve()
+    if (
+        policy_path != ISOLATION_POLICY_PATH.resolve()
+        or rubric_path != EVALUATION_RUBRIC_PATH.resolve()
+    ):
+        raise ValueError("resolution contract path differs from reviewed source")
+    inputs = SUPPORT.assemble_verified_resolution_inputs(
+        sources=sources,
+        isolation_policy_bytes=policy_path.read_bytes(),
+        evaluation_rubric_bytes=rubric_path.read_bytes(),
+    )
+    return assemble_task1_resolution_instrument(inputs)
+
+
 def assemble_task1_resolution_instrument(
     inputs: SUPPORT.VerifiedResolutionInputs,
 ) -> ResolutionInstrument:
     if type(inputs) is not SUPPORT.VerifiedResolutionInputs:
         raise TypeError("verified resolution inputs are required")
     initial = SUPPORT.render_planner_revision_request(inputs)
-    qualification = {
-        "historical_qualification_identity": (
-            inputs.historical_qualification_identity
+    readiness_manifest = READINESS.derive_routes(
+        READINESS.role_routes_from_models(
+            {"planner": "gpt-5.4", "planner_evaluator": "gpt-5.4"}
         ),
-        "carrier_compatibility_fingerprint": (
-            inputs.carrier_compatibility_fingerprint
-        ),
+        lambda _model: "OPENAI_API_KEY",
+    )
+    outcome_table = {
+        "mechanically_rejected": "probe_mechanically_rejected",
+        "isolation_rejected": "probe_resolution_isolation_failure",
+        "semantically_unfaithful": "probe_planner_failure",
+        "semantically_faithful_without_blockers": "probe_candidate_ready",
+        "provider_or_malformed_complete_evidence": "probe_inconclusive",
+        "blocked_after_isolation": "integrity_failure_no_scientific_outcome",
     }
     manifest = {
         "schema": "rook.lm9b_p.governed_resolution_instrument_contracts:v1",
-        "inputs_fingerprint": inputs.inputs_fingerprint,
-        "revision_renderer_id": initial.renderer_id,
-        "initial_request_raw_sha256": initial.raw_sha256,
-        "isolation_policy_definition_id": inputs.policy_instance.definition_id,
-        "isolation_policy_definition_fingerprint": (
-            inputs.policy_instance.definition_fingerprint
-        ),
-        "isolation_policy_instance_fingerprint": (
-            inputs.policy_instance.instance_fingerprint
-        ),
-        "evaluation_rubric_fingerprint": inputs.evaluation_rubric[
-            "rubric_fingerprint"
-        ],
-        "planner_model": "gpt-5.4",
-        "evaluator_model": "gpt-5.4",
-        "provider_profile": "litellm.completion.tool_calling.no_parallel:v1",
-        "planner_max_calls": PLANNER_SUPPORT.PLANNER_MAX_TURNS,
-        "evaluator_max_calls": 1,
-        "compiler_max_calls": 0,
+        "historical_qualification": {
+            "identity": inputs.historical_qualification_identity,
+            "commit_sha": HISTORICAL_CARRIER_COMMIT,
+        },
+        "carrier_forward_compatibility": {
+            "fingerprint": inputs.carrier_compatibility_fingerprint,
+            "consuming_commit_sha": inputs.reviewed_commit_sha,
+        },
+        "verified_inputs": {
+            "inputs_fingerprint": inputs.inputs_fingerprint,
+            "physical_source_loader_source_fingerprint": (
+                _callable_source_fingerprint(
+                    _load_verified_resolution_sources_unsealed
+                )
+            ),
+            "carrier_compatibility_verifier_source_fingerprint": (
+                _callable_source_fingerprint(
+                    _verify_historical_carrier_qualification_compatibility_unsealed
+                )
+            ),
+            "pure_input_assembler_source_fingerprint": (
+                _callable_source_fingerprint(
+                    SUPPORT.assemble_verified_resolution_inputs
+                )
+            ),
+            "parent_recipe_raw_sha256": _sha256(inputs.parent_recipe_bytes),
+            "successor_envelope_raw_sha256": _sha256(
+                inputs.successor_envelope_bytes
+            ),
+            "successor_envelope_fingerprint": inputs.successor_envelope[
+                "artifact_fingerprint"
+            ],
+            "carrier_support_fingerprint": inputs.carrier_support_instrument[
+                "carrier_support_fingerprint"
+            ],
+            "normalization_profile_fingerprint": (
+                inputs.normalization_profile.profile_fingerprint
+            ),
+        },
+        "planner": {
+            "revision_renderer_id": initial.renderer_id,
+            "revision_renderer_source_fingerprint": _callable_source_fingerprint(
+                SUPPORT.render_planner_revision_request
+            ),
+            "initial_request_raw_sha256": initial.raw_sha256,
+            "controller_source_fingerprint": _callable_source_fingerprint(
+                PLANNER_SUPPORT.run_planner_session
+            ),
+            "provider_request_builder_source_fingerprint": (
+                _callable_source_fingerprint(
+                    PLANNER_SUPPORT.build_planner_provider_call_request
+                )
+            ),
+            "feedback_renderer_source_fingerprint": _callable_source_fingerprint(
+                PLANNER_SUPPORT.build_planner_mechanical_feedback_message
+            ),
+            "system_prompt_fingerprint": _sha256(
+                SUPPORT.REVISION_SYSTEM_PROMPT.encode("utf-8")
+            ),
+            "tool_schema_fingerprint": PLANNER_SUPPORT.fingerprint(
+                PLANNER_SUPPORT.planner_tool_definition()
+            ),
+            "mechanical_gate_source_fingerprint": _callable_source_fingerprint(
+                PLANNER_SUPPORT.evaluate_mechanical_gate
+            ),
+            "diagnostic_vocabulary_fingerprint": PLANNER_SUPPORT.fingerprint(
+                {
+                    "contract": "source_defined_planner_diagnostics:v1",
+                    "submission_parser_source": _callable_source_fingerprint(
+                        PLANNER_SUPPORT.derive_planner_submission_from_message
+                    ),
+                    "mechanical_gate_source": _callable_source_fingerprint(
+                        PLANNER_SUPPORT.evaluate_mechanical_gate
+                    ),
+                    "feedback_renderer_source": _callable_source_fingerprint(
+                        PLANNER_SUPPORT.build_planner_mechanical_feedback_message
+                    ),
+                }
+            ),
+            "model": "gpt-5.4",
+            "provider_profile": "litellm.completion.tool_calling.no_parallel:v1",
+            "temperature": None,
+            "temperature_field_present": False,
+            "max_calls": PLANNER_SUPPORT.PLANNER_MAX_TURNS,
+            "max_completion_tokens": PLANNER_SUPPORT.PLANNER_MAX_COMPLETION_TOKENS,
+            "provider_timeout_s": PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S,
+            "overall_deadline_s": PLANNER_SUPPORT.PLANNER_OVERALL_DEADLINE_S,
+            "token_stop_threshold": PLANNER_SUPPORT.PLANNER_TOKEN_STOP_THRESHOLD,
+            "cost_stop_threshold_usd": (
+                PLANNER_SUPPORT.PLANNER_COST_STOP_THRESHOLD_USD
+            ),
+        },
+        "isolation": {
+            "definition_id": inputs.policy_instance.definition_id,
+            "definition_fingerprint": inputs.policy_instance.definition_fingerprint,
+            "instance_fingerprint": inputs.policy_instance.instance_fingerprint,
+            "gate_source_fingerprint": _callable_source_fingerprint(
+                SUPPORT.evaluate_resolution_isolation
+            ),
+        },
+        "evaluator": {
+            "renderer_id": SUPPORT.REVISION_EVALUATION_RENDERER_ID,
+            "renderer_source_fingerprint": _callable_source_fingerprint(
+                SUPPORT.render_planner_revision_evaluation_request
+            ),
+            "rubric_fingerprint": inputs.evaluation_rubric["rubric_fingerprint"],
+            "report_schema_fingerprint": PLANNER_SUPPORT.fingerprint(
+                PLANNER_SUPPORT.PLANNER_EVALUATION_REPORT_SCHEMA
+            ),
+            "recommendation_meanings_fingerprint": PLANNER_SUPPORT.fingerprint(
+                PLANNER_SUPPORT.PLANNER_EVALUATION_RECOMMENDATION_MEANINGS
+            ),
+            "parser_source_fingerprint": _callable_source_fingerprint(
+                PLANNER_SUPPORT.derive_planner_evaluation_result
+            ),
+            "provider_request_builder_source_fingerprint": (
+                _callable_source_fingerprint(
+                    PLANNER_SUPPORT.build_planner_evaluator_provider_call_request
+                )
+            ),
+            "system_prompt_fingerprint": _sha256(
+                PLANNER_SUPPORT.PLANNER_EVALUATOR_SYSTEM_PROMPT.encode("utf-8")
+            ),
+            "tool_schema_fingerprint": PLANNER_SUPPORT.fingerprint(
+                PLANNER_SUPPORT.planner_evaluator_tool_definition()
+            ),
+            "model": "gpt-5.4",
+            "provider_profile": "litellm.completion.tool_calling.no_parallel:v1",
+            "temperature": None,
+            "temperature_field_present": False,
+            "max_calls": 1,
+            "max_completion_tokens": (
+                PLANNER_SUPPORT.PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS
+            ),
+            "provider_timeout_s": (
+                PLANNER_SUPPORT.PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S
+            ),
+        },
+        "decision": {
+            "blocker_projection_contract_id": CONTRACT_IDS["blocker_projection"],
+            "blocker_projection_source_fingerprint": _callable_source_fingerprint(
+                PLANNER_ARTIFACTS.derive_probe_explicit_blockers
+            ),
+            "classifier_contract_id": CONTRACT_IDS["classifier"],
+            "classifier_source_fingerprint": _callable_source_fingerprint(
+                PLANNER_ARTIFACTS.derive_evaluated_recipe_classification
+            ),
+            "outcome_equations_contract_id": CONTRACT_IDS["outcome_equations"],
+            "outcome_table": outcome_table,
+            "outcome_table_fingerprint": PLANNER_SUPPORT.fingerprint(outcome_table),
+        },
+        "readiness": {
+            "schema_id": CONTRACT_IDS["readiness_schema"],
+            "verifier_contract_id": CONTRACT_IDS["readiness_verifier"],
+            "verifier_source_fingerprint": _callable_source_fingerprint(
+                READINESS.verify_launch_readiness
+            ),
+            "canary_protocol_fingerprint": READINESS.canary_protocol_fingerprint(),
+            "route_manifest_fingerprint": readiness_manifest.manifest_fingerprint,
+            "freshness_window_s": READINESS.FROZEN_MAX_AGE_S,
+        },
+        "preflight": {
+            "schema_id": PREFLIGHT_SCHEMA_ID,
+            "closed_members": sorted(_PREFLIGHT_MEMBERS),
+            "writer_source_fingerprint": _callable_source_fingerprint(
+                write_resolution_preflight
+            ),
+            "public_verifier_source_fingerprint": _callable_source_fingerprint(
+                verify_resolution_preflight
+            ),
+            "reservation_source_fingerprint": _callable_source_fingerprint(
+                reserve_resolution_staging
+            ),
+        },
+        "archive": {
+            "seal_contract_id": CONTRACT_IDS["archive_seal"],
+            "seal_source_fingerprint": _callable_source_fingerprint(
+                seal_task1_resolution_checkpoint
+            ),
+            "public_verifier_contract_id": CONTRACT_IDS["public_verifier"],
+            "public_verifier_source_fingerprint": _callable_source_fingerprint(
+                verify_sealed_resolution_checkpoint
+            ),
+            "closed_members": sorted(_CHECKPOINT_MEMBERS),
+            "finalization_equation": "same_filesystem_no_clobber_path_rename:v1",
+        },
+        "launch_invocation": _launch_invocation_contract(),
         "ready_proof": dict(READY_PROOF_CONTRACT),
+        "role_call_budgets": {
+            "planner": PLANNER_SUPPORT.PLANNER_MAX_TURNS,
+            "planner_evaluator": 1,
+            "compiler": 0,
+        },
+        "reviewed_commit_sha": inputs.reviewed_commit_sha,
         "task1_stage": "task1_vertical_unhardened",
-        "qualification_binding": qualification,
     }
     return ResolutionInstrument(
         inputs=inputs,
@@ -426,14 +860,27 @@ def bind_resolution_attempt(
         raise TypeError("resolution instrument is required")
     if (
         type(attempt_id) is not str
-        or len(attempt_id) > 64
+        or len(attempt_id) > ATTEMPT_ID_MAX_LENGTH
         or ATTEMPT_ID_PATTERN.fullmatch(attempt_id) is None
     ):
         raise ValueError("resolution attempt ID is invalid")
-    root = Path(resolution_root).resolve()
-    final = Path(destination).resolve()
-    if not root.is_dir() or final.parent != root:
+    supplied_root = Path(resolution_root)
+    supplied_final = Path(destination)
+    if not supplied_root.is_absolute() or not supplied_final.is_absolute():
+        raise ValueError("resolution root and destination must be absolute")
+    root = supplied_root.resolve()
+    final = supplied_final.resolve()
+    if (
+        supplied_root != root
+        or supplied_final != final
+        or not root.is_dir()
+        or final.parent != root
+    ):
         raise ValueError("resolution destination must be a direct child")
+    if _path_has_reparse_ambiguity(root):
+        raise ValueError("resolution root has reparse-point ambiguity")
+    if not _paths_share_filesystem(root, final.parent):
+        raise ValueError("resolution staging and destination filesystem differ")
     staging = root / f".{attempt_id}.staging"
     if final.exists() or staging.exists():
         raise FileExistsError("resolution destination or staging already exists")
@@ -449,6 +896,90 @@ def bind_resolution_attempt(
         staging_path=staging,
         attempt_fingerprint=PLANNER_SUPPORT.fingerprint(value),
     )
+
+
+def build_resolution_invocation_binding(
+    *,
+    supplied_preflight_fingerprint: str,
+    transmit: bool,
+    reviewed_commit_sha: str,
+    readiness_identity: str,
+    attempt_id: str,
+    attempt_fingerprint: str,
+) -> Mapping[str, object]:
+    value: dict[str, object] = {
+        "schema": INVOCATION_SCHEMA_ID,
+        "supplied_preflight_fingerprint": supplied_preflight_fingerprint,
+        "transmit": transmit,
+        "reviewed_commit_sha": reviewed_commit_sha,
+        "readiness_identity": readiness_identity,
+        "attempt_id": attempt_id,
+        "attempt_fingerprint": attempt_fingerprint,
+    }
+    if (
+        type(supplied_preflight_fingerprint) is not str
+        or type(transmit) is not bool
+        or type(reviewed_commit_sha) is not str
+        or type(readiness_identity) is not str
+        or type(attempt_id) is not str
+        or type(attempt_fingerprint) is not str
+    ):
+        raise TypeError("resolution invocation fields have invalid types")
+    value["invocation_fingerprint"] = PLANNER_SUPPORT.fingerprint(value)
+    return MappingProxyType(value)
+
+
+def _launch_invocation_contract() -> dict[str, object]:
+    value: dict[str, object] = {
+        "schema_id": INVOCATION_SCHEMA_ID,
+        "closed_fields": [
+            "schema",
+            "supplied_preflight_fingerprint",
+            "transmit",
+            "reviewed_commit_sha",
+            "readiness_identity",
+            "attempt_id",
+            "attempt_fingerprint",
+            "invocation_fingerprint",
+        ],
+        "claim": "execution was invoked with these bindings only",
+        "non_claim": "does not authenticate human authorization",
+        "builder_source_fingerprint": _callable_source_fingerprint(
+            build_resolution_invocation_binding
+        ),
+        "verifier_source_fingerprint": _callable_source_fingerprint(
+            verify_resolution_invocation_binding
+        ),
+    }
+    value["contract_fingerprint"] = PLANNER_SUPPORT.fingerprint(value)
+    return value
+
+
+def verify_resolution_invocation_binding(
+    value: object, *, expected: Mapping[str, object]
+) -> Mapping[str, object]:
+    if type(value) not in {dict, MappingProxyType} or set(value) != set(expected):
+        raise ValueError("resolution invocation binding is not closed")
+    if (
+        value.get("schema") != INVOCATION_SCHEMA_ID
+        or value.get("invocation_fingerprint")
+        != PLANNER_SUPPORT.fingerprint_without(value, "invocation_fingerprint")
+        or dict(value) != dict(expected)
+    ):
+        raise ValueError("resolution invocation binding differs")
+    return MappingProxyType(dict(value))
+
+
+def _path_has_reparse_ambiguity(path: Path) -> bool:
+    try:
+        attributes = path.lstat().st_file_attributes
+    except AttributeError:
+        return path.is_symlink()
+    return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _paths_share_filesystem(left: Path, right: Path) -> bool:
+    return left.stat().st_dev == right.stat().st_dev
 
 
 def write_resolution_preflight(
@@ -511,29 +1042,12 @@ def verify_resolution_preflight(
     attempt_value = record.get("attempt")
     if type(attempt_value) is not dict:
         raise ValueError("resolution preflight attempt is invalid")
-    source = CONT_ARTIFACTS.verify_historical_source()
-    derivative = CONT_ARTIFACTS.verify_sealed_derivative_archive(
-        OFFICIAL_DERIVATIVE,
-        expected_derivative_identity=OFFICIAL_DERIVATIVE_IDENTITY,
+    sources = _load_current_resolution_sources(record["reviewed_commit_sha"])
+    instrument = assemble_resolution_instrument(
+        sources=sources,
+        isolation_policy_path=ISOLATION_POLICY_PATH,
+        evaluation_rubric_path=EVALUATION_RUBRIC_PATH,
     )
-    compatibility = verify_historical_carrier_qualification_compatibility(
-        archive_dir=HISTORICAL_CARRIER_QUALIFICATION,
-        expected_identity=HISTORICAL_CARRIER_QUALIFICATION_IDENTITY,
-        repo_root=_REPO_ROOT,
-        consuming_commit_sha=record["reviewed_commit_sha"],
-    )
-    inputs = SUPPORT.assemble_verified_resolution_inputs(
-        historical_source=source,
-        parent_derivative=derivative,
-        carrier_qualification=compatibility,
-        successor_envelope_bytes=SUCCESSOR_ENVELOPE_PATH.read_bytes(),
-        payload_schema_bytes=CARRIER.PAYLOAD_SCHEMA_PATH.read_bytes(),
-        semantic_registry_bytes=CARRIER.REGISTRY_PATH.read_bytes(),
-        isolation_policy_bytes=ISOLATION_POLICY_PATH.read_bytes(),
-        evaluation_rubric_bytes=EVALUATION_RUBRIC_PATH.read_bytes(),
-        reviewed_commit_sha=record["reviewed_commit_sha"],
-    )
-    instrument = assemble_task1_resolution_instrument(inputs)
     attempt = bind_resolution_attempt(
         instrument=instrument,
         attempt_id=attempt_value["attempt_id"],
@@ -560,6 +1074,28 @@ def reserve_resolution_staging(preflight: VerifiedResolutionPreflight) -> Path:
         raise TypeError("verified resolution preflight is required")
     preflight.attempt.staging_path.mkdir(parents=False, exist_ok=False)
     return preflight.attempt.staging_path
+
+
+def require_clean_reviewed_checkout(repo_root: Path, reviewed_commit_sha: str) -> None:
+    repo = Path(repo_root).resolve()
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if head != reviewed_commit_sha:
+        raise ValueError("reviewed checkout HEAD differs from preflight")
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if dirty:
+        raise ValueError("reviewed checkout is dirty")
 
 
 def verify_sealed_resolution_checkpoint(
@@ -636,29 +1172,13 @@ def verify_sealed_resolution_checkpoint(
     if not readiness_decision.ok:
         raise ValueError("archived readiness does not verify")
 
-    source = CONT_ARTIFACTS.verify_historical_source()
-    derivative = CONT_ARTIFACTS.verify_sealed_derivative_archive(
-        OFFICIAL_DERIVATIVE,
-        expected_derivative_identity=OFFICIAL_DERIVATIVE_IDENTITY,
+    sources = _load_current_resolution_sources(record["reviewed_commit_sha"])
+    instrument = assemble_resolution_instrument(
+        sources=sources,
+        isolation_policy_path=ISOLATION_POLICY_PATH,
+        evaluation_rubric_path=EVALUATION_RUBRIC_PATH,
     )
-    compatibility = verify_historical_carrier_qualification_compatibility(
-        archive_dir=HISTORICAL_CARRIER_QUALIFICATION,
-        expected_identity=HISTORICAL_CARRIER_QUALIFICATION_IDENTITY,
-        repo_root=_REPO_ROOT,
-        consuming_commit_sha=record["reviewed_commit_sha"],
-    )
-    inputs = SUPPORT.assemble_verified_resolution_inputs(
-        historical_source=source,
-        parent_derivative=derivative,
-        carrier_qualification=compatibility,
-        successor_envelope_bytes=SUCCESSOR_ENVELOPE_PATH.read_bytes(),
-        payload_schema_bytes=CARRIER.PAYLOAD_SCHEMA_PATH.read_bytes(),
-        semantic_registry_bytes=CARRIER.REGISTRY_PATH.read_bytes(),
-        isolation_policy_bytes=ISOLATION_POLICY_PATH.read_bytes(),
-        evaluation_rubric_bytes=EVALUATION_RUBRIC_PATH.read_bytes(),
-        reviewed_commit_sha=record["reviewed_commit_sha"],
-    )
-    instrument = assemble_task1_resolution_instrument(inputs)
+    inputs = instrument.inputs
     if instrument.instrument_fingerprint != record.get("instrument_fingerprint"):
         raise ValueError("checkpoint instrument differs from reconstruction")
 
@@ -1033,8 +1553,31 @@ def _object_bytes(raw: bytes, label: str) -> dict[str, object]:
     return value
 
 
+def _load_current_resolution_sources(
+    expected_reviewed_commit: object,
+) -> VerifiedResolutionSources:
+    if type(expected_reviewed_commit) is not str:
+        raise ValueError("reviewed commit identity is invalid")
+    sources = load_verified_resolution_sources(
+        historical_source_dir=CONT_ARTIFACTS.PRODUCTION_SOURCE_PINS.source_root,
+        derivative_archive=OFFICIAL_DERIVATIVE,
+        derivative_identity=OFFICIAL_DERIVATIVE_IDENTITY,
+        carrier_qualification_archive=HISTORICAL_CARRIER_QUALIFICATION,
+        carrier_qualification_identity=HISTORICAL_CARRIER_QUALIFICATION_IDENTITY,
+        repo_root=_REPO_ROOT,
+        successor_envelope_path=SUCCESSOR_ENVELOPE_PATH,
+    )
+    if sources.reviewed_commit_sha != expected_reviewed_commit:
+        raise ValueError("reviewed commit differs from current source carrier")
+    return sources
+
+
 def _sha256(raw: bytes) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def _callable_source_fingerprint(value: object) -> str:
+    return _sha256(inspect.getsource(value).encode("utf-8"))
 
 
 def _git_object(repo: Path, commit: str, relative_path: str) -> bytes:
@@ -1044,6 +1587,19 @@ def _git_object(repo: Path, commit: str, relative_path: str) -> bytes:
         check=True,
         capture_output=True,
     ).stdout
+
+
+def _require_reviewed_file(
+    repo: Path, path: Path, commit: str, *, label: str
+) -> None:
+    try:
+        relative = path.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"{label} is outside the reviewed checkout") from exc
+    try:
+        _require_worktree_blob(repo, relative, commit)
+    except ValueError as exc:
+        raise ValueError(f"{label} differs from its reviewed Git object") from exc
 
 
 def _require_worktree_blob(repo: Path, relative_path: str, commit: str) -> None:
@@ -1120,13 +1676,20 @@ __all__ = (
     "SealedResolutionCheckpoint",
     "VerifiedCarrierQualificationCompatibility",
     "VerifiedResolutionPreflight",
+    "VerifiedResolutionSources",
+    "assemble_resolution_instrument",
     "assemble_task1_resolution_instrument",
     "bind_resolution_attempt",
+    "build_resolution_invocation_binding",
     "consume_verified_carrier_qualification",
+    "consume_verified_resolution_sources",
+    "load_verified_resolution_sources",
     "reserve_resolution_staging",
+    "require_clean_reviewed_checkout",
     "seal_task1_resolution_checkpoint",
     "verify_historical_carrier_qualification_compatibility",
     "verify_resolution_preflight",
+    "verify_resolution_invocation_binding",
     "verify_sealed_resolution_checkpoint",
     "write_resolution_preflight",
 )
