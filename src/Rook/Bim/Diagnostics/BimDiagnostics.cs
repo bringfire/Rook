@@ -258,6 +258,7 @@ namespace Rook.Bim
 
     public static class BimDiagnostics
     {
+        private static readonly object testSessionGate = new object();
         private static readonly BimDiagnosticBootstrap bootstrap =
             new BimDiagnosticBootstrap(
                 Environment.GetEnvironmentVariable,
@@ -271,15 +272,24 @@ namespace Rook.Bim
                 typeof(BimDiagnostics).Assembly);
 
         private static BimDiagnosticSession session = bootstrap.CurrentSession;
+        private static SessionScope? testSessionTop;
 
         public static void InitializeFromEnvironment()
         {
-            try
+            lock (testSessionGate)
             {
-                Volatile.Write(ref session, bootstrap.Initialize());
-            }
-            catch (Exception)
-            {
+                if (testSessionTop != null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    Volatile.Write(ref session, bootstrap.Initialize());
+                }
+                catch (Exception)
+                {
+                }
             }
         }
 
@@ -423,31 +433,51 @@ namespace Rook.Bim
                 throw new ArgumentNullException(nameof(replacement));
             }
 
-            var previous = Interlocked.Exchange(ref session, replacement);
-            return new SessionScope(previous, replacement);
+            lock (testSessionGate)
+            {
+                var scope = new SessionScope(
+                    Volatile.Read(ref session), replacement, testSessionTop);
+                testSessionTop = scope;
+                Volatile.Write(ref session, replacement);
+                return scope;
+            }
         }
 
         private sealed class SessionScope : IDisposable
         {
-            private BimDiagnosticSession? previous;
-            private BimDiagnosticSession? replacement;
+            internal readonly BimDiagnosticSession Previous;
+            internal readonly BimDiagnosticSession Replacement;
+            internal readonly SessionScope? Parent;
+            internal bool DisposeRequested;
 
             internal SessionScope(
                 BimDiagnosticSession previous,
-                BimDiagnosticSession replacement)
+                BimDiagnosticSession replacement,
+                SessionScope? parent)
             {
-                this.previous = previous;
-                this.replacement = replacement;
+                Previous = previous;
+                Replacement = replacement;
+                Parent = parent;
             }
 
             public void Dispose()
             {
-                var restore = Interlocked.Exchange(ref previous, null);
-                var toStop = Interlocked.Exchange(ref replacement, null);
-                if (restore != null && toStop != null)
+                lock (testSessionGate)
                 {
-                    Interlocked.CompareExchange(ref session, restore, toStop);
-                    toStop.Stop();
+                    if (DisposeRequested)
+                    {
+                        return;
+                    }
+
+                    DisposeRequested = true;
+                    while (testSessionTop != null &&
+                           testSessionTop.DisposeRequested)
+                    {
+                        var current = testSessionTop;
+                        Volatile.Write(ref session, current.Previous);
+                        testSessionTop = current.Parent;
+                        current.Replacement.Stop();
+                    }
                 }
             }
         }

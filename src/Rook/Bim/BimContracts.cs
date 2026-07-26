@@ -170,6 +170,22 @@ namespace Rook.Bim
         public string Host { get; set; } = "unknown";
 
         public string Module { get; set; } = "core";
+
+        public string CoreVersion { get; set; } = "unavailable";
+
+        public string CoreCommit { get; set; } = "unavailable";
+
+        public string ModuleVersion { get; set; } = "unavailable";
+
+        public string ModuleCommit { get; set; } = "unavailable";
+
+        public bool DiagnosticsEnabled { get; set; }
+
+        public string SinkState { get; set; } = "disabled";
+
+        public long DroppedCount { get; set; }
+
+        public string SinkFailureCode { get; set; } = "none";
     }
 
     public sealed class BimDocumentIdentity

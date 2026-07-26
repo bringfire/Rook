@@ -62,6 +62,7 @@ namespace Rook.Tests.Handlers
             Assert.Contains(
                 data.GetProperty("errorCode").GetString(),
                 new[] { "rookbim_unavailable", "not_rhino_inside" });
+            AssertStatusDiagnostics(data);
         }
 
         [Fact]
@@ -110,6 +111,7 @@ namespace Rook.Tests.Handlers
             Assert.Equal("not_rhino_inside", data.GetProperty("errorCode").GetString());
             Assert.Equal("standalone", data.GetProperty("host").GetString());
             Assert.Equal("core", data.GetProperty("module").GetString());
+            AssertStatusDiagnostics(data);
             AssertDiagnostic(
                 response,
                 "not_rhino_inside",
@@ -453,6 +455,20 @@ namespace Rook.Tests.Handlers
         {
             Assert.NotNull(response.Diagnostic);
             return ToJsonElement(response.Diagnostic);
+        }
+
+        private static void AssertStatusDiagnostics(JsonElement data)
+        {
+            Assert.Equal(JsonValueKind.String, data.GetProperty("coreVersion").ValueKind);
+            Assert.Equal(JsonValueKind.String, data.GetProperty("coreCommit").ValueKind);
+            Assert.Equal(JsonValueKind.String, data.GetProperty("moduleVersion").ValueKind);
+            Assert.Equal(JsonValueKind.String, data.GetProperty("moduleCommit").ValueKind);
+            Assert.Contains(
+                data.GetProperty("diagnosticsEnabled").ValueKind,
+                new[] { JsonValueKind.True, JsonValueKind.False });
+            Assert.Equal(JsonValueKind.String, data.GetProperty("sinkState").ValueKind);
+            Assert.Equal(JsonValueKind.Number, data.GetProperty("droppedCount").ValueKind);
+            Assert.Equal(JsonValueKind.String, data.GetProperty("sinkFailureCode").ValueKind);
         }
 
         private static void AssertDiagnostic(

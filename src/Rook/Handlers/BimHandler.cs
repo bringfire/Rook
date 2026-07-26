@@ -10,16 +10,28 @@ namespace Rook.Handlers
     public sealed class BimHandler
     {
         private readonly Func<bool> rhinoInsideProvider;
+        private readonly Func<object?, JsonNode?> wireSerializer;
 
         public BimHandler()
-            : this(() => Rhino.Runtime.HostUtils.RunningAsRhinoInside)
+            : this(
+                () => Rhino.Runtime.HostUtils.RunningAsRhinoInside,
+                ToWireData)
         {
         }
 
         internal BimHandler(Func<bool> rhinoInsideProvider)
+            : this(rhinoInsideProvider, ToWireData)
+        {
+        }
+
+        internal BimHandler(
+            Func<bool> rhinoInsideProvider,
+            Func<object?, JsonNode?> wireSerializer)
         {
             this.rhinoInsideProvider = rhinoInsideProvider
                 ?? throw new ArgumentNullException(nameof(rhinoInsideProvider));
+            this.wireSerializer = wireSerializer
+                ?? throw new ArgumentNullException(nameof(wireSerializer));
         }
 
         internal static readonly IReadOnlyList<string> ExpectedBimOps = new[]
@@ -43,24 +55,48 @@ namespace Rook.Handlers
 
         public ApiResponse Dispatch(string? body)
         {
+            BimDiagnostics.InitializeFromEnvironment();
+            var unparsedDiagnostics =
+                BimDiagnostics.CreateUncorrelatedContext("unparsed");
             Dictionary<string, JsonElement> args;
+            BimDiagnostics.Observe(
+                unparsedDiagnostics,
+                BimDiagnosticStage.HandlerDeserialize,
+                BimDiagnosticOutcome.Start,
+                BimDiagnosticFields.None);
             try
             {
                 args = ParseObjectBody(body);
+                BimDiagnostics.Observe(
+                    unparsedDiagnostics,
+                    BimDiagnosticStage.HandlerDeserialize,
+                    BimDiagnosticOutcome.Success,
+                    BimDiagnosticFields.None);
             }
             catch (ArgumentException ex)
             {
-                return Fail(BimErrorCode.InvalidScope, ex.Message, 400);
+                ObserveDeserializeFailure(unparsedDiagnostics, ex);
+                return Fail(
+                    unparsedDiagnostics,
+                    BimErrorCode.InvalidScope,
+                    ex.Message,
+                    400);
             }
             catch (JsonException ex)
             {
-                return Fail(BimErrorCode.InvalidScope, $"Invalid BIM request JSON: {ex.Message}", 400);
+                ObserveDeserializeFailure(unparsedDiagnostics, ex);
+                return Fail(
+                    unparsedDiagnostics,
+                    BimErrorCode.InvalidScope,
+                    $"Invalid BIM request JSON: {ex.Message}",
+                    400);
             }
 
             var op = GetStringArg(args, "op");
             if (string.IsNullOrWhiteSpace(op))
             {
                 return Fail(
+                    unparsedDiagnostics,
                     BimErrorCode.InvalidScope,
                     "BIM request missing required 'op' discriminator.",
                     400);
@@ -69,89 +105,244 @@ namespace Rook.Handlers
             if (!ExpectedBimOpSet.Contains(op!))
             {
                 return Fail(
+                    unparsedDiagnostics,
                     BimErrorCode.InvalidScope,
                     $"Unknown BIM op '{op}'.",
                     400);
             }
 
-            if (string.Equals(op, "status", StringComparison.Ordinal) && !IsRunningAsRhinoInside())
-            {
-                return DispatchStandaloneStatus();
-            }
-
-            RookBimModuleLoader.TryActivate();
-
+            var diagnostics = BimDiagnostics.CreateContext(op!);
+            ApiResponse? response = null;
             try
             {
-                var runtime = RookBimRuntimeRegistry.Current;
-                // Task 5 temporary migration scaffold; Task 6 creates the accepted request context.
-                var diagnostics = BimDiagnosticContext.Disabled;
-                return op switch
-                {
-                    "status" => DispatchStatus(runtime, diagnostics),
-                    "active_document" => FromBimResponse("active_document", runtime.ActiveDocument(diagnostics)),
-                    "list_categories" => FromBimResponse("list_categories", runtime.ListCategories(diagnostics)),
-                    "query_elements" => DispatchQueryElements(runtime, diagnostics, body),
-                    "element_info" => FromBimResponse(
-                        "element_info",
-                        runtime.ElementInfo(diagnostics, DeserializeRequest<BimElementRequest>(body))),
-                    "element_parameters" => FromBimResponse(
-                        "element_parameters",
-                        runtime.ElementParameters(diagnostics, DeserializeRequest<BimElementRequest>(body))),
-                    "select_elements" => FromBimResponse(
-                        "select_elements",
-                        runtime.SelectElements(diagnostics, DeserializeRequest<BimSelectElementsRequest>(body))),
-                    "clear_selection" => FromBimResponse("clear_selection", runtime.ClearSelection(diagnostics)),
-                    "export_elements" => FromBimResponse(
-                        "export_elements",
-                        runtime.ExportElements(diagnostics, DeserializeRequest<BimExportElementsRequest>(body))),
-                    "export_preset" => FromBimResponse(
-                        "export_preset",
-                        runtime.ExportPreset(diagnostics, DeserializeRequest<BimExportPresetRequest>(body))),
-                    _ => Fail(BimErrorCode.InvalidScope, $"Unknown BIM op '{op}'.", 400),
-                };
+                response = DispatchAcceptedRequest(diagnostics, op!, body);
+                return response;
             }
             catch (JsonException ex)
             {
-                return Fail(BimErrorCode.InvalidScope, $"Invalid BIM request JSON: {ex.Message}", 400);
+                if (HasSerializationFailure(diagnostics))
+                {
+                    response = BuildMinimalInternalError(diagnostics, ex);
+                }
+                else
+                {
+                    response = Fail(
+                        diagnostics,
+                        BimErrorCode.InvalidScope,
+                        $"Invalid BIM request JSON: {ex.Message}",
+                        400);
+                }
+
+                return response;
             }
             catch (ArgumentException ex)
             {
-                return Fail(BimErrorCode.InvalidScope, ex.Message, 400);
+                response = HasSerializationFailure(diagnostics)
+                    ? BuildMinimalInternalError(diagnostics, ex)
+                    : Fail(
+                        diagnostics,
+                        BimErrorCode.InvalidScope,
+                        ex.Message,
+                        400);
+                return response;
             }
             catch (Exception ex)
             {
-                return Fail(BimErrorCode.InternalError, $"BIM dispatch failed: {ex.Message}", 500);
+                response = BuildMinimalInternalError(diagnostics, ex);
+                return response;
+            }
+            finally
+            {
+                BimDiagnostics.CompleteRequest(
+                    diagnostics,
+                    response != null && response.Success
+                        ? BimDiagnosticOutcome.Success
+                        : BimDiagnosticOutcome.Failure);
             }
         }
 
-        private static ApiResponse DispatchQueryElements(
+        private ApiResponse DispatchAcceptedRequest(
+            BimDiagnosticContext diagnostics,
+            string op,
+            string? body)
+        {
+            if (string.Equals(op, "status", StringComparison.Ordinal) &&
+                !IsRunningAsRhinoInside())
+            {
+                return DispatchStandaloneStatus(diagnostics);
+            }
+
+            RookBimModuleLoader.TryActivate();
+            var runtime = RookBimRuntimeRegistry.Current;
+            return op switch
+            {
+                "status" => DispatchStatus(runtime, diagnostics),
+                "active_document" => FromBimResponse(
+                    diagnostics,
+                    "active_document",
+                    InvokeRuntime(diagnostics, () => runtime.ActiveDocument(diagnostics))),
+                "list_categories" => FromBimResponse(
+                    diagnostics,
+                    "list_categories",
+                    InvokeRuntime(diagnostics, () => runtime.ListCategories(diagnostics))),
+                "query_elements" => DispatchQueryElements(runtime, diagnostics, body),
+                "element_info" => DispatchTypedRequest<BimElementRequest>(
+                    diagnostics,
+                    "element_info",
+                    body,
+                    request => runtime.ElementInfo(diagnostics, request)),
+                "element_parameters" => DispatchTypedRequest<BimElementRequest>(
+                    diagnostics,
+                    "element_parameters",
+                    body,
+                    request => runtime.ElementParameters(diagnostics, request)),
+                "select_elements" => DispatchTypedRequest<BimSelectElementsRequest>(
+                    diagnostics,
+                    "select_elements",
+                    body,
+                    request => runtime.SelectElements(diagnostics, request)),
+                "clear_selection" => FromBimResponse(
+                    diagnostics,
+                    "clear_selection",
+                    InvokeRuntime(diagnostics, () => runtime.ClearSelection(diagnostics))),
+                "export_elements" => DispatchTypedRequest<BimExportElementsRequest>(
+                    diagnostics,
+                    "export_elements",
+                    body,
+                    request => runtime.ExportElements(diagnostics, request)),
+                "export_preset" => DispatchTypedRequest<BimExportPresetRequest>(
+                    diagnostics,
+                    "export_preset",
+                    body,
+                    request => runtime.ExportPreset(diagnostics, request)),
+                _ => Fail(
+                    diagnostics,
+                    BimErrorCode.InvalidScope,
+                    $"Unknown BIM op '{op}'.",
+                    400),
+            };
+        }
+
+        private ApiResponse DispatchQueryElements(
             IRookBimRuntime runtime,
             BimDiagnosticContext diagnostics,
             string? body)
         {
-            var request = DeserializeRequest<BimQueryElementsRequest>(body);
+            var request = DeserializeRequest<BimQueryElementsRequest>(diagnostics, body);
             var validation = request.Validate();
             if (!validation.Success)
             {
                 return Fail(
+                    diagnostics,
                     validation.ErrorCode,
                     validation.Message ?? "BIM query validation failed.",
                     400);
             }
 
-            return FromBimResponse("query_elements", runtime.QueryElements(diagnostics, request));
+            return FromBimResponse(
+                diagnostics,
+                "query_elements",
+                InvokeRuntime(
+                    diagnostics,
+                    () => runtime.QueryElements(diagnostics, request)));
         }
 
-        private static T DeserializeRequest<T>(string? body)
+        private ApiResponse DispatchTypedRequest<T>(
+            BimDiagnosticContext diagnostics,
+            string op,
+            string? body,
+            Func<T, BimApiResponse> runtimeCall)
             where T : new()
         {
-            if (string.IsNullOrWhiteSpace(body))
-            {
-                return new T();
-            }
+            var request = DeserializeRequest<T>(diagnostics, body);
+            return FromBimResponse(
+                diagnostics,
+                op,
+                InvokeRuntime(diagnostics, () => runtimeCall(request)));
+        }
 
-            return JsonSerializer.Deserialize<T>(body!, JsonOptions) ?? new T();
+        private static T DeserializeRequest<T>(
+            BimDiagnosticContext diagnostics,
+            string? body)
+            where T : new()
+        {
+            BimDiagnostics.Observe(
+                diagnostics,
+                BimDiagnosticStage.HandlerDeserialize,
+                BimDiagnosticOutcome.Start,
+                BimDiagnosticFields.None);
+            try
+            {
+                var result = string.IsNullOrWhiteSpace(body)
+                    ? new T()
+                    : JsonSerializer.Deserialize<T>(body!, JsonOptions) ?? new T();
+                BimDiagnostics.Observe(
+                    diagnostics,
+                    BimDiagnosticStage.HandlerDeserialize,
+                    BimDiagnosticOutcome.Success,
+                    BimDiagnosticFields.None);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                ObserveDeserializeFailure(diagnostics, ex);
+                throw;
+            }
+        }
+
+        private static void ObserveDeserializeFailure(
+            BimDiagnosticContext diagnostics,
+            Exception exception)
+        {
+            BimDiagnostics.ObserveException(
+                diagnostics,
+                BimDiagnosticStage.HandlerDeserialize,
+                exception,
+                new BimDiagnosticFields(
+                    BimDiagnosticDetailCode.None,
+                    null,
+                    BimDiagnosticFailureImpact.Production));
+        }
+
+        private static bool HasSerializationFailure(
+            BimDiagnosticContext diagnostics)
+        {
+            var snapshot = BimDiagnostics.SnapshotRequest(diagnostics);
+            return snapshot.LastStage == BimDiagnosticStage.HandlerSerialize &&
+                snapshot.LastOutcome == BimDiagnosticOutcome.Failure;
+        }
+
+        private static T InvokeRuntime<T>(
+            BimDiagnosticContext diagnostics,
+            Func<T> operation)
+        {
+            BimDiagnostics.Observe(
+                diagnostics,
+                BimDiagnosticStage.HandlerRuntime,
+                BimDiagnosticOutcome.Start,
+                BimDiagnosticFields.None);
+            try
+            {
+                var result = operation();
+                BimDiagnostics.Observe(
+                    diagnostics,
+                    BimDiagnosticStage.HandlerRuntime,
+                    BimDiagnosticOutcome.Success,
+                    BimDiagnosticFields.None);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                BimDiagnostics.ObserveException(
+                    diagnostics,
+                    BimDiagnosticStage.HandlerRuntime,
+                    ex,
+                    new BimDiagnosticFields(
+                        BimDiagnosticDetailCode.None,
+                        null,
+                        BimDiagnosticFailureImpact.Production));
+                throw;
+            }
         }
 
         private static Dictionary<string, JsonElement> ParseObjectBody(string? body)
@@ -186,19 +377,23 @@ namespace Rook.Handlers
             return value.GetString();
         }
 
-        private static ApiResponse DispatchStatus(
+        private ApiResponse DispatchStatus(
             IRookBimRuntime runtime,
             BimDiagnosticContext diagnostics)
         {
-            var status = runtime.Status(diagnostics);
+            var status = InvokeRuntime(
+                diagnostics,
+                () => runtime.Status(diagnostics));
+            PopulateStatusDiagnostics(status);
             var diagnostic = BuildDiagnosticForReason(
                 DiagnosticReasonFromStatus(status),
                 "status");
 
-            return Ok(status, diagnostic);
+            return Ok(diagnostics, status, diagnostic);
         }
 
-        private ApiResponse DispatchStandaloneStatus()
+        private ApiResponse DispatchStandaloneStatus(
+            BimDiagnosticContext diagnostics)
         {
             var status = new BimStatusResponse
             {
@@ -209,8 +404,10 @@ namespace Rook.Handlers
                 Host = "standalone",
                 Module = "core",
             };
+            PopulateStatusDiagnostics(status);
 
             return Ok(
+                diagnostics,
                 status,
                 BuildDiagnosticForReason("not_rhino_inside", "status"));
         }
@@ -227,19 +424,25 @@ namespace Rook.Handlers
             }
         }
 
-        private static ApiResponse FromBimResponse(string op, BimApiResponse response)
+        private ApiResponse FromBimResponse(
+            BimDiagnosticContext diagnostics,
+            string op,
+            BimApiResponse response)
         {
             if (response.Success)
             {
+                var data = SerializeForWire(diagnostics, response.Data);
                 return new ApiResponse
                 {
                     Success = true,
-                    Data = ToWireData(response.Data),
+                    Data = data,
                     HttpStatus = response.HttpStatus,
+                    Diagnostic = MergeRequestDiagnostic(diagnostics, null),
                 };
             }
 
             return Fail(
+                diagnostics,
                 response.ErrorCode,
                 response.Message ?? "BIM operation failed.",
                 response.HttpStatus,
@@ -249,18 +452,23 @@ namespace Rook.Handlers
                     op));
         }
 
-        private static ApiResponse Ok(object? data, JsonObject? diagnostic = null)
+        private ApiResponse Ok(
+            BimDiagnosticContext diagnostics,
+            object? data,
+            JsonObject? diagnostic = null)
         {
+            var wireData = SerializeForWire(diagnostics, data);
             return new ApiResponse
             {
                 Success = true,
-                Data = ToWireData(data),
+                Data = wireData,
                 HttpStatus = 200,
-                Diagnostic = diagnostic,
+                Diagnostic = MergeRequestDiagnostic(diagnostics, diagnostic),
             };
         }
 
-        private static ApiResponse Fail(
+        private ApiResponse Fail(
+            BimDiagnosticContext diagnostics,
             BimErrorCode code,
             string message,
             int httpStatus,
@@ -275,7 +483,7 @@ namespace Rook.Handlers
 
             if (details != null)
             {
-                data["details"] = ToWireData(details);
+                data["details"] = SerializeForWire(diagnostics, details);
             }
 
             return new ApiResponse
@@ -283,8 +491,119 @@ namespace Rook.Handlers
                 Success = false,
                 Data = data,
                 HttpStatus = httpStatus,
-                Diagnostic = diagnostic,
+                Diagnostic = MergeRequestDiagnostic(diagnostics, diagnostic),
             };
+        }
+
+        private ApiResponse BuildMinimalInternalError(
+            BimDiagnosticContext diagnostics,
+            Exception exception)
+        {
+            var snapshot = BimDiagnostics.SnapshotRequest(diagnostics);
+            if (!snapshot.FirstFailureStage.HasValue)
+            {
+                BimDiagnostics.ObserveException(
+                    diagnostics,
+                    BimDiagnosticStage.HandlerRuntime,
+                    exception,
+                    new BimDiagnosticFields(
+                        BimDiagnosticDetailCode.None,
+                        null,
+                        BimDiagnosticFailureImpact.Production));
+            }
+
+            return new ApiResponse
+            {
+                Success = false,
+                Data = new JsonObject
+                {
+                    ["errorCode"] = "internal_error",
+                    ["message"] = "BIM dispatch failed.",
+                },
+                HttpStatus = 500,
+                Diagnostic = MergeRequestDiagnostic(diagnostics, null),
+            };
+        }
+
+        private JsonNode? SerializeForWire(
+            BimDiagnosticContext diagnostics,
+            object? value)
+        {
+            BimDiagnostics.Observe(
+                diagnostics,
+                BimDiagnosticStage.HandlerSerialize,
+                BimDiagnosticOutcome.Start,
+                BimDiagnosticFields.None);
+            try
+            {
+                var result = wireSerializer(value);
+                BimDiagnostics.Observe(
+                    diagnostics,
+                    BimDiagnosticStage.HandlerSerialize,
+                    BimDiagnosticOutcome.Success,
+                    BimDiagnosticFields.None);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                BimDiagnostics.ObserveException(
+                    diagnostics,
+                    BimDiagnosticStage.HandlerSerialize,
+                    ex,
+                    new BimDiagnosticFields(
+                        BimDiagnosticDetailCode.SerializationFailure,
+                        null,
+                        BimDiagnosticFailureImpact.Production));
+                throw;
+            }
+        }
+
+        private static void PopulateStatusDiagnostics(BimStatusResponse status)
+        {
+            var snapshot = BimDiagnostics.SnapshotStatus();
+            status.CoreVersion = snapshot.CoreVersion;
+            status.CoreCommit = snapshot.CoreCommit;
+            status.ModuleVersion = snapshot.ModuleVersion;
+            status.ModuleCommit = snapshot.ModuleCommit;
+            status.DiagnosticsEnabled = snapshot.Enabled;
+            status.SinkState = BimDiagnosticJsonEncoder.ToWire(snapshot.SinkState);
+            status.DroppedCount = snapshot.DroppedCount;
+            status.SinkFailureCode =
+                BimDiagnosticJsonEncoder.ToWire(snapshot.FailureCode);
+        }
+
+        private static JsonObject? MergeRequestDiagnostic(
+            BimDiagnosticContext diagnostics,
+            JsonObject? diagnostic)
+        {
+            if (!diagnostics.Enabled || diagnostics.CorrelationId == null)
+            {
+                return diagnostic;
+            }
+
+            var request = BimDiagnostics.SnapshotRequest(diagnostics);
+            var status = BimDiagnostics.SnapshotStatus();
+            diagnostic ??= new JsonObject();
+            diagnostic["correlationId"] = diagnostics.CorrelationId;
+            diagnostic["lastStage"] = request.LastStage.HasValue
+                ? BimDiagnosticJsonEncoder.ToWire(request.LastStage.Value)
+                : null;
+            diagnostic["lastOutcome"] = request.LastOutcome.HasValue
+                ? BimDiagnosticJsonEncoder.ToWire(request.LastOutcome.Value)
+                : null;
+            diagnostic["lastItemIndex"] = request.LastItemIndex;
+            diagnostic["firstFailureStage"] = request.FirstFailureStage.HasValue
+                ? BimDiagnosticJsonEncoder.ToWire(request.FirstFailureStage.Value)
+                : null;
+            diagnostic["firstFailureExceptionType"] =
+                request.FirstFailureExceptionType;
+            diagnostic["firstFailureHResult"] = request.FirstFailureHResult;
+            diagnostic["requestDroppedCount"] = request.RequestDroppedCount;
+            diagnostic["traceComplete"] = request.TraceComplete;
+            diagnostic["sinkState"] =
+                BimDiagnosticJsonEncoder.ToWire(status.SinkState);
+            diagnostic["droppedCount"] = status.DroppedCount;
+            return diagnostic;
         }
 
         private static JsonNode? ToWireData(object? data)
