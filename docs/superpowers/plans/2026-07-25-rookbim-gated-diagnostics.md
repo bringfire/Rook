@@ -2,14 +2,32 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Execution model:** Before Task 1, use `superpowers:using-git-worktrees` to create a clean `.worktrees/rookbim-gated-diagnostics` checkout on branch `codex/rookbim-gated-diagnostics`. The corrected plan commit must be a documentation-only direct descendant of reviewed base `262d3691`; branch from that corrected commit so the executable plan is present while the implementation source baseline remains `262d3691`. Execute Tasks 1-9 sequentially with `superpowers:subagent-driven-development`, completing each task's implementation review and quality gate before the next task. Do not parallelize tasks. Execute Task 10 inline with the operator because it closes host processes, deploys locally, launches Revit, and requires the original model.
+**Execution model:** Before Task 1, use `superpowers:using-git-worktrees` to create a clean `.worktrees/rookbim-gated-diagnostics` checkout on branch `codex/rookbim-gated-diagnostics`. Pin reviewed plan baseline `71fe6cc6`; verify that it directly follows `262d3691` and changes only this plan. The follow-up plan-correction commit must directly follow `71fe6cc6` and also change only this plan. Branch from that verified follow-up so the executable plan is present while no unreviewed source commit enters the implementation baseline. Execute Tasks 1-9 sequentially with `superpowers:subagent-driven-development`, completing each task's implementation review and quality gate before the next task. Do not parallelize tasks. Execute Task 10 inline with the operator because it closes host processes, deploys locally, launches Revit, and requires the original model.
 
 From the original checkout, create and verify the implementation worktree with:
 
 ```powershell
-$planCommit = (git rev-parse HEAD).Trim()
-git merge-base --is-ancestor 262d3691 $planCommit
-if ($LASTEXITCODE -ne 0) { throw "Corrected plan commit does not descend from 262d3691" }
+$reviewedPlanCommit = '71fe6cc6b5a2e9228a99b2d2d57e087f3e4ce097'
+$reviewedParent = '262d3691b8dbd0afcfb5450061bb57af86d68890'
+$planPath = 'docs/superpowers/plans/2026-07-25-rookbim-gated-diagnostics.md'
+
+if ((git rev-parse "$reviewedPlanCommit^").Trim() -ne $reviewedParent) {
+    throw "Reviewed plan commit does not directly follow 262d3691"
+}
+$reviewedFiles = @(git diff-tree --no-commit-id --name-only -r $reviewedPlanCommit)
+if (($reviewedFiles.Count -ne 1) -or ($reviewedFiles[0] -ne $planPath)) {
+    throw "Reviewed plan commit changed files outside the implementation plan"
+}
+
+$planCommit = (git log -1 --format=%H -- $planPath).Trim()
+if ((git rev-parse "$planCommit^").Trim() -ne $reviewedPlanCommit) {
+    throw "Latest plan correction does not directly follow reviewed commit 71fe6cc6"
+}
+$planFiles = @(git diff-tree --no-commit-id --name-only -r $planCommit)
+if (($planFiles.Count -ne 1) -or ($planFiles[0] -ne $planPath)) {
+    throw "Latest plan correction changed files outside the implementation plan"
+}
+
 git worktree add .worktrees/rookbim-gated-diagnostics -b codex/rookbim-gated-diagnostics $planCommit
 if (git -C .worktrees/rookbim-gated-diagnostics status --porcelain) {
     throw "Implementation worktree is not clean"
@@ -59,15 +77,15 @@ All production diagnostic types use namespace `Rook.Bim` even though focused fil
 
 - `BimDiagnosticContracts.cs`: public cross-assembly enums/closed fields/context plus internal observation/envelope shapes.
 - `BimDiagnosticOutcomeAccumulator.cs`: sequence-based first-failure, last-stage/index, sealing, and saturating request drops.
-- `BimDiagnosticSession.cs`: context creation, sparse policy, exactly-once terminal completion, and provenance.
-- `BimDiagnostics.cs`: process-wide read-once facade and test-scoped session replacement.
+- `BimDiagnosticSession.cs`: context creation, sparse policy, exactly-once terminal completion, provenance, and the Task 3 capture-to-envelope integration.
+- `BimDiagnostics.cs`: Task 2 creates the minimal process-session routing facade; Task 4 adds read-once bootstrap, provenance/status, and retains test-scoped session replacement.
 - `BimDiagnosticProbe.cs`: distinct production/auxiliary wrappers.
 - `BimDiagnosticEnumerator.cs`: Revit-agnostic non-generic traversal and disposal.
 - `BimDiagnosticExceptionCapture.cs`: message-free bounded exception tree and stack redaction.
 - `BimDiagnosticJsonEncoder.cs`: fixed-order dependency-free JSONL encoding.
 - `BimDiagnosticSink.cs`: one bounded FIFO queue, terminal admission, background writer, limits, and sink state.
 
-New tests under `src/Rook.Tests/Bim/Diagnostics/`: outcome, probe, enumerator, persistence-policy, encoding, privacy, sink, and configuration suites. Add `BimDiagnosticTestHarness.cs` there for a fake envelope sink plus enabled-context/snapshot factories shared by those tests. Add `src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs` for handler lifecycle and serialization, and `src/Rook.Tests/Bim/RookBimModuleLoaderDiagnosticsTests.cs` for activation outcomes.
+New tests under `src/Rook.Tests/Bim/Diagnostics/`: outcome, probe, enumerator, persistence-policy, exception-capture integration, encoding, privacy, sink, and configuration suites. Add `BimDiagnosticTestHarness.cs` there for a fake envelope sink plus enabled-context/snapshot factories shared by those tests. Add `src/Rook.Tests/Handlers/BimHandlerDiagnosticsTests.cs` for handler lifecycle and serialization, and `src/Rook.Tests/Bim/RookBimModuleLoaderDiagnosticsTests.cs` for activation outcomes.
 
 Modify core files: `BimContracts.cs`, `IRookBimRuntime.cs`, `RookBimUnavailableRuntime.cs`, `RookBimModuleLoader.cs`, `BimHandler.cs`, all runtime fakes/direct callers, and BIM handler export source assertions.
 
@@ -189,7 +207,7 @@ public readonly struct BimDiagnosticFields
 }
 ```
 
-Expose only `Enabled`, `CorrelationId`, and `Operation` from the immutable context. Keep session/accumulator references internal/readonly. `BimDiagnosticContext.Disabled` is shared and allocates no GUID/accumulator.
+Expose only `Enabled`, `CorrelationId`, and `Operation` from the immutable context. Keep its accumulator reference internal/readonly; the context has no session reference. `BimDiagnosticContext.Disabled` is shared and allocates no GUID/accumulator.
 
 - [ ] **Step 4: Implement deterministic accumulator semantics**
 
@@ -217,6 +235,7 @@ git commit -m "feat(rookbim): add request diagnostic state model"
 
 **Files:**
 - Create: `src/Rook/Bim/Diagnostics/BimDiagnosticSession.cs`
+- Create: `src/Rook/Bim/Diagnostics/BimDiagnostics.cs` with only the minimal session-routing facade; Task 4 extends it with bootstrap/configuration/status.
 - Create: `src/Rook/Bim/Diagnostics/BimDiagnosticProbe.cs`
 - Create: `src/Rook/Bim/Diagnostics/BimDiagnosticEnumerator.cs`
 - Create: `src/Rook.Tests/Bim/Diagnostics/BimDiagnosticTestHarness.cs`
@@ -227,8 +246,10 @@ git commit -m "feat(rookbim): add request diagnostic state model"
 **Interfaces:**
 - Consumes Task 1 contracts/state.
 - Produces `BimDiagnosticSession.CreateContext/Observe/ObserveException/CompleteRequest`, `BimDiagnosticProbe.Production<T>/Auxiliary<T>`, `BimAuxiliaryProbeResult<T>`, and `BimDiagnosticEnumerator.ForEach<T>`.
+- Produces minimal process-session facade methods `BimDiagnostics.Observe/ObserveException/CompleteRequest` and internal `PushSessionForTests`; probes call this facade, never a session stored on the context. Task 4 adds initialization, context creation, provenance, and status to the same file.
 - Produces internal `IBimDiagnosticEnvelopeSink`, immutable `BimDiagnosticEnvelope`, and fixed `BimDiagnosticRecord`; Task 4 supplies the real sink.
-- The test harness produces `TestDiagnostics.EnabledContext(string)`, `Snapshot(context)`, and an in-memory sink; it is test-only and never enters `src/Rook`.
+- Task 2's `ObserveException` records bounded root type/HResult in request state and a failure envelope without retaining the raw `Exception`; Task 3 adds stack/inner capture to this same production path.
+- The test harness produces `TestDiagnostics.EnabledContext(string)`, `TestDiagnostics.EnabledScope(string)` (a test-only holder for the separate session, context, and in-memory sink), and `Snapshot(context)`; it never enters `src/Rook`. The production context itself still contains only its accumulator reference.
 
 - [ ] **Step 1: Write failing production/auxiliary tests**
 
@@ -236,23 +257,24 @@ git commit -m "feat(rookbim): add request diagnostic state model"
 [Fact]
 public void Production_RethrowsSameExceptionAndAuxiliaryReturnsUnknown()
 {
-    var context = TestDiagnostics.EnabledContext("list_categories");
+    using var scope = TestDiagnostics.EnabledScope("list_categories");
     var expected = new InvalidOperationException("never persist this message");
     var actual = Assert.Throws<InvalidOperationException>(() =>
-        BimDiagnosticProbe.Production<int>(context, BimDiagnosticStage.RevitCategoryId,
+        BimDiagnosticProbe.Production<int>(scope.Context, BimDiagnosticStage.RevitCategoryId,
             () => throw expected,
             new BimDiagnosticFields(BimDiagnosticDetailCode.None, 7,
                 BimDiagnosticFailureImpact.Production)));
     Assert.Same(expected, actual);
+    Assert.Single(scope.Sink.Envelopes);
 
-    var auxiliary = BimDiagnosticProbe.Auxiliary<int>(context,
+    var auxiliary = BimDiagnosticProbe.Auxiliary<int>(scope.Context,
         BimDiagnosticStage.RevitDocumentCentralModelPath,
         () => throw new InvalidOperationException("ignored"));
     Assert.False(auxiliary.Known);
 }
 ```
 
-Add a source assertion requiring bare `throw;` and forbidding `throw ex;` in the production wrapper.
+Add source assertions requiring bare `throw;`, forbidding `throw ex;`, and requiring the production catch to call `BimDiagnostics.ObserveException` before rethrow. Put every Task 2 test class that installs the static session facade in `[Collection(RookBimRuntimeRegistryCollection.Name)]`.
 
 - [ ] **Step 2: Write failing sparse-persistence/completion tests**
 
@@ -272,7 +294,7 @@ Expected: compile failure on missing session/probe/enumerator.
 
 - [ ] **Step 5: Implement sparse observation and exactly-once completion**
 
-Assign a global `long` sequence with `Interlocked.Increment` and producer `DateTime.UtcNow`. Every enabled request observation updates its accumulator. Enqueue all failures; enqueue start/success only for:
+Assign a global `long` sequence with `Interlocked.Increment` and producer `DateTime.UtcNow`. Every enabled request observation updates its accumulator. `ObserveException` extracts only bounded type/HResult before creating the Task 2 failure envelope; no envelope, record, observation, accumulator, context, or session field/property may retain the raw `Exception`. `BimDiagnostics` holds the process session, not request/correlation state; every observe method still requires the explicit context. Enqueue all failures; enqueue start/success only for:
 
 ```text
 CoreInitialize, ModuleResolve, ModuleLoad, ModuleActivate, ModuleMetadata,
@@ -305,7 +327,7 @@ Production observes start/success; its catch observes the exception and uses bar
 ```powershell
 dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimDiagnosticProbeTests|FullyQualifiedName~BimDiagnosticEnumeratorTests|FullyQualifiedName~BimDiagnosticPersistencePolicyTests" --verbosity minimal
 dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --verbosity minimal
-git add -- src/Rook/Bim/Diagnostics/BimDiagnosticSession.cs src/Rook/Bim/Diagnostics/BimDiagnosticProbe.cs src/Rook/Bim/Diagnostics/BimDiagnosticEnumerator.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticTestHarness.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticProbeTests.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticEnumeratorTests.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticPersistencePolicyTests.cs
+git add -- src/Rook/Bim/Diagnostics/BimDiagnosticSession.cs src/Rook/Bim/Diagnostics/BimDiagnostics.cs src/Rook/Bim/Diagnostics/BimDiagnosticProbe.cs src/Rook/Bim/Diagnostics/BimDiagnosticEnumerator.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticTestHarness.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticProbeTests.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticEnumeratorTests.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticPersistencePolicyTests.cs
 git commit -m "feat(rookbim): add sparse diagnostic observations"
 ```
 
@@ -314,14 +336,17 @@ git commit -m "feat(rookbim): add sparse diagnostic observations"
 ### Task 3: Message-free exception capture and dependency-free JSONL
 
 **Files:**
+- Modify: `src/Rook/Bim/Diagnostics/BimDiagnosticSession.cs`
 - Create: `src/Rook/Bim/Diagnostics/BimDiagnosticExceptionCapture.cs`
 - Create: `src/Rook/Bim/Diagnostics/BimDiagnosticJsonEncoder.cs`
+- Test: `src/Rook.Tests/Bim/Diagnostics/BimDiagnosticExceptionCaptureIntegrationTests.cs`
 - Test: `src/Rook.Tests/Bim/Diagnostics/BimDiagnosticJsonEncoderTests.cs`
 - Test: `src/Rook.Tests/Bim/Diagnostics/BimDiagnosticPrivacyTests.cs`
 
 **Interfaces:**
-- Consumes Task 1 record shapes and Task 2 failure envelopes.
-- Produces `BimDiagnosticExceptionCapture.Capture(Exception)` returning `BimDiagnosticExceptionCaptureResult`, internal `BimDiagnosticRedactor.RedactStack(string)`, `BimDiagnosticJsonEncoder.Encode(BimDiagnosticRecord)`, exhaustive enum-to-wire mappings, and deterministic record shrinking.
+- Consumes Task 1 record shapes and Task 2's real `BimDiagnosticSession.ObserveException`/failure-envelope path.
+- Produces `BimDiagnosticExceptionCapture.Capture(Exception)` returning `BimDiagnosticExceptionCaptureResult`, `BimDiagnosticSession.ObserveException → Capture → BimDiagnosticEnvelope.ExceptionInfo`, internal `BimDiagnosticRedactor.RedactStack(string)`, `BimDiagnosticJsonEncoder.Encode(BimDiagnosticRecord)`, exhaustive enum-to-wire mappings, and deterministic record shrinking.
+- Extends `BimDiagnosticEnvelope`/`BimDiagnosticRecord` only with nullable fixed `BimDiagnosticExceptionInfo`; no production object retains the raw `Exception` after `ObserveException` returns.
 - Production files have no `System.Text.Json` dependency.
 
 - [ ] **Step 1: Write failing escaping/schema tests**
@@ -348,15 +373,47 @@ Use a hostile exception whose overridden `Message` and `ToString()` throw. Its h
 
 Test the stack redactor with drive, UNC, file/server/cloud URI-like paths, brace/hyphenated/compact GUIDs, and source paths. Assert replacements preserve method names/line numbers. Test root-plus-four depth and eight aggregate inner exceptions; excess sets `truncated=true`.
 
-- [ ] **Step 3: Verify the red state**
+- [ ] **Step 3: Write the failing production-path integration test**
 
-```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimDiagnosticJsonEncoderTests|FullyQualifiedName~BimDiagnosticPrivacyTests" --verbosity minimal
+Exercise the actual Task 2 session rather than calling the capture component directly:
+
+```csharp
+[Fact]
+public void ObserveException_CapturesBeforeEnvelope_AndRetainsNoRawException()
+{
+    using var scope = TestDiagnostics.EnabledScope("list_categories");
+    var raw = CaptureNestedFailure();
+
+    scope.Session.ObserveException(scope.Context,
+        BimDiagnosticStage.RevitCategoryName, raw,
+        new BimDiagnosticFields(BimDiagnosticDetailCode.None, 7,
+            BimDiagnosticFailureImpact.Production));
+
+    var envelope = Assert.Single(scope.Sink.Envelopes);
+    var captured = Assert.IsType<BimDiagnosticExceptionInfo>(envelope.ExceptionInfo);
+    Assert.Equal(typeof(InvalidOperationException).FullName, captured.TypeName);
+    Assert.Contains(nameof(CaptureNestedFailure), captured.Stack);
+    Assert.Equal(typeof(ArgumentException).FullName,
+        Assert.Single(captured.InnerExceptions).TypeName);
+
+    AssertNoRawExceptionMembers(typeof(BimDiagnosticEnvelope));
+    AssertNoRawExceptionMembers(typeof(BimDiagnosticRecord));
+    AssertNoRawExceptionMembers(typeof(BimDiagnosticObservation));
+    AssertNoRawExceptionMembers(typeof(BimDiagnosticExceptionInfo));
+}
 ```
 
-Expected: compile failure on capture/encoder types.
+Put `BimDiagnosticExceptionCaptureIntegrationTests` in `[Collection(RookBimRuntimeRegistryCollection.Name)]` because its scope installs the static process session. `CaptureNestedFailure` throws and catches an `InvalidOperationException` with an `ArgumentException` inner so the root has a real stack. `AssertNoRawExceptionMembers` reflects instance fields/properties (public and nonpublic) and fails on a member typed as `Exception`, an `Exception` subtype, or `object`. Also source-extract `BimDiagnosticSession.ObserveException` and require `BimDiagnosticExceptionCapture.Capture(exception)` before failure-envelope construction/enqueue, then require envelope-to-record materialization to copy only the fixed `ExceptionInfo` node.
 
-- [ ] **Step 4: Implement bounded capture without messages**
+- [ ] **Step 4: Verify the red state**
+
+```powershell
+dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimDiagnosticExceptionCaptureIntegrationTests|FullyQualifiedName~BimDiagnosticJsonEncoderTests|FullyQualifiedName~BimDiagnosticPrivacyTests" --verbosity minimal
+```
+
+Expected: compile failure on capture/encoder types and the production-path integration assertion.
+
+- [ ] **Step 5: Implement bounded capture without messages**
 
 Use this closed exception node:
 
@@ -376,7 +433,13 @@ Never access `Message`, `Data`, `Source`, or `ToString()`. Traverse iteratively,
 
 `BimDiagnosticExceptionCaptureResult` contains only the captured root (nullable) and a closed `BimDiagnosticDetailCode`; use `ExceptionCaptureFailed` when capture/redaction itself fails so callers never infer failure from arbitrary text.
 
-- [ ] **Step 5: Implement manual fixed-schema encoding**
+- [ ] **Step 6: Connect capture to the production failure envelope**
+
+Modify the Task 2 implementation of `BimDiagnosticSession.ObserveException`. After disabled/sealed checks and before constructing or enqueueing the failure envelope, call `BimDiagnosticExceptionCapture.Capture(exception)` exactly once. Update the request accumulator from the bounded root type/HResult, attach only `capture.Root` as `BimDiagnosticEnvelope.ExceptionInfo`, and use `ExceptionCaptureFailed` when the capture result reports degradation. Envelope-to-record materialization copies the fixed capture node; it never accepts/stores the raw exception or an arbitrary `object`.
+
+The session must not keep the method parameter in a closure, envelope, record, observation, accumulator, context, or session field/property. Keep behavior neutral: capture failure still produces the bounded root failure evidence available and never escapes route handling.
+
+- [ ] **Step 7: Implement manual fixed-schema encoding**
 
 Append fields in the approved order to `StringBuilder`. Map each enum with exhaustive switches to exact lower/snake wire values; reject unmapped values rather than calling `ToString()`. Escape quotes, backslashes, `\b/\f/\n/\r/\t`, remaining controls as `\u00XX`, and unpaired surrogates as `\uFFFD`.
 
@@ -384,21 +447,21 @@ Every materialized milestone, failure, and terminal record includes the bounded 
 
 For output over 16 KiB including newline: set `truncated`, remove deepest inner nodes, then all inner nodes, then halve the root stack repeatedly to empty and re-encode. Drop the record if its fixed minimal form still exceeds 16 KiB.
 
-- [ ] **Step 6: Assert production independence and run tests**
+- [ ] **Step 8: Assert production independence and run tests**
 
-Source-read both production files and forbid `System.Text.Json`, `JsonSerializer`, `JsonNode`, `Exception.Message`, and `Exception.ToString`.
+Source-read all three production files and forbid `System.Text.Json`, `JsonSerializer`, `JsonNode`, `Exception.Message`, and `Exception.ToString`. Retain the integration source assertion proving capture precedes failure-envelope construction/enqueue.
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimDiagnosticJsonEncoderTests|FullyQualifiedName~BimDiagnosticPrivacyTests" --verbosity minimal
+dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~BimDiagnosticExceptionCaptureIntegrationTests|FullyQualifiedName~BimDiagnosticJsonEncoderTests|FullyQualifiedName~BimDiagnosticPrivacyTests" --verbosity minimal
 dotnet test src\Rook.Tests\Rook.Tests.csproj --configuration Release --no-restore --verbosity minimal
 ```
 
-Expected: every physical line parses as one object and forbidden privacy fixtures are absent.
+Expected: the real `ObserveException` path emits bounded root/stack/inner evidence, no persisted shape can retain a raw exception, every physical line parses as one object, and forbidden privacy fixtures are absent.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit the vertically integrated exception path**
 
 ```powershell
-git add -- src/Rook/Bim/Diagnostics/BimDiagnosticExceptionCapture.cs src/Rook/Bim/Diagnostics/BimDiagnosticJsonEncoder.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticJsonEncoderTests.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticPrivacyTests.cs
+git add -- src/Rook/Bim/Diagnostics/BimDiagnosticSession.cs src/Rook/Bim/Diagnostics/BimDiagnosticExceptionCapture.cs src/Rook/Bim/Diagnostics/BimDiagnosticJsonEncoder.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticExceptionCaptureIntegrationTests.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticJsonEncoderTests.cs src/Rook.Tests/Bim/Diagnostics/BimDiagnosticPrivacyTests.cs
 git commit -m "feat(rookbim): encode private bounded diagnostic records"
 ```
 
@@ -408,15 +471,15 @@ git commit -m "feat(rookbim): encode private bounded diagnostic records"
 
 **Files:**
 - Create: `src/Rook/Bim/Diagnostics/BimDiagnosticSink.cs`
-- Create: `src/Rook/Bim/Diagnostics/BimDiagnostics.cs`
+- Modify: `src/Rook/Bim/Diagnostics/BimDiagnostics.cs`
 - Modify: `src/Rook/Bim/Diagnostics/BimDiagnosticSession.cs`
 - Test: `src/Rook.Tests/Bim/Diagnostics/BimDiagnosticSinkTests.cs`
 - Test: `src/Rook.Tests/Bim/Diagnostics/BimDiagnosticsConfigurationTests.cs`
 
 **Interfaces:**
-- Consumes Tasks 2-3 envelopes/encoder.
-- Produces public facade methods `InitializeFromEnvironment`, `CreateContext`, `Observe`, `ObserveException`, `CompleteRequest`, `RegisterModuleMetadata`, `SnapshotRequest`, and `SnapshotStatus`, plus internal `CreateUncorrelatedContext(string operation)` for initialized pre-discriminator parsing/serialization evidence without a correlation ID or terminal.
-- Produces internal `BimDiagnosticBootstrap(environmentReader, sinkFactory, coreAssembly)` and `BimDiagnostics.PushSessionForTests(session)`.
+- Consumes Tasks 2-3 envelopes/encoder and Task 2's minimal `BimDiagnostics` session-routing facade.
+- Extends that facade with public methods `InitializeFromEnvironment`, `CreateContext`, `RegisterModuleMetadata`, `SnapshotRequest`, and `SnapshotStatus`, plus internal `CreateUncorrelatedContext(string operation)` for initialized pre-discriminator parsing/serialization evidence without a correlation ID or terminal; it retains Task 2's `Observe`, `ObserveException`, `CompleteRequest`, and `PushSessionForTests` contracts.
+- Produces internal `BimDiagnosticBootstrap(environmentReader, sinkFactory, coreAssembly)`.
 
 - [ ] **Step 1: Write failing exact-gating/read-once tests**
 
@@ -1057,14 +1120,16 @@ Report: implementation commit, implementation worktree path, exact test/build co
 
 ## Plan Self-Review Checklist
 
-- [ ] Implementation starts from the corrected documentation-only descendant of `262d3691` in clean `codex/rookbim-gated-diagnostics`; original-workspace FFmpeg changes never enter it.
+- [ ] Bootstrap pins `71fe6cc6`, verifies its `262d3691` parent/file set, and admits only its direct plan-only correction into clean `codex/rookbim-gated-diagnostics`; original-workspace FFmpeg changes never enter it.
 - [ ] Tasks 1-9 execute sequentially with per-task review gates; Task 10 remains inline/operator-assisted.
 - [ ] Every approved stage/detail/outcome/kind has one type owner and encoder mapping.
 - [ ] Every declared sink failure member has one exact wire value and exhaustive encoder coverage.
 - [ ] Every enabled probe updates request state; per-item category success does not enqueue.
 - [ ] Every failure is offered once; every accepted request offers exactly one terminal.
+- [ ] Task 3 integration proves the production `ObserveException → Capture → envelope` path contains bounded stack/inner evidence and retains no raw exception; encoder tests cover envelope-to-record fields.
 - [ ] FIFO terminal admission, release, and delayed drops have behavioral tests.
 - [ ] Exact/read-once initialization precedes standalone status and module activation.
+- [ ] The context owns only its accumulator; Task 2 probes reach the process session through the minimal `BimDiagnostics` facade and prove probe-to-envelope integration.
 - [ ] Version/commit is unconditional in status and present in every persisted record.
 - [ ] Every `ToWireData` route uses `SerializeForWire`; coverage claims begin after entry only.
 - [ ] Runtime interface migration updates both exact RookBIM export assertions in Task 5 and passes before handler instrumentation begins.
