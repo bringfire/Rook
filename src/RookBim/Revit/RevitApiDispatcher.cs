@@ -5,6 +5,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.UI;
+using Rook.Bim;
 
 namespace RookBim.Revit
 {
@@ -13,25 +14,48 @@ namespace RookBim.Revit
         private const string RhinoInsideAssemblyName = "RhinoInside.Revit";
         private const string RevitTypeName = "RhinoInside.Revit.Revit";
 
-        public Task<T> Invoke<T>(Func<UIApplication, T> work)
+        public Task<T> Invoke<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)
         {
-            return InvokeAbandonable(work).Task;
+            return InvokeAbandonable(diagnostics, work).Task;
         }
 
-        internal RevitApiDispatch<T> InvokeAbandonable<T>(Func<UIApplication, T> work)
+        internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)
         {
+            if (diagnostics == null)
+            {
+                throw new ArgumentNullException(nameof(diagnostics));
+            }
+
             if (work == null)
             {
                 throw new ArgumentNullException(nameof(work));
             }
 
-            var item = new RevitApiWorkItem<T>(work);
+            var item = new RevitApiWorkItem<T>(diagnostics, work);
+            BimDiagnostics.Observe(
+                diagnostics,
+                BimDiagnosticStage.RevitDispatchEnqueue,
+                BimDiagnosticOutcome.Start,
+                BimDiagnosticFields.None);
             try
             {
                 EnqueueIdlingAction(new Action(item.Execute));
+                BimDiagnostics.Observe(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDispatchEnqueue,
+                    BimDiagnosticOutcome.Success,
+                    BimDiagnosticFields.None);
             }
             catch (Exception ex)
             {
+                BimDiagnostics.ObserveException(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDispatchEnqueue,
+                    ex,
+                    new BimDiagnosticFields(
+                        BimDiagnosticDetailCode.None,
+                        null,
+                        BimDiagnosticFailureImpact.Production));
                 item.TrySetException(ex);
             }
 
@@ -143,14 +167,16 @@ namespace RookBim.Revit
             private const int Completed = 2;
             private const int Abandoned = 3;
 
+            private readonly BimDiagnosticContext diagnostics;
             private readonly Func<UIApplication, T> work;
             private readonly TaskCompletionSource<T> completion =
                 new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
             private int state = Pending;
 
-            public RevitApiWorkItem(Func<UIApplication, T> work)
+            public RevitApiWorkItem(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)
             {
-                this.work = work;
+                this.diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+                this.work = work ?? throw new ArgumentNullException(nameof(work));
             }
 
             public Task<T> Task
@@ -165,12 +191,31 @@ namespace RookBim.Revit
                     return;
                 }
 
+                BimDiagnostics.Observe(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDispatchExecute,
+                    BimDiagnosticOutcome.Start,
+                    BimDiagnosticFields.None);
                 try
                 {
-                    completion.TrySetResult(work(ActiveUIApplication()));
+                    var result = work(ActiveUIApplication());
+                    BimDiagnostics.Observe(
+                        diagnostics,
+                        BimDiagnosticStage.RevitDispatchExecute,
+                        BimDiagnosticOutcome.Success,
+                        BimDiagnosticFields.None);
+                    completion.TrySetResult(result);
                 }
                 catch (Exception ex)
                 {
+                    BimDiagnostics.ObserveException(
+                        diagnostics,
+                        BimDiagnosticStage.RevitDispatchExecute,
+                        ex,
+                        new BimDiagnosticFields(
+                            BimDiagnosticDetailCode.None,
+                            null,
+                            BimDiagnosticFailureImpact.Production));
                     completion.TrySetException(ex);
                 }
                 finally

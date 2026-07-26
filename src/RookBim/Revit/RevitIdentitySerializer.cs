@@ -29,6 +29,77 @@ namespace RookBim.Revit
             };
         }
 
+        public static BimDocumentIdentity DocumentIdentity(
+            Document document,
+            BimDiagnosticContext diagnostics,
+            bool includeAuxiliaryState)
+        {
+            if (document == null)
+            {
+                throw new ArgumentNullException(nameof(document));
+            }
+
+            if (diagnostics == null)
+            {
+                throw new ArgumentNullException(nameof(diagnostics));
+            }
+
+            var centralGuid = GetWorksharingCentralGUID(document, diagnostics);
+            var title = diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentTitle,
+                    () => document.Title,
+                    BimDiagnosticFields.None)
+                : document.Title;
+            var path = diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentPath,
+                    () => document.PathName,
+                    BimDiagnosticFields.None)
+                : document.PathName;
+            var isFamilyDocument = diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentIsFamily,
+                    () => document.IsFamilyDocument,
+                    BimDiagnosticFields.None,
+                    value => value
+                        ? BimDiagnosticDetailCode.True
+                        : BimDiagnosticDetailCode.False)
+                : document.IsFamilyDocument;
+            var outputIsWorkshared = diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentOutputIsWorkshared,
+                    () => document.IsWorkshared,
+                    BimDiagnosticFields.None,
+                    value => value
+                        ? BimDiagnosticDetailCode.True
+                        : BimDiagnosticDetailCode.False)
+                : document.IsWorkshared;
+
+            var result = new BimDocumentIdentity
+            {
+                Guid = centralGuid.HasValue ? centralGuid.Value.ToString("D") : null,
+                GuidSource = centralGuid.HasValue
+                    ? BimDocumentGuidSource.RevitPersistentGuid
+                    : BimDocumentGuidSource.Unavailable,
+                Title = NullIfWhiteSpace(title),
+                Path = NullIfWhiteSpace(path),
+                IsFamilyDocument = isFamilyDocument,
+                IsWorkshared = outputIsWorkshared
+            };
+
+            if (includeAuxiliaryState)
+            {
+                ProbeDocumentState(document, diagnostics);
+            }
+
+            return result;
+        }
+
         public static BimViewIdentity ViewIdentity(View view)
         {
             if (view == null)
@@ -187,6 +258,174 @@ namespace RookBim.Revit
             {
                 return null;
             }
+        }
+
+        private static Guid? GetWorksharingCentralGUID(
+            Document document,
+            BimDiagnosticContext diagnostics)
+        {
+            try
+            {
+                var isWorkshared = diagnostics.Enabled
+                    ? BimDiagnosticProbe.Production(
+                        diagnostics,
+                        BimDiagnosticStage.RevitDocumentCentralIsWorkshared,
+                        () => document.IsWorkshared,
+                        BimDiagnosticFields.None,
+                        value => value
+                            ? BimDiagnosticDetailCode.True
+                            : BimDiagnosticDetailCode.NotWorkshared)
+                    : document.IsWorkshared;
+                if (!isWorkshared)
+                {
+                    return null;
+                }
+
+                var guid = diagnostics.Enabled
+                    ? BimDiagnosticProbe.Production(
+                        diagnostics,
+                        BimDiagnosticStage.RevitDocumentCentralGuid,
+                        () => document.WorksharingCentralGUID,
+                        BimDiagnosticFields.None,
+                        value => value == Guid.Empty
+                            ? BimDiagnosticDetailCode.Null
+                            : BimDiagnosticDetailCode.True)
+                    : document.WorksharingCentralGUID;
+                return guid == Guid.Empty ? (Guid?)null : guid;
+            }
+            catch (Autodesk.Revit.Exceptions.InapplicableDataException)
+            {
+                return null;
+            }
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            {
+                return null;
+            }
+        }
+
+        private static void ProbeDocumentState(
+            Document document,
+            BimDiagnosticContext diagnostics)
+        {
+            if (!diagnostics.Enabled)
+            {
+                return;
+            }
+
+            var isModelInCloud = BimDiagnosticProbe.Auxiliary(
+                diagnostics,
+                BimDiagnosticStage.RevitDocumentIsModelInCloud,
+                () => document.IsModelInCloud,
+                BooleanDetail);
+            var isDetached = BimDiagnosticProbe.Auxiliary(
+                diagnostics,
+                BimDiagnosticStage.RevitDocumentIsDetached,
+                () => document.IsDetached,
+                BooleanDetail);
+            var centralModelPath = BimDiagnosticProbe.Auxiliary(
+                diagnostics,
+                BimDiagnosticStage.RevitDocumentCentralModelPath,
+                () => document.GetWorksharingCentralModelPath(),
+                value => value == null
+                    ? BimDiagnosticDetailCode.Null
+                    : BimDiagnosticDetailCode.True);
+
+            BimAuxiliaryProbeResult<bool>? empty = null;
+            BimAuxiliaryProbeResult<bool>? serverPath = null;
+            BimAuxiliaryProbeResult<bool>? cloudPath = null;
+            if (centralModelPath.Known && centralModelPath.Value != null)
+            {
+                var modelPath = centralModelPath.Value;
+                empty = BimDiagnosticProbe.Auxiliary(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentModelPathEmpty,
+                    () => modelPath.Empty,
+                    BooleanDetail);
+                serverPath = BimDiagnosticProbe.Auxiliary(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentModelPathServer,
+                    () => modelPath.ServerPath,
+                    BooleanDetail);
+                cloudPath = BimDiagnosticProbe.Auxiliary(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentModelPathCloud,
+                    () => modelPath.CloudPath,
+                    BooleanDetail);
+            }
+
+            BimDiagnostics.Observe(
+                diagnostics,
+                BimDiagnosticStage.RevitDocumentCentralModelPath,
+                BimDiagnosticOutcome.Success,
+                new BimDiagnosticFields(
+                    ClassifyDocumentState(
+                        isModelInCloud,
+                        isDetached,
+                        centralModelPath,
+                        empty,
+                        serverPath,
+                        cloudPath),
+                    null,
+                    BimDiagnosticFailureImpact.Auxiliary));
+        }
+
+        private static BimDiagnosticDetailCode ClassifyDocumentState(
+            BimAuxiliaryProbeResult<bool> isModelInCloud,
+            BimAuxiliaryProbeResult<bool> isDetached,
+            BimAuxiliaryProbeResult<ModelPath> centralModelPath,
+            BimAuxiliaryProbeResult<bool>? empty,
+            BimAuxiliaryProbeResult<bool>? serverPath,
+            BimAuxiliaryProbeResult<bool>? cloudPath)
+        {
+            if (!isModelInCloud.Known ||
+                !isDetached.Known ||
+                !centralModelPath.Known ||
+                centralModelPath.Value != null &&
+                (!empty.HasValue || !empty.Value.Known ||
+                 !serverPath.HasValue || !serverPath.Value.Known ||
+                 !cloudPath.HasValue || !cloudPath.Value.Known))
+            {
+                return BimDiagnosticDetailCode.Unknown;
+            }
+
+            if (isDetached.Known && isDetached.Value)
+            {
+                return BimDiagnosticDetailCode.Detached;
+            }
+
+            if (centralModelPath.Known && centralModelPath.Value == null ||
+                empty.HasValue && empty.Value.Known && empty.Value.Value)
+            {
+                return BimDiagnosticDetailCode.Unsaved;
+            }
+
+            if (isModelInCloud.Known && isModelInCloud.Value ||
+                cloudPath.HasValue && cloudPath.Value.Known && cloudPath.Value.Value)
+            {
+                return BimDiagnosticDetailCode.Cloud;
+            }
+
+            if (serverPath.HasValue && serverPath.Value.Known && serverPath.Value.Value)
+            {
+                return BimDiagnosticDetailCode.Server;
+            }
+
+            if (centralModelPath.Known && centralModelPath.Value != null &&
+                empty.HasValue && empty.Value.Known &&
+                serverPath.HasValue && serverPath.Value.Known &&
+                cloudPath.HasValue && cloudPath.Value.Known)
+            {
+                return BimDiagnosticDetailCode.File;
+            }
+
+            return BimDiagnosticDetailCode.Unknown;
+        }
+
+        private static BimDiagnosticDetailCode BooleanDetail(bool value)
+        {
+            return value
+                ? BimDiagnosticDetailCode.True
+                : BimDiagnosticDetailCode.False;
         }
 
         private static string? TryGetUniqueId(Element element)

@@ -85,6 +85,80 @@ namespace RookBim.Tests
         }
 
         [Fact]
+        public void RookBimModuleActivate_RegistersModuleMetadataBeforeAnyLoadCheck()
+        {
+            var module = Read("src/RookBim/RookBimModule.cs");
+            var activate = ExtractMethod(module, "public static void Activate()");
+
+            var registrationIndex = activate.IndexOf(
+                "BimDiagnostics.RegisterModuleMetadata(typeof(RookBimModule).Assembly);",
+                StringComparison.Ordinal);
+            var loadCheckIndex = activate.IndexOf("IsLoaded(", StringComparison.Ordinal);
+
+            Assert.True(registrationIndex >= 0);
+            Assert.True(loadCheckIndex > registrationIndex);
+            Assert.DoesNotContain("InitializeFromEnvironment", activate);
+            Assert.DoesNotContain("GetEnvironmentVariable", activate);
+        }
+
+        [Fact]
+        public void RevitDispatcher_CarriesExplicitContextThroughQueuedWorkItem()
+        {
+            var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
+
+            Assert.Contains(
+                "public Task<T> Invoke<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)",
+                dispatcher);
+            Assert.Contains(
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)",
+                dispatcher);
+            Assert.Contains("private readonly BimDiagnosticContext diagnostics;", dispatcher);
+            Assert.Contains(
+                "public RevitApiWorkItem(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)",
+                dispatcher);
+            Assert.Contains("this.diagnostics = diagnostics", dispatcher);
+            Assert.Contains("new RevitApiWorkItem<T>(diagnostics, work)", dispatcher);
+
+            var execute = ExtractMethod(dispatcher, "public void Execute()");
+            Assert.Contains("BimDiagnosticStage.RevitDispatchExecute", execute);
+            Assert.Contains("work(ActiveUIApplication())", execute);
+            Assert.Contains("BimDiagnostics.ObserveException(", execute);
+            Assert.True(
+                execute.IndexOf("BimDiagnosticOutcome.Start", StringComparison.Ordinal) <
+                execute.IndexOf("work(ActiveUIApplication())", StringComparison.Ordinal));
+            Assert.True(
+                execute.IndexOf("work(ActiveUIApplication())", StringComparison.Ordinal) <
+                execute.IndexOf("BimDiagnosticOutcome.Success", StringComparison.Ordinal));
+
+            Assert.DoesNotContain("AsyncLocal", dispatcher);
+            Assert.DoesNotContain("[ThreadStatic]", dispatcher);
+            Assert.DoesNotContain("ThreadLocal", dispatcher);
+            Assert.DoesNotContain("CurrentCorrelation", dispatcher);
+            Assert.DoesNotContain("CurrentDiagnostics", dispatcher);
+            Assert.DoesNotContain("CurrentContext", dispatcher);
+            Assert.DoesNotContain("GlobalCorrelation", dispatcher);
+        }
+
+        [Fact]
+        public void RevitDispatcher_ObservesEnqueueAtTheExistingBoundaries()
+        {
+            var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
+            var invoke = ExtractMethod(dispatcher, "internal RevitApiDispatch<T> InvokeAbandonable<T>(");
+
+            var startIndex = invoke.IndexOf("BimDiagnosticOutcome.Start", StringComparison.Ordinal);
+            var enqueueIndex = invoke.IndexOf("EnqueueIdlingAction", StringComparison.Ordinal);
+            var successIndex = invoke.IndexOf("BimDiagnosticOutcome.Success", StringComparison.Ordinal);
+            var catchIndex = invoke.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+            var failureIndex = invoke.IndexOf("BimDiagnostics.ObserveException(", StringComparison.Ordinal);
+            var completionIndex = invoke.IndexOf("item.TrySetException(ex);", StringComparison.Ordinal);
+
+            Assert.Contains("BimDiagnosticStage.RevitDispatchEnqueue", invoke);
+            Assert.True(startIndex >= 0 && enqueueIndex > startIndex);
+            Assert.True(successIndex > enqueueIndex && catchIndex > successIndex);
+            Assert.True(failureIndex > catchIndex && completionIndex > failureIndex);
+        }
+
+        [Fact]
         public void RevitTask7_UsesRhinoInsideHostContextDispatcherWithoutTransactions()
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
@@ -138,7 +212,7 @@ namespace RookBim.Tests
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
 
-            Assert.Contains("View = SerializeActiveView(uidoc)", runtime);
+            Assert.Contains("View = SerializeActiveView(uidoc, diagnostics)", runtime);
             Assert.Contains("public BimViewIdentity? View { get; set; }", runtime);
             Assert.DoesNotContain("ActiveView = SerializeActiveView(uidoc)", runtime);
             Assert.DoesNotContain("public BimViewIdentity? ActiveView { get; set; }", runtime);
@@ -147,7 +221,8 @@ namespace RookBim.Tests
         [Fact]
         public void RevitRuntime_UsesOnlyActiveGraphicalViewForViewResolution()
         {
-            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
 
             Assert.Contains("uidoc.ActiveGraphicalView", runtime);
             Assert.DoesNotContain("uidoc.ActiveView", runtime);
@@ -155,41 +230,277 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void RevitRuntime_ResolvesGraphicalViewOnlyWhenTheOperationRequiresIt()
+        public void RevitRuntime_ActiveViewProbeHasDisabledFastPathAndNoDocumentScopeViewRead()
+        {
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var resolve = ExtractMethod(runtime, "private static View? ResolveActiveGraphicalView(");
+
+            var documentReturnIndex = resolve.IndexOf(
+                "if (scope != BimQueryScope.ActiveView)", StringComparison.Ordinal);
+            var viewReadIndex = resolve.IndexOf("uidoc.ActiveGraphicalView", StringComparison.Ordinal);
+
+            Assert.True(documentReturnIndex >= 0 && viewReadIndex > documentReturnIndex);
+            Assert.Contains("return null;", resolve);
+            Assert.Contains("return diagnostics.Enabled", resolve);
+            Assert.Contains("BimDiagnosticProbe.Production(", resolve);
+            Assert.Contains("BimDiagnosticStage.RevitViewActiveGraphical", resolve);
+            Assert.Contains("() => uidoc.ActiveGraphicalView", resolve);
+            Assert.Contains(": uidoc.ActiveGraphicalView;", resolve);
+            Assert.Contains("BimDiagnosticDetailCode.NoActiveView", resolve);
+            Assert.Equal(2, CountOccurrences(resolve, "uidoc.ActiveGraphicalView"));
+            Assert.Equal(1, CountOccurrences(resolve, "() => uidoc.ActiveGraphicalView"));
+            Assert.DoesNotContain("uidoc.ActiveView", resolve);
+            Assert.DoesNotContain("document.ActiveView", resolve);
+        }
+
+        [Fact]
+        public void RevitRuntime_CapturesContextBeforeQueueingAndPassesItThroughViewAndIdentity()
+        {
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var dispatch = ExtractMethod(runtime, "private T Dispatch<T>(");
+            var dispatchWithTimeout = ExtractMethod(runtime, "private T DispatchWithTimeout<T>(");
+            var activeDocument = ExtractMethod(runtime, "public BimApiResponse ActiveDocument(");
+            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
+
+            Assert.True(
+                dispatch.IndexOf("var capturedDiagnostics = diagnostics;", StringComparison.Ordinal) <
+                dispatch.IndexOf(
+                    "dispatcher.InvokeAbandonable(capturedDiagnostics, work)",
+                    StringComparison.Ordinal));
+            Assert.True(
+                dispatchWithTimeout.IndexOf("var capturedDiagnostics = diagnostics;", StringComparison.Ordinal) <
+                dispatchWithTimeout.IndexOf(
+                    "dispatcher.InvokeAbandonable(capturedDiagnostics, work)",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                "return ExecuteInDocumentContext(\n" +
+                "                diagnostics,",
+                activeDocument);
+            Assert.Contains(
+                "DocumentIdentity(\n" +
+                "                            document,\n" +
+                "                            diagnostics,\n" +
+                "                            includeAuxiliaryState: true)",
+                activeDocument);
+            Assert.Contains("SerializeActiveView(uidoc, diagnostics)", activeDocument);
+            Assert.Contains(
+                "return ExecuteInDocumentContext(\n" +
+                "                diagnostics,",
+                queryElements);
+            Assert.Contains(
+                "ResolveActiveGraphicalView(\n" +
+                "                        uidoc, effectiveRequest.EffectiveScope, diagnostics)",
+                queryElements);
+            Assert.DoesNotContain("AsyncLocal", runtime);
+            Assert.DoesNotContain("[ThreadStatic]", runtime);
+            Assert.DoesNotContain("ThreadLocal", runtime);
+            Assert.DoesNotContain("CurrentCorrelation", runtime);
+            Assert.DoesNotContain("CurrentDiagnostics", runtime);
+            Assert.DoesNotContain("CurrentContext", runtime);
+            Assert.DoesNotContain("GlobalCorrelation", runtime);
+        }
+
+        [Fact]
+        public void RevitRuntime_InstrumentsEveryExistingDocumentAcquisitionWithoutCachingReads()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var status = ExtractMethod(runtime, "public BimStatusResponse Status(");
+            var elementInfo = ExtractMethod(runtime, "public BimApiResponse ElementInfo(");
+            var parameters = ExtractMethod(runtime, "public BimApiResponse ElementParameters(");
+            var select = ExtractMethod(runtime, "public BimApiResponse SelectElements(");
+            var clear = ExtractMethod(runtime, "public BimApiResponse ClearSelection(");
+            var preset = ExtractMethod(runtime, "public BimApiResponse ExportPreset(");
+            var export = ExtractMethod(runtime, "public BimApiResponse ExportElements(");
+            var documentContext = ExtractMethod(runtime, "private BimApiResponse ExecuteInDocumentContext(");
+            var acquireUiDocument = ExtractMethod(runtime, "private static UIDocument? AcquireActiveUiDocument(");
+            var acquireDocument = ExtractMethod(runtime, "private static Document? AcquireDocument(");
+            var acquireActiveDocument = ExtractMethod(runtime, "private static Document? AcquireActiveDocument(");
+
+            Assert.Equal(1, CountOccurrences(status, "AcquireActiveDocument(uiapp, diagnostics)"));
+            AssertAcquisitionCounts(documentContext, expectedUiDocument: 1, expectedDocument: 2);
+            AssertAcquisitionCounts(elementInfo, expectedUiDocument: 1, expectedDocument: 2);
+            AssertAcquisitionCounts(parameters, expectedUiDocument: 1, expectedDocument: 2);
+            AssertAcquisitionCounts(select, expectedUiDocument: 1, expectedDocument: 1);
+            AssertAcquisitionCounts(clear, expectedUiDocument: 1, expectedDocument: 1);
+            AssertAcquisitionCounts(preset, expectedUiDocument: 1, expectedDocument: 2);
+            AssertAcquisitionCounts(export, expectedUiDocument: 1, expectedDocument: 2);
+
+            AssertDisabledProductionFastPath(
+                acquireUiDocument,
+                "() => RevitContext.ActiveUiDocument(uiapp)",
+                "RevitContext.ActiveUiDocument(uiapp)");
+            AssertDisabledProductionFastPath(
+                acquireDocument,
+                "() => uidoc.Document",
+                "uidoc.Document");
+            AssertDisabledProductionFastPath(
+                acquireActiveDocument,
+                "() => RevitContext.ActiveDocument(uiapp)",
+                "RevitContext.ActiveDocument(uiapp)");
+            Assert.Contains("BimDiagnosticStage.RevitDocumentAcquire", acquireUiDocument);
+            Assert.Contains("BimDiagnosticStage.RevitDocumentAcquire", acquireDocument);
+            Assert.Contains("BimDiagnosticStage.RevitDocumentAcquire", acquireActiveDocument);
+        }
+
+        [Fact]
+        public void RevitIdentitySerializer_DetailedPathPreservesReadOrderAndIndependentWorksharedReads()
+        {
+            var serializer = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
+            var detailed = ExtractMethod(
+                serializer,
+                "public static BimDocumentIdentity DocumentIdentity(\n            Document document,");
+            var central = ExtractMethod(
+                serializer,
+                "private static Guid? GetWorksharingCentralGUID(\n            Document document,");
+
+            var centralCall = detailed.IndexOf(
+                "GetWorksharingCentralGUID(document, diagnostics)", StringComparison.Ordinal);
+            var title = detailed.IndexOf("BimDiagnosticStage.RevitDocumentTitle", StringComparison.Ordinal);
+            var path = detailed.IndexOf("BimDiagnosticStage.RevitDocumentPath", StringComparison.Ordinal);
+            var family = detailed.IndexOf("BimDiagnosticStage.RevitDocumentIsFamily", StringComparison.Ordinal);
+            var outputWorkshared = detailed.IndexOf(
+                "BimDiagnosticStage.RevitDocumentOutputIsWorkshared", StringComparison.Ordinal);
+
+            Assert.True(centralCall >= 0 && title > centralCall);
+            Assert.True(path > title && family > path && outputWorkshared > family);
+            Assert.True(
+                central.IndexOf(
+                    "BimDiagnosticStage.RevitDocumentCentralIsWorkshared",
+                    StringComparison.Ordinal) <
+                central.IndexOf(
+                    "BimDiagnosticStage.RevitDocumentCentralGuid",
+                    StringComparison.Ordinal));
+            Assert.Contains("() => document.IsWorkshared", central);
+            Assert.Contains("() => document.IsWorkshared", detailed);
+            Assert.DoesNotContain("IsWorkshared = centralIsWorkshared", detailed);
+            Assert.DoesNotContain("IsWorkshared = isWorkshared", detailed);
+
+            Assert.Equal(1, CountOccurrences(
+                central,
+                "catch (Autodesk.Revit.Exceptions.InapplicableDataException)"));
+            Assert.Equal(1, CountOccurrences(
+                central,
+                "catch (Autodesk.Revit.Exceptions.InvalidOperationException)"));
+            Assert.DoesNotContain("InternalException", central);
+            Assert.DoesNotContain("InternalException", serializer);
+        }
+
+        [Fact]
+        public void RevitIdentitySerializer_KeepsOneArgumentElementPathsUntraced()
+        {
+            var serializer = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
+            var untraced = ExtractMethod(
+                serializer,
+                "public static BimDocumentIdentity DocumentIdentity(Document document)");
+            var element = ExtractMethod(
+                serializer,
+                "public static BimElementIdentity ElementIdentity(Element element)");
+            var resolve = ExtractMethod(
+                serializer,
+                "public static BimElementResolveResult Resolve(Document document, BimElementIdentity? identity)");
+
+            Assert.DoesNotContain("BimDiagnostic", untraced);
+            Assert.Contains("DocumentIdentity(document)", element);
+            Assert.Contains("DocumentMatches(DocumentIdentity(document), identity)", resolve);
+            Assert.DoesNotContain("diagnostics", element);
+            Assert.DoesNotContain("diagnostics", resolve);
+        }
+
+        [Fact]
+        public void RevitIdentitySerializer_AuxiliaryStateIsGatedIndependentAndBehaviorNeutral()
+        {
+            var serializer = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
+            var detailed = ExtractMethod(
+                serializer,
+                "public static BimDocumentIdentity DocumentIdentity(\n            Document document,");
+            var state = ExtractMethod(serializer, "private static void ProbeDocumentState(");
+            var classify = ExtractMethod(
+                serializer,
+                "private static BimDiagnosticDetailCode ClassifyDocumentState(");
+
+            var dtoIndex = detailed.IndexOf("var result = new BimDocumentIdentity", StringComparison.Ordinal);
+            var probeIndex = detailed.IndexOf("ProbeDocumentState(document, diagnostics);", StringComparison.Ordinal);
+            var returnIndex = detailed.IndexOf("return result;", StringComparison.Ordinal);
+            Assert.True(dtoIndex >= 0 && probeIndex > dtoIndex && returnIndex > probeIndex);
+            Assert.Contains("if (includeAuxiliaryState)", detailed);
+
+            var disabledIndex = state.IndexOf("if (!diagnostics.Enabled)", StringComparison.Ordinal);
+            var firstAuxiliary = state.IndexOf("BimDiagnosticProbe.Auxiliary", StringComparison.Ordinal);
+            Assert.True(disabledIndex >= 0 && firstAuxiliary > disabledIndex);
+            Assert.Contains("return;", state.Substring(disabledIndex, firstAuxiliary - disabledIndex));
+            Assert.DoesNotContain("BimDiagnosticProbe.Production", state);
+            Assert.Contains("() => document.IsModelInCloud", state);
+            Assert.Contains("() => document.IsDetached", state);
+            Assert.Contains("() => document.GetWorksharingCentralModelPath()", state);
+            Assert.Contains("() => modelPath.Empty", state);
+            Assert.Contains("() => modelPath.ServerPath", state);
+            Assert.Contains("() => modelPath.CloudPath", state);
+            Assert.Equal(6, CountOccurrences(state, "BimDiagnosticProbe.Auxiliary"));
+            Assert.Equal(1, CountOccurrences(state, "GetWorksharingCentralModelPath()"));
+            Assert.DoesNotContain("document.Title", state);
+            Assert.DoesNotContain("document.PathName", state);
+            Assert.DoesNotContain("CentralServerPath", state);
+
+            var unknownGateIndex = classify.IndexOf(
+                "if (!isModelInCloud.Known ||", StringComparison.Ordinal);
+            var detachedIndex = classify.IndexOf(
+                "return BimDiagnosticDetailCode.Detached;", StringComparison.Ordinal);
+            Assert.True(unknownGateIndex >= 0 && detachedIndex > unknownGateIndex);
+            Assert.Contains("!isDetached.Known", classify);
+            Assert.Contains("!centralModelPath.Known", classify);
+            Assert.Contains("!empty.HasValue || !empty.Value.Known", classify);
+            Assert.Contains("!serverPath.HasValue || !serverPath.Value.Known", classify);
+            Assert.Contains("!cloudPath.HasValue || !cloudPath.Value.Known", classify);
+        }
+
+        [Fact]
+        public void RevitRuntime_ResolvesGraphicalViewOnlyWhenTheOperationRequiresIt()
+        {
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
             var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
             var exportPreset = ExtractMethod(runtime, "public BimApiResponse ExportPreset(");
             var exportElements = ExtractMethod(runtime, "public BimApiResponse ExportElements(");
             var resolveView = ExtractMethod(runtime, "private static View? ResolveActiveGraphicalView(");
 
-            var activeScopeIndex = resolveView.IndexOf(
-                "scope == BimQueryScope.ActiveView",
+            var scopeGateIndex = resolveView.IndexOf(
+                "scope != BimQueryScope.ActiveView",
+                StringComparison.Ordinal);
+            var noViewIndex = resolveView.IndexOf(
+                "return null;",
+                scopeGateIndex,
                 StringComparison.Ordinal);
             var activeViewIndex = resolveView.IndexOf("uidoc.ActiveGraphicalView", StringComparison.Ordinal);
-            var nullIndex = resolveView.IndexOf("null", activeViewIndex, StringComparison.Ordinal);
-            Assert.True(activeScopeIndex >= 0 && activeScopeIndex < activeViewIndex && activeViewIndex < nullIndex);
-            Assert.Contains("?", resolveView.Substring(activeScopeIndex, activeViewIndex - activeScopeIndex));
-            Assert.Contains(":", resolveView.Substring(activeViewIndex, nullIndex - activeViewIndex));
+            Assert.True(
+                scopeGateIndex >= 0 &&
+                noViewIndex > scopeGateIndex &&
+                activeViewIndex > noViewIndex);
 
             Assert.Contains(
-                "ResolveActiveGraphicalView(uidoc, effectiveRequest.EffectiveScope)",
+                "effectiveRequest.EffectiveScope, diagnostics",
                 queryElements);
             Assert.Contains(
-                "ResolveActiveGraphicalView(uidoc, request.EffectiveScope)",
+                "request.EffectiveScope, diagnostics",
                 exportPreset);
             Assert.Contains(
-                "request.HasSelector\n" +
-                "                            ? ResolveActiveGraphicalView(uidoc, request.Selector!.EffectiveScope)\n" +
-                "                            : null",
-                NormalizeLineEndings(exportElements));
+                "request.Selector!.EffectiveScope, diagnostics",
+                exportElements);
 
-            var presetBoundary = ExtractTryCatchAfter(exportPreset, "var document = uidoc.Document;");
+            var presetBoundary = ExtractTryCatchAfter(
+                exportPreset,
+                "var document = AcquireDocument(uidoc, diagnostics)!;");
             Assert.Contains("ResolveActiveGraphicalView", presetBoundary.Item1);
             Assert.Contains("presetResolver.Resolve", presetBoundary.Item1);
             Assert.Contains("BimErrorCode.ExportFailed", presetBoundary.Item2);
 
-            var exportBoundary = ExtractTryCatchAfter(exportElements, "var document = uidoc.Document;");
+            var exportBoundary = ExtractTryCatchAfter(
+                exportElements,
+                "var document = AcquireDocument(uidoc, diagnostics)!;");
             Assert.Contains("ResolveActiveGraphicalView", exportBoundary.Item1);
             Assert.Contains("export.Export(document, view, request)", exportBoundary.Item1);
             Assert.Contains("BimErrorCode.ExportFailed", exportBoundary.Item2);
@@ -205,7 +516,7 @@ namespace RookBim.Tests
                 "var effectiveRequest = request ?? new BimQueryElementsRequest();",
                 StringComparison.Ordinal);
             var viewIndex = queryElements.IndexOf(
-                "ResolveActiveGraphicalView(uidoc, effectiveRequest.EffectiveScope)",
+                "effectiveRequest.EffectiveScope, diagnostics",
                 StringComparison.Ordinal);
             var queryIndex = queryElements.IndexOf(
                 "query.Query(document, view, effectiveRequest)",
@@ -221,7 +532,7 @@ namespace RookBim.Tests
             var activeDocument = ExtractMethod(runtime, "public BimApiResponse ActiveDocument(");
 
             Assert.Contains("return ExecuteInDocumentContext", activeDocument);
-            Assert.Contains("View = SerializeActiveView(uidoc)", activeDocument);
+            Assert.Contains("View = SerializeActiveView(uidoc, diagnostics)", activeDocument);
         }
 
         [Fact]
@@ -250,7 +561,9 @@ namespace RookBim.Tests
             Assert.Contains("CompareExchange(ref state, Running, Pending)", dispatcher);
             Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", dispatcher);
             Assert.Contains("TrySetCanceled", dispatcher);
-            Assert.Contains("var dispatch = dispatcher.InvokeAbandonable(work);", runtime);
+            Assert.Contains(
+                "var dispatch = dispatcher.InvokeAbandonable(capturedDiagnostics, work);",
+                runtime);
             Assert.Contains("dispatch.Abandon();", runtime);
             Assert.Contains("throw new TimeoutException", runtime);
             Assert.Contains("Timed out waiting for RhinoInside Revit idling-queue execution.", runtime);
@@ -329,10 +642,10 @@ namespace RookBim.Tests
 
             Assert.Contains("private readonly RevitSelectionService selection;", runtime);
             Assert.Contains("this.selection = new RevitSelectionService();", runtime);
-            Assert.Contains("return Dispatch(uiapp =>", select);
-            Assert.Contains("return Dispatch(uiapp =>", clear);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", select);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", clear);
+            Assert.Contains("return Dispatch(diagnostics, uiapp =>", select);
+            Assert.Contains("return Dispatch(diagnostics, uiapp =>", clear);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", select);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", clear);
             Assert.Contains("BimErrorCode.NoActiveDocument", select);
             Assert.Contains("BimErrorCode.NoActiveDocument", clear);
             Assert.Contains("selection.Select(uidoc, request)", select);
@@ -442,10 +755,10 @@ namespace RookBim.Tests
             var elementInfo = ExtractMethod(runtime, "public BimApiResponse ElementInfo(");
             var elementParameters = ExtractMethod(runtime, "public BimApiResponse ElementParameters(");
 
-            Assert.Contains("return Dispatch(uiapp =>", elementInfo);
-            Assert.Contains("return Dispatch(uiapp =>", elementParameters);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", elementInfo);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", elementParameters);
+            Assert.Contains("return Dispatch(diagnostics, uiapp =>", elementInfo);
+            Assert.Contains("return Dispatch(diagnostics, uiapp =>", elementParameters);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", elementInfo);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", elementParameters);
             Assert.Contains("ResolveElementOrFailure(document, request?.Identity)", elementInfo);
             Assert.Contains("ResolveElementOrFailure(document, request?.Identity)", elementParameters);
             Assert.Contains("BuildElementInfo(document, resolved.Element!)", elementInfo);
@@ -676,6 +989,45 @@ namespace RookBim.Tests
         private static string NormalizeLineEndings(string value)
         {
             return value.Replace("\r\n", "\n");
+        }
+
+        private static int CountOccurrences(string source, string value)
+        {
+            var count = 0;
+            var index = 0;
+            while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += value.Length;
+            }
+
+            return count;
+        }
+
+        private static void AssertAcquisitionCounts(
+            string source,
+            int expectedUiDocument,
+            int expectedDocument)
+        {
+            Assert.Equal(
+                expectedUiDocument,
+                CountOccurrences(source, "AcquireActiveUiDocument(uiapp, diagnostics)"));
+            Assert.Equal(
+                expectedDocument,
+                CountOccurrences(source, "AcquireDocument(uidoc, diagnostics)"));
+        }
+
+        private static void AssertDisabledProductionFastPath(
+            string source,
+            string enabledExpression,
+            string directExpression)
+        {
+            Assert.Contains("return diagnostics.Enabled", source);
+            Assert.Contains("BimDiagnosticProbe.Production(", source);
+            Assert.Contains(enabledExpression, source);
+            Assert.Contains(": " + directExpression + ";", source);
+            Assert.Equal(2, CountOccurrences(source, directExpression));
+            Assert.Equal(1, CountOccurrences(source, enabledExpression));
         }
 
         private static string ExtractMethod(string source, string signatureStartText)
