@@ -1,4 +1,4 @@
-namespace Rook.Bim.Diagnostics
+namespace Rook.Bim
 {
     internal sealed class BimDiagnosticOutcomeAccumulator
     {
