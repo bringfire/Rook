@@ -11,9 +11,10 @@
 ## Global Constraints
 
 - Work only in `C:/UDEV/Rook/.worktrees/lm9b-p-governed-resolution-checkpoint-design` on `codex/lm9b-p-governed-resolution-checkpoint-design`; never modify, clean, reset, or rebase the primary checkout.
-- Base implementation on reviewed design commit `ccd6ef2baf2159763c093e94c20537cc843202c8` and main baseline `d6330a61a21d56abf16af6ba3b8f1678ede2c3ec`.
+- Base implementation on reviewed design commit `06be3159a6f4696b34d0f434a5a69b3a92d8507e` and main baseline `d6330a61a21d56abf16af6ba3b8f1678ede2c3ec`.
 - Treat `C:/Users/bring/rook-lm9b-p-attempts/2026-07-22-visibility-intervention` and evaluator derivative `sha256:48bcdcb36fb3ccee49fe358335f577ffabcb83b0f74e9f84d96951d6b3950b94` as immutable read-only evidence.
 - Bind carrier qualification `sha256:ad12f0cec491b64f51982b7069acfa1301c1d577071cff9498cf7fba260446e1`; do not regenerate or reinterpret it during implementation.
+- Preserve `d6330a61a21d56abf16af6ba3b8f1678ede2c3ec` as the qualification's sole commit. Bind the later resolution commit separately and prove exact forward compatibility for every reused carrier component; do not weaken the existing qualification verifier or add an ignore-commit mode.
 - Make no readiness, Planner, evaluator, compiler, Rhino, Grasshopper, or mutation provider contact during implementation, testing, review, merge, or development-preflight generation.
 - Use fake providers and fake readiness records in tests. Real readiness and scientific dispatch require a separately reviewed post-merge preflight and explicit authorization.
 - Keep `gpt-5.4`, `litellm.completion.tool_calling.no_parallel:v1`, temperature `0.0`, Planner bounds `6 / 16,384 / 180s / 600s / 120,000 / $10`, and evaluator bounds `1 / 8,192 / 180s` unchanged.
@@ -97,7 +98,7 @@
   - `lm9b_p_planner_recipe_transfer_support.evaluate_mechanical_gate()`
   - `lm9b_p_planner_recipe_transfer_support.run_planner_evaluation()`
   - `lm9b_p_readiness_contract.verify_launch_readiness()`
-  - `lm9_typed_fact_carrier_qualification.verify_qualification_archive()`
+  - the sealed historical carrier qualification identity at `d6330a61a21d56abf16af6ba3b8f1678ede2c3ec`
   - `lm9b_p_evaluator_only_continuation_artifacts.verify_historical_source()`
   - `lm9b_p_evaluator_only_continuation_artifacts.verify_sealed_derivative_archive()`
 - Produces:
@@ -109,6 +110,11 @@
   - `evaluate_resolution_isolation(*, inputs, candidate_recipe_bytes) -> IsolationGateResult`
   - `run_resolution_attempt(*, preflight, readiness_record, readiness_manifest, head_sha, now_iso, credential_present, planner_provider, evaluator_provider) -> ResolutionAttemptResult`
   - `verify_sealed_resolution_checkpoint(archive_dir, *, expected_identity) -> SealedResolutionCheckpoint`
+  - `verify_historical_carrier_qualification_compatibility(*, archive_dir, expected_identity, repo_root, consuming_commit_sha) -> VerifiedCarrierQualificationCompatibility`
+  - `bind_resolution_attempt(*, instrument, attempt_id, resolution_root, destination) -> AttemptBinding`
+  - `write_resolution_preflight(*, destination, instrument, attempt_binding) -> VerifiedResolutionPreflight`
+  - `verify_resolution_preflight(archive_dir, *, expected_fingerprint) -> VerifiedResolutionPreflight`
+  - `reserve_resolution_staging(preflight) -> Path`
 
 - [ ] **Step 1: Add import-valid API skeletons and exact contract fixtures**
 
@@ -178,6 +184,34 @@ class ResolutionInstrument:
 
 
 @dataclass(frozen=True)
+class VerifiedCarrierQualificationCompatibility:
+    archive_dir: Path
+    historical_qualification_identity: str
+    historical_commit_sha: str
+    consuming_commit_sha: str
+    comparison_rows: tuple[Mapping[str, object], ...]
+    compatibility_fingerprint: str
+
+
+@dataclass(frozen=True)
+class AttemptBinding:
+    attempt_id: str
+    resolution_root: Path
+    destination: Path
+    staging_path: Path
+    attempt_fingerprint: str
+
+
+@dataclass(frozen=True)
+class VerifiedResolutionPreflight:
+    archive_dir: Path
+    record: Mapping[str, object]
+    preflight_fingerprint: str
+    instrument_fingerprint: str
+    attempt: AttemptBinding
+
+
+@dataclass(frozen=True)
 class SealedResolutionCheckpoint:
     archive_dir: Path
     checkpoint_identity: str
@@ -209,6 +243,11 @@ generic criterion statement:
 ```text
 Values present in verified successor authority are supplied facts, not unresolved intent or Planner inventions.
 ```
+
+Its `scenario_obligations` are exactly the retained ten-by-ten and radial-height
+obligations plus that supplied-authority statement. The historical obligation
+that spacing is absent from task authority must not appear in the successor
+rubric; add a contract assertion that rejects it.
 
 Create the static recipe by manually copying the exact sealed parent recipe and
 making only these fixture-oracle changes:
@@ -389,14 +428,19 @@ evaluator = FakeProvider(
 )
 ```
 
+Before readiness, bind a Task-1 attempt, write the no-contact preflight, and
+call `verify_resolution_preflight()` with its exact fingerprint. Pass only the
+returned verified preflight carrier to the orchestrator.
+
 Build a fake readiness record using the real `RouteManifest`, existing
 `canary_protocol_fingerprint()`, exact `lm9b_p.readiness_record:v1` schema,
 current commit, fresh timestamps, and one deduplicated route with member roles
-`("planner", "planner_evaluator")`. Require
-Call `verify_launch_readiness(record=record, manifest=manifest,
-head_sha=head_sha, now_iso=now_iso,
-credential_present={route.route_fingerprint: True for route in
-manifest.routes})` and require `.ok is True` before calling the orchestrator.
+`("planner", "planner_evaluator")`. Do not verify it in test setup as a
+substitute for execution. The real orchestrator must call
+`verify_launch_readiness(record=record, manifest=manifest, head_sha=head_sha,
+now_iso=now_iso, credential_present={route.route_fingerprint: True for route in
+manifest.routes})`, require `.ok is True`, and atomically reserve staging before
+the first Planner call.
 
 Assert:
 
@@ -405,6 +449,15 @@ assert result.classification == "probe_candidate_ready"
 assert result.state == "sealed"
 assert len(planner.requests) == 2
 assert len(evaluator.requests) == 1
+assert planner.staging_existed_at_every_call == [True, True]
+assert preflight.record["instrument_contracts"]["ready_proof"]["contract_id"] == (
+    "lm9b_p.governed_resolution_ready_proof:v1"
+)
+assert not {
+    "proof_instance_identity",
+    "checkpoint_identity",
+    "eligible_recipe_identity",
+} & set(preflight.record["instrument_contracts"]["ready_proof"])
 assert json.loads(planner.requests[1])["messages"][-1]["role"] in {"tool", "user"}
 assert result.isolation_result.status == "isolated"
 verified = ARTIFACTS.verify_sealed_resolution_checkpoint(
@@ -434,21 +487,30 @@ readiness verification.
 
 Implement only the positive path needed by the witness:
 
-1. Verify historical source, derivative, qualification, exact successor
-   envelope, and current checkout.
+1. Verify historical source and derivative; verify the carrier qualification
+   as sealed historical evidence bound only to `d6330a61`, then separately
+   prove the current checkout reuses exact carrier component bytes, runtime,
+   fingerprints, and contract identities.
 2. Derive the verified unit-context proof from exact source authority.
 3. Validate successor envelope through the existing carrier.
 4. Reconstruct parent facts/bindings, partition `P/U/S`, and exact migration.
 5. Compose current semantic authority with unchanged environment/policy and
    successor task envelope; keep carrier contracts in instrument context.
-6. Render the canonical revision request.
-7. Run existing Planner controller through a recording dispatch wrapper.
-8. Independently rerun the mechanical gate on accepted bytes.
-9. Apply the seven exact isolation equations and residual comparison.
-10. Render the parent-blind evaluator request and run existing evaluator parser.
-11. Derive `probe_candidate_ready` through the shared blocker/classifier plus
+6. Render the canonical revision request and assemble the thin Task-1
+   instrument. Bind the ready-proof contract definition and issuance equations,
+   but no response-dependent proof instance, checkpoint, or recipe identity.
+7. Bind the attempt, write the no-contact preflight, and publicly verify its
+   exact fingerprint.
+8. Inside `run_resolution_attempt()`, publicly reverify the supplied preflight,
+   run the real readiness verifier over the fake readiness bytes, and atomically
+   reserve direct-child staging with `exist_ok=False` before dispatch.
+9. Run the existing Planner controller through a recording dispatch wrapper.
+10. Independently rerun the mechanical gate on accepted bytes.
+11. Apply the seven exact isolation equations and residual comparison.
+12. Render the parent-blind evaluator request and run existing evaluator parser.
+13. Derive `probe_candidate_ready` through the shared blocker/classifier plus
     resolution outcome equations.
-12. Write a closed minimal archive, reread it, and publicly reconstruct every
+14. Write a closed minimal archive, reread it, and publicly reconstruct every
     positive-path claim.
 
 Mark the initial archive record with:
@@ -533,6 +595,13 @@ AUTHORITY_MUTATIONS = (
     "changed_environment",
     "changed_policy",
     "extra_carrier_contract",
+    "typed_value_helper_drift",
+    "carrier_artifact_helper_drift",
+    "profile_drift",
+    "registry_drift",
+    "payload_schema_drift",
+    "carrier_runtime_drift",
+    "carrier_contract_identity_drift",
 )
 ```
 
@@ -562,7 +631,7 @@ Define:
 class VerifiedResolutionSources:
     historical_source: CONT_ARTIFACTS.VerifiedHistoricalSource
     parent_derivative: CONT_ARTIFACTS.SealedDerivative
-    carrier_qualification: QUALIFICATION.VerifiedQualification
+    carrier_qualification: VerifiedCarrierQualificationCompatibility
     exact_successor_bytes: bytes
     exact_contract_bytes: Mapping[str, bytes]
     reviewed_commit_sha: str
@@ -572,6 +641,26 @@ class VerifiedResolutionSources:
 `assemble_verified_resolution_inputs()` may accept only this carrier and exact
 bytes, must perform no I/O, and must construct no authority not already present
 in verified artifacts.
+
+Do not call `verify_qualification_archive()` from the later feature checkout:
+that verifier correctly binds the qualification to its own commit. Instead,
+verify the archived qualification's closed membership, physical destination,
+checksums, aggregate identity, record, snapshot, runtime, and sole commit
+`d6330a61`. Then build a distinct forward-compatibility result comparing:
+
+```text
+current lm9_semantic_typed_values.py
+current lm9_typed_fact_carrier_artifacts.py
+current profile, registry, and forward payload-schema bytes/fingerprints
+current runtime and relevant contract identities
+==
+their exact qualified or d6330a61 Git-object identities
+```
+
+The typed-value helper must also equal the source hash sealed in the snapshot.
+Any drift refuses before preflight. Do not modify the qualification module or
+add a bypass mode. Preserve separate historical-qualification and
+forward-compatibility fingerprints in all later evidence.
 
 Implement literal set closure:
 
@@ -634,6 +723,14 @@ source identities, outcome table fingerprint, closed archive membership,
 sealing/finalization equations, public verifier source identity, and ready-proof
 field/issuance equations. Recompute `instrument_fingerprint` from the complete
 closed manifest; the reviewed commit is an additional input, not a substitute.
+Record the historical qualification identity/commit and the separate
+forward-compatibility fingerprint in distinct rows.
+
+The ready-proof row binds only contract ID
+`lm9b_p.governed_resolution_ready_proof:v1`, closed fields, issuance predicate,
+and reconstruction equations. The preflight must contain no future proof
+instance, instance fingerprint, checkpoint identity, or eligible recipe
+identity; add a test that rejects any such response-dependent field.
 
 - [ ] **Step 6: Write preflight and attempt-binding red tests**
 
@@ -671,7 +768,8 @@ ATTEMPT_ID_MAX_LENGTH = 64
 
 Require a canonical absolute direct-child destination under an approved root,
 reject reparse ambiguity, and verify staging/final destination share a
-filesystem. Atomically reserve with `Path.mkdir(exist_ok=False)` only after all
+filesystem. Atomically reserve with `Path.mkdir(exist_ok=False)` only after
+public preflight verification, internal readiness verification, and all other
 pre-dispatch checks.
 
 Serialize top-level preflight schema
