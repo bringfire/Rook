@@ -93,20 +93,32 @@ namespace Rook.Bim
 
     public sealed class BimCreationGuidProbeFailureFact
     {
-        public BimCreationGuidProbeFailureFact(
+        internal BimCreationGuidProbeFailureFact(
             BimCreationGuidProbeStage stage,
-            string exceptionType,
+            Exception exception)
+            : this(stage, RequireException(exception).GetType(), exception.HResult)
+        {
+        }
+
+        internal BimCreationGuidProbeFailureFact(
+            BimCreationGuidProbeStage stage,
+            Type exceptionType,
             int hresult)
         {
             BimCreationGuidProbeContracts.ValidateStage(stage);
             Stage = stage;
-            ExceptionType = BimCreationGuidProbeContracts.BoundExceptionType(exceptionType);
+            ExceptionType = BimCreationGuidProbeContracts.ProjectExceptionType(exceptionType);
             HResult = hresult;
         }
 
         public BimCreationGuidProbeStage Stage { get; }
         public string ExceptionType { get; }
         public int HResult { get; }
+
+        private static Exception RequireException(Exception? exception)
+        {
+            return exception ?? throw new ArgumentNullException(nameof(exception));
+        }
     }
 
     public sealed class BimCreationGuidProbeCapture
@@ -395,23 +407,25 @@ namespace Rook.Bim
             }
         }
 
-        internal static string BoundExceptionType(string? value)
+        internal static string ProjectExceptionType(Type exceptionType)
         {
-            if (value == null || value.Length == 0)
+            if (exceptionType == null)
             {
-                return string.Empty;
+                throw new ArgumentNullException(nameof(exceptionType));
             }
 
-            for (var index = 0; index < value.Length; index++)
+            if (!typeof(Exception).IsAssignableFrom(exceptionType))
             {
-                var character = value[index];
-                if (!char.IsLetterOrDigit(character) && character != '.' &&
-                    character != '_' && character != '+' && character != '`')
-                {
-                    return string.Empty;
-                }
+                throw new ArgumentException(
+                    "The supplied type must derive from System.Exception.",
+                    nameof(exceptionType));
             }
 
+            var normalizedType = exceptionType.IsGenericType &&
+                !exceptionType.IsGenericTypeDefinition
+                    ? exceptionType.GetGenericTypeDefinition()
+                    : exceptionType;
+            var value = normalizedType.FullName ?? normalizedType.Name;
             return value.Length <= MaximumExceptionTypeLength
                 ? value : value.Substring(0, MaximumExceptionTypeLength);
         }

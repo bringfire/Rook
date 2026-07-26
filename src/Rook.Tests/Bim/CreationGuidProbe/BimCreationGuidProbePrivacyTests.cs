@@ -51,10 +51,7 @@ namespace Rook.Tests.Bim.CreationGuidProbe
                     {
                         new BimCreationGuidProbeFailureFact(
                             BimCreationGuidProbeStage.DocumentPath,
-                            caseId == BimCreationGuidProbeCase.SavedProjectInitial
-                                ? "System.InvalidOperationException"
-                                : rawException.ToString(),
-                            rawException.HResult)
+                            rawException)
                     },
                 };
                 Assert.Equal(BimCreationGuidProbeSessionCode.Captured,
@@ -76,9 +73,7 @@ namespace Rook.Tests.Bim.CreationGuidProbe
             Assert.Null(unsavedProject.DocumentPathAlias);
             Assert.NotNull(savedFamily.DocumentPathAlias);
             Assert.All(report.Captures, capture => Assert.Equal(
-                capture.CaseId == BimCreationGuidProbeCase.SavedProjectInitial
-                    ? "System.InvalidOperationException"
-                    : string.Empty,
+                "System.InvalidOperationException",
                 Assert.Single(capture.FailureFacts).ExceptionType));
             foreach (var rawValue in new[]
             {
@@ -90,6 +85,37 @@ namespace Rook.Tests.Bim.CreationGuidProbe
             }
             Assert.Contains("creation-001", json);
             Assert.Contains("path-001", json);
+        }
+
+        [Fact]
+        public void FailureFact_NormalizesConstructedGenericTypeAndDropsBareMessage()
+        {
+            // Break caught: persisting a constructed generic name or raw exception message.
+            var failure = new BimCreationGuidProbeFailureFact(
+                BimCreationGuidProbeStage.CreationGuidFirst,
+                new GenericProbeException<string>("SnowdonTowers"));
+
+            Assert.Equal(
+                "Rook.Tests.Bim.CreationGuidProbe.BimCreationGuidProbePrivacyTests+GenericProbeException`1",
+                failure.ExceptionType);
+            Assert.DoesNotContain("SnowdonTowers", failure.ExceptionType, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void FailureFact_CannotBeConstructedFromArbitraryStringEvidence()
+        {
+            // Break caught: reopening a string boundary that trusts a bare message as a type.
+            Assert.Throws<MissingMethodException>(() => Activator.CreateInstance(
+                typeof(BimCreationGuidProbeFailureFact),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null,
+                args: new object[]
+                {
+                    BimCreationGuidProbeStage.DocumentPath,
+                    "Walls",
+                    -2146233088,
+                },
+                culture: null));
         }
 
         [Fact]
@@ -226,6 +252,14 @@ namespace Rook.Tests.Bim.CreationGuidProbe
             Assert.Equal(Enum.GetValues(typeof(T)).Cast<T>().OrderBy(value => value),
                 cases.Select(item => item.Value).OrderBy(value => value));
             return cases.Select(item => new object[] { item.Value!, item.Wire });
+        }
+
+        private sealed class GenericProbeException<T> : Exception
+        {
+            internal GenericProbeException(string message)
+                : base(message)
+            {
+            }
         }
     }
 }
