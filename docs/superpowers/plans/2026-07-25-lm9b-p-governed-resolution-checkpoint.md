@@ -1024,7 +1024,7 @@ git commit -m "feat: enforce exact resolution isolation"
 - Consumes: exact preflight, fake/real role adapters, existing controller/evaluator/classifier.
 - Produces: closed call ledger, terminal `ResolutionAttemptResult`, parent-blind evaluator request, and deterministic outcome evidence.
 
-- [ ] **Step 1: Write the complete outcome table**
+- [x] **Step 1: Write the complete outcome table**
 
 Parameterize:
 
@@ -1047,7 +1047,7 @@ OUTCOME_CASES = (
 Assert isolation rejection has zero evaluator calls and every terminal state has
 no later call.
 
-- [ ] **Step 2: Write evaluator-visibility and request-drift tests**
+- [x] **Step 2: Write evaluator-visibility and request-drift tests**
 
 Decode the exact evaluator semantic request and assert it contains:
 
@@ -1073,7 +1073,7 @@ Mutate system prompt, tool schema, profile, model, limits, dynamic timeout,
 feedback, report contract, and rubric after reclosing authored fingerprints;
 execution must refuse because the preflight instrument differs.
 
-- [ ] **Step 3: Implement per-call canonical staging and fresh materialization**
+- [x] **Step 3: Implement per-call canonical staging and fresh materialization**
 
 For each Planner/evaluator call:
 
@@ -1098,14 +1098,14 @@ The attempt-level consumption marker is written by the first call. Per-call
 markers remain contiguous and role-bound. A provider mutation test must prove
 retained bytes remain unchanged.
 
-- [ ] **Step 4: Implement parent-blind evaluator rendering and dispatch predicate**
+- [x] **Step 4: Implement parent-blind evaluator rendering and dispatch predicate**
 
 Render only after independent mechanical acceptance and isolation success. Use
 the new rubric with existing report schema, recommendation meanings, tool
 definition, provider-request builder, and parser. Do not include controller
 gate-success statements in model-visible content.
 
-- [ ] **Step 5: Implement closed resolution outcome equations**
+- [x] **Step 5: Implement closed resolution outcome equations**
 
 Call `derive_evaluated_recipe_classification()` only after isolation passes.
 Map shared outcomes as follows:
@@ -1121,7 +1121,7 @@ raise ResolutionIntegrityError("shared classifier returned an invalid outcome")
 Isolation rejection is derived before evaluator construction. Mechanical and
 provider terminations retain existing controller meanings.
 
-- [ ] **Step 6: Implement public call-ledger reconstruction**
+- [x] **Step 6: Implement public call-ledger reconstruction**
 
 Prove:
 
@@ -1136,14 +1136,14 @@ Prove:
 
 Record exact derived stop cause separately from classification.
 
-- [ ] **Step 7: Add ambiguous timeout and still-live execution tests**
+- [x] **Step 7: Add ambiguous timeout and still-live execution tests**
 
 Use an owned fake execution context that remains joinable. Prove a terminally
 raised/returned timeout with joined context may seal inconclusive, while a
 still-live or ambiguous context yields `post_dispatch_unsealed` with no
 classification.
 
-- [ ] **Step 8: Run Task-4 suites**
+- [x] **Step 8: Run Task-4 suites**
 
 Run:
 
@@ -1157,7 +1157,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit Task 4**
+- [x] **Step 9: Commit Task 4**
 
 ```powershell
 git add scripts/lm9b_p_governed_resolution_support.py `

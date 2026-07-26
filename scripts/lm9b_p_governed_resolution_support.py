@@ -765,8 +765,9 @@ def render_planner_revision_evaluation_request(
     payload = {
         "schema": "rook.lm9b_p.planner_revision_evaluation_request:v1",
         "renderer_id": REVISION_EVALUATION_RENDERER_ID,
+        "attempt_context": inputs.current_authority.attempt_context,
         "brief": inputs.brief,
-        "successor_authority": {
+        "authority_context": {
             "artifacts": inputs.current_authority.artifacts,
         },
         "final_recipe_json": candidate_recipe_bytes.decode("utf-8"),

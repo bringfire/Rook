@@ -86,6 +86,7 @@ CONTRACT_IDS = MappingProxyType(
         "blocker_projection": "lm9b_p.explicit_blocker_projection:v1",
         "classifier": "lm9b_p.evaluated_recipe_classification:v1",
         "outcome_equations": "lm9b_p.governed_resolution_outcome_equations:v1",
+        "call_ledger": "lm9b_p.governed_resolution_call_ledger:v1",
         "archive_seal": "lm9b_p.governed_resolution_archive_seal:v1",
         "public_verifier": "lm9b_p.governed_resolution_public_verifier:v1",
         "ready_proof": "lm9b_p.governed_resolution_ready_proof:v1",
@@ -575,6 +576,10 @@ def assemble_task1_resolution_instrument(
             "outcome_equations_contract_id": CONTRACT_IDS["outcome_equations"],
             "outcome_table": outcome_table,
             "outcome_table_fingerprint": PLANNER_SUPPORT.fingerprint(outcome_table),
+            "call_ledger_contract_id": CONTRACT_IDS["call_ledger"],
+            "call_ledger_verifier_source_fingerprint": (
+                _callable_source_fingerprint(verify_resolution_call_ledger)
+            ),
         },
         "readiness": {
             "schema_id": CONTRACT_IDS["readiness_schema"],
@@ -1488,9 +1493,14 @@ def seal_task1_resolution_checkpoint(
     if set(raw_members) != _CHECKPOINT_MEMBERS:
         raise ValueError("resolution checkpoint staging membership differs")
     staging.rename(preflight.attempt.destination)
-    return verify_sealed_resolution_checkpoint(
-        preflight.attempt.destination,
-        expected_identity=checkpoint_identity,
+    # Execution is frozen to its verified pre-dispatch snapshot. Public
+    # reconstruction is a separate read-only operation and may reload the
+    # production-pinned sources after the attempt has finalized.
+    return SealedResolutionCheckpoint(
+        archive_dir=preflight.attempt.destination,
+        checkpoint_identity=checkpoint_identity,
+        classification=classification,
+        exact_recipe_bytes=candidate_raw,
     )
 
 
@@ -1587,14 +1597,16 @@ def _verify_task1_planner_evidence(
         != "rook.lm9b_p.governed_resolution_planner_session:v1"
         or planner.get("termination") != "mechanically_accepted"
         or planner.get("final_recipe_raw_sha256") != _sha256(candidate_raw)
-        or planner.get("call_count") != 2
+        or type(planner.get("call_count")) is not int
+        or not 1 <= planner["call_count"] <= PLANNER_SUPPORT.PLANNER_MAX_TURNS
         or type(calls) is not list
         or type(turns) is not list
-        or len(calls) != 2
-        or len(turns) != 2
-        or [row.get("call_index") for row in calls] != [1, 2]
-        or [row.get("role") for row in calls] != ["planner", "planner"]
-        or [row.get("turn_index") for row in turns] != [1, 2]
+        or len(calls) != planner["call_count"]
+        or len(turns) != planner["call_count"]
+        or [row.get("call_index") for row in calls] != list(range(len(calls)))
+        or [row.get("role") for row in calls] != ["planner"] * len(calls)
+        or [row.get("turn_index") for row in turns]
+        != list(range(1, len(turns) + 1))
     ):
         raise ValueError("checkpoint Planner ledger is invalid")
     messages: list[dict[str, object]] = [
@@ -1623,7 +1635,7 @@ def _verify_task1_planner_evidence(
             raise ValueError("Planner request does not follow the transcript")
         response = PLANNER_SUPPORT.ProviderTurn(
             raw_request=base64.b64decode(
-                call["provider_raw_request_b64"], validate=True
+                call["provider_claimed_raw_request_b64"], validate=True
             ),
             raw_response=base64.b64decode(call["raw_response_b64"], validate=True),
             assistant_message=call["assistant_message"],
@@ -1677,6 +1689,405 @@ def _verify_task1_planner_evidence(
         )
     if accepted_recipe != candidate_raw:
         raise ValueError("Planner evidence does not derive the sealed candidate")
+
+
+def verify_resolution_call_ledger(
+    *,
+    preflight: VerifiedResolutionPreflight,
+    planner_session: PLANNER_SUPPORT.PlannerSessionResult,
+    evaluator_result: PLANNER_SUPPORT.PlannerEvaluationResult | None,
+    isolation_result: SUPPORT.IsolationGateResult | None,
+    classification: str | None,
+    candidate_recipe_bytes: bytes | None,
+    call_ledger: tuple[Mapping[str, object], ...],
+    derived_stop_cause: str,
+) -> None:
+    """Reconstruct every complete role call and its terminal projection."""
+
+    if type(preflight) is not VerifiedResolutionPreflight:
+        raise TypeError("verified resolution preflight is required")
+    if type(planner_session) is not PLANNER_SUPPORT.PlannerSessionResult:
+        raise TypeError("Planner session result is required")
+    if type(call_ledger) is not tuple or not call_ledger:
+        raise ValueError("resolution call ledger is empty or malformed")
+    calls = [dict(row) if isinstance(row, Mapping) else None for row in call_ledger]
+    if any(row is None for row in calls):
+        raise ValueError("resolution call ledger row is malformed")
+    typed_calls = [row for row in calls if row is not None]
+    if [row.get("call_index") for row in typed_calls] != list(
+        range(len(typed_calls))
+    ):
+        raise ValueError("resolution call ledger indexes are not contiguous")
+    roles = [row.get("role") for row in typed_calls]
+    if any(role not in {"planner", "planner_evaluator"} for role in roles):
+        raise ValueError("resolution call ledger contains an unregistered role")
+    planner_count = roles.count("planner")
+    evaluator_count = roles.count("planner_evaluator")
+    if (
+        not 1 <= planner_count <= PLANNER_SUPPORT.PLANNER_MAX_TURNS
+        or evaluator_count not in {0, 1}
+        or roles != ["planner"] * planner_count + ["planner_evaluator"] * evaluator_count
+        or any(row.get("terminal") is not True for row in typed_calls)
+    ):
+        raise ValueError("resolution call ledger role ordering or terminality differs")
+
+    inputs = preflight.instrument.inputs
+    messages: list[dict[str, object]] = [
+        {"role": "system", "content": SUPPORT.REVISION_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": preflight.instrument.initial_request.raw_bytes.decode("utf-8"),
+        },
+    ]
+    turn_cursor = 0
+    total_tokens = 0
+    total_cost = 0.0
+    cost_complete = True
+    accepted_recipe: bytes | None = None
+    provider_terminal: str | None = None
+    for row in typed_calls[:planner_count]:
+        request_raw = _verify_dispatch_row(
+            row,
+            role="planner",
+            role_contract=preflight.record["instrument_contracts"]["planner"],
+            maximum_timeout=PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S,
+        )
+        request = PLANNER_SUPPORT.materialize_planner_provider_call_request(
+            request_raw
+        )
+        expected_request = PLANNER_SUPPORT.build_planner_provider_call_request(
+            messages=messages,
+            provider_timeout_s=request["provider_timeout_s"],
+        )
+        if expected_request != request_raw:
+            raise ValueError("Planner ledger request differs from transcript")
+        if row["outcome"] == "raised":
+            if row is not typed_calls[planner_count - 1] or turn_cursor != len(
+                planner_session.turns
+            ):
+                raise ValueError("Planner ledger contains a call after terminal failure")
+            exception_type = row.get("exception_type")
+            failure_type = row.get("failure_type")
+            provider_terminal = (
+                "timeout"
+                if exception_type == "TimeoutError"
+                or (
+                    exception_type == "ProviderCallFailure"
+                    and isinstance(failure_type, str)
+                    and "timeout" in failure_type.casefold()
+                )
+                else "provider_failure"
+            )
+            continue
+        if row["outcome"] != "returned":
+            raise ValueError("Planner ledger outcome is not complete")
+        response = _provider_turn_from_call_row(row, role="Planner")
+        if response is None:
+            if row is not typed_calls[planner_count - 1]:
+                raise ValueError("Planner ledger continues after invalid provider return")
+            provider_terminal = "provider_failure"
+            continue
+        if turn_cursor >= len(planner_session.turns):
+            raise ValueError("Planner ledger has an unrecorded response turn")
+        turn = planner_session.turns[turn_cursor]
+        turn_cursor += 1
+        tool_arguments, recipe_bytes, rejection, tool_call_id = (
+            PLANNER_SUPPORT.derive_planner_submission_from_message(
+                response.assistant_message
+            )
+        )
+        gate = rejection
+        if recipe_bytes is not None:
+            gate = PLANNER_SUPPORT.evaluate_mechanical_gate(
+                recipe_bytes=recipe_bytes,
+                authority=inputs.current_authority,
+                recipe_schema=inputs.recipe_schema,
+                normalization_profile=inputs.normalization_profile,
+                exclusion_policy=inputs.exclusion_policy,
+            )
+        if gate is None:
+            raise ValueError("Planner ledger response produced no mechanical gate")
+        if (
+            turn.turn_index != turn_cursor
+            or turn.raw_response != response.raw_response
+            or turn.tool_arguments != tool_arguments
+            or turn.gate_result != gate
+            or PLANNER_SUPPORT._json_builtins(turn.usage) != row.get("usage")
+            or type(turn.elapsed_ms) is not int
+            or turn.elapsed_ms < 0
+        ):
+            raise ValueError("Planner ledger turn differs from reconstructed response")
+        tokens, cost, complete = PLANNER_SUPPORT._planner_usage_values(turn.usage)
+        total_tokens += tokens
+        total_cost += cost
+        cost_complete = cost_complete and complete
+        if gate.status == "mechanically_accepted":
+            if row is not typed_calls[planner_count - 1]:
+                raise ValueError("Planner ledger contains a call after acceptance")
+            accepted_recipe = recipe_bytes
+            continue
+        messages.append(dict(response.assistant_message))
+        messages.append(
+            PLANNER_SUPPORT.build_planner_mechanical_feedback_message(
+                gate, tool_call_id
+            )
+        )
+        if (
+            total_tokens >= PLANNER_SUPPORT.PLANNER_TOKEN_STOP_THRESHOLD
+            or (
+                cost_complete
+                and total_cost >= PLANNER_SUPPORT.PLANNER_COST_STOP_THRESHOLD_USD
+            )
+        ) and row is not typed_calls[planner_count - 1]:
+            raise ValueError("Planner ledger contains a call after a usage stop")
+    if turn_cursor != len(planner_session.turns):
+        raise ValueError("Planner ledger omits a recorded turn")
+    if accepted_recipe != candidate_recipe_bytes:
+        if not (
+            accepted_recipe is None
+            and candidate_recipe_bytes is None
+            and planner_session.final_recipe_bytes is None
+        ):
+            raise ValueError("Planner ledger candidate bytes differ")
+    if planner_session.final_recipe_bytes != candidate_recipe_bytes:
+        raise ValueError("Planner session candidate bytes differ from ledger")
+
+    if provider_terminal is not None:
+        reconstructed_termination = provider_terminal
+    elif accepted_recipe is not None:
+        reconstructed_termination = "mechanically_accepted"
+    elif (
+        total_tokens >= PLANNER_SUPPORT.PLANNER_TOKEN_STOP_THRESHOLD
+        or (
+            cost_complete
+            and total_cost >= PLANNER_SUPPORT.PLANNER_COST_STOP_THRESHOLD_USD
+        )
+        or len(planner_session.turns) == PLANNER_SUPPORT.PLANNER_MAX_TURNS
+    ):
+        reconstructed_termination = "mechanically_rejected"
+    else:
+        # A response may itself consume the remaining overall deadline. The
+        # captured call is terminal and quiescent, while the controller's
+        # timeout label remains the only legal residual termination here.
+        reconstructed_termination = "timeout"
+    if planner_session.termination != reconstructed_termination:
+        raise ValueError(
+            "Planner ledger termination differs from captured provider evidence"
+        )
+
+    expected_stop = _derive_planner_ledger_stop_cause(
+        planner_session,
+        total_tokens=total_tokens,
+        total_cost=total_cost,
+        cost_complete=cost_complete,
+    )
+    if evaluator_count == 0:
+        expected_classification = _classification_without_evaluator(
+            planner_session=planner_session,
+            isolation_result=isolation_result,
+        )
+        if expected_classification == "probe_resolution_isolation_failure":
+            expected_stop = "isolation_rejected"
+    else:
+        if (
+            planner_session.termination != "mechanically_accepted"
+            or candidate_recipe_bytes is None
+            or isolation_result is None
+            or isolation_result.status != "isolated"
+            or evaluator_result is None
+        ):
+            raise ValueError("evaluator ledger call is not reachable")
+        evaluator_row = typed_calls[-1]
+        evaluator_raw = _verify_dispatch_row(
+            evaluator_row,
+            role="planner_evaluator",
+            role_contract=preflight.record["instrument_contracts"]["evaluator"],
+            maximum_timeout=PLANNER_SUPPORT.PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+        )
+        rendered = SUPPORT.render_planner_revision_evaluation_request(
+            inputs,
+            candidate_recipe_bytes=candidate_recipe_bytes,
+        )
+        expected_evaluator_raw = (
+            PLANNER_SUPPORT.build_planner_evaluator_provider_call_request(
+                system_prompt=PLANNER_SUPPORT.PLANNER_EVALUATOR_SYSTEM_PROMPT,
+                user_prompt=rendered.raw_bytes.decode("utf-8"),
+            )
+        )
+        if evaluator_raw != expected_evaluator_raw:
+            raise ValueError("evaluator ledger request differs from reconstruction")
+        if evaluator_row["outcome"] == "returned":
+            response = _provider_turn_from_call_row(
+                evaluator_row, role="evaluator"
+            )
+            reconstructed_evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
+                outcome="returned", response=response
+            )
+        elif evaluator_row["outcome"] == "raised":
+            reconstructed_evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
+                outcome="raised",
+                exception_type=evaluator_row.get("exception_type"),
+                failure_type=evaluator_row.get("failure_type"),
+            )
+        else:
+            raise ValueError("evaluator ledger outcome is not complete")
+        if reconstructed_evaluator != evaluator_result:
+            raise ValueError("evaluator ledger result differs from captured evidence")
+        expected_classification = (
+            PLANNER_ARTIFACTS.derive_evaluated_recipe_classification(
+                evaluator_result,
+                final_recipe_bytes=candidate_recipe_bytes,
+            )
+        )
+        if expected_classification == "probe_candidate_blocked":
+            raise ValueError("blocked outcome is unreachable after isolation")
+        expected_stop = _derive_evaluator_ledger_stop_cause(evaluator_result)
+    if classification != expected_classification:
+        raise ValueError("resolution ledger classification differs")
+    if derived_stop_cause != expected_stop:
+        raise ValueError("resolution ledger stop cause differs")
+
+
+def _verify_dispatch_row(
+    row: Mapping[str, object],
+    *,
+    role: str,
+    role_contract: Mapping[str, object],
+    maximum_timeout: float,
+) -> bytes:
+    request_text = row.get("canonical_request_json")
+    if type(request_text) is not str:
+        raise ValueError("resolution ledger request bytes are absent")
+    request_raw = request_text.encode("utf-8")
+    request = PLANNER_SUPPORT.parse_archive_json(request_raw)
+    if type(request) is not dict:
+        raise ValueError("resolution ledger request is not an object")
+    timeout = request.get("provider_timeout_s")
+    if (
+        type(timeout) not in {int, float}
+        or isinstance(timeout, bool)
+        or not 0 < float(timeout) <= maximum_timeout
+        or row.get("provider_timeout_s") != timeout
+    ):
+        raise ValueError("resolution ledger dynamic timeout differs")
+    if (
+        type(row.get("elapsed_ms")) is not int
+        or row["elapsed_ms"] < 0
+        or row["elapsed_ms"] > int(float(timeout) * 1000) + 1000
+    ):
+        raise ValueError("resolution ledger call timing is invalid")
+    marker = {
+        "schema": "rook.lm9b_p.governed_resolution_dispatch_started:v1",
+        "call_index": row.get("call_index"),
+        "role": role,
+        "request_raw_sha256": _sha256(request_raw),
+        "preceding_transcript_fingerprint": PLANNER_SUPPORT.fingerprint(
+            request.get("messages")
+        ),
+        "provider_timeout_s": timeout,
+        "role_contract_fingerprint": PLANNER_SUPPORT.fingerprint(role_contract),
+    }
+    marker_raw = _json_bytes(marker)
+    if (
+        row.get("schema") != marker["schema"]
+        or row.get("role") != role
+        or row.get("request_raw_sha256") != marker["request_raw_sha256"]
+        or row.get("preceding_transcript_fingerprint")
+        != marker["preceding_transcript_fingerprint"]
+        or row.get("role_contract_fingerprint")
+        != marker["role_contract_fingerprint"]
+        or row.get("dispatch_marker_raw_sha256") != _sha256(marker_raw)
+    ):
+        raise ValueError("resolution ledger dispatch marker differs")
+    return request_raw
+
+
+def _provider_turn_from_call_row(
+    row: Mapping[str, object], *, role: str
+) -> PLANNER_SUPPORT.ProviderTurn | None:
+    evidence = (
+        row.get("provider_claimed_raw_request_b64"),
+        row.get("raw_response_b64"),
+        row.get("assistant_message"),
+        row.get("usage"),
+        row.get("provider_metadata"),
+    )
+    if evidence == (None, None, None, None, None):
+        return None
+    if any(value is None for value in evidence):
+        raise ValueError(f"{role} ledger provider evidence is incomplete")
+    response = PLANNER_SUPPORT.ProviderTurn(
+        raw_request=base64.b64decode(evidence[0], validate=True),
+        raw_response=base64.b64decode(evidence[1], validate=True),
+        assistant_message=evidence[2],
+        usage=evidence[3],
+        provider_metadata=evidence[4],
+    )
+    if row.get("raw_response_sha256") != _sha256(response.raw_response):
+        raise ValueError(f"{role} ledger response hash differs")
+    return response
+
+
+def _derive_planner_ledger_stop_cause(
+    session: PLANNER_SUPPORT.PlannerSessionResult,
+    *,
+    total_tokens: int,
+    total_cost: float,
+    cost_complete: bool,
+) -> str:
+    if session.termination == "mechanically_accepted":
+        return "mechanically_accepted"
+    if session.termination == "provider_failure":
+        return "planner_provider_failure"
+    if session.termination == "timeout":
+        return "planner_terminal_timeout"
+    if session.termination != "mechanically_rejected":
+        raise ValueError("resolution ledger Planner termination is unknown")
+    if total_tokens >= PLANNER_SUPPORT.PLANNER_TOKEN_STOP_THRESHOLD:
+        return "token_stop"
+    if cost_complete and total_cost >= PLANNER_SUPPORT.PLANNER_COST_STOP_THRESHOLD_USD:
+        return "cost_stop"
+    if len(session.turns) == PLANNER_SUPPORT.PLANNER_MAX_TURNS:
+        return "max_turns"
+    raise ValueError("resolution ledger mechanical stop is not derivable")
+
+
+def _derive_evaluator_ledger_stop_cause(
+    result: PLANNER_SUPPORT.PlannerEvaluationResult,
+) -> str:
+    if result.termination == "valid_recommendation":
+        return {
+            "semantically_faithful": "semantic_faithful",
+            "semantically_unfaithful": "semantic_unfaithful",
+            "evaluation_inconclusive": "evaluation_inconclusive",
+        }[result.recommendation]
+    return {
+        "malformed": "evaluator_malformed",
+        "provider_failure": "evaluator_provider_failure",
+        "timeout": "evaluator_terminal_timeout",
+    }[result.termination]
+
+
+def _classification_without_evaluator(
+    *,
+    planner_session: PLANNER_SUPPORT.PlannerSessionResult,
+    isolation_result: SUPPORT.IsolationGateResult | None,
+) -> str:
+    if planner_session.termination == "mechanically_rejected":
+        if isolation_result is not None:
+            raise ValueError("mechanical rejection cannot carry isolation evidence")
+        return "probe_mechanically_rejected"
+    if planner_session.termination in {"provider_failure", "timeout"}:
+        if isolation_result is not None:
+            raise ValueError("provider termination cannot carry isolation evidence")
+        return "probe_inconclusive"
+    if (
+        planner_session.termination == "mechanically_accepted"
+        and isolation_result is not None
+        and isolation_result.status == "isolation_rejected"
+    ):
+        return "probe_resolution_isolation_failure"
+    raise ValueError("resolution ledger evaluator omission is not reachable")
 
 
 def _object_bytes(raw: bytes, label: str) -> dict[str, object]:
@@ -1824,6 +2235,7 @@ __all__ = (
     "verify_historical_carrier_qualification_compatibility",
     "verify_resolution_preflight",
     "verify_resolution_invocation_binding",
+    "verify_resolution_call_ledger",
     "verify_sealed_resolution_checkpoint",
     "write_resolution_preflight",
 )

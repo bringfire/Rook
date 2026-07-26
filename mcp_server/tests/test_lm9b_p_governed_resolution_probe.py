@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -78,7 +79,13 @@ def _canonical_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
-def _planner_turn(*, recipe_bytes: bytes, call_id: str) -> object:
+def _planner_turn(
+    *,
+    recipe_bytes: bytes,
+    call_id: str,
+    total_tokens: int = 50,
+    cost_usd: float = 0.001,
+) -> object:
     recipe_text = recipe_bytes.decode("utf-8", errors="strict")
     arguments = json.dumps(
         {"recipe_json": recipe_text},
@@ -102,14 +109,16 @@ def _planner_turn(*, recipe_bytes: bytes, call_id: str) -> object:
                 }
             ],
         },
-        usage={"total_tokens": 50, "cost_usd": 0.001},
+        usage={"total_tokens": total_tokens, "cost_usd": cost_usd},
         provider_metadata={"model_identity": "gpt-5.4"},
     )
 
 
-def _evaluator_turn() -> object:
+def _evaluator_turn(
+    recommendation: str = "semantically_faithful",
+) -> object:
     report = {
-        "recommendation": "semantically_faithful",
+        "recommendation": recommendation,
         "evidence": [
             {
                 "criterion_id": "brief_fidelity",
@@ -964,3 +973,600 @@ def test_task2_precontact_identity_or_destination_refusal_has_zero_dispatch(
         )
     assert calls == {"planner": 0, "planner_evaluator": 0}
     assert not list(preflight.attempt.resolution_root.glob("**/dispatch_started*"))
+
+
+OUTCOME_CASES = (
+    ("max_turns", "probe_mechanically_rejected", 0),
+    ("token_stop", "probe_mechanically_rejected", 0),
+    ("cost_stop", "probe_mechanically_rejected", 0),
+    ("planner_provider_failure", "probe_inconclusive", 0),
+    ("planner_terminal_timeout", "probe_inconclusive", 0),
+    ("isolation_rejected", "probe_resolution_isolation_failure", 0),
+    ("semantic_unfaithful", "probe_planner_failure", 1),
+    ("semantic_faithful", "probe_candidate_ready", 1),
+    ("evaluation_inconclusive", "probe_inconclusive", 1),
+    ("evaluator_malformed", "probe_inconclusive", 1),
+    ("evaluator_provider_failure", "probe_inconclusive", 1),
+    ("evaluator_terminal_timeout", "probe_inconclusive", 1),
+)
+
+
+def _task4_provider_scripts(case: str, preflight: object) -> tuple[list[object], list[object]]:
+    invalid = lambda index, **usage: _planner_turn(  # noqa: E731
+        recipe_bytes=b"{}", call_id=f"planner-{index}", **usage
+    )
+    if case == "max_turns":
+        return (
+            [invalid(index) for index in range(1, PLANNER_SUPPORT.PLANNER_MAX_TURNS + 1)],
+            [],
+        )
+    if case == "token_stop":
+        return [
+            invalid(
+                1,
+                total_tokens=PLANNER_SUPPORT.PLANNER_TOKEN_STOP_THRESHOLD,
+            )
+        ], []
+    if case == "cost_stop":
+        return [
+            invalid(
+                1,
+                cost_usd=PLANNER_SUPPORT.PLANNER_COST_STOP_THRESHOLD_USD,
+            )
+        ], []
+    if case == "planner_provider_failure":
+        return [RuntimeError("planner provider failed")], []
+    if case == "planner_terminal_timeout":
+        return [TimeoutError("planner provider timed out")], []
+
+    candidate = ISOLATED_SUCCESSOR_RECIPE.read_bytes()
+    if case == "isolation_rejected":
+        changed = json.loads(candidate)
+        changed["goal"]["statement"] += " Unauthorized change."
+        candidate = _reclose_recipe(changed, preflight.instrument.inputs)
+    planner = [_planner_turn(recipe_bytes=candidate, call_id="planner-1")]
+    if case == "isolation_rejected":
+        return planner, []
+    if case == "semantic_unfaithful":
+        return planner, [_evaluator_turn("semantically_unfaithful")]
+    if case == "evaluation_inconclusive":
+        return planner, [_evaluator_turn("evaluation_inconclusive")]
+    if case == "evaluator_malformed":
+        malformed = replace(
+            _evaluator_turn(),
+            assistant_message={"role": "assistant", "content": "malformed"},
+        )
+        return planner, [malformed]
+    if case == "evaluator_provider_failure":
+        return planner, [RuntimeError("evaluator provider failed")]
+    if case == "evaluator_terminal_timeout":
+        return planner, [TimeoutError("evaluator provider timed out")]
+    return planner, [_evaluator_turn("semantically_faithful")]
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_classification", "expected_evaluator_calls"),
+    OUTCOME_CASES,
+)
+def test_task4_complete_outcome_table_stops_at_first_terminal_boundary(
+    case: str,
+    expected_classification: str,
+    expected_evaluator_calls: int,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    planner_script, evaluator_script = _task4_provider_scripts(case, preflight)
+    planner = _FakeProvider(planner_script, staging_path=preflight.attempt.staging_path)
+    evaluator = _FakeProvider(
+        evaluator_script, staging_path=preflight.attempt.staging_path
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+
+    result = RESOLUTION_PROBE.run_resolution_attempt(
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+
+    assert result.classification == expected_classification
+    assert len(evaluator.requests) == expected_evaluator_calls
+    assert not planner.responses
+    assert not evaluator.responses
+    assert [row["call_index"] for row in result.call_ledger] == list(
+        range(len(result.call_ledger))
+    )
+    roles = [row["role"] for row in result.call_ledger]
+    assert roles == ["planner"] * len(planner.requests) + [
+        "planner_evaluator"
+    ] * expected_evaluator_calls
+    assert "compiler" not in roles
+
+
+def test_task4_evaluator_request_is_parent_blind_and_authority_current() -> None:
+    *_prefix, inputs = _verified_resolution_inputs()
+    rendered = RESOLUTION_SUPPORT.render_planner_revision_evaluation_request(
+        inputs,
+        candidate_recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+    )
+    request = json.loads(rendered.raw_bytes)
+
+    assert set(request) == {
+        "schema",
+        "renderer_id",
+        "attempt_context",
+        "brief",
+        "authority_context",
+        "final_recipe_json",
+        "final_recipe_raw_sha256",
+        "evaluation_rubric",
+        "evaluation_report_contract",
+    }
+    forbidden = {
+        "parent_recipe",
+        "correspondence",
+        "policy_instance",
+        "isolation_report",
+        "expected_classification",
+        "session_transcript",
+        "r01",
+        "compiler_context",
+        "mechanical_gate_accepted",
+        "isolation_accepted",
+    }
+    def keys(value: object) -> set[str]:
+        if isinstance(value, dict):
+            return set(value) | {
+                nested
+                for item in value.values()
+                for nested in keys(item)
+            }
+        if isinstance(value, list):
+            return {nested for item in value for nested in keys(item)}
+        return set()
+
+    assert forbidden.isdisjoint(keys(request))
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "changed"),
+    (
+        ("planner", "system_prompt_fingerprint", "sha256:" + "1" * 64),
+        ("planner", "tool_schema_fingerprint", "sha256:" + "2" * 64),
+        ("planner", "provider_profile", "altered.provider.profile:v1"),
+        ("planner", "model", "gpt-5.3"),
+        ("planner", "provider_timeout_s", 179.0),
+        ("planner", "feedback_renderer_source_fingerprint", "sha256:" + "3" * 64),
+        ("evaluator", "system_prompt_fingerprint", "sha256:" + "4" * 64),
+        ("evaluator", "tool_schema_fingerprint", "sha256:" + "5" * 64),
+        ("evaluator", "report_schema_fingerprint", "sha256:" + "6" * 64),
+        ("evaluator", "rubric_fingerprint", "sha256:" + "7" * 64),
+        ("evaluator", "model", "gpt-5.3"),
+        ("evaluator", "max_completion_tokens", 4096),
+    ),
+)
+def test_task4_reclosed_request_or_control_drift_refuses_before_dispatch(
+    section: str,
+    field: str,
+    changed: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+
+    def mutate(record: dict[str, object]) -> None:
+        record["instrument_contracts"][section][field] = changed
+        record["instrument_fingerprint"] = PLANNER_SUPPORT.fingerprint(
+            record["instrument_contracts"]
+        )
+
+    preflight = _reclose_preflight(preflight, mutate)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    calls = {"planner": 0, "planner_evaluator": 0}
+
+    def planner_provider(_request: object) -> object:
+        calls["planner"] += 1
+        raise AssertionError("Planner was dispatched")
+
+    def evaluator_provider(_request: object) -> object:
+        calls["planner_evaluator"] += 1
+        raise AssertionError("evaluator was dispatched")
+
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    with pytest.raises(ValueError, match="instrument|preflight"):
+        RESOLUTION_PROBE.run_resolution_attempt(
+            preflight=preflight,
+            invocation_binding=_invocation(preflight, readiness),
+            readiness_record=readiness,
+            readiness_manifest=manifest,
+            head_sha=head_sha,
+            now_iso="2026-07-25T20:00:06Z",
+            credential_present={route.route_fingerprint: True},
+            planner_provider=planner_provider,
+            evaluator_provider=evaluator_provider,
+        )
+    assert calls == {"planner": 0, "planner_evaluator": 0}
+    assert not preflight.attempt.staging_path.exists()
+
+
+def test_task4_provider_mutation_cannot_change_staged_or_ledger_request_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    scripted = [
+        _planner_turn(
+            recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+            call_id="planner-1",
+        ),
+        _evaluator_turn(),
+    ]
+    seen: list[dict[str, object]] = []
+
+    def mutating_provider(request: dict[str, object]) -> object:
+        seen.append(request)
+        response = scripted.pop(0)
+        request.clear()
+        request["mutated_by_provider"] = True
+        return response
+
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    result = RESOLUTION_PROBE.run_resolution_attempt(
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=mutating_provider,
+        evaluator_provider=mutating_provider,
+    )
+
+    assert len(seen) == 2
+    assert all(value == {"mutated_by_provider": True} for value in seen)
+    planner_raw = result.call_ledger[0]["canonical_request_json"].encode("utf-8")
+    evaluator_raw = result.call_ledger[1]["canonical_request_json"].encode("utf-8")
+    assert "mutated_by_provider" not in result.call_ledger[0]["canonical_request_json"]
+    assert "mutated_by_provider" not in result.call_ledger[1]["canonical_request_json"]
+    assert all(
+        type(row["elapsed_ms"]) is int and row["elapsed_ms"] >= 0
+        for row in result.call_ledger
+    )
+    PLANNER_SUPPORT.materialize_planner_provider_call_request(planner_raw)
+    PLANNER_SUPPORT.materialize_planner_evaluator_provider_call_request(evaluator_raw)
+
+
+def test_task4_terminal_evidence_retains_exact_staged_execution_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    planner = _FakeProvider(
+        [
+            _planner_turn(
+                recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+                call_id="planner-1",
+            )
+        ],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider(
+        [_evaluator_turn("semantically_unfaithful")],
+        staging_path=preflight.attempt.staging_path,
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    result = RESOLUTION_PROBE.run_resolution_attempt(
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+
+    assert result.state == "terminal_evidence_complete"
+    runtime = preflight.attempt.staging_path / ".resolution-runtime"
+    assert (runtime / "preflight.json").read_bytes() == (
+        preflight.archive_dir / "record.json"
+    ).read_bytes()
+    assert (runtime / "initial-request.json").read_bytes() == (
+        preflight.archive_dir / "initial-request.json"
+    ).read_bytes()
+    attempt = json.loads((runtime / "attempt.json").read_bytes())
+    assert attempt == {
+        "schema": "rook.lm9b_p.governed_resolution_staged_attempt:v1",
+        "attempt_id": preflight.attempt.attempt_id,
+        "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
+        "canonical_destination": str(preflight.attempt.destination),
+        "staging_path": str(preflight.attempt.staging_path),
+    }
+    archived_readiness = json.loads((runtime / "readiness.json").read_bytes())
+    assert archived_readiness == {
+        "schema": "rook.lm9b_p.governed_resolution_staged_readiness:v1",
+        "record": readiness,
+        "verified_at": "2026-07-25T20:00:06Z",
+    }
+    assert len(list((runtime / "calls").glob("*-request.json"))) == 2
+    assert len(list((runtime / "calls").glob("*-dispatch_started.json"))) == 2
+
+
+def test_task4_execution_uses_only_frozen_snapshot_after_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    planner = _FakeProvider(
+        [
+            _planner_turn(
+                recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+                call_id="planner-1",
+            )
+        ],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider(
+        [_evaluator_turn()], staging_path=preflight.attempt.staging_path
+    )
+    ledger_init = RESOLUTION_PROBE._StagedCallLedger.__init__
+
+    def initialize_then_close_external_sources(value: object, **kwargs: object) -> None:
+        ledger_init(value, **kwargs)
+        monkeypatch.setattr(
+            RESOLUTION_ARTIFACTS,
+            "_load_current_resolution_sources",
+            lambda *_a, **_k: (_ for _ in ()).throw(
+                AssertionError("external source was reread after reservation")
+            ),
+        )
+
+    monkeypatch.setattr(
+        RESOLUTION_PROBE._StagedCallLedger,
+        "__init__",
+        initialize_then_close_external_sources,
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    result = RESOLUTION_PROBE.run_resolution_attempt(
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+
+    assert result.state == "sealed"
+    assert result.classification == "probe_candidate_ready"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "call_index",
+        "role",
+        "dynamic_timeout",
+        "request",
+        "usage",
+        "elapsed",
+        "stop_cause",
+    ),
+)
+def test_task4_public_call_ledger_reconstruction_rejects_reclosed_claims(
+    mutation: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    planner = _FakeProvider(
+        [
+            _planner_turn(
+                recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+                call_id="planner-1",
+            )
+        ],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider(
+        [_evaluator_turn()], staging_path=preflight.attempt.staging_path
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    result = RESOLUTION_PROBE.run_resolution_attempt(
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+    ledger = copy.deepcopy(list(result.call_ledger))
+    stop_cause = result.derived_stop_cause
+    if mutation == "call_index":
+        ledger[0]["call_index"] = 7
+    elif mutation == "role":
+        ledger[0]["role"] = "compiler"
+    elif mutation == "dynamic_timeout":
+        request = json.loads(ledger[0]["canonical_request_json"])
+        request["provider_timeout_s"] = PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S + 1
+        ledger[0]["canonical_request_json"] = _canonical_bytes(request).decode()
+        ledger[0]["request_raw_sha256"] = PLANNER_SUPPORT.sha256_prefixed(
+            ledger[0]["canonical_request_json"].encode()
+        )
+        ledger[0]["provider_timeout_s"] = request["provider_timeout_s"]
+    elif mutation == "request":
+        ledger[0]["preceding_transcript_fingerprint"] = "sha256:" + "8" * 64
+    elif mutation == "usage":
+        ledger[0]["usage"]["total_tokens"] = (
+            PLANNER_SUPPORT.PLANNER_TOKEN_STOP_THRESHOLD
+        )
+    elif mutation == "elapsed":
+        ledger[0]["elapsed_ms"] = int(
+            (PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S + 2) * 1000
+        )
+    elif mutation == "stop_cause":
+        stop_cause = "max_turns"
+
+    with pytest.raises(ValueError, match="ledger|request|timeout|usage|stop"):
+        RESOLUTION_ARTIFACTS.verify_resolution_call_ledger(
+            preflight=preflight,
+            planner_session=result.planner_session,
+            evaluator_result=result.evaluator_result,
+            isolation_result=result.isolation_result,
+            classification=result.classification,
+            candidate_recipe_bytes=result.candidate_recipe_bytes,
+            call_ledger=tuple(ledger),
+            derived_stop_cause=stop_cause,
+        )
+
+
+def test_task4_call_ledger_derives_planner_termination_from_provider_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    planner = _FakeProvider(
+        [RuntimeError("planner failed")],
+        staging_path=preflight.attempt.staging_path,
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    result = RESOLUTION_PROBE.run_resolution_attempt(
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=lambda _request: None,
+    )
+    forged_session = replace(result.planner_session, termination="timeout")
+
+    with pytest.raises(ValueError, match="termination|provider evidence"):
+        RESOLUTION_ARTIFACTS.verify_resolution_call_ledger(
+            preflight=preflight,
+            planner_session=forged_session,
+            evaluator_result=None,
+            isolation_result=None,
+            classification="probe_inconclusive",
+            candidate_recipe_bytes=None,
+            call_ledger=result.call_ledger,
+            derived_stop_cause="planner_terminal_timeout",
+        )
+
+
+@pytest.mark.parametrize("role", ("planner", "planner_evaluator"))
+def test_task4_still_live_timeout_is_post_dispatch_unsealed(
+    role: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    release = threading.Event()
+    bounded_call = PLANNER_SUPPORT._bounded_provider_call
+
+    def short_bounded_call(
+        provider: object,
+        request: dict[str, object],
+        *,
+        timeout_s: float,
+    ) -> object:
+        return bounded_call(provider, request, timeout_s=min(timeout_s, 0.2))
+
+    monkeypatch.setattr(PLANNER_SUPPORT, "_bounded_provider_call", short_bounded_call)
+
+    def hanging_provider(_request: dict[str, object]) -> object:
+        release.wait(5)
+        return (
+            _planner_turn(
+                recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+                call_id="planner-1",
+            )
+            if role == "planner"
+            else _evaluator_turn()
+        )
+
+    planner_provider = (
+        hanging_provider
+        if role == "planner"
+        else _FakeProvider(
+            [
+                _planner_turn(
+                    recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+                    call_id="planner-1",
+                )
+            ],
+            staging_path=preflight.attempt.staging_path,
+        )
+    )
+    evaluator_provider = hanging_provider if role == "planner_evaluator" else _boom
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+    try:
+        result = RESOLUTION_PROBE.run_resolution_attempt(
+            preflight=preflight,
+            invocation_binding=_invocation(preflight, readiness),
+            readiness_record=readiness,
+            readiness_manifest=manifest,
+            head_sha=head_sha,
+            now_iso="2026-07-25T20:00:06Z",
+            credential_present={route.route_fingerprint: True},
+            planner_provider=planner_provider,
+            evaluator_provider=evaluator_provider,
+        )
+    finally:
+        release.set()
+
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    assert result.call_ledger[-1]["terminal"] is False
+    markers = list(
+        preflight.attempt.staging_path.glob(
+            ".resolution-runtime/calls/*-dispatch_started.json"
+        )
+    )
+    assert len(markers) == (1 if role == "planner" else 2)

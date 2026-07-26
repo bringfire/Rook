@@ -403,6 +403,23 @@ def test_task2_preflight_reconstructs_every_contract_and_refuses_future_proof(
         )
 
 
+def test_task4_instrument_binds_call_ledger_and_outcome_contracts() -> None:
+    instrument = _instrument()
+    decision = instrument.contract_manifest["decision"]
+
+    assert decision["outcome_equations_contract_id"] == (
+        "lm9b_p.governed_resolution_outcome_equations:v1"
+    )
+    assert decision["call_ledger_contract_id"] == (
+        "lm9b_p.governed_resolution_call_ledger:v1"
+    )
+    assert decision["call_ledger_verifier_source_fingerprint"] == (
+        ARTIFACTS._callable_source_fingerprint(
+            ARTIFACTS.verify_resolution_call_ledger
+        )
+    )
+
+
 def test_task2_invocation_binding_is_closed_and_fingerprint_bound() -> None:
     value = ARTIFACTS.build_resolution_invocation_binding(
         supplied_preflight_fingerprint="sha256:" + "1" * 64,
