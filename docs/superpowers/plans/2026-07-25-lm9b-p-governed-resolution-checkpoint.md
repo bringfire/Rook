@@ -116,7 +116,7 @@
   - `verify_resolution_preflight(archive_dir, *, expected_fingerprint) -> VerifiedResolutionPreflight`
   - `reserve_resolution_staging(preflight) -> Path`
 
-- [ ] **Step 1: Add import-valid API skeletons and exact contract fixtures**
+- [x] **Step 1: Add import-valid API skeletons and exact contract fixtures**
 
 Create the three new Python modules with real imports, frozen dataclasses, exact
 public signatures, and `NotImplementedError("task1 walking witness")` bodies.
@@ -232,7 +232,7 @@ class ResolutionAttemptResult:
 
 Create `isolation_policy.json` with schema
 `rook.lm9b_p.governed_resolution_isolation_policy:v1`, definition ID
-`lm9b_p.governed_resolution_isolation_policy:v1`, the seven named equations
+`lm9b_p.governed_resolution_isolation_policy:v1`, the nine named equations
 from the design, model obligations, gate obligations, and a computed
 `policy_fingerprint`.
 
@@ -257,12 +257,21 @@ source_task.fingerprint = qualified successor-envelope fingerprint
 unresolved_intent = []
 goal.projected_into.unresolved_intent_ids = []
 maintain.radial_box_array_semantics.source_refs += exact five task-envelope fact references
+authority_artifacts -= exactly the descriptors derived as removable by the
+  closed reachability equation
 recipe_fingerprint = independently recomputed normalized fingerprint
 ```
 
+The reachability equation derives removable descriptors only when their
+complete parent reference set belonged exclusively to the removed unresolved
+rows and they have no surviving candidate reference. For this fixture oracle,
+the derived ordered ID list is exactly `["planning_policy"]`; neutral code must
+not name it. Every retained descriptor remains byte-identical and ordered, and
+the planning-policy artifact remains in the verified authority snapshot.
+
 Do not add a fixture generator to production or tests.
 
-- [ ] **Step 2: Run import/contract smoke checks**
+- [x] **Step 2: Run import/contract smoke checks**
 
 Run:
 
@@ -277,7 +286,7 @@ Expected: PASS. Parse both JSON contracts with strict existing JSON helpers.
 Any import, syntax, or symbol failure must be corrected before accepting a red
 test.
 
-- [ ] **Step 3: Write failing Planner request-builder compatibility tests**
+- [x] **Step 3: Write failing Planner request-builder compatibility tests**
 
 Add tests that construct the exact first-turn message list and assert the new
 builder is missing behavior rather than missing imports:
@@ -316,7 +325,7 @@ def test_planner_turn_request_materialization_is_fresh() -> None:
 Add an AST purity test forbidding `time`, `datetime`, `random`, `uuid`, `os`,
 filesystem calls, and provider calls inside the builder.
 
-- [ ] **Step 4: Run the builder tests and verify a valid red state**
+- [x] **Step 4: Run the builder tests and verify a valid red state**
 
 Run:
 
@@ -329,7 +338,7 @@ Run:
 Expected: FAIL because the skeleton raises `NotImplementedError` or the public
 builder does not yet exist. Import/attribute failures are not valid red states.
 
-- [ ] **Step 5: Implement the sole Planner turn-request builder and feedback exposure**
+- [x] **Step 5: Implement the sole Planner turn-request builder and feedback exposure**
 
 Implement canonical bytes and strict fresh materialization:
 
@@ -374,7 +383,7 @@ Rename `_planner_feedback_message` to the public
 to call it. Replace the inline request dictionary with builder bytes plus a
 fresh materialized request. Do not change stop ordering or bounds.
 
-- [ ] **Step 6: Prove existing first-authorship behavior remains exact**
+- [x] **Step 6: Prove existing first-authorship behavior remains exact**
 
 Run:
 
@@ -387,7 +396,7 @@ Run:
 Expected: PASS. Add assertions that captured provider-request values/canonical
 bytes and feedback messages equal their pre-extraction fixtures.
 
-- [ ] **Step 7: Commit the required shared extraction**
+- [x] **Step 7: Commit the required shared extraction**
 
 ```powershell
 git add scripts/lm9b_p_planner_recipe_transfer_support.py `
@@ -395,7 +404,7 @@ git add scripts/lm9b_p_planner_recipe_transfer_support.py `
 git commit -m "refactor: expose planner turn request construction"
 ```
 
-- [ ] **Step 8: Write the failing two-turn vertical witness**
+- [x] **Step 8: Write the failing two-turn vertical witness**
 
 In `test_lm9b_p_governed_resolution_probe.py`, load modules by their real file
 owners and define fake providers whose request lists retain deep copies.
@@ -470,7 +479,7 @@ assert verified.classification == "probe_candidate_ready"
 Patch actual compiler-specific functions to raise and assert they remain
 untouched.
 
-- [ ] **Step 9: Run the vertical witness and verify a valid red state**
+- [x] **Step 9: Run the vertical witness and verify a valid red state**
 
 Run:
 
@@ -506,7 +515,8 @@ Implement only the positive path needed by the witness:
    reserve direct-child staging with `exist_ok=False` before dispatch.
 9. Run the existing Planner controller through a recording dispatch wrapper.
 10. Independently rerun the mechanical gate on accepted bytes.
-11. Apply the seven exact isolation equations and residual comparison.
+11. Apply the nine exact isolation equations and residual comparison, including
+    authority-descriptor reachability.
 12. Render the parent-blind evaluator request and run existing evaluator parser.
 13. Derive `probe_candidate_ready` through the shared blocker/classifier plus
     resolution outcome equations.
@@ -858,6 +868,11 @@ ISOLATION_MUTATIONS = (
     "worker_slot",
     "postcondition",
     "authority_descriptor",
+    "remove_retained_descriptor",
+    "retain_derived_removable_descriptor",
+    "add_authority_descriptor",
+    "reorder_authority_descriptors",
+    "mutate_retained_authority_descriptor",
     "unrelated_reference",
     "claimed_fingerprint",
 )
@@ -925,6 +940,7 @@ Evaluate in this exact order:
 ```text
 source_descriptor
 resolved_unresolved_rows
+authority_descriptor_reachability
 goal_unresolved_projection
 clause_ownership
 authority_reference_additions

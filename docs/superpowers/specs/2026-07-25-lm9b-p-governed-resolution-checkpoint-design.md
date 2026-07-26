@@ -330,7 +330,8 @@ carrier-support instrument:
   only the exact post-merge-qualified payload-schema/registry delta
 
 everything else:
-  byte-identical and descriptor-identical
+  byte-identical, except for recipe-descriptor removal proven by the
+  isolation policy's closed reachability equation
 ```
 
 Code-owned carrier schemas and registry documents remain instrument context.
@@ -509,13 +510,38 @@ rows whose semantic keys are in `U`. Because `U` is the complete parent
 unresolved set, candidate `unresolved_intent` must be empty. No altered or new
 row is permitted.
 
-### 11.3 Goal-projection equation
+### 11.3 Authority-descriptor reachability equation
+
+Let each parent recipe authority descriptor's complete reference set be the
+canonical set of exact reference occurrences that target its `artifact_id`.
+Derive:
+
+```text
+removable descriptors =
+  descriptors whose complete parent reference set
+  belonged exclusively to the removed unresolved rows
+  and which have no surviving candidate reference
+```
+
+The candidate `authority_artifacts` collection must equal the parent collection
+with exactly that derived set removed. Every retained descriptor remains
+byte-identical and ordered. No additional removal, addition, reorder, or field
+change is permitted. A descriptor with any parent reference outside the removed
+rows, or any surviving candidate reference, is not removable.
+
+For the radial policy instance, the fixture oracle requires the derived
+removable descriptor-ID sequence to equal `["planning_policy"]`. Neutral
+production logic never names or branches on that ID. The planning-policy
+authority artifact remains in the verified authority snapshot; only its unused
+recipe descriptor is removed.
+
+### 11.4 Goal-projection equation
 
 Candidate `goal.projected_into.unresolved_intent_ids` equals the parent
 collection minus exactly the resolved rows' intent IDs. Every other goal field
 remains identical unless separately owned by another named equation.
 
-### 11.4 Clause ownership equation
+### 11.5 Clause ownership equation
 
 Each authenticated parent `affected_clause_id` resolves to exactly one parent
 clause occurrence, category, and canonical pointer. The same candidate clause
@@ -531,7 +557,7 @@ Unresolved or multiply resolved parent ownership, overlapping equation
 ownership, or malformed policy instances are control failures. Candidate
 movement or category change is a completed isolation rejection.
 
-### 11.5 Authority-reference equation
+### 11.6 Authority-reference equation
 
 For each affected clause `c`, let:
 
@@ -563,20 +589,20 @@ Coverage is bidirectionally exact. Each resolved key contributes its required
 reference exactly once to every derived affected clause, and no other
 reference is added, removed, duplicated, reordered, or changed.
 
-### 11.6 Affected-clause residual equation
+### 11.7 Affected-clause residual equation
 
 Apart from the already-proven `source_refs` equation, every field of each
 affected clause remains identical. Statements, IDs, edges, assumptions,
 derived facts, synthesis, canonicalization, inherited support, and
 postconditions do not move.
 
-### 11.7 Recipe-fingerprint equation
+### 11.8 Recipe-fingerprint equation
 
 The candidate's claimed fingerprint equals the independently recomputed
 fingerprint of its normalized projection. Fingerprint movement is recorded
 separately and is not treated as semantic change.
 
-### 11.8 Residual equality
+### 11.9 Residual equality
 
 Only after a changed region passes exactly one named equation may that exact
 location be removed from both comparison projections. Canonical bytes of the
@@ -586,7 +612,7 @@ There is no path-prefix masking, subtree wildcard, patch construction, repair,
 or expected-successor object. Every erased location is enumerated, uniquely
 owned, consumed, and evidenced.
 
-### 11.9 Isolation result boundary
+### 11.10 Isolation result boundary
 
 ```text
 mechanical acceptance
@@ -1044,7 +1070,10 @@ Fully reclosed mutations cover:
 - wrong schema, context, pointer, task session, authority kind, or provenance;
 - retained value, type, spelling, unit, context, authority, or coverage drift;
 - extra carrier-support delta;
-- changed environment, policy, descriptor, or unrelated authority.
+- changed environment or policy authority;
+- descriptor addition, reorder, mutation, or removal not proven by the exact
+  reachability equation; or
+- unrelated authority.
 
 ### 21.4 Isolation mutation table
 
