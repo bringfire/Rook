@@ -1391,10 +1391,14 @@ Assert.Contains(""required"", member);";
         }
 
         [Fact]
-        public void RevitIdentitySerializer_DetailedPathPreservesReadOrderAndIndependentWorksharedReads()
+        public void RevitIdentitySerializer_CentralGuidInternalExceptionDegradesOnlyTheGuidRead()
         {
             var serializer = NormalizeLineEndings(
                 Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
+            var legacy = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimDocumentIdentity DocumentIdentity(Document document)");
             var detailed = ExtractExecutableMember(
                 serializer,
                 IdentitySerializerType,
@@ -1403,6 +1407,14 @@ Assert.Contains(""required"", member);";
                 serializer,
                 IdentitySerializerType,
                 "private static Guid? GetWorksharingCentralGUID(Document document, BimDiagnosticContext diagnostics)");
+            var centralLegacy = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static Guid? GetWorksharingCentralGUID(Document document)");
+            var guidRead = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static Guid? ReadWorksharingCentralGuid(Func<Guid> read)");
 
             var centralCall = detailed.IndexOf(
                 "GetWorksharingCentralGUID(document, diagnostics)", StringComparison.Ordinal);
@@ -1432,8 +1444,21 @@ Assert.Contains(""required"", member);";
             Assert.Equal(1, CountOccurrences(
                 central,
                 "catch (Autodesk.Revit.Exceptions.InvalidOperationException)"));
+            Assert.Contains("return ReadWorksharingCentralGuid(", central);
+            Assert.Contains("ReadWorksharingCentralGuid(", centralLegacy);
+            Assert.Contains("var guid = read();", guidRead);
+            Assert.Equal(1, CountOccurrences(
+                guidRead,
+                "catch (Autodesk.Revit.Exceptions.InapplicableDataException)"));
+            Assert.Equal(1, CountOccurrences(
+                guidRead,
+                "catch (Autodesk.Revit.Exceptions.InvalidOperationException)"));
+            Assert.Equal(1, CountOccurrences(
+                guidRead,
+                "catch (Autodesk.Revit.Exceptions.InternalException)"));
             Assert.DoesNotContain("InternalException", central);
-            Assert.DoesNotContain("InternalException", ExecutableCode(serializer));
+            Assert.DoesNotContain("InternalException", centralLegacy);
+            Assert.DoesNotContain("BimDiagnostic", legacy);
         }
 
         [Fact]

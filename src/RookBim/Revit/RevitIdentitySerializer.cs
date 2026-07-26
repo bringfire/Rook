@@ -246,9 +246,6 @@ namespace RookBim.Revit
                 {
                     return null;
                 }
-
-                var guid = document.WorksharingCentralGUID;
-                return guid == Guid.Empty ? (Guid?)null : guid;
             }
             catch (Autodesk.Revit.Exceptions.InapplicableDataException)
             {
@@ -258,6 +255,9 @@ namespace RookBim.Revit
             {
                 return null;
             }
+
+            return ReadWorksharingCentralGuid(
+                () => document.WorksharingCentralGUID);
         }
 
         private static Guid? GetWorksharingCentralGUID(
@@ -280,8 +280,18 @@ namespace RookBim.Revit
                 {
                     return null;
                 }
+            }
+            catch (Autodesk.Revit.Exceptions.InapplicableDataException)
+            {
+                return null;
+            }
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            {
+                return null;
+            }
 
-                var guid = diagnostics.Enabled
+            return ReadWorksharingCentralGuid(
+                () => diagnostics.Enabled
                     ? BimDiagnosticProbe.Production(
                         diagnostics,
                         BimDiagnosticStage.RevitDocumentCentralGuid,
@@ -290,7 +300,14 @@ namespace RookBim.Revit
                         value => value == Guid.Empty
                             ? BimDiagnosticDetailCode.Null
                             : BimDiagnosticDetailCode.True)
-                    : document.WorksharingCentralGUID;
+                    : document.WorksharingCentralGUID);
+        }
+
+        private static Guid? ReadWorksharingCentralGuid(Func<Guid> read)
+        {
+            try
+            {
+                var guid = read();
                 return guid == Guid.Empty ? (Guid?)null : guid;
             }
             catch (Autodesk.Revit.Exceptions.InapplicableDataException)
@@ -298,6 +315,10 @@ namespace RookBim.Revit
                 return null;
             }
             catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            {
+                return null;
+            }
+            catch (Autodesk.Revit.Exceptions.InternalException)
             {
                 return null;
             }
