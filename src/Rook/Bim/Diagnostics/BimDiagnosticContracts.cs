@@ -173,6 +173,17 @@ namespace Rook.Bim
                 operation,
                 new BimDiagnosticOutcomeAccumulator());
         }
+
+        internal static BimDiagnosticContext CreateEnabledUncorrelated(
+            string operation)
+        {
+            BimDiagnosticContracts.ValidateOperation(operation);
+            return new BimDiagnosticContext(
+                true,
+                null,
+                operation,
+                new BimDiagnosticOutcomeAccumulator());
+        }
     }
 
     internal sealed class BimDiagnosticObservation
@@ -215,7 +226,7 @@ namespace Rook.Bim
         internal int? ExceptionHResult { get; }
     }
 
-    internal sealed class BimDiagnosticRequestSnapshot
+    public sealed class BimDiagnosticRequestSnapshot
     {
         internal BimDiagnosticRequestSnapshot(
             BimDiagnosticStage? lastStage,
@@ -235,27 +246,27 @@ namespace Rook.Bim
             RequestDroppedCount = requestDroppedCount;
         }
 
-        internal BimDiagnosticStage? LastStage { get; }
+        public BimDiagnosticStage? LastStage { get; }
 
-        internal BimDiagnosticOutcome? LastOutcome { get; }
+        public BimDiagnosticOutcome? LastOutcome { get; }
 
-        internal long? LastItemIndex { get; }
+        public long? LastItemIndex { get; }
 
-        internal BimDiagnosticStage? FirstFailureStage { get; }
+        public BimDiagnosticStage? FirstFailureStage { get; }
 
-        internal string? FirstFailureExceptionType { get; }
+        public string? FirstFailureExceptionType { get; }
 
-        internal int? FirstFailureHResult { get; }
+        public int? FirstFailureHResult { get; }
 
-        internal long RequestDroppedCount { get; }
+        public long RequestDroppedCount { get; }
 
-        internal bool TraceComplete
+        public bool TraceComplete
         {
             get { return RequestDroppedCount == 0; }
         }
     }
 
-    internal sealed class BimDiagnosticStatusSnapshot
+    public sealed class BimDiagnosticStatusSnapshot
     {
         internal BimDiagnosticStatusSnapshot(
             bool enabled,
@@ -280,21 +291,21 @@ namespace Rook.Bim
             ModuleCommit = BimDiagnosticContracts.BoundProvenance(moduleCommit);
         }
 
-        internal bool Enabled { get; }
+        public bool Enabled { get; }
 
-        internal BimDiagnosticSinkState SinkState { get; }
+        public BimDiagnosticSinkState SinkState { get; }
 
-        internal BimDiagnosticSinkFailureCode FailureCode { get; }
+        public BimDiagnosticSinkFailureCode FailureCode { get; }
 
-        internal long DroppedCount { get; }
+        public long DroppedCount { get; }
 
-        internal string CoreVersion { get; }
+        public string CoreVersion { get; }
 
-        internal string CoreCommit { get; }
+        public string CoreCommit { get; }
 
-        internal string ModuleVersion { get; }
+        public string ModuleVersion { get; }
 
-        internal string ModuleCommit { get; }
+        public string ModuleCommit { get; }
     }
 
     internal static class BimDiagnosticContracts

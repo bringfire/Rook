@@ -168,15 +168,16 @@ namespace Rook.Bim
                 return;
             }
 
-            lock (gate)
+            while (true)
             {
-                if (requestDroppedCount >= long.MaxValue - increment)
+                var current = Interlocked.Read(ref requestDroppedCount);
+                var updated = current >= long.MaxValue - increment
+                    ? long.MaxValue
+                    : current + increment;
+                if (Interlocked.CompareExchange(
+                        ref requestDroppedCount, updated, current) == current)
                 {
-                    requestDroppedCount = long.MaxValue;
-                }
-                else
-                {
-                    requestDroppedCount += increment;
+                    return;
                 }
             }
         }
@@ -192,7 +193,7 @@ namespace Rook.Bim
                     hasFirstProductionFailure ? firstFailureStage : (BimDiagnosticStage?)null,
                     hasFirstProductionFailure ? firstFailureExceptionType : null,
                     hasFirstProductionFailure ? firstFailureHResult : null,
-                requestDroppedCount);
+                    Interlocked.Read(ref requestDroppedCount));
             }
         }
 
