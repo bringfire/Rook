@@ -64,18 +64,28 @@ namespace Rook.Tests.Bim.Diagnostics
 
     internal sealed class InMemoryBimDiagnosticEnvelopeSink : IBimDiagnosticEnvelopeSink
     {
+        private readonly object sync = new object();
         private readonly List<BimDiagnosticEnvelope> envelopes =
             new List<BimDiagnosticEnvelope>();
 
         internal IReadOnlyList<BimDiagnosticEnvelope> Envelopes
         {
-            get { return envelopes; }
+            get
+            {
+                lock (sync)
+                {
+                    return envelopes.ToArray();
+                }
+            }
         }
 
         public bool TryEnqueue(BimDiagnosticEnvelope envelope)
         {
-            envelopes.Add(envelope);
-            return true;
+            lock (sync)
+            {
+                envelopes.Add(envelope);
+                return true;
+            }
         }
     }
 }

@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Rook.Bim;
 using Rook.Tests.Bim;
 using Xunit;
@@ -31,9 +34,9 @@ namespace Rook.Tests.Bim.Diagnostics
                         BimDiagnosticDetailCode.None,
                         index,
                         BimDiagnosticFailureImpact.Production);
-                    scope.Session.Observe(
+                    BimDiagnostics.Observe(
                         scope.Context, stage, BimDiagnosticOutcome.Start, fields);
-                    scope.Session.Observe(
+                    BimDiagnostics.Observe(
                         scope.Context, stage, BimDiagnosticOutcome.Success, fields);
                 }
             }
@@ -46,21 +49,21 @@ namespace Rook.Tests.Bim.Diagnostics
         }
 
         [Fact]
-        public void FailureMilestonesAndExactlyOneTerminalArePersisted()
+        public void Facade_RoutesFailureMilestonesExactlyOneTerminalAndRejectsPostSealObservation()
         {
             using var scope = TestDiagnostics.EnabledScope("list_categories");
 
-            scope.Session.Observe(
+            BimDiagnostics.Observe(
                 scope.Context,
                 BimDiagnosticStage.HandlerRuntime,
                 BimDiagnosticOutcome.Start,
                 BimDiagnosticFields.None);
-            scope.Session.Observe(
+            BimDiagnostics.Observe(
                 scope.Context,
                 BimDiagnosticStage.HandlerRuntime,
                 BimDiagnosticOutcome.Success,
                 BimDiagnosticFields.None);
-            scope.Session.ObserveException(
+            BimDiagnostics.ObserveException(
                 scope.Context,
                 BimDiagnosticStage.RevitCategoryName,
                 new InvalidOperationException("private"),
@@ -69,9 +72,9 @@ namespace Rook.Tests.Bim.Diagnostics
                     23,
                     BimDiagnosticFailureImpact.Production));
 
-            scope.Session.CompleteRequest(scope.Context, BimDiagnosticOutcome.Success);
-            scope.Session.CompleteRequest(scope.Context, BimDiagnosticOutcome.Failure);
-            scope.Session.Observe(
+            BimDiagnostics.CompleteRequest(scope.Context, BimDiagnosticOutcome.Success);
+            BimDiagnostics.CompleteRequest(scope.Context, BimDiagnosticOutcome.Failure);
+            BimDiagnostics.Observe(
                 scope.Context,
                 BimDiagnosticStage.HandlerSerialize,
                 BimDiagnosticOutcome.Success,
@@ -95,32 +98,122 @@ namespace Rook.Tests.Bim.Diagnostics
             Assert.Equal(23, snapshot.LastItemIndex);
         }
 
-        [Theory]
-        [InlineData(BimDiagnosticStage.CoreInitialize)]
-        [InlineData(BimDiagnosticStage.ModuleResolve)]
-        [InlineData(BimDiagnosticStage.ModuleLoad)]
-        [InlineData(BimDiagnosticStage.ModuleActivate)]
-        [InlineData(BimDiagnosticStage.ModuleMetadata)]
-        [InlineData(BimDiagnosticStage.HandlerDeserialize)]
-        [InlineData(BimDiagnosticStage.HandlerRuntime)]
-        [InlineData(BimDiagnosticStage.HandlerSerialize)]
-        [InlineData(BimDiagnosticStage.RevitDispatchEnqueue)]
-        [InlineData(BimDiagnosticStage.RevitDispatchExecute)]
-        [InlineData(BimDiagnosticStage.RevitDocumentAcquire)]
-        public void FixedCoarseStage_PersistsStartAndSuccess(BimDiagnosticStage stage)
+        [Fact]
+        public void EveryStage_HasAnExplicitSparsePolicyAndEveryFailureIsPersisted()
         {
             using var scope = TestDiagnostics.EnabledScope("status");
+            var policy = new Dictionary<BimDiagnosticStage, bool>
+            {
+                [BimDiagnosticStage.CoreInitialize] = true,
+                [BimDiagnosticStage.ModuleResolve] = true,
+                [BimDiagnosticStage.ModuleLoad] = true,
+                [BimDiagnosticStage.ModuleActivate] = true,
+                [BimDiagnosticStage.ModuleMetadata] = true,
+                [BimDiagnosticStage.HandlerDeserialize] = true,
+                [BimDiagnosticStage.HandlerRuntime] = true,
+                [BimDiagnosticStage.HandlerSerialize] = true,
+                [BimDiagnosticStage.HandlerTerminal] = false,
+                [BimDiagnosticStage.RevitDispatchEnqueue] = true,
+                [BimDiagnosticStage.RevitDispatchExecute] = true,
+                [BimDiagnosticStage.RevitDocumentAcquire] = true,
+                [BimDiagnosticStage.RevitViewActiveGraphical] = false,
+                [BimDiagnosticStage.RevitDocumentCentralIsWorkshared] = false,
+                [BimDiagnosticStage.RevitDocumentCentralGuid] = false,
+                [BimDiagnosticStage.RevitDocumentTitle] = false,
+                [BimDiagnosticStage.RevitDocumentPath] = false,
+                [BimDiagnosticStage.RevitDocumentIsFamily] = false,
+                [BimDiagnosticStage.RevitDocumentOutputIsWorkshared] = false,
+                [BimDiagnosticStage.RevitDocumentIsModelInCloud] = false,
+                [BimDiagnosticStage.RevitDocumentIsDetached] = false,
+                [BimDiagnosticStage.RevitDocumentCentralModelPath] = false,
+                [BimDiagnosticStage.RevitDocumentModelPathEmpty] = false,
+                [BimDiagnosticStage.RevitDocumentModelPathServer] = false,
+                [BimDiagnosticStage.RevitDocumentModelPathCloud] = false,
+                [BimDiagnosticStage.RevitCategoriesSettings] = false,
+                [BimDiagnosticStage.RevitCategoriesCollection] = false,
+                [BimDiagnosticStage.RevitCategoriesIterator] = false,
+                [BimDiagnosticStage.RevitCategoriesMoveNext] = false,
+                [BimDiagnosticStage.RevitCategoriesCurrent] = false,
+                [BimDiagnosticStage.RevitCategoriesIteratorDispose] = false,
+                [BimDiagnosticStage.RevitCategoryId] = false,
+                [BimDiagnosticStage.RevitCategoryName] = false,
+                [BimDiagnosticStage.RevitCategoryBuiltIn] = false,
+                [BimDiagnosticStage.RevitCategoryType] = false,
+                [BimDiagnosticStage.SinkWriter] = false
+            };
+            var stages = Enum.GetValues(typeof(BimDiagnosticStage))
+                .Cast<BimDiagnosticStage>()
+                .ToArray();
 
-            scope.Session.Observe(
-                scope.Context, stage, BimDiagnosticOutcome.Start,
-                BimDiagnosticFields.None);
-            scope.Session.Observe(
-                scope.Context, stage, BimDiagnosticOutcome.Success,
-                BimDiagnosticFields.None);
+            Assert.Equal(stages.Length, policy.Count);
+            foreach (var stage in stages)
+            {
+                Assert.True(policy.TryGetValue(stage, out var persistsMilestones),
+                    "Stage requires an explicit sparse-persistence decision: " + stage);
+                var before = scope.Sink.Envelopes.Count;
 
-            Assert.Equal(2, scope.Sink.Envelopes.Count);
-            Assert.All(scope.Sink.Envelopes, envelope =>
-                Assert.Equal(BimDiagnosticRecordKind.Milestone, envelope.Kind));
+                BimDiagnostics.Observe(
+                    scope.Context, stage, BimDiagnosticOutcome.Start,
+                    BimDiagnosticFields.None);
+                BimDiagnostics.Observe(
+                    scope.Context, stage, BimDiagnosticOutcome.Success,
+                    BimDiagnosticFields.None);
+
+                var afterMilestones = scope.Sink.Envelopes.Count;
+                Assert.Equal(persistsMilestones ? before + 2 : before,
+                    afterMilestones);
+
+                BimDiagnostics.Observe(
+                    scope.Context, stage, BimDiagnosticOutcome.Failure,
+                    BimDiagnosticFields.None);
+
+                Assert.Equal(afterMilestones + 1, scope.Sink.Envelopes.Count);
+                Assert.Equal(BimDiagnosticRecordKind.Failure,
+                    scope.Sink.Envelopes[scope.Sink.Envelopes.Count - 1].Kind);
+            }
+        }
+
+        [Fact]
+        public async Task InMemorySink_ConcurrentFacadeEnqueuesProduceAnExactSnapshot()
+        {
+            const int WorkerCount = 8;
+            const int EnvelopesPerWorker = 5000;
+
+            using var scope = TestDiagnostics.EnabledScope("concurrent_sink");
+            using var start = new ManualResetEventSlim(false);
+            var remaining = WorkerCount;
+            var allReady = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var contexts = Enumerable.Range(0, WorkerCount)
+                .Select(worker => scope.Session.CreateContext(
+                    "concurrent_sink_" + worker))
+                .ToArray();
+            var workers = contexts.Select(context => Task.Run(() =>
+            {
+                if (Interlocked.Decrement(ref remaining) == 0)
+                {
+                    allReady.TrySetResult(true);
+                }
+
+                start.Wait();
+                for (var index = 0; index < EnvelopesPerWorker; index++)
+                {
+                    BimDiagnostics.Observe(
+                        context,
+                        BimDiagnosticStage.SinkWriter,
+                        BimDiagnosticOutcome.Failure,
+                        BimDiagnosticFields.None);
+                }
+            })).ToArray();
+
+            await allReady.Task;
+            start.Set();
+            await Task.WhenAll(workers);
+
+            var snapshot = scope.Sink.Envelopes;
+            Assert.Equal(WorkerCount * EnvelopesPerWorker, snapshot.Count);
+            Assert.All(snapshot, envelope =>
+                Assert.Equal(BimDiagnosticRecordKind.Failure, envelope.Kind));
         }
     }
 }
