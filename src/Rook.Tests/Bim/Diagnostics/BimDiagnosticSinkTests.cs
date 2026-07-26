@@ -165,6 +165,113 @@ namespace Rook.Tests.Bim.Diagnostics
         }
 
         [Fact]
+        public void SignalDisposal_CannotInterleaveBetweenGateCheckAndSet()
+        {
+            var sink = CreateSink();
+            var sync = GetSync(sink);
+            var signal = GetSignal(sink);
+            using var disposeAttempted = new ManualResetEventSlim(false);
+            using var disposeCompleted = new ManualResetEventSlim(false);
+            Exception? disposeFailure = null;
+            Exception? setFailure;
+            var disposer = new Thread(() =>
+            {
+                disposeAttempted.Set();
+                try
+                {
+                    InvokePrivate(sink, "DisposeSignalOnce");
+                }
+                catch (Exception exception)
+                {
+                    disposeFailure = exception;
+                }
+                finally
+                {
+                    disposeCompleted.Set();
+                }
+            }) { IsBackground = true };
+            bool disposedInsideGate;
+
+            lock (sync)
+            {
+                disposer.Start();
+                Assert.True(disposeAttempted.Wait(TimeSpan.FromSeconds(5)));
+                disposedInsideGate = disposeCompleted.Wait(
+                    TimeSpan.FromMilliseconds(250));
+                setFailure = Record.Exception(() => signal.Set());
+            }
+
+            Assert.True(disposer.Join(TimeSpan.FromSeconds(5)));
+            Assert.False(disposedInsideGate,
+                "signal disposal escaped the gate between check and Set");
+            Assert.Null(setFailure);
+            Assert.Null(disposeFailure);
+            Assert.True(signal.SafeWaitHandle.IsClosed);
+            sink.Dispose();
+        }
+
+        [Fact]
+        public void ConcurrentShutdownCallers_CloseSignalOnceWithoutLosingEnvelope()
+        {
+            var fileSystem = new BlockingWriteFileSystem();
+            var sink = CreateSink(fileSystem: fileSystem);
+            var envelope = Envelope(BimDiagnosticRecordKind.Failure);
+            using var start = new Barrier(4);
+            var failures = new List<Exception>();
+            var failuresSync = new object();
+            Thread ShutdownThread(Action action)
+            {
+                return new Thread(() =>
+                {
+                    start.SignalAndWait();
+                    try
+                    {
+                        action();
+                    }
+                    catch (Exception exception)
+                    {
+                        lock (failuresSync)
+                        {
+                            failures.Add(exception);
+                        }
+                    }
+                }) { IsBackground = true };
+            }
+
+            Assert.True(sink.TryEnqueue(envelope.Envelope));
+            sink.Start();
+            Assert.True(fileSystem.WriteEntered.Wait(TimeSpan.FromSeconds(5)));
+            var dispose = ShutdownThread(sink.Dispose);
+            var stop = ShutdownThread(() =>
+                InvokePrivate(sink, "Stop", 250));
+            var processExit = ShutdownThread(() =>
+                InvokePrivate(sink, "OnProcessExit", null, EventArgs.Empty));
+            dispose.Start();
+            stop.Start();
+            processExit.Start();
+            start.SignalAndWait();
+
+            Assert.True(dispose.Join(TimeSpan.FromSeconds(5)));
+            Assert.True(stop.Join(TimeSpan.FromSeconds(5)));
+            Assert.True(processExit.Join(TimeSpan.FromSeconds(5)));
+            fileSystem.ReleaseWrite.Set();
+            Assert.True(fileSystem.WriterExited.Wait(TimeSpan.FromSeconds(5)));
+            WaitUntil(() => GetSignal(sink).SafeWaitHandle.IsClosed);
+
+            var lateStop = Record.Exception(() =>
+                InvokePrivate(sink, "Stop", 250));
+            var lateProcessExit = Record.Exception(() =>
+                InvokePrivate(sink, "OnProcessExit", null, EventArgs.Empty));
+            Assert.Empty(failures);
+            Assert.Null(lateStop);
+            Assert.Null(lateProcessExit);
+            Assert.Equal(1, GetPrivateInt(sink, "signalDisposed"));
+            Assert.Null(envelope.Envelope.Accumulator);
+            Assert.Equal(0, envelope.OriginalAccumulator.Snapshot()
+                .RequestDroppedCount);
+        }
+
+        [Fact]
         public void ConcurrentStartAndDispose_NeverPublishesAWriterAfterStop()
         {
             for (var iteration = 0; iteration < 32; iteration++)
@@ -459,6 +566,61 @@ namespace Rook.Tests.Bim.Diagnostics
             Assert.Null(envelope.Envelope.Accumulator);
         }
 
+        [Fact]
+        public void Writer_AcceptsHorizontalWhitespaceAroundJsonObject()
+        {
+            const string encoded = " \t {\"x\":true} \t \n";
+            using (var document = JsonDocument.Parse(encoded.TrimEnd('\n')))
+            {
+                Assert.Equal(JsonValueKind.Object,
+                    document.RootElement.ValueKind);
+            }
+            var fileSystem = new MemoryFileSystem();
+            using var sink = CreateSink(
+                fileSystem: fileSystem,
+                encoder: _ => encoded);
+            var envelope = Envelope(BimDiagnosticRecordKind.Failure);
+            Assert.True(sink.TryEnqueue(envelope.Envelope));
+
+            sink.Start();
+            WaitUntil(() => fileSystem.Bytes.Length ==
+                Encoding.UTF8.GetByteCount(encoded));
+            var status = sink.Snapshot();
+            sink.Dispose();
+
+            Assert.Equal(BimDiagnosticSinkFailureCode.None,
+                status.FailureCode);
+            Assert.Equal(0, status.DroppedCount);
+            Assert.Equal(encoded, Encoding.UTF8.GetString(fileSystem.Bytes));
+            Assert.Null(envelope.Envelope.Accumulator);
+        }
+
+        [Theory]
+        [InlineData("{} {}\n")]
+        [InlineData(" \t{} true \t\n")]
+        public void Writer_RejectsExtraJsonValueAfterObject(string encoded)
+        {
+            Assert.ThrowsAny<JsonException>(() =>
+                JsonDocument.Parse(encoded.TrimEnd('\n')));
+            var fileSystem = new MemoryFileSystem();
+            using var sink = CreateSink(
+                fileSystem: fileSystem,
+                encoder: _ => encoded);
+            var envelope = Envelope(BimDiagnosticRecordKind.Failure);
+            Assert.True(sink.TryEnqueue(envelope.Envelope));
+
+            sink.Start();
+            WaitUntil(() => sink.Snapshot().DroppedCount == 1);
+            var status = sink.Snapshot();
+            sink.Dispose();
+
+            Assert.Equal(BimDiagnosticSinkFailureCode.RecordInvalid,
+                status.FailureCode);
+            Assert.Equal(1, status.DroppedCount);
+            Assert.Empty(fileSystem.Bytes);
+            Assert.Null(envelope.Envelope.Accumulator);
+        }
+
         [Theory]
         [InlineData("directory", BimDiagnosticSinkFailureCode.DirectoryCreateFailure)]
         [InlineData("open", BimDiagnosticSinkFailureCode.FileOpenFailure)]
@@ -639,6 +801,38 @@ namespace Rook.Tests.Bim.Diagnostics
             return (AutoResetEvent)typeof(BimDiagnosticSink).GetField(
                 "signal", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(sink)!;
+        }
+
+        private static object GetSync(BimDiagnosticSink sink)
+        {
+            return typeof(BimDiagnosticSink).GetField(
+                "sync", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(sink)!;
+        }
+
+        private static int GetPrivateInt(
+            BimDiagnosticSink sink, string fieldName)
+        {
+            return (int)typeof(BimDiagnosticSink).GetField(
+                fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(sink)!;
+        }
+
+        private static void InvokePrivate(
+            BimDiagnosticSink sink, string methodName, params object?[] arguments)
+        {
+            try
+            {
+                typeof(BimDiagnosticSink).GetMethod(
+                    methodName,
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(sink, arguments);
+            }
+            catch (TargetInvocationException exception)
+                when (exception.InnerException != null)
+            {
+                throw exception.InnerException;
+            }
         }
 
         private static Thread? GetWriterThread(BimDiagnosticSink sink)

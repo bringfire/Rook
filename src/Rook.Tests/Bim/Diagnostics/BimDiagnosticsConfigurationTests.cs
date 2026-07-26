@@ -139,6 +139,35 @@ namespace Rook.Tests.Bim.Diagnostics
         }
 
         [Fact]
+        public void Initialize_EnabledNullSinkMatchesThrownFactoryFailure()
+        {
+            BimDiagnosticStatusSnapshot StatusFor(
+                Func<BimDiagnosticProvenance,
+                    IBimDiagnosticEnvelopeSink> factory)
+            {
+                var bootstrap = new BimDiagnosticBootstrap(
+                    _ => "1",
+                    factory,
+                    CreateAssembly("FailedCore",
+                        new Version(2, 0, 0, 0), "2.0.0+faded"));
+                return bootstrap.Initialize().SnapshotStatus();
+            }
+
+            var thrown = StatusFor(_ =>
+                throw new InvalidOperationException("private factory failure"));
+            var returnedNull = StatusFor(_ => null!);
+
+            Assert.Equal(BimDiagnosticSinkState.Failed,
+                returnedNull.SinkState);
+            Assert.Equal(BimDiagnosticSinkFailureCode.FileOpenFailure,
+                returnedNull.FailureCode);
+            Assert.Equal(2, returnedNull.DroppedCount);
+            Assert.Equal(thrown.SinkState, returnedNull.SinkState);
+            Assert.Equal(thrown.FailureCode, returnedNull.FailureCode);
+            Assert.Equal(thrown.DroppedCount, returnedNull.DroppedCount);
+        }
+
+        [Fact]
         public void Provenance_IsImmediateBoundedAndModuleRegistrationIsAtomic()
         {
             var reads = 0;
