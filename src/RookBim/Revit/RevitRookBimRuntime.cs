@@ -18,6 +18,7 @@ namespace RookBim.Revit
         private readonly RevitSelectionService selection;
         private readonly RevitExportService export;
         private readonly RevitPresetResolver presetResolver;
+        private readonly RevitCreationGuidProbe creationGuidProbe;
 
         public RevitRookBimRuntime()
             : this(new RevitApiDispatcher())
@@ -32,6 +33,7 @@ namespace RookBim.Revit
             this.selection = new RevitSelectionService();
             this.export = new RevitExportService();
             this.presetResolver = new RevitPresetResolver();
+            this.creationGuidProbe = new RevitCreationGuidProbe();
         }
 
         public BimStatusResponse Status(BimDiagnosticContext diagnostics)
@@ -92,6 +94,27 @@ namespace RookBim.Revit
                         View = SerializeActiveView(uidoc, diagnostics)
                     });
                 });
+        }
+
+        public BimApiResponse CreationGuidProbe(
+            BimDiagnosticContext diagnostics,
+            BimCreationGuidProbeRequest request)
+        {
+            try
+            {
+                return Dispatch(diagnostics, uiapp => creationGuidProbe.Execute(
+                    uiapp,
+                    AcquireActiveDocument(uiapp, diagnostics),
+                    diagnostics,
+                    request));
+            }
+            catch (Exception ex)
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.NotRhinoInside,
+                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
+                    503);
+            }
         }
 
         public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)

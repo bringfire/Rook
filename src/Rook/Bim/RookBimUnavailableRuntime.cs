@@ -74,6 +74,13 @@ namespace Rook.Bim
             return Unavailable();
         }
 
+        public BimApiResponse CreationGuidProbe(
+            BimDiagnosticContext diagnostics,
+            BimCreationGuidProbeRequest request)
+        {
+            return Unavailable();
+        }
+
         private BimApiResponse Unavailable()
         {
             return BimApiResponse.Fail(

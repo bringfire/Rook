@@ -214,6 +214,10 @@ namespace Rook.Tests.Plugin
 
         private sealed class ThrowingBimRuntime : IRookBimRuntime
         {
+            BimApiResponse IRookBimRuntime.CreationGuidProbe(
+                BimDiagnosticContext diagnostics, BimCreationGuidProbeRequest request) =>
+                throw new NotSupportedException();
+
             public bool StatusCalled { get; private set; }
 
             public BimStatusResponse Status(BimDiagnosticContext diagnostics)

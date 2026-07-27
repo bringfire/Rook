@@ -2457,6 +2457,76 @@ Assert.Contains(""required"", member);";
             return XDocument.Load(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
         }
 
+        [Fact]
+        public void CreationGuidProbe_UsesIndependentDiagnosticReadDelegatesWithoutDocumentTitle()
+        {
+            var source = Read("src/RookBim/Revit/RevitCreationGuidProbe.cs");
+            var collect = ExtractExecutableMember(
+                source,
+                "internal sealed class RevitCreationGuidProbe",
+                "private static BimCreationGuidProbeObservation Collect(Document document, BimCreationGuidProbeCase caseId)");
+            var compact = RemoveWhitespace(ExecutableCode(collect));
+
+            var requiredReads = new[]
+            {
+                "Read(BimCreationGuidProbeStage.IsWorkshared,()=>document.IsWorkshared)",
+                "Read(BimCreationGuidProbeStage.IsDetached,()=>document.IsDetached)",
+                "Read(BimCreationGuidProbeStage.IsModelInCloud,()=>document.IsModelInCloud)",
+                "Read(BimCreationGuidProbeStage.IsFamilyDocument,()=>document.IsFamilyDocument)",
+                "Read(BimCreationGuidProbeStage.CreationGuidFirst,()=>document.CreationGUID)",
+                "Read(BimCreationGuidProbeStage.CreationGuidSecond,()=>document.CreationGUID)",
+                "Read(BimCreationGuidProbeStage.DocumentPath,()=>document.PathName)",
+                "Read(BimCreationGuidProbeStage.CentralModelPath,()=>document.GetWorksharingCentralModelPath())",
+                "Read(BimCreationGuidProbeStage.ModelPathServer,()=>centralModelPath.Value.ServerPath)",
+                "Read(BimCreationGuidProbeStage.ModelPathCloud,()=>centralModelPath.Value.CloudPath)",
+                "Read(BimCreationGuidProbeStage.ModelPathConvert,()=>ModelPathUtils.ConvertModelPathToUserVisiblePath(centralModelPath.Value))",
+            };
+
+            foreach (var read in requiredReads)
+            {
+                Assert.Equal(1, CountOccurrences(compact, read));
+            }
+
+            Assert.DoesNotContain("Title", ExecutableIdentifierTokens(source));
+            Assert.DoesNotContain(".Message", compact, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void CreationGuidProbe_ReadBoundaryCatchesOnlyNonfatalExceptionsAndProjectsTrustedFacts()
+        {
+            var source = Read("src/RookBim/Revit/RevitCreationGuidProbe.cs");
+            var read = ExtractExecutableMember(
+                source,
+                "internal sealed class RevitCreationGuidProbe",
+                "private static ProbeValue<T> Read<T>(BimCreationGuidProbeStage stage, Func<T> read)");
+            var compact = RemoveWhitespace(ExecutableCode(read));
+
+            Assert.Contains("catch(Exceptionex)when(!IsProcessFatal(ex))", compact);
+            Assert.Contains("ProbeValue<T>.Failure(stage,ex.GetType(),ex.HResult)", compact);
+            Assert.DoesNotContain("throw;", compact);
+            Assert.DoesNotContain("Message", ExecutableIdentifierTokens(read));
+        }
+
+        [Fact]
+        public void CreationGuidProbe_BasicFileInfoReadsIndependentlyAndDisposesInFinally()
+        {
+            var source = Read("src/RookBim/Revit/RevitCreationGuidProbe.cs");
+            var member = ExtractExecutableMember(
+                source,
+                "internal sealed class RevitCreationGuidProbe",
+                "private static BasicFileEvidence ReadBasicFileInfo(string documentPath)");
+            var compact = RemoveWhitespace(ExecutableCode(member));
+
+            Assert.Equal(1, CountOccurrences(compact,
+                "Read(BimCreationGuidProbeStage.BasicFileInfoExtract,()=>BasicFileInfo.Extract(documentPath))"));
+            Assert.Equal(1, CountOccurrences(compact,
+                "Read(BimCreationGuidProbeStage.BasicFileInfoIsCentral,()=>fileInfo.Value.IsCentral)"));
+            Assert.Equal(1, CountOccurrences(compact,
+                "Read(BimCreationGuidProbeStage.BasicFileInfoIsLocal,()=>fileInfo.Value.IsLocal)"));
+            Assert.Contains("finally", ExecutableIdentifierTokens(member));
+            Assert.Contains("fileInfo.Value.Dispose()", compact);
+        }
+
         private static string Read(string relativePath)
         {
             return File.ReadAllText(Path.Combine(RepoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));

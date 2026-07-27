@@ -767,6 +767,10 @@ namespace Rook.Tests.Handlers
 
         private class RecordingRuntime : IRookBimRuntime
         {
+            public virtual BimApiResponse CreationGuidProbe(
+                BimDiagnosticContext diagnostics, BimCreationGuidProbeRequest request) =>
+                BimApiResponse.Ok(null);
+
             private readonly ConcurrentQueue<BimDiagnosticContext> contexts =
                 new ConcurrentQueue<BimDiagnosticContext>();
 

@@ -25,6 +25,7 @@ namespace Rook.Tests.Handlers
             "clear_selection",
             "export_elements",
             "export_preset",
+            "creation_guid_probe",
         };
 
         [Fact]
@@ -545,6 +546,10 @@ namespace Rook.Tests.Handlers
 
         private sealed class StatusRuntime : IRookBimRuntime
         {
+            public BimApiResponse CreationGuidProbe(
+                BimDiagnosticContext diagnostics, BimCreationGuidProbeRequest request) =>
+                BimApiResponse.Ok(null);
+
             private readonly string errorCode;
             private readonly string message;
 
@@ -580,6 +585,10 @@ namespace Rook.Tests.Handlers
 
         private sealed class NoActiveDocumentRuntime : IRookBimRuntime
         {
+            public BimApiResponse CreationGuidProbe(
+                BimDiagnosticContext diagnostics, BimCreationGuidProbeRequest request) =>
+                BimApiResponse.Ok(null);
+
             public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse
@@ -613,6 +622,10 @@ namespace Rook.Tests.Handlers
 
         private sealed class DetailFailureRuntime : IRookBimRuntime
         {
+            public BimApiResponse CreationGuidProbe(
+                BimDiagnosticContext diagnostics, BimCreationGuidProbeRequest request) =>
+                BimApiResponse.Ok(null);
+
             public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse { Available = true, Runtime = "test" };
@@ -679,6 +692,10 @@ namespace Rook.Tests.Handlers
 
         private sealed class CategoryFailureRuntime : IRookBimRuntime
         {
+            public BimApiResponse CreationGuidProbe(
+                BimDiagnosticContext diagnostics, BimCreationGuidProbeRequest request) =>
+                BimApiResponse.Ok(null);
+
             public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse { Available = true, Runtime = "test" };

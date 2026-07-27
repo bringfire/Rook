@@ -21,5 +21,9 @@ namespace Rook.Bim
         BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request);
 
         BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request);
+
+        BimApiResponse CreationGuidProbe(
+            BimDiagnosticContext diagnostics,
+            BimCreationGuidProbeRequest request);
     }
 }

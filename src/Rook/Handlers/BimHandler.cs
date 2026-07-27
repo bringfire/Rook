@@ -51,6 +51,7 @@ namespace Rook.Handlers
             "clear_selection",
             "export_elements",
             "export_preset",
+            "creation_guid_probe",
         };
 
         private static readonly HashSet<string> ExpectedBimOpSet =
@@ -179,6 +180,17 @@ namespace Rook.Handlers
             string op,
             string? body)
         {
+            if (string.Equals(op, "creation_guid_probe", StringComparison.Ordinal) &&
+                !diagnostics.Enabled)
+            {
+                return Fail(
+                    diagnostics,
+                    control,
+                    BimErrorCode.CapabilityUnavailable,
+                    "CreationGUID probing requires ROOK_BIM_DIAGNOSTICS=1 and a fresh Revit process.",
+                    503);
+            }
+
             if (string.Equals(op, "status", StringComparison.Ordinal) &&
                 !IsRunningAsRhinoInside())
             {
@@ -237,6 +249,12 @@ namespace Rook.Handlers
                     "export_preset",
                     body,
                     request => runtime.ExportPreset(diagnostics, request)),
+                "creation_guid_probe" => DispatchTypedRequest<BimCreationGuidProbeRequest>(
+                    diagnostics,
+                    control,
+                    "creation_guid_probe",
+                    body,
+                    request => runtime.CreationGuidProbe(diagnostics, request)),
                 _ => Fail(
                     diagnostics,
                     control,
