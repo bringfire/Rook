@@ -103,7 +103,7 @@
   - `parse_resolution_archive_member(raw: bytes, *, path: str, profile: object, call_shape: object | None = None) -> object`
   - `resolution_member_ceiling(*, path: str, profile: object, call_shape: object | None = None, preparse: bool) -> int`
 
-- [ ] **Step 1: Write the failing six-turn seal/reconstruct witness against the existing instrument**
+- [x] **Step 1: Write the failing six-turn seal/reconstruct witness against the existing instrument**
 
 Add `test_archive_profile_six_turn_vertical_seals_and_publicly_reconstructs`
 to `test_lm9b_p_governed_resolution_probe.py` before creating the profile or
@@ -133,8 +133,8 @@ if result.state != "sealed":
     assert result.state == "post_dispatch_unsealed"
     assert result.classification is None
     assert result.sealed_checkpoint is None
-    assert planner_provider.call_count == 6
-    assert evaluator_provider.call_count == 0
+    assert len(planner_provider.requests) == 6
+    assert len(evaluator_provider.requests) == 0
     assert not destination.exists()
 
     candidate = staging / ".archive-candidate"
@@ -157,7 +157,7 @@ assert result.classification == "probe_resolution_isolation_failure"
 The aggregate `call-ledger.json` and `planner-session.json` exist only in
 `.archive-candidate` after the seal writer has constructed them.
 
-- [ ] **Step 2: Run and record the exact red state**
+- [x] **Step 2: Run and record the exact red state**
 
 Run:
 
@@ -171,7 +171,7 @@ expected sealed result is not produced. An import/attribute error, an assumed
 provider-call count, or an exception escaping `_run_resolution_attempt()` is
 not valid RED evidence.
 
-- [ ] **Step 3: Add the exact profile contract and import-valid helper surface**
+- [x] **Step 3: Add the exact profile contract and import-valid helper surface**
 
 Add a canonical one-line JSON contract with these top-level fields only:
 
@@ -261,7 +261,7 @@ scripts/lm9b_p_governed_resolution_archive_evidence.py text eol=lf
 scripts/lm9b_p_governed_resolution_forensics.py text eol=lf
 ```
 
-- [ ] **Step 4: Implement the minimum closure-issued profile and call-shape path**
+- [x] **Step 4: Implement the minimum closure-issued profile and call-shape path**
 
 Build both capabilities with closure-local classes and `weakref.WeakKeyDictionary` snapshots. Public classes have only `__weakref__` storage; direct construction, `object.__new__`, copying, replacement, subclassing, and instance mutation cannot register or alter a snapshot.
 
@@ -290,7 +290,7 @@ class _CallShapeSnapshot:
 
 This capability proves parser-budget shape only. A row's `terminal` flag means its owned adapter execution completed; it does not terminate the whole attempt. Request/transcript/provider provenance, derived attempt termination, and the ban on calls after an attempt terminal remain the later artifact verifier's responsibility.
 
-- [ ] **Step 5: Integrate the walking path into the real writer and verifier**
+- [x] **Step 5: Integrate the walking path into the real writer and verifier**
 
 In `lm9b_p_governed_resolution_artifacts.py`:
 
@@ -317,7 +317,7 @@ verify independently supplied preflight and profile identity
 
 In `seal_resolution_checkpoint()`, write the candidate, reread it through that same private verifier, then perform the existing no-clobber rename. Do not change membership, record identity, finalization, or ready-proof equations.
 
-- [ ] **Step 6: Run the vertical and focused compatibility tests**
+- [x] **Step 6: Run the vertical and focused compatibility tests**
 
 Run:
 
@@ -351,7 +351,7 @@ verified = ARTIFACTS.verify_sealed_resolution_checkpoint(
 assert verified.classification == "probe_resolution_isolation_failure"
 ```
 
-- [ ] **Step 7: Commit and stop for independent Task 1 review**
+- [x] **Step 7: Commit and stop for independent Task 1 review**
 
 ```powershell
 git add .gitattributes `

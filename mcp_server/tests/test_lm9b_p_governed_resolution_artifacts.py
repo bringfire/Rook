@@ -118,6 +118,7 @@ def test_task2_instrument_assembles_only_from_verified_sources() -> None:
         "readiness",
         "preflight",
         "archive",
+        "archive_resource",
         "launch_invocation",
         "ready_proof",
         "role_call_budgets",
@@ -138,6 +139,12 @@ def test_task2_instrument_assembles_only_from_verified_sources() -> None:
     } <= set(evaluator)
     assert instrument.contract_manifest["ready_proof"]["contract_fingerprint"]
     assert instrument.contract_manifest["launch_invocation"]["contract_fingerprint"]
+    archive_resource = instrument.contract_manifest["archive_resource"]
+    assert archive_resource["profile_fingerprint"] == (
+        "sha256:271d641d5b7cebc1ffa7e2f8c924eb7a9f5d0d55f36d69f91995a597af23909b"
+    )
+    assert archive_resource["reviewed_commit_sha"] == _head()
+    assert archive_resource["helper_source_fingerprint"].startswith("sha256:")
 
 
 @pytest.mark.parametrize(

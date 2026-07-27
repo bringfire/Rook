@@ -34,6 +34,7 @@ import lm9b_c_compiler_sufficiency_probe as PROVIDER_ADAPTER
 import lm9_semantic_typed_values as TYPED_VALUES
 import lm9_typed_fact_carrier_artifacts as CARRIER
 import lm9_typed_fact_carrier_qualification as QUALIFICATION
+import lm9b_p_governed_resolution_archive_evidence as ARCHIVE_EVIDENCE
 
 
 HISTORICAL_CARRIER_COMMIT = "d6330a61a21d56abf16af6ba3b8f1678ede2c3ec"
@@ -57,6 +58,11 @@ EVALUATION_RUBRIC_PATH = (
     _SCRIPTS_DIR
     / "lm9b_p_governed_resolution_contracts"
     / "planner_revision_evaluation_rubric.json"
+)
+ARCHIVE_EVIDENCE_PROFILE_PATH = (
+    _SCRIPTS_DIR
+    / "lm9b_p_governed_resolution_contracts"
+    / "archive_evidence_resource_profile.json"
 )
 PREFLIGHT_SCHEMA_ID = "rook.lm9b_p.governed_resolution_preflight:v1"
 CHECKPOINT_SCHEMA_ID = "rook.lm9b_p.governed_resolution_checkpoint:v1"
@@ -117,27 +123,7 @@ _CHECKPOINT_MEMBERS = frozenset(
         "checksums.json",
     }
 )
-RESOLUTION_ARCHIVE_MEMBERS = MappingProxyType(
-    {
-        "record.json": "identity",
-        "launch.json": "launch",
-        "source.json": "source",
-        "instrument.json": "instrument",
-        "authority.json": "authority",
-        "migration.json": "migration",
-        "correspondence.json": "correspondence",
-        "readiness.json": "readiness",
-        "call-ledger.json": "calls",
-        "planner-session.json": "planner",
-        "candidate-recipe.json": "candidate",
-        "checkpoint-gate.json": "candidate",
-        "isolation.json": "isolation",
-        "evaluator.json": "evaluator",
-        "classification.json": "outcome",
-        "boundary.json": "boundary",
-        "checksums.json": "checksums",
-    }
-)
+RESOLUTION_ARCHIVE_MEMBERS = ARCHIVE_EVIDENCE.RESOLUTION_ARCHIVE_MEMBERS
 _ALWAYS_ARCHIVE_MEMBERS = frozenset(
     path
     for path, role in RESOLUTION_ARCHIVE_MEMBERS.items()
@@ -539,6 +525,9 @@ def assemble_task1_resolution_instrument(
     readiness_route_identity = readiness_route_identity_projection(
         readiness_manifest
     )
+    _archive_profile, archive_resource_contract = (
+        _resolution_archive_resource_contract(inputs.reviewed_commit_sha)
+    )
     outcome_table = {
         "mechanically_rejected": "probe_mechanically_rejected",
         "isolation_rejected": "probe_resolution_isolation_failure",
@@ -791,6 +780,7 @@ def assemble_task1_resolution_instrument(
             "closed_member_roles": dict(RESOLUTION_ARCHIVE_MEMBERS),
             "finalization_equation": "same_filesystem_no_clobber_path_rename:v1",
         },
+        "archive_resource": archive_resource_contract,
         "launch_invocation": _launch_invocation_contract(),
         "ready_proof": {
             **dict(READY_PROOF_CONTRACT),
@@ -817,6 +807,71 @@ def assemble_task1_resolution_instrument(
         contract_manifest=MappingProxyType(manifest),
         instrument_fingerprint=PLANNER_SUPPORT.fingerprint(manifest),
     )
+
+
+def _resolution_archive_resource_contract(
+    reviewed_commit_sha: str,
+) -> tuple[
+    ARCHIVE_EVIDENCE.VerifiedResolutionArchiveResourceProfile,
+    dict[str, object],
+]:
+    raw = ARCHIVE_EVIDENCE_PROFILE_PATH.read_bytes()
+    profile = ARCHIVE_EVIDENCE.admit_resolution_archive_resource_profile(raw)
+    value = ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(profile)
+    members = value["members"]
+    constants = value["constants"]
+    serializer = value["serializer"]
+    formula_ids = value["formula_ids"]
+    artifacts_source_sha256 = _sha256(Path(__file__).read_bytes())
+
+    def artifact_symbol_fingerprint(symbol: str) -> str:
+        return PLANNER_SUPPORT.fingerprint(
+            {
+                "module_source_sha256": artifacts_source_sha256,
+                "symbol": symbol,
+            }
+        )
+
+    return profile, {
+        "schema": "rook.lm9b_p.governed_resolution_archive_resource_binding:v1",
+        "profile_schema_id": value["schema"],
+        "profile_id": value["profile_id"],
+        "checkpoint_schema_id": value["checkpoint_schema_id"],
+        "profile_raw_sha256": _sha256(raw),
+        "profile_fingerprint": value["profile_fingerprint"],
+        "member_map_fingerprint": PLANNER_SUPPORT.fingerprint(members),
+        "formula_constants_fingerprint": PLANNER_SUPPORT.fingerprint(
+            {
+                "formula_ids": formula_ids,
+                "constants": constants,
+                "serializer": serializer,
+            }
+        ),
+        "helper_source_fingerprint": _sha256(
+            Path(ARCHIVE_EVIDENCE.__file__).read_bytes()
+        ),
+        "evaluator_projection_contract_fingerprint": PLANNER_SUPPORT.fingerprint(
+            {
+                "report_schema": PLANNER_SUPPORT.PLANNER_EVALUATION_REPORT_SCHEMA,
+                "report_parser": _callable_source_fingerprint(
+                    PLANNER_SUPPORT.derive_planner_evaluation_result
+                ),
+                "max_completion_tokens": (
+                    PLANNER_SUPPORT.PLANNER_EVALUATOR_MAX_COMPLETION_TOKENS
+                ),
+            }
+        ),
+        "writer_source_fingerprint": artifact_symbol_fingerprint(
+            "seal_resolution_checkpoint"
+        ),
+        "public_verifier_source_fingerprint": artifact_symbol_fingerprint(
+            "verify_sealed_resolution_checkpoint"
+        ),
+        "checkpoint_reconstruction_source_fingerprint": (
+            artifact_symbol_fingerprint("_verify_resolution_checkpoint_archive")
+        ),
+        "reviewed_commit_sha": reviewed_commit_sha,
+    }
 
 
 def _verify_historical_carrier_qualification_compatibility_unsealed(
@@ -2675,6 +2730,41 @@ def _object_bytes(raw: bytes, label: str) -> dict[str, object]:
     return value
 
 
+def _verified_resolution_archive_profile(
+    preflight: VerifiedResolutionPreflight,
+) -> ARCHIVE_EVIDENCE.VerifiedResolutionArchiveResourceProfile:
+    if type(preflight) is not VerifiedResolutionPreflight:
+        raise TypeError("checkpoint verification requires a verified preflight")
+    profile, expected = _resolution_archive_resource_contract(
+        preflight.instrument.inputs.reviewed_commit_sha
+    )
+    archived = preflight.record.get("instrument_contracts", {}).get(
+        "archive_resource"
+    )
+    if archived != expected:
+        raise ValueError("resolution archive resource instrument differs")
+    return profile
+
+
+def _resolution_archive_object_bytes(
+    raw: bytes,
+    *,
+    path: str,
+    label: str,
+    profile: object,
+    call_shape: object | None = None,
+) -> dict[str, object]:
+    value = ARCHIVE_EVIDENCE.parse_resolution_archive_member(
+        raw,
+        path=path,
+        profile=profile,
+        call_shape=call_shape,
+    )
+    if type(value) is not dict:
+        raise ValueError(f"{label} must be an object")
+    return value
+
+
 def _load_current_resolution_sources(
     expected_reviewed_commit: object,
 ) -> VerifiedResolutionSources:
@@ -3498,12 +3588,24 @@ def _verify_resolution_checkpoint_archive(
     enforce_public_location: bool,
     verified_preflight: VerifiedResolutionPreflight,
 ) -> SealedResolutionCheckpoint:
+    preflight = verified_preflight
+    profile = _verified_resolution_archive_profile(preflight)
     archive, physical_snapshot = _read_flat_archive_snapshot(archive_dir)
     files = set(physical_snapshot)
     if "record.json" not in files or "boundary.json" not in files:
         raise ValueError("resolution checkpoint root members are absent")
-    record = _object_bytes(physical_snapshot["record.json"], "checkpoint record")
-    boundary = _object_bytes(physical_snapshot["boundary.json"], "boundary")
+    record = _resolution_archive_object_bytes(
+        physical_snapshot["record.json"],
+        path="record.json",
+        label="checkpoint record",
+        profile=profile,
+    )
+    boundary = _resolution_archive_object_bytes(
+        physical_snapshot["boundary.json"],
+        path="boundary.json",
+        label="boundary",
+        profile=profile,
+    )
     expected_members = resolution_archive_member_paths(
         candidate_present=boundary.get("candidate_present"),
         isolation_evaluated=boundary.get("isolation_evaluated"),
@@ -3520,8 +3622,11 @@ def _verify_resolution_checkpoint_archive(
         relative: physical_snapshot[relative]
         for relative in sorted(expected_members - {"checksums.json"})
     }
-    checksums = _object_bytes(
-        physical_snapshot["checksums.json"], "checkpoint checksums"
+    checksums = _resolution_archive_object_bytes(
+        physical_snapshot["checksums.json"],
+        path="checksums.json",
+        label="checkpoint checksums",
+        profile=profile,
     )
     if checksums != _checksums(
         "rook.lm9b_p.governed_resolution_checkpoint_checksums:v1", raw_members
@@ -3546,10 +3651,12 @@ def _verify_resolution_checkpoint_archive(
         or record.get("state") != "sealed"
     ):
         raise ValueError("resolution checkpoint identity differs")
-    instrument_row = _object_bytes(raw_members["instrument.json"], "instrument")
-    if type(verified_preflight) is not VerifiedResolutionPreflight:
-        raise TypeError("checkpoint verification requires a verified preflight")
-    preflight = verified_preflight
+    instrument_row = _resolution_archive_object_bytes(
+        raw_members["instrument.json"],
+        path="instrument.json",
+        label="instrument",
+        profile=profile,
+    )
     if instrument_row != _resolution_instrument_record(preflight):
         raise ValueError("checkpoint instrument differs from independent preflight")
     inputs = preflight.instrument.inputs
@@ -3569,9 +3676,19 @@ def _verify_resolution_checkpoint_archive(
         "correspondence.json": _resolution_correspondence_record(inputs),
     }
     for relative, expected in expected_roots.items():
-        if _object_bytes(raw_members[relative], relative) != expected:
+        if _resolution_archive_object_bytes(
+            raw_members[relative],
+            path=relative,
+            label=relative,
+            profile=profile,
+        ) != expected:
             raise ValueError(f"resolution checkpoint {relative} provenance differs")
-    readiness = _object_bytes(raw_members["readiness.json"], "readiness")
+    readiness = _resolution_archive_object_bytes(
+        raw_members["readiness.json"],
+        path="readiness.json",
+        label="readiness",
+        profile=profile,
+    )
     if set(readiness) != {
         "schema",
         "record",
@@ -3603,7 +3720,12 @@ def _verify_resolution_checkpoint_archive(
     )
     if not decision.ok:
         raise ValueError("archived readiness does not verify")
-    launch = _object_bytes(raw_members["launch.json"], "launch")
+    launch = _resolution_archive_object_bytes(
+        raw_members["launch.json"],
+        path="launch.json",
+        label="launch",
+        profile=profile,
+    )
     expected_invocation = build_resolution_invocation_binding(
         supplied_preflight_fingerprint=preflight.preflight_fingerprint,
         transmit=True,
@@ -3624,11 +3746,10 @@ def _verify_resolution_checkpoint_archive(
         "non_claim": "does not authenticate human authorization",
     }:
         raise ValueError("archived launch record differs")
-    ledger = _object_bytes(raw_members["call-ledger.json"], "call ledger")
-    if set(ledger) != {"schema", "calls"} or ledger.get("schema") != (
-        "rook.lm9b_p.governed_resolution_call_ledger:v1"
-    ) or type(ledger.get("calls")) is not list:
-        raise ValueError("archived call ledger shape differs")
+    ledger, call_shape = ARCHIVE_EVIDENCE.parse_resolution_call_ledger(
+        raw_members["call-ledger.json"],
+        profile=profile,
+    )
     call_ledger = tuple(ledger["calls"])
     if any(
         type(row) is not dict or set(row) != _CALL_LEDGER_FIELDS
@@ -3636,6 +3757,12 @@ def _verify_resolution_checkpoint_archive(
     ):
         raise ValueError("archived call ledger rows are not closed")
     candidate_raw = raw_members.get("candidate-recipe.json")
+    if candidate_raw is not None:
+        ARCHIVE_EVIDENCE.parse_resolution_archive_member(
+            candidate_raw,
+            path="candidate-recipe.json",
+            profile=profile,
+        )
     (
         planner_session,
         checkpoint_gate,
@@ -3659,24 +3786,42 @@ def _verify_resolution_checkpoint_archive(
         derived_stop_cause=stop_cause,
     )
     planner_calls = [row for row in call_ledger if row["role"] == "planner"]
-    if _object_bytes(raw_members["planner-session.json"], "planner") != (
+    if _resolution_archive_object_bytes(
+        raw_members["planner-session.json"],
+        path="planner-session.json",
+        label="planner",
+        profile=profile,
+        call_shape=call_shape,
+    ) != (
         _planner_session_record(planner_session, planner_calls)
     ):
         raise ValueError("archived Planner result differs from call evidence")
     if candidate_raw is not None:
-        if _object_bytes(raw_members["checkpoint-gate.json"], "gate") != _gate_record(
-            checkpoint_gate
-        ):
+        if _resolution_archive_object_bytes(
+            raw_members["checkpoint-gate.json"],
+            path="checkpoint-gate.json",
+            label="gate",
+            profile=profile,
+        ) != _gate_record(checkpoint_gate):
             raise ValueError("archived mechanical gate differs")
-        if _object_bytes(raw_members["isolation.json"], "isolation") != _isolation_record(
-            isolation
-        ):
+        if _resolution_archive_object_bytes(
+            raw_members["isolation.json"],
+            path="isolation.json",
+            label="isolation",
+            profile=profile,
+        ) != _isolation_record(isolation):
             raise ValueError("archived isolation result differs")
     if evaluator is not None:
         evaluator_row = [
             row for row in call_ledger if row["role"] == "planner_evaluator"
         ][0]
-        if _object_bytes(raw_members["evaluator.json"], "evaluator") != (
+        if _resolution_archive_object_bytes(
+            raw_members["evaluator.json"],
+            path="evaluator.json",
+            label="evaluator",
+            profile=profile,
+            call_shape=call_shape,
+        ) != (
             _evaluator_record_from_ledger(evaluator_row, evaluator)
         ):
             raise ValueError("archived evaluator result differs")
@@ -3686,7 +3831,12 @@ def _verify_resolution_checkpoint_archive(
         candidate_recipe_bytes=candidate_raw,
     )
     if (
-        _object_bytes(raw_members["classification.json"], "classification")
+        _resolution_archive_object_bytes(
+            raw_members["classification.json"],
+            path="classification.json",
+            label="classification",
+            profile=profile,
+        )
         != classification_record
         or record.get("classification") != classification
         or record.get("derived_stop_cause") != stop_cause

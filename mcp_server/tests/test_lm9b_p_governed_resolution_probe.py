@@ -157,6 +157,7 @@ def _planner_turn(
     call_id: str,
     total_tokens: int = 50,
     cost_usd: float = 0.001,
+    content_padding_chars: int = 0,
 ) -> object:
     recipe_text = recipe_bytes.decode("utf-8", errors="strict")
     arguments = json.dumps(
@@ -166,7 +167,7 @@ def _planner_turn(
     )
     assistant_message = {
         "role": "assistant",
-        "content": None,
+        "content": "x" * content_padding_chars if content_padding_chars else None,
         "tool_calls": [
             {
                 "id": call_id,
@@ -878,6 +879,115 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
                 preflight_archive=preflight.archive_dir,
                 expected_preflight_fingerprint=preflight.preflight_fingerprint,
             )
+
+
+def test_archive_profile_six_turn_vertical_seals_and_publicly_reconstructs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    inputs = preflight.instrument.inputs
+    candidate = json.loads(ISOLATED_SUCCESSOR_RECIPE.read_bytes())
+    postcondition_refs = candidate["maintains"][0]["postconditions"][0][
+        "source_refs"
+    ]
+    postcondition_refs.extend(
+        [
+            {
+                "kind": "artifact_value",
+                "artifact_id": "task_envelope",
+                "json_pointer": "/facts/maximum_height",
+            },
+            {
+                "kind": "artifact_value",
+                "artifact_id": "task_envelope",
+                "json_pointer": "/facts/minimum_height",
+            },
+        ]
+    )
+    postcondition_refs.sort(key=lambda row: row["json_pointer"])
+    candidate_raw = _reclose_recipe(candidate, inputs)
+
+    padding_chars = 96 * 1024
+    assert padding_chars * sum(range(1, 6)) > PLANNER_SUPPORT.MAX_RECIPE_BYTES
+    planner = _FakeProvider(
+        [
+            _planner_turn(
+                recipe_bytes=b"{}",
+                call_id=f"planner-{turn}",
+                content_padding_chars=padding_chars,
+            )
+            for turn in range(1, 6)
+        ]
+        + [
+            _planner_turn(
+                recipe_bytes=candidate_raw,
+                call_id="planner-6",
+                content_padding_chars=padding_chars,
+            )
+        ],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider([], staging_path=preflight.attempt.staging_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+
+    if result.state != "sealed":
+        assert result.state == "post_dispatch_unsealed"
+        assert result.classification is None
+        assert result.sealed_checkpoint is None
+        assert len(planner.requests) == 6
+        assert not evaluator.requests
+        assert not preflight.attempt.destination.exists()
+        archive_candidate = preflight.attempt.staging_path / ".archive-candidate"
+        assert len((archive_candidate / "call-ledger.json").read_bytes()) > (
+            PLANNER_SUPPORT.MAX_RECIPE_BYTES
+        )
+        assert len((archive_candidate / "planner-session.json").read_bytes()) > (
+            PLANNER_SUPPORT.MAX_RECIPE_BYTES
+        )
+        marker = PLANNER_SUPPORT.parse_archive_json(
+            (
+                preflight.attempt.staging_path / "post_dispatch_unsealed.json"
+            ).read_bytes()
+        )
+        assert marker["failure_locus"] == (
+            "checkpoint_seal_failure:StrictJsonError"
+        )
+        pytest.fail("archive evidence profile must seal the bounded six-turn witness")
+
+    assert result.classification == "probe_resolution_isolation_failure"
+    assert result.sealed_checkpoint is not None
+    archive = result.sealed_checkpoint.archive_dir
+    assert len((archive / "call-ledger.json").read_bytes()) > (
+        PLANNER_SUPPORT.MAX_RECIPE_BYTES
+    )
+    assert len((archive / "planner-session.json").read_bytes()) > (
+        PLANNER_SUPPORT.MAX_RECIPE_BYTES
+    )
+    verified = RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+        archive,
+        expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
+    )
+    assert verified.classification == "probe_resolution_isolation_failure"
 
 
 @pytest.mark.parametrize(

@@ -9,4 +9,7 @@ scripts/lm9_typed_fact_carrier_fixtures/*.json text eol=lf
 scripts/lm9b_p_governed_resolution_contracts/*.json text eol=lf
 scripts/lm9b_p_governed_resolution_fixtures/*.json text eol=lf
 scripts/lm9b_p_governed_resolution_probe.py text eol=lf
+scripts/lm9b_p_governed_resolution_artifacts.py text eol=lf
 scripts/lm9b_c_compiler_sufficiency_probe.py text eol=lf
+scripts/lm9b_p_governed_resolution_archive_evidence.py text eol=lf
+scripts/lm9b_p_governed_resolution_forensics.py text eol=lf
