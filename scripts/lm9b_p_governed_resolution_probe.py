@@ -3,14 +3,17 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
 import base64
 import json
+import os
+import subprocess
 import sys
 import threading
 import time
 import weakref
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -1116,4 +1119,201 @@ def _canonical_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
-__all__ = ("ResolutionAttemptResult", "run_resolution_attempt")
+def _current_head_sha() -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ARTIFACTS._REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _preflight_payload(
+    preflight: ARTIFACTS.VerifiedResolutionPreflight,
+) -> dict[str, object]:
+    return {
+        "archive_dir": str(preflight.archive_dir),
+        "preflight_fingerprint": preflight.preflight_fingerprint,
+        "instrument_fingerprint": preflight.instrument_fingerprint,
+        "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
+        "reviewed_commit_sha": preflight.record["reviewed_commit_sha"],
+        "eligibility": "development_non_operational",
+        "execution_permitted": False,
+    }
+
+
+def _readiness_manifest() -> READINESS.RouteManifest:
+    return READINESS.derive_routes(
+        READINESS.role_routes_from_models(
+            {"planner": "gpt-5.4", "planner_evaluator": "gpt-5.4"}
+        ),
+        lambda _model: "OPENAI_API_KEY",
+    )
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="LM9B-P governed-resolution checkpoint instrument"
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    preflight = commands.add_parser(
+        "preflight", help="emit a no-contact governed-resolution preflight"
+    )
+    preflight.add_argument("--historical-source", type=Path, required=True)
+    preflight.add_argument("--derivative-archive", type=Path, required=True)
+    preflight.add_argument("--derivative-identity", required=True)
+    preflight.add_argument("--carrier-qualification", type=Path, required=True)
+    preflight.add_argument("--carrier-qualification-identity", required=True)
+    preflight.add_argument("--attempt-id", required=True)
+    preflight.add_argument("--resolution-root", type=Path, required=True)
+    preflight.add_argument("--destination", type=Path, required=True)
+    preflight.add_argument("--output", type=Path, required=True)
+
+    verify_preflight = commands.add_parser(
+        "verify-preflight", help="verify a closed resolution preflight"
+    )
+    verify_preflight.add_argument("--archive", type=Path, required=True)
+    verify_preflight.add_argument("--expected-fingerprint", required=True)
+
+    execute = commands.add_parser(
+        "run", help="run one explicitly authorized bounded resolution attempt"
+    )
+    execute.add_argument("--preflight-archive", type=Path, required=True)
+    execute.add_argument("--expected-preflight-fingerprint", required=True)
+    execute.add_argument("--readiness-record", type=Path, required=True)
+    execute.add_argument("--attempt-id", required=True)
+    execute.add_argument("--attempt-fingerprint", required=True)
+    execute.add_argument("--now-iso", required=True)
+    execute.add_argument("--transmit", action="store_true")
+
+    verify_checkpoint = commands.add_parser(
+        "verify-checkpoint", help="verify one sealed resolution checkpoint"
+    )
+    verify_checkpoint.add_argument("--archive", type=Path, required=True)
+    verify_checkpoint.add_argument("--expected-identity", required=True)
+    verify_checkpoint.add_argument("--preflight-archive", type=Path, required=True)
+    verify_checkpoint.add_argument("--expected-preflight-fingerprint", required=True)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    if args.command == "preflight":
+        reviewed_commit_sha = _current_head_sha()
+        ARTIFACTS.require_clean_reviewed_checkout(
+            ARTIFACTS._REPO_ROOT, reviewed_commit_sha
+        )
+        sources = ARTIFACTS.load_verified_resolution_sources(
+            historical_source_dir=args.historical_source,
+            derivative_archive=args.derivative_archive,
+            derivative_identity=args.derivative_identity,
+            carrier_qualification_archive=args.carrier_qualification,
+            carrier_qualification_identity=args.carrier_qualification_identity,
+            repo_root=ARTIFACTS._REPO_ROOT,
+            successor_envelope_path=ARTIFACTS.SUCCESSOR_ENVELOPE_PATH,
+        )
+        instrument = ARTIFACTS.assemble_resolution_instrument(
+            sources=sources,
+            isolation_policy_path=ARTIFACTS.ISOLATION_POLICY_PATH,
+            evaluation_rubric_path=ARTIFACTS.EVALUATION_RUBRIC_PATH,
+        )
+        attempt = ARTIFACTS.bind_resolution_attempt(
+            instrument=instrument,
+            attempt_id=args.attempt_id,
+            resolution_root=args.resolution_root,
+            destination=args.destination,
+        )
+        verified = ARTIFACTS.write_resolution_preflight(
+            destination=args.output,
+            instrument=instrument,
+            attempt_binding=attempt,
+        )
+        payload = _preflight_payload(verified)
+    elif args.command == "verify-preflight":
+        verified = ARTIFACTS.verify_resolution_preflight(
+            args.archive,
+            expected_fingerprint=args.expected_fingerprint,
+        )
+        payload = _preflight_payload(verified)
+    elif args.command == "run":
+        if args.transmit is not True:
+            raise ValueError("resolution run requires explicit --transmit")
+        preflight = ARTIFACTS.verify_resolution_preflight(
+            args.preflight_archive,
+            expected_fingerprint=args.expected_preflight_fingerprint,
+        )
+        if (
+            args.attempt_id != preflight.attempt.attempt_id
+            or args.attempt_fingerprint != preflight.attempt.attempt_fingerprint
+        ):
+            raise ValueError("resolution run attempt identity differs from preflight")
+        readiness_record = PLANNER_SUPPORT.parse_archive_json(
+            args.readiness_record.read_bytes()
+        )
+        if type(readiness_record) is not dict:
+            raise TypeError("readiness record must be a JSON object")
+        manifest = _readiness_manifest()
+        invocation = ARTIFACTS.build_resolution_invocation_binding(
+            supplied_preflight_fingerprint=preflight.preflight_fingerprint,
+            transmit=True,
+            reviewed_commit_sha=preflight.record["reviewed_commit_sha"],
+            readiness_identity=readiness_record.get("record_fingerprint"),
+            attempt_id=preflight.attempt.attempt_id,
+            attempt_fingerprint=preflight.attempt.attempt_fingerprint,
+        )
+        credential_present = {
+            route.route_fingerprint: any(
+                bool(os.environ.get(name)) for name in route.credential_source
+            )
+            for route in manifest.routes
+        }
+        result = run_resolution_attempt(
+            preflight=preflight,
+            invocation_binding=invocation,
+            readiness_record=readiness_record,
+            readiness_manifest=manifest,
+            head_sha=_current_head_sha(),
+            now_iso=args.now_iso,
+            credential_present=credential_present,
+        )
+        payload = {
+            "state": result.state,
+            "classification": result.classification,
+            "checkpoint_identity": (
+                result.sealed_checkpoint.checkpoint_identity
+                if result.sealed_checkpoint is not None
+                else None
+            ),
+            "checkpoint_archive": (
+                str(result.sealed_checkpoint.archive_dir)
+                if result.sealed_checkpoint is not None
+                else None
+            ),
+            "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
+        }
+    elif args.command == "verify-checkpoint":
+        checkpoint = ARTIFACTS.verify_sealed_resolution_checkpoint(
+            args.archive,
+            expected_identity=args.expected_identity,
+            preflight_archive=args.preflight_archive,
+            expected_preflight_fingerprint=args.expected_preflight_fingerprint,
+        )
+        payload = {
+            "state": checkpoint.state,
+            "classification": checkpoint.classification,
+            "checkpoint_identity": checkpoint.checkpoint_identity,
+            "archive_dir": str(checkpoint.archive_dir),
+        }
+    else:  # pragma: no cover - argparse closes this vocabulary.
+        raise AssertionError(f"unsupported command: {args.command}")
+    print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+__all__ = ("ResolutionAttemptResult", "main", "run_resolution_attempt")

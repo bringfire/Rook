@@ -1661,7 +1661,7 @@ Do not begin Task 6 until Task 5A receives independent approval.
 - Consumes: completed instrument from Tasks 1–5A.
 - Produces: no-contact `preflight`/`verify-preflight` CLI, full structural isolation proof, reviewed feature-HEAD development preflight, and implementation handoff.
 
-- [ ] **Step 1: Implement the closed CLI**
+- [x] **Step 1: Implement the closed CLI**
 
 Expose only:
 
@@ -1681,7 +1681,7 @@ destination.
 Implementation tests invoke only no-contact commands and fake-provider direct
 functions. Do not invoke operational `run` with real adapters.
 
-- [ ] **Step 2: Add structural compiler-isolation tests**
+- [x] **Step 2: Add structural compiler-isolation tests**
 
 Patch actual compiler-specific entry points to raise:
 
@@ -1693,7 +1693,7 @@ Prove no call occurs. Parse CLI signatures and archive membership to prove no
 compiler input or evidence path can enter. Historically located generic
 provider adapter imports are allowed.
 
-- [ ] **Step 3: Add source and contract scans**
+- [x] **Step 3: Add source and contract scans**
 
 Run neutral-source radial scan and compiler vocabulary scan:
 
@@ -1713,7 +1713,7 @@ Expected: no production semantic-key matches and no compiler entry/control
 matches. Generic non-executing boundary-fact strings may live only in closed
 archive schema constants and must be asserted by exact test allowlist.
 
-- [ ] **Step 4: Run focused and full regressions**
+- [x] **Step 4: Run focused and full regressions**
 
 Run:
 
@@ -1738,7 +1738,17 @@ git diff --check
 
 Expected: every command exits zero.
 
-- [ ] **Step 5: Reconcile the final implementation ledger**
+Completed feature-HEAD verification before the final commit:
+
+- governed-resolution focused suite: `259 passed`;
+- full `test_lm9b_p_*.py` family: `852 passed`;
+- Python compilation: passed;
+- neutral semantic-key scan: no matches;
+- compiler scan: only the four exact allowlisted
+  `"checkpoint_2": "not_evaluated"` boundary facts;
+- `git diff --check`: passed.
+
+- [x] **Step 5: Reconcile the final implementation ledger**
 
 Change every completed checkbox in Tasks 1–6 from `[ ]` to `[x]`, including
 this reconciliation step and the immediately following final commit step.
@@ -1746,7 +1756,7 @@ There must be no operational unchecked checkbox in the committed plan. Do not
 record fingerprints that do not exist yet and do not change narrative code
 examples.
 
-- [ ] **Step 6: Commit the final feature-HEAD implementation**
+- [x] **Step 6: Commit the final feature-HEAD implementation**
 
 ```powershell
 git add scripts/lm9b_p_governed_resolution_probe.py `

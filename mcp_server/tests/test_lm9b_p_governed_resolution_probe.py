@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import base64
+import argparse
 import json
 import os
 import shutil
@@ -77,6 +78,38 @@ def _canonical_bytes(value: object) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def _task6_preflight_cli_args(tmp_path: Path) -> tuple[list[str], Path, Path]:
+    resolution_root = tmp_path / "resolution-root"
+    resolution_root.mkdir()
+    destination = resolution_root / "task6-cli"
+    preflight_archive = tmp_path / "preflight"
+    return (
+        [
+            "preflight",
+            "--historical-source",
+            str(HISTORICAL_SOURCE),
+            "--derivative-archive",
+            str(DERIVATIVE_ARCHIVE),
+            "--derivative-identity",
+            DERIVATIVE_IDENTITY,
+            "--carrier-qualification",
+            str(CARRIER_QUALIFICATION),
+            "--carrier-qualification-identity",
+            CARRIER_QUALIFICATION_IDENTITY,
+            "--attempt-id",
+            "task6-cli",
+            "--resolution-root",
+            str(resolution_root),
+            "--destination",
+            str(destination),
+            "--output",
+            str(preflight_archive),
+        ],
+        destination,
+        preflight_archive,
+    )
 
 
 def _expected_litellm_request_bytes(
@@ -3154,3 +3187,186 @@ def test_task5_instrument_binds_ready_proof_issuer_and_consumer_sources(
     contract = preflight.record["instrument_contracts"]["ready_proof"]
     assert contract["issuer_source_fingerprint"].startswith("sha256:")
     assert contract["consumer_source_fingerprint"].startswith("sha256:")
+
+
+def test_task6_cli_vocabulary_is_closed() -> None:
+    parser = RESOLUTION_PROBE._parser()
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    assert set(subparsers.choices) == {
+        "preflight",
+        "verify-preflight",
+        "run",
+        "verify-checkpoint",
+    }
+    for command in subparsers.choices.values():
+        option_names = {
+            option
+            for action in command._actions
+            for option in action.option_strings
+        }
+        assert not {
+            "--compiler-provider",
+            "--compiler-evaluator",
+            "--compiler-fixture",
+            "--handoff",
+            "--compiler-run-destination",
+        } & option_names
+    closed_members = {
+        path: role
+        for path, role in RESOLUTION_ARTIFACTS.RESOLUTION_ARCHIVE_MEMBERS.items()
+    }
+    assert all(
+        "compiler" not in path.lower() and "compiler" not in role.lower()
+        for path, role in closed_members.items()
+    )
+    assert all("handoff" not in path.lower() for path in closed_members)
+
+
+def test_task6_cli_preflight_and_verification_are_no_contact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(RESOLUTION_PROBE, "_construct_resolution_role_provider", _boom)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_args: None
+    )
+    monkeypatch.setattr(PLANNER_ARTIFACTS, "build_lm9bc_handoff", _boom)
+    monkeypatch.setattr(RESOLUTION_PROBE.PLANNER_PROBE, "run_joined_probe", _boom)
+    monkeypatch.setattr(COMPILER_PROBE, "run_probe", _boom)
+    arguments, destination, preflight_archive = _task6_preflight_cli_args(tmp_path)
+    head_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    assert RESOLUTION_PROBE.main(arguments) == 0
+    emitted = json.loads(capsys.readouterr().out)
+    assert emitted == {
+        "archive_dir": str(preflight_archive.resolve()),
+        "attempt_fingerprint": emitted["attempt_fingerprint"],
+        "eligibility": "development_non_operational",
+        "execution_permitted": False,
+        "instrument_fingerprint": emitted["instrument_fingerprint"],
+        "preflight_fingerprint": emitted["preflight_fingerprint"],
+        "reviewed_commit_sha": emitted["reviewed_commit_sha"],
+    }
+    assert emitted["preflight_fingerprint"].startswith("sha256:")
+    assert emitted["instrument_fingerprint"].startswith("sha256:")
+    assert emitted["attempt_fingerprint"].startswith("sha256:")
+    assert emitted["reviewed_commit_sha"] == head_sha
+    assert preflight_archive.is_dir()
+    assert not destination.exists()
+    assert not (destination.parent / ".task6-cli.staging").exists()
+
+    assert (
+        RESOLUTION_PROBE.main(
+            [
+                "verify-preflight",
+                "--archive",
+                str(preflight_archive),
+                "--expected-fingerprint",
+                emitted["preflight_fingerprint"],
+            ]
+        )
+        == 0
+    )
+    verified = json.loads(capsys.readouterr().out)
+    assert verified == emitted
+
+
+def test_task6_cli_preflight_refuses_dirty_reviewed_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    arguments, _destination, preflight_archive = _task6_preflight_cli_args(tmp_path)
+
+    def refuse_dirty(*_args: object) -> None:
+        raise ValueError("reviewed checkout is dirty")
+
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", refuse_dirty
+    )
+    with pytest.raises(ValueError, match="reviewed checkout is dirty"):
+        RESOLUTION_PROBE.main(arguments)
+    assert not preflight_archive.exists()
+
+
+def test_task6_neutral_sources_have_closed_domain_and_compiler_vocabulary() -> None:
+    sources = {
+        "support": Path(RESOLUTION_SUPPORT.__file__),
+        "artifacts": Path(RESOLUTION_ARTIFACTS.__file__),
+        "probe": Path(RESOLUTION_PROBE.__file__),
+    }
+    raw_sources = {
+        name: path.read_text(encoding="utf-8") for name, path in sources.items()
+    }
+    for token in (
+        "box_footprint",
+        "grid_spacing",
+        "minimum_height",
+        "maximum_height",
+        "radial_box_array",
+    ):
+        assert all(token not in source for source in raw_sources.values())
+
+    forbidden = (
+        "compiler_provider",
+        "compiler_evaluator",
+        "compiler_run_root",
+        "build_lm9bc_handoff",
+    )
+    for token in forbidden:
+        assert all(token not in source for source in raw_sources.values())
+    checkpoint_rows = [
+        (name, line.strip())
+        for name, source in raw_sources.items()
+        for line in source.splitlines()
+        if "checkpoint_2" in line
+    ]
+    assert checkpoint_rows == [
+        ("artifacts", '"checkpoint_2": "not_evaluated",'),
+        ("artifacts", '"checkpoint_2": "not_evaluated",'),
+        ("artifacts", '"checkpoint_2": "not_evaluated",'),
+        ("artifacts", '"checkpoint_2": "not_evaluated",'),
+    ]
+
+
+def test_task6_cli_publicly_verifies_fake_provider_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    assert result.sealed_checkpoint is not None
+
+    assert (
+        RESOLUTION_PROBE.main(
+            [
+                "verify-checkpoint",
+                "--archive",
+                str(result.sealed_checkpoint.archive_dir),
+                "--expected-identity",
+                result.sealed_checkpoint.checkpoint_identity,
+                "--preflight-archive",
+                str(preflight.archive_dir),
+                "--expected-preflight-fingerprint",
+                preflight.preflight_fingerprint,
+            ]
+        )
+        == 0
+    )
+    verified = json.loads(capsys.readouterr().out)
+    assert verified == {
+        "archive_dir": str(result.sealed_checkpoint.archive_dir),
+        "checkpoint_identity": result.sealed_checkpoint.checkpoint_identity,
+        "classification": "probe_candidate_ready",
+        "state": "sealed",
+    }
