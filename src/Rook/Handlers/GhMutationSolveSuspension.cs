@@ -32,8 +32,12 @@ namespace Rook.Handlers
                 if (enabledProperty == null || !enabledProperty.CanWrite)
                     return new GhMutationSolveSuspension(document, null, false, original);
 
-                enabledProperty.SetValue(document, false);
-                return new GhMutationSolveSuspension(document, enabledProperty, true, original);
+                // Once the setter invocation begins, retain restoration ownership:
+                // a target setter can mutate the document and then throw.
+                var suspension = new GhMutationSolveSuspension(document, enabledProperty, true, original);
+                try { enabledProperty.SetValue(document, false); }
+                catch { return suspension; }
+                return suspension;
             }
             catch
             {
@@ -50,19 +54,26 @@ namespace Rook.Handlers
             try
             {
                 _enabledProperty!.SetValue(_document, true);
-                return new GhSolverRestoreResult { Attempted = true, Succeeded = true, ObservedDocumentEnabled = ReadDocumentEnabled() };
+                var observed = ReadDocumentEnabled();
+                if (observed == false)
+                {
+                    return FailedRestore(observed);
+                }
+                return new GhSolverRestoreResult { Attempted = true, Succeeded = true, ObservedDocumentEnabled = observed };
             }
             catch
             {
-                return new GhSolverRestoreResult
-                {
-                    Attempted = true,
-                    Succeeded = false,
-                    FailureCode = GhScheduleFailureCode.StandaloneSolverRestoreFailed,
-                    ObservedDocumentEnabled = ReadDocumentEnabled(),
-                };
+                return FailedRestore(ReadDocumentEnabled());
             }
         }
+
+        private static GhSolverRestoreResult FailedRestore(bool? observed) => new GhSolverRestoreResult
+        {
+            Attempted = true,
+            Succeeded = false,
+            FailureCode = GhScheduleFailureCode.StandaloneSolverRestoreFailed,
+            ObservedDocumentEnabled = observed,
+        };
 
         private bool? ReadDocumentEnabled() => GhSolverState.Inspect(_document).DocumentEnabled;
     }

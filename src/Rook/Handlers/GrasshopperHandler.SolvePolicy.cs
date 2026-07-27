@@ -57,6 +57,8 @@ namespace Rook.Handlers
             {
                 return new GhScheduleResult
                 {
+                    RegistrationKnown = decision.RegistrationKnown,
+                    DocumentRegistered = decision.DocumentRegistered,
                     ScheduleClassification = decision.ScheduleClassification,
                     ScheduleAcceptance = GhScheduleAcceptance.NotAttempted,
                     ScheduleFailureCode = GhScheduleFailureCode.StandaloneSolverRestoreFailed,

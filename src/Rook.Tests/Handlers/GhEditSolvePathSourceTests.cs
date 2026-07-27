@@ -39,22 +39,48 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void ApplyEdit_EmitsOnlyAuthoritativeSnakeCaseScheduleFieldsInBothResponseShapes()
+        public void ApplyEdit_EmitsAuthoritativeSnakeCaseScheduleAndRegistrationEvidenceInEveryShape()
         {
             var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
             var method = ApplyEditSource(source);
 
-            Assert.Equal(3, Count(method, "schedule_classification ="));
-            Assert.Equal(3, Count(method, "schedule_acceptance ="));
-            Assert.Equal(3, Count(method, "schedule_failure_code ="));
-            Assert.Equal(3, Count(method, "solve_scheduled ="));
-            Assert.Equal(3, Count(method, "solve_warnings ="));
+            Assert.Contains("var editSummary = new", method);
+            Assert.Equal(2, Count(method, "schedule_classification ="));
+            Assert.Equal(2, Count(method, "schedule_acceptance ="));
+            Assert.Equal(2, Count(method, "schedule_failure_code ="));
+            Assert.Equal(2, Count(method, "solve_scheduled ="));
+            Assert.Equal(2, Count(method, "solve_warnings ="));
+            Assert.Equal(2, Count(method, "registration_known ="));
+            Assert.Equal(2, Count(method, "document_registered ="));
+            Assert.Contains("registration_known = solveResult.RegistrationKnown", method);
+            Assert.Contains("document_registered = solveResult.DocumentRegistered", method);
             Assert.Contains("solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray()", method);
             Assert.DoesNotContain("scheduleClassification", method);
             Assert.DoesNotContain("scheduleAcceptance", method);
             Assert.DoesNotContain("scheduleFailureCode", method);
             Assert.DoesNotContain("solveScheduled", method);
             Assert.DoesNotContain("rir_repair_source", method);
+        }
+
+        [Fact]
+        public void ApplyEdit_FailedSnapshotRetainsScheduleAndStandaloneRestoreEvidence()
+        {
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
+            var method = ApplyEditSource(source);
+
+            AssertOrder(method,
+                "standaloneRestore = solveSuspension.Restore()",
+                "var solveResult = RequestPostMutationSolve(",
+                "var editSummary = new",
+                "if (snapshotResult.Success && snapshotResult.Data is Dictionary",
+                "else if (snapshotResult.Success)",
+                "var snapshotFailure = snapshotResult.Data",
+                "return snapshotResult");
+            Assert.Contains("snapshot_failure = snapshotFailure", method);
+            Assert.Contains("edit_summary = editSummary", method);
+            Assert.Contains("standalone_restore_attempted = standaloneRestore.Value.Attempted", method);
+            Assert.Contains("standalone_restore_succeeded = standaloneRestore.Value.Succeeded", method);
+            Assert.Contains("observed_document_enabled = standaloneRestore.Value.ObservedDocumentEnabled", method);
         }
 
         [Fact]

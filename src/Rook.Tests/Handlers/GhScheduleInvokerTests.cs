@@ -30,6 +30,18 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Invoke_NegativeDelay_IsRejectedBeforeInvocation()
+        {
+            var document = new ReturningDocument();
+
+            var result = GhScheduleInvoker.Invoke(document, PermittedDecision(), -7);
+
+            Assert.Equal(GhScheduleAcceptance.NotAttempted, result.ScheduleAcceptance);
+            Assert.Equal(GhScheduleFailureCode.SchedulePreconditionRejected, result.ScheduleFailureCode);
+            Assert.Equal(0, document.CallCount);
+        }
+
+        [Fact]
         public void Invoke_ReturningMethod_InvokesExactlyOnceWithPositiveDelay()
         {
             var document = new ReturningDocument();
@@ -83,6 +95,28 @@ namespace Rook.Tests.Handlers
             Assert.Equal(GhScheduleFailureCode.SchedulePreconditionRejected, result.ScheduleFailureCode);
             Assert.Null(result.ExceptionType);
             Assert.False(result.SolveScheduled);
+        }
+
+        [Fact]
+        public void Invoke_CarriesPolicyRegistrationEvidenceIntoResult()
+        {
+            var decision = GhPostMutationSchedulePolicy.Decide(new GhScheduleInputs
+            {
+                SolveRequested = true,
+                RunningAsRhinoInside = true,
+                RegistrationKnown = true,
+                DocumentRegistered = true,
+                GlobalEnableSolutions = true,
+                DocumentEnabled = true,
+            });
+            var result = GhScheduleInvoker.Invoke(new ReturningDocument(), decision, 1);
+            var knownProperty = typeof(GhScheduleResult).GetProperty("RegistrationKnown");
+            var registeredProperty = typeof(GhScheduleResult).GetProperty("DocumentRegistered");
+
+            Assert.NotNull(knownProperty);
+            Assert.NotNull(registeredProperty);
+            Assert.Equal(true, knownProperty!.GetValue(result));
+            Assert.Equal(true, registeredProperty!.GetValue(result));
         }
 
         [Fact]

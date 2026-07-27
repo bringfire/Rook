@@ -38,6 +38,8 @@ namespace Rook.Handlers
 
     internal readonly struct GhScheduleDecision
     {
+        public bool RegistrationKnown { get; init; }
+        public bool? DocumentRegistered { get; init; }
         public GhScheduleClassification ScheduleClassification { get; init; }
         public bool AttemptSchedule { get; init; }
         public bool VerificationDeferred { get; init; }
@@ -48,6 +50,8 @@ namespace Rook.Handlers
 
     internal readonly struct GhScheduleResult
     {
+        public bool RegistrationKnown { get; init; }
+        public bool? DocumentRegistered { get; init; }
         public GhScheduleClassification ScheduleClassification { get; init; }
         public GhScheduleAcceptance ScheduleAcceptance { get; init; }
         public GhScheduleFailureCode? ScheduleFailureCode { get; init; }
@@ -73,40 +77,65 @@ namespace Rook.Handlers
         {
             var solverStateKnown = IsSolverStateKnown(inputs.GlobalEnableSolutions, inputs.DocumentEnabled);
             if (!inputs.SolveRequested)
-                return Decision(GhScheduleClassification.SolveNotRequested, false, false, false, solverStateKnown);
+                return Decision(inputs, GhScheduleClassification.SolveNotRequested, false, false, false, solverStateKnown);
 
             if (inputs.RunningAsRhinoInside)
             {
                 if (!inputs.RegistrationKnown)
-                    return Decision(GhScheduleClassification.RirRegistrationUnknown, false, true, false, solverStateKnown, GhScheduleWarning.RegistrationUnknown);
+                    return Decision(inputs, GhScheduleClassification.RirRegistrationUnknown, false, true, false, solverStateKnown, GhScheduleWarning.RegistrationUnknown);
                 if (!inputs.DocumentRegistered)
-                    return Decision(GhScheduleClassification.RirDocumentUnregistered, false, false, false, solverStateKnown);
+                    return Decision(inputs, GhScheduleClassification.RirDocumentUnregistered, false, false, false, solverStateKnown);
                 if (inputs.GlobalEnableSolutions == false)
-                    return Decision(GhScheduleClassification.GlobalSolverUnavailable, false, true, false, true);
+                    return Decision(inputs, GhScheduleClassification.GlobalSolverUnavailable, false, true, false, true);
                 if (!inputs.GlobalEnableSolutions.HasValue)
-                    return Decision(GhScheduleClassification.GlobalSolverStateUnknown, true, true, false, false, GhScheduleWarning.GlobalSolverStateUnknown);
+                    return Decision(inputs, GhScheduleClassification.GlobalSolverStateUnknown, true, true, false, false, GhScheduleWarning.GlobalSolverStateUnknown);
                 if (inputs.DocumentEnabled == false)
-                    return Decision(GhScheduleClassification.RirMediatedScheduleRequested, true, true, false, true);
+                    return Decision(inputs, GhScheduleClassification.RirMediatedScheduleRequested, true, true, false, true);
                 if (!inputs.DocumentEnabled.HasValue)
-                    return Decision(GhScheduleClassification.RirInstanceSolverStateUnknown, true, true, false, false, GhScheduleWarning.InstanceSolverStateUnknown);
-                return Decision(GhScheduleClassification.AsyncScheduleRequested, true, true, false, true);
+                    return Decision(inputs, GhScheduleClassification.RirInstanceSolverStateUnknown, true, true, false, false, GhScheduleWarning.InstanceSolverStateUnknown);
+                return Decision(inputs, GhScheduleClassification.AsyncScheduleRequested, true, true, false, true);
             }
 
             if (inputs.GlobalEnableSolutions == false)
-                return Decision(GhScheduleClassification.GlobalSolverUnavailable, false, false, false, true);
+                return Decision(inputs, GhScheduleClassification.GlobalSolverUnavailable, false, false, false, true);
             if (inputs.DocumentEnabled == false)
-                return Decision(GhScheduleClassification.DocumentSolverDisabled, false, true, true, true);
+                return Decision(inputs, GhScheduleClassification.DocumentSolverDisabled, false, true, true, true);
             if (inputs.GlobalEnableSolutions == true && inputs.DocumentEnabled == true)
-                return Decision(GhScheduleClassification.AsyncScheduleRequested, true, false, false, true);
-            return Decision(GhScheduleClassification.SolverStateUnknown, true, true, false, false, GhScheduleWarning.GlobalSolverStateUnknown);
+                return Decision(inputs, GhScheduleClassification.AsyncScheduleRequested, true, false, false, true);
+            return Decision(
+                inputs,
+                GhScheduleClassification.SolverStateUnknown,
+                true,
+                true,
+                false,
+                false,
+                StandaloneUnknownWarnings(inputs.GlobalEnableSolutions, inputs.DocumentEnabled));
+        }
+
+        private static GhScheduleWarning[] StandaloneUnknownWarnings(bool? global, bool? document)
+        {
+            if (!global.HasValue && !document.HasValue)
+            {
+                return new[]
+                {
+                    GhScheduleWarning.GlobalSolverStateUnknown,
+                    GhScheduleWarning.InstanceSolverStateUnknown,
+                };
+            }
+            if (!global.HasValue) return new[] { GhScheduleWarning.GlobalSolverStateUnknown };
+            return new[] { GhScheduleWarning.InstanceSolverStateUnknown };
         }
 
         private static bool IsSolverStateKnown(bool? global, bool? document) =>
             global == false || document == false || (global == true && document == true);
 
-        private static GhScheduleDecision Decision(GhScheduleClassification classification, bool attemptSchedule, bool verificationDeferred, bool solverLocked, bool solverStateKnown, params GhScheduleWarning[] warnings) =>
+        private static GhScheduleDecision Decision(GhScheduleInputs inputs, GhScheduleClassification classification, bool attemptSchedule, bool verificationDeferred, bool solverLocked, bool solverStateKnown, params GhScheduleWarning[] warnings) =>
             new GhScheduleDecision
             {
+                RegistrationKnown = inputs.RegistrationKnown,
+                DocumentRegistered = inputs.RegistrationKnown
+                    ? inputs.DocumentRegistered
+                    : (bool?)null,
                 ScheduleClassification = classification,
                 AttemptSchedule = attemptSchedule,
                 VerificationDeferred = verificationDeferred,
