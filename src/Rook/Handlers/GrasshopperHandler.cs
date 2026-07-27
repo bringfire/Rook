@@ -875,9 +875,9 @@ namespace Rook.Handlers
                         return new ApiResponse { Success = false, Data = $"SetSource not available on {typeName}" };
                     }
 
-                    // Safe-solve policy: mark dirty (no sync recompute) + async schedule when enabled.
-                    // NEVER request synchronous expiration here; that re-enters the solver and crashes a locked canvas.
-                    var solveResult = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    // Mark dirty without recompute before restoring metadata. Scheduling
+                    // waits until the restored descriptions have been read back.
+                    ExpirePostMutationDirtyObjects(new[] { obj });
 
                     // Restore saved descriptions — must happen AFTER recompile + ExpireSolution
                     // or they get clobbered back to framework defaults.
@@ -908,8 +908,14 @@ namespace Rook.Handlers
                             skipFirstN: 1); // skip 'out' print stream
                     }
 
-                    // Repaint only — the safe-solve helper already owns scheduling (avoid a second solve).
+                    // Repaint only, then request exactly one asynchronous solve after
+                    // all response-authoritative metadata has been restored.
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
+                    var solveResult = RequestPostMutationSolve(
+                        gh.Document!,
+                        new[] { obj },
+                        requestSolve: true,
+                        expireDirtyObjects: false);
 
                     return new ApiResponse
                     {
@@ -931,6 +937,8 @@ namespace Rook.Handlers
                                 ? GhScheduleWire.ToWire(solveResult.ScheduleFailureCode.Value)
                                 : null,
                             solve_scheduled = solveResult.SolveScheduled,
+                            registration_known = solveResult.RegistrationKnown,
+                            document_registered = solveResult.DocumentRegistered,
                             solver_locked = solveResult.SolverLocked,
                             solver_state_known = solveResult.SolverStateKnown,
                             verification_deferred = solveResult.VerificationDeferred,
@@ -3515,13 +3523,22 @@ namespace Rook.Handlers
                 lifecycleResult.AddWarning(GhDocumentLifecycleWarning.CanvasRefreshFailed);
             }
 
-            var ObjectCount = 0;
+            int? ObjectCount = null;
             try
             {
                 var objectsProp = newDocument.GetType().GetProperty("Objects");
-                var objects = objectsProp?.GetValue(newDocument) as System.Collections.IEnumerable;
-                if (objects != null)
+                if (objectsProp == null)
+                {
+                    lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+                }
+                else if (objectsProp.GetValue(newDocument) is System.Collections.IEnumerable objects)
+                {
                     ObjectCount = objects.Cast<object>().Count();
+                }
+                else
+                {
+                    lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+                }
             }
             catch
             {
@@ -3553,6 +3570,7 @@ namespace Rook.Handlers
                     DocumentRegistered = lifecycleResult.DocumentRegistered,
                     DocumentActive = lifecycleResult.DocumentActive,
                     RegistrationIndex = lifecycleResult.RegistrationIndex,
+                    existingDocumentReused = lifecycleResult.PathAlreadyRegistered,
                     Warnings = lifecycleWarnings,
                 },
             };
@@ -3614,13 +3632,22 @@ namespace Rook.Handlers
                 lifecycleResult.AddWarning(GhDocumentLifecycleWarning.CanvasRefreshFailed);
             }
 
-            var ObjectCount = 0;
+            int? ObjectCount = null;
             try
             {
                 var objectsProp = newDocument.GetType().GetProperty("Objects");
-                var objects = objectsProp?.GetValue(newDocument) as System.Collections.IEnumerable;
-                if (objects != null)
+                if (objectsProp == null)
+                {
+                    lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+                }
+                else if (objectsProp.GetValue(newDocument) is System.Collections.IEnumerable objects)
+                {
                     ObjectCount = objects.Cast<object>().Count();
+                }
+                else
+                {
+                    lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+                }
             }
             catch
             {
@@ -7679,37 +7706,44 @@ namespace Rook.Handlers
                     expireDirtyObjects: false,
                     standaloneRestore: standaloneRestore);
 
+                var editSummary = new
+                {
+                    created, deleted, values_set = valuesSet,
+                    connected, disconnected,
+                    schedule_classification = GhScheduleWire.ToWire(solveResult.ScheduleClassification),
+                    schedule_acceptance = GhScheduleWire.ToWire(solveResult.ScheduleAcceptance),
+                    schedule_failure_code = solveResult.ScheduleFailureCode.HasValue
+                        ? GhScheduleWire.ToWire(solveResult.ScheduleFailureCode.Value)
+                        : null,
+                    solve_scheduled = solveResult.SolveScheduled,
+                    registration_known = solveResult.RegistrationKnown,
+                    document_registered = solveResult.DocumentRegistered,
+                    solver_locked = solveResult.SolverLocked,
+                    solver_state_known = solveResult.SolverStateKnown,
+                    verification_deferred = solveResult.VerificationDeferred,
+                    rir_repair_attempted = false,
+                    rir_repair_held = false,
+                    rir_repair_reason = (string?)null,
+                    solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray(),
+                    standalone_restore_attempted = standaloneRestore.Value.Attempted,
+                    standalone_restore_succeeded = standaloneRestore.Value.Succeeded,
+                    observed_document_enabled = standaloneRestore.Value.ObservedDocumentEnabled,
+                    errors = errors.Count > 0 ? errors : null,
+                    temp_id_map = tempIdMap.Count > 0
+                        ? tempIdMap.ToDictionary(
+                            kv => kv.Key,
+                            kv => _idRegistry.ResolveReverse(kv.Value) ?? kv.Value.ToString())
+                        : null,
+                    instance_guids = tempIdMap.Count > 0
+                        ? tempIdMap.ToDictionary(
+                            kv => kv.Key,
+                            kv => kv.Value.ToString())
+                        : null
+                };
+
                 if (snapshotResult.Success && snapshotResult.Data is Dictionary<string, object?> snapData)
                 {
-                    snapData["edit_summary"] = new
-                    {
-                        created, deleted, values_set = valuesSet,
-                        connected, disconnected,
-                        schedule_classification = GhScheduleWire.ToWire(solveResult.ScheduleClassification),
-                        schedule_acceptance = GhScheduleWire.ToWire(solveResult.ScheduleAcceptance),
-                        schedule_failure_code = solveResult.ScheduleFailureCode.HasValue
-                            ? GhScheduleWire.ToWire(solveResult.ScheduleFailureCode.Value)
-                            : null,
-                        solve_scheduled = solveResult.SolveScheduled,
-                        solver_locked = solveResult.SolverLocked,
-                        solver_state_known = solveResult.SolverStateKnown,
-                        verification_deferred = solveResult.VerificationDeferred,
-                        rir_repair_attempted = false,
-                        rir_repair_held = false,
-                        rir_repair_reason = (string?)null,
-                        solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray(),
-                        errors = errors.Count > 0 ? errors : null,
-                        temp_id_map = tempIdMap.Count > 0
-                            ? tempIdMap.ToDictionary(
-                                kv => kv.Key,
-                                kv => _idRegistry.ResolveReverse(kv.Value) ?? kv.Value.ToString())
-                            : null,
-                        instance_guids = tempIdMap.Count > 0
-                            ? tempIdMap.ToDictionary(
-                                kv => kv.Key,
-                                kv => kv.Value.ToString())
-                            : null
-                    };
+                    snapData["edit_summary"] = editSummary;
                 }
                 else if (snapshotResult.Success)
                 {
@@ -7717,25 +7751,16 @@ namespace Rook.Handlers
                     snapshotResult.Data = new
                     {
                         snapshot = snapshotResult.Data,
-                        edit_summary = new
-                        {
-                            created, deleted, values_set = valuesSet,
-                            connected, disconnected,
-                            schedule_classification = GhScheduleWire.ToWire(solveResult.ScheduleClassification),
-                            schedule_acceptance = GhScheduleWire.ToWire(solveResult.ScheduleAcceptance),
-                            schedule_failure_code = solveResult.ScheduleFailureCode.HasValue
-                                ? GhScheduleWire.ToWire(solveResult.ScheduleFailureCode.Value)
-                                : null,
-                            solve_scheduled = solveResult.SolveScheduled,
-                            solver_locked = solveResult.SolverLocked,
-                            solver_state_known = solveResult.SolverStateKnown,
-                            verification_deferred = solveResult.VerificationDeferred,
-                            rir_repair_attempted = false,
-                            rir_repair_held = false,
-                            rir_repair_reason = (string?)null,
-                            solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray(),
-                            errors = errors.Count > 0 ? errors : null
-                        }
+                        edit_summary = editSummary
+                    };
+                }
+                else
+                {
+                    var snapshotFailure = snapshotResult.Data;
+                    snapshotResult.Data = new
+                    {
+                        snapshot_failure = snapshotFailure,
+                        edit_summary = editSummary,
                     };
                 }
 
@@ -7750,6 +7775,7 @@ namespace Rook.Handlers
                     standaloneRestore.Value.Attempted &&
                     !standaloneRestore.Value.Succeeded)
                 {
+                    var registration = new GhDocumentLifecycle().InspectRegistration(gh.Document!);
                     return new ApiResponse
                     {
                         Success = false,
@@ -7764,6 +7790,10 @@ namespace Rook.Handlers
                             schedule_failure_code = GhScheduleWire.ToWire(
                                 GhScheduleFailureCode.StandaloneSolverRestoreFailed),
                             solve_scheduled = false,
+                            registration_known = registration.Known,
+                            document_registered = registration.Known
+                                ? registration.Registered
+                                : (bool?)null,
                             solve_warnings = new[]
                             {
                                 GhScheduleWire.ToWire(GhScheduleWarning.StandaloneRestoreFailed),

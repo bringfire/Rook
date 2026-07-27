@@ -499,6 +499,133 @@ namespace Rook.Tests.InternalBridge
             Assert.True(result.RollbackIncomplete);
         }
 
+        [Fact]
+        public void CreateNew_RestoreCallbackRegistersCandidate_UsesServerRemovalAndNeverDirectDisposal()
+        {
+            var previous = new FakeDocument("C:/plans/previous.gh");
+            var host = new FakeHost { AddNewSuccess = false, CanvasDocument = previous };
+            var candidate = host.NextCreatedDocument;
+            host.OnRestorePrevious = () => host.Documents.Add(candidate);
+
+            var result = new GhDocumentLifecycle(host).CreateNew();
+
+            Assert.True(result.RollbackAttempted);
+            Assert.Same(previous, host.CanvasDocument);
+            Assert.Contains(candidate, host.Removed);
+            Assert.DoesNotContain(candidate, host.Disposed);
+        }
+
+        [Fact]
+        public void CreateNew_RestoreCallbackRemovesEverRegisteredCandidate_DoesNotDisposeOrRemoveAgain()
+        {
+            var previous = new FakeDocument("C:/plans/previous.gh");
+            var host = new FakeHost { IgnoreCanvasAssignments = true, CanvasDocument = previous };
+            var candidate = host.NextCreatedDocument;
+            host.OnRestorePrevious = () => host.Documents.RemoveAll(item => ReferenceEquals(item, candidate));
+
+            var result = new GhDocumentLifecycle(host).CreateNew();
+
+            Assert.True(result.RollbackAttempted);
+            Assert.Empty(host.Removed);
+            Assert.DoesNotContain(candidate, host.Disposed);
+        }
+
+        [Fact]
+        public void CreateNew_MembershipChangeDuringActivityInspection_IsResnapshottedBeforeCleanup()
+        {
+            var host = new FakeHost { AddNewSuccess = false };
+            var candidate = host.NextCreatedDocument;
+            host.OnActiveInspection = () => host.Documents.Add(candidate);
+
+            new GhDocumentLifecycle(host).CreateNew();
+
+            Assert.Contains(candidate, host.Removed);
+            Assert.DoesNotContain(candidate, host.Disposed);
+        }
+
+        [Fact]
+        public void Open_IndeterminateNoCandidateStillRestoresNonNullPreviousCanvasDocument()
+        {
+            var previous = new FakeDocument("C:/plans/previous.gh");
+            var host = new FakeHost
+            {
+                CanvasDocument = previous,
+                OpenAddsTwoDocuments = true,
+                OpenReturnsNullAfterRegistering = true,
+                OpenLeavesCanvasInactive = true,
+            };
+
+            var result = new GhDocumentLifecycle(host).Open("C:/plans/ambiguous-no-candidate.gh");
+
+            Assert.False(result.Committed);
+            Assert.Null(result.Document);
+            Assert.True(result.RollbackAttempted);
+            Assert.Same(previous, host.CanvasDocument);
+            Assert.Contains("restore_previous_canvas", host.Events);
+        }
+
+        [Fact]
+        public void Open_CanonicalEquivalentPathUsesDocumentServerStringIndexSemantics()
+        {
+            var host = new FakeHost { UseCanonicalPathIndex = true };
+            var existing = new FakeDocument("C:/plans/duplicate.gh");
+            host.Documents.Add(existing);
+            host.DuplicateOpenReturn = existing;
+
+            var result = new GhDocumentLifecycle(host).Open("C:/plans/sub/../duplicate.gh");
+
+            Assert.True(result.Committed);
+            Assert.True(result.PathAlreadyRegistered);
+            Assert.Same(existing, result.Document);
+            Assert.Single(host.Documents);
+        }
+
+        [Fact]
+        public void CreateNew_AddThenThrowReconcilesRegistrationAndRollsBackThroughServer()
+        {
+            var previous = new FakeDocument("C:/plans/previous.gh");
+            var host = new FakeHost { AddThenThrow = true, CanvasDocument = previous };
+            var candidate = host.NextCreatedDocument;
+
+            var result = new GhDocumentLifecycle(host).CreateNew();
+
+            Assert.False(result.Committed);
+            Assert.True(result.RegisteredByThisCall);
+            Assert.Same(previous, host.CanvasDocument);
+            Assert.Contains(candidate, host.Removed);
+            Assert.DoesNotContain(candidate, host.Disposed);
+        }
+
+        [Fact]
+        public void CreateNew_AssignThenThrowReconcilesObservedActivationBeforeRollback()
+        {
+            var previous = new FakeDocument("C:/plans/previous.gh");
+            var host = new FakeHost { AssignThenThrow = true, CanvasDocument = previous };
+            var candidate = host.NextCreatedDocument;
+
+            var result = new GhDocumentLifecycle(host).CreateNew();
+
+            Assert.False(result.Committed);
+            Assert.True(result.ActivationSucceeded);
+            Assert.False(result.DocumentActive);
+            Assert.Same(previous, host.CanvasDocument);
+            Assert.Contains(candidate, host.Removed);
+        }
+
+        [Fact]
+        public void ReflectionHost_SelectsDocumentServerStringIndexOverload()
+        {
+            var selector = typeof(ReflectionGhDocumentLifecycleHost).GetMethod(
+                "FindPathIndexMethod",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(selector);
+            var method = (MethodInfo)selector!.Invoke(null, new object[] { typeof(OverloadedDocumentServer) })!;
+
+            Assert.Equal("IndexOf", method.Name);
+            Assert.Equal(typeof(string), method.GetParameters()[0].ParameterType);
+        }
+
         private sealed class FakeDocument
         {
             internal FakeDocument(string? filePath = null) => FilePath = filePath;
@@ -531,11 +658,16 @@ namespace Rook.Tests.InternalBridge
             internal object? CanvasDocument;
             internal bool AddNewSuccess = true;
             internal bool ThrowOnAddNew;
+            internal bool AddThenThrow;
+            internal bool AssignThenThrow;
             internal int IndexOverride = int.MinValue;
             internal bool ReplaceIndexedCandidate;
             internal bool IgnoreCanvasAssignments;
             internal FakeHostCanvasChange CanvasChange;
             internal Action? OnAddNew;
+            internal Action? OnRestorePrevious;
+            internal Action? OnActiveInspection;
+            internal bool UseCanonicalPathIndex;
             internal bool OpenReturnsNullAfterRegistering;
             internal bool OpenConflict;
             internal bool OpenAddsTwoDocuments;
@@ -590,15 +722,23 @@ namespace Rook.Tests.InternalBridge
 
             public void SetCanvasDocument(object canvas, object? document)
             {
-                Events.Add(_capturedPreviousDocument && ReferenceEquals(document, _previousDocument)
-                    ? "restore_previous_canvas"
-                    : "activate_candidate");
+                var restoringPrevious = _capturedPreviousDocument && ReferenceEquals(document, _previousDocument);
+                Events.Add(restoringPrevious ? "restore_previous_canvas" : "activate_candidate");
                 if (!ReferenceEquals(canvas, CapturedCanvas) || IgnoreCanvasAssignments)
                 {
+                    if (restoringPrevious) OnRestorePrevious?.Invoke();
                     return;
                 }
 
                 CanvasDocument = document;
+                if (restoringPrevious)
+                {
+                    OnRestorePrevious?.Invoke();
+                }
+                else if (AssignThenThrow)
+                {
+                    throw new InvalidOperationException("activation_mutated_then_threw");
+                }
                 if (document is not null && CanvasChange == FakeHostCanvasChange.AfterActivation)
                 {
                     ActiveCanvas = ReplacementCanvas;
@@ -648,6 +788,11 @@ namespace Rook.Tests.InternalBridge
                     {
                         Documents[Documents.Count - 1] = new FakeDocument();
                     }
+                }
+
+                if (AddThenThrow)
+                {
+                    throw new InvalidOperationException("registration_mutated_then_threw");
                 }
 
                 if (CanvasChange == FakeHostCanvasChange.AfterAdd)
@@ -704,10 +849,30 @@ namespace Rook.Tests.InternalBridge
                 return Documents.FindIndex(item => ReferenceEquals(item, document));
             }
 
+            public int IndexOfPath(string path)
+            {
+                return Documents.FindIndex(item =>
+                {
+                    var documentPath = (item as FakeDocument)?.FilePath;
+                    if (!UseCanonicalPathIndex)
+                    {
+                        return string.Equals(documentPath, path, StringComparison.OrdinalIgnoreCase);
+                    }
+
+                    return documentPath is not null && string.Equals(
+                        System.IO.Path.GetFullPath(documentPath),
+                        System.IO.Path.GetFullPath(path),
+                        StringComparison.OrdinalIgnoreCase);
+                });
+            }
+
             public string? GetDocumentFilePath(object document) => (document as FakeDocument)?.FilePath;
 
             public bool? IsActiveOnAnySupportedCanvas(object document, object capturedCanvas)
             {
+                var onActiveInspection = OnActiveInspection;
+                OnActiveInspection = null;
+                onActiveInspection?.Invoke();
                 if (!ActiveCanvasEnumerationKnown)
                 {
                     return null;

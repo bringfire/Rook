@@ -53,10 +53,28 @@ namespace Rook.Tests.Handlers
             Assert.Contains("schedule_failure_code = solveResult.ScheduleFailureCode.HasValue", method);
             Assert.Contains("solve_scheduled = solveResult.SolveScheduled", method);
             Assert.Contains("solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray()", method);
+            Assert.Contains("registration_known = solveResult.RegistrationKnown", method);
+            Assert.Contains("document_registered = solveResult.DocumentRegistered", method);
             Assert.DoesNotContain("scheduleClassification", method);
             Assert.DoesNotContain("scheduleAcceptance", method);
             Assert.DoesNotContain("scheduleFailureCode", method);
             Assert.DoesNotContain("solveScheduled", method);
+        }
+
+        [Fact]
+        public void SetScript_ExpiresThenRestoresMetadataBeforeExactlyOneScheduleInvocation()
+        {
+            var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
+            var method = MethodSource(source, "public ApiResponse SetScript", "private static string? GetParamAccessString");
+
+            AssertOrder(method,
+                "ExpirePostMutationDirtyObjects(new[] { obj })",
+                "ApplyPinDescriptions(",
+                "RefreshCanvas(gh.Canvas!, scheduleSolution: false)",
+                "var solveResult = RequestPostMutationSolve(",
+                "return new ApiResponse");
+            Assert.Contains("expireDirtyObjects: false", method);
+            Assert.Equal(1, Count(method, "RequestPostMutationSolve("));
         }
 
         private static string ProductionSource(string root)
@@ -73,6 +91,25 @@ namespace Rook.Tests.Handlers
             var end = source.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
             Assert.True(end > start);
             return source.Substring(start, end - start);
+        }
+
+        private static int Count(string source, string value)
+        {
+            var count = 0;
+            for (var index = 0; (index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0; index += value.Length)
+                count++;
+            return count;
+        }
+
+        private static void AssertOrder(string source, params string[] markers)
+        {
+            var prior = -1;
+            foreach (var marker in markers)
+            {
+                var index = source.IndexOf(marker, prior + 1, StringComparison.Ordinal);
+                Assert.True(index > prior, $"Expected '{marker}' after index {prior}.");
+                prior = index;
+            }
         }
 
         private static string RepoRoot()

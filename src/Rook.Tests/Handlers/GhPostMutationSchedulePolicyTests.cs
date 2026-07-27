@@ -61,6 +61,58 @@ namespace Rook.Tests.Handlers
             Assert.False(restored.DocumentEnabled!.Value);
         }
 
+        [Theory]
+        [InlineData(null, true, GhScheduleWarning.GlobalSolverStateUnknown)]
+        [InlineData(true, null, GhScheduleWarning.InstanceSolverStateUnknown)]
+        public void Decide_StandaloneUnknownStateWarnsOnlyForTheUnknownFlag(
+            bool? global,
+            bool? document,
+            object expectedWarning)
+        {
+            var decision = GhPostMutationSchedulePolicy.Decide(
+                Input(true, false, true, true, global, document));
+
+            Assert.Equal(GhScheduleClassification.SolverStateUnknown, decision.ScheduleClassification);
+            Assert.Equal(new[] { (GhScheduleWarning)expectedWarning }, decision.Warnings);
+        }
+
+        [Fact]
+        public void Decide_StandaloneBothFlagsUnknownWarnsForBothFlags()
+        {
+            var decision = GhPostMutationSchedulePolicy.Decide(
+                Input(true, false, true, true, null, null));
+
+            Assert.Equal(
+                new[]
+                {
+                    GhScheduleWarning.GlobalSolverStateUnknown,
+                    GhScheduleWarning.InstanceSolverStateUnknown,
+                },
+                decision.Warnings);
+        }
+
+        [Fact]
+        public void Decide_RegistrationEvidenceKeepsUnknownDistinctFromRegistered()
+        {
+            var unknown = GhPostMutationSchedulePolicy.Decide(
+                Input(true, true, false, true, true, true));
+            var registered = GhPostMutationSchedulePolicy.Decide(
+                Input(true, true, true, true, true, true));
+            var unregistered = GhPostMutationSchedulePolicy.Decide(
+                Input(true, true, true, false, true, true));
+            var knownProperty = typeof(GhScheduleDecision).GetProperty("RegistrationKnown");
+            var registeredProperty = typeof(GhScheduleDecision).GetProperty("DocumentRegistered");
+
+            Assert.NotNull(knownProperty);
+            Assert.NotNull(registeredProperty);
+            Assert.Equal(false, knownProperty!.GetValue(unknown));
+            Assert.Null(registeredProperty!.GetValue(unknown));
+            Assert.Equal(true, knownProperty.GetValue(registered));
+            Assert.Equal(true, registeredProperty.GetValue(registered));
+            Assert.Equal(true, knownProperty.GetValue(unregistered));
+            Assert.Equal(false, registeredProperty.GetValue(unregistered));
+        }
+
         private static GhScheduleInputs Input(bool solveRequested, bool rir, bool registrationKnown, bool registered, bool? global, bool? document) =>
             new GhScheduleInputs
             {

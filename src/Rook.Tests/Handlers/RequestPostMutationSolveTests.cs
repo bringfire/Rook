@@ -36,6 +36,8 @@ namespace Rook.Tests.Handlers
             Assert.Contains("!standaloneRestore.Value.Succeeded", source);
             Assert.Contains("ScheduleAcceptance = GhScheduleAcceptance.NotAttempted", source);
             Assert.Contains("ScheduleFailureCode = GhScheduleFailureCode.StandaloneSolverRestoreFailed", source);
+            Assert.Contains("RegistrationKnown = decision.RegistrationKnown", source);
+            Assert.Contains("DocumentRegistered = decision.DocumentRegistered", source);
             AssertOrder(source,
                 "!standaloneRestore.Value.Succeeded",
                 "ScheduleFailureCode = GhScheduleFailureCode.StandaloneSolverRestoreFailed",

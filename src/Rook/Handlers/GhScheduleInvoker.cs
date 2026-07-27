@@ -54,6 +54,8 @@ namespace Rook.Handlers
         private static GhScheduleResult Result(GhScheduleDecision decision, GhScheduleAcceptance acceptance, GhScheduleFailureCode? failureCode, bool verificationDeferred, string? exceptionType, GhScheduleWarning[] warnings) =>
             new GhScheduleResult
             {
+                RegistrationKnown = decision.RegistrationKnown,
+                DocumentRegistered = decision.DocumentRegistered,
                 ScheduleClassification = decision.ScheduleClassification,
                 ScheduleAcceptance = acceptance,
                 ScheduleFailureCode = failureCode,

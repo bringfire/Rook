@@ -17,6 +17,7 @@ namespace Rook.InternalBridge
         bool AddNewDocument(object document);
         object? OpenDocument(string path, bool makeActive);
         int IndexOf(object document);
+        int IndexOfPath(string path);
         string? GetDocumentFilePath(object document);
         bool? IsActiveOnAnySupportedCanvas(object document, object capturedCanvas);
         void RemoveDocument(object document);
@@ -104,6 +105,9 @@ namespace Rook.InternalBridge
         internal bool PathAlreadyRegistered { get; set; }
         internal bool CreatedDocument { get; set; }
         internal bool RegisteredByThisCall { get; set; }
+        internal bool EverRegistered { get; set; }
+        internal bool MutationAttempted { get; set; }
+        internal bool CleanupOwnershipAmbiguous { get; set; }
         internal bool RegistrationSucceeded { get; set; }
         internal int? RegistrationIndex { get; set; }
         internal bool ActivationSucceeded { get; set; }
@@ -180,10 +184,10 @@ namespace Rook.InternalBridge
                 return result;
             }
 
-            var membership = MembershipState.Unknown;
+            IReadOnlyList<object>? before = null;
             try
             {
-                var before = Snapshot(result);
+                before = Snapshot(result);
                 if (before is null)
                 {
                     return result;
@@ -196,11 +200,11 @@ namespace Rook.InternalBridge
 
                 if (operation == GhDocumentLifecycleOperation.New)
                 {
-                    ExecuteNew(result, before, ref membership);
+                    ExecuteNew(result, before);
                 }
                 else
                 {
-                    ExecuteOpen(result, path ?? string.Empty, before, ref membership);
+                    ExecuteOpen(result, path ?? string.Empty, before);
                 }
 
                 return result;
@@ -215,9 +219,9 @@ namespace Rook.InternalBridge
             }
             finally
             {
-                if (!result.Committed && result.Document is not null)
+                if (!result.Committed && (result.Document is not null || result.MutationAttempted))
                 {
-                    Rollback(result, membership);
+                    Rollback(result, before ?? Array.Empty<object>());
                 }
                 else if (!result.Committed)
                 {
@@ -227,7 +231,7 @@ namespace Rook.InternalBridge
             }
         }
 
-        private void ExecuteNew(GhDocumentLifecycleResult result, IReadOnlyList<object> before, ref MembershipState membership)
+        private void ExecuteNew(GhDocumentLifecycleResult result, IReadOnlyList<object> before)
         {
             try
             {
@@ -241,17 +245,23 @@ namespace Rook.InternalBridge
             }
 
             if (!RequireSameCanvas(result)) return;
-            bool addSucceeded;
+            bool addSucceeded = false;
+            bool addThrew = false;
+            result.MutationAttempted = true;
             try { addSucceeded = _host.AddNewDocument(result.Document); }
-            catch { result.Code = GhDocumentLifecycleCode.RegistrationFailed; return; }
-            if (!RequireSameCanvas(result)) return;
+            catch
+            {
+                addThrew = true;
+                result.Code = GhDocumentLifecycleCode.RegistrationFailed;
+            }
+            var sameCanvasAfterAdd = RequireSameCanvas(result);
 
             var registration = InspectRegistration(result.Document);
-            membership = InspectMembership(result.Document);
+            ReconcileOwnership(result, before);
             result.DocumentRegistered = registration.Registered;
             result.RegistrationIndex = registration.Index;
             result.RegistrationSucceeded = addSucceeded && registration.Registered;
-            result.RegisteredByThisCall = membership == MembershipState.Present && !ContainsReference(before, result.Document);
+            if (addThrew || !sameCanvasAfterAdd) return;
             if (!addSucceeded || !registration.Registered)
             {
                 result.Code = addSucceeded && registration.Index.HasValue
@@ -261,30 +271,39 @@ namespace Rook.InternalBridge
             }
 
             if (!RequireSameCanvas(result)) return;
+            bool activationThrew = false;
+            result.MutationAttempted = true;
             try { _host.SetCanvasDocument(result.CapturedCanvas!, result.Document); }
-            catch { result.Code = GhDocumentLifecycleCode.ActivationFailed; return; }
-            if (!RequireSameCanvas(result)) return;
+            catch
+            {
+                activationThrew = true;
+                result.Code = GhDocumentLifecycleCode.ActivationFailed;
+            }
+            var sameCanvasAfterActivation = RequireSameCanvas(result);
 
             result.ActivationSucceeded = IsCapturedCanvasDocument(result, result.Document);
             result.DocumentActive = result.ActivationSucceeded;
+            var postActivationRegistration = InspectRegistration(result.Document);
+            ReconcileOwnership(result, before);
+            result.DocumentRegistered = postActivationRegistration.Registered;
+            result.RegistrationIndex = postActivationRegistration.Index;
+            if (activationThrew || !sameCanvasAfterActivation) return;
             if (!result.ActivationSucceeded)
             {
                 result.Code = GhDocumentLifecycleCode.ActivationFailed;
                 return;
             }
 
-            var finalRegistration = InspectRegistration(result.Document);
-            result.DocumentRegistered = finalRegistration.Registered;
-            result.RegistrationIndex = finalRegistration.Index;
-            result.Committed = finalRegistration.Registered && result.ActivationSucceeded;
+            result.Committed = postActivationRegistration.Registered && result.ActivationSucceeded;
             result.Code = result.Committed ? GhDocumentLifecycleCode.None : GhDocumentLifecycleCode.InconsistentState;
         }
 
-        private void ExecuteOpen(GhDocumentLifecycleResult result, string path, IReadOnlyList<object> before, ref MembershipState membership)
+        private void ExecuteOpen(GhDocumentLifecycleResult result, string path, IReadOnlyList<object> before)
         {
             var existing = FindPathMatch(before, path);
             if (!RequireSameCanvas(result)) return;
             object? returned;
+            result.MutationAttempted = true;
             try { returned = _host.OpenDocument(path, true); }
             catch { result.Code = GhDocumentLifecycleCode.RegistrationFailed; return; }
             result.Document = returned;
@@ -299,19 +318,22 @@ namespace Rook.InternalBridge
                 return;
             }
             var additions = after.Where(document => !ContainsReference(before, document)).ToArray();
+            result.CleanupOwnershipAmbiguous = additions.Length > 1;
             object? active = GetCapturedCanvasDocument(result);
             if (active is null && result.Code != GhDocumentLifecycleCode.None) return;
 
             if (existing is not null)
             {
                 result.Document = existing;
+                ReconcileOwnership(result, before);
                 var existingRegistration = InspectRegistration(existing);
                 result.DocumentRegistered = existingRegistration.Registered;
                 result.RegistrationIndex = existingRegistration.Index;
                 result.RegistrationSucceeded = existingRegistration.Registered;
                 result.ActivationSucceeded = ReferenceEquals(active, existing);
                 result.DocumentActive = result.ActivationSucceeded;
-                if (additions.Length != 0 || !ReferenceEquals(returned, existing) || !existingRegistration.Registered || !result.ActivationSucceeded)
+                if (additions.Length != 0 || !ReferenceEquals(returned, existing) ||
+                    !existingRegistration.Registered || !HasRequestedPath(existing, path) || !result.ActivationSucceeded)
                 {
                     result.Code = GhDocumentLifecycleCode.InconsistentState;
                     return;
@@ -328,9 +350,8 @@ namespace Rook.InternalBridge
             if (candidate is not null && additions.Length == 1)
             {
                 result.CreatedDocument = true;
-                result.RegisteredByThisCall = true;
-                membership = MembershipState.Present;
             }
+            if (candidate is not null) ReconcileOwnership(result, before);
 
             if (candidate is null || additions.Length != 1 || !HasRequestedPath(candidate, path) ||
                 (returned is not null && !ReferenceEquals(returned, candidate)) || !ReferenceEquals(active, candidate))
@@ -370,12 +391,12 @@ namespace Rook.InternalBridge
             result.Code = GhDocumentLifecycleCode.None;
         }
 
-        private void Rollback(GhDocumentLifecycleResult result, MembershipState membership)
+        private void Rollback(GhDocumentLifecycleResult result, IReadOnlyList<object> before)
         {
             result.RollbackAttempted = true;
             var candidate = result.Document;
             var capturedCanvas = result.CapturedCanvas;
-            if (candidate is null || capturedCanvas is null)
+            if (capturedCanvas is null)
             {
                 result.RollbackIncomplete = true;
                 if (result.Code == GhDocumentLifecycleCode.None) result.Code = GhDocumentLifecycleCode.RollbackIncomplete;
@@ -400,35 +421,46 @@ namespace Rook.InternalBridge
             }
             catch { previousRestored = false; }
 
+            if (candidate is null)
+            {
+                result.RollbackIncomplete = true;
+                if (!previousRestored && result.Code == GhDocumentLifecycleCode.None)
+                    result.Code = GhDocumentLifecycleCode.RollbackIncomplete;
+                ObserveFinalState(result);
+                return;
+            }
+
+            var membershipAfterRestore = ReconcileOwnership(result, before);
+
             bool? candidateStillActive;
             try { candidateStillActive = _host.IsActiveOnAnySupportedCanvas(candidate, capturedCanvas); }
             catch { candidateStillActive = null; }
 
-            if (previousRestored && result.RegisteredByThisCall && membership == MembershipState.Present && candidateStillActive == false)
+            // Activity inspection and synchronous callbacks can change server membership.
+            // This snapshot is intentionally the final check immediately before cleanup.
+            var membershipBeforeCleanup = ReconcileOwnership(result, before);
+            var preexisting = ContainsReference(before, candidate);
+
+            if (previousRestored && candidateStillActive == false &&
+                membershipBeforeCleanup != MembershipState.Unknown &&
+                !preexisting && !result.CleanupOwnershipAmbiguous)
             {
                 if (!IsSameCapturedCanvas(result))
                 {
                     result.RollbackIncomplete = true;
                 }
-                else
+                else if (membershipBeforeCleanup == MembershipState.Present && result.RegisteredByThisCall)
                 {
                     try { _host.RemoveDocument(candidate); }
                     catch { result.RollbackIncomplete = true; }
                     var sameCanvasAfterRemoval = IsSameCapturedCanvas(result);
-                    var removal = InspectRegistration(candidate);
-                    if (!sameCanvasAfterRemoval || !removal.Known || removal.Registered)
+                    var membershipAfterRemoval = ReconcileOwnership(result, before);
+                    if (!sameCanvasAfterRemoval || membershipAfterRemoval != MembershipState.Absent)
                     {
                         result.RollbackIncomplete = true;
                     }
                 }
-            }
-            else if (previousRestored && result.CreatedDocument && membership == MembershipState.Absent && candidateStillActive == false)
-            {
-                if (!IsSameCapturedCanvas(result))
-                {
-                    result.RollbackIncomplete = true;
-                }
-                else
+                else if (membershipBeforeCleanup == MembershipState.Absent && result.CreatedDocument && !result.EverRegistered)
                 {
                     try { _host.DisposeDocument(candidate); }
                     catch { result.RollbackIncomplete = true; }
@@ -440,7 +472,8 @@ namespace Rook.InternalBridge
                 result.RollbackIncomplete = true;
             }
 
-            if (!previousRestored || candidateStillActive is null)
+            if (!previousRestored || candidateStillActive is null ||
+                membershipAfterRestore == MembershipState.Unknown || membershipBeforeCleanup == MembershipState.Unknown)
             {
                 result.RollbackIncomplete = true;
             }
@@ -517,17 +550,10 @@ namespace Rook.InternalBridge
             catch { result.DocumentActive = false; }
         }
 
-        private object? FindPathMatch(IEnumerable<object> documents, string path)
+        private object? FindPathMatch(IReadOnlyList<object> documents, string path)
         {
-            foreach (var document in documents)
-            {
-                try
-                {
-                    if (string.Equals(_host.GetDocumentFilePath(document), path, StringComparison.OrdinalIgnoreCase)) return document;
-                }
-                catch { return null; }
-            }
-            return null;
+            var index = _host.IndexOfPath(path);
+            return index >= 0 && index < documents.Count ? documents[index] : null;
         }
 
         private static bool ContainsReference(IEnumerable<object> documents, object document) => documents.Any(item => ReferenceEquals(item, document));
@@ -538,6 +564,21 @@ namespace Rook.InternalBridge
             catch { return MembershipState.Unknown; }
         }
 
+        private MembershipState ReconcileOwnership(
+            GhDocumentLifecycleResult result,
+            IReadOnlyList<object> before)
+        {
+            if (result.Document is null) return MembershipState.Unknown;
+            var membership = InspectMembership(result.Document);
+            if (membership == MembershipState.Present)
+            {
+                result.EverRegistered = true;
+                if (!ContainsReference(before, result.Document))
+                    result.RegisteredByThisCall = true;
+            }
+            return membership;
+        }
+
         private bool IsSameCapturedCanvas(GhDocumentLifecycleResult result)
         {
             try { return result.CapturedCanvas is not null && ReferenceEquals(_host.GetActiveCanvas(), result.CapturedCanvas); }
@@ -546,7 +587,12 @@ namespace Rook.InternalBridge
 
         private bool HasRequestedPath(object document, string path)
         {
-            try { return string.Equals(_host.GetDocumentFilePath(document), path, StringComparison.OrdinalIgnoreCase); }
+            try
+            {
+                var documents = _host.SnapshotDocuments();
+                var index = _host.IndexOfPath(path);
+                return index >= 0 && index < documents.Count && ReferenceEquals(documents[index], document);
+            }
             catch { return false; }
         }
 
@@ -600,6 +646,12 @@ namespace Rook.InternalBridge
             return (int)FindDocumentIndexMethod(server.GetType(), document.GetType()).Invoke(server, new[] { document })!;
         }
 
+        public int IndexOfPath(string path)
+        {
+            var server = GetDocumentServer();
+            return (int)FindPathIndexMethod(server.GetType()).Invoke(server, new object[] { path })!;
+        }
+
         public string? GetDocumentFilePath(object document) => GetRequiredProperty(document.GetType(), "FilePath").GetValue(document) as string;
 
         public bool? IsActiveOnAnySupportedCanvas(object document, object capturedCanvas)
@@ -620,6 +672,10 @@ namespace Rook.InternalBridge
         internal static MethodInfo FindDocumentIndexMethod(Type serverType, Type documentType) =>
             serverType.GetMethod("IndexOf", BindingFlags.Instance | BindingFlags.Public, null, new[] { documentType }, null)
             ?? throw new MissingMethodException(serverType.FullName, "IndexOf(" + documentType.FullName + ")");
+
+        internal static MethodInfo FindPathIndexMethod(Type serverType) =>
+            serverType.GetMethod("IndexOf", BindingFlags.Instance | BindingFlags.Public, null, new[] { typeof(string) }, null)
+            ?? throw new MissingMethodException(serverType.FullName, "IndexOf(System.String)");
 
         private static object GetDocumentServer() => GetInstancesProperty("DocumentServer") ?? throw new InvalidOperationException("grasshopper_document_server_missing");
 

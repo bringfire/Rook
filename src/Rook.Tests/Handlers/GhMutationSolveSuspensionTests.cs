@@ -9,6 +9,7 @@ namespace Rook.Tests.Handlers
         public void Begin_Rir_IsNoOpWithZeroWrites()
         {
             SuspensionDocument.EnableSolutions = true;
+            SuspensionDocument.ResetGlobalWriteCount();
             var document = new SuspensionDocument { Enabled = true };
             document.ResetWriteCount();
 
@@ -17,7 +18,9 @@ namespace Rook.Tests.Handlers
             Assert.False(suspension.Active);
             Assert.True(document.Enabled);
             Assert.Equal(0, document.EnabledSetCount);
+            Assert.Equal(0, SuspensionDocument.GlobalEnableSolutionsSetCount);
             Assert.False(suspension.Restore().Attempted);
+            Assert.Equal(0, SuspensionDocument.GlobalEnableSolutionsSetCount);
         }
 
         [Fact]
@@ -82,9 +85,60 @@ namespace Rook.Tests.Handlers
             Assert.Equal(2, document.EnabledSetCount);
         }
 
+        [Fact]
+        public void Begin_DisableSetterMutatesThenThrows_RetainsOneShotRestorationOwnership()
+        {
+            MutateThenThrowDisableDocument.EnableSolutions = true;
+            var document = new MutateThenThrowDisableDocument { Enabled = true };
+            document.ResetWriteCount();
+            document.ThrowAfterDisabling = true;
+
+            var suspension = GhMutationSolveSuspension.Begin(document, runningAsRhinoInside: false);
+            document.ThrowAfterDisabling = false;
+            var restore = suspension.Restore();
+            var retry = suspension.Restore();
+
+            Assert.True(suspension.Active);
+            Assert.True(restore.Attempted);
+            Assert.True(restore.Succeeded);
+            Assert.True(restore.ObservedDocumentEnabled);
+            Assert.True(document.Enabled);
+            Assert.False(retry.Attempted);
+            Assert.Equal(2, document.EnabledSetCount);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Restore_ReturningSetterThatLeavesObservedFalse_ReportsFailure(bool transientlyEnables)
+        {
+            FalseRestoreDocument.EnableSolutions = true;
+            var document = new FalseRestoreDocument { Enabled = true };
+            document.ResetWriteCount();
+            var suspension = GhMutationSolveSuspension.Begin(document, runningAsRhinoInside: false);
+            document.TransientlyEnableThenRevert = transientlyEnables;
+            document.IgnoreOrRevertEnable = true;
+
+            var restore = suspension.Restore();
+            var retry = suspension.Restore();
+
+            Assert.True(restore.Attempted);
+            Assert.False(restore.Succeeded);
+            Assert.Equal(GhScheduleFailureCode.StandaloneSolverRestoreFailed, restore.FailureCode);
+            Assert.False(restore.ObservedDocumentEnabled);
+            Assert.False(retry.Attempted);
+            Assert.Equal(2, document.EnabledSetCount);
+        }
+
         private sealed class SuspensionDocument
         {
-            public static bool EnableSolutions { get; set; }
+            private static bool _enableSolutions;
+            public static int GlobalEnableSolutionsSetCount { get; private set; }
+            public static bool EnableSolutions
+            {
+                get => _enableSolutions;
+                set { GlobalEnableSolutionsSetCount++; _enableSolutions = value; }
+            }
             private bool _enabled;
             public int EnabledSetCount { get; private set; }
             public bool Enabled
@@ -93,6 +147,7 @@ namespace Rook.Tests.Handlers
                 set { EnabledSetCount++; _enabled = value; }
             }
             public void ResetWriteCount() => EnabledSetCount = 0;
+            public static void ResetGlobalWriteCount() => GlobalEnableSolutionsSetCount = 0;
         }
 
         private sealed class ThrowingRestoreDocument
@@ -115,5 +170,50 @@ namespace Rook.Tests.Handlers
         }
 
         private sealed class UnknownDocument { }
+
+        private sealed class MutateThenThrowDisableDocument
+        {
+            public static bool EnableSolutions { get; set; }
+            private bool _enabled;
+            public int EnabledSetCount { get; private set; }
+            public bool ThrowAfterDisabling { get; set; }
+            public bool Enabled
+            {
+                get => _enabled;
+                set
+                {
+                    EnabledSetCount++;
+                    _enabled = value;
+                    if (!value && ThrowAfterDisabling)
+                        throw new System.InvalidOperationException("disabled then threw");
+                }
+            }
+            public void ResetWriteCount() => EnabledSetCount = 0;
+        }
+
+        private sealed class FalseRestoreDocument
+        {
+            public static bool EnableSolutions { get; set; }
+            private bool _enabled;
+            public int EnabledSetCount { get; private set; }
+            public bool IgnoreOrRevertEnable { get; set; }
+            public bool TransientlyEnableThenRevert { get; set; }
+            public bool Enabled
+            {
+                get => _enabled;
+                set
+                {
+                    EnabledSetCount++;
+                    if (value && IgnoreOrRevertEnable)
+                    {
+                        if (TransientlyEnableThenRevert) _enabled = true;
+                        _enabled = false;
+                        return;
+                    }
+                    _enabled = value;
+                }
+            }
+            public void ResetWriteCount() => EnabledSetCount = 0;
+        }
     }
 }

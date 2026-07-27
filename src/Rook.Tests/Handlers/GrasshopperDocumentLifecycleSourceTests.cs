@@ -112,6 +112,23 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void LifecycleSuccessReportsUnknownObjectCountAndDuplicateReuseTruthfully()
+        {
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
+            var open = MethodSource(source, "public ApiResponse OpenDocument", "public ApiResponse NewDocument");
+            var create = MethodSource(source, "public ApiResponse NewDocument", "public ApiResponse ExploreSelection");
+
+            foreach (var method in new[] { open, create })
+            {
+                Assert.Contains("int? ObjectCount = null", method);
+                Assert.Contains("if (objectsProp == null)", method);
+                Assert.Contains("GhDocumentLifecycleWarning.ObjectCountFailed", method);
+            }
+
+            Assert.Contains("existingDocumentReused = lifecycleResult.PathAlreadyRegistered", open);
+        }
+
+        [Fact]
         public void NativeBridge_RoutesNewAndOpenThroughTheExistingUiBoundary()
         {
             var source = ReadSource("src", "Rook", "InternalBridge", "NativeGhBridgeRegistrar.cs");
@@ -122,6 +139,18 @@ namespace Rook.Tests.Handlers
             Assert.Contains("requestJson => Handler.OpenDocument(requestJson)", open);
             Assert.Contains("ExecuteApiResponseCallback(", create);
             Assert.Contains("_ => Handler.NewDocument()", create);
+        }
+
+        [Fact]
+        public void SupersededSolverRaceSpec_LinksToTheNormativeLifecycleDesign()
+        {
+            var source = ReadSource(
+                "docs", "superpowers", "specs",
+                "2026-06-13-rir-gh-solver-enabled-race-design.md");
+
+            Assert.Contains(
+                "[July 26 Grasshopper document lifecycle design](2026-07-26-rir-grasshopper-document-lifecycle-design.md)",
+                source);
         }
 
         private static string ReadSource(params string[] path) => File.ReadAllText(Path.Combine(RepoRoot(), Path.Combine(path)));
