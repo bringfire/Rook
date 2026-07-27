@@ -48,7 +48,8 @@ namespace Rook.Tests.InternalBridge
             Assert.False(result.Committed);
             Assert.Equal(GhDocumentLifecycleCode.RegistrationFailed, result.Code);
             Assert.True(result.RollbackAttempted);
-            Assert.Contains(candidate, host.Disposed);
+            Assert.Single(host.Disposed);
+            Assert.Same(candidate, host.Disposed[0]);
             Assert.DoesNotContain(candidate, host.Removed);
         }
 
@@ -67,7 +68,7 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
-        public void CreateNew_ServerReferenceMismatchRollsBackRegisteredCandidate()
+        public void CreateNew_ServerReferenceMismatchAfterSuccessfulAddPreservesCandidate()
         {
             var host = new FakeHost { ReplaceIndexedCandidate = true, IndexOverride = 0 };
             var candidate = host.NextCreatedDocument;
@@ -76,8 +77,9 @@ namespace Rook.Tests.InternalBridge
 
             Assert.False(result.Committed);
             Assert.Equal(GhDocumentLifecycleCode.InconsistentState, result.Code);
+            Assert.True(result.RollbackAttempted);
             Assert.DoesNotContain(candidate, host.Removed);
-            Assert.Contains(candidate, host.Disposed);
+            Assert.DoesNotContain(candidate, host.Disposed);
         }
 
         [Fact]
@@ -359,6 +361,68 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void CreateNew_UnknownThenAbsentRollbackMembershipPreservesCandidateAndReportsIncomplete()
+        {
+            var host = new FakeHost { AddNewSuccess = false };
+            host.SnapshotThrowCalls.Add(3);
+            var candidate = host.NextCreatedDocument;
+
+            var result = new GhDocumentLifecycle(host).CreateNew();
+
+            Assert.False(result.Committed);
+            Assert.True(result.RollbackAttempted);
+            Assert.True(result.RollbackIncomplete);
+            Assert.Empty(host.Removed);
+            Assert.Empty(host.Disposed);
+            Assert.DoesNotContain(candidate, host.Documents);
+        }
+
+        [Fact]
+        public void CreateNew_AddRegistersDisposesThenThrows_DoesNotDisposeCandidateAgain()
+        {
+            var host = new FakeHost { RegisterDisposeThenThrowOnAdd = true };
+
+            var result = new GhDocumentLifecycle(host).CreateNew();
+
+            Assert.False(result.Committed);
+            Assert.True(result.RollbackAttempted);
+            Assert.True(result.RollbackIncomplete);
+            Assert.Equal(1, host.ExternalDisposeCalls);
+            Assert.Empty(host.Removed);
+            Assert.Empty(host.Disposed);
+        }
+
+        [Fact]
+        public void CreateNew_SuccessfulAddResultWithoutObservedMembership_NeverDirectlyDisposesCandidate()
+        {
+            var host = new FakeHost { AddSuccessWithoutRegistration = true };
+
+            var result = new GhDocumentLifecycle(host).CreateNew();
+
+            Assert.False(result.Committed);
+            Assert.True(result.RollbackAttempted);
+            Assert.Empty(host.Removed);
+            Assert.Empty(host.Disposed);
+        }
+
+        [Fact]
+        public void Open_PostCallUnknownMembershipPreservesRegisteredCandidate()
+        {
+            var host = new FakeHost();
+            host.SnapshotThrowCalls.Add(2);
+            var candidate = host.OpenCandidate;
+
+            var result = new GhDocumentLifecycle(host).Open("C:/plans/unknown-after-open.gh");
+
+            Assert.False(result.Committed);
+            Assert.True(result.RollbackAttempted);
+            Assert.True(result.RollbackIncomplete);
+            Assert.Empty(host.Removed);
+            Assert.Empty(host.Disposed);
+            Assert.Contains(candidate, host.Documents);
+        }
+
+        [Fact]
         public void Open_DuplicatePathStillCallsServerAndReconcilesThePreexistingReference()
         {
             var host = new FakeHost();
@@ -581,7 +645,7 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
-        public void CreateNew_AddThenThrowReconcilesRegistrationAndRollsBackThroughServer()
+        public void CreateNew_AddThenThrowPreservesRegisteredCandidateBecauseOwnershipIsAmbiguous()
         {
             var previous = new FakeDocument("C:/plans/previous.gh");
             var host = new FakeHost { AddThenThrow = true, CanvasDocument = previous };
@@ -591,8 +655,9 @@ namespace Rook.Tests.InternalBridge
 
             Assert.False(result.Committed);
             Assert.True(result.RegisteredByThisCall);
+            Assert.True(result.RollbackIncomplete);
             Assert.Same(previous, host.CanvasDocument);
-            Assert.Contains(candidate, host.Removed);
+            Assert.DoesNotContain(candidate, host.Removed);
             Assert.DoesNotContain(candidate, host.Disposed);
         }
 
@@ -657,8 +722,10 @@ namespace Rook.Tests.InternalBridge
             internal object? ActiveCanvas;
             internal object? CanvasDocument;
             internal bool AddNewSuccess = true;
+            internal bool AddSuccessWithoutRegistration;
             internal bool ThrowOnAddNew;
             internal bool AddThenThrow;
+            internal bool RegisterDisposeThenThrowOnAdd;
             internal bool AssignThenThrow;
             internal int IndexOverride = int.MinValue;
             internal bool ReplaceIndexedCandidate;
@@ -679,6 +746,9 @@ namespace Rook.Tests.InternalBridge
             internal bool ActiveOnCurrentCanvas;
             internal bool ActiveCanvasEnumerationKnown = true;
             internal bool SnapshotThrowsAfterAdd;
+            internal readonly HashSet<int> SnapshotThrowCalls = new();
+            internal int SnapshotCalls;
+            internal int ExternalDisposeCalls;
             internal object? DuplicateOpenReturn;
             internal bool RemoveLeavesRegistered;
             internal bool CanvasChangesDuringRemove;
@@ -751,6 +821,11 @@ namespace Rook.Tests.InternalBridge
 
             public IReadOnlyList<object> SnapshotDocuments()
             {
+                SnapshotCalls++;
+                if (SnapshotThrowCalls.Contains(SnapshotCalls))
+                {
+                    throw new InvalidOperationException("configured_snapshot_failure");
+                }
                 if (SnapshotThrowsAfterAdd && Documents.Count > 0)
                 {
                     throw new InvalidOperationException("snapshot_after_add_failed");
@@ -772,12 +847,19 @@ namespace Rook.Tests.InternalBridge
             {
                 Events.Add("add_new_with_out_success");
                 OnAddNew?.Invoke();
+                if (RegisterDisposeThenThrowOnAdd)
+                {
+                    Documents.Add(document);
+                    Documents.RemoveAll(item => ReferenceEquals(item, document));
+                    ExternalDisposeCalls++;
+                    throw new InvalidOperationException("registration_disposed_then_threw");
+                }
                 if (ThrowOnAddNew)
                 {
                     throw new InvalidOperationException("add_new_failed");
                 }
 
-                if (AddNewSuccess)
+                if (AddNewSuccess && !AddSuccessWithoutRegistration)
                 {
                     Documents.Add(document);
                     if (CandidateActiveOnReplacement)
