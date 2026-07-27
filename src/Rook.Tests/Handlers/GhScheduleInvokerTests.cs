@@ -71,6 +71,21 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Invoke_MethodResolutionException_IsNotAttemptedWithoutExceptionType()
+        {
+            var result = GhScheduleInvoker.Invoke(
+                new NoScheduleDocument(),
+                PermittedDecision(),
+                1,
+                _ => throw new InvalidOperationException("resolution failed"));
+
+            Assert.Equal(GhScheduleAcceptance.NotAttempted, result.ScheduleAcceptance);
+            Assert.Equal(GhScheduleFailureCode.SchedulePreconditionRejected, result.ScheduleFailureCode);
+            Assert.Null(result.ExceptionType);
+            Assert.False(result.SolveScheduled);
+        }
+
+        [Fact]
         public void Wire_MapsEveryEnumValueAndRejectsUndefinedValues()
         {
             var classifications = new Dictionary<GhScheduleClassification, string>
