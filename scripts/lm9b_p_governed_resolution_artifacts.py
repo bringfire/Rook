@@ -3792,7 +3792,10 @@ def reconcile_resolution_rename(
             try:
                 _remove_verified_runtime(runtime)
                 staging.rmdir()
-            except OSError:
+            except Exception:
+                # Destination verification already established the commit.
+                # Redundant-staging cleanup is strictly best-effort and cannot
+                # downgrade or retract the sealed result.
                 pass
         return sealed
     if finalization_kind == "post_dispatch_unsealed":

@@ -2726,6 +2726,65 @@ def test_task5a_staging_marker_failure_does_not_change_unsealed_state(
     assert not preflight.attempt.destination.exists()
 
 
+def _add_malformed_redundant_runtime(staging: Path) -> None:
+    calls = staging / ".resolution-runtime" / "calls"
+    calls.mkdir(parents=True, exist_ok=False)
+    (calls / "unexpected-directory").mkdir()
+
+
+def test_task5a_verified_destination_dominates_direct_cleanup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight, baseline = _task5_ready_result(monkeypatch, tmp_path)
+    assert baseline.sealed_checkpoint is not None
+    destination_before = _tree_snapshot(preflight.attempt.destination)
+    _add_malformed_redundant_runtime(preflight.attempt.staging_path)
+
+    reconciled = RESOLUTION_ARTIFACTS.reconcile_resolution_rename(
+        staging_dir=preflight.attempt.staging_path,
+        destination=preflight.attempt.destination,
+        expected_identity=baseline.sealed_checkpoint.checkpoint_identity,
+        preflight=preflight,
+    )
+
+    assert type(reconciled) is RESOLUTION_ARTIFACTS.SealedResolutionCheckpoint
+    assert (
+        reconciled.checkpoint_identity
+        == baseline.sealed_checkpoint.checkpoint_identity
+    )
+    assert _tree_snapshot(preflight.attempt.destination) == destination_before
+
+
+def test_task5a_verified_destination_dominates_outer_cleanup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    original_rename = Path.rename
+
+    def rename_then_corrupt_redundant_runtime(
+        source: Path, destination: Path
+    ) -> Path:
+        original_rename(source, destination)
+        calls = source.parent / ".resolution-runtime" / "calls"
+        (calls / "unexpected-directory").mkdir()
+        raise OSError("ambiguous rename after durable commit")
+
+    monkeypatch.setattr(Path, "rename", rename_then_corrupt_redundant_runtime)
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+
+    assert result.state == "sealed"
+    assert result.classification == "probe_candidate_ready"
+    assert result.sealed_checkpoint is not None
+    assert result.finalization_indeterminate is None
+    RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+        preflight.attempt.destination,
+        expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
+    )
+
+
 _FINALIZATION_EXPECTATIONS = {
     ("verified", False, False, False): "SealedResolutionCheckpoint",
     ("verified", True, False, False): "SealedResolutionCheckpoint",

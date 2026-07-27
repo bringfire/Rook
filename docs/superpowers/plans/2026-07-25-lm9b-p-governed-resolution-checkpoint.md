@@ -1213,12 +1213,13 @@ historical identity tokens preserved.
 - Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_artifacts.py`
 - Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_probe.py`
 
-**Interfaces:**
+**Final interfaces after Task 5A:**
 - Consumes: terminal attempt evidence from Task 4.
 - Produces:
-  - `seal_resolution_checkpoint(*, staging_dir, preflight, attempt_result) -> SealedResolutionCheckpoint`
+  - `seal_resolution_checkpoint(*, preflight, invocation_binding, readiness_record, readiness_verified_at, planner_session, evaluator_result, isolation_result, checkpoint_gate, candidate_recipe_bytes, call_ledger, derived_stop_cause, classification) -> SealedResolutionCheckpoint | PostDispatchUnsealed | FinalizationIndeterminate`
   - `retain_post_dispatch_unsealed(*, evidence_dir, preflight, failure_locus) -> PostDispatchUnsealed`
-  - `reconcile_resolution_rename(*, staging_dir, destination, expected_identity) -> SealedResolutionCheckpoint | PostDispatchUnsealed`
+  - `reconcile_resolution_rename(*, staging_dir, destination, expected_identity, preflight) -> SealedResolutionCheckpoint | PostDispatchUnsealed | FinalizationIndeterminate`
+  - `ResolutionAttemptResult.finalization_indeterminate: FinalizationIndeterminate | None`
   - `issue_resolution_ready_proof(sealed_checkpoint, *, preflight_archive, expected_preflight_fingerprint) -> VerifiedResolutionReady`
   - `consume_resolution_ready_proof(proof, *, preflight_archive, expected_preflight_fingerprint) -> VerifiedResolutionReady`
 
