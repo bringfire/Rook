@@ -103,7 +103,75 @@
   - `parse_resolution_archive_member(raw: bytes, *, path: str, profile: object, call_shape: object | None = None) -> object`
   - `resolution_member_ceiling(*, path: str, profile: object, call_shape: object | None = None, preparse: bool) -> int`
 
-- [ ] **Step 1: Add the exact profile contract and import-valid helper surface**
+- [ ] **Step 1: Write the failing six-turn seal/reconstruct witness against the existing instrument**
+
+Add `test_archive_profile_six_turn_vertical_seals_and_publicly_reconstructs`
+to `test_lm9b_p_governed_resolution_probe.py` before creating the profile or
+helper module. Use the real fake readiness verifier, preflight, reservation,
+existing mechanical feedback, and six fake Planner responses. Make turns 1–5
+mechanically rejected. For turn 6, derive a mechanically accepted but
+isolation-rejected candidate from the reviewed isolated fixture by adding only
+the two forbidden `minimum_height` and `maximum_height` postcondition
+references and independently recomputing its recipe fingerprint. Do not add a
+new production fixture or dispatch the evaluator.
+
+Add deterministic valid padding to the fake Planner response evidence. The
+padding size is an explicit test parameter below the planned per-response and
+assistant-projection ceilings; it must make both aggregate candidate members
+larger than `MAX_RECIPE_BYTES` by construction. The test must assert the
+computed padded sizes before executing the attempt rather than relying on the
+retained specimen's incidental size.
+
+Invoke `_run_resolution_attempt()` before inspecting provider call counts.
+The current orchestrator catches the sealing parser failure. Keep one test
+whose failure branch first proves the exact current state, then fails because
+the desired sealed state is unavailable:
+
+```python
+result = _run_resolution_attempt(...)
+if result.state != "sealed":
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    assert result.sealed_checkpoint is None
+    assert planner_provider.call_count == 6
+    assert evaluator_provider.call_count == 0
+    assert not destination.exists()
+
+    candidate = staging / ".archive-candidate"
+    assert len((candidate / "call-ledger.json").read_bytes()) > (
+        PLANNER_SUPPORT.MAX_RECIPE_BYTES
+    )
+    assert len((candidate / "planner-session.json").read_bytes()) > (
+        PLANNER_SUPPORT.MAX_RECIPE_BYTES
+    )
+    marker = PLANNER_SUPPORT.parse_archive_json(
+        (staging / "post_dispatch_unsealed.json").read_bytes()
+    )
+    assert marker["failure_locus"] == "checkpoint_seal_failure:StrictJsonError"
+    pytest.fail("archive evidence profile must seal the bounded six-turn witness")
+
+assert result.classification == "probe_resolution_isolation_failure"
+```
+
+`.resolution-runtime` contains per-call evidence, not the aggregate ledger.
+The aggregate `call-ledger.json` and `planner-session.json` exist only in
+`.archive-candidate` after the seal writer has constructed them.
+
+- [ ] **Step 2: Run and record the exact red state**
+
+Run:
+
+```powershell
+& C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_lm9b_p_governed_resolution_probe.py::test_archive_profile_six_turn_vertical_seals_and_publicly_reconstructs -q
+```
+
+Expected red: the assertions above observe `post_dispatch_unsealed` and
+`checkpoint_seal_failure:StrictJsonError`; the test fails only because the
+expected sealed result is not produced. An import/attribute error, an assumed
+provider-call count, or an exception escaping `_run_resolution_attempt()` is
+not valid RED evidence.
+
+- [ ] **Step 3: Add the exact profile contract and import-valid helper surface**
 
 Add a canonical one-line JSON contract with these top-level fields only:
 
@@ -114,7 +182,7 @@ Add a canonical one-line JSON contract with these top-level fields only:
   "checkpoint_schema_id": "rook.lm9b_p.governed_resolution_checkpoint:v1",
   "formula_ids": ["call_ledger_v1", "evaluator_member_v1", "fixed_member_v1", "planner_session_v1", "recipe_member_v1"],
   "constants": {
-    "absolute_member_ceiling_bytes": 100663296,
+    "absolute_member_ceiling_bytes": 345068924,
     "adapter_request_overhead_bytes": 131072,
     "base64_denominator": 3,
     "base64_numerator": 4,
@@ -131,7 +199,8 @@ Add a canonical one-line JSON contract with these top-level fields only:
     "max_recipe_bytes": 1048576,
     "planner_assistant_projection_bytes": 2097152,
     "planner_canonical_request_base_bytes": 262144,
-    "planner_canonical_request_turn_increment_bytes": 131072,
+    "planner_feedback_projection_bytes": 262144,
+    "planner_request_turn_framing_bytes": 65536,
     "planner_raw_error_bytes": 524288,
     "planner_raw_response_bytes": 2097152,
     "planner_session_framing_bytes": 262144,
@@ -165,7 +234,7 @@ Add a canonical one-line JSON contract with these top-level fields only:
     {"path":"record.json","role":"identity","formula_id":"fixed_member_v1","fixed_ceiling_bytes":1048576},
     {"path":"source.json","role":"source","formula_id":"fixed_member_v1","fixed_ceiling_bytes":1048576}
   ],
-  "profile_fingerprint": "sha256:e1dcd4308706f0dddeb0f359075440ba5b094d2f2e2c5c3408ed2fd2bcc74eb6"
+  "profile_fingerprint": "sha256:271d641d5b7cebc1ffa7e2f8c924eb7a9f5d0d55f36d69f91995a597af23909b"
 }
 ```
 
@@ -177,7 +246,7 @@ Add these import-valid constants and signatures to the new helper. Bodies may ra
 PROFILE_SCHEMA_ID = "rook.archive_evidence_resource_profile:v1"
 PROFILE_ID = "rook.archive_evidence_resource_profile:lm9b_resolution_v1"
 CHECKPOINT_SCHEMA_ID = "rook.lm9b_p.governed_resolution_checkpoint:v1"
-PROFILE_FINGERPRINT = "sha256:e1dcd4308706f0dddeb0f359075440ba5b094d2f2e2c5c3408ed2fd2bcc74eb6"
+PROFILE_FINGERPRINT = "sha256:271d641d5b7cebc1ffa7e2f8c924eb7a9f5d0d55f36d69f91995a597af23909b"
 MAX_PLANNER_CALLS = 6
 MAX_EVALUATOR_CALLS = 1
 
@@ -192,44 +261,7 @@ scripts/lm9b_p_governed_resolution_archive_evidence.py text eol=lf
 scripts/lm9b_p_governed_resolution_forensics.py text eol=lf
 ```
 
-- [ ] **Step 2: Write the failing six-turn seal/reconstruct witness**
-
-Add `test_archive_profile_six_turn_vertical_seals_and_publicly_reconstructs` to `test_lm9b_p_governed_resolution_probe.py`. Use the real fake readiness verifier, preflight, reservation, `_StagedCallLedger`, existing mechanical feedback, and six fake Planner responses. Make turns 1–5 mechanically rejected. For turn 6, derive a mechanically accepted but isolation-rejected candidate from the reviewed isolated fixture by adding only the two forbidden `minimum_height` and `maximum_height` postcondition references and independently recomputing its recipe fingerprint. Do not add a new production fixture or dispatch the evaluator.
-
-Assert before sealing:
-
-```python
-assert len((staging / ".resolution-runtime" / "call-ledger.json").read_bytes()) > (
-    PLANNER_SUPPORT.MAX_RECIPE_BYTES
-)
-assert planner_provider.call_count == 6
-assert evaluator_provider.call_count == 0
-```
-
-Then require:
-
-```python
-result = _run_resolution_attempt(...)
-assert result.state == "sealed"
-assert result.classification == "probe_resolution_isolation_failure"
-verified = ARTIFACTS.verify_sealed_resolution_checkpoint(
-    result.sealed_checkpoint.archive_dir,
-    expected_identity=result.sealed_checkpoint.checkpoint_identity,
-    preflight_archive=preflight.archive_dir,
-    expected_preflight_fingerprint=preflight.preflight_fingerprint,
-)
-assert verified.classification == "probe_resolution_isolation_failure"
-```
-
-Run:
-
-```powershell
-& C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_lm9b_p_governed_resolution_probe.py::test_archive_profile_six_turn_vertical_seals_and_publicly_reconstructs -q
-```
-
-Expected red: `StrictJsonError: recipe_input_bytes_exceeded` while rereading `call-ledger.json` or `planner-session.json`, not an import/attribute failure.
-
-- [ ] **Step 3: Implement the minimum closure-issued profile and call-shape path**
+- [ ] **Step 4: Implement the minimum closure-issued profile and call-shape path**
 
 Build both capabilities with closure-local classes and `weakref.WeakKeyDictionary` snapshots. Public classes have only `__weakref__` storage; direct construction, `object.__new__`, copying, replacement, subclassing, and instance mutation cannot register or alter a snapshot.
 
@@ -258,7 +290,7 @@ class _CallShapeSnapshot:
 
 This capability proves parser-budget shape only. A row's `terminal` flag means its owned adapter execution completed; it does not terminate the whole attempt. Request/transcript/provider provenance, derived attempt termination, and the ban on calls after an attempt terminal remain the later artifact verifier's responsibility.
 
-- [ ] **Step 4: Integrate the walking path into the real writer and verifier**
+- [ ] **Step 5: Integrate the walking path into the real writer and verifier**
 
 In `lm9b_p_governed_resolution_artifacts.py`:
 
@@ -285,7 +317,7 @@ verify independently supplied preflight and profile identity
 
 In `seal_resolution_checkpoint()`, write the candidate, reread it through that same private verifier, then perform the existing no-clobber rename. Do not change membership, record identity, finalization, or ready-proof equations.
 
-- [ ] **Step 5: Run the vertical and focused compatibility tests**
+- [ ] **Step 6: Run the vertical and focused compatibility tests**
 
 Run:
 
@@ -298,7 +330,28 @@ Run:
 
 Expected: PASS. Existing one-/two-turn fake checkpoints still reconstruct, recipe members remain limited to 1 MiB, and evaluator-less checkpoints retain no `evaluator.json`.
 
-- [ ] **Step 6: Commit and stop for independent Task 1 review**
+The GREEN vertical additionally inspects the sealed destination rather than
+staging:
+
+```python
+assert result.state == "sealed"
+assert result.classification == "probe_resolution_isolation_failure"
+assert len((result.sealed_checkpoint.archive_dir / "call-ledger.json").read_bytes()) > (
+    PLANNER_SUPPORT.MAX_RECIPE_BYTES
+)
+assert len((result.sealed_checkpoint.archive_dir / "planner-session.json").read_bytes()) > (
+    PLANNER_SUPPORT.MAX_RECIPE_BYTES
+)
+verified = ARTIFACTS.verify_sealed_resolution_checkpoint(
+    result.sealed_checkpoint.archive_dir,
+    expected_identity=result.sealed_checkpoint.checkpoint_identity,
+    preflight_archive=preflight.archive_dir,
+    expected_preflight_fingerprint=preflight.preflight_fingerprint,
+)
+assert verified.classification == "probe_resolution_isolation_failure"
+```
+
+- [ ] **Step 7: Commit and stop for independent Task 1 review**
 
 ```powershell
 git add .gitattributes `
@@ -423,10 +476,13 @@ def _json_string_ceiling(size: int, *, escape_multiplier: int) -> int:
     return 2 + escape_multiplier * size
 
 def _planner_canonical_request_ceiling(turn: int, constants) -> int:
+    if turn == 1:
+        return constants["planner_canonical_request_base_bytes"]
     return (
-        constants["planner_canonical_request_base_bytes"]
-        + (turn - 1)
-        * constants["planner_canonical_request_turn_increment_bytes"]
+        _planner_canonical_request_ceiling(turn - 1, constants)
+        + constants["planner_assistant_projection_bytes"]
+        + constants["planner_feedback_projection_bytes"]
+        + constants["planner_request_turn_framing_bytes"]
     )
 
 def _planner_row_ceiling(turn: int, constants) -> int:
@@ -468,7 +524,40 @@ evaluator_member_ceiling(1) = (
 )
 ```
 
-Require every derived ceiling to be at most `absolute_member_ceiling_bytes`. Test exact bound and bound plus one for every turn, evaluator row, aggregate member, and path-specific fixed member.
+The recurrence is a closure equation, not an estimate fitted to the retained
+specimen. Before constructing Planner request `i + 1`, validate the exact
+canonical bytes of admitted assistant projection `i` and deterministic
+mechanical-feedback projection `i` against their respective constants. The
+fixed framing constant covers the exact message-array separators, role/tool
+fields, and JSON framing introduced by appending those two messages. Thus:
+
+```text
+R(1) = planner_canonical_request_base_bytes
+R(i + 1) =
+  R(i)
+  + planner_assistant_projection_bytes
+  + planner_feedback_projection_bytes
+  + planner_request_turn_framing_bytes
+```
+
+No response admitted at turn `i` can make the next request exceed `R(i + 1)`.
+If the assistant or generated feedback exceeds its own bound after a dispatch,
+the attempt retains evidence and becomes unsealed; the oversized projection
+never expands or enters a later request.
+
+Require every derived ceiling to be at most
+`absolute_member_ceiling_bytes`. With the exact contract constants above, the
+maximum authenticated aggregate is
+`call_ledger_ceiling(6, 1) == 345068924`, which is also the absolute ceiling.
+Test:
+
+- `R(i + 1) == R(i) + assistant + feedback + framing` for every `i=1..5`;
+- a maximum admitted assistant plus maximum admitted feedback constructs the
+  next request at or below `R(i + 1)` for every turn;
+- one byte over either contributing bound refuses before constructing or
+  dispatching the next request;
+- exact bound and bound plus one for every turn, evaluator row, aggregate
+  member, and path-specific fixed member.
 
 - [ ] **Step 4: Close evaluator presence and branch equations**
 
@@ -696,7 +785,17 @@ The two verified types must use closure-owned weak registries and immutable exte
 
 - [ ] **Step 2: Write a historical-preflight substitution table**
 
-Copy the pinned physical preflight into `tmp_path`, then fully reclose one mutation at a time:
+Use the pinned physical historical preflight at its canonical path, read-only,
+for the positive witness. Capture a non-following before/after physical
+snapshot and require exact equality. The historical preflight binds its own
+canonical location, so an unchanged copy under `tmp_path` is a required
+location-refusal case and is never a positive baseline.
+
+Exercise deeper provenance substitutions through the private pure
+reconstruction boundary. The physical loader first verifies and freezes the
+actual preflight bytes and the closed Git-blob map. Tests may then pass a
+controlled in-memory replacement blob/projection to that pure function and
+fully reclose one mutation at a time without writing the pinned source:
 
 - reviewed commit;
 - instrument/preflight/attempt fingerprints;
@@ -708,7 +807,12 @@ Copy the pinned physical preflight into `tmp_path`, then fully reclose one mutat
 - policy/rubric/tool/report/ready-proof/readiness identity;
 - missing/extra/reparse member.
 
-Every mutation must fail even after every authored downstream fingerprint/checksum is recomputed.
+Every mutation must fail even after every authored downstream
+fingerprint/checksum is recomputed. The public physical verifier accepts no
+caller-supplied blob reader or mutation hook; only the private pure
+reconstruction helper receives the immutable byte map produced by the real
+loader. Copying, relocating, or editing the official preflight is never part of
+this test path.
 
 - [ ] **Step 3: Implement the separate historical compatibility verifier**
 
