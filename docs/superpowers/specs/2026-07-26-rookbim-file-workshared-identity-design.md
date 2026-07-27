@@ -140,6 +140,24 @@ Path-only authorization is not an outcome. A future process-scoped random docume
 
 Implementation planning may describe the probe task and the code paths conditional on its result, but production implementation does not begin until the result is written into this specification and approved.
 
+### Probe result — Proposed — awaiting reviewer approval
+
+The completed redacted report is [2026-07-26-rookbim-creation-guid-result.md](../probes/2026-07-26-rookbim-creation-guid-result.md). It records all eleven required cases from Revit 2024.3 at probe commit `85c6df4f4f01dfd76a0a100dd4a201ce80ab96b2`; completion cleared the raw alias state.
+
+The evidence proposes decision outcome 2, **class-limited composite**:
+
+| Document class or transition | Observed evidence | Proposed disposition |
+|---|---|---|
+| File-workshared central and local | Central, local, and reopened local shared one creation alias and one central-path alias; local document-path evidence remained distinct and stable. | Propose `revit_creation_guid_central_path_v1`. |
+| Copied central at a different location | The copy retained the central's creation alias but had a different central-path alias. | The proposed file-workshared composite distinguishes the copy. |
+| Saved non-workshared project | Creation and document-path aliases survived close/reopen. A different document saved to the same prior path retained the path alias but received a different creation alias. | Propose `revit_creation_guid_document_path_v1`. |
+| Saved family | Creation was readable, nonempty, and stable on repeated reads; a saved document path was available. The required case set did not include a family-specific close/reopen or replacement pair. | Keep fail closed pending family-specific durability evidence. |
+| Unsaved project and family | Creation was readable and stable, but no comparable saved path existed. | Fail closed. |
+| Detached document | Creation matched the workshared lineage, but no comparable saved document path existed. | Fail closed; evidence is descriptive only. |
+| Revit Server and cloud | Required infrastructure was unavailable in this run. | Existing candidate sources remain unapproved pending class-specific live evidence. |
+
+The proposal satisfies the observed file-workshared and saved-project criteria without authorizing a path-only downgrade. Candidate key sources remain unapproved until a reviewer accepts this decision, records any additional family/server/cloud evidence requirements, and changes the implementation-plan gate explicitly. This specification remains decision-gated and is not implementation-ready.
+
 ## Wire contract
 
 ### New fields
