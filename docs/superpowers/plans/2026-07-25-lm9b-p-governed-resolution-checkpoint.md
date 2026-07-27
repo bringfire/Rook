@@ -1370,6 +1370,229 @@ git commit -m "feat: seal governed resolution evidence"
 
 ---
 
+### Task 5A: Make finalization a monotonic physical-state machine
+
+**Files:**
+- Modify: `scripts/lm9b_p_governed_resolution_artifacts.py`
+- Modify: `scripts/lm9b_p_governed_resolution_probe.py`
+- Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_probe.py`
+
+**Interfaces:**
+- Consumes: the verified archive candidate, frozen preflight, expected
+  checkpoint identity, retained runtime staging, and atomic no-clobber directory
+  rename from Task 5.
+- Produces:
+  - `FinalizationIndeterminate`, an immutable control-state carrier;
+  - `reconcile_resolution_rename(...) -> SealedResolutionCheckpoint | PostDispatchUnsealed | FinalizationIndeterminate`;
+  - `ResolutionAttemptResult.finalization_indeterminate: FinalizationIndeterminate | None`;
+  - an outer result with `state="finalization_indeterminate"`,
+    `classification=None`, and `sealed_checkpoint=None` when durable state cannot
+    be established.
+
+The final destination is immutable after rename begins. No code in this task
+may write, delete, quarantine, or repair a destination member. Atomic directory
+rename remains the sole commit point; no receipt or second commit artifact is
+introduced.
+
+- [ ] **Step 1: Write the red physical-state and destination-immutability table**
+
+Add a parameterized table that constructs the exact post-rename states and
+asserts the closed equations:
+
+```python
+FINALIZATION_CASES = (
+    # destination_present, candidate_present, staging_runtime_present,
+    # destination_verifies, expected_type
+    (True,  False, True,  True,  SealedResolutionCheckpoint),
+    (False, True,  True,  False, PostDispatchUnsealed),
+    (True,  False, True,  False, FinalizationIndeterminate),
+    (True,  True,  True,  True,  FinalizationIndeterminate),
+    (False, False, False, False, FinalizationIndeterminate),
+)
+```
+
+For every case, snapshot all destination-relative paths and raw bytes before
+reconciliation and require exact equality afterward. The verified-destination
+case must remain sealed when staging contains only `.resolution-runtime`; the
+mixed destination-plus-candidate case must remain indeterminate even when the
+destination verifier would accept its bytes.
+
+- [ ] **Step 2: Run the physical-state table and observe valid red failures**
+
+Run:
+
+```powershell
+& 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
+  mcp_server/tests/test_lm9b_p_governed_resolution_probe.py `
+  -q -k 'finalization_physical_state_table'
+```
+
+Expected: FAIL because `FinalizationIndeterminate` and the closed state machine
+do not exist, and current reconciliation mutates surviving destinations.
+
+- [ ] **Step 3: Add the typed carrier and one closed state derivation**
+
+Define only:
+
+```python
+@dataclass(frozen=True)
+class FinalizationIndeterminate:
+    attempt_id: str
+    attempt_fingerprint: str
+    unconfirmed_checkpoint_identity: str
+    destination_path: Path
+    staging_path: Path
+    destination_present: bool
+    staging_present: bool
+    failure_locus: str
+```
+
+The carrier contains no classification, scientific recommendation, or ready
+proof. Bound `failure_locus` to a closed instrument-authored prefix plus the
+exception type; never persist exception messages. Export the carrier through
+the artifacts module's closed `__all__` interface.
+
+Implement one derivation in `reconcile_resolution_rename()`:
+
+```text
+destination verifies AND .archive-candidate is absent
+-> SealedResolutionCheckpoint
+
+destination absent AND expected staging evidence remains
+-> PostDispatchUnsealed
+
+every other state
+-> FinalizationIndeterminate
+```
+
+“Expected staging evidence remains” requires a non-reparse staging directory
+and its retained `.resolution-runtime` directory. Candidate-only, marker-only,
+or absent staging does not satisfy it. Observe paths without following reparse
+points. Do not mutate the destination in any branch.
+
+- [ ] **Step 4: Run the physical-state table and make it green**
+
+Run the Step-2 command.
+
+Expected: PASS, including byte-for-byte destination immutability.
+
+- [ ] **Step 5: Write red outer-wrapper, marker-failure, and later-discovery tests**
+
+Add tests that prove:
+
+```python
+assert result.state == "finalization_indeterminate"
+assert result.classification is None
+assert result.sealed_checkpoint is None
+assert result.finalization_indeterminate is carrier
+```
+
+Inject staging-marker write failure and require the previously derived state to
+remain unchanged. `retain_post_dispatch_unsealed()` may attempt a marker only
+inside staging and must construct/return `PostDispatchUnsealed` independently
+of marker success. It must never receive the final destination.
+
+For a valid destination whose first verification was forced to fail:
+
+1. retain the original `FinalizationIndeterminate` result;
+2. restore the public verifier;
+3. verify the untouched destination as a separately reconstructed
+   `SealedResolutionCheckpoint` using the independent physical preflight;
+4. prove Planner and evaluator fake-provider call counters did not increase;
+5. prove `issue_resolution_ready_proof(indeterminate, ...)` raises `TypeError`;
+6. prove only the separately reconstructed sealed checkpoint is admissible to
+   `issue_resolution_ready_proof()`.
+
+- [ ] **Step 6: Run the new control-state tests and observe valid red failures**
+
+Run:
+
+```powershell
+& 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
+  mcp_server/tests/test_lm9b_p_governed_resolution_probe.py `
+  -q -k 'finalization_indeterminate or staging_marker_failure or later_finalization_discovery'
+```
+
+Expected: FAIL because the outer result has no typed control-state field and
+generic/unsealed handling still owns these branches.
+
+- [ ] **Step 7: Preserve the typed state through the outer wrapper**
+
+Add the optional final field:
+
+```python
+finalization_indeterminate: ARTIFACTS.FinalizationIndeterminate | None = None
+```
+
+Handle the exact `FinalizationIndeterminate` return before
+`PostDispatchUnsealed`. Return `state="finalization_indeterminate"` with no
+classification or sealed checkpoint. Do not call marker, sealing, repair, or
+retry logic from this branch. All sealed and ordinary unsealed results set this
+field to `None`.
+
+Separate `PostDispatchUnsealed` carrier construction from best-effort staging
+marker persistence so marker failure cannot change the already-derived state.
+The marker remains `rook.lm9b_p.governed_resolution_post_dispatch_unsealed:v1`
+and is never used for `FinalizationIndeterminate`.
+
+- [ ] **Step 8: Run the complete finalization regression**
+
+Run:
+
+```powershell
+& 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
+  mcp_server/tests/test_lm9b_p_governed_resolution_probe.py `
+  -q -k 'rename or finalization or marker'
+```
+
+Expected: PASS. Update prior rename expectations exactly:
+
+```text
+rename_succeeds_then_raises -> sealed
+destination/staging race with destination present -> finalization_indeterminate
+invalid destination-only -> finalization_indeterminate
+both destination and archive candidate -> finalization_indeterminate
+destination absent with retained runtime staging -> post_dispatch_unsealed
+```
+
+- [ ] **Step 9: Run focused and full regression gates**
+
+Run:
+
+```powershell
+$python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
+& $python -m py_compile `
+  scripts/lm9b_p_governed_resolution_artifacts.py `
+  scripts/lm9b_p_governed_resolution_probe.py
+
+& $python -m pytest `
+  mcp_server/tests/test_lm9b_p_governed_resolution_support.py `
+  mcp_server/tests/test_lm9b_p_governed_resolution_artifacts.py `
+  mcp_server/tests/test_lm9b_p_governed_resolution_probe.py -q
+
+$lm9bPTests = Get-ChildItem 'mcp_server/tests' -Filter 'test_lm9b_p_*.py' | ForEach-Object FullName
+& $python -m pytest @lm9bPTests -q
+
+git diff --check
+```
+
+Expected: all commands pass. No provider, readiness, evaluator, or compiler
+contact occurs.
+
+- [ ] **Step 10: Commit Task 5A and stop for independent review**
+
+```powershell
+git add scripts/lm9b_p_governed_resolution_artifacts.py `
+  scripts/lm9b_p_governed_resolution_probe.py `
+  mcp_server/tests/test_lm9b_p_governed_resolution_probe.py `
+  docs/superpowers/plans/2026-07-25-lm9b-p-governed-resolution-checkpoint.md
+git commit -m "fix: make resolution finalization monotonic"
+```
+
+Do not begin Task 6 until Task 5A receives independent approval.
+
+---
+
 ### Task 6: Close CLI boundaries, full regression, and development preflight
 
 **Files:**
@@ -1380,7 +1603,7 @@ git commit -m "feat: seal governed resolution evidence"
 - Update: `docs/superpowers/plans/2026-07-25-lm9b-p-governed-resolution-checkpoint.md`
 
 **Interfaces:**
-- Consumes: completed instrument from Tasks 1–5.
+- Consumes: completed instrument from Tasks 1–5A.
 - Produces: no-contact `preflight`/`verify-preflight` CLI, full structural isolation proof, reviewed feature-HEAD development preflight, and implementation handoff.
 
 - [ ] **Step 1: Implement the closed CLI**
