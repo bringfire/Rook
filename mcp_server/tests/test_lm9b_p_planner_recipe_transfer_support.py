@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import copy
 import importlib.util
 import inspect
@@ -32,6 +33,88 @@ RECIPE_PATH = ROOT / "mcp_server/tests/fixtures/lm9b_p/non_r01_ready_recipe.json
 BLOCKED_RECIPE_PATH = (
     ROOT / "mcp_server/tests/fixtures/lm9b_p/non_r01_blocked_recipe.json"
 )
+
+
+def test_planner_turn_request_builder_matches_existing_request_value() -> None:
+    messages = [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "user"},
+    ]
+    raw = SUPPORT.build_planner_provider_call_request(
+        messages=messages,
+        provider_timeout_s=123.5,
+    )
+    expected = {
+        "messages": messages,
+        "tools": [SUPPORT.planner_tool_definition()],
+        "tool_choice": "auto",
+        "max_completion_tokens": SUPPORT.PLANNER_MAX_COMPLETION_TOKENS,
+        "provider_timeout_s": 123.5,
+    }
+    assert json.loads(raw) == expected
+    assert raw == json.dumps(
+        expected,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def test_planner_turn_request_materialization_is_fresh() -> None:
+    raw = SUPPORT.build_planner_provider_call_request(
+        messages=[{"role": "user", "content": "x"}],
+        provider_timeout_s=10.0,
+    )
+    one = SUPPORT.materialize_planner_provider_call_request(raw)
+    two = SUPPORT.materialize_planner_provider_call_request(raw)
+    assert one == two
+    assert one is not two
+    assert one["tools"] is not two["tools"]
+
+
+def test_planner_call_plan_derives_timeout_from_preceding_deadline_state() -> None:
+    messages = [{"role": "user", "content": "x"}]
+    plan = SUPPORT.build_planner_provider_call_plan(
+        turn_index=1,
+        messages=messages,
+        session_started_monotonic_s=1000.0,
+        call_started_monotonic_s=1421.0,
+    )
+    assert plan.elapsed_before_call_s == 421.0
+    assert plan.remaining_before_call_s == 179.0
+    assert plan.provider_timeout_s == 179.0
+    assert plan.request_bytes == SUPPORT.build_planner_provider_call_request(
+        messages=messages,
+        provider_timeout_s=179.0,
+    )
+    assert plan.request_raw_sha256 == SUPPORT.sha256_prefixed(plan.request_bytes)
+    assert plan.preceding_transcript_fingerprint == SUPPORT.fingerprint(messages)
+
+
+def test_planner_turn_request_builder_has_no_ambient_inputs_or_contact() -> None:
+    tree = ast.parse(inspect.getsource(SUPPORT.build_planner_provider_call_request))
+    forbidden_names = {
+        "datetime",
+        "os",
+        "random",
+        "time",
+        "uuid",
+    }
+    forbidden_calls = {
+        "open",
+        "Path",
+        "provider",
+    }
+    assert not {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name)
+    } & forbidden_names
+    assert not {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    } & forbidden_calls
 
 
 def _authority():
@@ -1058,6 +1141,40 @@ def test_planner_protocol_rejects_free_text_and_mapping_only_arguments() -> None
         mapping_result.turns[0].gate_result.diagnostics[0].code
         == "tool_arguments_not_exact_string"
     )
+
+
+def test_planner_mechanical_feedback_value_is_preserved_exactly() -> None:
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    provider = _PlannerProvider(
+        [
+            _planner_turn(tool_calls=[]),
+            _planner_turn(tool_calls=[_planner_tool_call(recipe_text)]),
+        ]
+    )
+    result = _planner_session(provider)
+    assert result.termination == "mechanically_accepted"
+    assert provider.requests[1]["messages"][-1] == {
+        "role": "user",
+        "content": json.dumps(
+            {
+                "accepted": False,
+                "feedback": [
+                    {
+                        "code": "planner_tool_missing",
+                        "path": "/tool_calls",
+                        "message": (
+                            "exactly one submit_planner_recipe tool call is required"
+                        ),
+                    }
+                ],
+                "instruction": (
+                    "Submit exactly one conforming planner recipe tool call."
+                ),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+    }
 
 
 def test_planner_preserves_exact_recipe_argument_bytes_and_accepts_immediately() -> None:

@@ -1032,8 +1032,13 @@ class _PlannerProviderAdapter:
         metadata = dict(turn.provider_metadata)
         metadata.update(
             {
+                # Historical aliases remain for prior archive compatibility.
+                # They are adapter-authored requested identities, not claims
+                # about the provider's returned model or hosted weights.
                 "model_identity": self.model,
                 "profile_identity": _PLANNER_PROVIDER_PROFILE_ID,
+                "requested_model": self.model,
+                "requested_profile": _PLANNER_PROVIDER_PROFILE_ID,
             }
         )
         return replace(turn, provider_metadata=metadata)

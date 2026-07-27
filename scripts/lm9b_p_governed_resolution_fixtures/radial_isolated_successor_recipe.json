@@ -1,0 +1,283 @@
+{
+  "schema": "rook.planner_graph_recipe:v1",
+  "source_task": {
+    "artifact_id": "task_envelope",
+    "artifact_kind": "task_envelope",
+    "schema": "rook.planner_task_envelope:v1",
+    "fingerprint": "sha256:3a3caf0498327c3c75f4a1e60bd7277fb88b352cd212fb433d59fba481da3808"
+  },
+  "authority_artifacts": [
+    {
+      "artifact_id": "environment_snapshot",
+      "artifact_kind": "environment_snapshot",
+      "schema": "rook.environment_snapshot:v1",
+      "fingerprint": "sha256:aeeb205dfdec3bb9295b86227c061f1e2abaa7c57aeeb16118e405175ee126e0"
+    }
+  ],
+  "goal": {
+    "clause_id": "goal.radial_box_array",
+    "statement": "Create a new 10 by 10 array of boxes whose heights are lowest at the array center and do not decrease with increasing radial distance from that center.",
+    "source_refs": [
+      {
+        "kind": "artifact_value",
+        "artifact_id": "task_envelope",
+        "json_pointer": "/facts/element_kind"
+      },
+      {
+        "kind": "artifact_value",
+        "artifact_id": "task_envelope",
+        "json_pointer": "/facts/grid_count_x"
+      },
+      {
+        "kind": "artifact_value",
+        "artifact_id": "task_envelope",
+        "json_pointer": "/facts/grid_count_y"
+      },
+      {
+        "kind": "artifact_value",
+        "artifact_id": "task_envelope",
+        "json_pointer": "/facts/radial_height_relationship"
+      }
+    ],
+    "assumption_refs": [],
+    "derived_fact_refs": [],
+    "synthesis": null,
+    "projected_into": {
+      "maintains_clause_ids": [
+        "maintain.radial_box_array_semantics"
+      ],
+      "invariant_clause_ids": [
+        "invariant.create_new_scope",
+        "invariant.policy_bounded_semantics"
+      ],
+      "unresolved_intent_ids": []
+    }
+  },
+  "requires": [
+    {
+      "clause_id": "require.document_unit_context",
+      "statement": "Use the observed document unit context when interpreting any model-unit-valued dimensions and heights.",
+      "source_refs": [
+        {
+          "kind": "artifact_value",
+          "artifact_id": "environment_snapshot",
+          "json_pointer": "/document/unit_context"
+        }
+      ],
+      "assumption_refs": [],
+      "derived_fact_refs": [],
+      "synthesis": null,
+      "supports_clause_ids": [
+        "maintain.radial_box_array_semantics"
+      ],
+      "evidence_requirement": {
+        "semantic_key": "document_unit_context",
+        "value_schema": "rook.semantic_unit_context:v1",
+        "freshness_required": true,
+        "session_binding_required": true
+      }
+    },
+    {
+      "clause_id": "require.parametric_geometry_capability",
+      "statement": "An available capability to construct parametric geometry is required to realize the box array semantics.",
+      "source_refs": [],
+      "assumption_refs": [],
+      "derived_fact_refs": [],
+      "synthesis": {
+        "kind": "planner_requirement_synthesis"
+      },
+      "supports_clause_ids": [
+        "maintain.radial_box_array_semantics"
+      ],
+      "evidence_requirement": {
+        "semantic_key": "construct_parametric_geometry",
+        "value_schema": "rook.semantic_string:v1",
+        "freshness_required": true,
+        "session_binding_required": false
+      }
+    }
+  ],
+  "maintains": [
+    {
+      "clause_id": "maintain.radial_box_array_semantics",
+      "statement": "Maintain a task-created arrangement of box elements in a 10 by 10 grid, centered in the world XY frame, with positive Z height and a linear radial height profile that is lowest at the center and nondecreasing outward.",
+      "source_refs": [
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/box_footprint_x"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/box_footprint_y"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/element_kind"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/grid_count_x"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/grid_count_y"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/grid_spacing"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/maximum_height"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/minimum_height"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/radial_height_relationship"
+        }
+      ],
+      "assumption_refs": [],
+      "derived_fact_refs": [],
+      "synthesis": {
+        "kind": "planner_semantic_synthesis"
+      },
+      "canonicalization": [
+        {
+          "clause_id": "canonicalize.radial_profile_terms",
+          "statement": "Canonicalize the requested center-lowest radial relationship to the allowed semantic profile of center_of_grid_extents with linear_normalized_radial_distance in world_xy_centered_at_world_origin and positive_z height direction.",
+          "applies_to_clause_ids": [
+            "maintain.radial_box_array_semantics"
+          ],
+          "source_refs": [
+            {
+              "kind": "artifact_value",
+              "artifact_id": "task_envelope",
+              "json_pointer": "/facts/radial_height_relationship"
+            }
+          ],
+          "assumption_refs": [],
+          "inherited_support_from": [
+            "maintain.radial_box_array_semantics"
+          ],
+          "synthesis": {
+            "kind": "planner_semantic_classification"
+          }
+        }
+      ],
+      "postconditions": [
+        {
+          "clause_id": "post.radial_box_array_created",
+          "statement": "The created objects satisfy box element kind, 10 by 10 grid cardinality, centered placement frame, positive Z height direction, and a radial height ordering consistent with minimum height at the center and nondecreasing height with increasing radial distance up to the maximum height.",
+          "source_refs": [
+            {
+              "kind": "artifact_value",
+              "artifact_id": "task_envelope",
+              "json_pointer": "/facts/element_kind"
+            },
+            {
+              "kind": "artifact_value",
+              "artifact_id": "task_envelope",
+              "json_pointer": "/facts/grid_count_x"
+            },
+            {
+              "kind": "artifact_value",
+              "artifact_id": "task_envelope",
+              "json_pointer": "/facts/grid_count_y"
+            },
+            {
+              "kind": "artifact_value",
+              "artifact_id": "task_envelope",
+              "json_pointer": "/facts/radial_height_relationship"
+            }
+          ],
+          "assumption_refs": [],
+          "derived_fact_refs": [],
+          "synthesis": {
+            "kind": "planner_postcondition_projection"
+          },
+          "inherited_support_from": [
+            "maintain.radial_box_array_semantics"
+          ]
+        }
+      ]
+    }
+  ],
+  "assumptions": [],
+  "derived_facts": [],
+  "unresolved_intent": [],
+  "invariants": [
+    {
+      "clause_id": "invariant.create_new_scope",
+      "statement": "The recipe applies only to creating new task-created objects.",
+      "source_refs": [
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/operation_kind"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/target_scope"
+        },
+        {
+          "kind": "artifact_value",
+          "artifact_id": "task_envelope",
+          "json_pointer": "/facts/task_scope"
+        }
+      ],
+      "assumption_refs": [],
+      "derived_fact_refs": [],
+      "synthesis": null
+    },
+    {
+      "clause_id": "invariant.policy_bounded_semantics",
+      "statement": "Any resolved dimensional and height values must remain within the planning policy bounds for box footprints, grid spacing, and minimum and maximum heights, and the semantic choices for placement frame, array center definition, height direction, and height profile must match their exact allowed policy values.",
+      "source_refs": [],
+      "assumption_refs": [],
+      "derived_fact_refs": [],
+      "synthesis": {
+        "kind": "planner_invariant_projection"
+      }
+    }
+  ],
+  "shape": {
+    "vocabulary_version": "rook.semantic_authority_codes:v1",
+    "vocabulary_fingerprint": "sha256:d3d131264a38f94a39c72138ad262bc91d3dbdd5d33746f555d22711c1ac87c2",
+    "self": [],
+    "delegates": [],
+    "prohibited": []
+  },
+  "required_capabilities": {
+    "vocabulary_version": "rook.semantic_capability_codes:v1",
+    "vocabulary_fingerprint": "sha256:787283a0689e009e529d9f9c6f5df1175b5d0d5cfe3ffdf621d6d9a30fbb0056",
+    "entries": [
+      {
+        "capability_id": "capability.construct_parametric_geometry",
+        "capability_code": "construct_parametric_geometry",
+        "statement": "Capability to construct parametric geometry is required to realize the maintained box-array geometry semantics.",
+        "supports_clause_ids": [
+          "maintain.radial_box_array_semantics"
+        ]
+      }
+    ]
+  },
+  "worker_slots": {
+    "vocabulary_version": "rook.worker_slot_codes:v1",
+    "vocabulary_fingerprint": "sha256:0cabd62539dd7935cc501e3609ffcbc8e646ec19f1542697306e34a75f1ffbfa",
+    "entries": []
+  },
+  "recipe_fingerprint": "sha256:3cf697c16321cb35d515cc9744c170dd382a383e0112d460c45c1e477e4f859c"
+}

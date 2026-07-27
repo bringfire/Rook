@@ -1,0 +1,50 @@
+{
+  "schema": "rook.lm9b_p.planner_evaluation_rubric:v1",
+  "rubric_id": "lm9b_p.radial_resolution_fidelity:v1",
+  "authoring_contract_binding": {
+    "contract_id": "lm9b_p.planner_authoring_contract:v1",
+    "contract_fingerprint": "sha256:ccf6c1702825c46b3987853abaff8720f40d1960a0aebc4542b10e2bdc162c20",
+    "recipe_schema": "rook.planner_graph_recipe:v1"
+  },
+  "scenario_obligations": [
+    "The recipe preserves the requested ten-by-ten box field.",
+    "The recipe preserves heights that are lowest near the center and rise with radial distance.",
+    "Values present in verified successor authority are supplied facts, not unresolved intent or Planner inventions."
+  ],
+  "criteria": [
+    {
+      "criterion_id": "brief_fidelity",
+      "statement": "The recipe faithfully represents the supplied brief without adding a material requested outcome."
+    },
+    {
+      "criterion_id": "provenance_fidelity",
+      "statement": "Material claims cite only authority that actually supports them, and unreferenced artifact content is not borrowed."
+    },
+    {
+      "criterion_id": "material_authority",
+      "statement": "Values present in verified successor authority are supplied facts, not unresolved intent or Planner inventions."
+    },
+    {
+      "criterion_id": "unresolved_intent_honesty",
+      "statement": "Any unresolved intent identifies genuinely missing material semantic authority rather than implementation latitude."
+    },
+    {
+      "criterion_id": "implementation_leakage",
+      "statement": "The recipe contains no tools, operations, topology realization, executable payload, or expected implementation answer."
+    }
+  ],
+  "recommendations": [
+    "evaluation_inconclusive",
+    "semantically_faithful",
+    "semantically_unfaithful"
+  ],
+  "forbidden_dependencies": [
+    "parent recipe",
+    "clarification correspondence map",
+    "isolation policy or report",
+    "expected classification",
+    "compiler context",
+    "visible Planner session record"
+  ],
+  "rubric_fingerprint": "sha256:f2fc0feff91bc0f97c7081905843286aa5adccb84b5e89e7ee31dfa9e19dc8d9"
+}

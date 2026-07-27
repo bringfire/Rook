@@ -120,6 +120,65 @@ def _json_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def build_litellm_completion_request_bytes(
+    *,
+    model: str,
+    temperature: float,
+    provider_request: Mapping[str, object],
+) -> bytes:
+    """Project one Rook provider request to exact LiteLLM call kwargs."""
+
+    if type(model) is not str or not model:
+        raise ValueError("LiteLLM request model must be nonempty")
+    if type(temperature) not in {int, float} or isinstance(temperature, bool):
+        raise TypeError("LiteLLM request temperature must be numeric")
+    if not isinstance(provider_request, Mapping):
+        raise TypeError("Rook provider request must be a mapping")
+    kwargs = {
+        "model": model,
+        "messages": provider_request["messages"],
+        "tools": provider_request["tools"],
+        "tool_choice": provider_request["tool_choice"],
+        "parallel_tool_calls": False,
+        "max_tokens": provider_request["max_completion_tokens"],
+        "temperature": float(temperature),
+        "timeout": provider_request["provider_timeout_s"],
+        "stream": False,
+    }
+    return _json_bytes(kwargs)
+
+
+def project_litellm_assistant_message(
+    raw_response: bytes,
+) -> dict[str, object]:
+    """Derive the exact assistant projection from captured LiteLLM bytes."""
+
+    if type(raw_response) is not bytes:
+        raise TypeError("LiteLLM response bytes are required")
+    try:
+        response_value = json.loads(raw_response)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("LiteLLM response bytes are not valid JSON") from exc
+    if _json_bytes(response_value) != raw_response:
+        raise ValueError("LiteLLM response bytes are not canonical adapter evidence")
+    if not isinstance(response_value, dict):
+        raise ValueError("LiteLLM response is not an object")
+    choices = response_value.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("LiteLLM response has no choices")
+    choice = choices[0]
+    if not isinstance(choice, dict) or not isinstance(choice.get("message"), dict):
+        raise ValueError("LiteLLM response has no assistant message")
+    source_message = choice["message"]
+    if source_message.get("role") != "assistant":
+        raise ValueError("LiteLLM response message does not have assistant role")
+    return {
+        "role": source_message["role"],
+        "content": source_message.get("content"),
+        "tool_calls": source_message.get("tool_calls") or [],
+    }
+
+
 def _sanitized_provider_error(exc: Exception) -> str:
     message = str(exc)
     for name, value in os.environ.items():
@@ -147,18 +206,12 @@ class LiteLLMProvider:
     def __call__(self, request: dict[str, object]) -> ProviderTurn:
         import litellm
 
-        kwargs = {
-            "model": self.model,
-            "messages": request["messages"],
-            "tools": request["tools"],
-            "tool_choice": request["tool_choice"],
-            "parallel_tool_calls": False,
-            "max_tokens": request["max_completion_tokens"],
-            "temperature": self.temperature,
-            "timeout": request["provider_timeout_s"],
-            "stream": False,
-        }
-        raw_request = _json_bytes(kwargs)
+        raw_request = build_litellm_completion_request_bytes(
+            model=self.model,
+            temperature=self.temperature,
+            provider_request=request,
+        )
+        kwargs = json.loads(raw_request)
         try:
             response = litellm.completion(**kwargs)
         except Exception as exc:
@@ -185,18 +238,12 @@ class LiteLLMProvider:
 
         if not isinstance(response_value, dict):
             raise malformed_response("LiteLLM response is not an object")
-        choices = response_value.get("choices")
-        if not isinstance(choices, list) or not choices:
-            raise malformed_response("LiteLLM response has no choices")
+        try:
+            assistant_message = project_litellm_assistant_message(raw_response)
+        except (TypeError, ValueError) as exc:
+            raise malformed_response(str(exc)) from exc
+        choices = response_value["choices"]
         choice = choices[0]
-        if not isinstance(choice, dict) or not isinstance(choice.get("message"), dict):
-            raise malformed_response("LiteLLM response has no assistant message")
-        source_message = choice["message"]
-        assistant_message = {
-            "role": "assistant",
-            "content": source_message.get("content"),
-            "tool_calls": source_message.get("tool_calls") or [],
-        }
         usage = response_value.get("usage")
         if not isinstance(usage, dict):
             usage = {}

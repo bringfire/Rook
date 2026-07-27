@@ -13,7 +13,7 @@ import time
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, Mapping, NoReturn
+from typing import Callable, Literal, Mapping, NoReturn, Sequence
 
 from jsonschema import Draft202012Validator
 from rook.validation_kernel.canonical_json import canonical_fingerprint, sha256_prefixed
@@ -1115,6 +1115,21 @@ class _BoundedProviderCall:
     quiescent: bool
 
 
+@dataclass(frozen=True)
+class PlannerProviderCallPlan:
+    """Controller-owned state used to derive one Planner provider request."""
+
+    turn_index: int
+    session_started_monotonic_s: float
+    call_started_monotonic_s: float
+    elapsed_before_call_s: float
+    remaining_before_call_s: float
+    provider_timeout_s: float
+    preceding_transcript_fingerprint: str
+    request_raw_sha256: str
+    request_bytes: bytes
+
+
 def _bounded_provider_call(
     provider: Callable[[dict[str, object]], ProviderTurn],
     request: dict[str, object],
@@ -1185,6 +1200,90 @@ def planner_evaluator_tool_definition() -> dict[str, object]:
             "parameters": _planner_evaluation_parameters_from_source(),
         },
     }
+
+
+def build_planner_provider_call_request(
+    *,
+    messages: Sequence[Mapping[str, object]],
+    provider_timeout_s: float,
+) -> bytes:
+    if (
+        type(provider_timeout_s) not in (int, float)
+        or not math.isfinite(float(provider_timeout_s))
+        or provider_timeout_s <= 0
+    ):
+        raise ValueError("Planner provider timeout must be positive and finite")
+    value = {
+        "messages": json.loads(json.dumps(list(messages), ensure_ascii=False)),
+        "tools": [planner_tool_definition()],
+        "tool_choice": "auto",
+        "max_completion_tokens": PLANNER_MAX_COMPLETION_TOKENS,
+        "provider_timeout_s": float(provider_timeout_s),
+    }
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def build_planner_provider_call_plan(
+    *,
+    turn_index: int,
+    messages: Sequence[Mapping[str, object]],
+    session_started_monotonic_s: float,
+    call_started_monotonic_s: float,
+) -> PlannerProviderCallPlan:
+    """Derive the timeout and request from the controller's deadline state."""
+
+    if type(turn_index) is not int or turn_index < 1:
+        raise ValueError("Planner call-plan turn index must be positive")
+    for label, value in (
+        ("session start", session_started_monotonic_s),
+        ("call start", call_started_monotonic_s),
+    ):
+        if type(value) not in (int, float) or not math.isfinite(float(value)):
+            raise ValueError(f"Planner {label} must be finite")
+    session_start = float(session_started_monotonic_s)
+    call_start = float(call_started_monotonic_s)
+    elapsed = call_start - session_start
+    if elapsed < 0:
+        raise ValueError("Planner call cannot precede the session start")
+    remaining = PLANNER_OVERALL_DEADLINE_S - elapsed
+    if remaining <= 0:
+        raise ValueError("Planner call plan has no remaining deadline")
+    timeout = min(PLANNER_PROVIDER_TIMEOUT_S, remaining)
+    request_bytes = build_planner_provider_call_request(
+        messages=messages,
+        provider_timeout_s=timeout,
+    )
+    return PlannerProviderCallPlan(
+        turn_index=turn_index,
+        session_started_monotonic_s=session_start,
+        call_started_monotonic_s=call_start,
+        elapsed_before_call_s=elapsed,
+        remaining_before_call_s=remaining,
+        provider_timeout_s=timeout,
+        preceding_transcript_fingerprint=fingerprint(list(messages)),
+        request_raw_sha256=sha256_prefixed(request_bytes),
+        request_bytes=request_bytes,
+    )
+
+
+def materialize_planner_provider_call_request(
+    raw_bytes: bytes,
+) -> dict[str, object]:
+    value = parse_archive_json(raw_bytes)
+    if type(value) is not dict:
+        raise ValueError("Planner provider request must be an object")
+    rebuilt = build_planner_provider_call_request(
+        messages=value.get("messages", []),
+        provider_timeout_s=value.get("provider_timeout_s"),
+    )
+    if rebuilt != raw_bytes:
+        raise ValueError("Planner provider request differs from builder contract")
+    return json.loads(raw_bytes)
 
 
 def build_planner_evaluator_provider_call_request(
@@ -1364,7 +1463,7 @@ def run_planner_evaluation(
     )
 
 
-def _planner_feedback_message(
+def build_planner_mechanical_feedback_message(
     gate_result: MechanicalGateResult,
     tool_call_id: str | None,
 ) -> dict[str, object]:
@@ -1397,7 +1496,7 @@ def _planner_protocol_rejection(
     return None, None, _reject(code, path, message), None
 
 
-def _planner_submission_from_message(
+def derive_planner_submission_from_message(
     message: Mapping[str, object],
 ) -> tuple[bytes | None, bytes | None, MechanicalGateResult | None, str | None]:
     tool_calls = message.get("tool_calls", [])
@@ -1507,6 +1606,8 @@ def run_planner_session(
     normalization_profile: NormalizationProfile,
     exclusion_policy: Mapping[str, object],
     monotonic: Callable[[], float] = time.monotonic,
+    call_plan_observer: Callable[[PlannerProviderCallPlan], None] | None = None,
+    call_completion_observer: Callable[[bool], None] | None = None,
 ) -> PlannerSessionResult:
     """Run one bounded Planner session with deterministic mechanical feedback."""
 
@@ -1536,17 +1637,20 @@ def run_planner_session(
         )
 
     for turn_index in range(1, PLANNER_MAX_TURNS + 1):
-        remaining_s = PLANNER_OVERALL_DEADLINE_S - (monotonic() - started)
-        if remaining_s <= 0:
+        call_started = monotonic()
+        if call_started - started >= PLANNER_OVERALL_DEADLINE_S:
             return finish("timeout")
-        call_timeout_s = min(PLANNER_PROVIDER_TIMEOUT_S, remaining_s)
-        request = {
-            "messages": json.loads(json.dumps(messages, ensure_ascii=False)),
-            "tools": [planner_tool_definition()],
-            "tool_choice": "auto",
-            "max_completion_tokens": PLANNER_MAX_COMPLETION_TOKENS,
-            "provider_timeout_s": call_timeout_s,
-        }
+        call_plan = build_planner_provider_call_plan(
+            turn_index=turn_index,
+            messages=messages,
+            session_started_monotonic_s=started,
+            call_started_monotonic_s=call_started,
+        )
+        if call_plan_observer is not None:
+            call_plan_observer(call_plan)
+        call_timeout_s = call_plan.provider_timeout_s
+        request_bytes = call_plan.request_bytes
+        request = materialize_planner_provider_call_request(request_bytes)
         turn_started = monotonic()
         try:
             outcome = _bounded_provider_call(
@@ -1556,6 +1660,8 @@ def run_planner_session(
             )
         except Exception:
             return finish("provider_failure")
+        if call_completion_observer is not None:
+            call_completion_observer(outcome.quiescent)
         if outcome.timed_out:
             return finish("timeout")
         if isinstance(outcome.exception, ProviderCallFailure):
@@ -1589,7 +1695,7 @@ def run_planner_session(
             recipe_bytes,
             protocol_rejection,
             tool_call_id,
-        ) = _planner_submission_from_message(response.assistant_message)
+        ) = derive_planner_submission_from_message(response.assistant_message)
 
         if monotonic() - started >= PLANNER_OVERALL_DEADLINE_S:
             turns.append(
@@ -1629,7 +1735,9 @@ def run_planner_session(
             return finish("mechanically_accepted", gate_result.final_recipe_bytes)
 
         messages.append(dict(response.assistant_message))
-        messages.append(_planner_feedback_message(gate_result, tool_call_id))
+        messages.append(
+            build_planner_mechanical_feedback_message(gate_result, tool_call_id)
+        )
         if total_tokens >= PLANNER_TOKEN_STOP_THRESHOLD:
             return finish("mechanically_rejected")
         if cost_complete and total_cost >= PLANNER_COST_STOP_THRESHOLD_USD:
@@ -1659,14 +1767,20 @@ __all__ = (
     "PlannerTurnRecord",
     "ProviderCallFailure",
     "ProviderTurn",
+    "PlannerProviderCallPlan",
     "StrictJsonError",
     "build_planner_evaluator_provider_call_request",
+    "build_planner_mechanical_feedback_message",
+    "build_planner_provider_call_request",
+    "build_planner_provider_call_plan",
+    "derive_planner_submission_from_message",
     "derive_planner_evaluation_result",
     "evaluate_mechanical_gate",
     "fingerprint",
     "fingerprint_without",
     "load_normalization_profile",
     "materialize_planner_evaluator_provider_call_request",
+    "materialize_planner_provider_call_request",
     "normalization_profile_from_value",
     "normalize_recipe",
     "parse_archive_json",
