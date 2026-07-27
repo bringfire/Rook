@@ -608,8 +608,10 @@ git commit -m "test: close resolution evidence resource equations"
 ### Task 3: Enforce Future Dispatch and Capture Bounds Without Losing Evidence
 
 **Files:**
+- Modify: `scripts/lm9b_p_governed_resolution_archive_evidence.py`
 - Modify: `scripts/lm9b_p_governed_resolution_probe.py`
 - Modify: `scripts/lm9b_p_governed_resolution_artifacts.py`
+- Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_archive_evidence.py`
 - Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_probe.py`
 - Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_artifacts.py`
 
@@ -622,7 +624,7 @@ git commit -m "test: close resolution evidence resource equations"
   - `ReconstructedResolutionAttempt` shared by public checkpoint and forensic verification
   - `reconstruct_resolution_attempt_evidence(*, preflight, call_ledger, candidate_recipe_bytes) -> ReconstructedResolutionAttempt`
 
-- [ ] **Step 1: Write pre-dispatch overflow refusals**
+- [x] **Step 1: Write pre-dispatch overflow refusals**
 
 Parameterize Planner turn 1, Planner turns 2–6, and evaluator call 1. For the initial Planner request, assert an over-bound canonical or adapter request refuses before reservation/dispatch and leaves the attempt unconsumed. For a later request after one completed dispatch, assert exact prior evidence remains and the attempt becomes `post_dispatch_unsealed` without entering the next adapter.
 
@@ -635,7 +637,7 @@ assert not destination.exists()
 assert (staging / ".resolution-runtime").is_dir()
 ```
 
-- [ ] **Step 2: Validate exact request bytes before every dispatch**
+- [x] **Step 2: Validate exact request bytes before every dispatch**
 
 In `_StagedCallLedger`, after canonical request construction and fresh materialization but before `dispatch_started`:
 
@@ -648,7 +650,7 @@ canonical request bytes
 
 Only after the check passes may the ledger persist/reread bytes and write `dispatch_started`. Do not change the request builder, timeout derivation, model, profile, temperature, tool schema, or call sequence.
 
-- [ ] **Step 3: Write post-dispatch raw-capture overflow tests**
+- [x] **Step 3: Write post-dispatch raw-capture overflow tests**
 
 Use fake providers returning exact-bound and bound-plus-one:
 
@@ -662,7 +664,7 @@ Use fake providers returning exact-bound and bound-plus-one:
 
 For bound plus one, prove raw bytes are written and reread in staging before `validate_resolution_captured_turn()` fails. Assert the marker/hash inventory names the captured bytes and no derived sealed archive is issued.
 
-- [ ] **Step 4: Make raw capture precede profile admission**
+- [x] **Step 4: Make raw capture precede profile admission**
 
 Refactor terminal publication to this order:
 
@@ -678,7 +680,7 @@ adapter returns/raises with evidence
 
 An unexpected exception before complete adapter evidence remains unsealed under the existing semantics. A bounds exception after dispatch is never converted to `probe_inconclusive`.
 
-- [ ] **Step 5: Extract one shared attempt reconstruction result**
+- [x] **Step 5: Extract one shared attempt reconstruction result**
 
 Replace the private seven-value tuple from `_reconstruct_attempt_results()` with:
 
@@ -696,7 +698,7 @@ class ReconstructedResolutionAttempt:
 
 Expose `reconstruct_resolution_attempt_evidence()` and make the public checkpoint verifier its only existing consumer. Preserve all current classifications and evidence identities except commit/source-derived instrument/preflight identities that must move.
 
-- [ ] **Step 6: Test future instrument/preflight drift closure**
+- [x] **Step 6: Test future instrument/preflight drift closure**
 
 Fully reclose each mutation and require `verify_resolution_preflight()` refusal:
 
@@ -710,7 +712,7 @@ Fully reclose each mutation and require `verify_resolution_preflight()` refusal:
 
 Also assert the current feature instrument and development preflight identities differ from the historical `e81b12cc` identities; this is intentional and must not alter the historical preflight bytes.
 
-- [ ] **Step 7: Run focused tests and commit**
+- [x] **Step 7: Run focused tests and commit**
 
 ```powershell
 & C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
@@ -719,8 +721,10 @@ Also assert the current feature instrument and development preflight identities 
   mcp_server/tests/test_lm9b_p_governed_resolution_archive_evidence.py `
   -q
 git diff --check
-git add scripts/lm9b_p_governed_resolution_probe.py `
+git add scripts/lm9b_p_governed_resolution_archive_evidence.py `
+  scripts/lm9b_p_governed_resolution_probe.py `
   scripts/lm9b_p_governed_resolution_artifacts.py `
+  mcp_server/tests/test_lm9b_p_governed_resolution_archive_evidence.py `
   mcp_server/tests/test_lm9b_p_governed_resolution_probe.py `
   mcp_server/tests/test_lm9b_p_governed_resolution_artifacts.py `
   docs/superpowers/plans/2026-07-27-lm9b-p-resolution-archive-evidence-resource-profile.md

@@ -238,6 +238,17 @@ class VerifiedResolutionPreflight:
 
 
 @dataclass(frozen=True)
+class ReconstructedResolutionAttempt:
+    planner_session: PLANNER_SUPPORT.PlannerSessionResult
+    checkpoint_gate: PLANNER_SUPPORT.MechanicalGateResult | None
+    isolation_result: SUPPORT.IsolationGateResult | None
+    evaluator_result: PLANNER_SUPPORT.PlannerEvaluationResult | None
+    classification: str
+    derived_stop_cause: str
+    candidate_recipe_bytes: bytes | None
+
+
+@dataclass(frozen=True)
 class SealedResolutionCheckpoint:
     archive_dir: Path
     checkpoint_identity: str
@@ -1465,6 +1476,45 @@ def _attempt_from_verified_preflight_record(
     )
 
 
+def validate_initial_resolution_dispatch(
+    *,
+    instrument: ResolutionInstrument,
+    archive_resource_profile: object,
+) -> None:
+    """Apply the selected evidence profile to the initial Planner dispatch."""
+
+    if type(instrument) is not ResolutionInstrument:
+        raise TypeError("resolution instrument is required")
+    request_bytes = PLANNER_SUPPORT.build_planner_provider_call_request(
+        messages=(
+            {"role": "system", "content": SUPPORT.REVISION_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": instrument.initial_request.raw_bytes.decode("utf-8"),
+            },
+        ),
+        provider_timeout_s=PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S,
+    )
+    request = PLANNER_SUPPORT.materialize_planner_provider_call_request(
+        request_bytes
+    )
+    planner_contract = instrument.contract_manifest["planner"]
+    adapter_request_bytes = (
+        PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
+            model=planner_contract["model"],
+            temperature=planner_contract["temperature"],
+            provider_request=request,
+        )
+    )
+    ARCHIVE_EVIDENCE.validate_resolution_dispatch_request(
+        role="planner",
+        ordinal=1,
+        canonical_request_bytes=request_bytes,
+        adapter_request_bytes=adapter_request_bytes,
+        profile=archive_resource_profile,
+    )
+
+
 def verify_resolution_preflight(
     archive_dir: Path,
     *,
@@ -1496,6 +1546,15 @@ def verify_resolution_preflight(
         sources=sources,
         isolation_policy_path=ISOLATION_POLICY_PATH,
         evaluation_rubric_path=EVALUATION_RUBRIC_PATH,
+    )
+    archive_resource_profile, _archive_resource_contract = (
+        _resolution_archive_resource_contract(
+            instrument.inputs.reviewed_commit_sha
+        )
+    )
+    validate_initial_resolution_dispatch(
+        instrument=instrument,
+        archive_resource_profile=archive_resource_profile,
     )
     attempt = _attempt_from_verified_preflight_record(
         instrument=instrument,
@@ -3061,19 +3120,12 @@ def _boundary_record(
     }
 
 
-def _reconstruct_attempt_results(
+def reconstruct_resolution_attempt_evidence(
     *,
     preflight: VerifiedResolutionPreflight,
     call_ledger: tuple[Mapping[str, object], ...],
     candidate_recipe_bytes: bytes | None,
-) -> tuple[
-    PLANNER_SUPPORT.PlannerSessionResult,
-    PLANNER_SUPPORT.MechanicalGateResult | None,
-    SUPPORT.IsolationGateResult | None,
-    PLANNER_SUPPORT.PlannerEvaluationResult | None,
-    str,
-    str,
-]:
+) -> ReconstructedResolutionAttempt:
     calls = [dict(row) for row in call_ledger]
     planner_rows = [row for row in calls if row.get("role") == "planner"]
     evaluator_rows = [
@@ -3248,13 +3300,14 @@ def _reconstruct_attempt_results(
         )
         if classification == "probe_resolution_isolation_failure":
             stop_cause = "isolation_rejected"
-    return (
-        planner_session,
-        checkpoint_gate,
-        isolation,
-        evaluator,
-        classification,
-        stop_cause,
+    return ReconstructedResolutionAttempt(
+        planner_session=planner_session,
+        checkpoint_gate=checkpoint_gate,
+        isolation_result=isolation,
+        evaluator_result=evaluator,
+        classification=classification,
+        derived_stop_cause=stop_cause,
+        candidate_recipe_bytes=candidate_recipe_bytes,
     )
 
 
@@ -3763,18 +3816,17 @@ def _verify_resolution_checkpoint_archive(
             path="candidate-recipe.json",
             profile=profile,
         )
-    (
-        planner_session,
-        checkpoint_gate,
-        isolation,
-        evaluator,
-        classification,
-        stop_cause,
-    ) = _reconstruct_attempt_results(
+    reconstructed = reconstruct_resolution_attempt_evidence(
         preflight=preflight,
         call_ledger=call_ledger,
         candidate_recipe_bytes=candidate_raw,
     )
+    planner_session = reconstructed.planner_session
+    checkpoint_gate = reconstructed.checkpoint_gate
+    isolation = reconstructed.isolation_result
+    evaluator = reconstructed.evaluator_result
+    classification = reconstructed.classification
+    stop_cause = reconstructed.derived_stop_cause
     verify_resolution_call_ledger(
         preflight=preflight,
         planner_session=planner_session,
@@ -4065,6 +4117,7 @@ __all__ = (
     "FinalizationIndeterminate",
     "PostDispatchUnsealed",
     "RESOLUTION_ARCHIVE_MEMBERS",
+    "ReconstructedResolutionAttempt",
     "ResolutionInstrument",
     "SealedResolutionCheckpoint",
     "VerifiedCarrierQualificationCompatibility",
@@ -4081,6 +4134,7 @@ __all__ = (
     "reserve_resolution_staging",
     "require_clean_reviewed_checkout",
     "readiness_route_identity_projection",
+    "reconstruct_resolution_attempt_evidence",
     "reconcile_resolution_rename",
     "resolution_archive_member_paths",
     "retain_post_dispatch_unsealed",
@@ -4090,6 +4144,7 @@ __all__ = (
     "verify_resolution_invocation_binding",
     "verify_resolution_call_ledger",
     "verify_sealed_resolution_checkpoint",
+    "validate_initial_resolution_dispatch",
     "issue_resolution_ready_proof",
     "consume_resolution_ready_proof",
     "write_resolution_preflight",

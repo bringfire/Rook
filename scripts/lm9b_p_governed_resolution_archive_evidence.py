@@ -175,6 +175,24 @@ class ResolutionArchiveEvidenceError(ValueError):
     """A stable governed-resolution archive resource refusal."""
 
 
+class ResolutionArchiveEvidenceOverflow(ResolutionArchiveEvidenceError):
+    """An exact evidence field exceeded its closed resource ceiling."""
+
+    def __init__(
+        self,
+        *,
+        field: str,
+        observed_bytes: int,
+        ceiling_bytes: int,
+        rejection_id: str,
+    ) -> None:
+        super().__init__(rejection_id)
+        self.field = field
+        self.observed_bytes = observed_bytes
+        self.ceiling_bytes = ceiling_bytes
+        self.rejection_id = rejection_id
+
+
 class VerifiedResolutionArchiveResourceProfile:
     __slots__ = ("__weakref__",)
 
@@ -443,6 +461,7 @@ def _bounded_canonical_size(
     value: object,
     *,
     ceiling: int,
+    field: str,
     rejection_id: str,
 ) -> None:
     try:
@@ -450,7 +469,72 @@ def _bounded_canonical_size(
     except (TypeError, ValueError) as exc:
         raise ResolutionArchiveEvidenceError(rejection_id) from exc
     if observed > ceiling:
-        raise ResolutionArchiveEvidenceError(rejection_id)
+        raise ResolutionArchiveEvidenceOverflow(
+            field=field,
+            observed_bytes=observed,
+            ceiling_bytes=ceiling,
+            rejection_id=rejection_id,
+        )
+
+
+def _request_ceilings(
+    *,
+    role: str,
+    ordinal: int,
+    constants: Mapping[str, object],
+) -> tuple[int, int]:
+    if role == "planner":
+        request_ceiling = _planner_canonical_request_ceiling(ordinal, constants)
+    elif role == "planner_evaluator":
+        if type(ordinal) is not int or ordinal != 1:
+            raise ResolutionArchiveEvidenceError(
+                "resolution_archive_evaluator_ordinal_invalid"
+            )
+        request_ceiling = int(constants["evaluator_canonical_request_bytes"])
+    else:
+        raise ResolutionArchiveEvidenceError("resolution_archive_role_unknown")
+    return (
+        request_ceiling,
+        request_ceiling + int(constants["adapter_request_overhead_bytes"]),
+    )
+
+
+def validate_resolution_dispatch_request(
+    *,
+    role: str,
+    ordinal: int,
+    canonical_request_bytes: bytes,
+    adapter_request_bytes: bytes,
+    profile: object,
+) -> None:
+    """Refuse an over-bound provider request before its dispatch marker."""
+
+    if type(canonical_request_bytes) is not bytes:
+        raise TypeError("canonical resolution request bytes are required")
+    if type(adapter_request_bytes) is not bytes:
+        raise TypeError("adapter resolution request bytes are required")
+    value = consume_resolution_archive_resource_profile(profile)
+    constants = value["constants"]
+    assert isinstance(constants, Mapping)
+    request_ceiling, adapter_ceiling = _request_ceilings(
+        role=role,
+        ordinal=ordinal,
+        constants=constants,
+    )
+    if len(canonical_request_bytes) > request_ceiling:
+        raise ResolutionArchiveEvidenceOverflow(
+            field="canonical_request_bytes",
+            observed_bytes=len(canonical_request_bytes),
+            ceiling_bytes=request_ceiling,
+            rejection_id="resolution_archive_canonical_request_bytes_exceeded",
+        )
+    if len(adapter_request_bytes) > adapter_ceiling:
+        raise ResolutionArchiveEvidenceOverflow(
+            field="adapter_request_bytes",
+            observed_bytes=len(adapter_request_bytes),
+            ceiling_bytes=adapter_ceiling,
+            rejection_id="resolution_archive_adapter_request_bytes_exceeded",
+        )
 
 
 def validate_resolution_call_field_bounds(
@@ -491,19 +575,27 @@ def validate_resolution_call_field_bounds(
         raise ResolutionArchiveEvidenceError(
             "resolution_archive_canonical_request_invalid"
         )
-    if len(request.encode("utf-8")) > request_ceiling:
-        raise ResolutionArchiveEvidenceError(
-            "resolution_archive_canonical_request_bytes_exceeded"
+    request_bytes = request.encode("utf-8")
+    if len(request_bytes) > request_ceiling:
+        raise ResolutionArchiveEvidenceOverflow(
+            field="canonical_request_bytes",
+            observed_bytes=len(request_bytes),
+            ceiling_bytes=request_ceiling,
+            rejection_id="resolution_archive_canonical_request_bytes_exceeded",
         )
     adapter = _strict_base64_bytes(
         row.get("provider_claimed_raw_request_b64"),
         rejection_id="resolution_archive_adapter_request_base64_invalid",
     )
-    if len(adapter) > request_ceiling + int(
+    adapter_ceiling = request_ceiling + int(
         constants["adapter_request_overhead_bytes"]
-    ):
-        raise ResolutionArchiveEvidenceError(
-            "resolution_archive_adapter_request_bytes_exceeded"
+    )
+    if len(adapter) > adapter_ceiling:
+        raise ResolutionArchiveEvidenceOverflow(
+            field="adapter_request_bytes",
+            observed_bytes=len(adapter),
+            ceiling_bytes=adapter_ceiling,
+            rejection_id="resolution_archive_adapter_request_bytes_exceeded",
         )
 
     branch = _validate_call_branch(row)
@@ -513,22 +605,28 @@ def validate_resolution_call_field_bounds(
             rejection_id="resolution_archive_raw_response_base64_invalid",
         )
         if len(response) > response_ceiling:
-            raise ResolutionArchiveEvidenceError(
-                "resolution_archive_raw_response_bytes_exceeded"
+            raise ResolutionArchiveEvidenceOverflow(
+                field="raw_response_bytes",
+                observed_bytes=len(response),
+                ceiling_bytes=response_ceiling,
+                rejection_id="resolution_archive_raw_response_bytes_exceeded",
             )
         _bounded_canonical_size(
             row.get("assistant_message"),
             ceiling=assistant_ceiling,
+            field="assistant_projection_bytes",
             rejection_id="resolution_archive_assistant_projection_bytes_exceeded",
         )
         _bounded_canonical_size(
             row.get("usage"),
             ceiling=int(constants["usage_bytes"]),
+            field="usage_bytes",
             rejection_id="resolution_archive_usage_bytes_exceeded",
         )
         _bounded_canonical_size(
             row.get("provider_metadata"),
             ceiling=int(constants["provider_metadata_bytes"]),
+            field="provider_metadata_bytes",
             rejection_id="resolution_archive_provider_metadata_bytes_exceeded",
         )
     else:
@@ -537,8 +635,11 @@ def validate_resolution_call_field_bounds(
             rejection_id="resolution_archive_raw_error_base64_invalid",
         )
         if len(error) > error_ceiling:
-            raise ResolutionArchiveEvidenceError(
-                "resolution_archive_raw_error_bytes_exceeded"
+            raise ResolutionArchiveEvidenceOverflow(
+                field="raw_error_bytes",
+                observed_bytes=len(error),
+                ceiling_bytes=error_ceiling,
+                rejection_id="resolution_archive_raw_error_bytes_exceeded",
             )
 
     variable_fields = {
@@ -556,6 +657,7 @@ def validate_resolution_call_field_bounds(
     _bounded_canonical_size(
         fixed_projection,
         ceiling=int(constants["row_framing_bytes"]),
+        field="fixed_row_bytes",
         rejection_id="resolution_archive_fixed_row_bytes_exceeded",
     )
     row_ceiling = resolution_call_row_ceiling(
@@ -566,8 +668,19 @@ def validate_resolution_call_field_bounds(
     _bounded_canonical_size(
         dict(row),
         ceiling=row_ceiling,
+        field="call_row_bytes",
         rejection_id="resolution_archive_call_row_bytes_exceeded",
     )
+
+
+def validate_resolution_captured_turn(
+    *,
+    row: Mapping[str, object],
+    profile: object,
+) -> None:
+    """Validate one complete captured turn under the selected profile."""
+
+    validate_resolution_call_field_bounds(row=row, profile=profile)
 
 
 def resolution_member_ceiling(
@@ -918,6 +1031,7 @@ def _validate_planner_member_against_shape(
         _bounded_canonical_size(
             turn,
             ceiling=int(constants["turn_summary_bytes"]),
+            field="turn_summary_bytes",
             rejection_id="resolution_archive_turn_summary_bytes_exceeded",
         )
 
@@ -1004,6 +1118,7 @@ def _validate_evaluator_member_against_shape(
     _bounded_canonical_size(
         parsed_result,
         ceiling=int(constants["evaluator_parsed_result_bytes"]),
+        field="evaluator_result_bytes",
         rejection_id="resolution_archive_evaluator_result_bytes_exceeded",
     )
 
@@ -1076,6 +1191,7 @@ __all__ = (
     "PROFILE_SCHEMA_ID",
     "RESOLUTION_ARCHIVE_MEMBERS",
     "ResolutionArchiveEvidenceError",
+    "ResolutionArchiveEvidenceOverflow",
     "VerifiedResolutionArchiveResourceProfile",
     "VerifiedResolutionCallShape",
     "admit_resolution_archive_resource_profile",
@@ -1087,4 +1203,6 @@ __all__ = (
     "resolution_evaluator_member_ceiling",
     "resolution_member_ceiling",
     "validate_resolution_call_field_bounds",
+    "validate_resolution_captured_turn",
+    "validate_resolution_dispatch_request",
 )

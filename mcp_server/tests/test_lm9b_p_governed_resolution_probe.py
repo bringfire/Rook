@@ -63,6 +63,7 @@ import lm9_typed_fact_carrier_qualification as QUALIFICATION
 import lm9b_c_compiler_sufficiency_probe as COMPILER_PROBE
 import lm9b_c_compiler_sufficiency_support as COMPILER_SUPPORT
 import lm9b_p_evaluator_only_continuation_artifacts as CONT_ARTIFACTS
+import lm9b_p_governed_resolution_archive_evidence as ARCHIVE_EVIDENCE
 import lm9b_p_governed_resolution_artifacts as RESOLUTION_ARTIFACTS
 import lm9b_p_governed_resolution_probe as RESOLUTION_PROBE
 import lm9b_p_governed_resolution_support as RESOLUTION_SUPPORT
@@ -149,6 +150,33 @@ def _litellm_response_bytes(
             "usage": {"total_tokens": 50},
         }
     ) + b"\n"
+
+
+def _litellm_response_bytes_at_least(
+    assistant_message: dict[str, object],
+    *,
+    response_id: str,
+    minimum_bytes: int,
+) -> bytes:
+    value = {
+        "id": response_id,
+        "model": "gpt-5.4-2026-03-05",
+        "created": 1785000000,
+        "choices": [
+            {
+                "message": assistant_message,
+                "finish_reason": "tool_calls",
+            }
+        ],
+        "usage": {"total_tokens": 50},
+        "padding": "",
+    }
+    base = _canonical_bytes(value) + b"\n"
+    if len(base) < minimum_bytes:
+        value["padding"] = "x" * (minimum_bytes - len(base))
+    raw = _canonical_bytes(value) + b"\n"
+    assert len(raw) == max(len(base), minimum_bytes)
+    return raw
 
 
 def _planner_turn(
@@ -265,6 +293,10 @@ class _FakeProvider:
         if callable(response):
             return response(request)
         return response
+
+    @property
+    def call_count(self) -> int:
+        return len(self.requests)
 
 
 def _provider_failure_action(
@@ -1030,6 +1062,303 @@ def test_archive_profile_six_turn_vertical_seals_and_publicly_reconstructs(
         expected_preflight_fingerprint=preflight.preflight_fingerprint,
     )
     assert verified.classification == "probe_resolution_isolation_failure"
+    reconstructed = RESOLUTION_ARTIFACTS.reconstruct_resolution_attempt_evidence(
+        preflight=preflight,
+        call_ledger=result.call_ledger,
+        candidate_recipe_bytes=result.candidate_recipe_bytes,
+    )
+    assert type(reconstructed) is (
+        RESOLUTION_ARTIFACTS.ReconstructedResolutionAttempt
+    )
+    assert reconstructed.planner_session.termination == (
+        result.planner_session.termination
+    )
+    assert len(reconstructed.planner_session.turns) == len(
+        result.planner_session.turns
+    )
+    assert tuple(
+        turn.raw_response for turn in reconstructed.planner_session.turns
+    ) == tuple(turn.raw_response for turn in result.planner_session.turns)
+    assert reconstructed.checkpoint_gate == result.checkpoint_gate
+    assert reconstructed.isolation_result == result.isolation_result
+    assert reconstructed.evaluator_result is None
+    assert reconstructed.classification == "probe_resolution_isolation_failure"
+    assert reconstructed.derived_stop_cause == "isolation_rejected"
+    assert reconstructed.candidate_recipe_bytes == result.candidate_recipe_bytes
+
+
+def _install_task3_dispatch_overflow(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    rejected_role: str,
+    rejected_ordinal: int,
+) -> None:
+    real_validate = ARCHIVE_EVIDENCE.validate_resolution_dispatch_request
+
+    def validate_then_refuse(**kwargs: object) -> None:
+        real_validate(**kwargs)
+        if (
+            kwargs["role"] == rejected_role
+            and kwargs["ordinal"] == rejected_ordinal
+        ):
+            raise ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow(
+                field="canonical_request_bytes",
+                observed_bytes=1,
+                ceiling_bytes=0,
+                rejection_id=(
+                    "resolution_archive_canonical_request_bytes_exceeded"
+                ),
+            )
+
+    monkeypatch.setattr(
+        ARCHIVE_EVIDENCE,
+        "validate_resolution_dispatch_request",
+        validate_then_refuse,
+    )
+
+
+def test_task3_initial_request_overflow_refuses_before_reservation_or_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Catches initial request admission occurring after attempt consumption."""
+
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    planner = _FakeProvider([], staging_path=preflight.attempt.staging_path)
+    evaluator = _FakeProvider([], staging_path=preflight.attempt.staging_path)
+    _install_task3_dispatch_overflow(
+        monkeypatch,
+        rejected_role="planner",
+        rejected_ordinal=1,
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+
+    with pytest.raises(
+        ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow,
+        match="resolution_archive_canonical_request_bytes_exceeded",
+    ):
+        _run_resolution_attempt(
+            monkeypatch=monkeypatch,
+            preflight=preflight,
+            invocation_binding=_invocation(preflight, readiness),
+            readiness_record=readiness,
+            readiness_manifest=manifest,
+            head_sha=head_sha,
+            now_iso="2026-07-25T20:00:06Z",
+            credential_present={route.route_fingerprint: True},
+            planner_provider=planner,
+            evaluator_provider=evaluator,
+        )
+
+    assert planner.call_count == 0
+    assert evaluator.call_count == 0
+    assert not preflight.attempt.destination.exists()
+    assert not preflight.attempt.staging_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("role", "ordinal"),
+    (
+        ("planner", 2),
+        ("planner", 3),
+        ("planner", 4),
+        ("planner", 5),
+        ("planner", 6),
+        ("planner_evaluator", 1),
+    ),
+)
+def test_task3_later_request_overflow_retains_prior_dispatch_without_next_call(
+    role: str,
+    ordinal: int,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Catches a later over-bound request entering its adapter or losing turn one."""
+
+    preflight = _task2_preflight(tmp_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    if role == "planner":
+        planner_responses = [
+            _planner_turn(
+                recipe_bytes=b"{}",
+                call_id=f"planner-{turn}",
+            )
+            for turn in range(1, ordinal)
+        ]
+    else:
+        planner_responses = [
+            _planner_turn(
+                recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+                call_id="planner-1",
+            ),
+        ]
+    planner = _FakeProvider(
+        planner_responses,
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider(
+        [_evaluator_turn()],
+        staging_path=preflight.attempt.staging_path,
+    )
+    _install_task3_dispatch_overflow(
+        monkeypatch,
+        rejected_role=role,
+        rejected_ordinal=ordinal,
+    )
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    expected_planner_calls = ordinal - 1 if role == "planner" else 1
+    assert planner.call_count == expected_planner_calls
+    assert evaluator.call_count == 0
+    assert not preflight.attempt.destination.exists()
+    staging = preflight.attempt.staging_path
+    assert (staging / ".resolution-runtime").is_dir()
+    assert len(result.call_ledger) == expected_planner_calls
+    assert all(row["role"] == "planner" for row in result.call_ledger)
+    assert all(row["terminal"] is True for row in result.call_ledger)
+    assert len(
+        list(
+            (staging / ".resolution-runtime" / "calls").glob(
+                f"*-{role}-dispatch_started.json"
+            )
+        )
+    ) == (expected_planner_calls if role == "planner" else 0)
+
+
+@pytest.mark.parametrize(
+    ("role", "branch"),
+    (
+        ("planner", "response"),
+        ("planner", "error"),
+        ("planner_evaluator", "response"),
+        ("planner_evaluator", "error"),
+    ),
+)
+def test_task3_post_dispatch_overflow_retains_exact_raw_adapter_evidence(
+    role: str,
+    branch: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Catches post-dispatch admission discarding or truncating provider bytes."""
+
+    preflight = _task2_preflight(tmp_path)
+    profile = RESOLUTION_ARTIFACTS._verified_resolution_archive_profile(preflight)
+    constants = ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(
+        profile
+    )["constants"]
+    prefix = "planner" if role == "planner" else "evaluator"
+    if branch == "response":
+        ceiling = int(constants[f"{prefix}_raw_response_bytes"])
+        ordinary = (
+            _planner_turn(recipe_bytes=b"{}", call_id="overflow")
+            if role == "planner"
+            else _evaluator_turn()
+        )
+        raw_evidence = _litellm_response_bytes_at_least(
+            dict(ordinary.assistant_message),
+            response_id=f"{role}-overflow",
+            minimum_bytes=ceiling + 1,
+        )
+        overflowing_action = replace(ordinary, raw_response=raw_evidence)
+        expected_suffix = "adapter-response.bin"
+        expected_field = "raw_response_bytes"
+    else:
+        ceiling = int(constants[f"{prefix}_raw_error_bytes"])
+        raw_evidence = b"x" * (ceiling + 1)
+        overflowing_action = _provider_failure_action(raw_error=raw_evidence)
+        expected_suffix = "adapter-error.bin"
+        expected_field = "raw_error_bytes"
+    if role == "planner":
+        planner_actions = [overflowing_action]
+        evaluator_actions: list[object] = []
+        call_index = 0
+    else:
+        planner_actions = [
+            _planner_turn(
+                recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+                call_id="planner-1",
+            )
+        ]
+        evaluator_actions = [overflowing_action]
+        call_index = 1
+    planner = _FakeProvider(
+        planner_actions,
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider(
+        evaluator_actions,
+        staging_path=preflight.attempt.staging_path,
+    )
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    assert result.derived_stop_cause == (
+        f"{role}_archive_evidence_overflow:{expected_field}"
+    )
+    assert planner.call_count == 1
+    assert evaluator.call_count == (1 if role == "planner_evaluator" else 0)
+    assert not preflight.attempt.destination.exists()
+    staging = preflight.attempt.staging_path
+    assert (staging / ".resolution-runtime").is_dir()
+    evidence_path = (
+        staging
+        / ".resolution-runtime"
+        / "calls"
+        / f"{call_index:02d}-{role}-{expected_suffix}"
+    )
+    assert evidence_path.read_bytes() == raw_evidence
+    assert result.call_ledger[call_index]["outcome"] == "dispatch_started"
+    assert result.call_ledger[call_index]["terminal"] is False
+    marker = json.loads((staging / "post_dispatch_unsealed.json").read_bytes())
+    relative = evidence_path.relative_to(staging).as_posix()
+    forensic_row = next(
+        row for row in marker["forensic_hashes"] if row["path"] == relative
+    )
+    assert forensic_row["size"] == ceiling + 1
+    assert forensic_row["sha256"] == PLANNER_SUPPORT.sha256_prefixed(
+        raw_evidence
+    )
 
 
 @pytest.mark.parametrize(

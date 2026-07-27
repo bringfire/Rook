@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import subprocess
@@ -406,6 +407,213 @@ def test_task2_preflight_reconstructs_every_contract_and_refuses_future_proof(
         ARTIFACTS.verify_resolution_preflight(
             preflight.archive_dir,
             expected_fingerprint=record["preflight_fingerprint"],
+        )
+
+
+@pytest.mark.parametrize(
+    "contract_field",
+    (
+        "profile_raw_sha256",
+        "profile_fingerprint",
+        "member_map_fingerprint",
+        "formula_constants_fingerprint",
+        "helper_source_fingerprint",
+        "evaluator_projection_contract_fingerprint",
+        "writer_source_fingerprint",
+        "public_verifier_source_fingerprint",
+        "checkpoint_reconstruction_source_fingerprint",
+    ),
+)
+def test_task3_reclosed_archive_resource_drift_refuses_preflight(
+    contract_field: str,
+    tmp_path: Path,
+) -> None:
+    """Catches a self-consistent preflight authenticating altered resource code."""
+
+    instrument = _instrument()
+    root = tmp_path / "root"
+    root.mkdir()
+    attempt = ARTIFACTS.bind_resolution_attempt(
+        instrument=instrument,
+        attempt_id="resource-drift",
+        resolution_root=root,
+        destination=root / "result",
+    )
+    preflight = ARTIFACTS.write_resolution_preflight(
+        destination=tmp_path / "preflight",
+        instrument=instrument,
+        attempt_binding=attempt,
+    )
+    record_path = preflight.archive_dir / "record.json"
+    record = json.loads(record_path.read_bytes())
+    resource = record["instrument_contracts"]["archive_resource"]
+    resource[contract_field] = "sha256:" + "f" * 64
+    record["instrument_fingerprint"] = ARTIFACTS.PLANNER_SUPPORT.fingerprint(
+        record["instrument_contracts"]
+    )
+    record["attempt"]["attempt_fingerprint"] = (
+        ARTIFACTS.PLANNER_SUPPORT.fingerprint(
+            {
+                "instrument_fingerprint": record["instrument_fingerprint"],
+                "attempt_id": record["attempt"]["attempt_id"],
+                "canonical_destination": record["attempt"][
+                    "canonical_destination"
+                ],
+            }
+        )
+    )
+    record["preflight_fingerprint"] = (
+        ARTIFACTS.PLANNER_SUPPORT.fingerprint_without(
+            record, "preflight_fingerprint"
+        )
+    )
+    record_path.write_bytes(ARTIFACTS._json_bytes(record))
+    raw_members = {
+        "record.json": record_path.read_bytes(),
+        "initial-request.json": (
+            preflight.archive_dir / "initial-request.json"
+        ).read_bytes(),
+    }
+    (preflight.archive_dir / "checksums.json").write_bytes(
+        ARTIFACTS._json_bytes(
+            ARTIFACTS._checksums(
+                "rook.lm9b_p.governed_resolution_preflight_checksums:v1",
+                raw_members,
+            )
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="attempt fingerprint|reconstructed instrument",
+    ):
+        ARTIFACTS.verify_resolution_preflight(
+            preflight.archive_dir,
+            expected_fingerprint=record["preflight_fingerprint"],
+        )
+
+
+def test_task3_reviewed_commit_and_feature_identities_do_not_rewrite_history(
+    tmp_path: Path,
+) -> None:
+    """Catches repaired code retaining the consumed historical instrument identity."""
+
+    instrument = _instrument()
+    root = tmp_path / "root"
+    root.mkdir()
+    attempt = ARTIFACTS.bind_resolution_attempt(
+        instrument=instrument,
+        attempt_id="feature-identity",
+        resolution_root=root,
+        destination=root / "result",
+    )
+    preflight = ARTIFACTS.write_resolution_preflight(
+        destination=tmp_path / "preflight",
+        instrument=instrument,
+        attempt_binding=attempt,
+    )
+    assert instrument.instrument_fingerprint != (
+        "sha256:0b57f30954c375df34b28ba394f2ef281c09388c209e688586187d8759f26d11"
+    )
+    assert preflight.preflight_fingerprint != (
+        "sha256:897337de3d20e126a143576de707ec3b1377033eab49465ac38d793afd97a856"
+    )
+
+    record_path = preflight.archive_dir / "record.json"
+    record = json.loads(record_path.read_bytes())
+    old_commit = record["reviewed_commit_sha"]
+
+    def replace_commit(value: object) -> object:
+        if type(value) is dict:
+            return {key: replace_commit(item) for key, item in value.items()}
+        if type(value) is list:
+            return [replace_commit(item) for item in value]
+        return "0" * 40 if value == old_commit else value
+
+    changed = replace_commit(copy.deepcopy(record))
+    assert type(changed) is dict
+    changed["instrument_fingerprint"] = ARTIFACTS.PLANNER_SUPPORT.fingerprint(
+        changed["instrument_contracts"]
+    )
+    changed["attempt"]["attempt_fingerprint"] = (
+        ARTIFACTS.PLANNER_SUPPORT.fingerprint(
+            {
+                "instrument_fingerprint": changed["instrument_fingerprint"],
+                "attempt_id": changed["attempt"]["attempt_id"],
+                "canonical_destination": changed["attempt"][
+                    "canonical_destination"
+                ],
+            }
+        )
+    )
+    changed["preflight_fingerprint"] = (
+        ARTIFACTS.PLANNER_SUPPORT.fingerprint_without(
+            changed, "preflight_fingerprint"
+        )
+    )
+    record_path.write_bytes(ARTIFACTS._json_bytes(changed))
+    raw_members = {
+        "record.json": record_path.read_bytes(),
+        "initial-request.json": (
+            preflight.archive_dir / "initial-request.json"
+        ).read_bytes(),
+    }
+    (preflight.archive_dir / "checksums.json").write_bytes(
+        ARTIFACTS._json_bytes(
+            ARTIFACTS._checksums(
+                "rook.lm9b_p.governed_resolution_preflight_checksums:v1",
+                raw_members,
+            )
+        )
+    )
+    with pytest.raises(ValueError, match="reviewed commit|current source"):
+        ARTIFACTS.verify_resolution_preflight(
+            preflight.archive_dir,
+            expected_fingerprint=changed["preflight_fingerprint"],
+        )
+
+
+def test_task3_preflight_verifier_applies_initial_dispatch_resource_bound(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Catches an operational preflight omitting initial-request admission."""
+
+    instrument = _instrument()
+    root = tmp_path / "root"
+    root.mkdir()
+    attempt = ARTIFACTS.bind_resolution_attempt(
+        instrument=instrument,
+        attempt_id="initial-bound",
+        resolution_root=root,
+        destination=root / "result",
+    )
+    real_validate = (
+        ARTIFACTS.ARCHIVE_EVIDENCE.validate_resolution_dispatch_request
+    )
+
+    def validate_then_refuse(**kwargs: object) -> None:
+        real_validate(**kwargs)
+        raise ARTIFACTS.ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow(
+            field="canonical_request_bytes",
+            observed_bytes=1,
+            ceiling_bytes=0,
+            rejection_id="resolution_archive_canonical_request_bytes_exceeded",
+        )
+
+    monkeypatch.setattr(
+        ARTIFACTS.ARCHIVE_EVIDENCE,
+        "validate_resolution_dispatch_request",
+        validate_then_refuse,
+    )
+    with pytest.raises(
+        ARTIFACTS.ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow,
+        match="resolution_archive_canonical_request_bytes_exceeded",
+    ):
+        ARTIFACTS.write_resolution_preflight(
+            destination=tmp_path / "preflight",
+            instrument=instrument,
+            attempt_binding=attempt,
         )
 
 

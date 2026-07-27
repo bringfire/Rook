@@ -786,6 +786,176 @@ def test_task2_evaluator_fields_use_their_own_closed_limits() -> None:
             )
 
 
+@pytest.mark.parametrize(
+    ("role", "ordinal", "field", "rejection"),
+    (
+        (
+            "planner",
+            1,
+            "canonical_request_bytes",
+            "resolution_archive_canonical_request_bytes_exceeded",
+        ),
+        (
+            "planner",
+            6,
+            "adapter_request_bytes",
+            "resolution_archive_adapter_request_bytes_exceeded",
+        ),
+        (
+            "planner_evaluator",
+            1,
+            "canonical_request_bytes",
+            "resolution_archive_canonical_request_bytes_exceeded",
+        ),
+        (
+            "planner_evaluator",
+            1,
+            "adapter_request_bytes",
+            "resolution_archive_adapter_request_bytes_exceeded",
+        ),
+    ),
+)
+def test_task3_dispatch_request_refuses_one_byte_over_with_bounded_evidence(
+    role: str,
+    ordinal: int,
+    field: str,
+    rejection: str,
+) -> None:
+    """Catches dispatch admission occurring after, or without, field bounds."""
+
+    profile = _profile()
+    constants = ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(
+        profile
+    )["constants"]
+    if role == "planner":
+        request_ceiling = int(constants["planner_canonical_request_base_bytes"]) + (
+            ordinal - 1
+        ) * (
+            int(constants["planner_assistant_projection_bytes"])
+            + int(constants["planner_feedback_projection_bytes"])
+            + int(constants["planner_request_turn_framing_bytes"])
+        )
+    else:
+        request_ceiling = int(constants["evaluator_canonical_request_bytes"])
+    adapter_ceiling = request_ceiling + int(
+        constants["adapter_request_overhead_bytes"]
+    )
+    canonical = b"x" * request_ceiling
+    adapter = b"x" * adapter_ceiling
+    if field == "canonical_request_bytes":
+        canonical += b"x"
+    else:
+        adapter += b"x"
+
+    with pytest.raises(
+        ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow,
+        match=rejection,
+    ) as caught:
+        ARCHIVE_EVIDENCE.validate_resolution_dispatch_request(
+            role=role,
+            ordinal=ordinal,
+            canonical_request_bytes=canonical,
+            adapter_request_bytes=adapter,
+            profile=profile,
+        )
+
+    assert caught.value.field == field
+    assert caught.value.observed_bytes == (
+        len(canonical) if field == "canonical_request_bytes" else len(adapter)
+    )
+    assert caught.value.ceiling_bytes == (
+        request_ceiling if field == "canonical_request_bytes" else adapter_ceiling
+    )
+    assert caught.value.rejection_id == rejection
+
+
+def test_task3_captured_turn_reports_raw_response_overflow_without_truncation() -> None:
+    """Catches a captured response being accepted, truncated, or losing its size."""
+
+    profile = _profile()
+    constants = ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(
+        profile
+    )["constants"]
+    ceiling = int(constants["planner_raw_response_bytes"])
+    row = _planner_row()
+    row["raw_response_b64"] = base64.b64encode(
+        b"x" * (ceiling + 1)
+    ).decode("ascii")
+
+    with pytest.raises(
+        ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow,
+        match="resolution_archive_raw_response_bytes_exceeded",
+    ) as caught:
+        ARCHIVE_EVIDENCE.validate_resolution_captured_turn(
+            row=row,
+            profile=profile,
+        )
+
+    assert caught.value.field == "raw_response_bytes"
+    assert caught.value.observed_bytes == ceiling + 1
+    assert caught.value.ceiling_bytes == ceiling
+
+
+@pytest.mark.parametrize(
+    ("row_field", "constant", "overflow_field", "rejection"),
+    (
+        (
+            "assistant_message",
+            "planner_assistant_projection_bytes",
+            "assistant_projection_bytes",
+            "resolution_archive_assistant_projection_bytes_exceeded",
+        ),
+        (
+            "usage",
+            "usage_bytes",
+            "usage_bytes",
+            "resolution_archive_usage_bytes_exceeded",
+        ),
+        (
+            "provider_metadata",
+            "provider_metadata_bytes",
+            "provider_metadata_bytes",
+            "resolution_archive_provider_metadata_bytes_exceeded",
+        ),
+    ),
+)
+def test_task3_captured_projection_fields_accept_exact_and_refuse_plus_one(
+    row_field: str,
+    constant: str,
+    overflow_field: str,
+    rejection: str,
+) -> None:
+    """Catches the capture API bypassing any derived projection ceiling."""
+
+    profile = _profile()
+    ceiling = int(
+        ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(profile)[
+            "constants"
+        ][constant]
+    )
+    exact = _planner_row()
+    exact[row_field] = {"x": "x" * (ceiling - 8)}
+    assert len(_canonical_bytes(exact[row_field])) == ceiling
+    ARCHIVE_EVIDENCE.validate_resolution_captured_turn(
+        row=exact,
+        profile=profile,
+    )
+
+    over = copy.deepcopy(exact)
+    over[row_field]["x"] += "x"
+    with pytest.raises(
+        ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow,
+        match=rejection,
+    ) as caught:
+        ARCHIVE_EVIDENCE.validate_resolution_captured_turn(
+            row=over,
+            profile=profile,
+        )
+    assert caught.value.field == overflow_field
+    assert caught.value.observed_bytes == ceiling + 1
+    assert caught.value.ceiling_bytes == ceiling
+
+
 def test_task2_fixed_row_projection_has_an_independent_bound() -> None:
     profile = _profile()
     constants = ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(
