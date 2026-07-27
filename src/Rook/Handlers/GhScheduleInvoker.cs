@@ -6,6 +6,13 @@ namespace Rook.Handlers
     internal static class GhScheduleInvoker
     {
         public static GhScheduleResult Invoke(object document, GhScheduleDecision decision, int delayMs)
+            => Invoke(document, decision, delayMs, ResolveScheduleMethod);
+
+        internal static GhScheduleResult Invoke(
+            object document,
+            GhScheduleDecision decision,
+            int delayMs,
+            Func<Type, MethodInfo?> resolveScheduleMethod)
         {
             if (!decision.AttemptSchedule)
                 return Result(decision, GhScheduleAcceptance.NotAttempted, null, decision.VerificationDeferred, null, decision.Warnings);
@@ -15,15 +22,15 @@ namespace Rook.Handlers
             MethodInfo? schedule;
             try
             {
-                schedule = ResolveScheduleMethod(document.GetType());
+                schedule = resolveScheduleMethod(document.GetType());
             }
             catch (AmbiguousMatchException)
             {
                 return Result(decision, GhScheduleAcceptance.NotAttempted, GhScheduleFailureCode.SchedulePreconditionRejected, decision.VerificationDeferred, null, decision.Warnings);
             }
-            catch (Exception exception)
+            catch (Exception)
             {
-                return Result(decision, GhScheduleAcceptance.Unknown, GhScheduleFailureCode.ScheduleAcceptanceUnknown, true, exception.GetType().Name, Append(decision.Warnings, GhScheduleWarning.ScheduleInvocationUnknown));
+                return Result(decision, GhScheduleAcceptance.NotAttempted, GhScheduleFailureCode.SchedulePreconditionRejected, decision.VerificationDeferred, null, decision.Warnings);
             }
 
             if (schedule == null)
