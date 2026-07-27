@@ -270,6 +270,18 @@ class PostDispatchUnsealed:
 
 
 @dataclass(frozen=True)
+class FinalizationIndeterminate:
+    attempt_id: str
+    attempt_fingerprint: str
+    unconfirmed_checkpoint_identity: str
+    destination_path: Path
+    staging_path: Path
+    destination_present: bool
+    staging_present: bool
+    failure_locus: str
+
+
+@dataclass(frozen=True)
 class VerifiedResolutionReady:
     checkpoint: SealedResolutionCheckpoint
     exact_recipe_bytes: bytes
@@ -1218,6 +1230,14 @@ def _is_reparse_stat(value: os.stat_result) -> bool:
     )
 
 
+def _is_non_reparse_directory(path: Path) -> bool:
+    try:
+        value = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISDIR(value.st_mode) and not _is_reparse_stat(value)
+
+
 def _require_non_reparse_components(path: Path) -> None:
     current = _lexical_absolute_path(path)
     components = [current, *current.parents]
@@ -1505,55 +1525,60 @@ def retain_post_dispatch_unsealed(
         raise TypeError("verified resolution preflight is required")
     if type(failure_locus) is not str or not failure_locus:
         raise ValueError("post-dispatch failure locus must be nonempty")
-    evidence = Path(evidence_dir).resolve()
-    allowed = {
-        preflight.attempt.staging_path.resolve(),
-        preflight.attempt.destination.resolve(),
-    }
-    if evidence not in allowed or not evidence.is_dir():
+    evidence = _lexical_absolute_path(Path(evidence_dir))
+    if (
+        evidence != preflight.attempt.staging_path
+        or not _is_non_reparse_directory(evidence)
+    ):
         raise ValueError("post-dispatch evidence location differs from attempt")
-    marker_path = evidence / "post_dispatch_unsealed.json"
-    forensic_hashes: list[dict[str, object]] = []
-    for path in sorted(evidence.rglob("*"), key=lambda item: item.as_posix()):
-        if path == marker_path or not path.is_file():
-            continue
-        try:
-            raw = path.read_bytes()
-        except OSError:
-            continue
-        forensic_hashes.append(
-            {
-                "path": path.relative_to(evidence).as_posix(),
-                "size": len(raw),
-                "sha256": _sha256(raw),
-            }
-        )
-    marker = {
-        "schema": (
-            "rook.lm9b_p.governed_resolution_post_dispatch_unsealed:v1"
-        ),
-        "attempt_id": preflight.attempt.attempt_id,
-        "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
-        "preflight_fingerprint": preflight.preflight_fingerprint,
-        "instrument_fingerprint": preflight.instrument_fingerprint,
-        "failure_locus": failure_locus,
-        "forensic_hashes": forensic_hashes,
-    }
-    raw_marker = _json_bytes(marker)
-    if marker_path.exists():
-        if marker_path.read_bytes() != raw_marker:
-            raise FileExistsError("post-dispatch marker already differs")
-    else:
-        with marker_path.open("xb") as stream:
-            stream.write(raw_marker)
-        if marker_path.read_bytes() != raw_marker:
-            raise ValueError("post-dispatch marker reread differs")
-    return PostDispatchUnsealed(
+    carrier = PostDispatchUnsealed(
         evidence_dir=evidence,
         attempt_id=preflight.attempt.attempt_id,
         attempt_fingerprint=preflight.attempt.attempt_fingerprint,
         failure_locus=failure_locus,
     )
+    marker_path = evidence / "post_dispatch_unsealed.json"
+    try:
+        forensic_hashes: list[dict[str, object]] = []
+        for path in sorted(evidence.rglob("*"), key=lambda item: item.as_posix()):
+            if path == marker_path or not path.is_file():
+                continue
+            try:
+                raw = path.read_bytes()
+            except OSError:
+                continue
+            forensic_hashes.append(
+                {
+                    "path": path.relative_to(evidence).as_posix(),
+                    "size": len(raw),
+                    "sha256": _sha256(raw),
+                }
+            )
+        marker = {
+            "schema": (
+                "rook.lm9b_p.governed_resolution_post_dispatch_unsealed:v1"
+            ),
+            "attempt_id": preflight.attempt.attempt_id,
+            "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
+            "preflight_fingerprint": preflight.preflight_fingerprint,
+            "instrument_fingerprint": preflight.instrument_fingerprint,
+            "failure_locus": failure_locus,
+            "forensic_hashes": forensic_hashes,
+        }
+        raw_marker = _json_bytes(marker)
+        if marker_path.exists():
+            if marker_path.read_bytes() != raw_marker:
+                raise FileExistsError("post-dispatch marker already differs")
+        else:
+            with marker_path.open("xb") as stream:
+                stream.write(raw_marker)
+            if marker_path.read_bytes() != raw_marker:
+                raise ValueError("post-dispatch marker reread differs")
+    except Exception:
+        # The carrier is derived from durable staging presence. Its control
+        # state does not depend on a second failure-recovery write succeeding.
+        pass
+    return carrier
 
 
 def require_clean_reviewed_checkout(repo_root: Path, reviewed_commit_sha: str) -> None:
@@ -3268,7 +3293,7 @@ def seal_resolution_checkpoint(
     call_ledger: tuple[Mapping[str, object], ...],
     derived_stop_cause: str,
     classification: str,
-) -> SealedResolutionCheckpoint | PostDispatchUnsealed:
+) -> SealedResolutionCheckpoint | PostDispatchUnsealed | FinalizationIndeterminate:
     """Seal one complete attempt without trusting its authored claims."""
 
     if classification not in {
@@ -3710,13 +3735,33 @@ def reconcile_resolution_rename(
     destination: Path,
     expected_identity: str,
     preflight: VerifiedResolutionPreflight,
-) -> SealedResolutionCheckpoint | PostDispatchUnsealed:
-    staging = Path(staging_dir).resolve()
-    final = Path(destination).resolve()
-    staging_exists = staging.is_dir()
+) -> SealedResolutionCheckpoint | PostDispatchUnsealed | FinalizationIndeterminate:
+    if type(preflight) is not VerifiedResolutionPreflight:
+        raise TypeError("verified resolution preflight is required")
+    staging = _lexical_absolute_path(Path(staging_dir))
+    final = _lexical_absolute_path(Path(destination))
+    if (
+        staging != preflight.attempt.staging_path
+        or final != preflight.attempt.destination
+    ):
+        raise ValueError("resolution finalization paths differ from preflight")
+    staging_exists = os.path.lexists(staging)
+    staging_is_expected = _is_non_reparse_directory(staging)
     archive_candidate = staging / ".archive-candidate"
-    candidate_exists = archive_candidate.is_dir()
-    destination_exists = final.is_dir()
+    runtime = staging / ".resolution-runtime"
+    candidate_exists = (
+        os.path.lexists(archive_candidate) if staging_is_expected else False
+    )
+    runtime_exists = (
+        _is_non_reparse_directory(runtime) if staging_is_expected else False
+    )
+    destination_exists = os.path.lexists(final)
+    if not staging_exists and (candidate_exists or runtime_exists):
+        raise ValueError("impossible finalization observation")
+
+    destination_state = "absent"
+    destination_failure: Exception | None = None
+    sealed: SealedResolutionCheckpoint | None = None
     if destination_exists and not candidate_exists:
         try:
             sealed = _verify_resolution_checkpoint_archive(
@@ -3725,42 +3770,81 @@ def reconcile_resolution_rename(
                 enforce_public_location=True,
                 verified_preflight=preflight,
             )
-            runtime = staging / ".resolution-runtime"
+            destination_state = "verified"
+        except Exception as exc:
+            destination_state = "unverified"
+            destination_failure = exc
+    elif destination_exists:
+        # Mixed destination/candidate state is indeterminate without treating a
+        # copied destination as proof that atomic rename completed.
+        destination_state = "verified"
+
+    finalization_kind = _derive_resolution_finalization_kind(
+        destination_state,
+        staging_is_expected,
+        candidate_exists,
+        runtime_exists,
+    )
+    if finalization_kind == "sealed":
+        if sealed is None:
+            raise ValueError("verified finalization lacks reconstructed checkpoint")
+        if staging_exists:
             try:
                 _remove_verified_runtime(runtime)
                 staging.rmdir()
             except OSError:
                 pass
-            return sealed
-        except Exception:
-            pass
-    if staging_exists and destination_exists:
-        for evidence in (staging, final):
-            try:
-                retain_post_dispatch_unsealed(
-                    evidence_dir=evidence,
-                    preflight=preflight,
-                    failure_locus="ambiguous_rename_both_exist",
-                )
-            except (OSError, ValueError, FileExistsError):
-                pass
-        return PostDispatchUnsealed(
+        return sealed
+    if finalization_kind == "post_dispatch_unsealed":
+        return retain_post_dispatch_unsealed(
             evidence_dir=staging,
-            attempt_id=preflight.attempt.attempt_id,
-            attempt_fingerprint=preflight.attempt.attempt_fingerprint,
-            failure_locus="ambiguous_rename_both_exist",
+            preflight=preflight,
+            failure_locus="rename_failed_staging_evidence_retained",
         )
-    evidence = staging if staging_exists else final
-    locus = (
-        "rename_failed_staging_retained"
-        if staging_exists
-        else "rename_failed_invalid_destination_only"
-    )
-    return retain_post_dispatch_unsealed(
-        evidence_dir=evidence,
-        preflight=preflight,
+    if destination_state == "unverified":
+        if destination_failure is None:
+            raise ValueError("unverified destination lacks a failure cause")
+        locus = f"destination_verification_failed:{type(destination_failure).__name__}"
+    elif destination_exists and candidate_exists:
+        locus = "destination_and_archive_candidate_present"
+    elif not destination_exists and not staging_exists:
+        locus = "destination_and_staging_absent"
+    elif not destination_exists and candidate_exists and not runtime_exists:
+        locus = "archive_candidate_without_runtime_evidence"
+    else:
+        locus = "staging_evidence_incomplete"
+    return FinalizationIndeterminate(
+        attempt_id=preflight.attempt.attempt_id,
+        attempt_fingerprint=preflight.attempt.attempt_fingerprint,
+        unconfirmed_checkpoint_identity=expected_identity,
+        destination_path=final,
+        staging_path=staging,
+        destination_present=destination_exists,
+        staging_present=staging_exists,
         failure_locus=locus,
     )
+
+
+def _derive_resolution_finalization_kind(
+    destination_state: str,
+    staging_present: bool,
+    candidate_present: bool,
+    runtime_present: bool,
+) -> str:
+    if destination_state not in {"absent", "verified", "unverified"}:
+        raise ValueError("finalization destination state is invalid")
+    if any(
+        type(value) is not bool
+        for value in (staging_present, candidate_present, runtime_present)
+    ):
+        raise TypeError("finalization presence observations must be booleans")
+    if not staging_present and (candidate_present or runtime_present):
+        raise ValueError("impossible finalization observation")
+    if destination_state == "verified" and not candidate_present:
+        return "sealed"
+    if destination_state == "absent" and staging_present and runtime_present:
+        return "post_dispatch_unsealed"
+    return "finalization_indeterminate"
 
 
 def issue_resolution_ready_proof(
@@ -3825,6 +3909,7 @@ def consume_resolution_ready_proof(
 
 __all__ = (
     "AttemptBinding",
+    "FinalizationIndeterminate",
     "PostDispatchUnsealed",
     "RESOLUTION_ARCHIVE_MEMBERS",
     "ResolutionInstrument",

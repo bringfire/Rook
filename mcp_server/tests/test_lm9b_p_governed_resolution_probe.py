@@ -2279,6 +2279,7 @@ def _task5_ready_result(
     tmp_path: Path,
     *,
     expect_sealed: bool = True,
+    providers_out: dict[str, object] | None = None,
 ) -> tuple[object, object]:
     preflight = _task2_preflight(tmp_path)
     head_sha = preflight.record["reviewed_commit_sha"]
@@ -2296,6 +2297,8 @@ def _task5_ready_result(
     evaluator = _FakeProvider(
         [_evaluator_turn()], staging_path=preflight.attempt.staging_path
     )
+    if providers_out is not None:
+        providers_out.update(planner=planner, evaluator=evaluator)
     monkeypatch.setattr(
         RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
     )
@@ -2510,11 +2513,11 @@ def test_task5_fully_reclosed_provenance_substitution_is_rejected(
 @pytest.mark.parametrize(
     ("rename_case", "expected_state"),
     (
-        ("destination_appears_before_rename", "post_dispatch_unsealed"),
+        ("destination_appears_before_rename", "finalization_indeterminate"),
         ("rename_succeeds_then_raises", "sealed"),
-        ("invalid_destination_only", "post_dispatch_unsealed"),
+        ("invalid_destination_only", "finalization_indeterminate"),
         ("staging_only", "post_dispatch_unsealed"),
-        ("both_exist", "post_dispatch_unsealed"),
+        ("both_exist", "finalization_indeterminate"),
     ),
 )
 def test_task5_rename_reconciliation_never_overwrites_or_invents_result(
@@ -2554,30 +2557,23 @@ def test_task5_rename_reconciliation_never_overwrites_or_invents_result(
             preflight_archive=_preflight.archive_dir,
             expected_preflight_fingerprint=_preflight.preflight_fingerprint,
         )
+    elif expected_state == "post_dispatch_unsealed":
+        assert result.classification is None
+        assert result.sealed_checkpoint is None
+        assert result.finalization_indeterminate is None
+        assert all(row.get("terminal") is True for row in result.call_ledger)
+        assert (
+            _preflight.attempt.staging_path / "post_dispatch_unsealed.json"
+        ).is_file()
+        assert not _preflight.attempt.destination.exists()
     else:
         assert result.classification is None
         assert result.sealed_checkpoint is None
-        assert all(row.get("terminal") is True for row in result.call_ledger)
-        retained_dirs = [
-            path
-            for path in _preflight.attempt.resolution_root.iterdir()
-            if path.is_dir()
-        ]
-        marked = [
-            path
-            for path in retained_dirs
-            if (path / "post_dispatch_unsealed.json").is_file()
-        ]
-        assert marked
-        if rename_case in {
-            "destination_appears_before_rename",
-            "invalid_destination_only",
-            "both_exist",
-        }:
-            assert set(marked) == {
-                _preflight.attempt.staging_path,
-                _preflight.attempt.destination,
-            }
+        assert result.finalization_indeterminate is not None
+        assert result.finalization_indeterminate.destination_present is True
+        assert not (
+            _preflight.attempt.destination / "post_dispatch_unsealed.json"
+        ).exists()
 
 
 def test_task5_transient_verification_failure_after_rename_reconciles_as_sealed(
@@ -2616,18 +2612,21 @@ def test_task5_transient_verification_failure_after_rename_reconciles_as_sealed(
     "exception_type",
     (OSError, ValueError, TypeError, KeyError, RuntimeError),
 )
-def test_task5_repeated_post_rename_verification_failure_marks_both_locations(
+def test_task5a_finalization_indeterminate_supports_later_finalization_discovery(
     exception_type: type[Exception],
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     original_verify = RESOLUTION_ARTIFACTS._verify_resolution_checkpoint_archive
     public_destination_calls = 0
+    destination_before: tuple[tuple[str, str, bytes | None], ...] | None = None
 
     def fail_every_public_destination_verification(*args: object, **kwargs: object):
-        nonlocal public_destination_calls
+        nonlocal public_destination_calls, destination_before
         if kwargs.get("enforce_public_location") is True:
             public_destination_calls += 1
+            if destination_before is None:
+                destination_before = _tree_snapshot(Path(args[0]))
             raise exception_type("repeated post-rename verification failure")
         return original_verify(*args, **kwargs)
 
@@ -2636,27 +2635,209 @@ def test_task5_repeated_post_rename_verification_failure_marks_both_locations(
         "_verify_resolution_checkpoint_archive",
         fail_every_public_destination_verification,
     )
+    providers: dict[str, object] = {}
     preflight, result = _task5_ready_result(
-        monkeypatch, tmp_path, expect_sealed=False
+        monkeypatch,
+        tmp_path,
+        expect_sealed=False,
+        providers_out=providers,
     )
     assert public_destination_calls == 2
-    assert result.state == "post_dispatch_unsealed"
+    assert result.state == "finalization_indeterminate"
+    assert result.classification is None
     assert result.sealed_checkpoint is None
-    assert (preflight.attempt.staging_path / "post_dispatch_unsealed.json").is_file()
-    assert (preflight.attempt.destination / "post_dispatch_unsealed.json").is_file()
+    assert result.finalization_indeterminate is not None
+    carrier = result.finalization_indeterminate
+    assert carrier.unconfirmed_checkpoint_identity.startswith("sha256:")
+    assert carrier.destination_path == preflight.attempt.destination
+    assert carrier.staging_path == preflight.attempt.staging_path
+    assert carrier.destination_present is True
+    assert carrier.staging_present is True
+    assert carrier.failure_locus == (
+        f"destination_verification_failed:{exception_type.__name__}"
+    )
+    assert _tree_snapshot(preflight.attempt.destination) == destination_before
+    assert not (
+        preflight.attempt.destination / "post_dispatch_unsealed.json"
+    ).exists()
+
+    with pytest.raises(TypeError, match="sealed resolution checkpoint is required"):
+        RESOLUTION_ARTIFACTS.issue_resolution_ready_proof(
+            carrier,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+        )
 
     monkeypatch.setattr(
         RESOLUTION_ARTIFACTS,
         "_verify_resolution_checkpoint_archive",
         original_verify,
     )
-    with pytest.raises(ValueError, match="membership"):
-        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
-            preflight.attempt.destination,
-            expected_identity="sha256:" + "0" * 64,
-            preflight_archive=preflight.archive_dir,
-            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+    planner_calls = len(providers["planner"].requests)
+    evaluator_calls = len(providers["evaluator"].requests)
+    discovered = RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+        preflight.attempt.destination,
+        expected_identity=carrier.unconfirmed_checkpoint_identity,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
+    )
+    proof = RESOLUTION_ARTIFACTS.issue_resolution_ready_proof(
+        discovered,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
+    )
+    assert proof.checkpoint.checkpoint_identity == carrier.unconfirmed_checkpoint_identity
+    assert len(providers["planner"].requests) == planner_calls
+    assert len(providers["evaluator"].requests) == evaluator_calls
+    assert result.state == "finalization_indeterminate"
+
+
+def test_task5a_staging_marker_failure_does_not_change_unsealed_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    original_open = Path.open
+
+    def retain_candidate_and_fail_marker(
+        source: Path, destination: Path
+    ) -> Path:
+        raise OSError("archive candidate retained")
+
+    def fail_staging_marker(
+        path: Path, mode: str = "r", *args: object, **kwargs: object
+    ):
+        if path.name == "post_dispatch_unsealed.json" and "x" in mode:
+            raise OSError("staging marker unavailable")
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "rename", retain_candidate_and_fail_marker)
+    monkeypatch.setattr(Path, "open", fail_staging_marker)
+    preflight, result = _task5_ready_result(
+        monkeypatch, tmp_path, expect_sealed=False
+    )
+
+    assert result.state == "post_dispatch_unsealed"
+    assert result.classification is None
+    assert result.sealed_checkpoint is None
+    assert result.finalization_indeterminate is None
+    assert not (
+        preflight.attempt.staging_path / "post_dispatch_unsealed.json"
+    ).exists()
+    assert not preflight.attempt.destination.exists()
+
+
+_FINALIZATION_EXPECTATIONS = {
+    ("verified", False, False, False): "SealedResolutionCheckpoint",
+    ("verified", True, False, False): "SealedResolutionCheckpoint",
+    ("verified", True, False, True): "SealedResolutionCheckpoint",
+    ("verified", True, True, False): "FinalizationIndeterminate",
+    ("verified", True, True, True): "FinalizationIndeterminate",
+    ("unverified", False, False, False): "FinalizationIndeterminate",
+    ("unverified", True, False, False): "FinalizationIndeterminate",
+    ("unverified", True, False, True): "FinalizationIndeterminate",
+    ("unverified", True, True, False): "FinalizationIndeterminate",
+    ("unverified", True, True, True): "FinalizationIndeterminate",
+    ("absent", False, False, False): "FinalizationIndeterminate",
+    ("absent", True, False, False): "FinalizationIndeterminate",
+    ("absent", True, False, True): "PostDispatchUnsealed",
+    ("absent", True, True, False): "FinalizationIndeterminate",
+    ("absent", True, True, True): "PostDispatchUnsealed",
+}
+
+_IMPOSSIBLE_FINALIZATION_OBSERVATIONS = {
+    (destination_state, False, candidate_present, runtime_present)
+    for destination_state in ("absent", "verified", "unverified")
+    for candidate_present, runtime_present in (
+        (False, True),
+        (True, False),
+        (True, True),
+    )
+}
+
+
+def _tree_snapshot(path: Path) -> tuple[tuple[str, str, bytes | None], ...] | None:
+    if not os.path.lexists(path):
+        return None
+    rows: list[tuple[str, str, bytes | None]] = []
+    for member in sorted(path.rglob("*"), key=lambda item: item.as_posix()):
+        relative = member.relative_to(path).as_posix()
+        if member.is_dir():
+            rows.append((relative, "directory", None))
+        else:
+            rows.append((relative, "file", member.read_bytes()))
+    return tuple(rows)
+
+
+def test_task5a_finalization_physical_state_table_is_closed() -> None:
+    cartesian = {
+        (destination_state, staging_present, candidate_present, runtime_present)
+        for destination_state in ("absent", "verified", "unverified")
+        for staging_present in (False, True)
+        for candidate_present in (False, True)
+        for runtime_present in (False, True)
+    }
+    assert set(_FINALIZATION_EXPECTATIONS) | _IMPOSSIBLE_FINALIZATION_OBSERVATIONS == (
+        cartesian
+    )
+    assert not (
+        set(_FINALIZATION_EXPECTATIONS) & _IMPOSSIBLE_FINALIZATION_OBSERVATIONS
+    )
+
+    for observation, expected_type in _FINALIZATION_EXPECTATIONS.items():
+        expected_state = {
+            "SealedResolutionCheckpoint": "sealed",
+            "PostDispatchUnsealed": "post_dispatch_unsealed",
+            "FinalizationIndeterminate": "finalization_indeterminate",
+        }[expected_type]
+        assert (
+            RESOLUTION_ARTIFACTS._derive_resolution_finalization_kind(*observation)
+            == expected_state
         )
+    for observation in _IMPOSSIBLE_FINALIZATION_OBSERVATIONS:
+        with pytest.raises(ValueError, match="impossible finalization observation"):
+            RESOLUTION_ARTIFACTS._derive_resolution_finalization_kind(*observation)
+
+
+@pytest.mark.parametrize(
+    ("observation", "expected_type"),
+    sorted(_FINALIZATION_EXPECTATIONS.items()),
+)
+def test_task5a_finalization_physical_state_table(
+    observation: tuple[str, bool, bool, bool],
+    expected_type: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    destination_state, staging_present, candidate_present, runtime_present = (
+        observation
+    )
+    preflight, baseline = _task5_ready_result(monkeypatch, tmp_path)
+    assert baseline.sealed_checkpoint is not None
+    destination = preflight.attempt.destination
+    staging = preflight.attempt.staging_path
+    checkpoint_identity = baseline.sealed_checkpoint.checkpoint_identity
+
+    if staging_present:
+        staging.mkdir(exist_ok=False)
+        if candidate_present:
+            shutil.copytree(destination, staging / ".archive-candidate")
+        if runtime_present:
+            (staging / ".resolution-runtime").mkdir()
+    if destination_state == "absent":
+        shutil.rmtree(destination)
+    elif destination_state == "unverified":
+        (destination / "unexpected-member.json").write_bytes(b"{}")
+
+    destination_before = _tree_snapshot(destination)
+    outcome = RESOLUTION_ARTIFACTS.reconcile_resolution_rename(
+        staging_dir=staging,
+        destination=destination,
+        expected_identity=checkpoint_identity,
+        preflight=preflight,
+    )
+
+    assert type(outcome).__name__ == expected_type
+    assert _tree_snapshot(destination) == destination_before
 
 
 def test_task5_ready_proof_is_reconstructed_and_forgery_refused(

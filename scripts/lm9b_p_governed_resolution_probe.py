@@ -44,6 +44,7 @@ class ResolutionAttemptResult:
     call_ledger: tuple[Mapping[str, object], ...]
     derived_stop_cause: str
     state: str
+    finalization_indeterminate: ARTIFACTS.FinalizationIndeterminate | None = None
 
 
 class _AdapterIdentityMismatch(RuntimeError):
@@ -1008,6 +1009,20 @@ def _attempt_result(
                 derived_stop_cause=locus,
                 state="post_dispatch_unsealed",
             )
+        if type(finalized) is ARTIFACTS.FinalizationIndeterminate:
+            return ResolutionAttemptResult(
+                classification=None,
+                planner_session=planner_session,
+                evaluator_result=evaluator_result,
+                isolation_result=isolation_result,
+                sealed_checkpoint=None,
+                checkpoint_gate=checkpoint_gate,
+                candidate_recipe_bytes=candidate_recipe_bytes,
+                call_ledger=call_ledger,
+                derived_stop_cause=finalized.failure_locus,
+                state="finalization_indeterminate",
+                finalization_indeterminate=finalized,
+            )
         if type(finalized) is ARTIFACTS.PostDispatchUnsealed:
             return ResolutionAttemptResult(
                 classification=None,
@@ -1020,6 +1035,7 @@ def _attempt_result(
                 call_ledger=call_ledger,
                 derived_stop_cause=finalized.failure_locus,
                 state="post_dispatch_unsealed",
+                finalization_indeterminate=None,
             )
         sealed_checkpoint = finalized
         state = "sealed"
@@ -1040,6 +1056,7 @@ def _attempt_result(
         call_ledger=call_ledger,
         derived_stop_cause=derived_stop_cause,
         state=state,
+        finalization_indeterminate=None,
     )
 
 

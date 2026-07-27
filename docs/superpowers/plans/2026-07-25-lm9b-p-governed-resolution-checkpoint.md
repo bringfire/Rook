@@ -1401,7 +1401,7 @@ may write, delete, quarantine, or repair a destination member. Atomic directory
 rename remains the sole commit point; no receipt or second commit artifact is
 introduced.
 
-- [ ] **Step 1: Write the red physical-state and destination-immutability table**
+- [x] **Step 1: Write the red physical-state and destination-immutability table**
 
 Add a parameterized table that constructs the exact post-rename states and
 asserts the closed equations. Use a three-state destination observation so
@@ -1461,7 +1461,7 @@ remain indeterminate even when the destination verifier would accept its bytes.
 Every impossible observation must be rejected before a scientific or control
 state carrier is issued.
 
-- [ ] **Step 2: Run the physical-state table and observe valid red failures**
+- [x] **Step 2: Run the physical-state table and observe valid red failures**
 
 Run:
 
@@ -1474,7 +1474,7 @@ Run:
 Expected: FAIL because `FinalizationIndeterminate` and the closed state machine
 do not exist, and current reconciliation mutates surviving destinations.
 
-- [ ] **Step 3: Add the typed carrier and one closed state derivation**
+- [x] **Step 3: Add the typed carrier and one closed state derivation**
 
 Define only:
 
@@ -1514,13 +1514,16 @@ and its retained `.resolution-runtime` directory. Candidate-only, marker-only,
 or absent staging does not satisfy it. Observe paths without following reparse
 points. Do not mutate the destination in any branch.
 
-- [ ] **Step 4: Run the physical-state table and make it green**
+- [x] **Step 4: Run the physical-state table and make it green**
 
 Run the Step-2 command.
 
 Expected: PASS, including byte-for-byte destination immutability.
 
-- [ ] **Step 5: Write red outer-wrapper, marker-failure, and later-discovery tests**
+Actual: `16 passed`; all 15 representable physical states plus the closed
+Cartesian/impossible-observation audit passed.
+
+- [x] **Step 5: Write red outer-wrapper, marker-failure, and later-discovery tests**
 
 Add tests that prove:
 
@@ -1547,7 +1550,7 @@ For a valid destination whose first verification was forced to fail:
 6. prove only the separately reconstructed sealed checkpoint is admissible to
    `issue_resolution_ready_proof()`.
 
-- [ ] **Step 6: Run the new control-state tests and observe valid red failures**
+- [x] **Step 6: Run the new control-state tests and observe valid red failures**
 
 Run:
 
@@ -1560,7 +1563,7 @@ Run:
 Expected: FAIL because the outer result has no typed control-state field and
 generic/unsealed handling still owns these branches.
 
-- [ ] **Step 7: Preserve the typed state through the outer wrapper**
+- [x] **Step 7: Preserve the typed state through the outer wrapper**
 
 Add the optional final field:
 
@@ -1579,7 +1582,7 @@ marker persistence so marker failure cannot change the already-derived state.
 The marker remains `rook.lm9b_p.governed_resolution_post_dispatch_unsealed:v1`
 and is never used for `FinalizationIndeterminate`.
 
-- [ ] **Step 8: Run the complete finalization regression**
+- [x] **Step 8: Run the complete finalization regression**
 
 Run:
 
@@ -1599,7 +1602,10 @@ both destination and archive candidate -> finalization_indeterminate
 destination absent with retained runtime staging -> post_dispatch_unsealed
 ```
 
-- [ ] **Step 9: Run focused and full regression gates**
+Actual: `28 passed`; the rename, finalization, and marker regression matched
+the final equations above.
+
+- [x] **Step 9: Run focused and full regression gates**
 
 Run:
 
@@ -1623,7 +1629,11 @@ git diff --check
 Expected: all commands pass. No provider, readiness, evaluator, or compiler
 contact occurs.
 
-- [ ] **Step 10: Commit Task 5A and stop for independent review**
+Actual: Python compilation passed; the focused governed-resolution suite passed
+`252` tests; the full LM9B-P family passed `845` tests; `git diff --check`
+passed. No provider, readiness, evaluator, or compiler contact occurred.
+
+- [x] **Step 10: Commit Task 5A and stop for independent review**
 
 ```powershell
 git add scripts/lm9b_p_governed_resolution_artifacts.py `
