@@ -383,7 +383,7 @@ Stop. Independent review must verify the profile is in the real instrument/prefl
   - `validate_resolution_call_field_bounds(*, row: Mapping[str, object], profile: object) -> None`
   - stable `ResolutionArchiveEvidenceError` rejection IDs for profile/resource failures
 
-- [ ] **Step 1: Write the under-limit parser equivalence corpus**
+- [x] **Step 1: Write the under-limit parser equivalence corpus**
 
 Parameterize valid and invalid raw bytes through both parsers:
 
@@ -437,7 +437,7 @@ else:
 
 Do not edit `lm9b_p_planner_recipe_transfer_support.py`.
 
-- [ ] **Step 2: Add the explicit over-limit boundary-divergence table**
+- [x] **Step 2: Add the explicit over-limit boundary-divergence table**
 
 Create a valid JSON value of exactly `MAX_RECIPE_BYTES + 1` bytes and assert the historical parser rejects it. Use `instrument.json` for the positive profile-selected case because its ceiling exceeds 1 MiB, and use `candidate-recipe.json` for the preserved 1 MiB refusal:
 
@@ -464,7 +464,7 @@ with pytest.raises(
 
 No equivalence claim applies above 1 MiB.
 
-- [ ] **Step 3: Implement and test the fixed formula IDs**
+- [x] **Step 3: Implement and test the fixed formula IDs**
 
 Implement these exact helpers:
 
@@ -559,7 +559,7 @@ Test:
 - exact bound and bound plus one for every turn, evaluator row, aggregate
   member, and path-specific fixed member.
 
-- [ ] **Step 4: Close evaluator presence and branch equations**
+- [x] **Step 4: Close evaluator presence and branch equations**
 
 Test both reachable cases:
 
@@ -572,7 +572,7 @@ For `E=1`, fully reclose mutations of canonical request, adapter request, respon
 
 Test mutually exclusive response/error branches. Both present, both absent for a returned terminal row, contradictory outcome/termination, partial evidence, and an unrecognized branch must fail before a call-shape carrier is issued.
 
-- [ ] **Step 5: Prove the capability cannot be forged or reclosed**
+- [x] **Step 5: Prove the capability cannot be forged or reclosed**
 
 Add parameterized refusals for:
 
@@ -588,7 +588,7 @@ Add parameterized refusals for:
 
 Consumption must rederive the immutable registered snapshot and compare it to the current profile identity. No raw issuer or registry object may appear in module globals or `__all__`.
 
-- [ ] **Step 6: Run focused tests and commit**
+- [x] **Step 6: Run focused tests and commit**
 
 ```powershell
 & C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `

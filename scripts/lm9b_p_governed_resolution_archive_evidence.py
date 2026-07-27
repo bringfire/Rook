@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import copy
+import hashlib
 import json
 import sys
 import weakref
@@ -139,6 +142,33 @@ _CALL_LEDGER_FIELDS = frozenset(
         "terminal",
     }
 )
+_PLANNER_MEMBER_FIELDS = frozenset(
+    {
+        "schema",
+        "termination",
+        "call_count",
+        "final_recipe_raw_sha256",
+        "calls",
+        "turns",
+    }
+)
+_EVALUATOR_MEMBER_FIELDS = frozenset(
+    {
+        "schema",
+        "call_index",
+        "dispatched_request_b64",
+        "provider_claimed_raw_request_b64",
+        "provider_raw_error_b64",
+        "raw_response_b64",
+        "assistant_message",
+        "usage",
+        "provider_metadata",
+        "termination",
+        "recommendation",
+        "evidence",
+        "quiescent",
+    }
+)
 
 
 class ResolutionArchiveEvidenceError(ValueError):
@@ -168,6 +198,9 @@ class _CallShapeSnapshot:
     ordered_indexes: tuple[int, ...]
     branch_kinds: tuple[str, ...]
     terminal_flags: tuple[bool, ...]
+    ledger_sha256: str
+    planner_row_bytes: tuple[bytes, ...]
+    evaluator_row_bytes: tuple[bytes, ...]
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -195,12 +228,9 @@ def _expected_profile_value() -> dict[str, object]:
     }
 
 
-def _build_capabilities():
+def _build_profile_capabilities():
     profile_snapshots: weakref.WeakKeyDictionary[
         VerifiedResolutionArchiveResourceProfile, bytes
-    ] = weakref.WeakKeyDictionary()
-    call_shape_snapshots: weakref.WeakKeyDictionary[
-        VerifiedResolutionCallShape, _CallShapeSnapshot
     ] = weakref.WeakKeyDictionary()
 
     def admit(raw: bytes) -> VerifiedResolutionArchiveResourceProfile:
@@ -241,58 +271,13 @@ def _build_capabilities():
             )
         return MappingProxyType(parsed)
 
-    def issue_call_shape(
-        snapshot: _CallShapeSnapshot,
-    ) -> VerifiedResolutionCallShape:
-        issued = object.__new__(VerifiedResolutionCallShape)
-        call_shape_snapshots[issued] = snapshot
-        return issued
-
-    def consume_call_shape(
-        value: object,
-        profile: object,
-    ) -> Mapping[str, object]:
-        consumed_profile = consume_profile(profile)
-        if type(value) is not VerifiedResolutionCallShape:
-            raise TypeError("closure-issued resolution call shape required")
-        snapshot = call_shape_snapshots.get(value)
-        if snapshot is None:
-            raise ResolutionArchiveEvidenceError(
-                "resolution_archive_call_shape_not_issued"
-            )
-        if snapshot.profile_fingerprint != consumed_profile["profile_fingerprint"]:
-            raise ResolutionArchiveEvidenceError(
-                "resolution_archive_call_shape_profile_mismatch"
-            )
-        return MappingProxyType(
-            {
-                "profile_fingerprint": snapshot.profile_fingerprint,
-                "planner_count": snapshot.planner_count,
-                "evaluator_count": snapshot.evaluator_count,
-                "ordered_roles": snapshot.ordered_roles,
-                "ordered_indexes": snapshot.ordered_indexes,
-                "branch_kinds": snapshot.branch_kinds,
-                "terminal_flags": snapshot.terminal_flags,
-            }
-        )
-
-    return admit, consume_profile, issue_call_shape, consume_call_shape
+    return admit, consume_profile
 
 
 (
     admit_resolution_archive_resource_profile,
     consume_resolution_archive_resource_profile,
-    _issue_resolution_call_shape,
-    _consume_resolution_call_shape,
-) = _build_capabilities()
-
-
-def consume_resolution_call_shape(
-    value: object,
-    *,
-    profile: object,
-) -> Mapping[str, object]:
-    return _consume_resolution_call_shape(value, profile)
+) = _build_profile_capabilities()
 
 
 def _base64_ceiling(size: int) -> int:
@@ -391,7 +376,7 @@ def _evaluator_member_ceiling(
     evaluator_count: int,
     constants: Mapping[str, object],
 ) -> int:
-    if evaluator_count not in {0, 1}:
+    if type(evaluator_count) is not int or evaluator_count not in {0, 1}:
         raise ResolutionArchiveEvidenceError(
             "resolution_archive_evaluator_count_invalid"
         )
@@ -401,6 +386,187 @@ def _evaluator_member_ceiling(
         int(constants["evaluator_member_framing_bytes"])
         + _evaluator_row_ceiling(constants)
         + int(constants["evaluator_parsed_result_bytes"])
+    )
+
+
+def resolution_call_row_ceiling(
+    *,
+    role: str,
+    ordinal: int,
+    profile: object,
+) -> int:
+    value = consume_resolution_archive_resource_profile(profile)
+    constants = value["constants"]
+    assert isinstance(constants, Mapping)
+    if role == "planner":
+        ceiling = _planner_row_ceiling(ordinal, constants)
+    elif role == "planner_evaluator":
+        if type(ordinal) is not int or ordinal != 1:
+            raise ResolutionArchiveEvidenceError(
+                "resolution_archive_evaluator_ordinal_invalid"
+            )
+        ceiling = _evaluator_row_ceiling(constants)
+    else:
+        raise ResolutionArchiveEvidenceError("resolution_archive_role_unknown")
+    if ceiling > int(constants["absolute_member_ceiling_bytes"]):
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_derived_ceiling_exceeds_absolute"
+        )
+    return ceiling
+
+
+def resolution_evaluator_member_ceiling(
+    *,
+    evaluator_count: int,
+    profile: object,
+) -> int:
+    value = consume_resolution_archive_resource_profile(profile)
+    constants = value["constants"]
+    assert isinstance(constants, Mapping)
+    return _evaluator_member_ceiling(evaluator_count, constants)
+
+
+def _strict_base64_bytes(value: object, *, rejection_id: str) -> bytes:
+    if type(value) is not str:
+        raise ResolutionArchiveEvidenceError(rejection_id)
+    try:
+        raw = value.encode("ascii")
+        decoded = base64.b64decode(raw, validate=True)
+    except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+        raise ResolutionArchiveEvidenceError(rejection_id) from exc
+    if base64.b64encode(decoded) != raw:
+        raise ResolutionArchiveEvidenceError(rejection_id)
+    return decoded
+
+
+def _bounded_canonical_size(
+    value: object,
+    *,
+    ceiling: int,
+    rejection_id: str,
+) -> None:
+    try:
+        observed = len(_canonical_bytes(value))
+    except (TypeError, ValueError) as exc:
+        raise ResolutionArchiveEvidenceError(rejection_id) from exc
+    if observed > ceiling:
+        raise ResolutionArchiveEvidenceError(rejection_id)
+
+
+def validate_resolution_call_field_bounds(
+    *,
+    row: Mapping[str, object],
+    profile: object,
+) -> None:
+    value = consume_resolution_archive_resource_profile(profile)
+    constants = value["constants"]
+    assert isinstance(constants, Mapping)
+    if type(row) is not dict or set(row) != _CALL_LEDGER_FIELDS:
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_call_row_shape_invalid"
+        )
+    role = row.get("role")
+    call_index = row.get("call_index")
+    if type(call_index) is not int or call_index < 0:
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_call_indexes_not_contiguous"
+        )
+    if role == "planner":
+        ordinal = call_index + 1
+        request_ceiling = _planner_canonical_request_ceiling(ordinal, constants)
+        response_ceiling = int(constants["planner_raw_response_bytes"])
+        error_ceiling = int(constants["planner_raw_error_bytes"])
+        assistant_ceiling = int(constants["planner_assistant_projection_bytes"])
+    elif role == "planner_evaluator":
+        ordinal = 1
+        request_ceiling = int(constants["evaluator_canonical_request_bytes"])
+        response_ceiling = int(constants["evaluator_raw_response_bytes"])
+        error_ceiling = int(constants["evaluator_raw_error_bytes"])
+        assistant_ceiling = int(constants["evaluator_assistant_projection_bytes"])
+    else:
+        raise ResolutionArchiveEvidenceError("resolution_archive_role_unknown")
+
+    request = row.get("canonical_request_json")
+    if type(request) is not str:
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_canonical_request_invalid"
+        )
+    if len(request.encode("utf-8")) > request_ceiling:
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_canonical_request_bytes_exceeded"
+        )
+    adapter = _strict_base64_bytes(
+        row.get("provider_claimed_raw_request_b64"),
+        rejection_id="resolution_archive_adapter_request_base64_invalid",
+    )
+    if len(adapter) > request_ceiling + int(
+        constants["adapter_request_overhead_bytes"]
+    ):
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_adapter_request_bytes_exceeded"
+        )
+
+    branch = _validate_call_branch(row)
+    if branch == "response":
+        response = _strict_base64_bytes(
+            row.get("raw_response_b64"),
+            rejection_id="resolution_archive_raw_response_base64_invalid",
+        )
+        if len(response) > response_ceiling:
+            raise ResolutionArchiveEvidenceError(
+                "resolution_archive_raw_response_bytes_exceeded"
+            )
+        _bounded_canonical_size(
+            row.get("assistant_message"),
+            ceiling=assistant_ceiling,
+            rejection_id="resolution_archive_assistant_projection_bytes_exceeded",
+        )
+        _bounded_canonical_size(
+            row.get("usage"),
+            ceiling=int(constants["usage_bytes"]),
+            rejection_id="resolution_archive_usage_bytes_exceeded",
+        )
+        _bounded_canonical_size(
+            row.get("provider_metadata"),
+            ceiling=int(constants["provider_metadata_bytes"]),
+            rejection_id="resolution_archive_provider_metadata_bytes_exceeded",
+        )
+    else:
+        error = _strict_base64_bytes(
+            row.get("provider_raw_error_b64"),
+            rejection_id="resolution_archive_raw_error_base64_invalid",
+        )
+        if len(error) > error_ceiling:
+            raise ResolutionArchiveEvidenceError(
+                "resolution_archive_raw_error_bytes_exceeded"
+            )
+
+    variable_fields = {
+        "canonical_request_json",
+        "provider_claimed_raw_request_b64",
+        "provider_raw_error_b64",
+        "raw_response_b64",
+        "assistant_message",
+        "usage",
+        "provider_metadata",
+    }
+    fixed_projection = {
+        key: row[key] for key in sorted(_CALL_LEDGER_FIELDS - variable_fields)
+    }
+    _bounded_canonical_size(
+        fixed_projection,
+        ceiling=int(constants["row_framing_bytes"]),
+        rejection_id="resolution_archive_fixed_row_bytes_exceeded",
+    )
+    row_ceiling = resolution_call_row_ceiling(
+        role=str(role),
+        ordinal=ordinal,
+        profile=profile,
+    )
+    _bounded_canonical_size(
+        dict(row),
+        ceiling=row_ceiling,
+        rejection_id="resolution_archive_call_row_bytes_exceeded",
     )
 
 
@@ -526,11 +692,11 @@ def _validate_call_branch(row: Mapping[str, object]) -> str:
     return branch
 
 
-def parse_resolution_call_ledger(
+def _validate_resolution_call_ledger(
     raw: bytes,
     *,
     profile: object,
-) -> tuple[Mapping[str, object], VerifiedResolutionCallShape]:
+) -> tuple[Mapping[str, object], _CallShapeSnapshot]:
     preparse_ceiling = resolution_member_ceiling(
         path="call-ledger.json",
         profile=profile,
@@ -586,6 +752,7 @@ def parse_resolution_call_ledger(
             raise ResolutionArchiveEvidenceError(
                 "resolution_archive_call_not_terminal"
             )
+        validate_resolution_call_field_bounds(row=row, profile=profile)
         roles.append(role)
         indexes.append(expected_index)
         branches.append(_validate_call_branch(row))
@@ -608,19 +775,234 @@ def parse_resolution_call_ledger(
         ordered_indexes=tuple(indexes),
         branch_kinds=tuple(branches),
         terminal_flags=tuple(terminals),
+        ledger_sha256="sha256:" + hashlib.sha256(raw).hexdigest(),
+        planner_row_bytes=tuple(
+            _canonical_bytes(row) for row in calls if row["role"] == "planner"
+        ),
+        evaluator_row_bytes=tuple(
+            _canonical_bytes(row)
+            for row in calls
+            if row["role"] == "planner_evaluator"
+        ),
     )
-    issued = _issue_resolution_call_shape(snapshot)
-    actual_ceiling = resolution_member_ceiling(
-        path="call-ledger.json",
-        profile=profile,
-        call_shape=issued,
-        preparse=False,
+    profile_value = consume_resolution_archive_resource_profile(profile)
+    constants = profile_value["constants"]
+    assert isinstance(constants, Mapping)
+    actual_ceiling = _call_ledger_ceiling(
+        planner_count,
+        evaluator_count,
+        constants,
     )
     if len(raw) > actual_ceiling:
         raise ResolutionArchiveEvidenceError(
             "resolution_archive_member_bytes_exceeded"
         )
-    return MappingProxyType(copy.deepcopy(value)), issued
+    return MappingProxyType(copy.deepcopy(value)), snapshot
+
+
+def _build_call_shape_capabilities(validator):
+    call_shape_snapshots: weakref.WeakKeyDictionary[
+        VerifiedResolutionCallShape, _CallShapeSnapshot
+    ] = weakref.WeakKeyDictionary()
+
+    def derive(
+        raw: bytes,
+        *,
+        profile: object,
+    ) -> tuple[Mapping[str, object], VerifiedResolutionCallShape]:
+        value, snapshot = validator(raw, profile=profile)
+        issued = object.__new__(VerifiedResolutionCallShape)
+        call_shape_snapshots[issued] = snapshot
+        return value, issued
+
+    def consume(
+        value: object,
+        profile: object,
+    ) -> _CallShapeSnapshot:
+        consumed_profile = consume_resolution_archive_resource_profile(profile)
+        if type(value) is not VerifiedResolutionCallShape:
+            raise TypeError("closure-issued resolution call shape required")
+        snapshot = call_shape_snapshots.get(value)
+        if snapshot is None:
+            raise ResolutionArchiveEvidenceError(
+                "resolution_archive_call_shape_not_issued"
+            )
+        if snapshot.profile_fingerprint != consumed_profile["profile_fingerprint"]:
+            raise ResolutionArchiveEvidenceError(
+                "resolution_archive_call_shape_profile_mismatch"
+            )
+        return snapshot
+
+    return derive, consume
+
+
+(
+    _derive_resolution_call_shape,
+    _consume_resolution_call_shape,
+) = _build_call_shape_capabilities(_validate_resolution_call_ledger)
+del _build_call_shape_capabilities
+
+
+def parse_resolution_call_ledger(
+    raw: bytes,
+    *,
+    profile: object,
+) -> tuple[Mapping[str, object], VerifiedResolutionCallShape]:
+    return _derive_resolution_call_shape(raw, profile=profile)
+
+
+def consume_resolution_call_shape(
+    value: object,
+    *,
+    profile: object,
+) -> Mapping[str, object]:
+    snapshot = _consume_resolution_call_shape(value, profile)
+    return MappingProxyType(
+        {
+            "profile_fingerprint": snapshot.profile_fingerprint,
+            "planner_count": snapshot.planner_count,
+            "evaluator_count": snapshot.evaluator_count,
+            "ordered_roles": snapshot.ordered_roles,
+            "ordered_indexes": snapshot.ordered_indexes,
+            "branch_kinds": snapshot.branch_kinds,
+            "terminal_flags": snapshot.terminal_flags,
+            "ledger_sha256": snapshot.ledger_sha256,
+            "planner_row_sha256": tuple(
+                "sha256:" + hashlib.sha256(raw).hexdigest()
+                for raw in snapshot.planner_row_bytes
+            ),
+            "evaluator_row_sha256": tuple(
+                "sha256:" + hashlib.sha256(raw).hexdigest()
+                for raw in snapshot.evaluator_row_bytes
+            ),
+        }
+    )
+
+
+def _validate_planner_member_against_shape(
+    value: object,
+    *,
+    snapshot: _CallShapeSnapshot,
+    constants: Mapping[str, object],
+) -> None:
+    planner_returned_count = sum(
+        1
+        for role, branch in zip(
+            snapshot.ordered_roles,
+            snapshot.branch_kinds,
+            strict=True,
+        )
+        if role == "planner" and branch == "response"
+    )
+    if (
+        type(value) is not dict
+        or set(value) != _PLANNER_MEMBER_FIELDS
+        or value.get("schema")
+        != "rook.lm9b_p.governed_resolution_planner_session:v1"
+        or type(value.get("calls")) is not list
+        or type(value.get("turns")) is not list
+        or type(value.get("call_count")) is not int
+        or value["call_count"] != snapshot.planner_count
+        or len(value["calls"]) != snapshot.planner_count
+        or len(value["turns"]) != planner_returned_count
+    ):
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_planner_member_shape_invalid"
+        )
+    observed_rows = tuple(_canonical_bytes(row) for row in value["calls"])
+    if observed_rows != snapshot.planner_row_bytes:
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_planner_member_ledger_mismatch"
+        )
+    for turn in value["turns"]:
+        _bounded_canonical_size(
+            turn,
+            ceiling=int(constants["turn_summary_bytes"]),
+            rejection_id="resolution_archive_turn_summary_bytes_exceeded",
+        )
+
+
+def _evaluator_ledger_projection(row: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "call_index": row["call_index"],
+        "dispatched_request_b64": base64.b64encode(
+            str(row["canonical_request_json"]).encode("utf-8")
+        ).decode("ascii"),
+        "provider_claimed_raw_request_b64": row.get(
+            "provider_claimed_raw_request_b64"
+        ),
+        "provider_raw_error_b64": row.get("provider_raw_error_b64"),
+        "raw_response_b64": row.get("raw_response_b64"),
+        "assistant_message": row.get("assistant_message"),
+        "usage": row.get("usage"),
+        "provider_metadata": row.get("provider_metadata"),
+    }
+
+
+def _validate_evaluator_member_against_shape(
+    value: object,
+    *,
+    snapshot: _CallShapeSnapshot,
+    constants: Mapping[str, object],
+) -> None:
+    if (
+        snapshot.evaluator_count != 1
+        or len(snapshot.evaluator_row_bytes) != 1
+        or type(value) is not dict
+        or set(value) != _EVALUATOR_MEMBER_FIELDS
+        or value.get("schema")
+        != "rook.lm9b_p.governed_resolution_evaluator:v1"
+    ):
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_evaluator_member_shape_invalid"
+        )
+    row = PLANNER_SUPPORT.parse_archive_json(snapshot.evaluator_row_bytes[0])
+    if type(row) is not dict:
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_evaluator_member_shape_invalid"
+        )
+    expected_projection = _evaluator_ledger_projection(row)
+    observed_projection = {
+        key: value[key] for key in expected_projection
+    }
+    if _canonical_bytes(observed_projection) != _canonical_bytes(
+        expected_projection
+    ):
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_evaluator_member_ledger_mismatch"
+        )
+    termination = value.get("termination")
+    if row["outcome"] == "returned":
+        compatible = termination in {"valid_recommendation", "malformed"}
+    else:
+        compatible = termination in {"provider_failure", "timeout"}
+    if not compatible:
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_evaluator_member_termination_mismatch"
+        )
+    parsed_result = {
+        "termination": termination,
+        "recommendation": value.get("recommendation"),
+        "evidence": value.get("evidence"),
+        "quiescent": value.get("quiescent"),
+    }
+    if (
+        type(parsed_result["termination"]) is not str
+        or (
+            parsed_result["recommendation"] is not None
+            and type(parsed_result["recommendation"]) is not str
+        )
+        or type(parsed_result["evidence"]) is not list
+        or type(parsed_result["quiescent"]) is not bool
+    ):
+        raise ResolutionArchiveEvidenceError(
+            "resolution_archive_evaluator_result_shape_invalid"
+        )
+    _bounded_canonical_size(
+        parsed_result,
+        ceiling=int(constants["evaluator_parsed_result_bytes"]),
+        rejection_id="resolution_archive_evaluator_result_bytes_exceeded",
+    )
 
 
 def parse_resolution_archive_member(
@@ -639,6 +1021,12 @@ def parse_resolution_archive_member(
     }
     if dynamic and call_shape is None:
         raise TypeError("resolution archive dynamic member requires call shape")
+    if dynamic and path == "evaluator.json":
+        snapshot = _consume_resolution_call_shape(call_shape, profile)
+        if snapshot.evaluator_count != 1:
+            raise ResolutionArchiveEvidenceError(
+                "resolution_archive_evaluator_member_shape_invalid"
+            )
     preparse_ceiling = resolution_member_ceiling(
         path=path,
         profile=profile,
@@ -657,19 +1045,21 @@ def parse_resolution_archive_member(
             "resolution_archive_member_bytes_exceeded"
         )
     if dynamic:
-        shape = consume_resolution_call_shape(call_shape, profile=profile)
+        snapshot = _consume_resolution_call_shape(call_shape, profile)
+        profile_value = consume_resolution_archive_resource_profile(profile)
+        constants = profile_value["constants"]
+        assert isinstance(constants, Mapping)
         if path == "planner-session.json":
-            if type(value) is not dict or type(value.get("calls")) is not list:
-                raise ResolutionArchiveEvidenceError(
-                    "resolution_archive_planner_member_shape_invalid"
-                )
-            if len(value["calls"]) != shape["planner_count"]:
-                raise ResolutionArchiveEvidenceError(
-                    "resolution_archive_planner_member_count_mismatch"
-                )
-        elif shape["evaluator_count"] != 1 or type(value) is not dict:
-            raise ResolutionArchiveEvidenceError(
-                "resolution_archive_evaluator_member_shape_invalid"
+            _validate_planner_member_against_shape(
+                value,
+                snapshot=snapshot,
+                constants=constants,
+            )
+        else:
+            _validate_evaluator_member_against_shape(
+                value,
+                snapshot=snapshot,
+                constants=constants,
             )
     return value
 
@@ -690,5 +1080,8 @@ __all__ = (
     "consume_resolution_call_shape",
     "parse_resolution_archive_member",
     "parse_resolution_call_ledger",
+    "resolution_call_row_ceiling",
+    "resolution_evaluator_member_ceiling",
     "resolution_member_ceiling",
+    "validate_resolution_call_field_bounds",
 )

@@ -863,7 +863,49 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
             "evaluator.json",
             "termination",
             "evaluation_inconclusive",
-            "evaluator evidence",
+            "evaluator_member_termination_mismatch",
+        ),
+        (
+            "evaluator.json",
+            "recommendation",
+            "semantically_unfaithful",
+            "root bindings differ",
+        ),
+        (
+            "evaluator.json",
+            "evidence",
+            [{"claim": "altered"}],
+            "root bindings differ",
+        ),
+        (
+            "evaluator.json",
+            "quiescent",
+            False,
+            "root bindings differ",
+        ),
+        (
+            "evaluator.json",
+            "assistant_message",
+            {"role": "assistant", "content": "altered"},
+            "evaluator_member_ledger_mismatch",
+        ),
+        (
+            "evaluator.json",
+            "usage",
+            {"prompt_tokens": 999},
+            "evaluator_member_ledger_mismatch",
+        ),
+        (
+            "evaluator.json",
+            "provider_metadata",
+            {"altered": True},
+            "evaluator_member_ledger_mismatch",
+        ),
+        (
+            "evaluator.json",
+            "raw_response_b64",
+            base64.b64encode(b"{}").decode("ascii"),
+            "evaluator_member_ledger_mismatch",
         ),
     ):
         claim_tamper = tmp_path / f"claim-tamper-{field}-{member.split('.')[0]}"
