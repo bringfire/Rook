@@ -502,6 +502,29 @@ def test_task2_evaluator_member_limit_is_exact_and_count_derived() -> None:
         )
 
 
+def test_task2_large_evaluator_row_stays_profile_aware_through_member_projection() -> None:
+    profile = _profile()
+    planner = _planner_row()
+    evaluator = _evaluator_row()
+    evaluator["canonical_request_json"] = "x" * 1_100_000
+    ledger_raw = _ledger(planner, evaluator)
+    assert len(ledger_raw) > PLANNER_SUPPORT.MAX_RECIPE_BYTES
+    _ledger_value, shape = ARCHIVE_EVIDENCE.parse_resolution_call_ledger(
+        ledger_raw,
+        profile=profile,
+    )
+    member = _evaluator_member(evaluator)
+    assert len(member) > PLANNER_SUPPORT.MAX_RECIPE_BYTES
+
+    parsed = ARCHIVE_EVIDENCE.parse_resolution_archive_member(
+        member,
+        path="evaluator.json",
+        profile=profile,
+        call_shape=shape,
+    )
+    assert parsed["call_index"] == 1
+
+
 def test_task2_indexed_formula_arithmetic_is_exact() -> None:
     profile = _profile()
     constants = ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(
@@ -874,6 +897,44 @@ def test_task2_branch_exclusivity_precedes_call_shape_issuance(
     ):
         ARCHIVE_EVIDENCE.parse_resolution_call_ledger(
             _ledger(row),
+            profile=profile,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "rejection"),
+    (
+        ("unknown_role", "resolution_archive_role_unknown"),
+        ("role_order", "resolution_archive_role_order_invalid"),
+        ("noncontiguous_index", "resolution_archive_call_indexes_not_contiguous"),
+        ("nonterminal", "resolution_archive_call_not_terminal"),
+    ),
+)
+def test_task2_role_index_and_terminal_projections_precede_shape_issuance(
+    mutation: str,
+    rejection: str,
+) -> None:
+    profile = _profile()
+    if mutation == "role_order":
+        rows = (
+            _evaluator_row(call_index=0),
+            _planner_row(call_index=1),
+        )
+    else:
+        row = _planner_row()
+        if mutation == "unknown_role":
+            row["role"] = "compiler"
+        elif mutation == "noncontiguous_index":
+            row["call_index"] = 1
+        else:
+            row["terminal"] = False
+        rows = (row,)
+    with pytest.raises(
+        ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceError,
+        match=rejection,
+    ):
+        ARCHIVE_EVIDENCE.parse_resolution_call_ledger(
+            _ledger(*rows),
             profile=profile,
         )
 

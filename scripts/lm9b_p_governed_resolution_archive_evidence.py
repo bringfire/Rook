@@ -956,7 +956,10 @@ def _validate_evaluator_member_against_shape(
         raise ResolutionArchiveEvidenceError(
             "resolution_archive_evaluator_member_shape_invalid"
         )
-    row = PLANNER_SUPPORT.parse_archive_json(snapshot.evaluator_row_bytes[0])
+    row = _parse_archive_with_ceiling(
+        snapshot.evaluator_row_bytes[0],
+        _evaluator_row_ceiling(constants),
+    )
     if type(row) is not dict:
         raise ResolutionArchiveEvidenceError(
             "resolution_archive_evaluator_member_shape_invalid"
