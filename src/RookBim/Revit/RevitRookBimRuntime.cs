@@ -102,7 +102,7 @@ namespace RookBim.Revit
         {
             try
             {
-                return Dispatch(diagnostics, uiapp => creationGuidProbe.Execute(
+                return DispatchCreationGuidProbe(diagnostics, uiapp => creationGuidProbe.Execute(
                     uiapp,
                     AcquireActiveDocument(uiapp, diagnostics),
                     diagnostics,
@@ -115,6 +115,17 @@ namespace RookBim.Revit
                     $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
                     503);
             }
+        }
+
+        private T DispatchCreationGuidProbe<T>(
+            BimDiagnosticContext diagnostics,
+            Func<UIApplication, T> work)
+        {
+            var dispatch = dispatcher.InvokeAbandonable(diagnostics, work);
+            return BimCreationGuidProbeDispatchAwaiter.Wait(
+                dispatch.Task,
+                dispatch.Abandon,
+                DispatchTimeout);
         }
 
         public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)

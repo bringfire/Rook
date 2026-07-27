@@ -159,6 +159,66 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Watchdog_WorkerPublishingAfterDeadlineBeforeFirstPollBecomesStickyTimeout()
+        {
+            var now = new DateTime(2026, 7, 26, 12, 0, 0, DateTimeKind.Utc);
+            using var release = new ManualResetEventSlim(false);
+            using var publicationFinished = new ManualResetEventSlim(false);
+            var coordinator = new BimCreationGuidProbeAsyncCoordinator(
+                _ =>
+                {
+                    release.Wait();
+                    return Success(new JsonObject { ["late"] = true });
+                },
+                work => Task.Run(() =>
+                {
+                    work();
+                    publicationFinished.Set();
+                }),
+                () => now);
+
+            var start = coordinator.Start("begin", null);
+            now = now.AddSeconds(11);
+            release.Set();
+            Assert.True(publicationFinished.Wait(TimeSpan.FromSeconds(2)));
+
+            Assert.Equal("timed_out", coordinator.Poll(start.OperationId).State);
+            Assert.Equal("busy", coordinator.Start("abort", null).State);
+            Assert.Equal("timed_out", coordinator.Poll(start.OperationId).State);
+        }
+
+        [Fact]
+        public void Watchdog_TerminalPublishedBeforeDeadlineRemainsTerminalWhenPolledLater()
+        {
+            var now = new DateTime(2026, 7, 26, 12, 0, 0, DateTimeKind.Utc);
+            using var release = new ManualResetEventSlim(false);
+            using var publicationFinished = new ManualResetEventSlim(false);
+            var coordinator = new BimCreationGuidProbeAsyncCoordinator(
+                _ =>
+                {
+                    release.Wait();
+                    return Success(new JsonObject { ["on_time"] = true });
+                },
+                work => Task.Run(() =>
+                {
+                    work();
+                    publicationFinished.Set();
+                }),
+                () => now);
+
+            var start = coordinator.Start("begin", null);
+            now = now.AddSeconds(9);
+            release.Set();
+            Assert.True(publicationFinished.Wait(TimeSpan.FromSeconds(2)));
+            now = now.AddSeconds(2);
+
+            var completed = coordinator.Poll(start.OperationId);
+            Assert.Equal("completed", completed.State);
+            Assert.Equal("{\"on_time\":true}", completed.DataJson);
+            Assert.Equal("not_found", coordinator.Poll(start.OperationId).State);
+        }
+
+        [Fact]
         public void SlotType_DoesNotRetainForbiddenRawObjects()
         {
             var slot = typeof(BimCreationGuidProbeAsyncCoordinator)

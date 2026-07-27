@@ -194,6 +194,12 @@ namespace Rook.Handlers
                     return;
                 }
 
+                if (utcNow() - slot.StartedUtc >= Watchdog)
+                {
+                    slot.TimedOut = true;
+                    return;
+                }
+
                 slot.Terminal = terminal;
             }
         }
