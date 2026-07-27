@@ -869,7 +869,10 @@ reservation, adapter construction must match the authorized adapter path,
 model, profile, temperature, and route. One pure instrument-bound projection
 derives the exact LiteLLM invocation bytes from that configuration and the
 canonical Rook request; the adapter and public verifier share it and require
-the captured `raw_request` to match exactly.
+the captured `raw_request` to match exactly. The same shared projection derives
+the assistant message from captured canonical `raw_response` bytes and requires
+the captured message role to be exactly `assistant`; it never inserts or
+normalizes a role.
 
 On `ProviderCallFailure`, the ledger preserves and hashes both `raw_request`
 and `raw_error`; public reconstruction again derives the expected request
@@ -948,8 +951,8 @@ place.
 ### 17.4 Atomic finalization
 
 Finalization uses Windows `Path.rename()` on the same filesystem as the
-no-clobber atomic operation; `Path.replace()` is forbidden. After a rename
-exception:
+no-clobber atomic operation; `Path.replace()` is forbidden. After any exception
+once rename begins, including verification failure after rename returns:
 
 1. If the exact destination exists and verifies completely, treat it as sealed.
 2. If staging remains and destination is absent or invalid, retain staging.
@@ -993,7 +996,11 @@ Every file and role is closed. Unknown archive members fail verification.
 ## 19. Public constructive verification
 
 The public verifier proves a closed derivation graph rather than a checksum
-story. It independently reconstructs:
+story. It requires an independently supplied preflight archive and expected
+preflight fingerprint, physically verifies that archive's exact record and
+initial-request bytes, and compares all checkpoint attempt/instrument bindings
+against that root. No checkpoint member may establish its own approved
+preflight identity. It independently reconstructs:
 
 - historical and derivative provenance;
 - carrier qualification and code-owned contract identities;
@@ -1169,7 +1176,8 @@ failure, classifier inconsistency, checksum failure, and persistence failure.
 
 ### 21.7 Rename reconciliation table
 
-Cover destination race, successful-but-reported-failed rename, invalid
+Cover destination race, successful-but-reported-failed rename, transient
+destination-verification failure after successful rename, invalid
 destination-only material, both staging and destination present, and no-clobber
 behavior.
 
@@ -1186,7 +1194,10 @@ After fully reclosing downstream fingerprints and checksums, substitute:
 - physical archive destination.
 
 Public verification must reject each because the authored claim disagrees with
-its authority source.
+its authority source. Also reclose checkpoint-owned preflight and attempt
+bindings while leaving the independently supplied physical preflight untouched;
+verification must reject the checkpoint rather than accept its self-authored
+preflight story.
 
 ### 21.9 Structural compiler isolation
 

@@ -74,9 +74,13 @@ _READY_PROOF_VALUE = {
         "isolation_result_fingerprint",
     ],
     "issuance_predicate": (
-        "publicly reconstructed probe_candidate_ready checkpoint only"
+        "independently preflight-rooted publicly reconstructed "
+        "probe_candidate_ready checkpoint only"
     ),
-    "reconstruction": "rerun public checkpoint verifier at bound destination",
+    "reconstruction": (
+        "rerun public checkpoint verifier at bound destination with the "
+        "independently supplied physical preflight root and fingerprint"
+    ),
 }
 _READY_PROOF_VALUE["contract_fingerprint"] = PLANNER_SUPPORT.fingerprint(
     _READY_PROOF_VALUE
@@ -1343,20 +1347,58 @@ def write_resolution_preflight(
     )
 
 
+def _attempt_from_verified_preflight_record(
+    *, instrument: ResolutionInstrument, record: Mapping[str, object]
+) -> AttemptBinding:
+    value = record.get("attempt")
+    if type(value) is not dict:
+        raise ValueError("resolution preflight attempt is malformed")
+    attempt_id = value.get("attempt_id")
+    root = Path(str(value.get("resolution_root", "")))
+    destination = Path(str(value.get("canonical_destination", "")))
+    staging = Path(str(value.get("staging_path", "")))
+    if (
+        type(attempt_id) is not str
+        or ATTEMPT_ID_PATTERN.fullmatch(attempt_id) is None
+        or len(attempt_id) > ATTEMPT_ID_MAX_LENGTH
+        or not root.is_absolute()
+        or not destination.is_absolute()
+        or not staging.is_absolute()
+        or root.resolve() != root
+        or destination.parent != root
+        or staging != root / f".{attempt_id}.staging"
+        or destination == staging
+        or not root.is_dir()
+        or _path_has_reparse_ambiguity(root)
+    ):
+        raise ValueError("resolution preflight attempt binding is invalid")
+    expected_fingerprint = PLANNER_SUPPORT.fingerprint(
+        {
+            "instrument_fingerprint": instrument.instrument_fingerprint,
+            "attempt_id": attempt_id,
+            "canonical_destination": str(destination),
+        }
+    )
+    if value.get("attempt_fingerprint") != expected_fingerprint:
+        raise ValueError("resolution preflight attempt fingerprint differs")
+    return AttemptBinding(
+        attempt_id=attempt_id,
+        resolution_root=root,
+        destination=destination,
+        staging_path=staging,
+        attempt_fingerprint=expected_fingerprint,
+    )
+
+
 def verify_resolution_preflight(
     archive_dir: Path,
     *,
     expected_fingerprint: str,
 ) -> VerifiedResolutionPreflight:
-    archive = Path(archive_dir).resolve()
-    members = {
-        path.relative_to(archive).as_posix()
-        for path in archive.rglob("*")
-        if path.is_file()
-    }
-    if members != _PREFLIGHT_MEMBERS:
+    archive, physical_snapshot = _read_flat_archive_snapshot(archive_dir)
+    if set(physical_snapshot) != _PREFLIGHT_MEMBERS:
         raise ValueError("resolution preflight membership is not closed")
-    record = _object_bytes((archive / "record.json").read_bytes(), "preflight")
+    record = _object_bytes(physical_snapshot["record.json"], "preflight")
     if (
         record.get("schema") != PREFLIGHT_SCHEMA_ID
         or record.get("preflight_fingerprint")
@@ -1365,10 +1407,10 @@ def verify_resolution_preflight(
     ):
         raise ValueError("resolution preflight fingerprint mismatch")
     raw_members = {
-        "record.json": (archive / "record.json").read_bytes(),
-        "initial-request.json": (archive / "initial-request.json").read_bytes(),
+        "record.json": physical_snapshot["record.json"],
+        "initial-request.json": physical_snapshot["initial-request.json"],
     }
-    checksums = _object_bytes((archive / "checksums.json").read_bytes(), "checksums")
+    checksums = _object_bytes(physical_snapshot["checksums.json"], "checksums")
     if checksums != _checksums(checksums.get("schema"), raw_members):
         raise ValueError("resolution preflight checksums mismatch")
     attempt_value = record.get("attempt")
@@ -1380,11 +1422,9 @@ def verify_resolution_preflight(
         isolation_policy_path=ISOLATION_POLICY_PATH,
         evaluation_rubric_path=EVALUATION_RUBRIC_PATH,
     )
-    attempt = bind_resolution_attempt(
+    attempt = _attempt_from_verified_preflight_record(
         instrument=instrument,
-        attempt_id=attempt_value["attempt_id"],
-        resolution_root=Path(attempt_value["resolution_root"]),
-        destination=Path(attempt_value["canonical_destination"]),
+        record=record,
     )
     expected_record = _preflight_record(instrument, attempt, archive)
     if expected_record != record:
@@ -2906,93 +2946,6 @@ def _boundary_record(
     }
 
 
-def _attempt_from_preflight_record(
-    *, instrument: ResolutionInstrument, record: Mapping[str, object]
-) -> AttemptBinding:
-    value = record.get("attempt")
-    if type(value) is not dict:
-        raise ValueError("archived preflight attempt is malformed")
-    attempt_id = value.get("attempt_id")
-    root = Path(str(value.get("resolution_root", ""))).resolve()
-    destination = Path(str(value.get("canonical_destination", ""))).resolve()
-    staging = Path(str(value.get("staging_path", ""))).resolve()
-    if (
-        type(attempt_id) is not str
-        or ATTEMPT_ID_PATTERN.fullmatch(attempt_id) is None
-        or len(attempt_id) > ATTEMPT_ID_MAX_LENGTH
-        or destination.parent != root
-        or staging != root / f".{attempt_id}.staging"
-        or destination == staging
-    ):
-        raise ValueError("archived resolution attempt binding is invalid")
-    expected_fingerprint = PLANNER_SUPPORT.fingerprint(
-        {
-            "instrument_fingerprint": instrument.instrument_fingerprint,
-            "attempt_id": attempt_id,
-            "canonical_destination": str(destination),
-        }
-    )
-    if value.get("attempt_fingerprint") != expected_fingerprint:
-        raise ValueError("archived resolution attempt fingerprint differs")
-    return AttemptBinding(
-        attempt_id=attempt_id,
-        resolution_root=root,
-        destination=destination,
-        staging_path=staging,
-        attempt_fingerprint=expected_fingerprint,
-    )
-
-
-def _preflight_from_instrument_record(
-    value: Mapping[str, object],
-) -> VerifiedResolutionPreflight:
-    if set(value) != {
-        "schema",
-        "preflight_record",
-        "initial_request_b64",
-        "contract_manifest",
-        "instrument_fingerprint",
-    } or value.get("schema") != "rook.lm9b_p.governed_resolution_instrument:v1":
-        raise ValueError("archived resolution instrument shape differs")
-    preflight_record = value.get("preflight_record")
-    if type(preflight_record) is not dict:
-        raise ValueError("archived preflight record is malformed")
-    sources = _load_current_resolution_sources(
-        preflight_record.get("reviewed_commit_sha")
-    )
-    instrument = assemble_resolution_instrument(
-        sources=sources,
-        isolation_policy_path=ISOLATION_POLICY_PATH,
-        evaluation_rubric_path=EVALUATION_RUBRIC_PATH,
-    )
-    initial_raw = base64.b64decode(value["initial_request_b64"], validate=True)
-    if (
-        instrument.initial_request.raw_bytes != initial_raw
-        or dict(instrument.contract_manifest) != value.get("contract_manifest")
-        or instrument.instrument_fingerprint != value.get("instrument_fingerprint")
-    ):
-        raise ValueError("archived instrument differs from reconstruction")
-    attempt = _attempt_from_preflight_record(
-        instrument=instrument, record=preflight_record
-    )
-    preflight_destination = Path(
-        str(preflight_record.get("canonical_preflight_destination", ""))
-    ).resolve()
-    expected_record = _preflight_record(
-        instrument, attempt, preflight_destination
-    )
-    if expected_record != preflight_record:
-        raise ValueError("archived preflight differs from reconstruction")
-    return VerifiedResolutionPreflight(
-        archive_dir=preflight_destination,
-        record=MappingProxyType(preflight_record),
-        preflight_fingerprint=preflight_record["preflight_fingerprint"],
-        instrument_fingerprint=instrument.instrument_fingerprint,
-        attempt=attempt,
-        instrument=instrument,
-    )
-
-
 def _reconstruct_attempt_results(
     *,
     preflight: VerifiedResolutionPreflight,
@@ -3488,19 +3441,21 @@ def seal_resolution_checkpoint(
     )
     try:
         archive_candidate.rename(preflight.attempt.destination)
-    except OSError:
+        sealed = _verify_resolution_checkpoint_archive(
+            preflight.attempt.destination,
+            expected_identity=checkpoint_identity,
+            enforce_public_location=True,
+            verified_preflight=preflight,
+        )
+    except Exception:
+        # Once rename begins, its reported outcome and every subsequent read
+        # can be ambiguous. Reconstruct physical state before issuing a state.
         return reconcile_resolution_rename(
             staging_dir=staging,
             destination=preflight.attempt.destination,
             expected_identity=checkpoint_identity,
             preflight=preflight,
         )
-    sealed = _verify_resolution_checkpoint_archive(
-        preflight.attempt.destination,
-        expected_identity=checkpoint_identity,
-        enforce_public_location=True,
-        verified_preflight=preflight,
-    )
     try:
         _remove_verified_runtime(runtime)
         staging.rmdir()
@@ -3516,7 +3471,7 @@ def _verify_resolution_checkpoint_archive(
     *,
     expected_identity: str,
     enforce_public_location: bool,
-    verified_preflight: VerifiedResolutionPreflight | None = None,
+    verified_preflight: VerifiedResolutionPreflight,
 ) -> SealedResolutionCheckpoint:
     archive, physical_snapshot = _read_flat_archive_snapshot(archive_dir)
     files = set(physical_snapshot)
@@ -3567,14 +3522,11 @@ def _verify_resolution_checkpoint_archive(
     ):
         raise ValueError("resolution checkpoint identity differs")
     instrument_row = _object_bytes(raw_members["instrument.json"], "instrument")
-    if verified_preflight is None:
-        preflight = _preflight_from_instrument_record(instrument_row)
-    else:
-        if type(verified_preflight) is not VerifiedResolutionPreflight:
-            raise TypeError("private staging verification requires frozen preflight")
-        preflight = verified_preflight
-        if instrument_row != _resolution_instrument_record(preflight):
-            raise ValueError("staged instrument differs from frozen preflight")
+    if type(verified_preflight) is not VerifiedResolutionPreflight:
+        raise TypeError("checkpoint verification requires a verified preflight")
+    preflight = verified_preflight
+    if instrument_row != _resolution_instrument_record(preflight):
+        raise ValueError("checkpoint instrument differs from independent preflight")
     inputs = preflight.instrument.inputs
     if (
         record.get("preflight_fingerprint") != preflight.preflight_fingerprint
@@ -3732,15 +3684,23 @@ def _verify_resolution_checkpoint_archive(
 
 
 def verify_sealed_resolution_checkpoint(
-    archive_dir: Path, *, expected_identity: str
+    archive_dir: Path,
+    *,
+    expected_identity: str,
+    preflight_archive: Path,
+    expected_preflight_fingerprint: str,
 ) -> SealedResolutionCheckpoint:
-    """Publicly reconstruct one official checkpoint at its bound destination."""
+    """Reconstruct a checkpoint from an independently pinned preflight root."""
 
+    verified_preflight = verify_resolution_preflight(
+        preflight_archive,
+        expected_fingerprint=expected_preflight_fingerprint,
+    )
     return _verify_resolution_checkpoint_archive(
         archive_dir,
         expected_identity=expected_identity,
         enforce_public_location=True,
-        verified_preflight=None,
+        verified_preflight=verified_preflight,
     )
 
 
@@ -3805,12 +3765,17 @@ def reconcile_resolution_rename(
 
 def issue_resolution_ready_proof(
     sealed_checkpoint: SealedResolutionCheckpoint,
+    *,
+    preflight_archive: Path,
+    expected_preflight_fingerprint: str,
 ) -> VerifiedResolutionReady:
     if type(sealed_checkpoint) is not SealedResolutionCheckpoint:
         raise TypeError("sealed resolution checkpoint is required")
     verified = verify_sealed_resolution_checkpoint(
         sealed_checkpoint.archive_dir,
         expected_identity=sealed_checkpoint.checkpoint_identity,
+        preflight_archive=preflight_archive,
+        expected_preflight_fingerprint=expected_preflight_fingerprint,
     )
     if verified.classification != "probe_candidate_ready" or type(
         verified.exact_recipe_bytes
@@ -3840,10 +3805,19 @@ def issue_resolution_ready_proof(
     )
 
 
-def consume_resolution_ready_proof(proof: object) -> VerifiedResolutionReady:
+def consume_resolution_ready_proof(
+    proof: object,
+    *,
+    preflight_archive: Path,
+    expected_preflight_fingerprint: str,
+) -> VerifiedResolutionReady:
     if type(proof) is not VerifiedResolutionReady:
         raise TypeError("resolution-ready proof has the wrong type")
-    rebuilt = issue_resolution_ready_proof(proof.checkpoint)
+    rebuilt = issue_resolution_ready_proof(
+        proof.checkpoint,
+        preflight_archive=preflight_archive,
+        expected_preflight_fingerprint=expected_preflight_fingerprint,
+    )
     if proof != rebuilt:
         raise ValueError("resolution-ready proof differs from public reconstruction")
     return rebuilt

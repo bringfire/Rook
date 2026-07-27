@@ -758,6 +758,8 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
     verified = RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
         result.sealed_checkpoint.archive_dir,
         expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
     )
     assert verified.classification == "probe_candidate_ready"
     assert verified.exact_recipe_bytes == ISOLATED_SUCCESSOR_RECIPE.read_bytes()
@@ -786,6 +788,8 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
             planner_tamper,
             expected_identity=planner_tamper_identity,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
         )
 
     evaluator_tamper = tmp_path / "evaluator-request-tamper"
@@ -804,6 +808,8 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
             evaluator_tamper,
             expected_identity=evaluator_tamper_identity,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
         )
 
     for member, field, changed, expected_error in (
@@ -836,6 +842,8 @@ def test_task1_two_turn_vertical_witness_publicly_verifies(
             RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
                 claim_tamper,
                 expected_identity=claim_tamper_identity,
+                preflight_archive=preflight.archive_dir,
+                expected_preflight_fingerprint=preflight.preflight_fingerprint,
             )
 
 
@@ -1260,6 +1268,8 @@ def test_task4_complete_outcome_table_stops_at_first_terminal_boundary(
     verified = RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
         result.sealed_checkpoint.archive_dir,
         expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
     )
     assert verified.classification == expected_classification
     assert len(evaluator.requests) == expected_evaluator_calls
@@ -2310,7 +2320,7 @@ def test_task5_reclosed_planner_adapter_request_is_rejected_by_provenance(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
     archive = result.sealed_checkpoint.archive_dir
     planner_path = archive / "planner-session.json"
     planner = json.loads(planner_path.read_bytes())
@@ -2337,6 +2347,52 @@ def test_task5_reclosed_planner_adapter_request_is_rejected_by_provenance(
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
             archive,
             expected_identity=changed_identity,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+        )
+
+
+def test_task5_checkpoint_cannot_supply_its_own_preflight_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    archive = result.sealed_checkpoint.archive_dir
+    instrument_path = archive / "instrument.json"
+    instrument = json.loads(instrument_path.read_bytes())
+    invented_preflight = tmp_path / "invented-preflight"
+    archived_preflight = instrument["preflight_record"]
+    archived_preflight["canonical_preflight_destination"] = str(
+        invented_preflight.resolve()
+    )
+    archived_preflight["preflight_fingerprint"] = PLANNER_SUPPORT.fingerprint_without(
+        archived_preflight, "preflight_fingerprint"
+    )
+    instrument_path.write_bytes(_canonical_bytes(instrument))
+
+    launch_path = archive / "launch.json"
+    launch = json.loads(launch_path.read_bytes())
+    invocation = launch["invocation_binding"]
+    invocation["supplied_preflight_fingerprint"] = archived_preflight[
+        "preflight_fingerprint"
+    ]
+    invocation["invocation_fingerprint"] = PLANNER_SUPPORT.fingerprint_without(
+        invocation, "invocation_fingerprint"
+    )
+    launch_path.write_bytes(_canonical_bytes(launch))
+
+    record_path = archive / "record.json"
+    record = json.loads(record_path.read_bytes())
+    record["preflight_fingerprint"] = archived_preflight["preflight_fingerprint"]
+    record_path.write_bytes(_canonical_bytes(record))
+    changed_identity = _reclose_task1_checkpoint(archive)
+
+    with pytest.raises(ValueError, match="independent preflight"):
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            archive,
+            expected_identity=changed_identity,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
         )
 
 
@@ -2363,7 +2419,7 @@ def test_task5_fully_reclosed_provenance_substitution_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
     archive = result.sealed_checkpoint.archive_dir
     target = archive
     if substitution == "physical_destination":
@@ -2444,7 +2500,10 @@ def test_task5_fully_reclosed_provenance_substitution_is_rejected(
 
     with pytest.raises((ValueError, TypeError, KeyError)):
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
-            target, expected_identity=changed_identity
+            target,
+            expected_identity=changed_identity,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
         )
 
 
@@ -2492,6 +2551,8 @@ def test_task5_rename_reconciliation_never_overwrites_or_invents_result(
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
             result.sealed_checkpoint.archive_dir,
             expected_identity=result.sealed_checkpoint.checkpoint_identity,
+            preflight_archive=_preflight.archive_dir,
+            expected_preflight_fingerprint=_preflight.preflight_fingerprint,
         )
     else:
         assert result.classification is None
@@ -2519,20 +2580,62 @@ def test_task5_rename_reconciliation_never_overwrites_or_invents_result(
             }
 
 
+def test_task5_transient_verification_failure_after_rename_reconciles_as_sealed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    original_verify = RESOLUTION_ARTIFACTS._verify_resolution_checkpoint_archive
+    public_destination_calls = 0
+
+    def fail_first_public_destination_verification(*args: object, **kwargs: object):
+        nonlocal public_destination_calls
+        if kwargs.get("enforce_public_location") is True:
+            public_destination_calls += 1
+            if public_destination_calls == 1:
+                raise OSError("transient post-rename verification failure")
+        return original_verify(*args, **kwargs)
+
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS,
+        "_verify_resolution_checkpoint_archive",
+        fail_first_public_destination_verification,
+    )
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    assert public_destination_calls == 2
+    assert result.state == "sealed"
+    assert result.sealed_checkpoint is not None
+    RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+        result.sealed_checkpoint.archive_dir,
+        expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
+    )
+
+
 def test_task5_ready_proof_is_reconstructed_and_forgery_refused(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
     proof = RESOLUTION_ARTIFACTS.issue_resolution_ready_proof(
-        result.sealed_checkpoint
+        result.sealed_checkpoint,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
     )
-    consumed = RESOLUTION_ARTIFACTS.consume_resolution_ready_proof(proof)
+    consumed = RESOLUTION_ARTIFACTS.consume_resolution_ready_proof(
+        proof,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
+    )
     assert consumed.exact_recipe_bytes == ISOLATED_SUCCESSOR_RECIPE.read_bytes()
     assert consumed.checkpoint.classification == "probe_candidate_ready"
     forged = replace(proof, recipe_fingerprint="sha256:" + "4" * 64)
     with pytest.raises(ValueError, match="differs from public reconstruction"):
-        RESOLUTION_ARTIFACTS.consume_resolution_ready_proof(forged)
+        RESOLUTION_ARTIFACTS.consume_resolution_ready_proof(
+            forged,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+        )
 
 
 @pytest.mark.parametrize(
@@ -2608,7 +2711,7 @@ def test_task5_reclosed_semantic_claim_must_match_raw_provider_response(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
     archive = result.sealed_checkpoint.archive_dir
     ledger_path = archive / "call-ledger.json"
     ledger = json.loads(ledger_path.read_bytes())
@@ -2638,8 +2741,20 @@ def test_task5_reclosed_semantic_claim_must_match_raw_provider_response(
 
     with pytest.raises(ValueError, match="raw provider response projection"):
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
-            archive, expected_identity=changed_identity
+            archive,
+            expected_identity=changed_identity,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
         )
+
+
+def test_task5_raw_response_projection_rejects_non_assistant_role() -> None:
+    raw_response = _litellm_response_bytes(
+        {"role": "user", "content": "not an assistant", "tool_calls": []},
+        response_id="response-wrong-role",
+    )
+    with pytest.raises(ValueError, match="assistant role"):
+        COMPILER_PROBE.project_litellm_assistant_message(raw_response)
 
 
 def test_task5_execution_refuses_assistant_not_derived_from_raw_response(
@@ -2686,13 +2801,15 @@ def test_task5_public_verifier_rejects_unexpected_empty_directory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
     archive = result.sealed_checkpoint.archive_dir
     (archive / "unexpected-empty-directory").mkdir()
     with pytest.raises(ValueError, match="physical membership"):
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
             archive,
             expected_identity=result.sealed_checkpoint.checkpoint_identity,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
         )
 
 
@@ -2700,7 +2817,7 @@ def test_task5_public_verifier_rejects_reparse_alias(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
     archive = result.sealed_checkpoint.archive_dir
     alias = tmp_path / "checkpoint-alias"
     completed = subprocess.run(
@@ -2714,6 +2831,8 @@ def test_task5_public_verifier_rejects_reparse_alias(
         RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
             alias,
             expected_identity=result.sealed_checkpoint.checkpoint_identity,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
         )
 
 
@@ -2721,7 +2840,7 @@ def test_task5_ready_proof_uses_verifier_snapshot_not_replaced_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _preflight, result = _task5_ready_result(monkeypatch, tmp_path)
+    preflight, result = _task5_ready_result(monkeypatch, tmp_path)
     archive = result.sealed_checkpoint.archive_dir
     original_authority = json.loads((archive / "authority.json").read_bytes())
     original_read_bytes = Path.read_bytes
@@ -2734,7 +2853,9 @@ def test_task5_ready_proof_uses_verifier_snapshot_not_replaced_files(
 
     monkeypatch.setattr(Path, "read_bytes", replacement_read)
     proof = RESOLUTION_ARTIFACTS.issue_resolution_ready_proof(
-        result.sealed_checkpoint
+        result.sealed_checkpoint,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
     )
     assert dict(proof.successor_authority_records[0]) == original_authority
 

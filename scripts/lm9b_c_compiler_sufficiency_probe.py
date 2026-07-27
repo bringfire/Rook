@@ -170,8 +170,10 @@ def project_litellm_assistant_message(
     if not isinstance(choice, dict) or not isinstance(choice.get("message"), dict):
         raise ValueError("LiteLLM response has no assistant message")
     source_message = choice["message"]
+    if source_message.get("role") != "assistant":
+        raise ValueError("LiteLLM response message does not have assistant role")
     return {
-        "role": "assistant",
+        "role": source_message["role"],
         "content": source_message.get("content"),
         "tool_calls": source_message.get("tool_calls") or [],
     }

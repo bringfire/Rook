@@ -112,7 +112,7 @@
   - `run_resolution_attempt(*, preflight, invocation_binding, readiness_record, readiness_manifest, head_sha, now_iso, credential_present) -> ResolutionAttemptResult`
   - role adapters are constructed internally and issued only after exact route,
     model, profile, temperature, and concrete-adapter verification
-  - `verify_sealed_resolution_checkpoint(archive_dir, *, expected_identity) -> SealedResolutionCheckpoint`
+  - `verify_sealed_resolution_checkpoint(archive_dir, *, expected_identity, preflight_archive, expected_preflight_fingerprint) -> SealedResolutionCheckpoint`
   - `verify_historical_carrier_qualification_compatibility(*, archive_dir, expected_identity, repo_root, consuming_commit_sha) -> VerifiedCarrierQualificationCompatibility`
   - `bind_resolution_attempt(*, instrument, attempt_id, resolution_root, destination) -> AttemptBinding`
   - `write_resolution_preflight(*, destination, instrument, attempt_binding) -> VerifiedResolutionPreflight`
@@ -1219,8 +1219,8 @@ historical identity tokens preserved.
   - `seal_resolution_checkpoint(*, staging_dir, preflight, attempt_result) -> SealedResolutionCheckpoint`
   - `retain_post_dispatch_unsealed(*, evidence_dir, preflight, failure_locus) -> PostDispatchUnsealed`
   - `reconcile_resolution_rename(*, staging_dir, destination, expected_identity) -> SealedResolutionCheckpoint | PostDispatchUnsealed`
-  - `issue_resolution_ready_proof(sealed_checkpoint) -> VerifiedResolutionReady`
-  - `consume_resolution_ready_proof(proof) -> VerifiedResolutionReady`
+  - `issue_resolution_ready_proof(sealed_checkpoint, *, preflight_archive, expected_preflight_fingerprint) -> VerifiedResolutionReady`
+  - `consume_resolution_ready_proof(proof, *, preflight_archive, expected_preflight_fingerprint) -> VerifiedResolutionReady`
 
 - [x] **Step 1: Write the response-capture failure forensic-retention test**
 
@@ -1283,7 +1283,11 @@ The public verifier must reload production-pinned source and code-owned
 contracts, then rederive the complete graph specified in Design Section 19.
 Require `archive.resolve() == canonical_destination` for official verification.
 Use a private staging verifier before rename; never weaken the public location
-contract.
+contract. Public verification must also consume an independently supplied
+preflight archive and expected fingerprint, physically verify its exact closed
+record/request bytes, and compare the checkpoint instrument and attempt only
+against that verified source. The checkpoint cannot reconstruct or authorize
+its own preflight provenance.
 
 - [x] **Step 6: Implement post-dispatch forensic retention**
 
@@ -1310,9 +1314,11 @@ RENAME_CASES = (
 )
 ```
 
-After an exception, verify the final destination against exact expected
-identity/checksums before declaring success. Ambiguous material remains
-unsealed with no result.
+After any exception once rename begins, including destination-verification
+failure after rename returns, reconcile staging and destination and verify the
+final destination against exact expected identity/checksums before declaring
+success. A transient verification failure followed by successful
+reconstruction is sealed; ambiguous material remains unsealed with no result.
 
 - [x] **Step 8: Implement the reconstructible resolution-ready proof carrier**
 
@@ -1335,8 +1341,10 @@ Only the public verifier may issue it after reconstructing
 `lm9b_p.governed_resolution_ready_proof:v1`, closed fields, issuance predicate,
 and source fingerprint to the instrument manifest. A manually constructed
 dataclass carries no authority: `consume_resolution_ready_proof()` must rerun
-the public archive verifier at the identity-bound physical destination and
-compare every field before returning. No raw unchecked issuer is exported.
+the public archive verifier at the identity-bound physical destination with an
+independently supplied physical preflight archive and expected preflight
+fingerprint, then compare every field before returning. No raw unchecked issuer
+is exported.
 
 - [x] **Step 9: Run Task-5 suites**
 
