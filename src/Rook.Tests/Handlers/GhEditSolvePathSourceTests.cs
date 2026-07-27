@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Xunit;
 
@@ -6,104 +7,118 @@ namespace Rook.Tests.Handlers
     public sealed class GhEditSolvePathSourceTests
     {
         [Fact]
-        public void ApplyEdit_UsesDeferredPostMutationSolveScheduler()
+        public void ApplyEdit_RestoresExactlyOnceBeforeOneScheduleAndResponseConstruction()
         {
-            var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
             var method = ApplyEditSource(source);
 
-            Assert.Contains("RequestDeferredPostMutationSolve(", method);
-            Assert.DoesNotContain("RequestPostMutationSolve(", method);
-            Assert.DoesNotContain("ScheduleDocumentSolution(gh.Document!)", method);
+            AssertOrder(method,
+                "ExpirePostMutationDirtyObjects(dirtyObjects)",
+                "TakeStructuralSnapshot()",
+                "solveSuspension.Restore()",
+                "RequestPostMutationSolve(",
+                "return snapshotResult");
+            Assert.Equal(2, Count(method, "solveSuspension.Restore()"));
+            Assert.Contains("standaloneRestore: standaloneRestore", method);
+            Assert.DoesNotContain("RequestDeferredPostMutationSolve", source);
+            Assert.DoesNotContain("5000", method);
         }
 
         [Fact]
-        public void ApplyEdit_ReturnsSolveOutcomeMetadata()
+        public void SolvePolicy_HasNoTaskHandoffUiRedispatchOrSecondScheduler()
         {
-            var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.SolvePolicy.cs");
 
-            Assert.Contains("solve_scheduled", source);
-            Assert.Contains("solver_locked", source);
-            Assert.Contains("rir_repair_attempted", source);
-            Assert.Contains("rir_repair_held", source);
+            Assert.DoesNotContain("RequestDeferredPostMutationSolve", source);
+            Assert.DoesNotContain("TryScheduleDeferred", source);
+            Assert.DoesNotContain("Task.Run", source);
+            Assert.DoesNotContain("System.Threading.Tasks", source);
+            Assert.DoesNotContain("RhinoApp.InvokeOnUiThread", source);
+            Assert.DoesNotContain("TrySchedule(", source);
+            Assert.Equal(1, Count(source, "GhScheduleInvoker.Invoke("));
         }
 
         [Fact]
-        public void ApplyEdit_CapturesSnapshotBeforeDeferredSchedulingSolve()
+        public void ApplyEdit_EmitsOnlyAuthoritativeSnakeCaseScheduleFieldsInBothResponseShapes()
         {
-            var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
             var method = ApplyEditSource(source);
 
-            var suspendIndex = method.IndexOf("solveSuspension = BeginPostMutationBatchSolveSuspension(gh.Document!);", System.StringComparison.Ordinal);
-            var expireIndex = method.IndexOf("ExpirePostMutationDirtyObjects(dirtyObjects);", System.StringComparison.Ordinal);
-            var snapshotIndex = method.IndexOf("var snapshotResult = TakeStructuralSnapshot();", System.StringComparison.Ordinal);
-            var scheduleIndex = method.IndexOf("RequestDeferredPostMutationSolve(", snapshotIndex, System.StringComparison.Ordinal);
-
-            Assert.True(suspendIndex >= 0);
-            Assert.True(expireIndex > suspendIndex);
-            Assert.True(snapshotIndex > expireIndex);
-            Assert.True(scheduleIndex > snapshotIndex);
-            Assert.Contains("postEditSolveDelayMs = 1", method);
-            Assert.Contains("postEditScheduleDispatchDelayMs = 5000", method);
-            Assert.Contains("dispatchDelayMs: postEditScheduleDispatchDelayMs", method);
+            Assert.Equal(3, Count(method, "schedule_classification ="));
+            Assert.Equal(3, Count(method, "schedule_acceptance ="));
+            Assert.Equal(3, Count(method, "schedule_failure_code ="));
+            Assert.Equal(3, Count(method, "solve_scheduled ="));
+            Assert.Equal(3, Count(method, "solve_warnings ="));
+            Assert.Contains("solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray()", method);
+            Assert.DoesNotContain("scheduleClassification", method);
+            Assert.DoesNotContain("scheduleAcceptance", method);
+            Assert.DoesNotContain("scheduleFailureCode", method);
+            Assert.DoesNotContain("solveScheduled", method);
+            Assert.DoesNotContain("rir_repair_source", method);
         }
 
         [Fact]
-        public void ApplyEdit_RestoresBatchSolveSuspensionThroughDeferredScheduler()
+        public void ApplyEdit_CapturesStructuralSnapshotWithoutSynchronousSolve()
         {
-            var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
-            var method = ApplyEditSource(source);
-
-            var scheduleIndex = method.IndexOf("RequestDeferredPostMutationSolve(", System.StringComparison.Ordinal);
-            var noScheduleRestoreIndex = method.IndexOf("if (!solveOutcome.SolveScheduled)", scheduleIndex, System.StringComparison.Ordinal);
-            var catchRestoreIndex = method.IndexOf("solveSuspension?.Restore();", System.StringComparison.Ordinal);
-
-            Assert.Contains("solverStateOverride: solveSuspension.OriginalSolverState", method);
-            Assert.Contains("beforeScheduleOnUiThread: solveSuspension.Restore", method);
-            Assert.True(noScheduleRestoreIndex > scheduleIndex);
-            Assert.True(catchRestoreIndex > noScheduleRestoreIndex);
-        }
-
-        [Fact]
-        public void ApplyEdit_ResponseSnapshotOmitsOutputDataPreviews()
-        {
-            var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
             var method = ApplyEditSource(source);
 
             Assert.Contains("TakeStructuralSnapshot()", method);
             Assert.Contains("\\\"include_data\\\":false", source);
             Assert.Contains("\\\"max_preview_items\\\":0", source);
+            Assert.DoesNotContain("NewSolution", method);
+            Assert.DoesNotContain("ExpireSolution(true)", method);
+            Assert.DoesNotContain("ScheduleDocumentSolution", method);
         }
 
         [Fact]
-        public void DeferredPostMutationSolve_QueuesScheduleOffCallbackPath()
+        public void ApplyEdit_RestoreFailureBeforeSchedulingReportsSolveNotRequested()
         {
-            var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.SolvePolicy.cs"));
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
+            var method = ApplyEditSource(source);
+            var failure = method.Substring(method.IndexOf("error = \"apply_edit_failed\"", StringComparison.Ordinal));
 
-            Assert.Contains("RequestDeferredPostMutationSolve", source);
-            Assert.Contains("Task.Run(async ()", source);
-            Assert.Contains("await Task.Delay(dispatchDelayMs).ConfigureAwait(false);", source);
-            Assert.Contains("beforeScheduleOnUiThread?.Invoke();", source);
-            Assert.Contains("TrySchedule(document, delayMs);", source);
-            Assert.Contains("ScheduleSolution was deferred until after the callback returned", source);
+            Assert.Contains("GhScheduleClassification.SolveNotRequested", failure);
+            Assert.DoesNotContain("GhScheduleClassification.AsyncScheduleRequested", failure);
         }
 
-        private static string ApplyEditSource(string source)
+        private static string ApplyEditSource(string source) => MethodSource(source, "public ApiResponse ApplyEdit", "/// <summary>");
+
+        private static string ReadSource(params string[] path) => File.ReadAllText(Path.Combine(RepoRoot(), Path.Combine(path)));
+
+        private static string MethodSource(string source, string startMarker, string endMarker)
         {
-            var methodStart = source.IndexOf("public ApiResponse ApplyEdit", System.StringComparison.Ordinal);
-            Assert.True(methodStart >= 0);
-            var methodEnd = source.IndexOf("/// <summary>", methodStart, System.StringComparison.Ordinal);
-            Assert.True(methodEnd > methodStart);
-            return source.Substring(methodStart, methodEnd - methodStart);
+            var start = source.IndexOf(startMarker, StringComparison.Ordinal);
+            Assert.True(start >= 0);
+            var end = source.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
+            Assert.True(end > start);
+            return source.Substring(start, end - start);
+        }
+
+        private static int Count(string source, string value)
+        {
+            var count = 0;
+            for (var index = 0; (index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0; index += value.Length)
+                count++;
+            return count;
+        }
+
+        private static void AssertOrder(string source, params string[] markers)
+        {
+            var prior = -1;
+            foreach (var marker in markers)
+            {
+                var index = source.IndexOf(marker, prior + 1, StringComparison.Ordinal);
+                Assert.True(index > prior, $"Expected '{marker}' after index {prior}.");
+                prior = index;
+            }
         }
 
         private static string RepoRoot()
         {
             var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
             while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Rook", "Handlers", "GrasshopperHandler.cs")))
-            {
                 dir = dir.Parent;
-            }
-
             Assert.NotNull(dir);
             return dir!.FullName;
         }

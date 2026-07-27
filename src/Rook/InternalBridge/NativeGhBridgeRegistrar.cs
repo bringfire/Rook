@@ -885,6 +885,42 @@ namespace Rook.InternalBridge
             IntPtr responseJsonLength,
             IntPtr httpStatusCode)
         {
+            string requestJson;
+            try
+            {
+                requestJson = ReadUtf8(requestJsonUtf8, requestJsonLength);
+            }
+            catch
+            {
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = "gh_open_request_invalid",
+                    }, JsonOptions),
+                    400);
+            }
+
+            var preflight = GrasshopperHandler.PreflightOpenDocument(requestJson);
+            if (!preflight.Success)
+            {
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = preflight.ErrorCode,
+                    }, JsonOptions),
+                    400);
+            }
+
             return ExecuteApiResponseCallback(
                 requestJsonUtf8,
                 requestJsonLength,
