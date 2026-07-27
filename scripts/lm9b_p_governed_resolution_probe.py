@@ -15,6 +15,7 @@ import time
 import weakref
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from types import MappingProxyType
 
@@ -1138,7 +1139,8 @@ def _preflight_payload(
         "instrument_fingerprint": preflight.instrument_fingerprint,
         "attempt_fingerprint": preflight.attempt.attempt_fingerprint,
         "reviewed_commit_sha": preflight.record["reviewed_commit_sha"],
-        "eligibility": "development_non_operational",
+        "preflight_status": "structurally_verified",
+        "authorization_status": "external_not_attested",
         "execution_permitted": False,
     }
 
@@ -1150,6 +1152,10 @@ def _readiness_manifest() -> READINESS.RouteManifest:
         ),
         lambda _model: "OPENAI_API_KEY",
     )
+
+
+def _readiness_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1185,7 +1191,6 @@ def _parser() -> argparse.ArgumentParser:
     execute.add_argument("--readiness-record", type=Path, required=True)
     execute.add_argument("--attempt-id", required=True)
     execute.add_argument("--attempt-fingerprint", required=True)
-    execute.add_argument("--now-iso", required=True)
     execute.add_argument("--transmit", action="store_true")
 
     verify_checkpoint = commands.add_parser(
@@ -1275,7 +1280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             readiness_record=readiness_record,
             readiness_manifest=manifest,
             head_sha=_current_head_sha(),
-            now_iso=args.now_iso,
+            now_iso=_readiness_now_iso(),
             credential_present=credential_present,
         )
         payload = {

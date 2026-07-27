@@ -1821,7 +1821,10 @@ Immediately verify:
 ```
 
 Expected: the public verifier accepts, reports feature `HEAD`, and reports
-`execution_permitted: false` / development-only eligibility.
+`preflight_status: structurally_verified`,
+`authorization_status: external_not_attested`, and
+`execution_permitted: false`. These are structural facts only; operator
+authorization remains external to the archive and CLI output.
 
 Prove the worktree remains clean after preflight generation:
 
@@ -1869,3 +1872,32 @@ After an independently reviewed PR is merged:
    separate LM9B-C continuation preflight and authorization.
 
 No step in this implementation plan authorizes that operational sequence.
+
+---
+
+## Task 6 review closure
+
+- [x] Pin LF checkout bytes for every resolution source whose raw bytes enter
+  the instrument identity: both governed-resolution JSON directories, the
+  governed-resolution execution module, and the shared LiteLLM adapter module.
+- [x] Remove the public `--now-iso` launch argument. Preserve injected time only
+  on the direct orchestration function; the CLI must derive exact UTC through
+  its code-owned clock and refuse stale readiness before adapter construction.
+- [x] Replace development-only generic preflight output with neutral structural
+  status and an explicit non-claim about externally supplied authorization.
+- [x] Run the targeted red/green cases, focused governed-resolution regression,
+  full LM9B-P family, compilation, and `git diff --check`.
+- [x] Commit the bounded repair, regenerate the development preflight at that
+  exact commit, and publicly verify it from a fresh same-SHA Windows worktree
+  materialized with `core.autocrlf=true`.
+
+The replacement development preflight supersedes the feature-HEAD review
+utility of the earlier `5f630855` preflight without modifying or deleting that
+evidence. It remains non-operational and authorizes no contact.
+
+Completed pre-commit verification for this review closure:
+
+- targeted Task-6 boundary selection: `11 passed`;
+- governed-resolution focused suite: `265 passed`;
+- full `test_lm9b_p_*.py` family: `858 passed`;
+- Python compilation and `git diff --check`: passed.

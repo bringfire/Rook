@@ -5,3 +5,7 @@ scripts/lm9b_p_fixtures/*.txt text eol=lf
 mcp_server/tests/fixtures/lm9b_p/*.json text eol=lf
 scripts/lm9_semantic_typed_values.py text eol=lf
 scripts/lm9_typed_fact_carrier_contracts/*.json text eol=lf
+scripts/lm9b_p_governed_resolution_contracts/*.json text eol=lf
+scripts/lm9b_p_governed_resolution_fixtures/*.json text eol=lf
+scripts/lm9b_p_governed_resolution_probe.py text eol=lf
+scripts/lm9b_c_compiler_sufficiency_probe.py text eol=lf

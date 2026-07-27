@@ -3224,6 +3224,36 @@ def test_task6_cli_vocabulary_is_closed() -> None:
         for path, role in closed_members.items()
     )
     assert all("handoff" not in path.lower() for path in closed_members)
+    run_options = {
+        option
+        for action in subparsers.choices["run"]._actions
+        for option in action.option_strings
+    }
+    assert "--now-iso" not in run_options
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json",
+        "scripts/lm9b_p_governed_resolution_contracts/planner_revision_evaluation_rubric.json",
+        "scripts/lm9b_p_governed_resolution_fixtures/radial_isolated_successor_recipe.json",
+        "scripts/lm9b_p_governed_resolution_probe.py",
+        "scripts/lm9b_c_compiler_sufficiency_probe.py",
+    ),
+)
+def test_task6_resolution_identity_sources_pin_lf_checkout_bytes(
+    relative_path: str,
+) -> None:
+    result = subprocess.run(
+        ["git", "check-attr", "eol", "--", relative_path],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == f"{relative_path}: eol: lf"
 
 
 def test_task6_cli_preflight_and_verification_are_no_contact(
@@ -3252,9 +3282,10 @@ def test_task6_cli_preflight_and_verification_are_no_contact(
     assert emitted == {
         "archive_dir": str(preflight_archive.resolve()),
         "attempt_fingerprint": emitted["attempt_fingerprint"],
-        "eligibility": "development_non_operational",
+        "authorization_status": "external_not_attested",
         "execution_permitted": False,
         "instrument_fingerprint": emitted["instrument_fingerprint"],
+        "preflight_status": "structurally_verified",
         "preflight_fingerprint": emitted["preflight_fingerprint"],
         "reviewed_commit_sha": emitted["reviewed_commit_sha"],
     }
@@ -3280,6 +3311,59 @@ def test_task6_cli_preflight_and_verification_are_no_contact(
     )
     verified = json.loads(capsys.readouterr().out)
     assert verified == emitted
+
+
+def test_task6_run_cli_uses_code_owned_clock_and_refuses_stale_readiness_before_adapter_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preflight = _task2_preflight(tmp_path)
+    record, _manifest, route = _fresh_readiness(
+        preflight.record["reviewed_commit_sha"]
+    )
+    readiness_path = tmp_path / "readiness.json"
+    readiness_path.write_bytes(_canonical_bytes(record))
+    adapter_constructions = 0
+
+    def refuse_adapter_construction(*_args: object, **_kwargs: object) -> object:
+        nonlocal adapter_constructions
+        adapter_constructions += 1
+        raise AssertionError("provider adapter construction was reached")
+
+    monkeypatch.setattr(
+        RESOLUTION_PROBE,
+        "_construct_resolution_role_provider",
+        refuse_adapter_construction,
+    )
+    monkeypatch.setattr(
+        RESOLUTION_PROBE,
+        "_readiness_now_iso",
+        lambda: "2026-07-25T21:00:06Z",
+        raising=False,
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-only-present")
+
+    with pytest.raises(ValueError, match="outside freshness window"):
+        RESOLUTION_PROBE.main(
+            [
+                "run",
+                "--preflight-archive",
+                str(preflight.archive_dir),
+                "--expected-preflight-fingerprint",
+                preflight.preflight_fingerprint,
+                "--readiness-record",
+                str(readiness_path),
+                "--attempt-id",
+                preflight.attempt.attempt_id,
+                "--attempt-fingerprint",
+                preflight.attempt.attempt_fingerprint,
+                "--transmit",
+            ]
+        )
+
+    assert adapter_constructions == 0
+    assert not preflight.attempt.destination.exists()
+    assert not preflight.attempt.staging_path.exists()
 
 
 def test_task6_cli_preflight_refuses_dirty_reviewed_checkout(
