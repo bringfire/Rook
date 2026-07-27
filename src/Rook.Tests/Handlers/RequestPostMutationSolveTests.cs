@@ -90,6 +90,44 @@ namespace Rook.Tests.Handlers
             Assert.Equal(2, standaloneDocument.EnabledWrites);
         }
 
+        [Fact]
+        public void ApplyEdit_StateTransitionUsesPostRestorationSolverStateInsteadOfOriginalSnapshot()
+        {
+            TransitionDocument.EnableSolutions = true;
+            var document = new TransitionDocument { Enabled = true };
+            var handler = new GrasshopperHandler(runningAsRhinoInside: () => false);
+            var suspension = handler.BeginPostMutationBatchSolveSuspension(document);
+
+            TransitionDocument.EnableSolutions = false;
+            var restore = suspension.Restore();
+            var currentResult = handler.RequestPostMutationSolve(
+                document,
+                Array.Empty<object>(),
+                requestSolve: true,
+                expireDirtyObjects: false,
+                standaloneRestore: restore);
+            var staleResult = handler.RequestPostMutationSolve(
+                document,
+                Array.Empty<object>(),
+                requestSolve: true,
+                expireDirtyObjects: false,
+                solverStateOverride: suspension.OriginalSolverState,
+                standaloneRestore: restore);
+
+            Assert.True(restore.Attempted);
+            Assert.True(restore.Succeeded);
+            Assert.Equal(GhScheduleClassification.GlobalSolverUnavailable, currentResult.ScheduleClassification);
+            Assert.Equal(GhScheduleAcceptance.NotAttempted, currentResult.ScheduleAcceptance);
+            Assert.False(currentResult.SolveScheduled);
+            Assert.Equal(GhScheduleClassification.AsyncScheduleRequested, staleResult.ScheduleClassification);
+            Assert.Equal(GhScheduleAcceptance.Accepted, staleResult.ScheduleAcceptance);
+            Assert.Equal(1, document.ScheduleCalls);
+
+            var routeSource = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
+            Assert.DoesNotContain("solverStateOverride: solveSuspension.OriginalSolverState", routeSource);
+            Assert.Contains("standaloneRestore: standaloneRestore", routeSource);
+        }
+
         private sealed class SuspensionDocument
         {
             public static bool EnableSolutions { get; set; }
@@ -106,6 +144,19 @@ namespace Rook.Tests.Handlers
             }
 
             public void ResetWrites() => EnabledWrites = 0;
+        }
+
+        private sealed class TransitionDocument
+        {
+            public static bool EnableSolutions { get; set; }
+            public bool Enabled { get; set; }
+            public int ScheduleCalls { get; private set; }
+
+            public void ScheduleSolution(int delayMs)
+            {
+                Assert.True(delayMs > 0);
+                ScheduleCalls++;
+            }
         }
 
         private static void AssertOrder(string source, params string[] markers)
