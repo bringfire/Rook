@@ -1296,8 +1296,11 @@ canonical requests, returned evidence, failure locus, and best-effort hashes.
 No classification or official checkpoint identity is allowed. Never delete
 already-written post-dispatch evidence during cleanup.
 
-If only an invalid final destination remains, best-effort write the unsealed
-marker there.
+**Superseded by Task 5A:** never write a forensic marker inside a final
+destination after rename begins. Forensic markers are staging-only and
+non-authoritative. An invalid or otherwise unverifiable final destination is
+classified by the Task-5A physical-state equations, not converted to unsealed
+evidence by a compensating write.
 
 - [x] **Step 7: Implement no-clobber rename and reconciliation**
 
@@ -1317,8 +1320,12 @@ RENAME_CASES = (
 After any exception once rename begins, including destination-verification
 failure after rename returns, reconcile staging and destination and verify the
 final destination against exact expected identity/checksums before declaring
-success. A transient verification failure followed by successful
-reconstruction is sealed; ambiguous material remains unsealed with no result.
+success. **The terminal-state wording in this paragraph is superseded by Task
+5A:** a verified destination with no remaining archive candidate is sealed;
+only an absent destination with structurally retained expected staging evidence
+is `post_dispatch_unsealed`; every other physical state is
+`finalization_indeterminate`. Reconciliation never mutates the final
+destination.
 
 - [x] **Step 8: Implement the reconstructible resolution-ready proof carrier**
 
@@ -1397,25 +1404,62 @@ introduced.
 - [ ] **Step 1: Write the red physical-state and destination-immutability table**
 
 Add a parameterized table that constructs the exact post-rename states and
-asserts the closed equations:
+asserts the closed equations. Use a three-state destination observation so
+presence and verification cannot contradict one another:
 
 ```python
-FINALIZATION_CASES = (
-    # destination_present, candidate_present, staging_runtime_present,
-    # destination_verifies, expected_type
-    (True,  False, True,  True,  SealedResolutionCheckpoint),
-    (False, True,  True,  False, PostDispatchUnsealed),
-    (True,  False, True,  False, FinalizationIndeterminate),
-    (True,  True,  True,  True,  FinalizationIndeterminate),
-    (False, False, False, False, FinalizationIndeterminate),
-)
+DESTINATION_STATES = ("absent", "verified", "unverified")
+
+# Key: destination_state, staging_present, candidate_present, runtime_present.
+# These 15 rows are every physically representable member of the Cartesian
+# product. The other nine members are listed separately as impossible.
+FINALIZATION_EXPECTATIONS = {
+    ("verified",   False, False, False): SealedResolutionCheckpoint,
+    ("verified",   True,  False, False): SealedResolutionCheckpoint,
+    ("verified",   True,  False, True):  SealedResolutionCheckpoint,
+    ("verified",   True,  True,  False): FinalizationIndeterminate,
+    ("verified",   True,  True,  True):  FinalizationIndeterminate,
+
+    ("unverified", False, False, False): FinalizationIndeterminate,
+    ("unverified", True,  False, False): FinalizationIndeterminate,
+    ("unverified", True,  False, True):  FinalizationIndeterminate,
+    ("unverified", True,  True,  False): FinalizationIndeterminate,
+    ("unverified", True,  True,  True):  FinalizationIndeterminate,
+
+    ("absent",     False, False, False): FinalizationIndeterminate,
+    ("absent",     True,  False, False): FinalizationIndeterminate,
+    ("absent",     True,  False, True):  PostDispatchUnsealed,
+    ("absent",     True,  True,  False): FinalizationIndeterminate,
+    ("absent",     True,  True,  True):  PostDispatchUnsealed,
+}
+
+# A child cannot be present when its staging directory is absent. Exercise all
+# nine such Cartesian members and require rejection as impossible observations.
+IMPOSSIBLE_FINALIZATION_OBSERVATIONS = {
+    (destination_state, False, candidate_present, runtime_present)
+    for destination_state in DESTINATION_STATES
+    for candidate_present, runtime_present in ((False, True), (True, False), (True, True))
+}
+
+assert set(FINALIZATION_EXPECTATIONS) | IMPOSSIBLE_FINALIZATION_OBSERVATIONS == {
+    (destination_state, staging_present, candidate_present, runtime_present)
+    for destination_state in DESTINATION_STATES
+    for staging_present in (False, True)
+    for candidate_present in (False, True)
+    for runtime_present in (False, True)
+}
+assert not (set(FINALIZATION_EXPECTATIONS) & IMPOSSIBLE_FINALIZATION_OBSERVATIONS)
 ```
 
 For every case, snapshot all destination-relative paths and raw bytes before
 reconciliation and require exact equality afterward. The verified-destination
-case must remain sealed when staging contains only `.resolution-runtime`; the
-mixed destination-plus-candidate case must remain indeterminate even when the
-destination verifier would accept its bytes.
+cases must remain sealed both when staging is absent and when staging contains
+only `.resolution-runtime`. Destination-absent runtime-only staging must remain
+`post_dispatch_unsealed`; destination-absent candidate-only staging must remain
+`finalization_indeterminate`. The mixed destination-plus-candidate case must
+remain indeterminate even when the destination verifier would accept its bytes.
+Every impossible observation must be rejected before a scientific or control
+state carrier is issued.
 
 - [ ] **Step 2: Run the physical-state table and observe valid red failures**
 
