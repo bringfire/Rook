@@ -7677,7 +7677,6 @@ namespace Rook.Handlers
                     requestSolve: changedObjects,
                     delayMs: postEditSolveDelayMs,
                     expireDirtyObjects: false,
-                    solverStateOverride: solveSuspension.OriginalSolverState,
                     standaloneRestore: standaloneRestore);
 
                 if (snapshotResult.Success && snapshotResult.Data is Dictionary<string, object?> snapData)
