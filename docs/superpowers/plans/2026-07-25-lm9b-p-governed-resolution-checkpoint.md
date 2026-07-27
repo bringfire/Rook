@@ -1879,7 +1879,8 @@ No step in this implementation plan authorizes that operational sequence.
 
 - [x] Pin LF checkout bytes for every resolution source whose raw bytes enter
   the instrument identity: both governed-resolution JSON directories, the
-  governed-resolution execution module, and the shared LiteLLM adapter module.
+  carrier successor-fixture directory, the governed-resolution execution
+  module, and the shared LiteLLM adapter module.
 - [x] Remove the public `--now-iso` launch argument. Preserve injected time only
   on the direct orchestration function; the CLI must derive exact UTC through
   its code-owned clock and refuse stale readiness before adapter construction.
@@ -1897,7 +1898,7 @@ evidence. It remains non-operational and authorizes no contact.
 
 Completed pre-commit verification for this review closure:
 
-- targeted Task-6 boundary selection: `11 passed`;
-- governed-resolution focused suite: `265 passed`;
-- full `test_lm9b_p_*.py` family: `858 passed`;
+- targeted Task-6 boundary selection: `12 passed`;
+- governed-resolution focused suite: `266 passed`;
+- full `test_lm9b_p_*.py` family: `859 passed`;
 - Python compilation and `git diff --check`: passed.

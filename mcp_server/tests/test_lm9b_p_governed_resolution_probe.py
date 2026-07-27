@@ -3238,6 +3238,7 @@ def test_task6_cli_vocabulary_is_closed() -> None:
         "scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json",
         "scripts/lm9b_p_governed_resolution_contracts/planner_revision_evaluation_rubric.json",
         "scripts/lm9b_p_governed_resolution_fixtures/radial_isolated_successor_recipe.json",
+        "scripts/lm9_typed_fact_carrier_fixtures/radial_successor_task_envelope.json",
         "scripts/lm9b_p_governed_resolution_probe.py",
         "scripts/lm9b_c_compiler_sufficiency_probe.py",
     ),
