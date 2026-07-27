@@ -478,6 +478,10 @@ provider failure or terminal timeout
 unexpected exception, incomplete/contradictory adapter evidence,
 ambiguous or still-live execution
 -> post_dispatch_unsealed
+
+finalization state cannot be established after atomic rename begins
+-> finalization_indeterminate control state
+-> no scientific outcome
 ```
 
 No fallback model, profile substitution, automatic retry, parameter adaptation,
@@ -923,7 +927,9 @@ outcome, including complete quiescent provider/evaluator failures that produce
 ### 17.3 Post-dispatch unsealed
 
 Control, reconstruction, evidence-integrity, classification, persistence, or
-sealing failures after dispatch retain staging with:
+sealing failures after dispatch produce `post_dispatch_unsealed` only when the
+final destination is absent and the expected staging evidence remains. That
+staging retains:
 
 - attempt ID and attempt fingerprint;
 - preflight and instrument fingerprints;
@@ -948,20 +954,51 @@ context has joined. A `dispatch_started` row may remain visible while capture
 or execution is incomplete, but it is never mutated into a terminal claim in
 place.
 
-### 17.4 Atomic finalization
+### 17.4 Finalization-indeterminate control state
+
+`finalization_indeterminate` is a non-scientific control state. It has no
+classification, sealed checkpoint, ready proof, or retry/resume authority. Its
+typed carrier contains only:
+
+- attempt ID and attempt fingerprint;
+- expected checkpoint identity, explicitly labeled unconfirmed;
+- immutable destination and staging paths;
+- observed destination and staging presence;
+- bounded failure locus.
+
+The attempt is consumed. The outer wrapper preserves this exact control state
+before generic exception/unsealed handling. Later successful public
+verification may discover that the atomic commit occurred, but it never
+changes the original attempt result or causes another provider call.
+
+### 17.5 Atomic finalization
 
 Finalization uses Windows `Path.rename()` on the same filesystem as the
 no-clobber atomic operation; `Path.replace()` is forbidden. After any exception
-once rename begins, including verification failure after rename returns:
+once rename begins, reconciliation uses these exhaustive equations:
 
-1. If the exact destination exists and verifies completely, treat it as sealed.
-2. If staging remains and destination is absent or invalid, retain staging.
-3. If both exist or state is ambiguous, retain all evidence and issue no
-   result.
+```text
+destination verifies AND .archive-candidate is absent
+-> SealedResolutionCheckpoint
 
-No destination is ever replaced. If invalid evidence exists only at the final
-destination, best-effort marking writes the forensic
-`post_dispatch_unsealed` marker at that retained physical location.
+destination absent AND expected staging evidence remains
+-> PostDispatchUnsealed
+
+every other physical state
+-> FinalizationIndeterminate
+```
+
+Both destination and `.archive-candidate` existing remain indeterminate even
+when destination bytes verify; an external copy cannot masquerade as completion
+of the atomic rename. Both destination and staging absent are indeterminate
+evidence loss. Runtime-only staging does not prevent sealing after the archive
+candidate moved successfully.
+
+After rename begins, the final destination is immutable. Reconciliation never
+writes markers, repairs, or other bytes inside it. Best-effort forensic markers
+may be written only in staging and are non-authoritative; marker success or
+failure cannot change the derived state. Destination hashes remain identical
+before and after reconciliation.
 
 ## 18. Closed resolution archive
 
@@ -1179,7 +1216,11 @@ failure, classifier inconsistency, checksum failure, and persistence failure.
 Cover destination race, successful-but-reported-failed rename, transient
 destination-verification failure after successful rename, invalid
 destination-only material, both staging and destination present, and no-clobber
-behavior.
+behavior. Parameterize repeated destination-verification failures and
+staging-marker write failure. Prove the complete physical-state equations,
+destination byte immutability, exact outer-wrapper preservation of
+`finalization_indeterminate`, ready-proof refusal, and later sealed discovery
+without evidence mutation or another provider call.
 
 ### 21.8 Constructive provenance attacks
 
