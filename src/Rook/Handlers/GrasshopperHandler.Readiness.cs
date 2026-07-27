@@ -56,7 +56,7 @@ namespace Rook.Handlers
             }
         }
 
-        internal GhSolveReadinessReceipt FinalizeSetValueReceipt(string receiptId, GhSolveOutcome solveOutcome)
+        internal GhSolveReadinessReceipt FinalizeSetValueReceipt(string receiptId, GhScheduleResult solveResult)
         {
             lock (_readinessSync)
             {
@@ -67,17 +67,21 @@ namespace Rook.Handlers
                     return GetRequiredReceipt(receiptId);
                 }
 
-                if (solveOutcome.SolveScheduled)
+                if (solveResult.ScheduleAcceptance == GhScheduleAcceptance.Accepted)
                 {
                     return _solveReceiptRegistry.MarkScheduleAccepted(receiptId);
                 }
 
-                if (solveOutcome.SolverLocked)
+                if (solveResult.ScheduleClassification == GhScheduleClassification.GlobalSolverUnavailable ||
+                    solveResult.ScheduleClassification == GhScheduleClassification.DocumentSolverDisabled)
                 {
                     return _solveReceiptRegistry.MarkSolverLocked(receiptId);
                 }
 
-                _solveReceiptRegistry.MarkLifecycleUnavailable(receiptId, "schedule_unavailable");
+                var reason = solveResult.ScheduleFailureCode.HasValue
+                    ? GhScheduleWire.ToWire(solveResult.ScheduleFailureCode.Value)
+                    : GhScheduleWire.ToWire(solveResult.ScheduleClassification);
+                _solveReceiptRegistry.MarkLifecycleUnavailable(receiptId, reason);
                 return GetRequiredReceipt(receiptId);
             }
         }

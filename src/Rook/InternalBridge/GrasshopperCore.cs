@@ -146,7 +146,7 @@ namespace Rook.InternalBridge
             if (!status.HasActiveDocument || !status.HasActiveCanvas || status.CanvasVisible == false)
                 return BridgeResult<GrasshopperDocumentInfoDto>.Fail(BuildNotReadyMessage(status));
 
-            var gh = ResolveContext(createDocumentIfMissing: false);
+            var gh = ResolveContext();
             if (!gh.Success)
                 return BridgeResult<GrasshopperDocumentInfoDto>.Fail(gh.Error ?? "Grasshopper unavailable");
 
@@ -188,7 +188,7 @@ namespace Rook.InternalBridge
             if (!status.ReadyForEdit)
                 return BridgeResult<GrasshopperQueryDto>.Fail(BuildNotReadyMessage(status));
 
-            var gh = ResolveContext(createDocumentIfMissing: false);
+            var gh = ResolveContext();
             if (!gh.Success)
                 return BridgeResult<GrasshopperQueryDto>.Fail(gh.Error ?? "Grasshopper unavailable");
 
@@ -220,7 +220,7 @@ namespace Rook.InternalBridge
 
         public BridgeResult<GrasshopperSelectionDto> GetSelection()
         {
-            var gh = ResolveContext(createDocumentIfMissing: false);
+            var gh = ResolveContext();
             if (!gh.Success)
                 return BridgeResult<GrasshopperSelectionDto>.Fail(gh.Error ?? "Grasshopper unavailable");
 
@@ -250,7 +250,7 @@ namespace Rook.InternalBridge
             }
         }
 
-        private ResolvedGrasshopperContext ResolveContext(bool createDocumentIfMissing = true)
+        private ResolvedGrasshopperContext ResolveContext()
         {
             lock (_lock)
             {
@@ -278,30 +278,10 @@ namespace Rook.InternalBridge
 
             var docProp = canvas.GetType().GetProperty("Document");
             var document = docProp?.GetValue(canvas);
-            if (document == null && createDocumentIfMissing)
-            {
-                var docType = _ghAssembly.GetType("Grasshopper.Kernel.GH_Document");
-                if (docType != null)
-                {
-                    document = Activator.CreateInstance(docType);
-                    docProp?.SetValue(canvas, document);
-                }
-
-                if (document == null)
-                {
-                    return ResolvedGrasshopperContext.Fail(
-                        "No active GH document and failed to create one",
-                        _ghAssembly,
-                        canvas);
-                }
-            }
-
             if (document == null)
             {
                 return ResolvedGrasshopperContext.Fail(
-                    createDocumentIfMissing
-                        ? "No active GH document and failed to create one"
-                        : "No active Grasshopper document",
+                    "No active Grasshopper document",
                     _ghAssembly,
                     canvas);
             }

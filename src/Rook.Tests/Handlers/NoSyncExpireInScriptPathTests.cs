@@ -46,12 +46,28 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void RirSolveReadinessCoordinator_DoesNotWriteStaticEnableSolutions()
+        public void RirSchedulingPath_DoesNotOwnGlobalOrInstanceSolverWrites()
         {
-            var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "InternalBridge", "GhSolveReadinessCoordinator.cs"));
+            var root = RepoRoot();
+            var integration = File.ReadAllText(Path.Combine(root, "src", "Rook", "Handlers", "GrasshopperHandler.SolvePolicy.cs"));
+            var suspension = File.ReadAllText(Path.Combine(root, "src", "Rook", "Handlers", "GhMutationSolveSuspension.cs"));
 
-            Assert.DoesNotContain("EnableSolutions =", source);
-            Assert.DoesNotContain("SetValue(null", source);
+            Assert.DoesNotMatch(@"(?<![A-Za-z0-9_])EnableSolutions\s*=", integration);
+            Assert.DoesNotContain("SetValue(null", integration);
+            Assert.DoesNotContain("GetProperty(\"Enabled\"", integration);
+            Assert.DoesNotContain("SetValue(document", integration);
+            Assert.True(
+                suspension.IndexOf("runningAsRhinoInside", System.StringComparison.Ordinal) <
+                suspension.IndexOf("enabledProperty.SetValue(document, false)", System.StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void GrasshopperHandler_HasNoOrphanDocumentScheduler()
+        {
+            var source = File.ReadAllText(Path.Combine(
+                RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
+
+            Assert.DoesNotContain("private void ScheduleDocumentSolution", source);
         }
 
         private static string[] GrasshopperMutationFiles()
@@ -61,7 +77,7 @@ namespace Rook.Tests.Handlers
             {
                 Path.Combine(root, "src", "Rook", "Handlers", "GrasshopperHandler.cs"),
                 Path.Combine(root, "src", "Rook", "Handlers", "GrasshopperHandler.SolvePolicy.cs"),
-                Path.Combine(root, "src", "Rook", "InternalBridge", "GhSolveReadinessCoordinator.cs"),
+                Path.Combine(root, "src", "Rook", "Handlers", "GhMutationSolveSuspension.cs"),
             };
         }
 

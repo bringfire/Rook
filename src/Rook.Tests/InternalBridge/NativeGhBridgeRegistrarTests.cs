@@ -97,7 +97,7 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
-        public void GrasshopperHandler_BareGetGrasshopperCalls_AreLimitedToLifecycleRoutes()
+        public void GrasshopperHandler_OnlyLifecycleRoutesPermitMissingDocument()
         {
             var sourcePath = Path.GetFullPath(Path.Combine(
                 AppContext.BaseDirectory,
@@ -109,7 +109,8 @@ namespace Rook.Tests.InternalBridge
                 "Handlers",
                 "GrasshopperHandler.cs"));
             var source = File.ReadAllText(sourcePath);
-            var bareCalls = Regex.Matches(source, @"GetGrasshopper\(\)")
+            Assert.DoesNotContain("createDocumentIfMissing", source);
+            var permissiveCalls = Regex.Matches(source, @"GetGrasshopper\(requireDocument:\s*false\)")
                 .Cast<Match>()
                 .Select(match => new
                 {
@@ -118,15 +119,30 @@ namespace Rook.Tests.InternalBridge
                 })
                 .ToArray();
 
-            var actualMethods = bareCalls.Select(call => call.Method).ToHashSet();
+            var actualMethods = permissiveCalls.Select(call => call.Method).ToHashSet();
             var expectedMethods = new[] { "OpenDocument", "NewDocument" }.ToHashSet();
             var callSummary = string.Join(
                 ", ",
-                bareCalls.Select(call => $"{call.Method}:L{call.Line}"));
+                permissiveCalls.Select(call => $"{call.Method}:L{call.Line}"));
 
             Assert.True(
                 expectedMethods.SetEquals(actualMethods),
-                $"Bare GetGrasshopper() calls must stay limited to lifecycle routes. Found: {callSummary}");
+                $"Only lifecycle routes may resolve context without requiring a document. Found: {callSummary}");
+        }
+
+        [Fact]
+        public void OpenDocument_PreflightRunsBeforeTheSingleUiBoundary()
+        {
+            var method = ExtractMethod(ReadRegistrarSource(), "private static int HandleOpenDocument");
+            var read = method.IndexOf("ReadUtf8(requestJsonUtf8, requestJsonLength)", StringComparison.Ordinal);
+            var preflight = method.IndexOf("GrasshopperHandler.PreflightOpenDocument(requestJson)", StringComparison.Ordinal);
+            var uiBoundary = method.IndexOf("ExecuteApiResponseCallback(", StringComparison.Ordinal);
+
+            Assert.True(read >= 0);
+            Assert.True(preflight > read);
+            Assert.True(uiBoundary > preflight);
+            Assert.Contains("WriteUtf8Response(", method);
+            Assert.DoesNotContain("RhinoApp.InvokeOnUiThread", method);
         }
 
         [Fact]
