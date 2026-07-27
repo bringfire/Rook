@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-26
 
-**Status:** Decision-gated draft specification awaiting review and CreationGUID probe
+**Status:** Approved for implementation planning — outcome 2, class-limited composite
 
 **Target:** `src/Rook` BIM contracts and `src/RookBim` Revit identity implementation
 
@@ -16,7 +16,7 @@ The target invariant is:
 
 > RookBIM resolves, selects, or exports an element identity only after trustworthy document evidence proves that the identity belongs to the active Revit document. Missing, conflicting, detached, unsupported, or incomparable evidence fails closed before `UniqueId` or `ElementId` lookup.
 
-This is a decision-gated design. A live Revit 2024 `Document.CreationGUID` probe must determine whether the preferred file-based composite key is suitable. Implementation planning cannot proceed past the probe gate until its report is reviewed and the selected key strategy is recorded in this specification.
+The live Revit 2024 `Document.CreationGUID` probe is complete and its class-limited result is approved below. Implementation planning may proceed only for the approved file-workshared and saved-project sources; every other document class remains fail closed unless this specification receives a later evidence-backed amendment.
 
 Path-only identity is never approved for durable resolution. A path identifies a location, not a model; replacing a model at the same path would create an unsafe false positive.
 
@@ -32,24 +32,24 @@ The later Grasshopper/RiR incident concerns `GH_DocumentServer` registration and
 
 The installed Revit 2024 API documents distinct properties with distinct applicability:
 
-- `Document.CreationGUID`: a unique identifier generated when the document was first created; introduced in Revit 2024.
+- `Document.CreationGUID`: the document's creation GUID from document history; introduced in Revit 2024.
 - `Document.WorksharingCentralGUID`: the central GUID of a Revit Server model; it throws `InapplicableDataException` when the central model is not a qualifying server-based model.
 - `Document.WorksharingProjectGUID`: the project GUID for a cloud-based central model.
 - `Document.CloudModelGUID`: the GUID of a cloud model.
 - `Document.GetWorksharingCentralModelPath()`: the central model path for a workshared document and invalid for a non-workshared document.
 - `Document.IsDetached`: identifies a detached workshared document; detached documents may have empty title and path.
 
-The current `SupportsWorksharingCentralGuid` implementation incorrectly treats a cloud model as supporting `WorksharingCentralGUID`. The new resolver removes that branch. Server, cloud, file-workshared, saved non-workshared, family, unsaved, and detached documents follow explicit typed paths.
+The current `SupportsWorksharingCentralGuid` implementation incorrectly treats a cloud model as supporting `WorksharingCentralGUID`. The new resolver removes that branch. The initial release emits versioned keys only for approved file-workshared and saved non-workshared project classes, explicitly retains the qualifying legacy Revit Server GUID rule, and treats cloud, family, unsaved, detached, and otherwise unsupported documents as unavailable.
 
 ## Goals
 
 This design will:
 
-- probe `CreationGUID` before selecting the file-based durable key;
+- implement only the key sources approved by the completed `CreationGUID` probe;
 - introduce versioned `documentKey` and `documentKeySource` fields;
 - keep GUID-named fields restricted to actual GUID values;
 - define identity behavior for every supported Revit document class;
-- use distinct typed key sources for Revit Server, cloud, and file/path-based documents;
+- emit distinct typed key sources for approved file-workshared and saved-project documents only;
 - centralize Revit document classification, evidence acquisition, normalization, key derivation, diagnostics, and comparison;
 - acquire immutable document evidence once per operation and reuse it for every identity;
 - degrade expected identity-property failures to unavailable evidence without failing producer routes;
@@ -69,6 +69,9 @@ This design will:
 This design will not:
 
 - treat a path hash alone as durable model identity;
+- identify a physical file instance, immutable revision, or content version;
+- isolate same-lineage copies that later occupy the same canonical authoritative location;
+- add new Revit Server, cloud, or saved-family versioned key sources without a later evidence-backed specification amendment;
 - treat a process-local title, filename, or active-document position as identity;
 - authorize resolution using raw `Path`, `DocumentPath`, `Title`, or `DocumentTitle`;
 - use category, view, element, or model names as identity material;
@@ -140,23 +143,38 @@ Path-only authorization is not an outcome. A future process-scoped random docume
 
 Implementation planning may describe the probe task and the code paths conditional on its result, but production implementation does not begin until the result is written into this specification and approved.
 
-### Probe result — Proposed — awaiting reviewer approval
+### Approved decision — outcome 2: class-limited composite
 
-The completed redacted report is [2026-07-26-rookbim-creation-guid-result.md](../probes/2026-07-26-rookbim-creation-guid-result.md). It records all eleven required cases from Revit 2024.3 at probe commit `85c6df4f4f01dfd76a0a100dd4a201ce80ab96b2`; completion cleared the raw alias state.
+The completed redacted report is [2026-07-26-rookbim-creation-guid-result.md](../probes/2026-07-26-rookbim-creation-guid-result.md). It records all eleven required cases from Revit 2024.3 at probe commit `85c6df4f4f01dfd76a0a100dd4a201ce80ab96b2`; completion cleared the raw alias state. The reviewer accepted the report and approved outcome 2 on 2026-07-27.
 
-The evidence proposes decision outcome 2, **class-limited composite**:
+The approved class matrix is:
 
-| Document class or transition | Observed evidence | Proposed disposition |
+| Document class or transition | Observed evidence | Approved disposition |
 |---|---|---|
-| File-workshared central and local | Central, local, and reopened local shared one creation alias and one central-path alias; local document-path evidence remained distinct and stable. | Propose `revit_creation_guid_central_path_v1`. |
-| Copied central at a different location | The copy retained the central's creation alias but had a different central-path alias. | The proposed file-workshared composite distinguishes the copy. |
-| Saved non-workshared project | Creation and document-path aliases survived close/reopen. A different document saved to the same prior path retained the path alias but received a different creation alias. | Propose `revit_creation_guid_document_path_v1`. |
-| Saved family | Creation was readable, nonempty, and stable on repeated reads; a saved document path was available. The required case set did not include a family-specific close/reopen or replacement pair. | Keep fail closed pending family-specific durability evidence. |
+| File-workshared central and local | Central, local, and reopened local shared one creation alias and one central-path alias; local document-path evidence remained distinct and stable. | Approve `revit_creation_guid_central_path_v1`. |
+| Copied central at a different location | The copy retained the central's creation alias but had a different central-path alias. | The approved file-workshared composite distinguishes the copy by location. |
+| Saved non-workshared project | Creation and document-path aliases survived close/reopen. A different document saved to the same prior path retained the path alias but received a different creation alias. | Approve `revit_creation_guid_document_path_v1`. |
+| Saved family | Creation was readable, nonempty, and stable on repeated reads; a saved document path was available. The required case set did not include a family-specific close/reopen or replacement pair. | Fail closed pending a later evidence gate. |
 | Unsaved project and family | Creation was readable and stable, but no comparable saved path existed. | Fail closed. |
 | Detached document | Creation matched the workshared lineage, but no comparable saved document path existed. | Fail closed; evidence is descriptive only. |
-| Revit Server and cloud | Required infrastructure was unavailable in this run. | Existing candidate sources remain unapproved pending class-specific live evidence. |
+| Revit Server | New versioned-key evidence was unavailable. | Emit no new versioned key; retain only the explicit legacy rule below. |
+| Cloud workshared | New versioned-key evidence was unavailable. | Fail closed; emit no new versioned key. |
 
-The proposal satisfies the observed file-workshared and saved-project criteria without authorizing a path-only downgrade. Candidate key sources remain unapproved until a reviewer accepts this decision, records any additional family/server/cloud evidence requirements, and changes the implementation-plan gate explicitly. This specification remains decision-gated and is not implementation-ready.
+The approved scope satisfies the observed file-workshared and saved-project criteria without authorizing a path-only downgrade. The specification is eligible for implementation planning only within this scope.
+
+### Normative identity semantic
+
+The two approved v1 composites identify **document lineage at a canonical authoritative location**. The authoritative location is the canonical central path for a file-workshared document and the canonical document path for a saved non-workshared project.
+
+They do not identify a physical file instance, immutable revision, content version, or independently copied artifact. The probe proved that a copied central retains the original `CreationGUID`; Autodesk likewise defines `CreationGUID` as document-history identity in [Revit 2024 API changes](https://help.autodesk.com/view/RVT/2024/ENU/?caas=caas%2Fblog%2Fthebuildingcoder.typepad.com%2Fblog%2F2023%2F04%2Fwhats-new-in-the-revit-2024-api.html) and documents in the [Revit API FAQ](https://help.autodesk.com/cloudhelp/2025/CHS/Revit-API/files/Revit_API_Developers_Guide/Revit_API_Revit_API_Developers_Guide_FAQ_html.html) that element UniqueIds can be duplicated when one document is created by copying another.
+
+Consequently, a same-lineage copy that later occupies the same canonical authoritative location compares equal to the earlier document by design. That equivalence is accepted for Rook's active-document authorization boundary. The acceptance suite must prove all three deliberate outcomes:
+
+- same lineage at the same canonical authoritative location compares equal;
+- same lineage at a different canonical authoritative location compares unequal;
+- different lineage at the same canonical authoritative location compares unequal.
+
+If a future capability requires physical-copy, immutable-revision, or content-version isolation, these v1 composites are insufficient. That capability requires a separately approved identity source, such as an external identity registry or a model-stored identifier, with its own versioned contract and migration design.
 
 ## Wire contract
 
@@ -172,15 +190,13 @@ The proposal satisfies the observed file-workshared and saved-project criteria w
 - `DocumentKey` (`documentKey`): copied from the owning document identity;
 - `DocumentKeySource` (`documentKeySource`): copied from the owning document identity.
 
-Candidate key-source values are:
+Initial-release key-source values are exactly:
 
-- `revit_server_central_guid_v1`;
-- `revit_cloud_project_model_v1`;
 - `revit_creation_guid_central_path_v1`;
 - `revit_creation_guid_document_path_v1`;
 - `unavailable`.
 
-Only sources approved by the probe matrix are emitted. The version is part of the source and key prefix so normalization or evidence changes cannot silently compare under the old contract.
+No production enum branch, payload encoder, parser, or resolver branch is added to reserve a future Revit Server, cloud, or saved-family source. Such a source requires a later evidence-backed contract amendment. The version is part of each approved source and key prefix so normalization or evidence changes cannot silently compare under the old contract.
 
 ### Key representation
 
@@ -189,8 +205,6 @@ Keys are opaque identifiers, not GUID fields. Each uses a source-specific prefix
 Examples:
 
 ```text
-revit-server-v1:<64 lowercase hex>
-revit-cloud-v1:<64 lowercase hex>
 file-document-v1:<64 lowercase hex>
 saved-document-v1:<64 lowercase hex>
 ```
@@ -203,9 +217,9 @@ Payloads use a fixed ASCII domain/version label, NUL separators, lowercase `D`-f
 
 `BimDocumentGuidSource.PathFallback` remains temporarily for wire compatibility but is deprecated and is not emitted by the new resolver. The resolver treats an incoming legacy `path_fallback` GUID source as incomparable, because no GUID-named value can correctly represent that evidence.
 
-For a Revit Server document, the legacy GUID may continue to be the actual `WorksharingCentralGUID`. Cloud and other document classes do not call `WorksharingCentralGUID`. The new resolver emits no legacy `Guid`/`DocumentGuid` projection for cloud documents; their authoritative identity is the typed cloud document key. Existing cloud payloads that contain a legacy GUID are accepted only under the no-strong-key legacy rules and therefore fail closed as incomparable.
+The initial release explicitly retains one legacy rule for a qualifying Revit Server document: only when the incoming identity has no `documentKey`, its actual legacy `WorksharingCentralGUID` may compare with the active server document's actual `WorksharingCentralGUID`. Revit Server emits no new `documentKey` or versioned key source. Cloud and every other class do not call `WorksharingCentralGUID`; cloud identities fail closed and emit no new or legacy comparable key.
 
-`CreationGUID` is key material only. It is never projected into legacy `Guid` or `DocumentGuid` for file-workshared, saved-project, or saved-family sources. Those legacy fields are `null` unless the selected source has an explicitly approved legacy projection; in this design, only Revit Server's actual `WorksharingCentralGUID` has one.
+`CreationGUID` is key material only. It is never projected into legacy `Guid` or `DocumentGuid` for file-workshared or saved-project sources. Saved-family identity is unavailable. Those legacy fields are `null` unless the explicit qualifying Revit Server legacy rule applies.
 
 ### Raw paths
 
@@ -231,8 +245,7 @@ The resolver owns:
 - document-class classification;
 - `IsDetached`, `IsWorkshared`, `IsModelInCloud`, central/local, project/family, and saved/unsaved reads;
 - `CreationGUID` reads;
-- Revit Server `WorksharingCentralGUID` reads;
-- cloud `WorksharingProjectGUID` and `CloudModelGUID` reads;
+- Revit Server `WorksharingCentralGUID` reads only for the explicitly retained no-key legacy comparison;
 - worksharing central `ModelPath` acquisition;
 - user-visible path conversion and normalization;
 - key derivation and validation;
@@ -282,17 +295,17 @@ Identity-producing routes—including `active_document`, `list_categories`, and 
 |---|---|---|---|
 | File-workshared central | Not detached; suitable `CreationGUID`; absolute normalized file central `ModelPath` | `revit_creation_guid_central_path_v1` | `document_identity_unavailable` |
 | File-workshared local | Not detached; same suitable `CreationGUID` as central; same normalized central `ModelPath` | Same composite as its central | `document_identity_unavailable` |
-| Revit Server central/local | Not detached; server `ModelPath`; non-empty `WorksharingCentralGUID` | `revit_server_central_guid_v1` | `document_identity_unavailable`; never fall back to cloud/file reads |
-| Cloud workshared | Not detached; cloud classification; non-empty `WorksharingProjectGUID` and `CloudModelGUID` | `revit_cloud_project_model_v1` | `document_identity_unavailable`; never call `WorksharingCentralGUID` |
-| Saved non-workshared project | Suitable `CreationGUID`; absolute normalized `PathName` | `revit_creation_guid_document_path_v1` if its probe criteria pass | Explicit fail closed if the class is not probe-approved |
-| Saved family document | Suitable `CreationGUID`; absolute normalized `PathName`; family classification included in domain payload | `revit_creation_guid_document_path_v1` if its probe criteria pass | Explicit fail closed if the class is not probe-approved |
+| Revit Server central/local | Qualifying actual legacy `WorksharingCentralGUID`, only when no incoming `documentKey` exists | No new versioned key; `documentKeySource=unavailable` | Retained legacy comparison only; otherwise `document_identity_unavailable`; never fall back to cloud/file reads |
+| Cloud workshared | Cloud classification only | `unavailable` | `document_identity_unavailable`; emit no new key and never call `WorksharingCentralGUID`, `WorksharingProjectGUID`, or `CloudModelGUID` for identity |
+| Saved non-workshared project | Suitable `CreationGUID`; absolute normalized `PathName` | `revit_creation_guid_document_path_v1` | `document_identity_unavailable` when required evidence cannot be produced |
+| Saved family document | Family classification | `unavailable` | `document_identity_unavailable`; no saved-family key derivation |
 | Unsaved project | No durable path | `unavailable` | Identity may be returned for display, but resolution/selection/export by identity fails closed |
 | Unsaved family | No durable path | `unavailable` | Same fail-closed behavior |
 | Detached document | Rejected before key derivation | `unavailable` | `document_identity_unavailable`; never use retained central/path/GUID values |
 
 Linked RVT documents do not bypass this matrix. The active host document must match first; current linked-evidence policy then applies separately.
 
-The matrix makes functional changes explicit: operations authorized by caller-supplied or persisted identities are unsupported on unsaved and detached documents, and any saved class rejected by the CreationGUID probe also fails closed. Same-operation selector/preset queries follow the trusted live-element boundary instead.
+The initial release emits a versioned key only for the two approved sources. It adds no production source value or derivation branch for Revit Server, cloud, or saved families. Operations authorized by caller-supplied or persisted identities fail closed for cloud, saved-family, unsaved, detached, and otherwise unavailable evidence. Same-operation selector/preset queries follow the trusted live-element boundary instead.
 
 ## Canonicalization and key derivation
 
@@ -324,20 +337,17 @@ Golden canonical-text/UTF-8 vectors are normative:
 
 Mapped-drive and UNC representations can therefore produce a safe false negative. They can never authorize a different model because the key also requires the probe-approved `CreationGUID`.
 
-### Saved non-workshared and family path
+### Saved non-workshared project path
 
-These classes use absolute normalized `Document.PathName`, not `GetWorksharingCentralModelPath`. Their payload includes a class-domain token so a project and family cannot compare under an accidentally shared input set.
+This class uses absolute normalized `Document.PathName`, not `GetWorksharingCentralModelPath`. Saved families do not enter key derivation in the initial release.
 
 ### Source-specific payloads
 
 Conceptual payloads are:
 
 ```text
-rookbim:revit-server:v1\0<worksharing-central-guid>
-rookbim:revit-cloud:v1\0<worksharing-project-guid>\0<cloud-model-guid>
 rookbim:file-workshared:v1\0<creation-guid>\0<normalized-central-path>
 rookbim:saved-project:v1\0<creation-guid>\0<normalized-document-path>
-rookbim:saved-family:v1\0<creation-guid>\0<normalized-document-path>
 ```
 
 GUID payload values use lowercase `D` format. Each `\0` above is one NUL byte (`0x00`) between fields. The complete payload string is encoded with strict UTF-8 without a BOM; invalid UTF-16 input is rejected rather than replacement-encoded. SHA-256 runs over those exact bytes, and the final wire key is the source prefix plus exactly 64 lowercase ASCII hexadecimal characters. Raw payloads are not persisted in diagnostics.
@@ -359,7 +369,7 @@ The comparison order is normative.
 2. Resolve the active document using that exact supported source/version.
 3. If the active document cannot produce comparable evidence, return `Unavailable`.
 4. If values differ, return `Mismatch`.
-5. If values match, validate any supplied legacy strong GUID evidence for consistency. Revit Server may compare its actual central GUID; for sources with no approved legacy GUID projection, any non-null legacy GUID is conflicting evidence.
+5. If values match, validate any supplied legacy strong GUID evidence for consistency. Neither approved versioned source has a legacy GUID projection, so any non-null legacy GUID is conflicting evidence.
 6. If supplied strong evidence conflicts or cannot be validly projected for that source, return `InvalidEvidence`.
 7. Only a fully consistent result is `Match`.
 
@@ -369,7 +379,7 @@ A mismatching, malformed, unknown-version, unsupported, or unverifiable versione
 
 Legacy comparison is allowed only when no stronger key was supplied.
 
-- A qualifying legacy Revit Server identity with an actual persistent GUID may compare to the active server document's actual central GUID.
+- The initial release explicitly retains comparison of a qualifying legacy Revit Server identity's actual persistent GUID with the active server document's actual central GUID.
 - Legacy cloud/file/path-fallback/unavailable identities without an approved comparable key fail closed.
 - Raw `DocumentPath` and `DocumentTitle` never authorize a match.
 - Absence of document evidence returns `Unavailable`, never `true`.
@@ -388,10 +398,9 @@ Production identity reads use the existing diagnostic production-probe contract 
 
 - document classification;
 - `CreationGUID`;
-- server central GUID;
-- cloud project GUID;
-- cloud model GUID;
+- server central GUID, only for the retained legacy comparison;
 - central ModelPath;
+- saved-project document path;
 - path conversion/normalization result;
 - key-source selection;
 - comparison outcome.
@@ -437,7 +446,7 @@ Expected reviewable boundaries are:
 2. Pure key contract/derivation and comparison tests, kept behavior-neutral and unused by production routes.
 3. One production resolver cutover that adds contract fields, centralizes all document classes, removes fail-open matching and incorrect GUID branches, carries trusted query elements internally for selector/preset export, replaces obsolete tests, and updates doctrine.
 
-No production identity implementation or deployment occurs before step 1 is reviewed. Any preparatory code must remain unused and behavior-neutral until the resolver cutover.
+Step 1 is complete and reviewed. Implementation planning may now define steps 2 and 3 for the approved initial-release scope. Any preparatory code remains unused and behavior-neutral until the resolver cutover, and no identity deployment occurs before the implementation-plan and live-acceptance gates pass.
 
 `src/RookBim/RookBim.csproj` remains Revit-specific and must build after `src/Rook/Rook.csproj`. Core contracts and optional module stay version-aligned. The deployed `/bim/status` commit must identify the exact code under acceptance.
 
@@ -459,23 +468,27 @@ The probe harness/report must prove:
 
 Tests must cover:
 
-- all document-key source values and wire names;
+- the exact initial-release source set and wire names: `revit_creation_guid_central_path_v1`, `revit_creation_guid_document_path_v1`, and `unavailable`;
+- absence of reserved Revit Server, cloud, and saved-family production source values, payload encoders, parsers, and derivation branches;
 - GUID fields reject/non-emit hashes;
-- `CreationGUID` is never projected into legacy `Guid`/`DocumentGuid` for file or saved-document sources;
+- `CreationGUID` is never projected into legacy `Guid`/`DocumentGuid` for file-workshared or saved-project sources;
 - key prefix/source/version validation;
-- golden byte/hash vectors for every source payload;
+- golden byte/hash vectors for both approved source payloads;
 - byte-exact Windows case and separator normalization for drive and UNC paths;
 - drive roots preserve one trailing separator while UNC share roots omit it;
 - `\\server\share`, `\\server\share\`, and `\\server\share\folder\..\` produce the exact same canonical text and UTF-8 bytes shown above;
 - rejection of empty, relative, drive-relative, root-relative, URI, incomplete UNC, embedded-NUL, and device-namespace paths;
 - strict UTF-8 without BOM and lowercase 64-character SHA-256 output;
 - mapped/UNC differences produce non-match, not normalization guesses;
-- server code calls only server GUID APIs;
-- cloud code calls only cloud GUID APIs and never `WorksharingCentralGUID`;
+- the retained Revit Server legacy comparator reads only the actual `WorksharingCentralGUID`, runs only when no incoming `documentKey` exists, and emits no new versioned key;
+- cloud classification emits unavailable identity and calls none of `WorksharingCentralGUID`, `WorksharingProjectGUID`, or `CloudModelGUID` for identity;
 - file central/local code uses the approved composite only;
-- saved project and family behavior follows the probe decision;
-- unsaved and detached behavior fails closed;
+- saved projects use the approved document-path composite;
+- saved families, unsaved documents, detached documents, and cloud documents fail closed;
 - every matrix row has a test;
+- same lineage at the same canonical authoritative location compares equal by design;
+- same lineage at a different canonical authoritative location compares unequal;
+- different lineage at the same canonical authoritative location compares unequal;
 - strong key match/mismatch/unavailable behavior;
 - unknown key version fails without downgrade;
 - malformed key fails without downgrade;
@@ -486,7 +499,8 @@ Tests must cover:
 - expected Revit identity exceptions, including `InternalException`, produce unavailable snapshots rather than route-wide producer failures;
 - `active_document`, `list_categories`, and query/list producers remain HTTP 200 with null document keys when evidence is unavailable;
 - consumers return HTTP 409 `document_identity_unavailable` or HTTP 400 `document_identity_invalid` as specified, before lookup or side effects;
-- for an applicable document class, one operation producing 1,000 element identities reads each required `CreationGUID`, host GUID, and central ModelPath exactly once, performs one conversion/normalization/key derivation, and performs zero inapplicable host-property reads;
+- for an approved composite class, one operation producing 1,000 element identities reads the required `CreationGUID` and applicable central/document path exactly once, performs one conversion/normalization/key derivation, and performs zero inapplicable host-property reads;
+- for a qualifying legacy Revit Server comparison, one batch reads the active actual central GUID exactly once and performs no new-key derivation;
 - one batch of 1,000 incoming identities resolves active-document evidence exactly once and performs no per-identity document-property reads;
 - explicit identity-list export with unavailable evidence fails closed before `GetElement` or export work;
 - selector export with unavailable identity evidence consumes same-operation live elements directly and remains available when ordinary query/export preconditions pass;
@@ -516,10 +530,14 @@ The matrix must include:
 - two different file-workshared models;
 - a central/local pair that should match;
 - a copied-central different-path pair that should not match;
-- where safely available, a different model at the same former path;
-- server and cloud fixtures when infrastructure is available;
-- saved non-workshared project and family fixtures if probe-approved;
+- a same-lineage copy later occupying the same canonical location, which should match by design;
+- a different-lineage model at the same former path, which should not match;
+- Revit Server and cloud fixtures when infrastructure is available, proving legacy-only server behavior and cloud fail-closed behavior;
+- a saved non-workshared project fixture;
+- a saved-family fail-closed fixture;
 - unsaved and detached fail-closed fixtures.
+
+The same-lineage/same-location equivalence is a sequential acceptance case because two distinct physical files cannot simultaneously occupy one canonical path: produce an identity from the original, close it, place a same-lineage copy at that canonical path, reopen it, and verify the original identity compares equal. This test documents the accepted v1 semantic; it is not a physical-copy isolation claim.
 
 Live acceptance also repeats `active_document`, `list_categories`, query, selection, and export smoke tests with diagnostics enabled and disabled. Source-contract tests alone cannot approve Revit host behavior.
 
@@ -554,14 +572,15 @@ Do not partially roll back only the wire fields or only the comparator. Producer
 
 ## Approval and implementation-plan gate
 
-This document may be committed and reviewed as a decision-gated specification. Its architecture, failure policy, class matrix, downgrade rules, cleanup boundary, and probe protocol are normative.
+The reviewer approved outcome 2, class-limited composite, on 2026-07-27. The durable report, observed matrix, identity semantic, approved sources, and fail-closed classes are recorded above.
 
-Before implementation planning proceeds beyond the probe task, this file must be amended with:
+Implementation planning is authorized only for:
 
-- the durable probe-report path;
-- the observed class-by-class CreationGUID results;
-- the approved key sources from the matrix;
-- any explicitly unsupported classes;
-- reviewer approval of the final key strategy.
+- `revit_creation_guid_central_path_v1` on file-workshared central/local documents;
+- `revit_creation_guid_document_path_v1` on saved non-workshared projects;
+- the explicit no-key legacy Revit Server GUID comparison;
+- fail-closed behavior for saved families, unsaved projects/families, detached documents, cloud documents, and otherwise unavailable evidence.
 
-Until then, the preferred file-workshared composite is a hypothesis under test, path-only durable matching is prohibited, and fail-closed behavior is the only authorized fallback.
+No new Revit Server, cloud, or saved-family versioned key is authorized. Path-only durable matching remains prohibited. Expanding the emission set or requiring physical-copy/revision isolation reopens the evidence and specification gate.
+
+The Grasshopper lifecycle plan's prerequisite is satisfied: the temporary CreationGUID probe was completed, reviewed to this decision, and rolled back before Grasshopper deployment. That satisfaction does not couple the two implementation releases.
