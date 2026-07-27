@@ -418,6 +418,31 @@ The evaluator uses the corresponding fixed single-call equation:
 evaluator_row_ceiling(1)
 ```
 
+`evaluator_member_v1` has a closed presence and projection rule:
+
+```text
+E = 0
+-> evaluator.json is the exact existing no-evaluator/not-evaluated form
+-> evaluator_member_ceiling(0) is its path-specific closed ceiling
+
+E = 1
+-> evaluator.json is the exact projection of authenticated evaluator row 1
+   + the bounded parsed PlannerEvaluationResult
+-> evaluator_member_ceiling(1) =
+     evaluator-member framing
+     + evaluator_row_projection_ceiling(1)
+     + parsed_evaluation_result_ceiling
+```
+
+The projection includes the duplicated canonical request, adapter request,
+raw response or error, assistant/tool projection, usage, metadata,
+termination, quiescence, recommendation, and bounded semantic evidence already
+retained by the existing member contract. Its request/response branches must
+equal the authenticated ledger row byte-for-byte. Its parsed result must be
+derived through the existing evaluator parser and bounded by the closed report
+schema and generation limits. `E` may only be `0` or `1`; a missing, extra, or
+unexpected evaluator member form fails.
+
 The `max(response, error)` branch is legal only after parsed evidence proves:
 
 - exactly one branch is populated;
@@ -461,22 +486,40 @@ two stages:
 pre-parse ceiling:
   derive with P=6, E=1
 
-strict parse under absolute ceiling
+strictly parse call-ledger.json under its absolute ceiling
 
-authenticate contiguous call rows:
+closed structural validation of call rows:
   indexes, roles, ordering, requests, branches, terminal state,
   and no calls after termination
 
-derive P/E from those authenticated rows
+issue closure-owned VerifiedResolutionCallShape:
+  authenticated P/E
+  ordered role/index projection
+  response/error branch projection
+  terminal/quiescence projection
+
+strictly parse planner-session.json and evaluator.json under their
+maximum-cardinality absolute ceilings using that exact carrier
 
 post-parse ceiling:
-  derive with authenticated P/E
+  derive with carrier-authenticated P/E
 
 require raw member size <= post-parse ceiling
+require member shape/count projections == carrier projections
 ```
 
+The raw call-shape issuer is closure-local. The only public producer accepts
+the strictly parsed ledger and completes the closed structural validation
+before issuing `VerifiedResolutionCallShape`. Plain integers, dictionaries,
+caller-constructed instances, copied/replaced carriers, or carriers from a
+different profile/instrument snapshot are rejected at consumption.
+
 `planner-session.json` authored `call_count` never grants budget. It is checked
-only after the call ledger establishes `P`.
+only after the call ledger carrier establishes `P`. `evaluator.json` cannot
+author `E` or its branch shape. Full request, transcript, gate, and provider
+provenance remains the later governed-resolution artifact verifier's
+responsibility; the carrier proves only the structural facts needed to select
+and tighten parsing budgets without circular trust.
 
 ## 8. Future writer and verifier integration
 
@@ -496,6 +539,8 @@ The future instrument manifest adds an archive-resource section containing:
 - exact member-role map and map fingerprint;
 - formula IDs and constants fingerprint;
 - canonical serializer/escaping/base64 contract identity;
+- evaluator-member projection, report-schema/parser, generation-limit, and
+  parsed-result-ceiling fingerprint;
 - pure profile/parser/budget-helper source fingerprint;
 - writer and public-verifier source fingerprints;
 - reviewed future implementation commit.
@@ -715,9 +760,18 @@ Forensic instrument identity binds:
 - physical snapshot contract;
 - report schema, writer, public verifier, and publication equations.
 
-The report records a destination-independent content fingerprint over all
-evidence members except `record.json`, then a destination-bound report identity
-over:
+The report records a destination-independent content fingerprint over exactly
+the five substantive evidence members:
+
+```text
+observed-instrument.json
+forensic-instrument.json
+source-snapshot.json
+reconstruction.json
+boundary.json
+```
+
+It then writes `record.json` with a destination-bound report identity over:
 
 ```text
 content fingerprint
@@ -725,8 +779,14 @@ content fingerprint
 + reviewed repair merge SHA
 ```
 
+Finally, `checksums.json` covers exactly those five substantive members plus
+`record.json`. It excludes itself. The content fingerprint excludes both
+`record.json` and `checksums.json`; the report identity therefore has no
+recursive checksum or identity dependency.
+
 The public verifier requires its physical path to equal that canonical
-destination.
+destination, recomputes the five-member content fingerprint, reconstructs the
+record identity, and verifies the six-member checksum ledger independently.
 
 ### 11.5 Publication and reconciliation
 
@@ -772,6 +832,8 @@ At minimum, `instrument_fingerprint` and preflight reconstruction include:
 - formula IDs and constants fingerprint;
 - parser/helper contract ID and source fingerprint;
 - canonical serializer/escaping/base64 identity;
+- evaluator-member projection, report-schema/parser, generation-limit, and
+  parsed-result-ceiling identity;
 - checkpoint schema identity;
 - writer/public-verifier source fingerprints;
 - reviewed implementation commit.
@@ -805,10 +867,17 @@ for inputs at or below 1 MiB:
 - non-finite numbers and overflow float literals;
 - overlong integer tokens;
 - depth exhaustion;
-- exact 1 MiB and 1 MiB-plus-one behavior.
+- exact 1 MiB behavior.
 
 Assertions compare identical parsed values or identical exception type and
 stable rejection ID.
+
+A separate boundary-divergence table covers 1 MiB plus one byte. The historical
+parser must reject it under the unchanged default limit. The new parser must
+then follow the structurally selected member formula: reject for
+`recipe_member_v1` or an insufficient selected ceiling, and continue strict
+parsing only for a known governed-resolution role whose admitted ceiling is
+large enough. No equivalence claim applies above 1 MiB.
 
 ### 13.2 Profile-admission table
 
@@ -832,6 +901,12 @@ For every Planner turn `1..6` and evaluator call `1`, test:
 - pre-parse maximum-cardinality admission;
 - actual-count post-parse tightening;
 - authored `call_count` substitutions;
+- `E=0` exact no-evaluator form and `E=1` exact evaluator-row/result
+  projection at their member ceilings;
+- evaluator-member termination, quiescence, recommendation, evidence, or
+  projection substitutions after full downstream checksum reclosure;
+- plain `P/E`, caller-constructed, copied/replaced, cross-profile, and
+  mutated `VerifiedResolutionCallShape` refusals;
 - missing, duplicate, skipped, reordered, post-terminal, or unregistered calls;
 - exact aggregate limit and aggregate limit plus one for ledger and session.
 
@@ -904,6 +979,12 @@ Cover:
 
 Only a physically verified destination with no remaining candidate issues the
 forensic carrier.
+
+Report-identity cases additionally mutate each of the five substantive members,
+the destination-bound `record.json`, and the six-entry `checksums.json` ledger
+with every downstream checksum reclosed. Public verification must reconstruct
+the five-member content fingerprint and reject any circular, self-including,
+missing, extra, or reordered checksum membership.
 
 ### 13.8 Exact retained specimen
 
