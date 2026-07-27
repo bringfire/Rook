@@ -422,8 +422,8 @@ evaluator_row_ceiling(1)
 
 ```text
 E = 0
--> evaluator.json is the exact existing no-evaluator/not-evaluated form
--> evaluator_member_ceiling(0) is its path-specific closed ceiling
+-> evaluator.json is absent
+-> evaluator_member_v1 is not evaluated
 
 E = 1
 -> evaluator.json is the exact projection of authenticated evaluator row 1
@@ -440,8 +440,8 @@ termination, quiescence, recommendation, and bounded semantic evidence already
 retained by the existing member contract. Its request/response branches must
 equal the authenticated ledger row byte-for-byte. Its parsed result must be
 derived through the existing evaluator parser and bounded by the closed report
-schema and generation limits. `E` may only be `0` or `1`; a missing, extra, or
-unexpected evaluator member form fails.
+schema and generation limits. `E` may only be `0` or `1`; presence must equal
+`E == 1`, and a missing, extra, or unexpected evaluator member form fails.
 
 The `max(response, error)` branch is legal only after parsed evidence proves:
 
@@ -489,8 +489,8 @@ pre-parse ceiling:
 strictly parse call-ledger.json under its absolute ceiling
 
 closed structural validation of call rows:
-  indexes, roles, ordering, requests, branches, terminal state,
-  and no calls after termination
+  exact fields, indexes, roles, ordering, branch exclusivity,
+  and per-call terminal/quiescent evidence
 
 issue closure-owned VerifiedResolutionCallShape:
   authenticated P/E
@@ -516,10 +516,12 @@ different profile/instrument snapshot are rejected at consumption.
 
 `planner-session.json` authored `call_count` never grants budget. It is checked
 only after the call ledger carrier establishes `P`. `evaluator.json` cannot
-author `E` or its branch shape. Full request, transcript, gate, and provider
-provenance remains the later governed-resolution artifact verifier's
-responsibility; the carrier proves only the structural facts needed to select
-and tighten parsing budgets without circular trust.
+author `E` or its branch shape. Full request, transcript, gate, provider
+provenance, derived attempt-terminal state, and the prohibition on calls after
+an attempt terminal remain the later governed-resolution artifact verifier's
+responsibility. Per-call `terminal` means owned adapter execution completed; it
+is not an attempt-terminal claim. The carrier proves only the structural facts
+needed to select and tighten parsing budgets without circular trust.
 
 ## 8. Future writer and verifier integration
 
