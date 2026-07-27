@@ -248,15 +248,21 @@ namespace Rook.InternalBridge
             bool addSucceeded = false;
             bool addThrew = false;
             result.MutationAttempted = true;
-            try { addSucceeded = _host.AddNewDocument(result.Document); }
+            try
+            {
+                addSucceeded = _host.AddNewDocument(result.Document);
+                if (addSucceeded) result.EverRegistered = true;
+            }
             catch
             {
                 addThrew = true;
+                result.CleanupOwnershipAmbiguous = true;
                 result.Code = GhDocumentLifecycleCode.RegistrationFailed;
             }
             var sameCanvasAfterAdd = RequireSameCanvas(result);
 
             var registration = InspectRegistration(result.Document);
+            LatchRegistrationEvidence(result, registration);
             ReconcileOwnership(result, before);
             result.DocumentRegistered = registration.Registered;
             result.RegistrationIndex = registration.Index;
@@ -284,6 +290,7 @@ namespace Rook.InternalBridge
             result.ActivationSucceeded = IsCapturedCanvasDocument(result, result.Document);
             result.DocumentActive = result.ActivationSucceeded;
             var postActivationRegistration = InspectRegistration(result.Document);
+            LatchRegistrationEvidence(result, postActivationRegistration);
             ReconcileOwnership(result, before);
             result.DocumentRegistered = postActivationRegistration.Registered;
             result.RegistrationIndex = postActivationRegistration.Index;
@@ -318,7 +325,7 @@ namespace Rook.InternalBridge
                 return;
             }
             var additions = after.Where(document => !ContainsReference(before, document)).ToArray();
-            result.CleanupOwnershipAmbiguous = additions.Length > 1;
+            if (additions.Length > 1) result.CleanupOwnershipAmbiguous = true;
             object? active = GetCapturedCanvasDocument(result);
             if (active is null && result.Code != GhDocumentLifecycleCode.None) return;
 
@@ -327,6 +334,7 @@ namespace Rook.InternalBridge
                 result.Document = existing;
                 ReconcileOwnership(result, before);
                 var existingRegistration = InspectRegistration(existing);
+                LatchRegistrationEvidence(result, existingRegistration);
                 result.DocumentRegistered = existingRegistration.Registered;
                 result.RegistrationIndex = existingRegistration.Index;
                 result.RegistrationSucceeded = existingRegistration.Registered;
@@ -367,6 +375,7 @@ namespace Rook.InternalBridge
             }
 
             var candidateRegistration = InspectRegistration(candidate);
+            LatchRegistrationEvidence(result, candidateRegistration);
             result.DocumentRegistered = candidateRegistration.Registered;
             result.RegistrationIndex = candidateRegistration.Index;
             result.RegistrationSucceeded = candidateRegistration.Registered;
@@ -380,6 +389,7 @@ namespace Rook.InternalBridge
 
             if (!RequireSameCanvas(result)) return;
             var finalRegistration = InspectRegistration(candidate);
+            LatchRegistrationEvidence(result, finalRegistration);
             result.DocumentRegistered = finalRegistration.Registered;
             result.RegistrationIndex = finalRegistration.Index;
             if (!finalRegistration.Registered)
@@ -507,7 +517,12 @@ namespace Rook.InternalBridge
         private IReadOnlyList<object>? Snapshot(GhDocumentLifecycleResult result)
         {
             try { return _host.SnapshotDocuments(); }
-            catch { result.Code = GhDocumentLifecycleCode.InconsistentState; return null; }
+            catch
+            {
+                result.CleanupOwnershipAmbiguous = true;
+                result.Code = GhDocumentLifecycleCode.InconsistentState;
+                return null;
+            }
         }
 
         private bool RequireSameCanvas(GhDocumentLifecycleResult result)
@@ -540,6 +555,7 @@ namespace Rook.InternalBridge
         {
             if (result.Document is null) return;
             var registration = InspectRegistration(result.Document);
+            LatchRegistrationEvidence(result, registration);
             result.DocumentRegistered = registration.Registered;
             result.RegistrationIndex = registration.Index;
             try
@@ -568,15 +584,31 @@ namespace Rook.InternalBridge
             GhDocumentLifecycleResult result,
             IReadOnlyList<object> before)
         {
-            if (result.Document is null) return MembershipState.Unknown;
+            if (result.Document is null)
+            {
+                result.CleanupOwnershipAmbiguous = true;
+                return MembershipState.Unknown;
+            }
             var membership = InspectMembership(result.Document);
-            if (membership == MembershipState.Present)
+            if (membership == MembershipState.Unknown)
+            {
+                result.CleanupOwnershipAmbiguous = true;
+            }
+            else if (membership == MembershipState.Present)
             {
                 result.EverRegistered = true;
                 if (!ContainsReference(before, result.Document))
                     result.RegisteredByThisCall = true;
             }
             return membership;
+        }
+
+        private static void LatchRegistrationEvidence(
+            GhDocumentLifecycleResult result,
+            GhDocumentRegistrationState registration)
+        {
+            if (!registration.Known) result.CleanupOwnershipAmbiguous = true;
+            if (registration.Registered) result.EverRegistered = true;
         }
 
         private bool IsSameCapturedCanvas(GhDocumentLifecycleResult result)
