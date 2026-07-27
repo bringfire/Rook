@@ -2612,6 +2612,53 @@ def test_task5_transient_verification_failure_after_rename_reconciles_as_sealed(
     )
 
 
+@pytest.mark.parametrize(
+    "exception_type",
+    (OSError, ValueError, TypeError, KeyError, RuntimeError),
+)
+def test_task5_repeated_post_rename_verification_failure_marks_both_locations(
+    exception_type: type[Exception],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    original_verify = RESOLUTION_ARTIFACTS._verify_resolution_checkpoint_archive
+    public_destination_calls = 0
+
+    def fail_every_public_destination_verification(*args: object, **kwargs: object):
+        nonlocal public_destination_calls
+        if kwargs.get("enforce_public_location") is True:
+            public_destination_calls += 1
+            raise exception_type("repeated post-rename verification failure")
+        return original_verify(*args, **kwargs)
+
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS,
+        "_verify_resolution_checkpoint_archive",
+        fail_every_public_destination_verification,
+    )
+    preflight, result = _task5_ready_result(
+        monkeypatch, tmp_path, expect_sealed=False
+    )
+    assert public_destination_calls == 2
+    assert result.state == "post_dispatch_unsealed"
+    assert result.sealed_checkpoint is None
+    assert (preflight.attempt.staging_path / "post_dispatch_unsealed.json").is_file()
+    assert (preflight.attempt.destination / "post_dispatch_unsealed.json").is_file()
+
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS,
+        "_verify_resolution_checkpoint_archive",
+        original_verify,
+    )
+    with pytest.raises(ValueError, match="membership"):
+        RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+            preflight.attempt.destination,
+            expected_identity="sha256:" + "0" * 64,
+            preflight_archive=preflight.archive_dir,
+            expected_preflight_fingerprint=preflight.preflight_fingerprint,
+        )
+
+
 def test_task5_ready_proof_is_reconstructed_and_forgery_refused(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -3732,7 +3732,7 @@ def reconcile_resolution_rename(
             except OSError:
                 pass
             return sealed
-        except (OSError, ValueError, TypeError):
+        except Exception:
             pass
     if staging_exists and destination_exists:
         for evidence in (staging, final):
