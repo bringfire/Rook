@@ -9,6 +9,7 @@ import copy
 import subprocess
 import shutil
 import sys
+from types import SimpleNamespace
 from dataclasses import fields
 from pathlib import Path
 
@@ -154,8 +155,8 @@ def _reclose_historical_preflight(module, members, record):
     return changed
 
 
-def test_task4_historical_reconstruction_rejects_fully_reclosed_source_drift() -> None:
-    """Catches authored downstream hashes replacing the pinned Git authority."""
+def test_task4_historical_reconstruction_rejects_authored_source_claim_drift() -> None:
+    """The Git-derived source identity must equal the authored comparison target."""
 
     module = _load_forensics()
     _archive, members, _identity = module._flat_snapshot(
@@ -181,6 +182,120 @@ def test_task4_historical_reconstruction_rejects_fully_reclosed_source_drift() -
             members=changed_members,
             git_blobs=git_blobs,
         )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json",
+        (
+            "scripts/lm9b_p_governed_resolution_contracts/"
+            "planner_revision_evaluation_rubric.json"
+        ),
+        (
+            "scripts/lm9_typed_fact_carrier_contracts/"
+            "semantic_value_schema_registry.json"
+        ),
+        (
+            "scripts/lm9_typed_fact_carrier_contracts/"
+            "planner_task_typed_facts_payload_schema.json"
+        ),
+        (
+            "scripts/lm9_typed_fact_carrier_fixtures/"
+            "radial_successor_task_envelope.json"
+        ),
+    ],
+)
+def test_task4_historical_data_git_blobs_are_constructive_roots(
+    relative: str,
+) -> None:
+    """Removing a Git-data equation must make this exact-root mutation pass."""
+
+    module = _load_forensics()
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    baseline = module._reconstruct_historical_instrument_and_request(
+        repo=ROOT,
+        git_blobs=git_blobs,
+    )
+    changed_blobs = dict(git_blobs)
+    changed_blobs[relative] = git_blobs[relative] + b" "
+    try:
+        changed = module._reconstruct_historical_instrument_and_request(
+            repo=ROOT,
+            git_blobs=changed_blobs,
+        )
+    except ValueError as exc:
+        assert "historical Git producer" in str(exc)
+    else:
+        assert changed != baseline
+
+
+def test_task4_historical_renderer_git_blob_constructs_the_initial_request() -> None:
+    """Removing Git-root request construction must leave this mutation invisible."""
+
+    module = _load_forensics()
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    baseline = module._reconstruct_historical_instrument_and_request(
+        repo=ROOT,
+        git_blobs=git_blobs,
+    )
+    relative = "scripts/lm9b_p_governed_resolution_support.py"
+    changed_blobs = dict(git_blobs)
+    changed_blobs[relative] = git_blobs[relative].replace(
+        b"Revise the exact parent Planner recipe",
+        b"Rework the exact parent Planner recipe",
+        1,
+    )
+    assert changed_blobs[relative] != git_blobs[relative]
+    try:
+        changed = module._reconstruct_historical_instrument_and_request(
+            repo=ROOT,
+            git_blobs=changed_blobs,
+        )
+    except ValueError as exc:
+        assert "historical Git producer" in str(exc)
+    else:
+        assert changed[1] != baseline[1]
+
+
+def test_task4_execution_capability_ledger_rejects_a_missing_producer() -> None:
+    """Deleting a callable owner must not silently weaken checkout closure."""
+
+    module = _load_forensics()
+    if not hasattr(module, "_execution_capability_ledger"):
+        pytest.fail("forensic execution capability ledger is absent")
+    ledger = module._execution_capability_ledger()
+    assert any(
+        row["capability_id"] == "historical_source_verifier"
+        and row["relative_path"]
+        == "scripts/lm9b_p_evaluator_only_continuation_artifacts.py"
+        for row in ledger
+    )
+    reduced = tuple(
+        row
+        for row in ledger
+        if row["capability_id"] != "historical_source_verifier"
+    )
+    with pytest.raises(ValueError, match="execution capability ledger is incomplete"):
+        module._validate_execution_capability_ledger(reduced)
+
+
+def test_task4_execution_capability_ledger_binds_the_actual_callable_owner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A canonical import must not hide the module object actually invoked."""
+
+    module = _load_forensics()
+    substituted = tmp_path / "substituted_continuation_artifacts.py"
+    substituted.write_text("# not the reviewed verifier\n", encoding="utf-8")
+    monkeypatch.setattr(
+        module.ARTIFACTS,
+        "CONT_ARTIFACTS",
+        SimpleNamespace(__file__=str(substituted)),
+    )
+    with pytest.raises(ValueError, match="execution capability owner differs"):
+        module._execution_capability_ledger()
 
 
 @pytest.mark.parametrize(
@@ -221,8 +336,8 @@ def test_task4_historical_manifest_claims_are_derived_not_self_authenticated(
         )
 
 
-def test_task4_historical_initial_request_is_rerendered_from_roots() -> None:
-    """A fully reclosed alternate request must fail the renderer derivation."""
+def test_task4_historical_authored_request_must_equal_the_rerendered_root() -> None:
+    """A reclosed authored request remains only a comparison target."""
 
     module = _load_forensics()
     _archive, members, _identity = module._flat_snapshot(

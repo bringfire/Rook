@@ -4,6 +4,7 @@ import ast
 import base64
 import copy
 import hashlib
+import importlib
 import json
 import os
 import stat
@@ -200,6 +201,24 @@ def _recursive_snapshot(path: Path) -> tuple[dict[str, bytes], tuple[object, ...
 
 
 _GIT_PATHS = (
+    "mcp_server/src/rook/__init__.py",
+    "mcp_server/src/rook/agent/__init__.py",
+    "mcp_server/src/rook/agent/model_profiles.py",
+    "mcp_server/src/rook/validation_kernel/__init__.py",
+    "mcp_server/src/rook/validation_kernel/api.py",
+    "mcp_server/src/rook/validation_kernel/budget.py",
+    "mcp_server/src/rook/validation_kernel/canonical_json.py",
+    "mcp_server/src/rook/validation_kernel/conformance.py",
+    "mcp_server/src/rook/validation_kernel/control.py",
+    "mcp_server/src/rook/validation_kernel/invocation.py",
+    "mcp_server/src/rook/validation_kernel/kernel_schemas.py",
+    "mcp_server/src/rook/validation_kernel/owned_json.py",
+    "mcp_server/src/rook/validation_kernel/parser.py",
+    "mcp_server/src/rook/validation_kernel/phase_contract.py",
+    "mcp_server/src/rook/validation_kernel/phase_engine.py",
+    "mcp_server/src/rook/validation_kernel/program.py",
+    "mcp_server/src/rook/validation_kernel/reporting.py",
+    "mcp_server/src/rook/validation_kernel/schema_profile.py",
     "scripts/lm9_semantic_typed_values.py",
     "scripts/lm9_typed_fact_carrier_artifacts.py",
     "scripts/lm9_typed_fact_carrier_qualification.py",
@@ -207,6 +226,8 @@ _GIT_PATHS = (
     "scripts/lm9_typed_fact_carrier_contracts/planner_task_typed_facts_payload_schema.json",
     "scripts/lm9_typed_fact_carrier_fixtures/radial_successor_task_envelope.json",
     "scripts/lm9b_c_compiler_sufficiency_probe.py",
+    "scripts/lm9b_p_evaluator_only_continuation_artifacts.py",
+    "scripts/lm9b_p_fixtures/planner_evaluation_rubric.json",
     "scripts/lm9b_p_governed_resolution_artifacts.py",
     "scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json",
     "scripts/lm9b_p_governed_resolution_contracts/planner_revision_evaluation_rubric.json",
@@ -215,6 +236,67 @@ _GIT_PATHS = (
     "scripts/lm9b_p_planner_recipe_transfer_artifacts.py",
     "scripts/lm9b_p_planner_recipe_transfer_support.py",
     "scripts/lm9b_p_readiness_contract.py",
+)
+
+
+_HISTORICAL_EXACT_PRODUCER_PATHS = (
+    "mcp_server/src/rook/__init__.py",
+    "mcp_server/src/rook/agent/__init__.py",
+    "mcp_server/src/rook/agent/model_profiles.py",
+    "mcp_server/src/rook/validation_kernel/__init__.py",
+    "mcp_server/src/rook/validation_kernel/api.py",
+    "mcp_server/src/rook/validation_kernel/budget.py",
+    "mcp_server/src/rook/validation_kernel/canonical_json.py",
+    "mcp_server/src/rook/validation_kernel/conformance.py",
+    "mcp_server/src/rook/validation_kernel/control.py",
+    "mcp_server/src/rook/validation_kernel/invocation.py",
+    "mcp_server/src/rook/validation_kernel/kernel_schemas.py",
+    "mcp_server/src/rook/validation_kernel/owned_json.py",
+    "mcp_server/src/rook/validation_kernel/parser.py",
+    "mcp_server/src/rook/validation_kernel/phase_contract.py",
+    "mcp_server/src/rook/validation_kernel/phase_engine.py",
+    "mcp_server/src/rook/validation_kernel/program.py",
+    "mcp_server/src/rook/validation_kernel/reporting.py",
+    "mcp_server/src/rook/validation_kernel/schema_profile.py",
+    "scripts/lm9_semantic_typed_values.py",
+    "scripts/lm9_typed_fact_carrier_artifacts.py",
+    "scripts/lm9_typed_fact_carrier_qualification.py",
+    "scripts/lm9_typed_fact_carrier_contracts/semantic_value_schema_registry.json",
+    "scripts/lm9_typed_fact_carrier_contracts/planner_task_typed_facts_payload_schema.json",
+    "scripts/lm9_typed_fact_carrier_fixtures/radial_successor_task_envelope.json",
+    "scripts/lm9b_c_compiler_sufficiency_probe.py",
+    "scripts/lm9b_p_evaluator_only_continuation_artifacts.py",
+    "scripts/lm9b_p_fixtures/planner_evaluation_rubric.json",
+    "scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json",
+    "scripts/lm9b_p_governed_resolution_contracts/planner_revision_evaluation_rubric.json",
+    "scripts/lm9b_p_governed_resolution_support.py",
+    "scripts/lm9b_p_planner_recipe_transfer_artifacts.py",
+    "scripts/lm9b_p_readiness_contract.py",
+)
+
+
+_HISTORICAL_EXACT_DATA_PATHS = (
+    "scripts/lm9_typed_fact_carrier_contracts/semantic_value_schema_registry.json",
+    "scripts/lm9_typed_fact_carrier_contracts/planner_task_typed_facts_payload_schema.json",
+    "scripts/lm9_typed_fact_carrier_fixtures/radial_successor_task_envelope.json",
+    "scripts/lm9b_p_fixtures/planner_evaluation_rubric.json",
+    "scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json",
+    "scripts/lm9b_p_governed_resolution_contracts/planner_revision_evaluation_rubric.json",
+)
+
+
+_HISTORICAL_ARTIFACT_PRODUCER_SYMBOLS = (
+    "_load_verified_resolution_sources_unsealed",
+    "_seal_resolution_source_loader",
+    "_resolution_sources_snapshot",
+    "assemble_resolution_instrument",
+    "_verify_historical_carrier_qualification_compatibility_unsealed",
+    "_seal_compatibility_verifier",
+    "_compatibility_snapshot",
+    "readiness_route_identity_projection",
+    "_launch_invocation_contract",
+    "_load_current_resolution_sources",
+    "_callable_source_fingerprint",
 )
 
 
@@ -337,6 +419,211 @@ def _set_mapping_path(value: dict[str, object], dotted: str, replacement: object
     current[parts[-1]] = replacement
 
 
+def _git_object_at(repo: Path, commit: str, relative: str) -> bytes:
+    return subprocess.run(
+        ["git", "show", f"{commit}:{relative}"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
+def _top_level_node(raw: bytes, name: str) -> ast.AST:
+    tree = ast.parse(raw.decode("utf-8"))
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == name:
+                return node
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+            if any(isinstance(target, ast.Name) and target.id == name for target in targets):
+                return node
+    raise ValueError(f"historical Git producer symbol is absent: {name}")
+
+
+def _node_identity(raw: bytes, name: str) -> str:
+    return ast.dump(_top_level_node(raw, name), include_attributes=False)
+
+
+def _module_identity_without(raw: bytes, excluded: frozenset[str]) -> str:
+    tree = ast.parse(raw.decode("utf-8"))
+    retained: list[ast.stmt] = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name in excluded:
+                continue
+        retained.append(node)
+    tree.body = retained
+    return ast.dump(tree, include_attributes=False)
+
+
+class _StripArchiveResourceDelta(ast.NodeTransformer):
+    def visit_Assign(self, node: ast.Assign) -> ast.AST | None:
+        stored_names = {
+            item.id
+            for target in node.targets
+            for item in ast.walk(target)
+            if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store)
+        }
+        if "archive_resource_contract" in stored_names:
+            return None
+        return self.generic_visit(node)
+
+    def visit_Dict(self, node: ast.Dict) -> ast.AST:
+        retained = [
+            (key, value)
+            for key, value in zip(node.keys, node.values)
+            if not (
+                isinstance(key, ast.Constant)
+                and key.value == "archive_resource"
+            )
+        ]
+        node.keys = [key for key, _value in retained]
+        node.values = [value for _key, value in retained]
+        return self.generic_visit(node)
+
+
+def _historical_manifest_builder_identity(raw: bytes, *, repaired: bool) -> str:
+    node = copy.deepcopy(
+        _top_level_node(raw, "assemble_task1_resolution_instrument")
+    )
+    if repaired:
+        node = _StripArchiveResourceDelta().visit(node)
+        assert node is not None
+    return ast.dump(node, include_attributes=False)
+
+
+def _assignment_expression(raw: bytes, name: str) -> ast.expr:
+    node = _top_level_node(raw, name)
+    if isinstance(node, ast.Assign):
+        return node.value
+    if isinstance(node, ast.AnnAssign) and node.value is not None:
+        return node.value
+    raise ValueError(f"historical Git producer assignment is invalid: {name}")
+
+
+def _literal_assignment_value(
+    raw: bytes,
+    name: str,
+    *,
+    readiness_schema_id: str | None = None,
+) -> object:
+    expression = copy.deepcopy(_assignment_expression(raw, name))
+
+    class Resolve(ast.NodeTransformer):
+        def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+            if (
+                readiness_schema_id is not None
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "READINESS"
+                and node.attr == "SCHEMA_ID"
+            ):
+                return ast.copy_location(ast.Constant(readiness_schema_id), node)
+            return self.generic_visit(node)
+
+    expression = Resolve().visit(expression)
+    if (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Name)
+        and expression.func.id in {"MappingProxyType", "frozenset"}
+        and len(expression.args) == 1
+        and not expression.keywords
+    ):
+        value = ast.literal_eval(expression.args[0])
+        return dict(value) if expression.func.id == "MappingProxyType" else frozenset(value)
+    return ast.literal_eval(expression)
+
+
+def _verify_historical_git_producer_roots(
+    *,
+    repo: Path,
+    git_blobs: Mapping[str, bytes],
+) -> None:
+    if set(git_blobs) != set(_GIT_PATHS):
+        raise ValueError("historical Git producer set is incomplete or contains extras")
+    current_commit = _current_commit(repo)
+    current_blobs = {
+        relative: _git_object_at(repo, current_commit, relative)
+        for relative in _GIT_PATHS
+    }
+    for relative in _HISTORICAL_EXACT_PRODUCER_PATHS:
+        if current_blobs[relative] != git_blobs[relative]:
+            raise ValueError(
+                f"historical Git producer bytes differ: {relative}"
+            )
+    for relative in _HISTORICAL_EXACT_DATA_PATHS:
+        if (repo / relative).read_bytes() != git_blobs[relative]:
+            raise ValueError(
+                f"historical Git producer physical bytes differ: {relative}"
+            )
+
+    planner_path = "scripts/lm9b_p_planner_recipe_transfer_support.py"
+    if _module_identity_without(
+        current_blobs[planner_path], frozenset({"run_planner_session"})
+    ) != _module_identity_without(
+        git_blobs[planner_path], frozenset({"run_planner_session"})
+    ):
+        raise ValueError("historical Git producer planner support differs")
+
+    artifacts_path = "scripts/lm9b_p_governed_resolution_artifacts.py"
+    current_artifacts = current_blobs[artifacts_path]
+    historical_artifacts = git_blobs[artifacts_path]
+    for symbol in _HISTORICAL_ARTIFACT_PRODUCER_SYMBOLS:
+        if _node_identity(current_artifacts, symbol) != _node_identity(
+            historical_artifacts, symbol
+        ):
+            raise ValueError(
+                f"historical Git producer artifact capability differs: {symbol}"
+            )
+    if _historical_manifest_builder_identity(
+        current_artifacts, repaired=True
+    ) != _historical_manifest_builder_identity(
+        historical_artifacts, repaired=False
+    ):
+        raise ValueError("historical Git producer manifest builder differs")
+
+    readiness_schema = _literal_assignment_value(
+        git_blobs["scripts/lm9b_p_readiness_contract.py"], "SCHEMA_ID"
+    )
+    historical_contracts = _literal_assignment_value(
+        historical_artifacts,
+        "CONTRACT_IDS",
+        readiness_schema_id=str(readiness_schema),
+    )
+    historical_ready = dict(
+        _literal_assignment_value(historical_artifacts, "_READY_PROOF_VALUE")
+    )
+    historical_ready["contract_fingerprint"] = PLANNER_SUPPORT.fingerprint(
+        historical_ready
+    )
+    constant_checks = (
+        (
+            ARTIFACTS.HISTORICAL_CARRIER_COMMIT,
+            _literal_assignment_value(
+                historical_artifacts, "HISTORICAL_CARRIER_COMMIT"
+            ),
+        ),
+        (
+            ARTIFACTS.PREFLIGHT_SCHEMA_ID,
+            _literal_assignment_value(historical_artifacts, "PREFLIGHT_SCHEMA_ID"),
+        ),
+        (
+            frozenset(ARTIFACTS._PREFLIGHT_MEMBERS),
+            _literal_assignment_value(historical_artifacts, "_PREFLIGHT_MEMBERS"),
+        ),
+        (
+            dict(ARTIFACTS.RESOLUTION_ARCHIVE_MEMBERS),
+            _literal_assignment_value(
+                historical_artifacts, "RESOLUTION_ARCHIVE_MEMBERS"
+            ),
+        ),
+        (dict(ARTIFACTS.CONTRACT_IDS), historical_contracts),
+        (dict(ARTIFACTS.READY_PROOF_CONTRACT), historical_ready),
+    )
+    if any(current != historical for current, historical in constant_checks):
+        raise ValueError("historical Git producer manifest constants differ")
+
+
 def _reconstruct_historical_instrument_and_request(
     *,
     repo: Path,
@@ -344,6 +631,7 @@ def _reconstruct_historical_instrument_and_request(
 ) -> tuple[dict[str, object], bytes]:
     """Rebuild historical claims from Git roots and frozen prerequisite evidence."""
 
+    _verify_historical_git_producer_roots(repo=repo, git_blobs=git_blobs)
     current_commit = _current_commit(repo)
     sources = ARTIFACTS._load_current_resolution_sources(current_commit)
     current = ARTIFACTS.assemble_resolution_instrument(
@@ -895,26 +1183,302 @@ def _current_commit(repo: Path) -> str:
     ).stdout.strip()
 
 
-_FORENSIC_EXECUTION_PATHS = (
-    "scripts/lm9_semantic_typed_values.py",
-    "scripts/lm9_typed_fact_carrier_artifacts.py",
-    "scripts/lm9_typed_fact_carrier_qualification.py",
+_EXECUTION_CAPABILITY_SPECS = (
+    (
+        "rook_package",
+        "rook",
+        "mcp_server/src/rook/__init__.py",
+    ),
+    (
+        "rook_agent_package",
+        "rook.agent",
+        "mcp_server/src/rook/agent/__init__.py",
+    ),
+    (
+        "forensic_orchestrator",
+        "lm9b_p_governed_resolution_forensics",
+        "scripts/lm9b_p_governed_resolution_forensics.py",
+    ),
+    (
+        "archive_resource_profile",
+        "lm9b_p_governed_resolution_archive_evidence",
+        "scripts/lm9b_p_governed_resolution_archive_evidence.py",
+    ),
+    (
+        "resolution_evidence_reconstruction",
+        "lm9b_p_governed_resolution_artifacts",
+        "scripts/lm9b_p_governed_resolution_artifacts.py",
+    ),
+    (
+        "resolution_request_and_isolation",
+        "lm9b_p_governed_resolution_support",
+        "scripts/lm9b_p_governed_resolution_support.py",
+    ),
+    (
+        "planner_evidence_projection",
+        "lm9b_p_planner_recipe_transfer_artifacts",
+        "scripts/lm9b_p_planner_recipe_transfer_artifacts.py",
+    ),
+    (
+        "planner_protocol_and_gate",
+        "lm9b_p_planner_recipe_transfer_support",
+        "scripts/lm9b_p_planner_recipe_transfer_support.py",
+    ),
+    (
+        "historical_source_verifier",
+        "lm9b_p_evaluator_only_continuation_artifacts",
+        "scripts/lm9b_p_evaluator_only_continuation_artifacts.py",
+    ),
+    (
+        "readiness_contract",
+        "lm9b_p_readiness_contract",
+        "scripts/lm9b_p_readiness_contract.py",
+    ),
+    (
+        "typed_value_validation",
+        "lm9_semantic_typed_values",
+        "scripts/lm9_semantic_typed_values.py",
+    ),
+    (
+        "typed_fact_carrier",
+        "lm9_typed_fact_carrier_artifacts",
+        "scripts/lm9_typed_fact_carrier_artifacts.py",
+    ),
+    (
+        "typed_fact_qualification",
+        "lm9_typed_fact_carrier_qualification",
+        "scripts/lm9_typed_fact_carrier_qualification.py",
+    ),
+    (
+        "litellm_request_projection",
+        "lm9b_c_compiler_sufficiency_probe",
+        "scripts/lm9b_c_compiler_sufficiency_probe.py",
+    ),
+    (
+        "compiler_probe_artifact_types",
+        "lm9b_c_compiler_sufficiency_artifacts",
+        "scripts/lm9b_c_compiler_sufficiency_artifacts.py",
+    ),
+    (
+        "compiler_probe_support_types",
+        "lm9b_c_compiler_sufficiency_support",
+        "scripts/lm9b_c_compiler_sufficiency_support.py",
+    ),
+    (
+        "model_profile_projection",
+        "rook.agent.model_profiles",
+        "mcp_server/src/rook/agent/model_profiles.py",
+    ),
+    (
+        "runtime_path_projection",
+        "rook.runtime_paths",
+        "mcp_server/src/rook/runtime_paths.py",
+    ),
+    (
+        "grasshopper_preflight_types",
+        "rook.gh_csharp_preflight",
+        "mcp_server/src/rook/gh_csharp_preflight.py",
+    ),
+    (
+        "validation_kernel_package",
+        "rook.validation_kernel",
+        "mcp_server/src/rook/validation_kernel/__init__.py",
+    ),
+    (
+        "validation_kernel_api",
+        "rook.validation_kernel.api",
+        "mcp_server/src/rook/validation_kernel/api.py",
+    ),
+    (
+        "validation_kernel_budget",
+        "rook.validation_kernel.budget",
+        "mcp_server/src/rook/validation_kernel/budget.py",
+    ),
+    (
+        "validation_kernel_canonical_json",
+        "rook.validation_kernel.canonical_json",
+        "mcp_server/src/rook/validation_kernel/canonical_json.py",
+    ),
+    (
+        "validation_kernel_conformance",
+        "rook.validation_kernel.conformance",
+        "mcp_server/src/rook/validation_kernel/conformance.py",
+    ),
+    (
+        "validation_kernel_control",
+        "rook.validation_kernel.control",
+        "mcp_server/src/rook/validation_kernel/control.py",
+    ),
+    (
+        "validation_kernel_invocation",
+        "rook.validation_kernel.invocation",
+        "mcp_server/src/rook/validation_kernel/invocation.py",
+    ),
+    (
+        "validation_kernel_schemas",
+        "rook.validation_kernel.kernel_schemas",
+        "mcp_server/src/rook/validation_kernel/kernel_schemas.py",
+    ),
+    (
+        "validation_kernel_owned_json",
+        "rook.validation_kernel.owned_json",
+        "mcp_server/src/rook/validation_kernel/owned_json.py",
+    ),
+    (
+        "validation_kernel_parser",
+        "rook.validation_kernel.parser",
+        "mcp_server/src/rook/validation_kernel/parser.py",
+    ),
+    (
+        "validation_kernel_phase_contract",
+        "rook.validation_kernel.phase_contract",
+        "mcp_server/src/rook/validation_kernel/phase_contract.py",
+    ),
+    (
+        "validation_kernel_phase_engine",
+        "rook.validation_kernel.phase_engine",
+        "mcp_server/src/rook/validation_kernel/phase_engine.py",
+    ),
+    (
+        "validation_kernel_program",
+        "rook.validation_kernel.program",
+        "mcp_server/src/rook/validation_kernel/program.py",
+    ),
+    (
+        "validation_kernel_reporting",
+        "rook.validation_kernel.reporting",
+        "mcp_server/src/rook/validation_kernel/reporting.py",
+    ),
+    (
+        "validation_kernel_schema_profile",
+        "rook.validation_kernel.schema_profile",
+        "mcp_server/src/rook/validation_kernel/schema_profile.py",
+    ),
+)
+
+
+_FORENSIC_EXECUTION_RESOURCE_PATHS = (
     "scripts/lm9_typed_fact_carrier_contracts/semantic_value_schema_registry.json",
     "scripts/lm9_typed_fact_carrier_contracts/planner_task_typed_facts_payload_schema.json",
     "scripts/lm9_typed_fact_carrier_fixtures/radial_successor_task_envelope.json",
-    "scripts/lm9b_c_compiler_sufficiency_probe.py",
     "scripts/lm9b_p_fixtures/planner_recipe_probe_schema.json",
-    "scripts/lm9b_p_governed_resolution_archive_evidence.py",
-    "scripts/lm9b_p_governed_resolution_artifacts.py",
+    "scripts/lm9b_p_fixtures/planner_evaluation_rubric.json",
     "scripts/lm9b_p_governed_resolution_contracts/archive_evidence_resource_profile.json",
     "scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json",
     "scripts/lm9b_p_governed_resolution_contracts/planner_revision_evaluation_rubric.json",
-    "scripts/lm9b_p_governed_resolution_forensics.py",
-    "scripts/lm9b_p_governed_resolution_support.py",
-    "scripts/lm9b_p_planner_recipe_transfer_artifacts.py",
-    "scripts/lm9b_p_planner_recipe_transfer_support.py",
-    "scripts/lm9b_p_readiness_contract.py",
+    "scripts/lm9b_p_governed_resolution_probe.py",
 )
+
+
+_FORENSIC_EXECUTION_PATHS = tuple(
+    dict.fromkeys(
+        [relative for _capability, _module, relative in _EXECUTION_CAPABILITY_SPECS]
+        + list(_FORENSIC_EXECUTION_RESOURCE_PATHS)
+    )
+)
+
+
+_EXECUTION_CAPABILITY_OWNER_PATHS = {
+    "archive_resource_profile": "ARCHIVE_EVIDENCE",
+    "resolution_evidence_reconstruction": "ARTIFACTS",
+    "resolution_request_and_isolation": "SUPPORT",
+    "planner_evidence_projection": "PLANNER_ARTIFACTS",
+    "planner_protocol_and_gate": "PLANNER_SUPPORT",
+    "historical_source_verifier": "ARTIFACTS.CONT_ARTIFACTS",
+    "readiness_contract": "ARTIFACTS.READINESS",
+    "typed_value_validation": "ARTIFACTS.TYPED_VALUES",
+    "typed_fact_carrier": "ARTIFACTS.CARRIER",
+    "typed_fact_qualification": "ARTIFACTS.QUALIFICATION",
+    "litellm_request_projection": "ARTIFACTS.PROVIDER_ADAPTER",
+    "model_profile_projection": (
+        "ARTIFACTS.CONT_ARTIFACTS.api_key_env_for_model"
+    ),
+    "validation_kernel_canonical_json": "PLANNER_SUPPORT.canonical_fingerprint",
+    "validation_kernel_owned_json": "PLANNER_SUPPORT.own_trusted_json",
+}
+
+
+def _actual_capability_module(capability_id: str, module_name: str) -> object:
+    owner_path = _EXECUTION_CAPABILITY_OWNER_PATHS.get(capability_id)
+    if owner_path is None:
+        return importlib.import_module(module_name)
+    parts = owner_path.split(".")
+    value: object = globals().get(parts[0])
+    if value is None:
+        raise ValueError(f"execution capability owner differs: {capability_id}")
+    for part in parts[1:]:
+        value = getattr(value, part, None)
+        if value is None:
+            raise ValueError(f"execution capability owner differs: {capability_id}")
+    if getattr(value, "__file__", None) is not None:
+        module = value
+    else:
+        owner_module_name = getattr(value, "__module__", None)
+        if type(owner_module_name) is not str:
+            raise ValueError(f"execution capability owner differs: {capability_id}")
+        module = sys.modules.get(owner_module_name)
+    if module is None or getattr(module, "__name__", None) != module_name:
+        raise ValueError(f"execution capability owner differs: {capability_id}")
+    return module
+
+
+def _execution_capability_ledger() -> tuple[Mapping[str, object], ...]:
+    rows: list[Mapping[str, object]] = []
+    for capability_id, module_name, relative in _EXECUTION_CAPABILITY_SPECS:
+        module = _actual_capability_module(capability_id, module_name)
+        module_path = getattr(module, "__file__", None)
+        if type(module_path) is not str:
+            raise ValueError(
+                f"execution capability module path is absent: {capability_id}"
+            )
+        rows.append(
+            MappingProxyType(
+                {
+                    "capability_id": capability_id,
+                    "module_name": module_name,
+                    "relative_path": relative,
+                    "module_path": str(Path(module_path).resolve()),
+                }
+            )
+        )
+    return tuple(rows)
+
+
+def _validate_execution_capability_ledger(
+    rows: object,
+) -> tuple[Mapping[str, object], ...]:
+    if type(rows) not in {tuple, list}:
+        raise TypeError("execution capability ledger rows are required")
+    expected = {
+        capability_id: (module_name, relative)
+        for capability_id, module_name, relative in _EXECUTION_CAPABILITY_SPECS
+    }
+    observed: dict[str, Mapping[str, object]] = {}
+    for row in rows:
+        if (
+            not isinstance(row, Mapping)
+            or set(row)
+            != {"capability_id", "module_name", "relative_path", "module_path"}
+            or type(row.get("capability_id")) is not str
+            or row["capability_id"] in observed
+        ):
+            raise ValueError("execution capability ledger is malformed")
+        observed[row["capability_id"]] = row
+    if set(observed) != set(expected):
+        raise ValueError("execution capability ledger is incomplete or contains extras")
+    for capability_id, (module_name, relative) in expected.items():
+        row = observed[capability_id]
+        module = _actual_capability_module(capability_id, module_name)
+        actual_path = Path(getattr(module, "__file__", "")).resolve()
+        if (
+            row["module_name"] != module_name
+            or row["relative_path"] != relative
+            or Path(str(row["module_path"])).resolve() != actual_path
+        ):
+            raise ValueError(
+                f"execution capability owner differs: {capability_id}"
+            )
+    return tuple(observed[capability_id] for capability_id in expected)
 
 
 def _verify_executing_checkout(repo: Path, commit: str) -> None:
@@ -931,39 +1495,11 @@ def _verify_executing_checkout(repo: Path, commit: str) -> None:
     ).stdout
     if status:
         raise ValueError("forensic executing checkout is dirty")
-    module_paths = {
-        Path(__file__).resolve(): "scripts/lm9b_p_governed_resolution_forensics.py",
-        Path(ARTIFACTS.__file__).resolve(): (
-            "scripts/lm9b_p_governed_resolution_artifacts.py"
-        ),
-        Path(ARCHIVE_EVIDENCE.__file__).resolve(): (
-            "scripts/lm9b_p_governed_resolution_archive_evidence.py"
-        ),
-        Path(SUPPORT.__file__).resolve(): "scripts/lm9b_p_governed_resolution_support.py",
-        Path(PLANNER_SUPPORT.__file__).resolve(): (
-            "scripts/lm9b_p_planner_recipe_transfer_support.py"
-        ),
-        Path(PLANNER_ARTIFACTS.__file__).resolve(): (
-            "scripts/lm9b_p_planner_recipe_transfer_artifacts.py"
-        ),
-        Path(ARTIFACTS.TYPED_VALUES.__file__).resolve(): (
-            "scripts/lm9_semantic_typed_values.py"
-        ),
-        Path(ARTIFACTS.CARRIER.__file__).resolve(): (
-            "scripts/lm9_typed_fact_carrier_artifacts.py"
-        ),
-        Path(ARTIFACTS.QUALIFICATION.__file__).resolve(): (
-            "scripts/lm9_typed_fact_carrier_qualification.py"
-        ),
-        Path(ARTIFACTS.PROVIDER_ADAPTER.__file__).resolve(): (
-            "scripts/lm9b_c_compiler_sufficiency_probe.py"
-        ),
-        Path(ARTIFACTS.READINESS.__file__).resolve(): (
-            "scripts/lm9b_p_readiness_contract.py"
-        ),
-    }
-    for path, relative in module_paths.items():
-        if path != repo / relative:
+    capability_ledger = _validate_execution_capability_ledger(
+        _execution_capability_ledger()
+    )
+    for row in capability_ledger:
+        if Path(str(row["module_path"])) != repo / str(row["relative_path"]):
             raise ValueError("forensic imported module checkout differs")
     for relative in _FORENSIC_EXECUTION_PATHS:
         worktree_raw = (repo / relative).read_bytes()
