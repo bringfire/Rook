@@ -2,14 +2,31 @@
 
 Date: 2026-07-27
 
+Split-branch amendment: 2026-07-28
+
 Decision: **PASS**. The reviewed atomic lifecycle and solver-ownership build passed standalone Rhino and Rhino.Inside.Revit live acceptance. No rollback was invoked.
+
+## Acceptance layers
+
+This report contains two distinct acceptance layers:
+
+1. The original full standalone/RiR lifecycle matrix ran against implementation commit `1bc62c35c04290ad54614f180a0ed1c8077af58b` on `codex/rir-grasshopper-document-lifecycle`.
+2. PR #508 replayed the accepted Grasshopper production paths onto current `origin/main`, added the Python scheduling-consumer correction, deployed replacement head `63ce9c2c`, and passed a real MCP `gh_update_script` smoke.
+
+The Grasshopper production paths indexed in the [normative design](../specs/2026-07-26-rir-grasshopper-document-lifecycle-design.md#appendix-a-rook2-reimplementation-index) were verified byte-for-byte equal between the original accepted tree (whose report commit was `23122e79`) and replacement head `63ce9c2c`. The replacement therefore relies on the original full host matrix only for those equal Grasshopper paths; the Python boundary has its own live MCP evidence below.
+
+RookBIM was a host/test fixture during the original RiR matrix. Its availability and build provenance helped establish that the Revit-hosted environment was coherent, but PR #508 contains no RookBIM production or test changes and makes no acceptance claim about RookBIM identity, diagnostics, route payloads, or selection/export behavior.
 
 ## Provenance
 
+### Original full RiR matrix
+
 - Branch: `codex/rir-grasshopper-document-lifecycle`
 - Implementation commit: `1bc62c35c04290ad54614f180a0ed1c8077af58b`
+- Report commit: `23122e79cab82a70b80e2deedfaa0771877928c6`
 - RookNative: `1.5.16.0`
-- Rook / RookBIM: `1.5.16.0`; both reported commit `1bc62c35c04290ad54614f180a0ed1c8077af58b`
+- Rook: `1.5.16.0`, commit `1bc62c35c04290ad54614f180a0ed1c8077af58b`
+- RookBIM fixture: `1.5.16.0`, commit `1bc62c35c04290ad54614f180a0ed1c8077af58b`; availability/provenance only, not RookBIM content acceptance
 - Rhino / Grasshopper: `8.33.26188.13001`
 - Revit: file version `24.3.40.26`, product build `20250918_1515(x64)`
 - RevitAPI: `24.3.40.0`
@@ -21,9 +38,39 @@ The committed deploy was performed through `scripts/deploy-local-testing.ps1 -Co
 
 The deploy-contract inventories matched exactly: `net8.0` 14/14 files, `net7.0` 17/17, and `net48` 19/19, with no missing files, stale extras, or hash mismatches. Installed `net48/RookBim.dll` SHA-256 was `3EDC02FCFDD2AF0A2FA4AB79B7B2B12DB4F4A6A75C0D17364C67C3D87D5C5689`. Installed native plug-in SHA-256 was `64C9A45BAABBB27535743153B6B66E00A5AD5223C05086FF855605906E78E792`, matching the reviewed build.
 
+The RookBIM hash above proves only which fixture binary was installed for the original matrix. It does not validate any RookBIM behavior for PR #508.
+
+### PR #508 replacement deployment and MCP smoke
+
+- Branch: `codex/rir-grasshopper-lifecycle-python-contract`
+- Deployed replacement commit: `63ce9c2c`
+- Deployment: `scripts/deploy-local-testing.ps1 -UseRepoVenv`
+- Effective MCP runtime: the branch-local locked environment and `mcp_server/src/rook/server.py` from `63ce9c2c`
+- Host: standalone Rhino/Grasshopper 8.33 on one disposable empty template document
+- MCP path: fresh stdio `ClientSession` → `rook_tools_call(gh_update_script)` → managed `/gh/script` → MCP `/gh/errors` verification
+- Disposable component: created for the smoke, updated once, then deleted; the test host was closed without retaining a user document
+
+The exact accepted/verified result was:
+
+```text
+schedule_classification=async_schedule_requested
+schedule_acceptance=accepted
+schedule_failure_code=null
+solve_scheduled=true
+verification_deferred=true          # managed callback completion unverified
+component_errors=[]
+script_receipt.verification.status=passed
+script_receipt.verification.method=gh_errors
+script_receipt.artifact_status=usable
+```
+
+This proves the corrected cross-boundary behavior: managed completion remains unverified at callback return, but accepted scheduling no longer causes the Python consumer to skip its own error verification or emit solver-unlock instructions.
+
 ## Method
 
-The MCP transport was intentionally stopped before deployment and did not reconnect inside the existing Codex client. Acceptance therefore used the same freshly deployed native HTTP surface directly. Routes exercised were `GET /ping`, `GET /capabilities`, `GET /gh/status`, `POST /gh/snapshot`, `POST /gh/document/new`, `POST /gh/document/open`, `POST /gh/edit`, `GET /gh/errors`, `POST /execute`, and `GET /bim/status`.
+For the original full matrix, the MCP transport was intentionally stopped before deployment and did not reconnect inside the existing Codex client. That matrix therefore used the freshly deployed native HTTP surface directly. Routes exercised were `GET /ping`, `GET /capabilities`, `GET /gh/status`, `POST /gh/snapshot`, `POST /gh/document/new`, `POST /gh/document/open`, `POST /gh/edit`, `GET /gh/errors`, `POST /execute`, and `GET /bim/status`. The `/bim/status` call checked fixture availability/provenance only.
+
+The PR #508 replacement smoke used a fresh branch-local MCP stdio session and invoked the public MCP gateway, not the direct HTTP shortcut. It first bound the discovered Rhino instance, then created a disposable C# component and called `gh_update_script` with `check_errors=true`.
 
 No model path, Grasshopper fixture path, document title, arbitrary exception message, raw object identifier, or component instance name is retained in this report. Documents and fixtures below use bounded aliases.
 
@@ -53,5 +100,7 @@ No model path, Grasshopper fixture path, document title, arbitrary exception mes
 - The initial two filter-input conversion errors were caused by the acceptance harness, not the production route. Removing those two wires produced the final zero-error/zero-warning state.
 - The global-disable path used no Rook retry. Later output was evidence of RiR's own gate restoration.
 - All temporary event handlers and process-local sticky state were removed after observation.
-- Final `/bim/status` reported RookBIM available, diagnostics disabled, and exact core/module commit provenance.
+- Original-matrix `/bim/status` reported the RookBIM fixture available, diagnostics disabled, and exact core/module provenance. No RookBIM route content or identity semantics were accepted by this report.
+- PR #508 retains the existing 300 ms best-effort settle before `/gh/errors`. A solve slower than that window could be observed before completion. This residual risk is documented rather than expanded into a solve-completion protocol in the lifecycle repair.
+- The replacement MCP smoke component was deleted and its disposable Rhino/Grasshopper host was closed.
 - No live rollback was required. The atomic implementation remains the installed candidate.

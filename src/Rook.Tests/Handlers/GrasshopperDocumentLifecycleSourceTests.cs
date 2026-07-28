@@ -144,13 +144,19 @@ namespace Rook.Tests.Handlers
         [Fact]
         public void SupersededSolverRaceSpec_LinksToTheNormativeLifecycleDesign()
         {
-            var source = ReadSource(
-                "docs", "superpowers", "specs",
+            var specsDirectory = Path.Combine(RepoRoot(), "docs", "superpowers", "specs");
+            var historicalPath = Path.Combine(
+                specsDirectory,
                 "2026-06-13-rir-gh-solver-enabled-race-design.md");
+            var source = File.ReadAllText(historicalPath);
+            const string target = "2026-07-26-rir-grasshopper-document-lifecycle-design.md";
 
             Assert.Contains(
-                "[July 26 Grasshopper document lifecycle design](2026-07-26-rir-grasshopper-document-lifecycle-design.md)",
+                $"[July 26 Grasshopper document lifecycle design]({target})",
                 source);
+            Assert.True(
+                File.Exists(Path.Combine(specsDirectory, target)),
+                $"Normative lifecycle design link target does not exist: {target}");
         }
 
         private static string ReadSource(params string[] path) => File.ReadAllText(Path.Combine(RepoRoot(), Path.Combine(path)));
