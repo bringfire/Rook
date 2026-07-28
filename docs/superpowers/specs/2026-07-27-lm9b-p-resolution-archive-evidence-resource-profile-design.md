@@ -835,7 +835,20 @@ record identity, and verifies the six-member checksum ledger independently.
 
 The post-merge report uses a new destination outside both the retained staging
 and the reserved checkpoint destination. The destination is bound to the exact
-repair merge SHA and must not exist before publication.
+repair merge SHA and must not exist before publication. Publication and public
+verification independently require the exact reviewed base and feature-head
+SHAs, then derive this ordered Git topology:
+
+```text
+repair merge SHA
+-> exactly two parents
+-> parent 1 == independently supplied reviewed base SHA
+-> parent 2 == independently supplied reviewed feature-head SHA
+```
+
+The derived topology and its fingerprint enter the forensic instrument. A
+clean feature HEAD can reconstruct the retained candidate read-only, but cannot
+publish or publicly authenticate a report.
 
 Publication is:
 
@@ -858,6 +871,12 @@ destination absent and candidate remains
 every mixed, unverifiable, or ambiguous state
 -> forensic publication indeterminate; no report carrier
 ```
+
+"Candidate is absent" means non-following entry absence: `lexists(candidate)`
+is false. A regular file, directory, symlink, reparse point, or entry appearing
+during verification is mixed state. Candidate reservation is inside this total
+publication state machine, so a reservation race also yields publication
+indeterminate rather than escaping as an exception.
 
 A reported write/rename/verification exception does not defeat a physically
 verified destination. Conversely, unresolved ambiguity never issues a carrier.
@@ -1074,13 +1093,14 @@ test.
 Only after independent review and merge:
 
 1. create a clean detached checkout at the repair merge SHA;
-2. rerun all no-contact public reconstruction checks;
-3. choose a fresh absolute forensic-report root/destination outside staging and
+2. independently supply and verify the exact reviewed base/head parent SHAs;
+3. rerun all no-contact public reconstruction checks;
+4. choose a fresh absolute forensic-report root/destination outside staging and
    the reserved checkpoint destination;
-4. bind that destination and merge SHA into the report identity;
-5. snapshot and reconstruct the exact retained candidate;
-6. publish no-clobber and publicly verify the forensic report;
-7. independently review the report identity and non-claims.
+5. bind that destination, merge SHA, and reviewed topology into the report;
+6. snapshot and reconstruct the exact retained candidate;
+7. publish no-clobber and publicly verify the forensic report;
+8. independently review the report identity and non-claims.
 
 No readiness canary, Planner, evaluator, compiler, Rhino, Grasshopper, or
 mutation contact is part of this operation.

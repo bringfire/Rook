@@ -1053,9 +1053,9 @@ git commit -m "feat: verify retained resolution evidence provenance"
 - Produces:
   - exact-type `VerifiedResolutionForensicReport`
   - control-only `ForensicReportPublicationResult`
-  - `write_resolution_forensic_report(*, destination: Path, source: object, reconstruction: ResolutionForensicReconstruction, repo_root: Path, forensic_commit_sha: str) -> ForensicReportPublicationResult`
-  - `verify_resolution_forensic_report(archive_dir: Path, *, expected_identity: str, expected_historical_preflight_fingerprint: str) -> VerifiedResolutionForensicReport`
-  - `reconcile_resolution_forensic_publication(*, candidate_dir: Path, destination: Path, expected_identity: str, expected_historical_preflight_fingerprint: str) -> ForensicReportPublicationResult`
+  - `write_resolution_forensic_report(*, destination: Path, source: object, reconstruction: ResolutionForensicReconstruction, repo_root: Path, forensic_commit_sha: str, expected_reviewed_base_sha: str, expected_reviewed_head_sha: str) -> ForensicReportPublicationResult`
+  - `verify_resolution_forensic_report(archive_dir: Path, *, expected_identity: str, expected_historical_preflight_fingerprint: str, expected_reviewed_base_sha: str, expected_reviewed_head_sha: str) -> VerifiedResolutionForensicReport`
+  - `reconcile_resolution_forensic_publication(*, candidate_dir: Path, destination: Path, expected_identity: str, expected_historical_preflight_fingerprint: str, expected_reviewed_base_sha: str, expected_reviewed_head_sha: str) -> ForensicReportPublicationResult`
 
 Use this exact official report carrier:
 
@@ -1084,6 +1084,8 @@ published = FORENSICS.write_resolution_forensic_report(
     reconstruction=reconstruction,
     repo_root=REPO_ROOT,
     forensic_commit_sha=_head(),
+    expected_reviewed_base_sha=reviewed_base_sha,
+    expected_reviewed_head_sha=reviewed_head_sha,
 )
 assert published.state == "published"
 assert published.report is not None
@@ -1093,6 +1095,8 @@ verified = FORENSICS.verify_resolution_forensic_report(
     expected_historical_preflight_fingerprint=(
         FORENSICS.OBSERVED_PREFLIGHT_FINGERPRINT
     ),
+    expected_reviewed_base_sha=reviewed_base_sha,
+    expected_reviewed_head_sha=reviewed_head_sha,
 )
 assert verified.reconstructed_classification == (
     "probe_resolution_isolation_failure"
@@ -1305,14 +1309,18 @@ verify-candidate
 publish-report
   all verify-candidate arguments
   --destination
+  --expected-reviewed-base-sha
+  --expected-reviewed-head-sha
 
 verify-report
   --archive-dir
   --expected-identity
   --expected-preflight-fingerprint
+  --expected-reviewed-base-sha
+  --expected-reviewed-head-sha
 ```
 
-There is no profile path, numeric limit, model, provider, readiness, retry, checkpoint destination, ready-proof, or compiler argument. `verify-candidate` prints one canonical JSON summary and writes nothing. `publish-report` requires `HEAD == forensic_commit_sha`, a clean checkout, exact source snapshot, absent destination/candidate, and independently reconstructed `probe_resolution_isolation_failure` before writing. `verify-report` reopens both report and pinned source evidence.
+There is no profile path, numeric limit, model, provider, readiness, retry, checkpoint destination, ready-proof, or compiler argument. `verify-candidate` prints one canonical JSON summary and writes nothing. `publish-report` requires `HEAD == forensic_commit_sha`, a clean checkout, the exact ordered two-parent merge of the independently supplied reviewed base/head SHAs, exact source snapshot, non-following absence of destination/candidate, and independently reconstructed `probe_resolution_isolation_failure` before writing. `verify-report` independently rederives the same merge topology and reopens both report and pinned source evidence.
 
 - [x] **Step 2: Write CLI structural and zero-contact tests**
 
@@ -1463,13 +1471,22 @@ Request independent PR review. Do not publish the forensic report from feature H
 
 ```powershell
 git fetch origin
-$repairMergeSha = gh pr view --json mergeCommit --jq '.mergeCommit.oid'
+$reviewedPr = gh pr view 510 --json baseRefOid,headRefOid,mergeCommit | ConvertFrom-Json
+$repairMergeSha = $reviewedPr.mergeCommit.oid
+$reviewedBaseSha = $reviewedPr.baseRefOid
+$reviewedHeadSha = $reviewedPr.headRefOid
 if (-not $repairMergeSha) {
     throw "merged PR did not provide a merge commit identity"
 }
 $reviewRoot = "C:/UDEV/Rook/.worktrees/lm9b-p-resolution-archive-evidence-post-merge-$($repairMergeSha.Substring(0,12))"
 git worktree add --detach $reviewRoot $repairMergeSha
 git -C $reviewRoot status --short
+$observedParents = (git -C $reviewRoot rev-list --parents -n 1 $repairMergeSha) -split ' '
+if ($observedParents.Count -ne 3 -or
+    $observedParents[1] -ne $reviewedBaseSha -or
+    $observedParents[2] -ne $reviewedHeadSha) {
+    throw "repair merge does not have the exact reviewed base/head parents"
+}
 ```
 
 Require empty status and independently verify that the merge parents match the reviewed base/head.
@@ -1508,6 +1525,8 @@ $publishResult = & C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe `
   --expected-marker-sha256 sha256:c307db9cf7220df203086c2ce348cdad4bf2def1029653d2125ba6341632a501 `
   --expected-candidate-checksums-sha256 sha256:ee01977cce93887f48cc6a2f13cc33a8e24d00a38ab002f59519c67b03a97999 `
   --forensic-commit-sha $repairMergeSha `
+  --expected-reviewed-base-sha $reviewedBaseSha `
+  --expected-reviewed-head-sha $reviewedHeadSha `
   --destination $reportDestination | ConvertFrom-Json
 if ($publishResult.state -ne 'published') {
     throw "forensic publication did not complete: $($publishResult.state)"
@@ -1526,7 +1545,9 @@ Use the exact printed report identity:
   "$reviewRoot/scripts/lm9b_p_governed_resolution_forensics.py" verify-report `
   --archive-dir $reportDestination `
   --expected-identity $reportIdentity `
-  --expected-preflight-fingerprint sha256:897337de3d20e126a143576de707ec3b1377033eab49465ac38d793afd97a856
+  --expected-preflight-fingerprint sha256:897337de3d20e126a143576de707ec3b1377033eab49465ac38d793afd97a856 `
+  --expected-reviewed-base-sha $reviewedBaseSha `
+  --expected-reviewed-head-sha $reviewedHeadSha
 ```
 
 Independent review must confirm the seven-member closure, five-member content fingerprint, six-member checksum ledger, merge-SHA binding, original `post_dispatch_unsealed` state, reconstructed `probe_resolution_isolation_failure`, absent official checkpoint/ready proof/compiler eligibility, and unchanged source snapshots.

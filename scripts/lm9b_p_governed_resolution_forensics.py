@@ -2046,6 +2046,104 @@ def _verify_executing_checkout(repo: Path, commit: str) -> None:
             raise ValueError(f"forensic executing bytes differ: {relative}")
 
 
+_FORENSIC_MERGE_TOPOLOGY_SCHEMA_ID = (
+    "rook.lm9b_p.governed_resolution_forensic_reviewed_merge_topology:v1"
+)
+
+
+def _require_full_commit_sha(value: object, label: str) -> str:
+    if (
+        type(value) is not str
+        or len(value) != 40
+        or value != value.lower()
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} is not a full lowercase Git commit SHA")
+    return value
+
+
+def _derive_forensic_merge_topology(
+    *,
+    repo_root: Path,
+    forensic_merge_sha: str,
+    expected_reviewed_base_sha: str,
+    expected_reviewed_head_sha: str,
+) -> dict[str, object]:
+    """Derive the exact reviewed two-parent merge topology from Git objects."""
+
+    repo = Path(repo_root).resolve()
+    merge_sha = _require_full_commit_sha(
+        forensic_merge_sha, "forensic merge SHA"
+    )
+    base_sha = _require_full_commit_sha(
+        expected_reviewed_base_sha, "reviewed base SHA"
+    )
+    head_sha = _require_full_commit_sha(
+        expected_reviewed_head_sha, "reviewed head SHA"
+    )
+    row = subprocess.run(
+        ["git", "rev-list", "--parents", "-n", "1", merge_sha],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip().split()
+    if row != [merge_sha, base_sha, head_sha]:
+        raise ValueError("forensic publication requires the exact reviewed two-parent merge")
+    value: dict[str, object] = {
+        "schema": _FORENSIC_MERGE_TOPOLOGY_SCHEMA_ID,
+        "forensic_merge_sha": merge_sha,
+        "reviewed_parent_order": ["base", "head"],
+        "reviewed_base_sha": base_sha,
+        "reviewed_head_sha": head_sha,
+    }
+    value["topology_fingerprint"] = PLANNER_SUPPORT.fingerprint(value)
+    return value
+
+
+def _verify_forensic_publication_topology(
+    *,
+    repo_root: Path,
+    forensic_merge_sha: str,
+    expected_reviewed_base_sha: str,
+    expected_reviewed_head_sha: str,
+) -> dict[str, object]:
+    """Bind publication to the clean checkout executing the reviewed merge."""
+
+    repo = Path(repo_root).resolve()
+    topology = _derive_forensic_merge_topology(
+        repo_root=repo,
+        forensic_merge_sha=forensic_merge_sha,
+        expected_reviewed_base_sha=expected_reviewed_base_sha,
+        expected_reviewed_head_sha=expected_reviewed_head_sha,
+    )
+    _verify_executing_checkout(repo, forensic_merge_sha)
+    return topology
+
+
+def _validate_forensic_merge_topology(
+    value: Mapping[str, object],
+) -> dict[str, object]:
+    topology = copy.deepcopy(dict(value))
+    if set(topology) != {
+        "schema",
+        "forensic_merge_sha",
+        "reviewed_parent_order",
+        "reviewed_base_sha",
+        "reviewed_head_sha",
+        "topology_fingerprint",
+    } or topology.get("schema") != _FORENSIC_MERGE_TOPOLOGY_SCHEMA_ID:
+        raise ValueError("forensic reviewed merge topology contract differs")
+    fingerprint = topology.pop("topology_fingerprint")
+    if (
+        topology.get("reviewed_parent_order") != ["base", "head"]
+        or fingerprint != PLANNER_SUPPORT.fingerprint(topology)
+    ):
+        raise ValueError("forensic reviewed merge topology identity differs")
+    topology["topology_fingerprint"] = fingerprint
+    return topology
+
+
 def _causalize_authored_call_row(
     row: Mapping[str, object],
 ) -> tuple[dict[str, object], dict[str, object]]:
@@ -2767,6 +2865,7 @@ def _forensic_instrument_record(
     capability: _ForensicSourceCapabilitySnapshot,
     repo: Path,
     forensic_commit_sha: str,
+    publication_topology: Mapping[str, object],
 ) -> dict[str, object]:
     if _current_commit(repo) != forensic_commit_sha:
         raise ValueError("forensic report commit differs")
@@ -2799,6 +2898,9 @@ def _forensic_instrument_record(
     value: dict[str, object] = {
         "schema": "rook.lm9b_p.governed_resolution_forensic_instrument:v1",
         "forensic_commit_sha": forensic_commit_sha,
+        "reviewed_merge_topology": _validate_forensic_merge_topology(
+            publication_topology
+        ),
         "archive_resource_profile": profile_value,
         "archive_resource_profile_raw_sha256": _sha256(profile_raw),
         "archive_resource_binding": profile_binding,
@@ -2924,6 +3026,7 @@ def _derive_resolution_forensic_report_substantive_members(
     repo: Path,
     forensic_commit_sha: str,
     require_executing_checkout: bool,
+    publication_topology: Mapping[str, object],
 ) -> dict[str, bytes]:
     derived = _reconstruct_resolution_forensic_candidate_unsealed(
         capability=capability,
@@ -2941,6 +3044,7 @@ def _derive_resolution_forensic_report_substantive_members(
             capability=capability,
             repo=repo,
             forensic_commit_sha=forensic_commit_sha,
+            publication_topology=publication_topology,
         ),
         "source-snapshot.json": _forensic_source_snapshot_record(capability),
         "reconstruction.json": _forensic_reconstruction_record(derived),
@@ -3014,9 +3118,12 @@ def _verify_resolution_forensic_report_archive_unsealed(
     *,
     expected_identity: str,
     expected_historical_preflight_fingerprint: str,
+    expected_reviewed_base_sha: str,
+    expected_reviewed_head_sha: str,
     require_location_binding: bool,
     official_destination: Path | None = None,
     require_executing_checkout: bool,
+    publication_topology: Mapping[str, object] | None = None,
 ) -> _VerifiedForensicReportSnapshot:
     archive, members, _physical_identity = _flat_snapshot(
         archive_dir,
@@ -3083,10 +3190,28 @@ def _verify_resolution_forensic_report_archive_unsealed(
     ):
         raise ValueError("forensic observed instrument root differs")
     forensic_commit_sha = str(record["forensic_merge_sha"])
-    if require_executing_checkout:
-        _verify_executing_checkout(_REPO_ROOT, forensic_commit_sha)
-    elif _current_commit(_REPO_ROOT) != forensic_commit_sha:
-        raise ValueError("forensic report commit differs")
+    if publication_topology is not None:
+        topology = _validate_forensic_merge_topology(publication_topology)
+        if (
+            topology.get("forensic_merge_sha") != forensic_commit_sha
+            or topology.get("reviewed_base_sha") != expected_reviewed_base_sha
+            or topology.get("reviewed_head_sha") != expected_reviewed_head_sha
+        ):
+            raise ValueError("forensic reviewed merge topology differs")
+    elif require_executing_checkout:
+        topology = _verify_forensic_publication_topology(
+            repo_root=_REPO_ROOT,
+            forensic_merge_sha=forensic_commit_sha,
+            expected_reviewed_base_sha=expected_reviewed_base_sha,
+            expected_reviewed_head_sha=expected_reviewed_head_sha,
+        )
+    else:
+        topology = _derive_forensic_merge_topology(
+            repo_root=_REPO_ROOT,
+            forensic_merge_sha=forensic_commit_sha,
+            expected_reviewed_base_sha=expected_reviewed_base_sha,
+            expected_reviewed_head_sha=expected_reviewed_head_sha,
+        )
     historical = verify_historical_resolution_preflight_forensics(
         repo_root=_REPO_ROOT,
         preflight_archive=OBSERVED_PREFLIGHT_ARCHIVE,
@@ -3111,6 +3236,7 @@ def _verify_resolution_forensic_report_archive_unsealed(
         repo=_REPO_ROOT,
         forensic_commit_sha=forensic_commit_sha,
         require_executing_checkout=False,
+        publication_topology=topology,
     )
     if any(members[path] != raw for path, raw in expected_substantive.items()):
         raise ValueError("forensic report substantive derivation differs")
@@ -3171,6 +3297,8 @@ def _build_forensic_report_verifier_capabilities():
         *,
         expected_identity: str,
         expected_historical_preflight_fingerprint: str,
+        expected_reviewed_base_sha: str,
+        expected_reviewed_head_sha: str,
     ) -> VerifiedResolutionForensicReport:
         snapshot = _verify_resolution_forensic_report_archive_unsealed(
             archive_dir,
@@ -3178,6 +3306,8 @@ def _build_forensic_report_verifier_capabilities():
             expected_historical_preflight_fingerprint=(
                 expected_historical_preflight_fingerprint
             ),
+            expected_reviewed_base_sha=expected_reviewed_base_sha,
+            expected_reviewed_head_sha=expected_reviewed_head_sha,
             require_location_binding=True,
             require_executing_checkout=True,
         )
@@ -3225,7 +3355,10 @@ def _verify_resolution_forensic_report_candidate(
     *,
     expected_identity: str,
     expected_historical_preflight_fingerprint: str,
+    expected_reviewed_base_sha: str,
+    expected_reviewed_head_sha: str,
     official_destination: Path,
+    publication_topology: Mapping[str, object],
 ) -> _VerifiedForensicReportSnapshot:
     """Verify unpublished bytes without issuing the official report carrier."""
 
@@ -3235,9 +3368,12 @@ def _verify_resolution_forensic_report_candidate(
         expected_historical_preflight_fingerprint=(
             expected_historical_preflight_fingerprint
         ),
+        expected_reviewed_base_sha=expected_reviewed_base_sha,
+        expected_reviewed_head_sha=expected_reviewed_head_sha,
         require_location_binding=False,
         official_destination=official_destination,
         require_executing_checkout=False,
+        publication_topology=publication_topology,
     )
 
 
@@ -3260,18 +3396,45 @@ def _atomic_publish_forensic_candidate(candidate: Path, destination: Path) -> No
     candidate.rename(destination)
 
 
+def _published_forensic_result_if_physically_closed(
+    *,
+    report: VerifiedResolutionForensicReport,
+    candidate: Path,
+    destination: Path,
+) -> ForensicReportPublicationResult:
+    if os.path.lexists(candidate) or not _physical_directory_present(destination):
+        return ForensicReportPublicationResult(
+            state="publication_indeterminate",
+            report=None,
+            candidate_path=candidate,
+            destination_path=destination,
+            failure_locus="physical_state_ambiguous",
+        )
+    return ForensicReportPublicationResult(
+        state="published",
+        report=report,
+        candidate_path=candidate,
+        destination_path=destination,
+        failure_locus=None,
+    )
+
+
 def reconcile_resolution_forensic_publication(
     *,
     candidate_dir: Path,
     destination: Path,
     expected_identity: str,
     expected_historical_preflight_fingerprint: str,
+    expected_reviewed_base_sha: str,
+    expected_reviewed_head_sha: str,
 ) -> ForensicReportPublicationResult:
     candidate = Path(candidate_dir)
     final = Path(destination)
-    candidate_present = _physical_directory_present(candidate)
+    candidate_entry_present = os.path.lexists(candidate)
+    candidate_directory_present = _physical_directory_present(candidate)
+    destination_entry_present = os.path.lexists(final)
     destination_present = _physical_directory_present(final)
-    if destination_present and not candidate_present:
+    if destination_present and not candidate_entry_present:
         try:
             report = verify_resolution_forensic_report(
                 final,
@@ -3279,6 +3442,8 @@ def reconcile_resolution_forensic_publication(
                 expected_historical_preflight_fingerprint=(
                     expected_historical_preflight_fingerprint
                 ),
+                expected_reviewed_base_sha=expected_reviewed_base_sha,
+                expected_reviewed_head_sha=expected_reviewed_head_sha,
             )
         except Exception:
             return ForensicReportPublicationResult(
@@ -3288,14 +3453,12 @@ def reconcile_resolution_forensic_publication(
                 destination_path=final,
                 failure_locus="destination_verification",
             )
-        return ForensicReportPublicationResult(
-            state="published",
+        return _published_forensic_result_if_physically_closed(
             report=report,
-            candidate_path=candidate,
-            destination_path=final,
-            failure_locus=None,
+            candidate=candidate,
+            destination=final,
         )
-    if not os.path.lexists(final) and candidate_present:
+    if not destination_entry_present and candidate_directory_present:
         return ForensicReportPublicationResult(
             state="unpublished",
             report=None,
@@ -3319,6 +3482,8 @@ def write_resolution_forensic_report(
     reconstruction: ResolutionForensicReconstruction,
     repo_root: Path,
     forensic_commit_sha: str,
+    expected_reviewed_base_sha: str,
+    expected_reviewed_head_sha: str,
 ) -> ForensicReportPublicationResult:
     if type(reconstruction) is not ResolutionForensicReconstruction:
         raise TypeError("resolution forensic reconstruction is required")
@@ -3326,7 +3491,12 @@ def write_resolution_forensic_report(
     if capability.source.staging_path != OBSERVED_STAGING.resolve():
         raise ValueError("forensic report requires the official retained staging")
     repo = Path(repo_root).resolve()
-    _verify_executing_checkout(repo, forensic_commit_sha)
+    publication_topology = _verify_forensic_publication_topology(
+        repo_root=repo,
+        forensic_merge_sha=forensic_commit_sha,
+        expected_reviewed_base_sha=expected_reviewed_base_sha,
+        expected_reviewed_head_sha=expected_reviewed_head_sha,
+    )
     final, candidate = _canonical_forensic_report_destination(destination)
     substantive = _derive_resolution_forensic_report_substantive_members(
         capability=capability,
@@ -3334,14 +3504,17 @@ def write_resolution_forensic_report(
         repo=repo,
         forensic_commit_sha=forensic_commit_sha,
         require_executing_checkout=False,
+        publication_topology=publication_topology,
     )
     members, report_identity = _complete_resolution_forensic_report_members(
         destination=final,
         forensic_commit_sha=forensic_commit_sha,
         substantive_members=substantive,
     )
-    candidate.mkdir(exist_ok=False)
+    candidate_reserved = False
     try:
+        candidate.mkdir(exist_ok=False)
+        candidate_reserved = True
         parent_info = os.lstat(final.parent)
         candidate_info = os.lstat(candidate)
         if getattr(parent_info, "st_dev", None) != getattr(
@@ -3359,7 +3532,10 @@ def write_resolution_forensic_report(
             expected_historical_preflight_fingerprint=(
                 OBSERVED_PREFLIGHT_FINGERPRINT
             ),
+            expected_reviewed_base_sha=expected_reviewed_base_sha,
+            expected_reviewed_head_sha=expected_reviewed_head_sha,
             official_destination=final,
+            publication_topology=publication_topology,
         )
         _atomic_publish_forensic_candidate(candidate, final)
         report = verify_resolution_forensic_report(
@@ -3368,15 +3544,23 @@ def write_resolution_forensic_report(
             expected_historical_preflight_fingerprint=(
                 OBSERVED_PREFLIGHT_FINGERPRINT
             ),
+            expected_reviewed_base_sha=expected_reviewed_base_sha,
+            expected_reviewed_head_sha=expected_reviewed_head_sha,
         )
-        return ForensicReportPublicationResult(
-            state="published",
+        return _published_forensic_result_if_physically_closed(
             report=report,
-            candidate_path=candidate,
-            destination_path=final,
-            failure_locus=None,
+            candidate=candidate,
+            destination=final,
         )
     except Exception:
+        if not candidate_reserved:
+            return ForensicReportPublicationResult(
+                state="publication_indeterminate",
+                report=None,
+                candidate_path=candidate,
+                destination_path=final,
+                failure_locus="candidate_reservation",
+            )
         return reconcile_resolution_forensic_publication(
             candidate_dir=candidate,
             destination=final,
@@ -3384,6 +3568,8 @@ def write_resolution_forensic_report(
             expected_historical_preflight_fingerprint=(
                 OBSERVED_PREFLIGHT_FINGERPRINT
             ),
+            expected_reviewed_base_sha=expected_reviewed_base_sha,
+            expected_reviewed_head_sha=expected_reviewed_head_sha,
         )
 
 
@@ -3407,10 +3593,14 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     publish_report = commands.add_parser("publish-report")
     _add_forensic_source_arguments(publish_report)
     publish_report.add_argument("--destination", type=Path, required=True)
+    publish_report.add_argument("--expected-reviewed-base-sha", required=True)
+    publish_report.add_argument("--expected-reviewed-head-sha", required=True)
     verify_report = commands.add_parser("verify-report")
     verify_report.add_argument("--archive-dir", type=Path, required=True)
     verify_report.add_argument("--expected-identity", required=True)
     verify_report.add_argument("--expected-preflight-fingerprint", required=True)
+    verify_report.add_argument("--expected-reviewed-base-sha", required=True)
+    verify_report.add_argument("--expected-reviewed-head-sha", required=True)
     return parser
 
 
@@ -3477,6 +3667,8 @@ def main(argv: list[str] | None = None) -> int:
             reconstruction=reconstruction,
             repo_root=args.repo_root,
             forensic_commit_sha=args.forensic_commit_sha,
+            expected_reviewed_base_sha=args.expected_reviewed_base_sha,
+            expected_reviewed_head_sha=args.expected_reviewed_head_sha,
         )
         report = result.report
         _print_canonical(
@@ -3500,6 +3692,8 @@ def main(argv: list[str] | None = None) -> int:
             expected_historical_preflight_fingerprint=(
                 args.expected_preflight_fingerprint
             ),
+            expected_reviewed_base_sha=args.expected_reviewed_base_sha,
+            expected_reviewed_head_sha=args.expected_reviewed_head_sha,
         )
         _print_canonical(
             {

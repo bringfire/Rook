@@ -20,6 +20,27 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 FORENSICS_PATH = SCRIPTS / "lm9b_p_governed_resolution_forensics.py"
+TASK5_REVIEWED_BASE_SHA = "a" * 40
+TASK5_REVIEWED_HEAD_SHA = "b" * 40
+
+
+def _task5_topology(module, merge_sha: str) -> dict[str, object]:
+    value: dict[str, object] = {
+        "schema": module._FORENSIC_MERGE_TOPOLOGY_SCHEMA_ID,
+        "forensic_merge_sha": merge_sha,
+        "reviewed_parent_order": ["base", "head"],
+        "reviewed_base_sha": TASK5_REVIEWED_BASE_SHA,
+        "reviewed_head_sha": TASK5_REVIEWED_HEAD_SHA,
+    }
+    value["topology_fingerprint"] = module.PLANNER_SUPPORT.fingerprint(value)
+    return value
+
+
+def _task5_reviewed_topology_kwargs() -> dict[str, str]:
+    return {
+        "expected_reviewed_base_sha": TASK5_REVIEWED_BASE_SHA,
+        "expected_reviewed_head_sha": TASK5_REVIEWED_HEAD_SHA,
+    }
 
 
 def _load_forensics():
@@ -1044,6 +1065,20 @@ def task5_published_report(tmp_path_factory: pytest.TempPathFactory):
         ),
     )
     forensic_commit_sha = module._current_commit(ROOT)
+    topology = _task5_topology(module, forensic_commit_sha)
+
+    def verify_test_topology(**kwargs):
+        if (
+            kwargs.get("forensic_merge_sha") != forensic_commit_sha
+            or kwargs.get("expected_reviewed_base_sha")
+            != TASK5_REVIEWED_BASE_SHA
+            or kwargs.get("expected_reviewed_head_sha")
+            != TASK5_REVIEWED_HEAD_SHA
+        ):
+            raise ValueError("forensic publication requires the exact reviewed two-parent merge")
+        return topology
+
+    module._verify_forensic_publication_topology = verify_test_topology
     reconstruction = module._reconstruct_resolution_forensic_candidate_unsealed(
         capability=module._consume_forensic_source(source),
         repo_root=ROOT,
@@ -1059,6 +1094,8 @@ def task5_published_report(tmp_path_factory: pytest.TempPathFactory):
         reconstruction=reconstruction,
         repo_root=ROOT,
         forensic_commit_sha=forensic_commit_sha,
+        expected_reviewed_base_sha=TASK5_REVIEWED_BASE_SHA,
+        expected_reviewed_head_sha=TASK5_REVIEWED_HEAD_SHA,
     )
     return SimpleNamespace(
         module=module,
@@ -1066,6 +1103,9 @@ def task5_published_report(tmp_path_factory: pytest.TempPathFactory):
         reconstruction=reconstruction,
         destination=destination,
         published=published,
+        reviewed_base_sha=TASK5_REVIEWED_BASE_SHA,
+        reviewed_head_sha=TASK5_REVIEWED_HEAD_SHA,
+        topology=topology,
     )
 
 
@@ -1135,6 +1175,7 @@ def test_task5_publishes_and_publicly_verifies_a_separate_forensic_report(
         expected_historical_preflight_fingerprint=(
             module.OBSERVED_PREFLIGHT_FINGERPRINT
         ),
+        **_task5_reviewed_topology_kwargs(),
     )
     assert verified.reconstructed_classification == (
         "probe_resolution_isolation_failure"
@@ -1157,6 +1198,7 @@ def test_task5_report_identity_graph_is_closed_and_non_circular(
     assert set(members) == set(module._FORENSIC_REPORT_MEMBERS)
     record = json.loads(members["record.json"])
     checksums = json.loads(members["checksums.json"])
+    forensic_instrument = json.loads(members["forensic-instrument.json"])
     content_rows = [
         {"path": path, "raw_sha256": module._sha256(members[path])}
         for path in module._FORENSIC_REPORT_SUBSTANTIVE_PATHS
@@ -1174,13 +1216,32 @@ def test_task5_report_identity_graph_is_closed_and_non_circular(
     assert {row["path"] for row in content_rows} == set(
         module._FORENSIC_REPORT_SUBSTANTIVE_PATHS
     )
+    assert forensic_instrument["reviewed_merge_topology"] == fixture.topology
+
+
+def test_task5_public_verifier_requires_the_independent_reviewed_parents(
+    task5_published_report: SimpleNamespace,
+) -> None:
+    """A report-authored merge identity cannot choose its own reviewed parents."""
+
+    fixture = task5_published_report
+    with pytest.raises(ValueError, match="exact reviewed two-parent merge"):
+        fixture.module.verify_resolution_forensic_report(
+            fixture.destination,
+            expected_identity=fixture.published.report.report_identity,
+            expected_historical_preflight_fingerprint=(
+                fixture.module.OBSERVED_PREFLIGHT_FINGERPRINT
+            ),
+            expected_reviewed_base_sha="c" * 40,
+            expected_reviewed_head_sha=TASK5_REVIEWED_HEAD_SHA,
+        )
 
 
 @pytest.mark.parametrize(
     ("mutation", "match"),
     [
         ("destination", "physical destination differs"),
-        ("merge_sha", "forensic reconstruction commit differs"),
+        ("merge_sha", "exact reviewed two-parent merge"),
         ("identity", "report identity differs"),
     ],
 )
@@ -1236,6 +1297,7 @@ def test_task5_record_bindings_cannot_be_self_reauthorized(
             expected_historical_preflight_fingerprint=(
                 module.OBSERVED_PREFLIGHT_FINGERPRINT
             ),
+            **_task5_reviewed_topology_kwargs(),
         )
 
 
@@ -1250,6 +1312,12 @@ def test_task5_record_bindings_cannot_be_self_reauthorized(
             "forensic-instrument.json",
             lambda value: value["report_contracts"].__setitem__(
                 "publication_equation_id", "substituted:v1"
+            ),
+        ),
+        (
+            "forensic-instrument.json",
+            lambda value: value["reviewed_merge_topology"].__setitem__(
+                "reviewed_head_sha", "c" * 40
             ),
         ),
         (
@@ -1297,6 +1365,7 @@ def test_task5_fully_reclosed_substantive_claims_must_match_root_evidence(
             expected_historical_preflight_fingerprint=(
                 module.OBSERVED_PREFLIGHT_FINGERPRINT
             ),
+            **_task5_reviewed_topology_kwargs(),
         )
 
 
@@ -1335,6 +1404,7 @@ def test_task5_report_refuses_a_relocated_forensic_source(
             reconstruction=reconstruction,
             repo_root=ROOT,
             forensic_commit_sha=forensic_commit_sha,
+            **_task5_reviewed_topology_kwargs(),
         )
     assert not any(report_root.iterdir())
 
@@ -1390,6 +1460,7 @@ def test_task5_checksum_closure_is_exact(
             expected_historical_preflight_fingerprint=(
                 module.OBSERVED_PREFLIGHT_FINGERPRINT
             ),
+            **_task5_reviewed_topology_kwargs(),
         )
 
 
@@ -1409,6 +1480,7 @@ def test_task5_report_is_bound_to_its_physical_destination(
             expected_historical_preflight_fingerprint=(
                 fixture.module.OBSERVED_PREFLIGHT_FINGERPRINT
             ),
+            **_task5_reviewed_topology_kwargs(),
         )
 
 
@@ -1435,6 +1507,7 @@ def test_task5_public_verification_reopens_the_physical_source(
             expected_historical_preflight_fingerprint=(
                 fixture.module.OBSERVED_PREFLIGHT_FINGERPRINT
             ),
+            **_task5_reviewed_topology_kwargs(),
         )
 
 
@@ -1451,6 +1524,7 @@ def test_task5_report_carrier_is_closure_issued_and_snapshot_closed(
         expected_historical_preflight_fingerprint=(
             module.OBSERVED_PREFLIGHT_FINGERPRINT
         ),
+        **_task5_reviewed_topology_kwargs(),
     )
     forged = object.__new__(module.VerifiedResolutionForensicReport)
     for name in (
@@ -1485,7 +1559,9 @@ def test_task5_candidate_verification_cannot_issue_an_official_report_carrier(
         expected_historical_preflight_fingerprint=(
             module.OBSERVED_PREFLIGHT_FINGERPRINT
         ),
+        **_task5_reviewed_topology_kwargs(),
         official_destination=fixture.destination,
+        publication_topology=fixture.topology,
     )
     assert type(candidate_result) is module._VerifiedForensicReportSnapshot
     assert not isinstance(candidate_result, module.VerifiedResolutionForensicReport)
@@ -1520,6 +1596,7 @@ def test_task5_reconciliation_is_total_for_destination_verification_failures(
         expected_historical_preflight_fingerprint=(
             module.OBSERVED_PREFLIGHT_FINGERPRINT
         ),
+        **_task5_reviewed_topology_kwargs(),
     )
     assert result.state == "publication_indeterminate"
     assert result.report is None
@@ -1565,9 +1642,77 @@ def test_task5_reconciliation_derives_the_closed_physical_state_table(
         expected_historical_preflight_fingerprint=(
             module.OBSERVED_PREFLIGHT_FINGERPRINT
         ),
+        **_task5_reviewed_topology_kwargs(),
     )
     assert result.state == expected_state
     assert (result.report is not None) is (expected_state == "published")
+
+
+@pytest.mark.parametrize("candidate_kind", ["file", "reparse"])
+def test_task5_mixed_candidate_entry_can_never_issue_a_report(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    candidate_kind: str,
+) -> None:
+    """Any non-following candidate entry makes a verified destination ambiguous."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    candidate = tmp_path / ".destination.candidate"
+    if candidate_kind == "file":
+        candidate.write_bytes(b"external")
+    else:
+        candidate.symlink_to(destination, target_is_directory=True)
+    monkeypatch.setattr(
+        module,
+        "verify_resolution_forensic_report",
+        lambda *_args, **_kwargs: fixture.published.report,
+    )
+    result = module.reconcile_resolution_forensic_publication(
+        candidate_dir=candidate,
+        destination=destination,
+        expected_identity=fixture.published.report.report_identity,
+        expected_historical_preflight_fingerprint=(
+            module.OBSERVED_PREFLIGHT_FINGERPRINT
+        ),
+        **_task5_reviewed_topology_kwargs(),
+    )
+    assert result.state == "publication_indeterminate"
+    assert result.report is None
+
+
+def test_task5_candidate_race_during_public_verification_prevents_issuance(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Candidate absence is re-observed after verification, before carrier return."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    candidate = tmp_path / ".destination.candidate"
+
+    def race(*_args, **_kwargs):
+        candidate.write_bytes(b"raced")
+        return fixture.published.report
+
+    monkeypatch.setattr(module, "verify_resolution_forensic_report", race)
+    result = module.reconcile_resolution_forensic_publication(
+        candidate_dir=candidate,
+        destination=destination,
+        expected_identity=fixture.published.report.report_identity,
+        expected_historical_preflight_fingerprint=(
+            module.OBSERVED_PREFLIGHT_FINGERPRINT
+        ),
+        **_task5_reviewed_topology_kwargs(),
+    )
+    assert result.state == "publication_indeterminate"
+    assert result.report is None
 
 
 def _prepare_fast_task5_publication(
@@ -1620,6 +1765,7 @@ def test_task5_reported_rename_exception_discovers_the_published_report(
         reconstruction=fixture.reconstruction,
         repo_root=ROOT,
         forensic_commit_sha=module._current_commit(ROOT),
+        **_task5_reviewed_topology_kwargs(),
     )
     assert result.state == "published"
     assert destination.is_dir()
@@ -1654,6 +1800,7 @@ def test_task5_transient_post_rename_verification_is_reconciled(
         reconstruction=fixture.reconstruction,
         repo_root=ROOT,
         forensic_commit_sha=module._current_commit(ROOT),
+        **_task5_reviewed_topology_kwargs(),
     )
     assert result.state == "published"
     assert calls == 2
@@ -1690,6 +1837,7 @@ def test_task5_destination_race_remains_indeterminate_and_unmodified(
         reconstruction=fixture.reconstruction,
         repo_root=ROOT,
         forensic_commit_sha=module._current_commit(ROOT),
+        **_task5_reviewed_topology_kwargs(),
     )
     assert result.state == "publication_indeterminate"
     assert result.report is None
@@ -1720,11 +1868,134 @@ def test_task5_candidate_verification_failure_retains_unpublished_evidence(
         reconstruction=fixture.reconstruction,
         repo_root=ROOT,
         forensic_commit_sha=module._current_commit(ROOT),
+        **_task5_reviewed_topology_kwargs(),
     )
     assert result.state == "unpublished"
     assert result.report is None
     assert not destination.exists()
     assert result.candidate_path.is_dir()
+
+
+def test_task5_candidate_reservation_race_returns_typed_indeterminate_state(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An entry appearing immediately before mkdir cannot escape reconciliation."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    _prepare_fast_task5_publication(fixture, monkeypatch)
+    destination = tmp_path / "reports" / "reservation-race"
+    destination.parent.mkdir()
+    real_canonical = module._canonical_forensic_report_destination
+
+    def reserve_race(value: Path):
+        final, candidate = real_canonical(value)
+        candidate.write_bytes(b"external")
+        return final, candidate
+
+    monkeypatch.setattr(
+        module,
+        "_canonical_forensic_report_destination",
+        reserve_race,
+    )
+    result = module.write_resolution_forensic_report(
+        destination=destination,
+        source=fixture.source,
+        reconstruction=fixture.reconstruction,
+        repo_root=ROOT,
+        forensic_commit_sha=module._current_commit(ROOT),
+        **_task5_reviewed_topology_kwargs(),
+    )
+    assert result.state == "publication_indeterminate"
+    assert result.report is None
+    assert result.failure_locus == "candidate_reservation"
+
+
+def test_task6_feature_head_is_not_a_forensic_publication_topology() -> None:
+    """A clean feature commit cannot satisfy the post-merge publication gate."""
+
+    module = _load_forensics()
+    feature_head = module._current_commit(ROOT)
+    reviewed_base = subprocess.run(
+        ["git", "merge-base", feature_head, "origin/main"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    with pytest.raises(ValueError, match="two-parent merge"):
+        module._verify_forensic_publication_topology(
+            repo_root=ROOT,
+            forensic_merge_sha=feature_head,
+            expected_reviewed_base_sha=reviewed_base,
+            expected_reviewed_head_sha=feature_head,
+        )
+
+
+def test_task6_reviewed_merge_topology_is_derived_from_exact_ordered_parents() -> None:
+    """Publication topology comes from Git, not from an authored report claim."""
+
+    module = _load_forensics()
+    reviewed_head = module._current_commit(ROOT)
+    reviewed_base = subprocess.run(
+        ["git", "merge-base", reviewed_head, "origin/main"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    tree = subprocess.run(
+        ["git", "merge-tree", "--write-tree", reviewed_base, reviewed_head],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip().splitlines()[0]
+    environment = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Rook Test",
+        "GIT_AUTHOR_EMAIL": "rook-test@example.invalid",
+        "GIT_AUTHOR_DATE": "2000-01-01T00:00:00+00:00",
+        "GIT_COMMITTER_NAME": "Rook Test",
+        "GIT_COMMITTER_EMAIL": "rook-test@example.invalid",
+        "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+00:00",
+    }
+    merge_sha = subprocess.run(
+        [
+            "git",
+            "commit-tree",
+            tree,
+            "-p",
+            reviewed_base,
+            "-p",
+            reviewed_head,
+            "-m",
+            "synthetic reviewed merge",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    ).stdout.strip()
+    topology = module._derive_forensic_merge_topology(
+        repo_root=ROOT,
+        forensic_merge_sha=merge_sha,
+        expected_reviewed_base_sha=reviewed_base,
+        expected_reviewed_head_sha=reviewed_head,
+    )
+    assert topology["forensic_merge_sha"] == merge_sha
+    assert topology["reviewed_base_sha"] == reviewed_base
+    assert topology["reviewed_head_sha"] == reviewed_head
+    with pytest.raises(ValueError, match="exact reviewed two-parent merge"):
+        module._derive_forensic_merge_topology(
+            repo_root=ROOT,
+            forensic_merge_sha=merge_sha,
+            expected_reviewed_base_sha=reviewed_head,
+            expected_reviewed_head_sha=reviewed_base,
+        )
 
 
 def test_task5_reconciliation_never_mutates_an_unverifiable_destination(
@@ -1755,6 +2026,7 @@ def test_task5_reconciliation_never_mutates_an_unverifiable_destination(
         expected_historical_preflight_fingerprint=(
             module.OBSERVED_PREFLIGHT_FINGERPRINT
         ),
+        **_task5_reviewed_topology_kwargs(),
     )
     after = {
         path.name: (path.read_bytes(), path.stat().st_size)
@@ -1837,11 +2109,15 @@ def test_task6_cli_surface_is_closed_and_no_contact() -> None:
             "expected_candidate_checksums_sha256",
             "forensic_commit_sha",
             "destination",
+            "expected_reviewed_base_sha",
+            "expected_reviewed_head_sha",
         },
         "verify-report": {
             "archive_dir",
             "expected_identity",
             "expected_preflight_fingerprint",
+            "expected_reviewed_base_sha",
+            "expected_reviewed_head_sha",
         },
     }
     assert set(subparsers.choices) == set(expected)
@@ -1957,7 +2233,16 @@ def test_task6_cli_commands_are_read_only_except_fresh_report_publication(
     report_root.mkdir()
     destination = report_root / "cli-report"
     assert module.main(
-        ["publish-report", *common, "--destination", str(destination)]
+        [
+            "publish-report",
+            *common,
+            "--destination",
+            str(destination),
+            "--expected-reviewed-base-sha",
+            TASK5_REVIEWED_BASE_SHA,
+            "--expected-reviewed-head-sha",
+            TASK5_REVIEWED_HEAD_SHA,
+        ]
     ) == 0
     publish_summary = json.loads(capsys.readouterr().out)
     assert publish_summary["state"] == "published"
@@ -1972,6 +2257,10 @@ def test_task6_cli_commands_are_read_only_except_fresh_report_publication(
             publish_summary["report_identity"],
             "--expected-preflight-fingerprint",
             module.OBSERVED_PREFLIGHT_FINGERPRINT,
+            "--expected-reviewed-base-sha",
+            TASK5_REVIEWED_BASE_SHA,
+            "--expected-reviewed-head-sha",
+            TASK5_REVIEWED_HEAD_SHA,
         ]
     ) == 0
     verify_summary = json.loads(capsys.readouterr().out)
