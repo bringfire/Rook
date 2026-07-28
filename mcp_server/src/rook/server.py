@@ -2048,15 +2048,43 @@ def _summarize_gh_update_script_snapshot(snapshot_response: Any, short_id: str) 
 
 
 def _gh_update_script_should_defer(write_data: Any) -> tuple[bool, dict[str, Any]]:
-    """Read the safe-solve flags off the /gh/script write response. Returns
-    (deferred, flags). Deferred => no fresh solve ran, so the caller must NOT
-    claim a compile/error verification."""
+    """Read the scheduling contract from the /gh/script write response.
+
+    ``verification_deferred`` describes solve completion at managed callback
+    return time.  It does not mean that Grasshopper rejected the schedule.
+    The authoritative ``schedule_acceptance`` field therefore decides whether
+    the MCP layer can wait briefly and perform its own error verification.
+    Legacy responses without that field keep their prior behavior.
+    """
     flags: dict[str, Any] = {}
     if isinstance(write_data, dict):
-        for key in ("verification_deferred", "solver_locked", "solver_state_known", "solve_scheduled"):
+        for key in (
+            "schedule_classification",
+            "schedule_acceptance",
+            "schedule_failure_code",
+            "verification_deferred",
+            "solver_locked",
+            "solver_state_known",
+            "solve_scheduled",
+        ):
             if key in write_data:
                 flags[key] = write_data[key]
+
+    if "schedule_acceptance" in flags:
+        acceptance = flags["schedule_acceptance"]
+        if isinstance(acceptance, str) and acceptance.strip().lower() == "accepted":
+            return False, flags
+        return True, flags
+
     return bool(flags.get("verification_deferred")), flags
+
+
+def _gh_update_script_deferred_note() -> str:
+    return (
+        "Grasshopper did not confirm an accepted solve schedule; the script source was "
+        "written, but compilation is not yet verified. Inspect the canvas and solver "
+        "state before requesting another solve."
+    )
 
 
 def _gh_update_script_has_target_compile_errors(data: dict[str, Any]) -> bool:
@@ -2159,10 +2187,7 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             verification_method = "none"
             error_summary = _empty_gh_update_script_error_summary()
             error_summary["verification_deferred"] = True   # stays boolean
-            error_summary["verification_note"] = (
-                "Grasshopper solver is locked or its state is unknown; the script source was "
-                "written but not recompiled. Unlock the solver and run gh_solve to verify."
-            )
+            error_summary["verification_note"] = _gh_update_script_deferred_note()
         elif check_errors_requested:
             await _await_gh_solve_settle(port, scheduled_delay_ms=50)
             error_summary = _summarize_gh_update_script_errors(
@@ -2253,7 +2278,7 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             requested_guid=guid,
             include_requested_guid=_is_gh_short_id(guid),
             recovery_hint=data.get("recovery_hint"),
-            deferred=bool(data.get("verification_deferred")),
+            deferred=deferred,
             not_requested=not check_errors_requested,
             unavailable_note=unavailable_note,
             verification_note=data.get("verification_note"),

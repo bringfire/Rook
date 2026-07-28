@@ -2767,6 +2767,60 @@ async def test_gh_update_script_compile_error_adds_script_receipt(
 
 
 @pytest.mark.asyncio
+async def test_gh_update_script_accepted_schedule_runs_mcp_error_verification(
+    monkeypatch, patched_server
+):
+    routes = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        routes.append(route)
+        if route == "/gh/script" and "script" not in (payload or {}):
+            return {"success": True, "data": {"Type": "CSharpScriptComponent"}}
+        if route == "/gh/script":
+            return {
+                "success": True,
+                "data": {
+                    "guid": "cs-guid",
+                    "schedule_classification": "rir_mediated_schedule_requested",
+                    "schedule_acceptance": "accepted",
+                    "schedule_failure_code": None,
+                    "solve_scheduled": True,
+                    "verification_deferred": True,
+                    "solver_locked": True,
+                    "solver_state_known": True,
+                },
+            }
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {"Params": {"Inputs": [], "Outputs": [{"Name": "A"}]}},
+            }
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": [], "warnings": []}}
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "contract.gh", "path": ""}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    payload = _decode_response(await server.call_tool(
+        "gh_update_script",
+        {"guid": "cs-guid", "code": "A = 1;", "mode": "body"},
+    ))
+
+    assert payload["success"] is True
+    data = payload["data"]
+    assert routes.count("/gh/errors") == 1
+    assert data["schedule_acceptance"] == "accepted"
+    assert data["verification_deferred"] is True
+    assert "recovery_hint" not in data
+    receipt = data["script_receipt"]
+    assert receipt["verification"]["status"] == "passed"
+    assert receipt["verification"]["method"] == "gh_errors"
+    assert receipt["artifact_status"] == "usable"
+
+
+@pytest.mark.asyncio
 async def test_gh_update_script_deferred_receipt_uses_unknown_diagnostics(
     monkeypatch, patched_server
 ):
@@ -2799,7 +2853,11 @@ async def test_gh_update_script_deferred_receipt_uses_unknown_diagnostics(
     ))
 
     assert payload["success"] is True
-    receipt = payload["data"]["script_receipt"]
+    data = payload["data"]
+    assert "did not confirm an accepted solve schedule" in data["verification_note"]
+    assert "unlock" not in data["verification_note"].lower()
+    assert "gh_solve" not in data["verification_note"]
+    receipt = data["script_receipt"]
     assert receipt["verification"]["status"] == "deferred"
     assert receipt["verification"]["method"] == "none"
     assert receipt["verification"]["target_error_count"] is None
