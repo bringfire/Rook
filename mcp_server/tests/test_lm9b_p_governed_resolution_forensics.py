@@ -251,6 +251,71 @@ def test_task4_historical_renderer_git_blob_is_bound_to_executing_renderer() -> 
         )
 
 
+def test_task4_historical_producer_graph_reaches_data_and_authority_globals() -> None:
+    """The compatible producer graph must contain the inputs its roots consume."""
+
+    module = _load_forensics()
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    relative = "scripts/lm9b_p_governed_resolution_artifacts.py"
+    historical, _executed = module._reachable_artifact_producer_symbols(
+        git_blobs[relative],
+        module._HISTORICAL_ARTIFACT_PRODUCER_ROOTS,
+    )
+    assert {
+        "HISTORICAL_CARRIER_QUALIFICATION_IDENTITY",
+        "ISOLATION_POLICY_PATH",
+        "EVALUATION_RUBRIC_PATH",
+        "SUCCESSOR_ENVELOPE_PATH",
+        "CARRIER",
+        "QUALIFICATION",
+        "SUPPORT",
+        "CONT_ARTIFACTS",
+        "PLANNER_SUPPORT",
+    } <= historical
+
+
+def test_task4_historical_request_is_the_actual_renderer_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The renderer output, not an archived request claim, drives comparison."""
+
+    module = _load_forensics()
+    original = module.ARTIFACTS.SUPPORT.render_planner_revision_request
+
+    def substituted(inputs):
+        rendered = original(inputs)
+        payload = json.loads(rendered.raw_bytes)
+        payload["brief"] += " substituted by producer"
+        raw = module._canonical_bytes(payload)
+        return module.SUPPORT.RenderedRevisionRequest(
+            renderer_id=rendered.renderer_id,
+            payload=payload,
+            raw_bytes=raw,
+            raw_sha256=module._sha256(raw),
+            canonical_fingerprint=module.PLANNER_SUPPORT.fingerprint(payload),
+        )
+
+    monkeypatch.setattr(
+        module.ARTIFACTS.SUPPORT,
+        "render_planner_revision_request",
+        substituted,
+    )
+    _archive, members, _identity = module._flat_snapshot(
+        module.OBSERVED_PREFLIGHT_ARCHIVE,
+        expected=module._PREFLIGHT_MEMBERS,
+    )
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    with pytest.raises(
+        ValueError, match="historical instrument reconstruction differs"
+    ):
+        module._verify_historical_preflight_projection(
+            repo=ROOT,
+            archive=module.OBSERVED_PREFLIGHT_ARCHIVE,
+            members=members,
+            git_blobs=git_blobs,
+        )
+
+
 def test_task4_execution_capability_ledger_rejects_a_missing_producer() -> None:
     """Deleting a callable owner must not silently weaken checkout closure."""
 
@@ -287,7 +352,7 @@ def test_task4_execution_capability_ledger_binds_the_actual_callable_owner(
         "CONT_ARTIFACTS",
         SimpleNamespace(__file__=str(substituted)),
     )
-    with pytest.raises(ValueError, match="execution capability owner differs"):
+    with pytest.raises(ValueError, match="execution callable alias differs"):
         module._execution_capability_ledger()
 
 
@@ -314,6 +379,32 @@ def test_task4_historical_artifact_transitive_hash_producer_is_git_bound() -> No
         )
 
 
+def test_task4_historical_artifact_global_identity_is_git_bound() -> None:
+    """A global consumed by a reached producer is part of the producer graph."""
+
+    module = _load_forensics()
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    relative = "scripts/lm9b_p_governed_resolution_artifacts.py"
+    changed_blobs = dict(git_blobs)
+    changed_blobs[relative] = git_blobs[relative].replace(
+        b"sha256:ad12f0cec491b64f51982b7069acfa1301c1d577071cff9498cf7fba260446e1",
+        b"sha256:ad12f0cec491b64f51982b7069acfa1301c1d577071cff9498cf7fba260446e2",
+        1,
+    )
+    assert changed_blobs[relative] != git_blobs[relative]
+    with pytest.raises(
+        ValueError,
+        match=(
+            "historical Git producer artifact capability differs: "
+            "HISTORICAL_CARRIER_QUALIFICATION_IDENTITY"
+        ),
+    ):
+        module._reconstruct_historical_instrument_and_request(
+            repo=ROOT,
+            git_blobs=changed_blobs,
+        )
+
+
 def test_task4_execution_capability_ledger_binds_isolation_callable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -330,7 +421,22 @@ def test_task4_execution_capability_ledger_binds_isolation_callable(
         "evaluate_resolution_isolation",
         substituted,
     )
-    with pytest.raises(ValueError, match="execution callable owner differs"):
+    with pytest.raises(ValueError, match="execution callable binding differs"):
+        module._execution_capability_ledger()
+
+
+def test_task4_execution_capability_ledger_binds_imported_callable_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two callables from one reviewed owner module are not interchangeable."""
+
+    module = _load_forensics()
+    monkeypatch.setattr(
+        module.PLANNER_SUPPORT,
+        "canonical_fingerprint",
+        module.PLANNER_SUPPORT.sha256_prefixed,
+    )
+    with pytest.raises(ValueError, match="execution callable binding differs"):
         module._execution_capability_ledger()
 
 
@@ -633,6 +739,43 @@ def test_task4_every_execution_identity_path_materializes_as_lf() -> None:
         ).stdout.strip()
         assert result.endswith(": eol: lf"), relative
         assert b"\r\n" not in (ROOT / relative).read_bytes(), relative
+
+
+def test_task4_public_reconstruction_succeeds_from_clean_reviewed_checkout() -> None:
+    """Exercise the real public checkout/callable gate when HEAD is reviewable."""
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+    if status:
+        pytest.skip("public success witness requires a clean reviewed checkout")
+    module = _load_forensics()
+    historical = _historical_carrier(module)
+    source = module.load_verified_resolution_forensic_source(
+        historical_preflight=historical,
+        staging_dir=module.OBSERVED_STAGING,
+        expected_marker_sha256=module.OBSERVED_MARKER_SHA256,
+        expected_candidate_checksums_sha256=(
+            module.OBSERVED_CANDIDATE_CHECKSUMS_SHA256
+        ),
+    )
+    result = module.reconstruct_resolution_forensic_candidate(
+        source=source,
+        repo_root=ROOT,
+        forensic_commit_sha=module._current_commit(ROOT),
+    )
+    assert result.reconstructed_classification == (
+        "probe_resolution_isolation_failure"
+    )
+    assert result.classification_scope == "candidate_level_deterministic_projection"
+    assert result.controller_conformance == "not_verified"
+    assert result.original_attempt_state == "post_dispatch_unsealed"
+    assert result.official_scientific_checkpoint == "absent"
+    assert result.ready_proof == "prohibited"
+    assert result.compiler_eligibility is False
 
 
 def test_task4_forensic_capabilities_are_unforgeable_and_inert(

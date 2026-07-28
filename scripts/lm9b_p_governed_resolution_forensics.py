@@ -300,7 +300,15 @@ _HISTORICAL_ARTIFACT_PRODUCER_ROOTS = (
 )
 
 _CURRENT_ONLY_HISTORICAL_ARTIFACT_CAPABILITIES = frozenset(
-    {"_resolution_archive_resource_contract"}
+    {
+        "ARCHIVE_EVIDENCE",
+        "ARCHIVE_EVIDENCE_PROFILE_PATH",
+        "_resolution_archive_resource_contract",
+    }
+)
+
+_CURRENT_MIGRATED_HISTORICAL_ARTIFACT_CAPABILITIES = frozenset(
+    {"RESOLUTION_ARCHIVE_MEMBERS"}
 )
 
 
@@ -432,16 +440,39 @@ def _git_object_at(repo: Path, commit: str, relative: str) -> bytes:
     ).stdout
 
 
-def _top_level_node(raw: bytes, name: str) -> ast.AST:
+def _top_level_symbol_table(raw: bytes) -> Mapping[str, ast.AST]:
     tree = ast.parse(raw.decode("utf-8"))
+    symbols: dict[str, ast.AST] = {}
     for node in tree.body:
+        names: list[str] = []
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if node.name == name:
-                return node
-        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            names = [node.name]
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
-            if any(isinstance(target, ast.Name) and target.id == name for target in targets):
-                return node
+            names = [
+                item.id
+                for target in targets
+                for item in ast.walk(target)
+                if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store)
+            ]
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = [
+                alias.asname or alias.name.split(".")[0]
+                for alias in node.names
+            ]
+        for name in names:
+            if name in symbols:
+                raise ValueError(
+                    f"historical Git producer symbol is ambiguous: {name}"
+                )
+            symbols[name] = node
+    return MappingProxyType(symbols)
+
+
+def _top_level_node(raw: bytes, name: str) -> ast.AST:
+    node = _top_level_symbol_table(raw).get(name)
+    if node is not None:
+        return node
     raise ValueError(f"historical Git producer symbol is absent: {name}")
 
 
@@ -449,43 +480,75 @@ def _node_identity(raw: bytes, name: str) -> str:
     return ast.dump(_top_level_node(raw, name), include_attributes=False)
 
 
-def _top_level_function_graph(raw: bytes) -> Mapping[str, frozenset[str]]:
-    tree = ast.parse(raw.decode("utf-8"))
-    functions = {
-        node.name: node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    return MappingProxyType(
-        {
-            name: frozenset(
-                item.func.id
-                for item in ast.walk(node)
-                if isinstance(item, ast.Call)
-                and isinstance(item.func, ast.Name)
-                and item.func.id in functions
-            )
-            for name, node in functions.items()
-        }
-    )
-
-
-def _reachable_top_level_functions(
+def _reachable_artifact_producer_symbols(
     raw: bytes,
     roots: tuple[str, ...],
-) -> frozenset[str]:
-    graph = _top_level_function_graph(raw)
-    if any(root not in graph for root in roots):
+) -> tuple[frozenset[str], frozenset[str]]:
+    symbols = _top_level_symbol_table(raw)
+    if any(
+        root not in symbols
+        or not isinstance(symbols[root], (ast.FunctionDef, ast.AsyncFunctionDef))
+        for root in roots
+    ):
         raise ValueError("historical Git producer artifact root is absent")
-    reached: set[str] = set()
-    pending = list(roots)
-    while pending:
-        symbol = pending.pop()
-        if symbol in reached:
+    included: set[str] = set()
+    executed: set[str] = set()
+    pending_execution = list(roots)
+    pending_values: list[str] = []
+    while pending_execution or pending_values:
+        if pending_execution:
+            symbol = pending_execution.pop()
+            if symbol in executed:
+                continue
+            executed.add(symbol)
+            included.add(symbol)
+            node = symbols[symbol]
+            for item in ast.walk(node):
+                if (
+                    isinstance(item, ast.Call)
+                    and isinstance(item.func, ast.Name)
+                    and item.func.id in symbols
+                    and isinstance(
+                        symbols[item.func.id],
+                        (ast.FunctionDef, ast.AsyncFunctionDef),
+                    )
+                ):
+                    pending_execution.append(item.func.id)
+                if (
+                    isinstance(item, ast.Name)
+                    and isinstance(item.ctx, ast.Load)
+                    and item.id in symbols
+                ):
+                    pending_values.append(item.id)
             continue
-        reached.add(symbol)
-        pending.extend(graph[symbol])
-    return frozenset(reached)
+        symbol = pending_values.pop()
+        if symbol in included:
+            continue
+        included.add(symbol)
+        node = symbols[symbol]
+        if not isinstance(
+            node,
+            (ast.Assign, ast.AnnAssign, ast.ClassDef, ast.Import, ast.ImportFrom),
+        ):
+            continue
+        for item in ast.walk(node):
+            if (
+                isinstance(item, ast.Call)
+                and isinstance(item.func, ast.Name)
+                and item.func.id in symbols
+                and isinstance(
+                    symbols[item.func.id],
+                    (ast.FunctionDef, ast.AsyncFunctionDef),
+                )
+            ):
+                pending_execution.append(item.func.id)
+            if (
+                isinstance(item, ast.Name)
+                and isinstance(item.ctx, ast.Load)
+                and item.id in symbols
+            ):
+                pending_values.append(item.id)
+    return frozenset(included), frozenset(executed)
 
 
 def _module_identity_without(raw: bytes, excluded: frozenset[str]) -> str:
@@ -611,10 +674,10 @@ def _verify_historical_git_producer_roots(
     artifacts_path = "scripts/lm9b_p_governed_resolution_artifacts.py"
     current_artifacts = current_blobs[artifacts_path]
     historical_artifacts = git_blobs[artifacts_path]
-    current_reachable = _reachable_top_level_functions(
+    current_reachable, current_executed = _reachable_artifact_producer_symbols(
         current_artifacts, _HISTORICAL_ARTIFACT_PRODUCER_ROOTS
     )
-    historical_reachable = _reachable_top_level_functions(
+    historical_reachable, historical_executed = _reachable_artifact_producer_symbols(
         historical_artifacts, _HISTORICAL_ARTIFACT_PRODUCER_ROOTS
     )
     if (
@@ -623,12 +686,25 @@ def _verify_historical_git_producer_roots(
         or historical_reachable - current_reachable
     ):
         raise ValueError("historical Git producer artifact graph differs")
+    historical_source_overrides = frozenset(
+        symbol
+        for _dotted, relative, symbol in _SOURCE_BINDINGS
+        if relative == artifacts_path
+    )
     for symbol in sorted(
-        historical_reachable - {"assemble_task1_resolution_instrument"}
+        historical_reachable
+        - {"assemble_task1_resolution_instrument"}
+        - _CURRENT_MIGRATED_HISTORICAL_ARTIFACT_CAPABILITIES
     ):
-        if _node_identity(current_artifacts, symbol) != _node_identity(
-            historical_artifacts, symbol
-        ):
+        identities_differ = _node_identity(
+            current_artifacts, symbol
+        ) != _node_identity(historical_artifacts, symbol)
+        source_override_only = (
+            symbol in historical_source_overrides
+            and symbol not in current_executed
+            and symbol not in historical_executed
+        )
+        if identities_differ and not source_override_only:
             raise ValueError(
                 f"historical Git producer artifact capability differs: {symbol}"
             )
@@ -1455,7 +1531,7 @@ _EXECUTION_CAPABILITY_OWNER_PATHS = {
 }
 
 
-def _actual_capability_module(capability_id: str, module_name: str) -> object:
+def _actual_capability_owner(capability_id: str, module_name: str) -> object:
     if capability_id == "forensic_orchestrator":
         module = sys.modules.get(__name__)
         if module is None or getattr(module, "__name__", None) != module_name:
@@ -1472,6 +1548,11 @@ def _actual_capability_module(capability_id: str, module_name: str) -> object:
         value = getattr(value, part, None)
         if value is None:
             raise ValueError(f"execution capability owner differs: {capability_id}")
+    return value
+
+
+def _actual_capability_module(capability_id: str, module_name: str) -> object:
+    value = _actual_capability_owner(capability_id, module_name)
     if getattr(value, "__file__", None) is not None:
         module = value
     else:
@@ -1484,7 +1565,35 @@ def _actual_capability_module(capability_id: str, module_name: str) -> object:
     return module
 
 
-def _module_local_callables(module: object) -> Mapping[str, object]:
+def _capability_owner_projection(
+    capability_id: str,
+    module_name: str,
+) -> tuple[str | None, str]:
+    value = _actual_capability_owner(capability_id, module_name)
+    owner_path = _EXECUTION_CAPABILITY_OWNER_PATHS.get(capability_id)
+    if getattr(value, "__file__", None) is not None:
+        identity = str(getattr(value, "__name__", ""))
+    else:
+        identity = str(getattr(value, "__qualname__", ""))
+    if not identity:
+        raise ValueError(f"execution callable alias differs: {capability_id}")
+    return owner_path, identity
+
+
+def _validate_execution_alias_snapshot(
+    capability_id: str,
+    module_name: str,
+) -> tuple[str | None, str]:
+    issued = _EXECUTION_ALIAS_SNAPSHOT.get(capability_id)
+    if issued is None:
+        raise ValueError(f"execution alias snapshot is absent: {capability_id}")
+    current = _actual_capability_owner(capability_id, module_name)
+    if current is not issued:
+        raise ValueError(f"execution callable alias differs: {capability_id}")
+    return _capability_owner_projection(capability_id, module_name)
+
+
+def _module_callable_bindings(module: object) -> Mapping[str, object]:
     module_name = getattr(module, "__name__", None)
     if type(module_name) is not str:
         raise ValueError("execution capability module identity is absent")
@@ -1492,7 +1601,7 @@ def _module_local_callables(module: object) -> Mapping[str, object]:
         {
             name: value
             for name, value in vars(module).items()
-            if callable(value) and getattr(value, "__module__", None) == module_name
+            if callable(value)
         }
     )
 
@@ -1504,17 +1613,20 @@ def _validate_execution_callable_snapshot(
     issued = _EXECUTION_CALLABLE_SNAPSHOT.get(capability_id)
     if issued is None:
         raise ValueError(f"execution callable snapshot is absent: {capability_id}")
-    current = _module_local_callables(module)
+    current = _module_callable_bindings(module)
     if set(current) != set(issued) or any(
         current[name] is not issued[name] for name in issued
     ):
-        raise ValueError(f"execution callable owner differs: {capability_id}")
+        raise ValueError(f"execution callable binding differs: {capability_id}")
     return tuple(sorted(issued))
 
 
 def _execution_capability_ledger() -> tuple[Mapping[str, object], ...]:
     rows: list[Mapping[str, object]] = []
     for capability_id, module_name, relative in _EXECUTION_CAPABILITY_SPECS:
+        owner_path, owner_identity = _validate_execution_alias_snapshot(
+            capability_id, module_name
+        )
         module = _actual_capability_module(capability_id, module_name)
         callable_names = _validate_execution_callable_snapshot(
             capability_id, module
@@ -1532,6 +1644,8 @@ def _execution_capability_ledger() -> tuple[Mapping[str, object], ...]:
                     "relative_path": relative,
                     "module_path": str(Path(module_path).resolve()),
                     "callable_names": callable_names,
+                    "owner_path": owner_path,
+                    "owner_identity": owner_identity,
                 }
             )
         )
@@ -1558,6 +1672,8 @@ def _validate_execution_capability_ledger(
                 "relative_path",
                 "module_path",
                 "callable_names",
+                "owner_path",
+                "owner_identity",
             }
             or type(row.get("capability_id")) is not str
             or row["capability_id"] in observed
@@ -1568,6 +1684,9 @@ def _validate_execution_capability_ledger(
         raise ValueError("execution capability ledger is incomplete or contains extras")
     for capability_id, (module_name, relative) in expected.items():
         row = observed[capability_id]
+        owner_path, owner_identity = _validate_execution_alias_snapshot(
+            capability_id, module_name
+        )
         module = _actual_capability_module(capability_id, module_name)
         callable_names = _validate_execution_callable_snapshot(
             capability_id, module
@@ -1578,6 +1697,8 @@ def _validate_execution_capability_ledger(
             or row["relative_path"] != relative
             or Path(str(row["module_path"])).resolve() != actual_path
             or tuple(row["callable_names"]) != callable_names
+            or row["owner_path"] != owner_path
+            or row["owner_identity"] != owner_identity
         ):
             raise ValueError(
                 f"execution capability owner differs: {capability_id}"
@@ -2271,7 +2392,7 @@ def _reconstruct_resolution_forensic_candidate_unsealed(
 def _capture_execution_callable_snapshot() -> Mapping[str, Mapping[str, object]]:
     return MappingProxyType(
         {
-            capability_id: _module_local_callables(
+            capability_id: _module_callable_bindings(
                 _actual_capability_module(capability_id, module_name)
             )
             for capability_id, module_name, _relative in _EXECUTION_CAPABILITY_SPECS
@@ -2279,6 +2400,16 @@ def _capture_execution_callable_snapshot() -> Mapping[str, Mapping[str, object]]
     )
 
 
+def _capture_execution_alias_snapshot() -> Mapping[str, object]:
+    return MappingProxyType(
+        {
+            capability_id: _actual_capability_owner(capability_id, module_name)
+            for capability_id, module_name, _relative in _EXECUTION_CAPABILITY_SPECS
+        }
+    )
+
+
+_EXECUTION_ALIAS_SNAPSHOT = _capture_execution_alias_snapshot()
 _EXECUTION_CALLABLE_SNAPSHOT = _capture_execution_callable_snapshot()
 
 
