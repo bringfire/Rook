@@ -76,51 +76,27 @@ namespace RookBim.Revit
 
         public BimApiResponse ActiveDocument()
         {
-            try
-            {
-                var result = Dispatch(uiapp =>
+            return ExecuteInDocumentContext(
+                "active_document",
+                (uidoc, document) =>
                 {
-                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
-                    if (uidoc == null || uidoc.Document == null)
-                    {
-                        return null;
-                    }
-
-                    var document = uidoc.Document;
-                    return new ActiveDocumentResult
+                    return BimApiResponse.Ok(new ActiveDocumentResult
                     {
                         Document = RevitIdentitySerializer.DocumentIdentity(document),
-                        View = SerializeActiveView(uidoc, document)
-                    };
+                        View = SerializeActiveView(uidoc)
+                    });
                 });
-
-                if (result == null)
-                {
-                    return BimApiResponse.Fail(
-                        BimErrorCode.NoActiveDocument,
-                        "No active Revit document is open.",
-                        409);
-                }
-
-                return BimApiResponse.Ok(result);
-            }
-            catch (Exception ex)
-            {
-                return BimApiResponse.Fail(
-                    BimErrorCode.NotRhinoInside,
-                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
-                    503);
-            }
         }
 
         public BimApiResponse QueryElements(BimQueryElementsRequest request)
         {
+            var effectiveRequest = request ?? new BimQueryElementsRequest();
             return ExecuteInDocumentContext(
                 "query_elements",
                 (uidoc, document) =>
                 {
-                    var view = uidoc.ActiveView ?? document.ActiveView;
-                    return query.Query(document, view, request);
+                    var view = ResolveActiveGraphicalView(uidoc, effectiveRequest.EffectiveScope);
+                    return query.Query(document, view, effectiveRequest);
                 });
         }
 
@@ -288,9 +264,9 @@ namespace RookBim.Revit
                     }
 
                     var document = uidoc.Document;
-                    var view = uidoc.ActiveView ?? document.ActiveView;
                     try
                     {
+                        var view = ResolveActiveGraphicalView(uidoc, request.EffectiveScope);
                         var resolution = presetResolver.Resolve(document, view, request);
                         if (resolution.Failure != null)
                         {
@@ -359,9 +335,11 @@ namespace RookBim.Revit
                     }
 
                     var document = uidoc.Document;
-                    var view = uidoc.ActiveView ?? document.ActiveView;
                     try
                     {
+                        var view = request.HasSelector
+                            ? ResolveActiveGraphicalView(uidoc, request.Selector!.EffectiveScope)
+                            : null;
                         return export.Export(document, view, request);
                     }
                     catch (Exception ex)
@@ -459,9 +437,16 @@ namespace RookBim.Revit
             return $"{root.GetType().Name}: {root.Message}";
         }
 
-        private static BimViewIdentity? SerializeActiveView(UIDocument uidoc, Document document)
+        private static View? ResolveActiveGraphicalView(UIDocument uidoc, BimQueryScope scope)
         {
-            var view = uidoc.ActiveView ?? document.ActiveView;
+            return scope == BimQueryScope.ActiveView
+                ? uidoc.ActiveGraphicalView
+                : null;
+        }
+
+        private static BimViewIdentity? SerializeActiveView(UIDocument uidoc)
+        {
+            var view = ResolveActiveGraphicalView(uidoc, BimQueryScope.ActiveView);
             return view == null ? null : RevitIdentitySerializer.ViewIdentity(view);
         }
 

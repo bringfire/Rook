@@ -138,10 +138,90 @@ namespace RookBim.Tests
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
 
-            Assert.Contains("View = SerializeActiveView(uidoc, document)", runtime);
+            Assert.Contains("View = SerializeActiveView(uidoc)", runtime);
             Assert.Contains("public BimViewIdentity? View { get; set; }", runtime);
-            Assert.DoesNotContain("ActiveView = SerializeActiveView(uidoc, document)", runtime);
+            Assert.DoesNotContain("ActiveView = SerializeActiveView(uidoc)", runtime);
             Assert.DoesNotContain("public BimViewIdentity? ActiveView { get; set; }", runtime);
+        }
+
+        [Fact]
+        public void RevitRuntime_UsesOnlyActiveGraphicalViewForViewResolution()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+
+            Assert.Contains("uidoc.ActiveGraphicalView", runtime);
+            Assert.DoesNotContain("uidoc.ActiveView", runtime);
+            Assert.DoesNotContain("document.ActiveView", runtime);
+        }
+
+        [Fact]
+        public void RevitRuntime_ResolvesGraphicalViewOnlyWhenTheOperationRequiresIt()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
+            var exportPreset = ExtractMethod(runtime, "public BimApiResponse ExportPreset(");
+            var exportElements = ExtractMethod(runtime, "public BimApiResponse ExportElements(");
+            var resolveView = ExtractMethod(runtime, "private static View? ResolveActiveGraphicalView(");
+
+            var activeScopeIndex = resolveView.IndexOf(
+                "scope == BimQueryScope.ActiveView",
+                StringComparison.Ordinal);
+            var activeViewIndex = resolveView.IndexOf("uidoc.ActiveGraphicalView", StringComparison.Ordinal);
+            var nullIndex = resolveView.IndexOf("null", activeViewIndex, StringComparison.Ordinal);
+            Assert.True(activeScopeIndex >= 0 && activeScopeIndex < activeViewIndex && activeViewIndex < nullIndex);
+            Assert.Contains("?", resolveView.Substring(activeScopeIndex, activeViewIndex - activeScopeIndex));
+            Assert.Contains(":", resolveView.Substring(activeViewIndex, nullIndex - activeViewIndex));
+
+            Assert.Contains(
+                "ResolveActiveGraphicalView(uidoc, effectiveRequest.EffectiveScope)",
+                queryElements);
+            Assert.Contains(
+                "ResolveActiveGraphicalView(uidoc, request.EffectiveScope)",
+                exportPreset);
+            Assert.Contains(
+                "request.HasSelector\n" +
+                "                            ? ResolveActiveGraphicalView(uidoc, request.Selector!.EffectiveScope)\n" +
+                "                            : null",
+                NormalizeLineEndings(exportElements));
+
+            var presetBoundary = ExtractTryCatchAfter(exportPreset, "var document = uidoc.Document;");
+            Assert.Contains("ResolveActiveGraphicalView", presetBoundary.Item1);
+            Assert.Contains("presetResolver.Resolve", presetBoundary.Item1);
+            Assert.Contains("BimErrorCode.ExportFailed", presetBoundary.Item2);
+
+            var exportBoundary = ExtractTryCatchAfter(exportElements, "var document = uidoc.Document;");
+            Assert.Contains("ResolveActiveGraphicalView", exportBoundary.Item1);
+            Assert.Contains("export.Export(document, view, request)", exportBoundary.Item1);
+            Assert.Contains("BimErrorCode.ExportFailed", exportBoundary.Item2);
+        }
+
+        [Fact]
+        public void RevitRuntime_QueryElementsNormalizesNullBeforeResolvingViewScope()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
+
+            var defaultIndex = queryElements.IndexOf(
+                "var effectiveRequest = request ?? new BimQueryElementsRequest();",
+                StringComparison.Ordinal);
+            var viewIndex = queryElements.IndexOf(
+                "ResolveActiveGraphicalView(uidoc, effectiveRequest.EffectiveScope)",
+                StringComparison.Ordinal);
+            var queryIndex = queryElements.IndexOf(
+                "query.Query(document, view, effectiveRequest)",
+                StringComparison.Ordinal);
+
+            Assert.True(defaultIndex >= 0 && defaultIndex < viewIndex && viewIndex < queryIndex);
+        }
+
+        [Fact]
+        public void RevitRuntime_ActiveDocumentSerializesItsViewInsideTheOperationBoundary()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var activeDocument = ExtractMethod(runtime, "public BimApiResponse ActiveDocument(");
+
+            Assert.Contains("return ExecuteInDocumentContext", activeDocument);
+            Assert.Contains("View = SerializeActiveView(uidoc)", activeDocument);
         }
 
         [Fact]
@@ -431,7 +511,7 @@ namespace RookBim.Tests
             Assert.Contains("return ExecuteInDocumentContext", queryElements);
             Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", runtime);
             Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
-            Assert.Contains("query.Query(document, view, request)", runtime);
+            Assert.Contains("query.Query(document, view, effectiveRequest)", queryElements);
             Assert.DoesNotContain("LaterToolUnavailable", queryElements);
         }
 
@@ -612,6 +692,38 @@ namespace RookBim.Tests
                 throw new InvalidOperationException(
                     "Method body not found: " + signatureStartText);
 
+            var bodyEnd = FindMatchingBrace(source, bodyStart);
+            return source.Substring(signatureStart, bodyEnd - signatureStart + 1);
+        }
+
+        private static Tuple<string, string> ExtractTryCatchAfter(string source, string precedingText)
+        {
+            var precedingIndex = source.IndexOf(precedingText, StringComparison.Ordinal);
+            if (precedingIndex < 0)
+                throw new InvalidOperationException("Preceding text not found: " + precedingText);
+
+            var tryIndex = source.IndexOf("try", precedingIndex + precedingText.Length, StringComparison.Ordinal);
+            if (tryIndex < 0)
+                throw new InvalidOperationException("Inner try not found after: " + precedingText);
+
+            var tryBodyStart = source.IndexOf('{', tryIndex);
+            var tryBodyEnd = FindMatchingBrace(source, tryBodyStart);
+            var catchIndex = source.IndexOf("catch", tryBodyEnd + 1, StringComparison.Ordinal);
+            if (catchIndex < 0 || !string.IsNullOrWhiteSpace(source.Substring(tryBodyEnd + 1, catchIndex - tryBodyEnd - 1)))
+                throw new InvalidOperationException("Paired catch not found after inner try.");
+
+            var catchBodyStart = source.IndexOf('{', catchIndex);
+            var catchBodyEnd = FindMatchingBrace(source, catchBodyStart);
+            return Tuple.Create(
+                source.Substring(tryBodyStart, tryBodyEnd - tryBodyStart + 1),
+                source.Substring(catchBodyStart, catchBodyEnd - catchBodyStart + 1));
+        }
+
+        private static int FindMatchingBrace(string source, int bodyStart)
+        {
+            if (bodyStart < 0 || bodyStart >= source.Length || source[bodyStart] != '{')
+                throw new InvalidOperationException("Block body not found.");
+
             var depth = 0;
             for (var i = bodyStart; i < source.Length; i++)
             {
@@ -621,12 +733,11 @@ namespace RookBim.Tests
                 {
                     depth--;
                     if (depth == 0)
-                        return source.Substring(signatureStart, i - signatureStart + 1);
+                        return i;
                 }
             }
 
-            throw new InvalidOperationException(
-                "Brace did not close at index " + bodyStart);
+            throw new InvalidOperationException("Brace did not close at index " + bodyStart);
         }
 
         private static string FindRepoRoot()
