@@ -510,6 +510,77 @@ def test_task4_historical_executable_statements_are_bootstrap_bound(
         )
 
 
+@pytest.mark.parametrize(
+    ("reviewed", "substituted"),
+    [
+        (
+            b"import lm9b_p_governed_resolution_archive_evidence as "
+            b"ARCHIVE_EVIDENCE",
+            b"import os as ARCHIVE_EVIDENCE",
+        ),
+        (
+            b"ARCHIVE_EVIDENCE_PROFILE_PATH = (\n"
+            b"    _SCRIPTS_DIR\n"
+            b'    / "lm9b_p_governed_resolution_contracts"\n'
+            b'    / "archive_evidence_resource_profile.json"\n'
+            b")",
+            b"ARCHIVE_EVIDENCE_PROFILE_PATH = "
+            b'_READY_PROOF_VALUE.__setitem__("schema_id", "forged")',
+        ),
+        (
+            b"@dataclass(frozen=True)\n"
+            b"class ReconstructedResolutionAttempt:",
+            b'@_READY_PROOF_VALUE.__setitem__("schema_id", "forged")\n'
+            b"@dataclass(frozen=True)\n"
+            b"class ReconstructedResolutionAttempt:",
+        ),
+        (
+            b"RESOLUTION_ARCHIVE_MEMBERS = "
+            b"ARCHIVE_EVIDENCE.RESOLUTION_ARCHIVE_MEMBERS",
+            b"RESOLUTION_ARCHIVE_MEMBERS = ("
+            b'_READY_PROOF_VALUE.__setitem__("schema_id", "forged"), '
+            b"ARCHIVE_EVIDENCE.RESOLUTION_ARCHIVE_MEMBERS)[1]",
+        ),
+    ],
+    ids=(
+        "current_only_import",
+        "current_only_profile_assignment",
+        "current_only_class",
+        "current_migrated_archive_members",
+    ),
+)
+def test_task4_current_only_bootstrap_deltas_have_exact_reviewed_identity(
+    reviewed: bytes,
+    substituted: bytes,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An approved binding name cannot hide different import-time execution."""
+
+    module = _load_forensics()
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    relative = "scripts/lm9b_p_governed_resolution_artifacts.py"
+    original_git_object_at = module._git_object_at
+
+    def changed_current_blob(repo: Path, commit: str, path: str) -> bytes:
+        raw = original_git_object_at(repo, commit, path)
+        if path != relative:
+            return raw
+        assert raw.count(reviewed) == 1
+        changed = raw.replace(reviewed, substituted, 1)
+        assert changed != raw
+        return changed
+
+    monkeypatch.setattr(module, "_git_object_at", changed_current_blob)
+    with pytest.raises(
+        ValueError,
+        match="historical Git producer bootstrap delta differs",
+    ):
+        module._reconstruct_historical_instrument_and_request(
+            repo=ROOT,
+            git_blobs=git_blobs,
+        )
+
+
 def test_task4_execution_capability_ledger_binds_isolation_callable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

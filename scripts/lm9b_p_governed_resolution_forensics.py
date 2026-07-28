@@ -623,6 +623,52 @@ _MIGRATED_ARTIFACT_BOOTSTRAP_BINDINGS = frozenset(
 )
 
 
+def _reviewed_artifact_bootstrap_delta_identities(
+) -> Mapping[frozenset[str], str]:
+    sources = {
+        frozenset({"ARCHIVE_EVIDENCE"}): (
+            "import lm9b_p_governed_resolution_archive_evidence "
+            "as ARCHIVE_EVIDENCE"
+        ),
+        frozenset({"ARCHIVE_EVIDENCE_PROFILE_PATH"}): (
+            'ARCHIVE_EVIDENCE_PROFILE_PATH = (\n'
+            '    _SCRIPTS_DIR\n'
+            '    / "lm9b_p_governed_resolution_contracts"\n'
+            '    / "archive_evidence_resource_profile.json"\n'
+            ')'
+        ),
+        frozenset({"ReconstructedResolutionAttempt"}): (
+            "@dataclass(frozen=True)\n"
+            "class ReconstructedResolutionAttempt:\n"
+            "    planner_session: PLANNER_SUPPORT.PlannerSessionResult\n"
+            "    checkpoint_gate: PLANNER_SUPPORT.MechanicalGateResult | None\n"
+            "    isolation_result: SUPPORT.IsolationGateResult | None\n"
+            "    evaluator_result: "
+            "PLANNER_SUPPORT.PlannerEvaluationResult | None\n"
+            "    classification: str\n"
+            "    derived_stop_cause: str\n"
+            "    candidate_recipe_bytes: bytes | None\n"
+        ),
+        frozenset({"RESOLUTION_ARCHIVE_MEMBERS"}): (
+            "RESOLUTION_ARCHIVE_MEMBERS = "
+            "ARCHIVE_EVIDENCE.RESOLUTION_ARCHIVE_MEMBERS"
+        ),
+    }
+    expected_bindings = (
+        _CURRENT_ONLY_ARTIFACT_BOOTSTRAP_BINDINGS
+        | _MIGRATED_ARTIFACT_BOOTSTRAP_BINDINGS
+    )
+    if frozenset(sources) != expected_bindings:
+        raise RuntimeError("reviewed artifact bootstrap delta map is incomplete")
+    identities: dict[frozenset[str], str] = {}
+    for names, source in sources.items():
+        tree = ast.parse(source)
+        if len(tree.body) != 1 or _bound_top_level_names(tree.body[0]) != names:
+            raise RuntimeError("reviewed artifact bootstrap delta is malformed")
+        identities[names] = ast.dump(tree.body[0], include_attributes=False)
+    return MappingProxyType(identities)
+
+
 def _historical_artifact_bootstrap_identity(
     raw: bytes,
     *,
@@ -631,6 +677,7 @@ def _historical_artifact_bootstrap_identity(
     excluded = set(_MIGRATED_ARTIFACT_BOOTSTRAP_BINDINGS)
     if repaired:
         excluded.update(_CURRENT_ONLY_ARTIFACT_BOOTSTRAP_BINDINGS)
+    reviewed_identities = _reviewed_artifact_bootstrap_delta_identities()
     seen: set[frozenset[str]] = set()
     retained: list[ast.AST] = []
     for node in _top_level_bootstrap_nodes(raw):
@@ -638,6 +685,11 @@ def _historical_artifact_bootstrap_identity(
         if names in excluded:
             if names in seen:
                 raise ValueError("historical Git producer bootstrap delta is ambiguous")
+            if repaired and ast.dump(
+                node,
+                include_attributes=False,
+            ) != reviewed_identities[names]:
+                raise ValueError("historical Git producer bootstrap delta differs")
             seen.add(names)
             continue
         retained.append(node)
