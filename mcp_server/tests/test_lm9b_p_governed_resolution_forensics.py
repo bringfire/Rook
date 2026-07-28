@@ -436,12 +436,17 @@ def test_task4_public_reconstruction_refuses_dirty_or_alternate_checkout(
         ),
     )
     commit = module._current_commit(ROOT)
-    with pytest.raises(ValueError, match="executing checkout is dirty"):
-        module.reconstruct_resolution_forensic_candidate(
-            source=source,
-            repo_root=ROOT,
-            forensic_commit_sha=commit,
-        )
+    dirty_probe = ROOT / "scripts" / ".forensic-dirty-probe"
+    dirty_probe.write_bytes(b"untracked")
+    try:
+        with pytest.raises(ValueError, match="executing checkout is dirty"):
+            module.reconstruct_resolution_forensic_candidate(
+                source=source,
+                repo_root=ROOT,
+                forensic_commit_sha=commit,
+            )
+    finally:
+        dirty_probe.unlink(missing_ok=True)
 
     alternate = tmp_path / "alternate-checkout"
     subprocess.run(
