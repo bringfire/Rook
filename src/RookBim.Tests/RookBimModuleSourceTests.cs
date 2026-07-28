@@ -138,10 +138,67 @@ namespace RookBim.Tests
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
 
-            Assert.Contains("View = SerializeActiveView(uidoc, document)", runtime);
+            Assert.Contains("View = SerializeActiveView(uidoc)", runtime);
             Assert.Contains("public BimViewIdentity? View { get; set; }", runtime);
-            Assert.DoesNotContain("ActiveView = SerializeActiveView(uidoc, document)", runtime);
+            Assert.DoesNotContain("ActiveView = SerializeActiveView(uidoc)", runtime);
             Assert.DoesNotContain("public BimViewIdentity? ActiveView { get; set; }", runtime);
+        }
+
+        [Fact]
+        public void RevitRuntime_UsesOnlyActiveGraphicalViewForViewResolution()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+
+            Assert.Contains("uidoc.ActiveGraphicalView", runtime);
+            Assert.DoesNotContain("uidoc.ActiveView", runtime);
+            Assert.DoesNotContain("document.ActiveView", runtime);
+        }
+
+        [Fact]
+        public void RevitRuntime_ResolvesGraphicalViewOnlyWhenTheOperationRequiresIt()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
+            var exportPreset = ExtractMethod(runtime, "public BimApiResponse ExportPreset(");
+            var exportElements = ExtractMethod(runtime, "public BimApiResponse ExportElements(");
+
+            Assert.Contains(
+                "ResolveActiveGraphicalView(uidoc, request.EffectiveScope)",
+                queryElements);
+            Assert.Contains(
+                "ResolveActiveGraphicalView(uidoc, request.EffectiveScope)",
+                exportPreset);
+            Assert.Contains(
+                "request.HasSelector\n" +
+                "                            ? ResolveActiveGraphicalView(uidoc, request.Selector!.EffectiveScope)\n" +
+                "                            : null",
+                NormalizeLineEndings(exportElements));
+
+            var presetDocumentIndex = exportPreset.IndexOf("var document = uidoc.Document;", StringComparison.Ordinal);
+            var presetOperationTryIndex = exportPreset.IndexOf("try", presetDocumentIndex, StringComparison.Ordinal);
+            var presetViewIndex = exportPreset.IndexOf("ResolveActiveGraphicalView", StringComparison.Ordinal);
+            Assert.True(
+                presetDocumentIndex >= 0 &&
+                presetOperationTryIndex > presetDocumentIndex &&
+                presetViewIndex > presetOperationTryIndex);
+
+            var exportDocumentIndex = exportElements.IndexOf("var document = uidoc.Document;", StringComparison.Ordinal);
+            var exportOperationTryIndex = exportElements.IndexOf("try", exportDocumentIndex, StringComparison.Ordinal);
+            var exportViewIndex = exportElements.IndexOf("ResolveActiveGraphicalView", StringComparison.Ordinal);
+            Assert.True(
+                exportDocumentIndex >= 0 &&
+                exportOperationTryIndex > exportDocumentIndex &&
+                exportViewIndex > exportOperationTryIndex);
+        }
+
+        [Fact]
+        public void RevitRuntime_ActiveDocumentSerializesItsViewInsideTheOperationBoundary()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var activeDocument = ExtractMethod(runtime, "public BimApiResponse ActiveDocument(");
+
+            Assert.Contains("return ExecuteInDocumentContext", activeDocument);
+            Assert.Contains("View = SerializeActiveView(uidoc)", activeDocument);
         }
 
         [Fact]
