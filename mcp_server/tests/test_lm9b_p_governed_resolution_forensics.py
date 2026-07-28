@@ -1029,11 +1029,281 @@ def test_task4_forensic_capabilities_are_unforgeable_and_inert(
     )
 
 
+@pytest.fixture(scope="module")
+def task5_published_report(tmp_path_factory: pytest.TempPathFactory):
+    module = _load_forensics()
+    module._verify_executing_checkout = lambda *_args: None
+    historical = _historical_carrier(module)
+    source = module.load_verified_resolution_forensic_source(
+        historical_preflight=historical,
+        staging_dir=module.OBSERVED_STAGING,
+        expected_marker_sha256=module.OBSERVED_MARKER_SHA256,
+        expected_candidate_checksums_sha256=(
+            module.OBSERVED_CANDIDATE_CHECKSUMS_SHA256
+        ),
+    )
+    forensic_commit_sha = module._current_commit(ROOT)
+    reconstruction = module._reconstruct_resolution_forensic_candidate_unsealed(
+        capability=module._consume_forensic_source(source),
+        repo_root=ROOT,
+        forensic_commit_sha=forensic_commit_sha,
+        require_executing_checkout=False,
+    )
+    tmp_path = tmp_path_factory.mktemp("task5-forensic-report")
+    destination = tmp_path / "reports" / "synthetic-resolution-forensics"
+    destination.parent.mkdir()
+    published = module.write_resolution_forensic_report(
+        destination=destination,
+        source=source,
+        reconstruction=reconstruction,
+        repo_root=ROOT,
+        forensic_commit_sha=forensic_commit_sha,
+    )
+    return SimpleNamespace(
+        module=module,
+        source=source,
+        reconstruction=reconstruction,
+        destination=destination,
+        published=published,
+    )
+
+
+def _reclose_forensic_report_copy(
+    module,
+    *,
+    source: Path,
+    destination: Path,
+    changed_path: str | None = None,
+    change=None,
+) -> str:
+    shutil.copytree(source, destination)
+    members = {
+        path.name: path.read_bytes()
+        for path in destination.iterdir()
+        if path.is_file()
+    }
+    if changed_path is not None:
+        value = json.loads(members[changed_path])
+        change(value)
+        members[changed_path] = module._canonical_bytes(value)
+    content_rows = [
+        {"path": path, "raw_sha256": module._sha256(members[path])}
+        for path in module._FORENSIC_REPORT_SUBSTANTIVE_PATHS
+    ]
+    content_fingerprint = module.PLANNER_SUPPORT.fingerprint(content_rows)
+    record = json.loads(members["record.json"])
+    record["canonical_destination"] = str(destination)
+    record["content_fingerprint"] = content_fingerprint
+    record["report_identity"] = module.PLANNER_SUPPORT.fingerprint(
+        {
+            "content_fingerprint": content_fingerprint,
+            "canonical_destination": str(destination),
+            "forensic_merge_sha": record["forensic_merge_sha"],
+        }
+    )
+    members["record.json"] = module._canonical_bytes(record)
+    members["checksums.json"] = module._canonical_bytes(
+        {
+            "schema": module._FORENSIC_REPORT_CHECKSUMS_SCHEMA_ID,
+            "members": [
+                {"path": path, "raw_sha256": module._sha256(members[path])}
+                for path in module._FORENSIC_REPORT_CHECKSUM_PATHS
+            ],
+        }
+    )
+    for path, raw in members.items():
+        (destination / path).write_bytes(raw)
+    return record["report_identity"]
+
+
 def test_task5_publishes_and_publicly_verifies_a_separate_forensic_report(
+    task5_published_report: SimpleNamespace,
+) -> None:
+    """The forensic observation publishes separately from the failed checkpoint."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    published = fixture.published
+    destination = fixture.destination
+    assert published.state == "published"
+    assert type(published.report) is module.VerifiedResolutionForensicReport
+    assert published.report is not None
+    verified = module.verify_resolution_forensic_report(
+        destination,
+        expected_identity=published.report.report_identity,
+        expected_historical_preflight_fingerprint=(
+            module.OBSERVED_PREFLIGHT_FINGERPRINT
+        ),
+    )
+    assert verified.reconstructed_classification == (
+        "probe_resolution_isolation_failure"
+    )
+    assert verified.original_attempt_state == "post_dispatch_unsealed"
+
+
+def test_task5_report_identity_graph_is_closed_and_non_circular(
+    task5_published_report: SimpleNamespace,
+) -> None:
+    """Content, destination identity, and checksums have one acyclic ordering."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    members = {
+        path.name: path.read_bytes()
+        for path in fixture.destination.iterdir()
+        if path.is_file()
+    }
+    assert set(members) == set(module._FORENSIC_REPORT_MEMBERS)
+    record = json.loads(members["record.json"])
+    checksums = json.loads(members["checksums.json"])
+    content_rows = [
+        {"path": path, "raw_sha256": module._sha256(members[path])}
+        for path in module._FORENSIC_REPORT_SUBSTANTIVE_PATHS
+    ]
+    assert record["content_fingerprint"] == module.PLANNER_SUPPORT.fingerprint(
+        content_rows
+    )
+    assert checksums["members"] == [
+        {"path": path, "raw_sha256": module._sha256(members[path])}
+        for path in module._FORENSIC_REPORT_CHECKSUM_PATHS
+    ]
+    assert "checksums.json" not in {
+        row["path"] for row in checksums["members"]
+    }
+    assert {row["path"] for row in content_rows} == set(
+        module._FORENSIC_REPORT_SUBSTANTIVE_PATHS
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        ("destination", "physical destination differs"),
+        ("merge_sha", "forensic reconstruction commit differs"),
+        ("identity", "report identity differs"),
+    ],
+)
+def test_task5_record_bindings_cannot_be_self_reauthorized(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    mutation: str,
+    match: str,
+) -> None:
+    """Destination, commit, and identity remain independent verifier inputs."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    copied = tmp_path / mutation
+    identity = _reclose_forensic_report_copy(
+        module,
+        source=fixture.destination,
+        destination=copied,
+    )
+    record_path = copied / "record.json"
+    record = json.loads(record_path.read_bytes())
+    if mutation == "destination":
+        record["canonical_destination"] = str(tmp_path / "elsewhere")
+    elif mutation == "merge_sha":
+        record["forensic_merge_sha"] = "0" * 40
+    else:
+        record["report_identity"] = "sha256:" + "0" * 64
+    if mutation != "identity":
+        record["report_identity"] = module.PLANNER_SUPPORT.fingerprint(
+            {
+                "content_fingerprint": record["content_fingerprint"],
+                "canonical_destination": record["canonical_destination"],
+                "forensic_merge_sha": record["forensic_merge_sha"],
+            }
+        )
+    identity = record["report_identity"]
+    record_path.write_bytes(module._canonical_bytes(record))
+    checksums = {
+        "schema": module._FORENSIC_REPORT_CHECKSUMS_SCHEMA_ID,
+        "members": [
+            {
+                "path": path,
+                "raw_sha256": module._sha256((copied / path).read_bytes()),
+            }
+            for path in module._FORENSIC_REPORT_CHECKSUM_PATHS
+        ],
+    }
+    (copied / "checksums.json").write_bytes(module._canonical_bytes(checksums))
+    with pytest.raises(ValueError, match=match):
+        module.verify_resolution_forensic_report(
+            copied,
+            expected_identity=identity,
+            expected_historical_preflight_fingerprint=(
+                module.OBSERVED_PREFLIGHT_FINGERPRINT
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("changed_path", "change"),
+    [
+        (
+            "observed-instrument.json",
+            lambda value: value.__setitem__("attempt_id", "substituted"),
+        ),
+        (
+            "forensic-instrument.json",
+            lambda value: value["report_contracts"].__setitem__(
+                "publication_equation_id", "substituted:v1"
+            ),
+        ),
+        (
+            "source-snapshot.json",
+            lambda value: value.__setitem__(
+                "physical_identity_fingerprint", "sha256:" + "0" * 64
+            ),
+        ),
+        (
+            "reconstruction.json",
+            lambda value: value.__setitem__(
+                "reconstructed_classification", "probe_candidate_ready"
+            ),
+        ),
+        (
+            "boundary.json",
+            lambda value: value.__setitem__(
+                "official_scientific_checkpoint", "present"
+            ),
+        ),
+    ],
+)
+def test_task5_fully_reclosed_substantive_claims_must_match_root_evidence(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    changed_path: str,
+    change,
+) -> None:
+    """Checksummed authored claims remain comparison targets, never roots."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    copied = tmp_path / changed_path.removesuffix(".json")
+    identity = _reclose_forensic_report_copy(
+        module,
+        source=fixture.destination,
+        destination=copied,
+        changed_path=changed_path,
+        change=change,
+    )
+    with pytest.raises(ValueError, match="substantive derivation differs"):
+        module.verify_resolution_forensic_report(
+            copied,
+            expected_identity=identity,
+            expected_historical_preflight_fingerprint=(
+                module.OBSERVED_PREFLIGHT_FINGERPRINT
+            ),
+        )
+
+
+def test_task5_report_refuses_a_relocated_forensic_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The forensic observation publishes separately from the failed checkpoint."""
+    """A byte-identical copy cannot replace the observed physical evidence root."""
 
     module = _load_forensics()
     monkeypatch.setattr(module, "_verify_executing_checkout", lambda *_args: None)
@@ -1055,30 +1325,486 @@ def test_task5_publishes_and_publicly_verifies_a_separate_forensic_report(
         forensic_commit_sha=forensic_commit_sha,
         require_executing_checkout=False,
     )
-    destination = tmp_path / "reports" / "synthetic-resolution-forensics"
-    destination.parent.mkdir()
+    report_root = tmp_path / "reports"
+    report_root.mkdir()
+    with pytest.raises(ValueError, match="official retained staging"):
+        module.write_resolution_forensic_report(
+            destination=report_root / "relocated-source-report",
+            source=source,
+            reconstruction=reconstruction,
+            repo_root=ROOT,
+            forensic_commit_sha=forensic_commit_sha,
+        )
+    assert not any(report_root.iterdir())
 
-    published = module.write_resolution_forensic_report(
-        destination=destination,
-        source=source,
-        reconstruction=reconstruction,
-        repo_root=ROOT,
-        forensic_commit_sha=forensic_commit_sha,
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "extra",
+        "reordered",
+        "self_including",
+        "duplicate",
+    ],
+)
+def test_task5_checksum_closure_is_exact(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    """The checksum member is closure, never an identity or data root."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    copied = tmp_path / mutation
+    identity = _reclose_forensic_report_copy(
+        module,
+        source=fixture.destination,
+        destination=copied,
     )
-    assert published.state == "published"
-    assert type(published.report) is module.VerifiedResolutionForensicReport
-    assert published.report is not None
-    verified = module.verify_resolution_forensic_report(
-        destination,
-        expected_identity=published.report.report_identity,
+    checksums_path = copied / "checksums.json"
+    checksums = json.loads(checksums_path.read_bytes())
+    rows = checksums["members"]
+    if mutation == "missing":
+        rows.pop()
+    elif mutation == "extra":
+        rows.append({"path": "extra.json", "raw_sha256": "sha256:" + "0" * 64})
+    elif mutation == "reordered":
+        rows.reverse()
+    elif mutation == "self_including":
+        rows.append(
+            {
+                "path": "checksums.json",
+                "raw_sha256": module._sha256(checksums_path.read_bytes()),
+            }
+        )
+    else:
+        rows.append(copy.deepcopy(rows[-1]))
+    checksums_path.write_bytes(module._canonical_bytes(checksums))
+    with pytest.raises(ValueError, match="checksum closure differs"):
+        module.verify_resolution_forensic_report(
+            copied,
+            expected_identity=identity,
+            expected_historical_preflight_fingerprint=(
+                module.OBSERVED_PREFLIGHT_FINGERPRINT
+            ),
+        )
+
+
+def test_task5_report_is_bound_to_its_physical_destination(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+) -> None:
+    """An unchanged copy cannot become the official derivative by relocation."""
+
+    fixture = task5_published_report
+    copied = tmp_path / "copied-report"
+    shutil.copytree(fixture.destination, copied)
+    with pytest.raises(ValueError, match="physical destination differs"):
+        fixture.module.verify_resolution_forensic_report(
+            copied,
+            expected_identity=fixture.published.report.report_identity,
+            expected_historical_preflight_fingerprint=(
+                fixture.module.OBSERVED_PREFLIGHT_FINGERPRINT
+            ),
+        )
+
+
+def test_task5_public_verification_reopens_the_physical_source(
+    task5_published_report: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Publication cannot turn the retained source into an unaudited snapshot claim."""
+
+    fixture = task5_published_report
+
+    def moved_source(**_kwargs):
+        raise ValueError("simulated forensic source movement")
+
+    monkeypatch.setattr(
+        fixture.module,
+        "load_verified_resolution_forensic_source",
+        moved_source,
+    )
+    with pytest.raises(ValueError, match="simulated forensic source movement"):
+        fixture.module.verify_resolution_forensic_report(
+            fixture.destination,
+            expected_identity=fixture.published.report.report_identity,
+            expected_historical_preflight_fingerprint=(
+                fixture.module.OBSERVED_PREFLIGHT_FINGERPRINT
+            ),
+        )
+
+
+def test_task5_report_carrier_is_closure_issued_and_snapshot_closed(
+    task5_published_report: SimpleNamespace,
+) -> None:
+    """Copied, forged, and altered report carriers cannot cross consumption."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    report = module.verify_resolution_forensic_report(
+        fixture.destination,
+        expected_identity=fixture.published.report.report_identity,
         expected_historical_preflight_fingerprint=(
             module.OBSERVED_PREFLIGHT_FINGERPRINT
         ),
     )
-    assert verified.reconstructed_classification == (
-        "probe_resolution_isolation_failure"
+    forged = object.__new__(module.VerifiedResolutionForensicReport)
+    for name in (
+        "archive_dir",
+        "report_identity",
+        "original_attempt_state",
+        "reconstructed_classification",
+        "observed_instrument_fingerprint",
+        "forensic_instrument_fingerprint",
+        "_snapshot_members",
+    ):
+        object.__setattr__(forged, name, getattr(report, name))
+    with pytest.raises(ValueError, match="was not issued"):
+        module._consume_resolution_forensic_report(forged)
+    with pytest.raises(TypeError, match="closure-issued"):
+        copy.copy(report)
+    object.__setattr__(report, "report_identity", "sha256:" + "0" * 64)
+    with pytest.raises(ValueError, match="issuance snapshot differs"):
+        module._consume_resolution_forensic_report(report)
+
+
+def test_task5_candidate_verification_cannot_issue_an_official_report_carrier(
+    task5_published_report: SimpleNamespace,
+) -> None:
+    """Pre-rename candidate verification proves bytes but grants no public authority."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    candidate_result = module._verify_resolution_forensic_report_candidate(
+        fixture.destination,
+        expected_identity=fixture.published.report.report_identity,
+        expected_historical_preflight_fingerprint=(
+            module.OBSERVED_PREFLIGHT_FINGERPRINT
+        ),
+        official_destination=fixture.destination,
     )
-    assert verified.original_attempt_state == "post_dispatch_unsealed"
+    assert type(candidate_result) is module._VerifiedForensicReportSnapshot
+    assert not isinstance(candidate_result, module.VerifiedResolutionForensicReport)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [OSError("io"), ValueError("value"), TypeError("type"), KeyError("key"), RuntimeError("runtime")],
+)
+def test_task5_reconciliation_is_total_for_destination_verification_failures(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception,
+) -> None:
+    """Every ordinary verification failure yields control ambiguity, not a claim."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    candidate = tmp_path / ".destination.candidate"
+
+    def fail(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(module, "verify_resolution_forensic_report", fail)
+    result = module.reconcile_resolution_forensic_publication(
+        candidate_dir=candidate,
+        destination=destination,
+        expected_identity=fixture.published.report.report_identity,
+        expected_historical_preflight_fingerprint=(
+            module.OBSERVED_PREFLIGHT_FINGERPRINT
+        ),
+    )
+    assert result.state == "publication_indeterminate"
+    assert result.report is None
+    assert result.failure_locus == "destination_verification"
+
+
+@pytest.mark.parametrize(
+    ("destination_present", "candidate_present", "expected_state"),
+    [
+        (True, False, "published"),
+        (False, True, "unpublished"),
+        (True, True, "publication_indeterminate"),
+        (False, False, "publication_indeterminate"),
+    ],
+)
+def test_task5_reconciliation_derives_the_closed_physical_state_table(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    destination_present: bool,
+    candidate_present: bool,
+    expected_state: str,
+) -> None:
+    """Only a lone verified destination publishes; only a lone candidate is retained."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    destination = tmp_path / "destination"
+    candidate = tmp_path / ".destination.candidate"
+    if destination_present:
+        destination.mkdir()
+    if candidate_present:
+        candidate.mkdir()
+    monkeypatch.setattr(
+        module,
+        "verify_resolution_forensic_report",
+        lambda *_args, **_kwargs: fixture.published.report,
+    )
+    result = module.reconcile_resolution_forensic_publication(
+        candidate_dir=candidate,
+        destination=destination,
+        expected_identity=fixture.published.report.report_identity,
+        expected_historical_preflight_fingerprint=(
+            module.OBSERVED_PREFLIGHT_FINGERPRINT
+        ),
+    )
+    assert result.state == expected_state
+    assert (result.report is not None) is (expected_state == "published")
+
+
+def _prepare_fast_task5_publication(
+    fixture: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = fixture.module
+    substantive = {
+        path: (fixture.destination / path).read_bytes()
+        for path in module._FORENSIC_REPORT_SUBSTANTIVE_PATHS
+    }
+    monkeypatch.setattr(
+        module,
+        "_derive_resolution_forensic_report_substantive_members",
+        lambda **_kwargs: dict(substantive),
+    )
+    monkeypatch.setattr(
+        module,
+        "_verify_resolution_forensic_report_candidate",
+        lambda *_args, **_kwargs: fixture.published.report,
+    )
+
+
+def test_task5_reported_rename_exception_discovers_the_published_report(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exception after the atomic move cannot downgrade durable publication."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    _prepare_fast_task5_publication(fixture, monkeypatch)
+    destination = tmp_path / "reports" / "rename-exception"
+    destination.parent.mkdir()
+
+    def rename_then_raise(candidate: Path, final: Path) -> None:
+        candidate.rename(final)
+        raise OSError("reported rename failure")
+
+    monkeypatch.setattr(module, "_atomic_publish_forensic_candidate", rename_then_raise)
+    monkeypatch.setattr(
+        module,
+        "verify_resolution_forensic_report",
+        lambda *_args, **_kwargs: fixture.published.report,
+    )
+    result = module.write_resolution_forensic_report(
+        destination=destination,
+        source=fixture.source,
+        reconstruction=fixture.reconstruction,
+        repo_root=ROOT,
+        forensic_commit_sha=module._current_commit(ROOT),
+    )
+    assert result.state == "published"
+    assert destination.is_dir()
+    assert not (destination.parent / f".{destination.name}.candidate").exists()
+
+
+def test_task5_transient_post_rename_verification_is_reconciled(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second physical verification may discover an already committed report."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    _prepare_fast_task5_publication(fixture, monkeypatch)
+    destination = tmp_path / "reports" / "transient-verification"
+    destination.parent.mkdir()
+    calls = 0
+
+    def transient(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("transient verification failure")
+        return fixture.published.report
+
+    monkeypatch.setattr(module, "verify_resolution_forensic_report", transient)
+    result = module.write_resolution_forensic_report(
+        destination=destination,
+        source=fixture.source,
+        reconstruction=fixture.reconstruction,
+        repo_root=ROOT,
+        forensic_commit_sha=module._current_commit(ROOT),
+    )
+    assert result.state == "published"
+    assert calls == 2
+    assert destination.is_dir()
+
+
+def test_task5_destination_race_remains_indeterminate_and_unmodified(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A destination appearing after reservation can never be overwritten."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    _prepare_fast_task5_publication(fixture, monkeypatch)
+    destination = tmp_path / "reports" / "raced"
+    destination.parent.mkdir()
+    candidate = destination.parent / f".{destination.name}.candidate"
+
+    def create_race(*_args, **_kwargs):
+        destination.mkdir()
+        (destination / "external.txt").write_bytes(b"external")
+        return fixture.published.report
+
+    monkeypatch.setattr(
+        module,
+        "_verify_resolution_forensic_report_candidate",
+        create_race,
+    )
+    result = module.write_resolution_forensic_report(
+        destination=destination,
+        source=fixture.source,
+        reconstruction=fixture.reconstruction,
+        repo_root=ROOT,
+        forensic_commit_sha=module._current_commit(ROOT),
+    )
+    assert result.state == "publication_indeterminate"
+    assert result.report is None
+    assert (destination / "external.txt").read_bytes() == b"external"
+    assert candidate.is_dir()
+
+
+def test_task5_candidate_verification_failure_retains_unpublished_evidence(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failure before rename leaves one complete candidate and no public result."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    _prepare_fast_task5_publication(fixture, monkeypatch)
+    destination = tmp_path / "reports" / "candidate-failure"
+    destination.parent.mkdir()
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("candidate verification failure")
+
+    monkeypatch.setattr(module, "_verify_resolution_forensic_report_candidate", fail)
+    result = module.write_resolution_forensic_report(
+        destination=destination,
+        source=fixture.source,
+        reconstruction=fixture.reconstruction,
+        repo_root=ROOT,
+        forensic_commit_sha=module._current_commit(ROOT),
+    )
+    assert result.state == "unpublished"
+    assert result.report is None
+    assert not destination.exists()
+    assert result.candidate_path.is_dir()
+
+
+def test_task5_reconciliation_never_mutates_an_unverifiable_destination(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reconciliation observes publication state and performs no repair writes."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    (destination / "sentinel.bin").write_bytes(b"immutable")
+    before = {
+        path.name: (path.read_bytes(), path.stat().st_size)
+        for path in destination.iterdir()
+    }
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("unverifiable")
+
+    monkeypatch.setattr(module, "verify_resolution_forensic_report", fail)
+    result = module.reconcile_resolution_forensic_publication(
+        candidate_dir=tmp_path / ".destination.candidate",
+        destination=destination,
+        expected_identity=fixture.published.report.report_identity,
+        expected_historical_preflight_fingerprint=(
+            module.OBSERVED_PREFLIGHT_FINGERPRINT
+        ),
+    )
+    after = {
+        path.name: (path.read_bytes(), path.stat().st_size)
+        for path in destination.iterdir()
+    }
+    assert result.state == "publication_indeterminate"
+    assert after == before
+
+
+def test_task5_report_types_cannot_enter_checkpoint_or_ready_boundaries(
+    task5_published_report: SimpleNamespace,
+) -> None:
+    """Forensic observations remain structurally inert to execution authority."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    values = (
+        fixture.published.report,
+        fixture.published,
+        fixture.reconstruction,
+    )
+    for value in values:
+        with pytest.raises(TypeError, match="verified resolution preflight"):
+            module.ARTIFACTS.reserve_resolution_staging(value)
+        with pytest.raises(TypeError, match="sealed resolution checkpoint"):
+            module.ARTIFACTS.issue_resolution_ready_proof(
+                value,
+                preflight_archive=module.OBSERVED_PREFLIGHT_ARCHIVE,
+                expected_preflight_fingerprint=module.OBSERVED_PREFLIGHT_FINGERPRINT,
+            )
+        with pytest.raises(TypeError, match="wrong type"):
+            module.ARTIFACTS.consume_resolution_ready_proof(
+                value,
+                preflight_archive=module.OBSERVED_PREFLIGHT_ARCHIVE,
+                expected_preflight_fingerprint=module.OBSERVED_PREFLIGHT_FINGERPRINT,
+            )
+        with pytest.raises(TypeError, match="verified resolution preflight"):
+            module.ARTIFACTS.seal_resolution_checkpoint(
+                preflight=value,
+                invocation_binding={},
+                readiness_record={},
+                readiness_verified_at="",
+                planner_session=None,
+                evaluator_result=None,
+                isolation_result=None,
+                checkpoint_gate=None,
+                candidate_recipe_bytes=None,
+                call_ledger=(),
+                derived_stop_cause="mechanically_rejected",
+                classification="probe_mechanically_rejected",
+            )
 
 
 @pytest.mark.parametrize(

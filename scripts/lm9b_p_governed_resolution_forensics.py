@@ -14,7 +14,7 @@ import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Mapping
+from typing import Literal, Mapping
 
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -1306,58 +1306,22 @@ class VerifiedResolutionForensicReport:
 
 @dataclass(frozen=True)
 class ForensicReportPublicationResult:
-    state: str
+    state: Literal["published", "unpublished", "publication_indeterminate"]
     report: VerifiedResolutionForensicReport | None
     candidate_path: Path
     destination_path: Path
     failure_locus: str | None
 
 
-def _build_forensic_report_capabilities():
-    issued: weakref.WeakKeyDictionary[
-        VerifiedResolutionForensicReport,
-        Mapping[str, bytes],
-    ] = weakref.WeakKeyDictionary()
-
-    def issue(
-        *,
-        archive_dir: Path,
-        report_identity: str,
-        original_attempt_state: str,
-        reconstructed_classification: str,
-        observed_instrument_fingerprint: str,
-        forensic_instrument_fingerprint: str,
-        members: Mapping[str, bytes],
-    ) -> VerifiedResolutionForensicReport:
-        report = object.__new__(VerifiedResolutionForensicReport)
-        snapshot = MappingProxyType(dict(members))
-        for name, value in (
-            ("archive_dir", archive_dir),
-            ("report_identity", report_identity),
-            ("original_attempt_state", original_attempt_state),
-            ("reconstructed_classification", reconstructed_classification),
-            ("observed_instrument_fingerprint", observed_instrument_fingerprint),
-            ("forensic_instrument_fingerprint", forensic_instrument_fingerprint),
-            ("_snapshot_members", snapshot),
-        ):
-            object.__setattr__(report, name, value)
-        issued[report] = snapshot
-        return report
-
-    def consume(value: object) -> Mapping[str, bytes]:
-        if type(value) is not VerifiedResolutionForensicReport:
-            raise TypeError("closure-issued resolution forensic report required")
-        snapshot = issued.get(value)
-        if snapshot is None or snapshot != value._snapshot_members:
-            raise ValueError("resolution forensic report was not issued")
-        return snapshot
-
-    return issue, consume
-
-
-_issue_resolution_forensic_report, _consume_resolution_forensic_report = (
-    _build_forensic_report_capabilities()
-)
+@dataclass(frozen=True)
+class _VerifiedForensicReportSnapshot:
+    archive_dir: Path
+    report_identity: str
+    original_attempt_state: str
+    reconstructed_classification: str
+    observed_instrument_fingerprint: str
+    forensic_instrument_fingerprint: str
+    members: Mapping[str, bytes]
 
 
 def _build_forensic_capabilities():
@@ -3033,7 +2997,7 @@ def _canonical_forensic_report_destination(destination: Path) -> tuple[Path, Pat
     return canonical, candidate
 
 
-def _verify_resolution_forensic_report_archive(
+def _verify_resolution_forensic_report_archive_unsealed(
     archive_dir: Path,
     *,
     expected_identity: str,
@@ -3041,7 +3005,7 @@ def _verify_resolution_forensic_report_archive(
     require_location_binding: bool,
     official_destination: Path | None = None,
     require_executing_checkout: bool,
-) -> VerifiedResolutionForensicReport:
+) -> _VerifiedForensicReportSnapshot:
     archive, members, _physical_identity = _flat_snapshot(
         archive_dir,
         expected=_FORENSIC_REPORT_MEMBERS,
@@ -3102,6 +3066,8 @@ def _verify_resolution_forensic_report_archive(
         != "rook.lm9b_p.governed_resolution_forensic_observed_instrument:v1"
         or expected_historical_preflight_fingerprint
         != OBSERVED_PREFLIGHT_FINGERPRINT
+        or Path(str(observed.get("staging_path"))).resolve()
+        != OBSERVED_STAGING.resolve()
     ):
         raise ValueError("forensic observed instrument root differs")
     forensic_commit_sha = str(record["forensic_merge_sha"])
@@ -3141,7 +3107,7 @@ def _verify_resolution_forensic_report_archive(
         members["forensic-instrument.json"],
         "forensic instrument",
     )
-    return _issue_resolution_forensic_report(
+    return _VerifiedForensicReportSnapshot(
         archive_dir=archive,
         report_identity=report_identity,
         original_attempt_state=str(boundary["original_attempt_state"]),
@@ -3154,24 +3120,112 @@ def _verify_resolution_forensic_report_archive(
         forensic_instrument_fingerprint=str(
             forensic_instrument["forensic_instrument_fingerprint"]
         ),
-        members=members,
+        members=MappingProxyType(dict(members)),
     )
 
 
-def verify_resolution_forensic_report(
+def _build_forensic_report_verifier_capabilities():
+    issued: weakref.WeakKeyDictionary[
+        VerifiedResolutionForensicReport,
+        _VerifiedForensicReportSnapshot,
+    ] = weakref.WeakKeyDictionary()
+
+    def issue(snapshot: _VerifiedForensicReportSnapshot) -> VerifiedResolutionForensicReport:
+        report = object.__new__(VerifiedResolutionForensicReport)
+        for name, value in (
+            ("archive_dir", snapshot.archive_dir),
+            ("report_identity", snapshot.report_identity),
+            ("original_attempt_state", snapshot.original_attempt_state),
+            (
+                "reconstructed_classification",
+                snapshot.reconstructed_classification,
+            ),
+            (
+                "observed_instrument_fingerprint",
+                snapshot.observed_instrument_fingerprint,
+            ),
+            (
+                "forensic_instrument_fingerprint",
+                snapshot.forensic_instrument_fingerprint,
+            ),
+            ("_snapshot_members", snapshot.members),
+        ):
+            object.__setattr__(report, name, value)
+        issued[report] = snapshot
+        return report
+
+    def verify_public(
+        archive_dir: Path,
+        *,
+        expected_identity: str,
+        expected_historical_preflight_fingerprint: str,
+    ) -> VerifiedResolutionForensicReport:
+        snapshot = _verify_resolution_forensic_report_archive_unsealed(
+            archive_dir,
+            expected_identity=expected_identity,
+            expected_historical_preflight_fingerprint=(
+                expected_historical_preflight_fingerprint
+            ),
+            require_location_binding=True,
+            require_executing_checkout=True,
+        )
+        return issue(snapshot)
+
+    def consume(value: object) -> _VerifiedForensicReportSnapshot:
+        if type(value) is not VerifiedResolutionForensicReport:
+            raise TypeError("closure-issued resolution forensic report required")
+        snapshot = issued.get(value)
+        if snapshot is None:
+            raise ValueError("resolution forensic report was not issued")
+        expected = (
+            snapshot.archive_dir,
+            snapshot.report_identity,
+            snapshot.original_attempt_state,
+            snapshot.reconstructed_classification,
+            snapshot.observed_instrument_fingerprint,
+            snapshot.forensic_instrument_fingerprint,
+            snapshot.members,
+        )
+        observed = (
+            value.archive_dir,
+            value.report_identity,
+            value.original_attempt_state,
+            value.reconstructed_classification,
+            value.observed_instrument_fingerprint,
+            value.forensic_instrument_fingerprint,
+            value._snapshot_members,
+        )
+        if observed != expected:
+            raise ValueError("resolution forensic report issuance snapshot differs")
+        return snapshot
+
+    return verify_public, consume
+
+
+(
+    verify_resolution_forensic_report,
+    _consume_resolution_forensic_report,
+) = _build_forensic_report_verifier_capabilities()
+
+
+def _verify_resolution_forensic_report_candidate(
     archive_dir: Path,
     *,
     expected_identity: str,
     expected_historical_preflight_fingerprint: str,
-) -> VerifiedResolutionForensicReport:
-    return _verify_resolution_forensic_report_archive(
+    official_destination: Path,
+) -> _VerifiedForensicReportSnapshot:
+    """Verify unpublished bytes without issuing the official report carrier."""
+
+    return _verify_resolution_forensic_report_archive_unsealed(
         archive_dir,
         expected_identity=expected_identity,
         expected_historical_preflight_fingerprint=(
             expected_historical_preflight_fingerprint
         ),
-        require_location_binding=True,
-        require_executing_checkout=True,
+        require_location_binding=False,
+        official_destination=official_destination,
+        require_executing_checkout=False,
     )
 
 
@@ -3186,6 +3240,12 @@ def _physical_directory_present(path: Path) -> bool:
     return stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode) and not bool(
         attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     )
+
+
+def _atomic_publish_forensic_candidate(candidate: Path, destination: Path) -> None:
+    """Publish once through the platform's no-clobber directory rename."""
+
+    candidate.rename(destination)
 
 
 def reconcile_resolution_forensic_publication(
@@ -3251,7 +3311,10 @@ def write_resolution_forensic_report(
     if type(reconstruction) is not ResolutionForensicReconstruction:
         raise TypeError("resolution forensic reconstruction is required")
     capability = _consume_forensic_source(source)
+    if capability.source.staging_path != OBSERVED_STAGING.resolve():
+        raise ValueError("forensic report requires the official retained staging")
     repo = Path(repo_root).resolve()
+    _verify_executing_checkout(repo, forensic_commit_sha)
     final, candidate = _canonical_forensic_report_destination(destination)
     substantive = _derive_resolution_forensic_report_substantive_members(
         capability=capability,
@@ -3278,17 +3341,15 @@ def write_resolution_forensic_report(
                 stream.write(members[path])
                 stream.flush()
                 os.fsync(stream.fileno())
-        _verify_resolution_forensic_report_archive(
+        _verify_resolution_forensic_report_candidate(
             candidate,
             expected_identity=report_identity,
             expected_historical_preflight_fingerprint=(
                 OBSERVED_PREFLIGHT_FINGERPRINT
             ),
-            require_location_binding=False,
             official_destination=final,
-            require_executing_checkout=False,
         )
-        candidate.rename(final)
+        _atomic_publish_forensic_candidate(candidate, final)
         report = verify_resolution_forensic_report(
             final,
             expected_identity=report_identity,
@@ -3351,9 +3412,14 @@ __all__ = (
     "OBSERVED_PREFLIGHT_FINGERPRINT",
     "OBSERVED_STAGING",
     "ResolutionForensicReconstruction",
+    "ForensicReportPublicationResult",
+    "VerifiedResolutionForensicReport",
     "VerifiedHistoricalResolutionPreflightForensics",
     "VerifiedResolutionForensicSource",
     "load_verified_resolution_forensic_source",
+    "reconcile_resolution_forensic_publication",
     "reconstruct_resolution_forensic_candidate",
+    "verify_resolution_forensic_report",
     "verify_historical_resolution_preflight_forensics",
+    "write_resolution_forensic_report",
 )

@@ -1101,7 +1101,7 @@ assert verified.reconstructed_classification == (
 
 Expected red: report writer/verifier not implemented, not a source-verification failure.
 
-- [ ] **Step 2: Implement the seven-member non-circular report graph**
+- [x] **Step 2: Implement the seven-member non-circular report graph**
 
 Write exactly these substantive records:
 
@@ -1161,7 +1161,7 @@ checksums = {
 
 `checksums.json` is never included in `content_fingerprint`, `record.json`, or its own member list.
 
-- [ ] **Step 3: Close observed and forensic instrument records**
+- [x] **Step 3: Close observed and forensic instrument records**
 
 `observed-instrument.json` must bind:
 
@@ -1184,7 +1184,7 @@ checksums = {
 
 It must not state that the observed instrument contained the repaired profile.
 
-- [ ] **Step 4: Close boundary and reconstruction non-claims**
+- [x] **Step 4: Close boundary and reconstruction non-claims**
 
 Require exact `boundary.json` values:
 
@@ -1204,7 +1204,7 @@ Require exact `boundary.json` values:
 
 `reconstruction.json` contains derived call/gate/isolation/classification facts and exact fingerprints, not raw chain-of-thought, recommendations, or a retry identity.
 
-- [ ] **Step 5: Implement no-clobber atomic publication**
+- [x] **Step 5: Implement no-clobber atomic publication**
 
 Require an absolute canonical direct-child destination beneath a supplied forensic root, no reparse ambiguity, same filesystem, absent destination, and absent sibling candidate. Publication is:
 
@@ -1231,7 +1231,7 @@ class ForensicReportPublicationResult:
 
 Only `destination verifies AND candidate absent` yields `published` and a report carrier. Destination absent with retained candidate yields `unpublished`. Mixed, missing, reparse, or unverifiable states yield `publication_indeterminate`. Reconciliation never mutates a destination after rename begins.
 
-- [ ] **Step 6: Write report identity and reconciliation mutation tables**
+- [x] **Step 6: Write report identity and reconciliation mutation tables**
 
 Fully reclose:
 
@@ -1252,11 +1252,11 @@ Fully reclose:
 
 Prove a later physically verified destination can issue a report carrier after a reported exception, while unresolved ambiguity issues none. No failure handler writes into the published destination.
 
-- [ ] **Step 7: Prove report types cannot cross checkpoint/ready/compiler boundaries**
+- [x] **Step 7: Prove report types cannot cross checkpoint/ready/compiler boundaries**
 
 Pass `VerifiedResolutionForensicReport`, `ForensicReportPublicationResult`, and `ResolutionForensicReconstruction` to checkpoint sealing, ready-proof issuance/consumption, retry/reservation, and compiler continuation. Patch downstream entry points to count calls. Require exact-type refusal and zero calls.
 
-- [ ] **Step 8: Run focused tests and commit**
+- [x] **Step 8: Run focused tests and commit**
 
 ```powershell
 & C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
