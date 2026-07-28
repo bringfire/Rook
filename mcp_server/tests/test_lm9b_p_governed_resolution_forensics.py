@@ -461,6 +461,23 @@ def test_task4_public_reconstruction_refuses_dirty_or_alternate_checkout(
         )
 
 
+def test_task4_every_execution_identity_path_materializes_as_lf() -> None:
+    """Clean Windows checkout bytes must equal the reviewed Git blobs."""
+
+    module = _load_forensics()
+    for relative in module._FORENSIC_EXECUTION_PATHS:
+        if not relative.endswith((".py", ".json")):
+            continue
+        result = subprocess.run(
+            ["git", "check-attr", "eol", "--", relative],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert result.endswith(": eol: lf"), relative
+
+
 def test_task4_forensic_capabilities_are_unforgeable_and_inert(
     tmp_path: Path,
 ) -> None:
