@@ -711,6 +711,13 @@ materialization through it. Keep the existing Planner controller's historical
 materializer as the default for first-authorship callers; resolution supplies
 the profile-aware callback explicitly.
 
+The shared controller must canonically serialize every non-`None` callback
+result and require exact equality with its own `PlannerProviderCallPlan`
+request bytes before entering the provider. A substituted callback value is an
+instrument error with zero provider calls. The historical no-callback path
+continues to use the existing 1 MiB materializer and must remain byte-equal to
+the controller call plan.
+
 Prove the transition with genuine, builder-produced requests rather than a
 patched admission decision:
 

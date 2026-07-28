@@ -1659,6 +1659,16 @@ def run_planner_session(
             request = provider_request_materializer(request_bytes, turn_index)
             if request is None:
                 return finish("provider_failure")
+            materialized_bytes = json.dumps(
+                request,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            if materialized_bytes != request_bytes:
+                raise ValueError(
+                    "materialized Planner request differs from call plan"
+                )
         turn_started = monotonic()
         try:
             outcome = _bounded_provider_call(

@@ -1047,7 +1047,10 @@ class _PlannerProvider:
 
 
 def _planner_session(
-    provider: object, *, monotonic: object | None = None
+    provider: object,
+    *,
+    monotonic: object | None = None,
+    **overrides: object,
 ):
     authority = _authority()
     values: dict[str, object] = {
@@ -1061,6 +1064,7 @@ def _planner_session(
     }
     if monotonic is not None:
         values["monotonic"] = monotonic
+    values.update(overrides)
     return SUPPORT.run_planner_session(**values)
 
 
@@ -1322,6 +1326,52 @@ def test_planner_session_bounds_are_not_caller_overridable() -> None:
         request["max_completion_tokens"] == SUPPORT.PLANNER_MAX_COMPLETION_TOKENS
         and request["provider_timeout_s"] == SUPPORT.PLANNER_PROVIDER_TIMEOUT_S
         for request in provider.requests
+    )
+
+
+def test_planner_session_refuses_materializer_output_unbound_to_call_plan() -> None:
+    """Catches an injected materializer substituting controller request content."""
+
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    provider = _PlannerProvider(
+        [_planner_turn(tool_calls=[_planner_tool_call(recipe_text)])]
+    )
+
+    with pytest.raises(
+        ValueError, match="materialized Planner request differs from call plan"
+    ):
+        _planner_session(
+            provider,
+            provider_request_materializer=(
+                lambda _raw_bytes, _turn_index: {"substituted": True}
+            ),
+        )
+
+    assert provider.requests == []
+
+
+def test_planner_session_historical_default_matches_controller_call_plan() -> None:
+    """Catches the callback guard changing the historical default path."""
+
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    provider = _PlannerProvider(
+        [_planner_turn(tool_calls=[_planner_tool_call(recipe_text)])]
+    )
+    plans: list[object] = []
+
+    result = _planner_session(provider, call_plan_observer=plans.append)
+
+    assert result.termination == "mechanically_accepted"
+    assert len(plans) == 1
+    assert len(provider.requests) == 1
+    assert (
+        json.dumps(
+            provider.requests[0],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        == plans[0].request_bytes
     )
 
 
