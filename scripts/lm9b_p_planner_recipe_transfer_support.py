@@ -1608,6 +1608,9 @@ def run_planner_session(
     monotonic: Callable[[], float] = time.monotonic,
     call_plan_observer: Callable[[PlannerProviderCallPlan], None] | None = None,
     call_completion_observer: Callable[[bool], None] | None = None,
+    provider_request_materializer: (
+        Callable[[bytes, int], dict[str, object] | None] | None
+    ) = None,
 ) -> PlannerSessionResult:
     """Run one bounded Planner session with deterministic mechanical feedback."""
 
@@ -1650,7 +1653,22 @@ def run_planner_session(
             call_plan_observer(call_plan)
         call_timeout_s = call_plan.provider_timeout_s
         request_bytes = call_plan.request_bytes
-        request = materialize_planner_provider_call_request(request_bytes)
+        if provider_request_materializer is None:
+            request = materialize_planner_provider_call_request(request_bytes)
+        else:
+            request = provider_request_materializer(request_bytes, turn_index)
+            if request is None:
+                return finish("provider_failure")
+            materialized_bytes = json.dumps(
+                request,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            if materialized_bytes != request_bytes:
+                raise ValueError(
+                    "materialized Planner request differs from call plan"
+                )
         turn_started = monotonic()
         try:
             outcome = _bounded_provider_call(

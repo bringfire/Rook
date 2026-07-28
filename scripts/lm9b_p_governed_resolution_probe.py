@@ -28,6 +28,7 @@ for _import_path in (_SCRIPTS_DIR, _MCP_SRC):
         sys.path.insert(0, str(_import_path))
 
 import lm9b_p_governed_resolution_artifacts as ARTIFACTS
+import lm9b_p_governed_resolution_archive_evidence as ARCHIVE_EVIDENCE
 import lm9b_p_governed_resolution_support as SUPPORT
 import lm9b_c_compiler_sufficiency_probe as PROVIDER_ADAPTER
 import lm9b_p_planner_recipe_transfer_artifacts as PLANNER_ARTIFACTS
@@ -197,6 +198,7 @@ class _StagedCallLedger:
         invocation_binding: Mapping[str, object],
         readiness_record: Mapping[str, object],
         readiness_verified_at: str,
+        archive_resource_profile: object,
     ) -> None:
         self._preflight = preflight
         self._runtime = preflight.attempt.staging_path / ".resolution-runtime"
@@ -209,6 +211,8 @@ class _StagedCallLedger:
         self._adapter_identity_failures: set[int] = set()
         self._adapter_evidence_failures: dict[int, str] = {}
         self._response_capture_failures: dict[int, str] = {}
+        self._dispatch_request_failures: dict[str, str] = {}
+        self._archive_resource_profile = archive_resource_profile
         self._planner_call_plans: list[
             PLANNER_SUPPORT.PlannerProviderCallPlan
         ] = []
@@ -277,6 +281,23 @@ class _StagedCallLedger:
                 raise ValueError("multiple response capture failures were recorded")
             return None if not failures else failures[0]
 
+    def dispatch_request_failure_for_role(self, role: str) -> str | None:
+        with self._dispatch_lock:
+            return self._dispatch_request_failures.get(role)
+
+    def record_dispatch_request_overflow(
+        self,
+        *,
+        role: str,
+        overflow: ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow,
+    ) -> None:
+        if role not in {"planner", "planner_evaluator"}:
+            raise ValueError("unregistered resolution provider role")
+        with self._dispatch_lock:
+            self._dispatch_request_failures[role] = (
+                f"{role}_dispatch_request_overflow:{overflow.field}"
+            )
+
     def role_dispatch_complete(self, role: str) -> bool:
         with self._dispatch_lock:
             rows = [row for row in self._rows if row["role"] == role]
@@ -306,6 +327,8 @@ class _StagedCallLedger:
                 for index in sorted(self._active_calls)
                 if self._rows[index]["role"] == role
             ]
+            if not active and role in self._dispatch_request_failures:
+                return
             if len(active) != 1:
                 raise ValueError("provider call completion has no unique dispatch")
             if not quiescent:
@@ -329,7 +352,7 @@ class _StagedCallLedger:
         provider: Callable[[dict[str, object]], object],
         *,
         role: str,
-        materialize: Callable[[bytes], dict[str, object]],
+        materialize: Callable[[bytes, int], dict[str, object]],
         expected_response_identity: Mapping[str, object],
     ) -> Callable[[dict[str, object]], object]:
         if role not in {"planner", "planner_evaluator"}:
@@ -337,20 +360,47 @@ class _StagedCallLedger:
 
         def invoke(request: dict[str, object]) -> object:
             request_bytes = _canonical_bytes(copy.deepcopy(request))
-            # The role-specific materializer replays the code-owned builder and
-            # rejects drift before the irreversible dispatch marker.
-            materialize(request_bytes)
             role_contract = self._preflight.record["instrument_contracts"][
                 "planner" if role == "planner" else "evaluator"
             ]
             with self._dispatch_lock:
                 if not self._role_open[role]:
                     raise RuntimeError("resolution role dispatch is closed")
+                ordinal = (
+                    len(self._planner_call_plans)
+                    if role == "planner"
+                    else 1
+                )
+                try:
+                    # The governed materializer replays the code-owned builder
+                    # under the same role/ordinal profile used by reconstruction.
+                    request_value_for_admission = materialize(
+                        request_bytes, ordinal
+                    )
+                    adapter_request_bytes = (
+                        PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
+                            model=role_contract["model"],
+                            temperature=role_contract["temperature"],
+                            provider_request=request_value_for_admission,
+                        )
+                    )
+                    ARCHIVE_EVIDENCE.validate_resolution_dispatch_request(
+                        role=role,
+                        ordinal=ordinal,
+                        canonical_request_bytes=request_bytes,
+                        adapter_request_bytes=adapter_request_bytes,
+                        profile=self._archive_resource_profile,
+                    )
+                except ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow as exc:
+                    self._dispatch_request_failures[role] = (
+                        f"{role}_dispatch_request_overflow:{exc.field}"
+                    )
+                    raise
                 call_index = len(self._rows)
                 prefix = f"{call_index:02d}-{role}"
                 request_path = self._calls / f"{prefix}-request.json"
                 self._persist_and_reread(request_path, request_bytes)
-                request_value = materialize(request_path.read_bytes())
+                request_value = materialize(request_path.read_bytes(), ordinal)
                 deadline_state = None
                 if role == "planner":
                     if len(self._planner_call_plans) != call_index + 1:
@@ -475,6 +525,21 @@ class _StagedCallLedger:
                                 if raw_request != expected_request
                                 else ""
                             )
+                        if not evidence_failure:
+                            try:
+                                ARCHIVE_EVIDENCE.validate_resolution_captured_turn(
+                                    row=terminal,
+                                    profile=self._archive_resource_profile,
+                                )
+                            except (
+                                ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow
+                            ) as overflow:
+                                with self._dispatch_lock:
+                                    self._response_capture_failures[call_index] = (
+                                        f"{role}_archive_evidence_overflow:"
+                                        f"{overflow.field}"
+                                    )
+                                raise
                 with self._dispatch_lock:
                     if evidence_failure:
                         self._adapter_evidence_failures[call_index] = evidence_failure
@@ -500,6 +565,17 @@ class _StagedCallLedger:
                         self._calls / f"{prefix}-adapter-response.bin",
                         response.raw_response,
                     )
+                    try:
+                        projected_message = (
+                            PROVIDER_ADAPTER.project_litellm_assistant_message(
+                                response.raw_response
+                            )
+                        )
+                    except (TypeError, ValueError):
+                        projected_message = None
+                    provider_assistant_message = PLANNER_SUPPORT._json_builtins(
+                        response.assistant_message
+                    )
                     captured = {
                         "provider_claimed_raw_request_b64": base64.b64encode(
                             response.raw_request
@@ -514,13 +590,27 @@ class _StagedCallLedger:
                             response.raw_response
                         ),
                         "assistant_message": PLANNER_SUPPORT._json_builtins(
-                            response.assistant_message
+                            projected_message
                         ),
                         "usage": PLANNER_SUPPORT._json_builtins(response.usage),
                         "provider_metadata": PLANNER_SUPPORT._json_builtins(
                             response.provider_metadata
                         ),
                     }
+                    terminal.update(captured)
+                    ARCHIVE_EVIDENCE.validate_resolution_captured_turn(
+                        row=terminal,
+                        profile=self._archive_resource_profile,
+                    )
+                except (
+                    ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow
+                ) as overflow:
+                    failure_locus = (
+                        f"{role}_archive_evidence_overflow:{overflow.field}"
+                    )
+                    with self._dispatch_lock:
+                        self._response_capture_failures[call_index] = failure_locus
+                    raise
                 except BaseException:
                     failure_locus = (
                         "planner_response_capture_failure"
@@ -530,16 +620,7 @@ class _StagedCallLedger:
                     with self._dispatch_lock:
                         self._response_capture_failures[call_index] = failure_locus
                     raise
-                terminal.update(captured)
-                try:
-                    projected_message = (
-                        PROVIDER_ADAPTER.project_litellm_assistant_message(
-                            response.raw_response
-                        )
-                    )
-                except (TypeError, ValueError):
-                    projected_message = None
-                if projected_message != response.assistant_message:
+                if projected_message != provider_assistant_message:
                     terminal.update(
                         {
                             "outcome": "raised",
@@ -668,6 +749,13 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
     )
     if preflight.attempt.destination.exists() or preflight.attempt.staging_path.exists():
         raise FileExistsError("resolution destination or staging already exists")
+    archive_resource_profile = ARTIFACTS._verified_resolution_archive_profile(
+        preflight
+    )
+    ARTIFACTS.validate_initial_resolution_dispatch(
+        instrument=preflight.instrument,
+        archive_resource_profile=archive_resource_profile,
+    )
     role_adapters = _derive_resolution_role_adapters(
         preflight=preflight,
         readiness_manifest=readiness_manifest,
@@ -686,11 +774,32 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         invocation_binding=expected_invocation,
         readiness_record=readiness_record,
         readiness_verified_at=_kwargs["now_iso"],
+        archive_resource_profile=archive_resource_profile,
     )
+
+    def materialize_planner_request(
+        raw_bytes: bytes, ordinal: int
+    ) -> dict[str, object]:
+        return ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role="planner",
+            ordinal=ordinal,
+            raw_bytes=raw_bytes,
+            profile=archive_resource_profile,
+        )
+
+    def materialize_planner_request_for_controller(
+        raw_bytes: bytes, ordinal: int
+    ) -> dict[str, object] | None:
+        try:
+            return materialize_planner_request(raw_bytes, ordinal)
+        except ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow as exc:
+            ledger.record_dispatch_request_overflow(role="planner", overflow=exc)
+            return None
+
     planner_provider = ledger.wrap(
         planner_adapter,
         role="planner",
-        materialize=PLANNER_SUPPORT.materialize_planner_provider_call_request,
+        materialize=materialize_planner_request,
         expected_response_identity=planner_response_identity,
     )
     inputs = preflight.instrument.inputs
@@ -706,9 +815,24 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         call_completion_observer=lambda quiescent: ledger.complete_quiescent_call(
             "planner", quiescent
         ),
+        provider_request_materializer=materialize_planner_request_for_controller,
     )
     ledger.close_role("planner")
     planner_stop = _planner_stop_cause(planner_session)
+    planner_request_failure = ledger.dispatch_request_failure_for_role("planner")
+    if planner_request_failure is not None:
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=None,
+            isolation_result=None,
+            checkpoint_gate=None,
+            candidate_recipe_bytes=None,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause=planner_request_failure,
+            state="post_dispatch_unsealed",
+        )
     if ledger.has_adapter_identity_failure:
         return _attempt_result(
             preflight=preflight,
@@ -843,25 +967,75 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
             user_prompt=rendered_evaluator.raw_bytes.decode("utf-8"),
         )
     )
+
+    def materialize_evaluator_request(
+        raw_bytes: bytes, ordinal: int
+    ) -> dict[str, object]:
+        return ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role="planner_evaluator",
+            ordinal=ordinal,
+            raw_bytes=raw_bytes,
+            profile=archive_resource_profile,
+        )
+
+    try:
+        materialized_evaluator_request = materialize_evaluator_request(
+            evaluator_request_bytes, 1
+        )
+    except ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow as exc:
+        ledger.record_dispatch_request_overflow(
+            role="planner_evaluator", overflow=exc
+        )
+        ledger.close_role("planner_evaluator")
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=None,
+            isolation_result=isolation,
+            checkpoint_gate=checkpoint_gate,
+            candidate_recipe_bytes=candidate_raw,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause=(
+                ledger.dispatch_request_failure_for_role("planner_evaluator")
+            ),
+            state="post_dispatch_unsealed",
+        )
+
     def evaluator_provider(request: dict[str, object]) -> object:
         return evaluator_adapter(request)
 
     staged_evaluator_provider = ledger.wrap(
         evaluator_provider,
         role="planner_evaluator",
-        materialize=(
-            PLANNER_SUPPORT.materialize_planner_evaluator_provider_call_request
-        ),
+        materialize=materialize_evaluator_request,
         expected_response_identity=evaluator_response_identity,
     )
     evaluator_result = PLANNER_SUPPORT.run_planner_evaluation(
         provider=staged_evaluator_provider,
         provider_call_request_bytes=evaluator_request_bytes,
+        materialized_request=materialized_evaluator_request,
     )
     ledger.complete_quiescent_call(
         "planner_evaluator", evaluator_result.quiescent
     )
     ledger.close_role("planner_evaluator")
+    evaluator_request_failure = ledger.dispatch_request_failure_for_role(
+        "planner_evaluator"
+    )
+    if evaluator_request_failure is not None:
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=evaluator_result,
+            isolation_result=isolation,
+            checkpoint_gate=checkpoint_gate,
+            candidate_recipe_bytes=candidate_raw,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause=evaluator_request_failure,
+            state="post_dispatch_unsealed",
+        )
     if ledger.has_adapter_identity_failure:
         return _attempt_result(
             preflight=preflight,
