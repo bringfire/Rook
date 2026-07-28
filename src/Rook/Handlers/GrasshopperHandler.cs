@@ -10,6 +10,13 @@ using Rook.InternalBridge;
 
 namespace Rook.Handlers
 {
+    internal readonly struct GhOpenDocumentPreflightResult
+    {
+        public bool Success { get; init; }
+        public string? Path { get; init; }
+        public string? ErrorCode { get; init; }
+    }
+
     /// <summary>
     /// Handler for direct Grasshopper canvas manipulation via reflection.
     /// Provides MCP tools for creating and managing GH components without external dependencies.
@@ -17,25 +24,25 @@ namespace Rook.Handlers
     public partial class GrasshopperHandler
     {
         private readonly IGrasshopperCore _bridgeCore;
-        private readonly GhSolveReadinessCoordinator _solveReadinessCoordinator;
+        private readonly Func<bool> _runningAsRhinoInside;
         private Assembly? _ghAssembly;
         private readonly object _lock = new();
         private readonly ShortIdRegistry _idRegistry = new();
 
         public GrasshopperHandler()
-            : this(null, null, null, null, null)
+            : this(null, () => Rhino.Runtime.HostUtils.RunningAsRhinoInside, null, null, null)
         {
         }
 
         internal GrasshopperHandler(
             IGrasshopperCore? bridgeCore = null,
-            GhSolveReadinessCoordinator? solveReadinessCoordinator = null,
+            Func<bool>? runningAsRhinoInside = null,
             GhSolveReceiptRegistry? solveReceiptRegistry = null,
             GhSolutionLifecycleAdapter? solutionLifecycleAdapter = null,
             GhCanvasDocumentLifecycleAdapter? canvasDocumentLifecycleAdapter = null)
         {
             _bridgeCore = bridgeCore ?? new GrasshopperCore();
-            _solveReadinessCoordinator = solveReadinessCoordinator ?? new GhSolveReadinessCoordinator();
+            _runningAsRhinoInside = runningAsRhinoInside ?? (() => Rhino.Runtime.HostUtils.RunningAsRhinoInside);
             _solveReceiptRegistry = solveReceiptRegistry ?? new GhSolveReceiptRegistry();
             _solutionLifecycleAdapter = solutionLifecycleAdapter ?? new GhSolutionLifecycleAdapter();
             _canvasDocumentLifecycleAdapter = canvasDocumentLifecycleAdapter ?? new GhCanvasDocumentLifecycleAdapter();
@@ -51,11 +58,10 @@ namespace Rook.Handlers
             var status = _bridgeCore.GetStatus();
             if (status.Success && status.Data != null)
             {
-                var telemetry = _solveReadinessCoordinator.LatestTelemetry;
-                status.Data.RirRepairAttempted = telemetry.RepairAttempted;
-                status.Data.RirRepairHeld = telemetry.RepairHeld;
-                status.Data.RirRepairReason = telemetry.Reason;
-                status.Data.RirRepairSource = telemetry.Source;
+                status.Data.RirRepairAttempted = false;
+                status.Data.RirRepairHeld = false;
+                status.Data.RirRepairReason = null;
+                status.Data.RirRepairSource = null;
             }
 
             return ToApiResponse(status);
@@ -95,7 +101,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_selection", null, gh.Error);
 
@@ -171,7 +177,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_create_slider", null, gh.Error);
 
@@ -288,7 +294,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_create_panel", null, gh.Error);
 
@@ -381,7 +387,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_get_value", null, gh.Error);
 
@@ -511,7 +517,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_set_value", null, gh.Error);
 
@@ -731,7 +737,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_set_script", null, gh.Error);
 
@@ -869,9 +875,9 @@ namespace Rook.Handlers
                         return new ApiResponse { Success = false, Data = $"SetSource not available on {typeName}" };
                     }
 
-                    // Safe-solve policy: mark dirty (no sync recompute) + async schedule when enabled.
-                    // NEVER request synchronous expiration here; that re-enters the solver and crashes a locked canvas.
-                    var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    // Mark dirty without recompute before restoring metadata. Scheduling
+                    // waits until the restored descriptions have been read back.
+                    ExpirePostMutationDirtyObjects(new[] { obj });
 
                     // Restore saved descriptions — must happen AFTER recompile + ExpireSolution
                     // or they get clobbered back to framework defaults.
@@ -902,8 +908,14 @@ namespace Rook.Handlers
                             skipFirstN: 1); // skip 'out' print stream
                     }
 
-                    // Repaint only — the safe-solve helper already owns scheduling (avoid a second solve).
+                    // Repaint only, then request exactly one asynchronous solve after
+                    // all response-authoritative metadata has been restored.
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
+                    var solveResult = RequestPostMutationSolve(
+                        gh.Document!,
+                        new[] { obj },
+                        requestSolve: true,
+                        expireDirtyObjects: false);
 
                     return new ApiResponse
                     {
@@ -919,11 +931,18 @@ namespace Rook.Handlers
                             RestoredOutputDescriptions = restoredOutputDescriptions,
                             DroppedOutputDescriptions = droppedOutputDescriptions,
                             Warnings = restoreWarnings,
-                            solve_scheduled = solveOutcome.SolveScheduled,
-                            solver_locked = solveOutcome.SolverLocked,
-                            solver_state_known = solveOutcome.SolverStateKnown,
-                            verification_deferred = solveOutcome.VerificationDeferred,
-                            solve_warnings = solveOutcome.Warnings
+                            schedule_classification = GhScheduleWire.ToWire(solveResult.ScheduleClassification),
+                            schedule_acceptance = GhScheduleWire.ToWire(solveResult.ScheduleAcceptance),
+                            schedule_failure_code = solveResult.ScheduleFailureCode.HasValue
+                                ? GhScheduleWire.ToWire(solveResult.ScheduleFailureCode.Value)
+                                : null,
+                            solve_scheduled = solveResult.SolveScheduled,
+                            registration_known = solveResult.RegistrationKnown,
+                            document_registered = solveResult.DocumentRegistered,
+                            solver_locked = solveResult.SolverLocked,
+                            solver_state_known = solveResult.SolverStateKnown,
+                            verification_deferred = solveResult.VerificationDeferred,
+                            solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray()
                         }
                     };
                 }
@@ -1337,7 +1356,7 @@ namespace Rook.Handlers
 
             try
             {
-                var gh = GetGrasshopper(createDocumentIfMissing: false);
+                var gh = GetGrasshopper();
                 if (!gh.Success)
                     return GrasshopperNotReadyResponse("gh_set_script_pins", null, gh.Error);
 
@@ -1729,7 +1748,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_set_reference", null, gh.Error);
 
@@ -1982,7 +2001,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_get_reference", null, gh.Error);
 
@@ -2075,7 +2094,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_clear_reference", null, gh.Error);
 
@@ -2202,7 +2221,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_connections", null, gh.Error);
 
@@ -2429,7 +2448,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_delete", null, gh.Error);
 
@@ -2545,7 +2564,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_preview", null, gh.Error);
 
@@ -2652,7 +2671,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_move", null, gh.Error);
 
@@ -2783,7 +2802,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_group", null, gh.Error);
 
@@ -2906,7 +2925,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_cluster", null, gh.Error);
 
@@ -3063,7 +3082,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_clear", null, gh.Error);
 
@@ -3129,7 +3148,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_undo", null, gh.Error);
 
@@ -3374,93 +3393,187 @@ namespace Rook.Handlers
         /// POST /gh/document/open - Open a GH or GHX file
         /// Body: { path: string }
         /// </summary>
-        public ApiResponse OpenDocument(string? body)
+        internal static GhOpenDocumentPreflightResult PreflightOpenDocument(string? body)
         {
-            if (string.IsNullOrEmpty(body))
-                return new ApiResponse { Success = false, Data = "Request body required with 'path'" };
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return new GhOpenDocumentPreflightResult
+                {
+                    Success = false,
+                    ErrorCode = "gh_open_request_body_required",
+                };
+            }
 
             try
             {
                 var json = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(body);
                 if (json == null || !json.TryGetValue("path", out var pathElement))
-                    return new ApiResponse { Success = false, Data = "Missing 'path' parameter" };
+                {
+                    return new GhOpenDocumentPreflightResult
+                    {
+                        Success = false,
+                        ErrorCode = "gh_open_path_missing",
+                    };
+                }
 
-                var filePath = pathElement.GetString();
-                if (string.IsNullOrEmpty(filePath))
-                    return new ApiResponse { Success = false, Data = "Empty 'path' parameter" };
+                if (pathElement.ValueKind != JsonValueKind.String)
+                {
+                    return new GhOpenDocumentPreflightResult
+                    {
+                        Success = false,
+                        ErrorCode = "gh_open_path_invalid",
+                    };
+                }
 
-                if (!System.IO.File.Exists(filePath))
-                    return new ApiResponse { Success = false, Data = $"File not found: {filePath}" };
+                var path = pathElement.GetString();
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    return new GhOpenDocumentPreflightResult
+                    {
+                        Success = false,
+                        ErrorCode = "gh_open_path_empty",
+                    };
+                }
 
-                var gh = GetGrasshopper();
-                if (!gh.Success)
-                    return new ApiResponse { Success = false, Data = gh.Error };
+                if (!File.Exists(path))
+                {
+                    return new GhOpenDocumentPreflightResult
+                    {
+                        Success = false,
+                        ErrorCode = "gh_open_file_not_found",
+                    };
+                }
 
-                // Get GH_DocumentIO type for file operations
-                var docIOType = gh.Assembly!.GetType("Grasshopper.Kernel.GH_DocumentIO");
-                if (docIOType == null)
-                    return new ApiResponse { Success = false, Data = "GH_DocumentIO type not found" };
-
-                // Create a new GH_DocumentIO instance
-                var docIO = Activator.CreateInstance(docIOType);
-                if (docIO == null)
-                    return new ApiResponse { Success = false, Data = "Failed to create GH_DocumentIO" };
-
-                // Call Open(string path) method - this reads the file and creates a document
-                var openMethod = docIOType.GetMethod("Open", new[] { typeof(string) });
-                if (openMethod == null)
-                    return new ApiResponse { Success = false, Data = "GH_DocumentIO.Open method not found" };
-
-                var openResult = openMethod.Invoke(docIO, new object[] { filePath });
-                if (openResult is bool success && !success)
-                    return new ApiResponse { Success = false, Data = $"Failed to open file: {filePath}" };
-
-                // Get the loaded document from GH_DocumentIO.Document property
-                var documentProp = docIOType.GetProperty("Document");
-                var newDocument = documentProp?.GetValue(docIO);
-                if (newDocument == null)
-                    return new ApiResponse { Success = false, Data = "Document was not loaded from file" };
-
-                // Set the document on the active canvas
-                var canvasDocProp = gh.Canvas!.GetType().GetProperty("Document");
-                canvasDocProp?.SetValue(gh.Canvas, newDocument);
-                EnsureReadinessSession(newDocument, gh.Canvas!);
-
-                // Reset short ID registry for new document
-                _idRegistry.Clear();
-
-                _solveReadinessCoordinator.MarkRookManagedDocument(newDocument, "gh_document_open");
-
-                // Refresh the canvas
-                RefreshCanvas(gh.Canvas);
-
-                // Get object count from new document
-                var objectCount = 0;
-                var objectsProp = newDocument.GetType().GetProperty("Objects");
-                var objects = objectsProp?.GetValue(newDocument) as System.Collections.IEnumerable;
-                if (objects != null)
-                    objectCount = objects.Cast<object>().Count();
-
-                return new ApiResponse
+                return new GhOpenDocumentPreflightResult
                 {
                     Success = true,
-                    Data = new
-                    {
-                        Opened = true,
-                        Path = filePath,
-                        FileName = System.IO.Path.GetFileName(filePath),
-                        ObjectCount = objectCount
-                    }
+                    Path = path,
                 };
             }
-            catch (Exception ex)
+            catch
+            {
+                return new GhOpenDocumentPreflightResult
+                {
+                    Success = false,
+                    ErrorCode = "gh_open_request_invalid",
+                };
+            }
+        }
+
+        public ApiResponse OpenDocument(string? body)
+        {
+            var preflight = PreflightOpenDocument(body);
+            if (!preflight.Success)
             {
                 return new ApiResponse
                 {
                     Success = false,
-                    Data = $"OpenDocument failed: {ex.Message}"
+                    Data = preflight.ErrorCode,
                 };
             }
+
+            var gh = GetGrasshopper(requireDocument: false);
+            if (!gh.Success)
+                return new ApiResponse { Success = false, Data = gh.Error };
+
+            var lifecycle = new GhDocumentLifecycle();
+            var lifecycleResult = lifecycle.Open(preflight.Path!);
+            if (!lifecycleResult.Committed)
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = new
+                    {
+                        error = GhDocumentLifecycleWire.Code(lifecycleResult.Code),
+                        document_registered = lifecycleResult.DocumentRegistered,
+                        document_active = lifecycleResult.DocumentActive,
+                        rollback_attempted = lifecycleResult.RollbackAttempted,
+                        rollback_incomplete = lifecycleResult.RollbackIncomplete,
+                    },
+                };
+            }
+
+            var newDocument = lifecycleResult.Document!;
+            var capturedCanvas = lifecycleResult.CapturedCanvas!;
+            try
+            {
+                EnsureReadinessSession(newDocument, capturedCanvas);
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ReadinessAttachmentFailed);
+            }
+
+            try
+            {
+                _idRegistry.Clear();
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.IdRegistryResetFailed);
+            }
+
+            try
+            {
+                RefreshCanvas(capturedCanvas, scheduleSolution: false);
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.CanvasRefreshFailed);
+            }
+
+            int? ObjectCount = null;
+            try
+            {
+                var objectsProp = newDocument.GetType().GetProperty("Objects");
+                if (objectsProp == null)
+                {
+                    lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+                }
+                else if (objectsProp.GetValue(newDocument) is System.Collections.IEnumerable objects)
+                {
+                    ObjectCount = objects.Cast<object>().Count();
+                }
+                else
+                {
+                    lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+                }
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+            }
+
+            string[] lifecycleWarnings;
+            try
+            {
+                lifecycleWarnings = lifecycleResult.Warnings
+                    .Select(GhDocumentLifecycleWire.Warning)
+                    .ToArray();
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.TelemetryProjectionFailed);
+                lifecycleWarnings = new[] { "telemetry_projection_failed" };
+            }
+
+            return new ApiResponse
+            {
+                Success = true,
+                Data = new
+                {
+                    Opened = true,
+                    Path = preflight.Path,
+                    FileName = System.IO.Path.GetFileName(preflight.Path),
+                    ObjectCount,
+                    DocumentRegistered = lifecycleResult.DocumentRegistered,
+                    DocumentActive = lifecycleResult.DocumentActive,
+                    RegistrationIndex = lifecycleResult.RegistrationIndex,
+                    existingDocumentReused = lifecycleResult.PathAlreadyRegistered,
+                    Warnings = lifecycleWarnings,
+                },
+            };
         }
 
         /// <summary>
@@ -3468,52 +3581,106 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse NewDocument()
         {
-            var gh = GetGrasshopper();
+            var gh = GetGrasshopper(requireDocument: false);
             if (!gh.Success)
                 return new ApiResponse { Success = false, Data = gh.Error };
 
-            try
-            {
-                // Create a new GH_Document
-                var docType = gh.Assembly!.GetType("Grasshopper.Kernel.GH_Document");
-                if (docType == null)
-                    return new ApiResponse { Success = false, Data = "GH_Document type not found" };
-
-                var newDocument = Activator.CreateInstance(docType);
-                if (newDocument == null)
-                    return new ApiResponse { Success = false, Data = "Failed to create new GH_Document" };
-
-                // Set the document on the active canvas
-                var canvasDocProp = gh.Canvas!.GetType().GetProperty("Document");
-                canvasDocProp?.SetValue(gh.Canvas, newDocument);
-                EnsureReadinessSession(newDocument, gh.Canvas!);
-
-                // Reset short ID registry for new document
-                _idRegistry.Clear();
-
-                _solveReadinessCoordinator.MarkRookManagedDocument(newDocument, "gh_document_new");
-
-                // Refresh the canvas
-                RefreshCanvas(gh.Canvas);
-
-                return new ApiResponse
-                {
-                    Success = true,
-                    Data = new
-                    {
-                        Created = true,
-                        Message = "New empty document created"
-                    }
-                };
-            }
-            catch (Exception ex)
+            var lifecycle = new GhDocumentLifecycle();
+            var lifecycleResult = lifecycle.CreateNew();
+            if (!lifecycleResult.Committed)
             {
                 return new ApiResponse
                 {
                     Success = false,
-                    Data = $"NewDocument failed: {ex.Message}"
+                    Data = new
+                    {
+                        error = GhDocumentLifecycleWire.Code(lifecycleResult.Code),
+                        document_registered = lifecycleResult.DocumentRegistered,
+                        document_active = lifecycleResult.DocumentActive,
+                        rollback_attempted = lifecycleResult.RollbackAttempted,
+                        rollback_incomplete = lifecycleResult.RollbackIncomplete,
+                    },
                 };
             }
+
+            var newDocument = lifecycleResult.Document!;
+            var capturedCanvas = lifecycleResult.CapturedCanvas!;
+            try
+            {
+                EnsureReadinessSession(newDocument, capturedCanvas);
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ReadinessAttachmentFailed);
+            }
+
+            try
+            {
+                _idRegistry.Clear();
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.IdRegistryResetFailed);
+            }
+
+            try
+            {
+                RefreshCanvas(capturedCanvas, scheduleSolution: false);
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.CanvasRefreshFailed);
+            }
+
+            int? ObjectCount = null;
+            try
+            {
+                var objectsProp = newDocument.GetType().GetProperty("Objects");
+                if (objectsProp == null)
+                {
+                    lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+                }
+                else if (objectsProp.GetValue(newDocument) is System.Collections.IEnumerable objects)
+                {
+                    ObjectCount = objects.Cast<object>().Count();
+                }
+                else
+                {
+                    lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+                }
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.ObjectCountFailed);
+            }
+
+            string[] lifecycleWarnings;
+            try
+            {
+                lifecycleWarnings = lifecycleResult.Warnings
+                    .Select(GhDocumentLifecycleWire.Warning)
+                    .ToArray();
+            }
+            catch
+            {
+                lifecycleResult.AddWarning(GhDocumentLifecycleWarning.TelemetryProjectionFailed);
+                lifecycleWarnings = new[] { "telemetry_projection_failed" };
+            }
+
+            return new ApiResponse
+            {
+                Success = true,
+                Data = new
+                {
+                    Created = true,
+                    Message = "New empty document created",
+                    ObjectCount,
+                    DocumentRegistered = lifecycleResult.DocumentRegistered,
+                    DocumentActive = lifecycleResult.DocumentActive,
+                    RegistrationIndex = lifecycleResult.RegistrationIndex,
+                    Warnings = lifecycleWarnings,
+                },
+            };
         }
 
         /// <summary>
@@ -3526,7 +3693,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_explore_selection", null, gh.Error);
 
@@ -3783,7 +3950,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_explore_cluster", null, gh.Error);
 
@@ -3876,7 +4043,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_groups", null, gh.Error);
 
@@ -4001,7 +4168,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_group_resize", null, gh.Error);
 
@@ -4521,7 +4688,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_create_component", null, gh.Error);
 
@@ -4687,7 +4854,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_component", null, gh.Error);
 
@@ -4742,7 +4909,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_errors", null, gh.Error);
 
@@ -4891,7 +5058,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_inspect_output", null, gh.Error);
 
@@ -5107,7 +5274,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_bake_output", null, gh.Error);
 
@@ -5469,7 +5636,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_connect", null, gh.Error);
 
@@ -5594,7 +5761,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_disconnect", null, gh.Error);
 
@@ -5711,7 +5878,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_solve", null, gh.Error);
 
@@ -5775,7 +5942,7 @@ namespace Rook.Handlers
             }
         }
 
-        private GrasshopperContext GetGrasshopper(bool createDocumentIfMissing = true)
+        private GrasshopperContext GetGrasshopper(bool requireDocument = true)
         {
             lock (_lock)
             {
@@ -5798,24 +5965,7 @@ namespace Rook.Handlers
             var documentProp = canvas.GetType().GetProperty("Document");
             var document = documentProp?.GetValue(canvas);
 
-            // Auto-create document if canvas exists but no document.
-            if (document == null && createDocumentIfMissing)
-            {
-                var docType = _ghAssembly.GetType("Grasshopper.Kernel.GH_Document");
-                if (docType != null)
-                {
-                    document = Activator.CreateInstance(docType);
-                    if (document != null)
-                    {
-                        documentProp?.SetValue(canvas, document);
-                    }
-                }
-
-                if (document == null)
-                    return new GrasshopperContext(false, "No active GH document and failed to create one", _ghAssembly, canvas, null);
-            }
-
-            if (document == null && !createDocumentIfMissing)
+            if (document == null && requireDocument)
                 return new GrasshopperContext(false, "No active Grasshopper document", _ghAssembly, canvas, null);
 
             return new GrasshopperContext(true, null, _ghAssembly, canvas, document);
@@ -5883,12 +6033,6 @@ namespace Rook.Handlers
             // Return the GUID
             var guidProp = component.GetType().GetProperty("InstanceGuid");
             return guidProp?.GetValue(component)?.ToString();
-        }
-
-        private void ScheduleDocumentSolution(object document, int delayMs = 1)
-        {
-            document.GetType().GetMethod("ScheduleSolution",
-                new[] { typeof(int) })?.Invoke(document, new object[] { delayMs });
         }
 
         private void RefreshCanvas(object canvas, bool scheduleSolution = true, int delayMs = 50)
@@ -6367,7 +6511,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
 
@@ -7105,7 +7249,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_edit", null, gh.Error);
 
@@ -7180,7 +7324,8 @@ namespace Rook.Handlers
                 catch { return null; }
             }
 
-            GhDocumentSolveSuspension? solveSuspension = null;
+            GhMutationSolveSuspension? solveSuspension = null;
+            GhSolverRestoreResult? standaloneRestore = null;
 
             try
             {
@@ -7549,49 +7694,56 @@ namespace Rook.Handlers
                 // the native callback.
                 var snapshotResult = TakeStructuralSnapshot();
 
-                // Phase 9: Queue async solution after the callback has room to
-                // return committed metadata before long Chirp solves start.
+                // Phase 9: Restore standalone solver ownership exactly once,
+                // then request exactly one positive-delay schedule.
                 const int postEditSolveDelayMs = 1;
-                // Apply the same 5s handoff to every gh_edit so follow-up
-                // snapshots can confirm committed topology before solving.
-                const int postEditScheduleDispatchDelayMs = 5000;
-                var solveOutcome = RequestDeferredPostMutationSolve(
+                standaloneRestore = solveSuspension.Restore();
+                var solveResult = RequestPostMutationSolve(
                     gh.Document!,
+                    dirtyObjects,
                     requestSolve: changedObjects,
                     delayMs: postEditSolveDelayMs,
-                    dispatchDelayMs: postEditScheduleDispatchDelayMs,
-                    solverStateOverride: solveSuspension.OriginalSolverState,
-                    beforeScheduleOnUiThread: solveSuspension.Restore);
+                    expireDirtyObjects: false,
+                    standaloneRestore: standaloneRestore);
 
-                if (!solveOutcome.SolveScheduled)
-                    solveSuspension.Restore();
+                var editSummary = new
+                {
+                    created, deleted, values_set = valuesSet,
+                    connected, disconnected,
+                    schedule_classification = GhScheduleWire.ToWire(solveResult.ScheduleClassification),
+                    schedule_acceptance = GhScheduleWire.ToWire(solveResult.ScheduleAcceptance),
+                    schedule_failure_code = solveResult.ScheduleFailureCode.HasValue
+                        ? GhScheduleWire.ToWire(solveResult.ScheduleFailureCode.Value)
+                        : null,
+                    solve_scheduled = solveResult.SolveScheduled,
+                    registration_known = solveResult.RegistrationKnown,
+                    document_registered = solveResult.DocumentRegistered,
+                    solver_locked = solveResult.SolverLocked,
+                    solver_state_known = solveResult.SolverStateKnown,
+                    verification_deferred = solveResult.VerificationDeferred,
+                    rir_repair_attempted = false,
+                    rir_repair_held = false,
+                    rir_repair_reason = (string?)null,
+                    solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray(),
+                    standalone_restore_attempted = standaloneRestore.Value.Attempted,
+                    standalone_restore_succeeded = standaloneRestore.Value.Succeeded,
+                    observed_document_enabled = standaloneRestore.Value.ObservedDocumentEnabled,
+                    errors = errors.Count > 0 ? errors : null,
+                    temp_id_map = tempIdMap.Count > 0
+                        ? tempIdMap.ToDictionary(
+                            kv => kv.Key,
+                            kv => _idRegistry.ResolveReverse(kv.Value) ?? kv.Value.ToString())
+                        : null,
+                    instance_guids = tempIdMap.Count > 0
+                        ? tempIdMap.ToDictionary(
+                            kv => kv.Key,
+                            kv => kv.Value.ToString())
+                        : null
+                };
 
                 if (snapshotResult.Success && snapshotResult.Data is Dictionary<string, object?> snapData)
                 {
-                    snapData["edit_summary"] = new
-                    {
-                        created, deleted, values_set = valuesSet,
-                        connected, disconnected,
-                        solve_scheduled = solveOutcome.SolveScheduled,
-                        solver_locked = solveOutcome.SolverLocked,
-                        solver_state_known = solveOutcome.SolverStateKnown,
-                        verification_deferred = solveOutcome.VerificationDeferred,
-                        rir_repair_attempted = solveOutcome.RirRepairAttempted,
-                        rir_repair_held = solveOutcome.RirRepairHeld,
-                        rir_repair_reason = solveOutcome.RirRepairReason,
-                        solve_warnings = solveOutcome.Warnings.ToArray(),
-                        errors = errors.Count > 0 ? errors : null,
-                        temp_id_map = tempIdMap.Count > 0
-                            ? tempIdMap.ToDictionary(
-                                kv => kv.Key,
-                                kv => _idRegistry.ResolveReverse(kv.Value) ?? kv.Value.ToString())
-                            : null,
-                        instance_guids = tempIdMap.Count > 0
-                            ? tempIdMap.ToDictionary(
-                                kv => kv.Key,
-                                kv => kv.Value.ToString())
-                            : null
-                    };
+                    snapData["edit_summary"] = editSummary;
                 }
                 else if (snapshotResult.Success)
                 {
@@ -7599,20 +7751,16 @@ namespace Rook.Handlers
                     snapshotResult.Data = new
                     {
                         snapshot = snapshotResult.Data,
-                        edit_summary = new
-                        {
-                            created, deleted, values_set = valuesSet,
-                            connected, disconnected,
-                            solve_scheduled = solveOutcome.SolveScheduled,
-                            solver_locked = solveOutcome.SolverLocked,
-                            solver_state_known = solveOutcome.SolverStateKnown,
-                            verification_deferred = solveOutcome.VerificationDeferred,
-                            rir_repair_attempted = solveOutcome.RirRepairAttempted,
-                            rir_repair_held = solveOutcome.RirRepairHeld,
-                            rir_repair_reason = solveOutcome.RirRepairReason,
-                            solve_warnings = solveOutcome.Warnings.ToArray(),
-                            errors = errors.Count > 0 ? errors : null
-                        }
+                        edit_summary = editSummary
+                    };
+                }
+                else
+                {
+                    var snapshotFailure = snapshotResult.Data;
+                    snapshotResult.Data = new
+                    {
+                        snapshot_failure = snapshotFailure,
+                        edit_summary = editSummary,
                     };
                 }
 
@@ -7620,7 +7768,43 @@ namespace Rook.Handlers
             }
             catch (Exception ex)
             {
-                solveSuspension?.Restore();
+                if (!standaloneRestore.HasValue && solveSuspension != null)
+                    standaloneRestore = solveSuspension.Restore();
+
+                if (standaloneRestore.HasValue &&
+                    standaloneRestore.Value.Attempted &&
+                    !standaloneRestore.Value.Succeeded)
+                {
+                    var registration = new GhDocumentLifecycle().InspectRegistration(gh.Document!);
+                    return new ApiResponse
+                    {
+                        Success = false,
+                        Data = new
+                        {
+                            error = "apply_edit_failed",
+                            message = ex.Message,
+                            schedule_classification = GhScheduleWire.ToWire(
+                                GhScheduleClassification.SolveNotRequested),
+                            schedule_acceptance = GhScheduleWire.ToWire(
+                                GhScheduleAcceptance.NotAttempted),
+                            schedule_failure_code = GhScheduleWire.ToWire(
+                                GhScheduleFailureCode.StandaloneSolverRestoreFailed),
+                            solve_scheduled = false,
+                            registration_known = registration.Known,
+                            document_registered = registration.Known
+                                ? registration.Registered
+                                : (bool?)null,
+                            solve_warnings = new[]
+                            {
+                                GhScheduleWire.ToWire(GhScheduleWarning.StandaloneRestoreFailed),
+                            },
+                            standalone_restore_attempted = true,
+                            standalone_restore_succeeded = false,
+                            observed_document_enabled = standaloneRestore.Value.ObservedDocumentEnabled,
+                        },
+                    };
+                }
+
                 return new ApiResponse { Success = false, Data = $"ApplyEdit failed: {ex.Message}" };
             }
         }
@@ -8049,7 +8233,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_canvas_focus", null, gh.Error);
 
@@ -8198,7 +8382,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_canvas_zoom", null, gh.Error);
 
@@ -8300,7 +8484,7 @@ namespace Rook.Handlers
             if (notReady != null)
                 return notReady;
 
-            var gh = GetGrasshopper(createDocumentIfMissing: false);
+            var gh = GetGrasshopper();
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_canvas_image", null, gh.Error);
 

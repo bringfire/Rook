@@ -1,5 +1,9 @@
 # RIR Grasshopper Solver Enabled Race Design
 
+> **SUPERSEDED:** The [July 26 Grasshopper document lifecycle design](2026-07-26-rir-grasshopper-document-lifecycle-design.md) is now
+> normative. This document's rejection of `DocumentServer.AddDocument` and its
+> Rook-owned RiR repair policy are historical and non-normative.
+
 Date: 2026-06-13
 
 ## Purpose

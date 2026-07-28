@@ -185,12 +185,42 @@ namespace Rook.Tests.Handlers
             var document = new FakeDocument();
             var handler = CreateHandler(document, out var canvas);
             var issue = handler.BeginSetValueReceipt(document, canvas);
-            handler.FinalizeSetValueReceipt(issue.Receipt!.ReceiptId, new GhSolveOutcome { SolverLocked = true });
+            handler.FinalizeSetValueReceipt(issue.Receipt!.ReceiptId, LockedOutcome());
 
             var response = handler.GetSolveReadiness(issue.Receipt.ReceiptId);
 
             Assert.True(response.Success);
             Assert.Equal("solver_locked", Receipt(Element(response.Data)).GetProperty("status").GetString());
+        }
+
+        [Fact]
+        public void FinalizeReceipt_UsesSolverLockedOnlyForTheTwoUnavailableClassifications()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+            var global = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+            handler.FinalizeSetValueReceipt(global.ReceiptId, new GhScheduleResult
+            {
+                ScheduleClassification = GhScheduleClassification.GlobalSolverUnavailable,
+                ScheduleAcceptance = GhScheduleAcceptance.NotAttempted,
+                Warnings = Array.Empty<GhScheduleWarning>(),
+            });
+
+            var other = handler.BeginSetValueReceipt(document, canvas).Receipt!;
+            handler.FinalizeSetValueReceipt(other.ReceiptId, new GhScheduleResult
+            {
+                ScheduleClassification = GhScheduleClassification.AsyncScheduleRequested,
+                ScheduleAcceptance = GhScheduleAcceptance.Unknown,
+                ScheduleFailureCode = GhScheduleFailureCode.ScheduleAcceptanceUnknown,
+                SolverLocked = true,
+                Warnings = Array.Empty<GhScheduleWarning>(),
+            });
+
+            var globalReceipt = Receipt(Element(handler.GetSolveReadiness(global.ReceiptId).Data));
+            var otherReceipt = Receipt(Element(handler.GetSolveReadiness(other.ReceiptId).Data));
+            Assert.Equal("solver_locked", globalReceipt.GetProperty("status").GetString());
+            Assert.Equal("unknown", otherReceipt.GetProperty("status").GetString());
+            Assert.Equal("schedule_acceptance_unknown", otherReceipt.GetProperty("reason").GetString());
         }
 
         [Fact]
@@ -210,7 +240,7 @@ namespace Rook.Tests.Handlers
             AssertWait(handler.WaitForSolveReadiness(pending.ReceiptId, 1), "timeout", "pending");
 
             var terminal = handler.BeginSetValueReceipt(document, canvas).Receipt!;
-            handler.FinalizeSetValueReceipt(terminal.ReceiptId, new GhSolveOutcome { SolverLocked = true });
+            handler.FinalizeSetValueReceipt(terminal.ReceiptId, LockedOutcome());
             AssertWait(handler.WaitForSolveReadiness(terminal.ReceiptId, 300000), "terminal", "solver_locked");
         }
 
@@ -271,7 +301,7 @@ namespace Rook.Tests.Handlers
             var pending = handler.BeginSetValueReceipt(document, canvas).Receipt!;
             AssertFenceFailure(handler, document, component, pending.ReceiptId, "readiness_receipt_not_ready");
 
-            handler.FinalizeSetValueReceipt(pending.ReceiptId, new GhSolveOutcome());
+            handler.FinalizeSetValueReceipt(pending.ReceiptId, UnavailableOutcome());
             AssertFenceFailure(handler, document, component, pending.ReceiptId, "readiness_receipt_unknown");
 
             var older = handler.BeginSetValueReceipt(document, canvas).Receipt!;
@@ -406,11 +436,30 @@ namespace Rook.Tests.Handlers
             return receipt;
         }
 
-        private static GhSolveOutcome ScheduledOutcome() => new()
+        private static GhScheduleResult ScheduledOutcome() => new()
         {
-            SolveScheduled = true,
+            ScheduleClassification = GhScheduleClassification.AsyncScheduleRequested,
+            ScheduleAcceptance = GhScheduleAcceptance.Accepted,
             SolverStateKnown = true,
-            Warnings = Array.Empty<string>(),
+            Warnings = Array.Empty<GhScheduleWarning>(),
+        };
+
+        private static GhScheduleResult LockedOutcome() => new()
+        {
+            ScheduleClassification = GhScheduleClassification.DocumentSolverDisabled,
+            ScheduleAcceptance = GhScheduleAcceptance.NotAttempted,
+            SolverLocked = true,
+            SolverStateKnown = true,
+            Warnings = Array.Empty<GhScheduleWarning>(),
+        };
+
+        private static GhScheduleResult UnavailableOutcome() => new()
+        {
+            ScheduleClassification = GhScheduleClassification.AsyncScheduleRequested,
+            ScheduleAcceptance = GhScheduleAcceptance.Unavailable,
+            ScheduleFailureCode = GhScheduleFailureCode.ScheduleApiUnavailable,
+            SolverStateKnown = true,
+            Warnings = Array.Empty<GhScheduleWarning>(),
         };
 
         private static GrasshopperHandler CreateHandler(
@@ -424,6 +473,7 @@ namespace Rook.Tests.Handlers
             ActiveCanvasProperty.SetValue(null, canvas);
             return new GrasshopperHandler(
                 bridgeCore: new ReadyCore(),
+                runningAsRhinoInside: () => false,
                 solveReceiptRegistry: registry ?? new GhSolveReceiptRegistry(),
                 solutionLifecycleAdapter: new GhSolutionLifecycleAdapter(),
                 canvasDocumentLifecycleAdapter: new GhCanvasDocumentLifecycleAdapter());

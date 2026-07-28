@@ -1,216 +1,186 @@
-using System.Collections.Generic;
+using System;
+using System.IO;
 using Rook.Handlers;
-using Rook.InternalBridge;
 using Xunit;
 
 namespace Rook.Tests.Handlers
 {
-    public class RequestPostMutationSolveTests
+    public sealed class RequestPostMutationSolveTests
     {
-        private sealed class FakeObj
+        [Fact]
+        public void Integration_ConsumesLifecyclePolicyAndInvokerWithoutRepairOwnership()
         {
-            public List<bool> Expire = new();
-            public void ExpireSolution(bool recompute) => Expire.Add(recompute);
-        }
-        private sealed class FakeDoc
-        {
-            public static bool EnableSolutions { get; set; } = true;
-            public bool Enabled { get; set; } = true;
-            public List<int> Scheduled = new();
-            public void ScheduleSolution(int ms) => Scheduled.Add(ms);
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.SolvePolicy.cs");
+
+            Assert.Contains("internal GhScheduleResult RequestPostMutationSolve(", source);
+            Assert.Contains("IReadOnlyList<object> dirtyObjects", source);
+            Assert.Contains("GhSolverRestoreResult? standaloneRestore = null", source);
+            Assert.Contains("new GhDocumentLifecycle().InspectRegistration(document)", source);
+            Assert.Contains("_runningAsRhinoInside()", source);
+            Assert.Contains("GhPostMutationSchedulePolicy.Decide(", source);
+            Assert.Contains("GhScheduleInvoker.Invoke(document, decision, delayMs)", source);
+            Assert.DoesNotContain("GhSolveReadinessCoordinator", source);
+            Assert.DoesNotContain("PrepareForPostMutationSolve", source);
+            Assert.DoesNotContain("GetProperty(\"Enabled\"", source);
+            Assert.DoesNotContain("SetValue(document", source);
+            Assert.DoesNotContain("GetProperty(\"EnableSolutions\"", source);
+            Assert.DoesNotContain("SetValue(null", source);
         }
 
         [Fact]
-        public void Enabled_MarksDirtyFalse_AndSchedulesOnce()
+        public void FailedStandaloneRestore_ReturnsBoundedNotAttemptedResultWithoutInvoking()
         {
-            var h = new GrasshopperHandler();
-            var obj = new FakeObj();
-            var doc = new FakeDoc { Enabled = true };
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.SolvePolicy.cs");
 
-            var outcome = h.RequestPostMutationSolve(doc, obj, requestSolve: true);
-
-            Assert.Equal(new[] { false }, obj.Expire);   // never true (no sync recompute)
-            Assert.Single(doc.Scheduled);
-            Assert.True(doc.Scheduled[0] >= 1);           // never 0
-            Assert.True(outcome.SolveScheduled);
-            Assert.False(outcome.VerificationDeferred);
+            Assert.Contains("standaloneRestore.Value.Attempted", source);
+            Assert.Contains("!standaloneRestore.Value.Succeeded", source);
+            Assert.Contains("ScheduleAcceptance = GhScheduleAcceptance.NotAttempted", source);
+            Assert.Contains("ScheduleFailureCode = GhScheduleFailureCode.StandaloneSolverRestoreFailed", source);
+            Assert.Contains("RegistrationKnown = decision.RegistrationKnown", source);
+            Assert.Contains("DocumentRegistered = decision.DocumentRegistered", source);
+            AssertOrder(source,
+                "!standaloneRestore.Value.Succeeded",
+                "ScheduleFailureCode = GhScheduleFailureCode.StandaloneSolverRestoreFailed",
+                "GhScheduleInvoker.Invoke(document, decision, delayMs)");
         }
 
         [Fact]
-        public void Locked_MarksDirtyFalse_AndDoesNotSchedule()
+        public void Integration_PassesRegistrationAndSeparateGlobalAndInstanceFlagsIntoPolicy()
         {
-            var h = new GrasshopperHandler();
-            var obj = new FakeObj();
-            var doc = new FakeDoc { Enabled = false };
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.SolvePolicy.cs");
 
-            var outcome = h.RequestPostMutationSolve(doc, obj, requestSolve: true);
-
-            Assert.Equal(new[] { false }, obj.Expire);
-            Assert.Empty(doc.Scheduled);                  // suppressed while locked
-            Assert.True(outcome.SolverLocked);
-            Assert.True(outcome.VerificationDeferred);
-        }
-
-        private sealed class FakeDocNoSchedule { public bool Enabled { get; set; } = true; }
-
-        [Fact]
-        public void ScheduleMethodMissing_DoesNotClaimScheduled()
-        {
-            var h = new GrasshopperHandler();
-            var obj = new FakeObj();
-            var doc = new FakeDocNoSchedule();   // enabled, but NO ScheduleSolution method
-
-            var outcome = h.RequestPostMutationSolve(doc, obj, requestSolve: true);
-
-            Assert.Equal(new[] { false }, obj.Expire);
-            Assert.False(outcome.SolveScheduled);   // reflection miss corrected — never over-claim scheduling
-            Assert.True(outcome.VerificationDeferred);
+            Assert.Contains("RegistrationKnown = registration.Known", source);
+            Assert.Contains("DocumentRegistered = registration.Registered", source);
+            Assert.Contains("GlobalEnableSolutions = solverState.GlobalEnableSolutions", source);
+            Assert.Contains("DocumentEnabled = solverState.DocumentEnabled", source);
+            Assert.Contains("RunningAsRhinoInside = runningAsRhinoInside", source);
         }
 
         [Fact]
-        public void RequestPostMutationSolve_CanSkipAlreadyExpiredDirtyObjects()
+        public void BatchSuspension_UsesHostAwareOneShotHelper()
         {
-            var h = new GrasshopperHandler();
-            var obj = new FakeObj();
-            var doc = new FakeDoc { Enabled = true };
+            var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.SolvePolicy.cs");
 
-            var outcome = h.RequestPostMutationSolve(
-                doc,
-                new[] { obj },
+            Assert.Contains("internal GhMutationSolveSuspension BeginPostMutationBatchSolveSuspension(object? document)", source);
+            Assert.Contains("GhMutationSolveSuspension.Begin(document, _runningAsRhinoInside())", source);
+            Assert.DoesNotContain("class GhDocumentSolveSuspension", source);
+        }
+
+        [Fact]
+        public void BatchSuspension_InjectsRirAsNoOpAndStandaloneAsOneShotOwnership()
+        {
+            SuspensionDocument.EnableSolutions = true;
+            var rirDocument = new SuspensionDocument { Enabled = true };
+            rirDocument.ResetWrites();
+            var standaloneDocument = new SuspensionDocument { Enabled = true };
+            standaloneDocument.ResetWrites();
+            var rir = new GrasshopperHandler(runningAsRhinoInside: () => true);
+            var standalone = new GrasshopperHandler(runningAsRhinoInside: () => false);
+
+            var rirSuspension = rir.BeginPostMutationBatchSolveSuspension(rirDocument);
+            var standaloneSuspension = standalone.BeginPostMutationBatchSolveSuspension(standaloneDocument);
+            var firstRestore = standaloneSuspension.Restore();
+            var secondRestore = standaloneSuspension.Restore();
+
+            Assert.False(rirSuspension.Active);
+            Assert.Equal(0, rirDocument.EnabledWrites);
+            Assert.False(rirSuspension.Restore().Attempted);
+            Assert.True(standaloneSuspension.Active);
+            Assert.True(firstRestore.Attempted);
+            Assert.True(firstRestore.Succeeded);
+            Assert.False(secondRestore.Attempted);
+            Assert.Equal(2, standaloneDocument.EnabledWrites);
+        }
+
+        [Fact]
+        public void ApplyEdit_StateTransitionUsesPostRestorationSolverStateInsteadOfOriginalSnapshot()
+        {
+            TransitionDocument.EnableSolutions = true;
+            var document = new TransitionDocument { Enabled = true };
+            var handler = new GrasshopperHandler(runningAsRhinoInside: () => false);
+            var suspension = handler.BeginPostMutationBatchSolveSuspension(document);
+
+            TransitionDocument.EnableSolutions = false;
+            var restore = suspension.Restore();
+            var currentResult = handler.RequestPostMutationSolve(
+                document,
+                Array.Empty<object>(),
                 requestSolve: true,
-                delayMs: 250,
-                expireDirtyObjects: false);
-
-            Assert.Empty(obj.Expire);
-            Assert.Equal(new[] { 250 }, doc.Scheduled);
-            Assert.True(outcome.SolveScheduled);
-        }
-
-        [Fact]
-        public void BeginPostMutationBatchSolveSuspension_DisablesEnabledDocumentInstanceOnly()
-        {
-            FakeDoc.EnableSolutions = true;
-            var h = new GrasshopperHandler();
-            var doc = new FakeDoc { Enabled = true };
-
-            var suspension = h.BeginPostMutationBatchSolveSuspension(doc);
-
-            Assert.True(suspension.Active);
-            Assert.True(suspension.OriginalSolverState.Enabled);
-            Assert.False(doc.Enabled);
-            Assert.True(FakeDoc.EnableSolutions);
-
-            suspension.Restore();
-
-            Assert.True(doc.Enabled);
-            Assert.True(FakeDoc.EnableSolutions);
-        }
-
-        [Fact]
-        public void BeginPostMutationBatchSolveSuspension_PreservesAlreadyDisabledDocument()
-        {
-            FakeDoc.EnableSolutions = true;
-            var h = new GrasshopperHandler();
-            var doc = new FakeDoc { Enabled = false };
-
-            var suspension = h.BeginPostMutationBatchSolveSuspension(doc);
-
-            Assert.False(suspension.Active);
-            Assert.False(suspension.OriginalSolverState.Enabled);
-            Assert.False(doc.Enabled);
-
-            suspension.Restore();
-
-            Assert.False(doc.Enabled);
-            Assert.True(FakeDoc.EnableSolutions);
-        }
-
-        [Fact]
-        public void RequestPostMutationSolve_UsesOriginalSolverStateOverride()
-        {
-            FakeDoc.EnableSolutions = true;
-            var h = new GrasshopperHandler();
-            var obj = new FakeObj();
-            var doc = new FakeDoc { Enabled = true };
-            var originalState = GhSolverState.Inspect(doc);
-            doc.Enabled = false;
-
-            var outcome = h.RequestPostMutationSolve(
-                doc,
-                new[] { obj },
+                expireDirtyObjects: false,
+                standaloneRestore: restore);
+            var staleResult = handler.RequestPostMutationSolve(
+                document,
+                Array.Empty<object>(),
                 requestSolve: true,
-                delayMs: 250,
-                solverStateOverride: originalState);
+                expireDirtyObjects: false,
+                solverStateOverride: suspension.OriginalSolverState,
+                standaloneRestore: restore);
 
-            Assert.Equal(new[] { false }, obj.Expire);
-            Assert.Equal(new[] { 250 }, doc.Scheduled);
-            Assert.True(outcome.SolveScheduled);
-            Assert.False(outcome.SolverLocked);
+            Assert.True(restore.Attempted);
+            Assert.True(restore.Succeeded);
+            Assert.Equal(GhScheduleClassification.GlobalSolverUnavailable, currentResult.ScheduleClassification);
+            Assert.Equal(GhScheduleAcceptance.NotAttempted, currentResult.ScheduleAcceptance);
+            Assert.False(currentResult.SolveScheduled);
+            Assert.Equal(GhScheduleClassification.AsyncScheduleRequested, staleResult.ScheduleClassification);
+            Assert.Equal(GhScheduleAcceptance.Accepted, staleResult.ScheduleAcceptance);
+            Assert.Equal(1, document.ScheduleCalls);
+
+            var routeSource = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
+            Assert.DoesNotContain("solverStateOverride: solveSuspension.OriginalSolverState", routeSource);
+            Assert.Contains("standaloneRestore: standaloneRestore", routeSource);
         }
 
-        [Fact]
-        public void RequestPostMutationSolve_RirDisabledInstanceRepairsBeforeScheduling()
+        private sealed class SuspensionDocument
         {
-            FakeDoc.EnableSolutions = true;
-            var document = new FakeDoc { Enabled = false };
-            var dirty = new FakeObj();
-            var handler = CreateHandlerForRirRepair(
-                isRhinoInside: () => true,
-                getActiveDocument: () => document);
+            public static bool EnableSolutions { get; set; }
+            private bool _enabled;
+            public int EnabledWrites { get; private set; }
+            public bool Enabled
+            {
+                get => _enabled;
+                set
+                {
+                    EnabledWrites++;
+                    _enabled = value;
+                }
+            }
 
-            var outcome = handler.RequestPostMutationSolve(document, new[] { dirty }, requestSolve: true, delayMs: 1);
-
-            Assert.True(outcome.RirRepairAttempted);
-            Assert.True(outcome.RirRepairHeld);
-            Assert.True(document.Enabled);
-            Assert.True(outcome.SolveScheduled);
-            Assert.Single(document.Scheduled);
-            Assert.Equal(new[] { false }, dirty.Expire);
+            public void ResetWrites() => EnabledWrites = 0;
         }
 
-        [Fact]
-        public void RequestPostMutationSolve_StaticSolverDisabledDoesNotRepairOrSchedule()
+        private sealed class TransitionDocument
         {
-            FakeDoc.EnableSolutions = false;
-            var document = new FakeDoc { Enabled = false };
-            var handler = CreateHandlerForRirRepair(
-                isRhinoInside: () => true,
-                getActiveDocument: () => document);
+            public static bool EnableSolutions { get; set; }
+            public bool Enabled { get; set; }
+            public int ScheduleCalls { get; private set; }
 
-            var outcome = handler.RequestPostMutationSolve(document, System.Array.Empty<object>(), requestSolve: true, delayMs: 1);
-
-            Assert.False(outcome.RirRepairAttempted);
-            Assert.False(document.Enabled);
-            Assert.False(outcome.SolveScheduled);
-            Assert.True(outcome.SolverLocked);
-
-            FakeDoc.EnableSolutions = true;
+            public void ScheduleSolution(int delayMs)
+            {
+                Assert.True(delayMs > 0);
+                ScheduleCalls++;
+            }
         }
 
-        [Fact]
-        public void RequestPostMutationSolve_StandaloneDisabledInstanceDoesNotRepair()
+        private static void AssertOrder(string source, params string[] markers)
         {
-            FakeDoc.EnableSolutions = true;
-            var document = new FakeDoc { Enabled = false };
-            var handler = CreateHandlerForRirRepair(
-                isRhinoInside: () => false,
-                getActiveDocument: () => document);
-
-            var outcome = handler.RequestPostMutationSolve(document, System.Array.Empty<object>(), requestSolve: true, delayMs: 1);
-
-            Assert.False(outcome.RirRepairAttempted);
-            Assert.False(document.Enabled);
-            Assert.False(outcome.SolveScheduled);
+            var prior = -1;
+            foreach (var marker in markers)
+            {
+                var index = source.IndexOf(marker, prior + 1, StringComparison.Ordinal);
+                Assert.True(index > prior, $"Expected '{marker}' after index {prior}.");
+                prior = index;
+            }
         }
 
-        private static GrasshopperHandler CreateHandlerForRirRepair(System.Func<bool> isRhinoInside, System.Func<object?> getActiveDocument)
-        {
-            var coordinator = new GhSolveReadinessCoordinator(
-                isRhinoInside: isRhinoInside,
-                getActiveDocument: getActiveDocument,
-                runOnUiThread: action => action());
+        private static string ReadSource(params string[] path) => File.ReadAllText(Path.Combine(RepoRoot(), Path.Combine(path)));
 
-            return new GrasshopperHandler(solveReadinessCoordinator: coordinator);
+        private static string RepoRoot()
+        {
+            var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Rook", "Handlers", "GrasshopperHandler.cs")))
+                dir = dir.Parent;
+            Assert.NotNull(dir);
+            return dir!.FullName;
         }
     }
 }
