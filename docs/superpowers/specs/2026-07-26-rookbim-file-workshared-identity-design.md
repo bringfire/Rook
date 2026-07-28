@@ -2,9 +2,9 @@
 
 **Date:** 2026-07-26
 
-**Status:** Approved for implementation planning — outcome 2, class-limited composite
+**Status:** Approved design — outcome 2, class-limited composite; MCP and executable-policy amendment approved 2026-07-28
 
-**Target:** `src/Rook` BIM contracts and `src/RookBim` Revit identity implementation
+**Target:** `src/Rook` BIM contracts/policy, `src/RookBim` Revit adapter, and the closed Python MCP identity schema
 
 **Deployment unit:** Separate RookBIM identity release after the decision gate passes
 
@@ -24,7 +24,7 @@ Path-only identity is never approved for durable resolution. A path identifies a
 
 This design and [Rhino.Inside.Revit Grasshopper Document Lifecycle Design](2026-07-26-rir-grasshopper-document-lifecycle-design.md) came from the same Revit 2024.3 investigation but correct independent runtime boundaries.
 
-Gated RookBIM diagnostics proved that a file-workshared model reached category item 380 and serialized successfully, but `Document.WorksharingCentralGUID` threw `Autodesk.Revit.Exceptions.InternalException`. The first fix stopped the route failure by returning no persistent document GUID for file-based worksharing. That exposed a preexisting safety defect: `DocumentMatches` treats an incoming identity without a persistent GUID as matching every active document.
+Gated RookBIM diagnostics proved that a file-workshared model reached category item 380, then `Document.WorksharingCentralGUID` threw `Autodesk.Revit.Exceptions.InternalException` during identity projection. The Revit journal independently identified native `ADocument::getModelGUID_()`. The same current identity implementation also contains a preexisting safety defect: `DocumentMatches` treats an incoming identity without a persistent GUID as matching every active document. Neither defect is fixed by catching `InternalException`; both are replaced by this design.
 
 The later Grasshopper/RiR incident concerns `GH_DocumentServer` registration and solver ownership. It has a separate specification, implementation plan, release, live report, and rollback path.
 
@@ -54,6 +54,8 @@ This design will:
 - acquire immutable document evidence once per operation and reuse it for every identity;
 - degrade expected identity-property failures to unavailable evidence without failing producer routes;
 - define byte-exact Windows path and key encoding;
+- preserve the approved key fields across the closed MCP query-to-consumer boundary;
+- provide one executable, Revit-free policy seam for classification, comparison, failure degradation, diagnostics parity, and per-operation read counts;
 - remove the incorrect cloud-to-`WorksharingCentralGUID` branch;
 - replace boolean/fail-open matching with a closed comparison result;
 - prevent a strong-key mismatch or verification failure from downgrading to legacy evidence;
@@ -80,7 +82,11 @@ This design will not:
 - add Revit references to `src/Rook`;
 - remove raw path fields from the existing wire contract without a separately versioned breaking-contract design;
 - support Revit releases before 2024 in the first composite-key implementation;
-- generalize the resolver into a repository-wide identity framework.
+- generalize the resolver into a repository-wide identity framework;
+- add a new project, Revit reference, cache, registry, or cross-request identity state merely to make the policy testable;
+- give the policy kernel a diagnostic observer, sink, context, or callback that could affect its decisions;
+- duplicate key syntax or hash validation in Python;
+- add a custom enum deserializer merely to rename transport-binding failures.
 
 ## Decision gate: CreationGUID probe
 
@@ -198,6 +204,26 @@ Initial-release key-source values are exactly:
 
 No production enum branch, payload encoder, parser, or resolver branch is added to reserve a future Revit Server, cloud, or saved-family source. Such a source requires a later evidence-backed contract amendment. The version is part of each approved source and key prefix so normalization or evidence changes cannot silently compare under the old contract.
 
+### MCP identity boundary
+
+The Python MCP identity schema is closed with `additionalProperties: false`, so the managed wire cutover and MCP schema cutover are one deployment invariant. `mcp_server/src/rook/server.py` adds these optional properties to the existing identity object:
+
+- `documentKey`: `string | null`;
+- `documentKeySource`: one of `revit_creation_guid_central_path_v1`, `revit_creation_guid_document_path_v1`, or `unavailable`.
+
+Neither property is added to the MCP `required` list. Existing legacy envelopes that contain the currently required `documentGuidSource` therefore remain schema-valid. Schema compatibility does not authorize them: a legacy envelope without trustworthy comparable evidence still fails closed in the managed resolver.
+
+Python performs no key-prefix, length, hexadecimal, source/prefix, GUID, or downgrade validation. It admits only the closed source strings above and forwards the identity dictionary unchanged. Unknown `documentKeySource` strings may fail at transport binding with HTTP 400; no custom enum converter is added merely to translate that failure to `document_identity_invalid`. Valid enum values paired with malformed or incoherent evidence reach the managed policy and return `document_identity_invalid` as defined below.
+
+Tests must prove exact dictionary forwarding, with key names and string values unchanged, through all four identity consumers:
+
+- element information;
+- element parameters;
+- selection;
+- identity-list export.
+
+The MCP cutover changes only the shared identity schema and its focused tests. It does not add a Python identity parser, normalizer, cache, or policy implementation.
+
 ### Key representation
 
 Keys are opaque identifiers, not GUID fields. Each uses a source-specific prefix and lowercase SHA-256 of an unambiguous canonical payload.
@@ -256,6 +282,36 @@ The resolver owns:
 
 No caller directly reads these GUID/path properties for identity. The current `GetWorksharingCentralGUID`, `SupportsWorksharingCentralGuid`, and boolean `DocumentMatches` branches are deleted after replacement coverage exists.
 
+### Two-layer resolver boundary
+
+The resolver has exactly two layers:
+
+1. A small Revit-free policy kernel in `src/Rook` owns classification order, approved key selection, evidence coherence, comparison, and closed outcomes.
+2. A thin adapter in `src/RookBim` owns Autodesk types, actual Revit reads, expected-exception classification, display-field projection, and diagnostic observation.
+
+The policy receives a closed set of lazy reader callbacks. Each callback returns either a typed success value or a bounded unavailable result and retains no `Exception`. The policy invokes each required identity reader at most once per operation. Counting fakes can therefore execute the real classification and comparison policy in `Rook.Tests` without loading Revit.
+
+Only the minimum policy input/result/read-helper surface is public, because `RookBim` is a separate optional assembly. These types live in the BIM contract namespace but are not serialized DTOs, routes, extension points, or a promise of third-party identity providers.
+
+The core also supplies one small Revit-free read helper. It accepts one effective read delegate plus an expected-exception predicate, converts an expected exception into the same bounded unavailable result, retains no exception, and rethrows an unexpected exception. The Revit adapter selects either its diagnostic-wrapped getter or direct getter before passing that one delegate to the helper. Tests use synthetic exceptions and the existing diagnostic probe to prove equal enabled/disabled results. The Revit adapter supplies the actual Revit exception predicate and property delegates. No Revit type enters `src/Rook`, and no new test project or source-linked production copy is introduced.
+
+Diagnostics remain outside the policy kernel. For an enabled request, the adapter observes a production read best-effort and then converts an expected exception to unavailable evidence. For a disabled request, it executes the same getter directly and applies the same conversion. The policy receives neither a diagnostic context nor any observer, sink, delegate wrapper, or global flag capable of changing its decision. Executable tests run equivalent enabled-style and disabled-style reader results through the policy and require identical classification, key, comparison, and error outcomes.
+
+This seam is BIM-specific. It is not a general host-property framework, dependency-injection container, cache, event stream, or telemetry abstraction.
+
+### Fail-closed classification sequence
+
+Identity classification uses this exact branch order:
+
+1. Read `IsDetached` and `IsWorkshared`. If either required read is unavailable, identity classification is unavailable and no class-specific or key-material reader runs.
+2. If detached is true, identity classification is unavailable and no key-material reader runs.
+3. If workshared is true, read `IsModelInCloud`. If unavailable, stop identity classification. If true, classify cloud/unavailable and stop.
+4. Only after those base discriminators succeed and `IsWorkshared == true`, read the central `ModelPath` once. Never read it for a non-workshared document. If acquisition or path-kind classification is unavailable, stop identity classification. A cloud path is cloud/unavailable; a server path may enter only the retained legacy server branch; a file path may enter only the approved file-workshared branch. No outcome falls through to saved-project derivation.
+5. If workshared is false, read `IsFamilyDocument`. If unavailable, stop identity classification. A family document is unavailable in this release. A non-family project with no usable `PathName` is unsaved/unavailable; otherwise it may enter only the approved saved-project branch.
+6. Once a branch is selected, any unavailable required `CreationGUID`, server GUID, conversion, canonicalization, or key-construction result makes that branch unavailable. It never retries another class or weaker source.
+
+“Stop” above applies to identity classification and key-material reads. Independent compatibility/display reads such as title and document path may still execute best-effort for producer responses. Their success cannot resume classification, select a key source, or authorize comparison.
+
 ### Operation-scoped evidence ownership
 
 Each Revit work item resolves one immutable `RevitDocumentIdentityEvidence` snapshot inside the valid Revit API context before producing or consuming identities. The snapshot contains the owning `Document` reference as a non-serialized scope token, document classification, selected key/source or unavailable reason, approved legacy projection, and already-read DTO display fields. It contains no lazy Revit getters, delegates, raw exceptions, or cross-request mutable state.
@@ -283,7 +339,7 @@ Identity-list export remains a separate untrusted path: it compares every suppli
 
 ### Identity-read failure containment
 
-The resolver reads each classification, GUID, ModelPath, conversion, and normalization stage independently. A closed availability wrapper converts expected data/applicability failures into unavailable evidence. Its Revit exception allowlist includes `InapplicableDataException`, `InvalidOperationException`, `InternalException`, `InvalidObjectException`, and the Revit argument/null exceptions documented by an invoked conversion API. Path/key construction also treats `System.ArgumentException`, `NotSupportedException`, `PathTooLongException`, `System.Security.SecurityException`, `System.Text.EncoderFallbackException`, and `System.Security.Cryptography.CryptographicException` as unavailable evidence. The resolver does not catch `Exception` indiscriminately; programming defects and process-fatal exceptions remain subject to the operation-level error boundary.
+The adapter wraps each policy-invoked classification, GUID, ModelPath, conversion, and normalization read independently; the policy's classification sequence decides which readers are invoked. A closed availability wrapper converts expected data/applicability failures into unavailable evidence. Its Revit exception allowlist includes `InapplicableDataException`, `InvalidOperationException`, `InternalException`, `InvalidObjectException`, and the Revit argument/null exceptions documented by an invoked conversion API. Path/key construction also treats `System.ArgumentException`, `NotSupportedException`, `PathTooLongException`, `System.Security.SecurityException`, `System.Text.EncoderFallbackException`, and `System.Security.Cryptography.CryptographicException` as unavailable evidence. The adapter does not catch `Exception` indiscriminately; programming defects and process-fatal exceptions remain subject to the operation-level error boundary.
 
 If a required identity input fails with an expected exception, the snapshot records a bounded unavailable reason, emits `DocumentKey = null`/`DocumentKeySource = unavailable`, and retains no exception object. Other independent DTO evidence may still be read. Diagnostics observe the exact failed stage and bounded exception facts but do not change the returned snapshot.
 
@@ -311,7 +367,7 @@ The initial release emits a versioned key only for the two approved sources. It 
 
 ### File central path
 
-For file-workshared central/local documents, the resolver obtains `GetWorksharingCentralModelPath()` only after workshared, non-detached, non-cloud, non-server classification. It rejects null, server, cloud, or unconvertible ModelPaths. A qualifying file ModelPath is converted exactly once with `ModelPathUtils.ConvertModelPathToUserVisiblePath(modelPath)` and then passed to the shared Windows canonicalizer below.
+For a workshared, non-detached, non-cloud document, the adapter obtains `GetWorksharingCentralModelPath()` once and classifies the returned `ModelPath`. It rejects null or unclassifiable paths, stops on cloud, enters the legacy branch on server, and converts only a qualifying file path exactly once with `ModelPathUtils.ConvertModelPathToUserVisiblePath(modelPath)` before passing it to the shared Windows canonicalizer below.
 
 The Windows canonicalizer is byte-contract code and executes this exact sequence for both converted central paths and saved `Document.PathName` values:
 
@@ -363,14 +419,61 @@ The resolver replaces `DocumentMatches` with a closed result such as:
 
 The comparison order is normative.
 
+### Validation precedence and batch preflight
+
+Every identity-consuming route applies this exact precedence:
+
+1. A null identity or null batch entry returns `InvalidEvidence`.
+2. Any linked evidence returns the existing `LinkedElementUnsupported` result. Linked evidence means `Linked == true`, any linked numeric identifier, or any supplied linked string field, including an empty or whitespace string.
+3. Validate identity source plus key/source/legacy coherence using the table below.
+4. Compare the coherent document evidence with the active operation snapshot.
+5. Validate the element locator using the existing UniqueId-first and ElementId-fallback contract.
+6. For a batch, complete steps 1–5 for every entry in input order before the first `GetElement`, selection change, export conversion, or file write. Only a wholly valid and document-matched batch proceeds to lookup; only a wholly resolved batch proceeds to side effects.
+
+The first failing entry by input order and the first applicable rule above determine the response. An earlier valid entry never causes partial lookup or action before a later entry fails.
+
+For the tables below, **absent** means null or omitted. Empty and whitespace strings are present and invalid unless a rule explicitly says otherwise. A **strong source** means one of the two approved versioned `documentKeySource` values. Coherence rows are evaluated from top to bottom.
+
+| Incoming evidence | Coherence result |
+|---|---|
+| `Source` is not exactly `revit` | `InvalidEvidence` |
+| Key absent; strong key source supplied | `InvalidEvidence` |
+| Key empty/whitespace, malformed, unknown-version, or inconsistent with its strong source | `InvalidEvidence` |
+| Key present; key source is `unavailable` | `InvalidEvidence` |
+| Valid key/source; legacy GUID absent and legacy source `unavailable` | Proceed to strong comparison |
+| Valid key/source plus any legacy GUID value or any legacy source other than `unavailable` | `InvalidEvidence` |
+| Key absent; key source `unavailable`; legacy GUID absent; legacy source `unavailable` | `Unavailable` |
+| Key absent; key source `unavailable`; valid non-empty actual GUID; legacy source `revit_persistent_guid` | Proceed to retained server comparison |
+| Key absent; key source `unavailable`; nonblank legacy value; legacy source `path_fallback` | `Unavailable`; deprecated evidence is admitted by transport but never authorizes |
+| Legacy GUID absent with `revit_persistent_guid` or `path_fallback` source | `InvalidEvidence` |
+| Legacy GUID under `revit_persistent_guid` is empty, whitespace, malformed, or empty-GUID text | `InvalidEvidence` |
+| Valid legacy GUID present with `unavailable` or another mismatched source | `InvalidEvidence` |
+
+Unknown enum strings may be rejected by normal transport binding with HTTP 400 before this table runs. The implementation adds no custom deserializer to rename that boundary.
+
+After coherence succeeds, document comparison is exact:
+
+| Incoming comparable evidence | Active evidence | Result |
+|---|---|---|
+| Approved strong key/source | Same source and ordinal-equal valid key | `Match` |
+| Approved strong key/source | Same source and different valid key | `Mismatch` |
+| Approved strong key/source | Different approved strong source | `Mismatch` |
+| Approved strong key/source | Required active evidence unavailable | `Unavailable` |
+| Valid retained server GUID | Qualifying server GUID equal ignoring GUID text case | `Match` |
+| Valid retained server GUID | Qualifying server GUID different | `Mismatch` |
+| Valid retained server GUID | Active document conclusively belongs to a non-server class | `Mismatch` |
+| Valid retained server GUID | Active server/classification evidence unavailable | `Unavailable` |
+
+No path, title, locator, or later lookup can change these outcomes.
+
 ### Incoming versioned key present
 
 1. Validate key syntax, source, version, and source/prefix agreement.
 2. Resolve the active document using that exact supported source/version.
 3. If the active document cannot produce comparable evidence, return `Unavailable`.
 4. If values differ, return `Mismatch`.
-5. If values match, validate any supplied legacy strong GUID evidence for consistency. Neither approved versioned source has a legacy GUID projection, so any non-null legacy GUID is conflicting evidence.
-6. If supplied strong evidence conflicts or cannot be validly projected for that source, return `InvalidEvidence`.
+5. If values match, require the legacy GUID to be absent and its source to be `unavailable`. Neither approved versioned source has a legacy GUID projection, so any other legacy value/source combination is conflicting evidence.
+6. If supplied evidence conflicts or cannot be validly projected for that source, return `InvalidEvidence`.
 7. Only a fully consistent result is `Match`.
 
 A mismatching, malformed, unknown-version, unsupported, or unverifiable versioned key never falls back to a legacy GUID, raw path, title, `UniqueId`, or `ElementId`.
@@ -380,7 +483,8 @@ A mismatching, malformed, unknown-version, unsupported, or unverifiable versione
 Legacy comparison is allowed only when no stronger key was supplied.
 
 - The initial release explicitly retains comparison of a qualifying legacy Revit Server identity's actual persistent GUID with the active server document's actual central GUID.
-- Legacy cloud/file/path-fallback/unavailable identities without an approved comparable key fail closed.
+- A coherent nonblank `path_fallback` legacy envelope remains transport-compatible but returns `Unavailable`; malformed or value/source-incoherent legacy evidence returns `InvalidEvidence`.
+- Legacy cloud/file/unavailable identities without an approved comparable key fail closed.
 - Raw `DocumentPath` and `DocumentTitle` never authorize a match.
 - Absence of document evidence returns `Unavailable`, never `true`.
 
@@ -443,12 +547,12 @@ This specification has its own implementation plan and release, independent of t
 Expected reviewable boundaries are:
 
 1. Operator-assisted CreationGUID probe and durable redacted report; update this specification with the approved decision.
-2. Pure key contract/derivation and comparison tests, kept behavior-neutral and unused by production routes.
-3. One production resolver cutover that adds contract fields, centralizes all document classes, removes fail-open matching and incorrect GUID branches, carries trusted query elements internally for selector/preset export, replaces obsolete tests, and updates doctrine.
+2. Pure key contract plus the Revit-free policy/read-result seam and executable tests, kept behavior-neutral and unused by production routes.
+3. One production resolver cutover that adds managed contract fields, updates the closed MCP identity schema, centralizes all document classes behind the Revit adapter and policy, removes fail-open matching and incorrect GUID branches, carries trusted query elements internally for selector/preset export, replaces obsolete tests, and updates doctrine.
 
 Step 1 is complete and reviewed. Implementation planning may now define steps 2 and 3 for the approved initial-release scope. Any preparatory code remains unused and behavior-neutral until the resolver cutover, and no identity deployment occurs before the implementation-plan and live-acceptance gates pass.
 
-`src/RookBim/RookBim.csproj` remains Revit-specific and must build after `src/Rook/Rook.csproj`. Core contracts and optional module stay version-aligned. The deployed `/bim/status` commit must identify the exact code under acceptance.
+`src/RookBim/RookBim.csproj` remains Revit-specific and must build after `src/Rook/Rook.csproj`. Core contracts, optional module, and Python MCP schema stay version-aligned in the atomic cutover. The deployed `/bim/status` commit must identify the exact code under acceptance.
 
 ## Testing
 
@@ -469,6 +573,9 @@ The probe harness/report must prove:
 Tests must cover:
 
 - the exact initial-release source set and wire names: `revit_creation_guid_central_path_v1`, `revit_creation_guid_document_path_v1`, and `unavailable`;
+- MCP identity schemas expose optional `documentKey` and `documentKeySource`, retain `additionalProperties: false`, retain the existing legacy required fields, and reject unknown key-source strings through ordinary schema/binding behavior;
+- MCP forwards a representative strong identity dictionary without dropping, renaming, normalizing, or recomputing either new field through element information, element parameters, selection, and identity-list export;
+- Python contains no duplicate key regex, hash, prefix/source, GUID-coherence, or downgrade policy;
 - absence of reserved Revit Server, cloud, and saved-family production source values, payload encoders, parsers, and derivation branches;
 - GUID fields reject/non-emit hashes;
 - `CreationGUID` is never projected into legacy `Guid`/`DocumentGuid` for file-workshared or saved-project sources;
@@ -480,6 +587,12 @@ Tests must cover:
 - rejection of empty, relative, drive-relative, root-relative, URI, incomplete UNC, embedded-NUL, and device-namespace paths;
 - strict UTF-8 without BOM and lowercase 64-character SHA-256 output;
 - mapped/UNC differences produce non-match, not normalization guesses;
+- counting fake readers execute the production policy and prove each required identity read occurs at most once per operation;
+- `ModelPath` is read exactly once only for a successfully classified workshared document and never for a non-workshared document;
+- unavailable `IsDetached`, `IsWorkshared`, `IsModelInCloud`, `IsFamilyDocument`, or ModelPath classification stops identity/key reads and never falls through to another class;
+- independent display reads may continue after identity classification becomes unavailable but cannot alter its result;
+- synthetic expected reader exceptions become bounded unavailable results with no retained exception, while unexpected exceptions are rethrown;
+- equivalent enabled-style and disabled-style adapter results produce identical policy classification, key, comparison, and error outcomes, with diagnostics absent from the policy API;
 - the retained Revit Server legacy comparator reads only the actual `WorksharingCentralGUID`, runs only when no incoming `documentKey` exists, and emits no new versioned key;
 - cloud classification emits unavailable identity and calls none of `WorksharingCentralGUID`, `WorksharingProjectGUID`, or `CloudModelGUID` for identity;
 - file central/local code uses the approved composite only;
@@ -492,7 +605,9 @@ Tests must cover:
 - strong key match/mismatch/unavailable behavior;
 - unknown key version fails without downgrade;
 - malformed key fails without downgrade;
+- whitespace key, key with `unavailable` source, and missing key with a strong source are invalid;
 - conflicting key and legacy GUID is invalid;
+- missing, whitespace, malformed, empty, source-incoherent, and deprecated path-fallback legacy cases match the normative coherence table;
 - legacy GUID comparison runs only when no document key is supplied;
 - raw path/title never participates in authorization;
 - element `UniqueId` and `ElementId` lookups occur only after `Match`;
@@ -502,6 +617,8 @@ Tests must cover:
 - for an approved composite class, one operation producing 1,000 element identities reads the required `CreationGUID` and applicable central/document path exactly once, performs one conversion/normalization/key derivation, and performs zero inapplicable host-property reads;
 - for a qualifying legacy Revit Server comparison, one batch reads the active actual central GUID exactly once and performs no new-key derivation;
 - one batch of 1,000 incoming identities resolves active-document evidence exactly once and performs no per-identity document-property reads;
+- validation precedence is null, linked evidence, coherence, document comparison, and locator validation;
+- a null batch entry, linked evidence in any entry, or later invalid identity prevents every `GetElement` and side effect in the batch;
 - explicit identity-list export with unavailable evidence fails closed before `GetElement` or export work;
 - selector export with unavailable identity evidence consumes same-operation live elements directly and remains available when ordinary query/export preconditions pass;
 - preset export with unavailable identity evidence carries and deduplicates same-operation live elements without `DocumentIdentity`, `ElementIdentity`, or `Resolve` round-trips;
@@ -516,11 +633,11 @@ Tests must cover:
 
 With two documents open concurrently, test each applicable class and route:
 
-- produce an element identity from document A;
+- produce an element identity from document A through the MCP query tool;
 - switch active document to B;
-- call element information/parameters;
-- call selection routes;
-- call identity-based export routes;
+- pass that exact returned dictionary through MCP element information and parameters;
+- pass it through MCP selection;
+- pass it through MCP identity-list export;
 - verify mismatch or unavailable is returned before element lookup;
 - verify no element from B is selected, exported, or returned;
 - switch back to A and verify the same identity succeeds.
@@ -537,9 +654,19 @@ The matrix must include:
 - a saved-family fail-closed fixture;
 - unsaved and detached fail-closed fixtures.
 
-The same-lineage/same-location equivalence is a sequential acceptance case because two distinct physical files cannot simultaneously occupy one canonical path: produce an identity from the original, close it, place a same-lineage copy at that canonical path, reopen it, and verify the original identity compares equal. This test documents the accepted v1 semantic; it is not a physical-copy isolation claim.
+The same-location cases use this exact disposable sequence because two physical files cannot simultaneously occupy one canonical path:
+
+1. Open the original at canonical path P and capture an MCP query identity.
+2. Close the document and Revit file handle.
+3. Place a same-lineage copy at P, reopen P, and verify the original identity compares equal and completes all four MCP consumer round trips.
+4. Close the document and file handle again.
+5. Replace P with a different-lineage document, reopen P, and verify the original identity fails before lookup or side effects through all four consumers.
+
+This sequence documents the accepted lineage-plus-location semantic; it is not a physical-copy isolation claim.
 
 Live acceptance also repeats `active_document`, `list_categories`, query, selection, and export smoke tests with diagnostics enabled and disabled. Source-contract tests alone cannot approve Revit host behavior.
+
+The final Revit journal scan must contain no new `ADocument::getModelGUID_()` failure or “internal error” attributable to a file-workshared operation. It must also prove that file-workshared routes never invoke the server central-GUID stage.
 
 For every available class with unavailable identity evidence, live acceptance distinguishes the two export trust paths: selector/preset export succeeds from same-operation query elements, while identity-list export returns `document_identity_unavailable` before element lookup or file output.
 
@@ -548,14 +675,15 @@ For every available class with unavailable identity evidence, live acceptance di
 Deployment requires:
 
 - approved CreationGUID probe decision recorded in this file;
-- unit and source-contract suites passing;
+- managed policy/contract, optional-module source-contract, and focused MCP suites passing;
 - `Rook` built before `RookBim`;
 - exact deployed commit visible in `/bim/status`;
 - fresh Revit restart;
 - full document-class smoke matrix for available infrastructure;
 - two-document resolution/selection/export acceptance;
+- all four MCP query-to-consumer round trips and the exact close/copy/replace/reopen sequence;
 - redacted JSONL and live report review;
-- confirmation that file-workshared category enumeration remains successful.
+- confirmation that file-workshared category enumeration remains successful and the Revit journal contains no new file-workshared server-GUID failure.
 
 The original unavailable customer model remains a desirable final reproduction but is not required to establish the two-document safety invariant in controlled fixtures.
 
@@ -568,11 +696,13 @@ A binary rollback would restore fail-open matching and is therefore unsafe while
 - redeploy the corrected previous known-safe identity build, if one exists; or
 - disable identity-based resolution, selection, and export capabilities until the corrected release is restored.
 
-Do not partially roll back only the wire fields or only the comparator. Producers and consumers of `documentKey` must remain version-aligned.
+Do not partially roll back only the managed wire fields, MCP schema, policy, Revit adapter, or comparator. Producers, Python transport, and consumers of `documentKey` must remain version-aligned.
 
 ## Approval and implementation-plan gate
 
 The reviewer approved outcome 2, class-limited composite, on 2026-07-27. The durable report, observed matrix, identity semantic, approved sources, and fail-closed classes are recorded above.
+
+On 2026-07-28 the reviewer approved the KISS two-layer amendment: one Revit-free policy kernel, one diagnostic-owning Revit adapter, the two optional MCP fields, the complete coherence/precedence contract, and the expanded MCP/live acceptance gate. Implementation planning must include `mcp_server/src/rook/server.py` and `mcp_server/tests/test_rookbim_mcp_tools.py` in the atomic production cutover. A plan that declares MCP unchanged is not executable.
 
 Implementation planning is authorized only for:
 
