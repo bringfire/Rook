@@ -451,6 +451,65 @@ def test_task4_historical_artifact_mutation_assignments_are_bootstrap_bound() ->
         )
 
 
+@pytest.mark.parametrize(
+    "injected_statement",
+    [
+        (
+            '_UNUSED = _READY_PROOF_VALUE.__setitem__('
+            '"schema_id", "forged")'
+        ),
+        "_UNUSED = _MISSING_BOOTSTRAP_NAME",
+        "(_UNUSED_FIRST, _UNUSED_SECOND) = _READY_PROOF_VALUE",
+        (
+            'def _unreferenced(value=_READY_PROOF_VALUE.__setitem__('
+            '"schema_id", "forged")):\n    return value'
+        ),
+        (
+            '@_READY_PROOF_VALUE.__setitem__("schema_id", "forged")\n'
+            'def _unreferenced():\n    return None'
+        ),
+        (
+            'class _Unreferenced('
+            '_READY_PROOF_VALUE.__setitem__("schema_id", "forged")'
+            '):\n    pass'
+        ),
+        "import unreviewed_bootstrap_module",
+    ],
+    ids=(
+        "mutating_name_binding_rhs",
+        "name_resolution",
+        "destructuring_iteration",
+        "executable_function_default",
+        "executable_function_decorator",
+        "executable_class_construction",
+        "import_execution",
+    ),
+)
+def test_task4_historical_executable_statements_are_bootstrap_bound(
+    injected_statement: str,
+) -> None:
+    """Unreferenced import-time execution remains in causal custody."""
+
+    module = _load_forensics()
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    relative = "scripts/lm9b_p_governed_resolution_artifacts.py"
+    changed_blobs = dict(git_blobs)
+    changed_blobs[relative] = (
+        git_blobs[relative]
+        + b"\n\n"
+        + injected_statement.encode("utf-8")
+        + b"\n"
+    )
+    with pytest.raises(
+        ValueError,
+        match="historical Git producer artifact bootstrap differs",
+    ):
+        module._reconstruct_historical_instrument_and_request(
+            repo=ROOT,
+            git_blobs=changed_blobs,
+        )
+
+
 def test_task4_execution_capability_ledger_binds_isolation_callable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

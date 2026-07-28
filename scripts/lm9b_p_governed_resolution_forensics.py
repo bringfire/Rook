@@ -477,45 +477,175 @@ def _top_level_node(raw: bytes, name: str) -> ast.AST:
 
 
 def _target_is_pure_name_binding(target: ast.AST) -> bool:
-    if isinstance(target, ast.Name):
+    return isinstance(target, ast.Name)
+
+
+def _expression_is_inert_module_binding(node: ast.AST) -> bool:
+    """Admit only expressions whose evaluation cannot invoke user code."""
+
+    if isinstance(node, ast.Constant):
         return True
-    if isinstance(target, ast.Starred):
-        return _target_is_pure_name_binding(target.value)
-    if isinstance(target, (ast.Tuple, ast.List)):
-        return all(_target_is_pure_name_binding(item) for item in target.elts)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return all(
+            not isinstance(item, ast.Starred)
+            and _expression_is_inert_module_binding(item)
+            for item in node.elts
+        )
+    if isinstance(node, ast.Set):
+        return all(isinstance(item, ast.Constant) for item in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(
+            key is not None
+            and isinstance(key, ast.Constant)
+            and _expression_is_inert_module_binding(value)
+            for key, value in zip(node.keys, node.values)
+        )
     return False
 
 
-def _assignment_is_pure_name_binding(node: ast.AST) -> bool:
+def _module_uses_future_annotations(tree: ast.Module) -> bool:
+    return any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "__future__"
+        and any(alias.name == "annotations" for alias in node.names)
+        for node in tree.body
+    )
+
+
+def _function_definition_is_inert_binding(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    *,
+    future_annotations: bool,
+) -> bool:
+    if node.decorator_list or getattr(node, "type_params", ()):
+        return False
+    defaults = (*node.args.defaults, *(
+        value for value in node.args.kw_defaults if value is not None
+    ))
+    if not all(_expression_is_inert_module_binding(value) for value in defaults):
+        return False
+    if future_annotations:
+        return True
+    annotations = [
+        argument.annotation
+        for argument in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        )
+        if argument.annotation is not None
+    ]
+    if node.args.vararg is not None and node.args.vararg.annotation is not None:
+        annotations.append(node.args.vararg.annotation)
+    if node.args.kwarg is not None and node.args.kwarg.annotation is not None:
+        annotations.append(node.args.kwarg.annotation)
+    if node.returns is not None:
+        annotations.append(node.returns)
+    return all(_expression_is_inert_module_binding(value) for value in annotations)
+
+
+def _assignment_is_inert_name_binding(
+    node: ast.AST,
+    *,
+    future_annotations: bool,
+) -> bool:
     if isinstance(node, ast.Assign):
         return bool(node.targets) and all(
             _target_is_pure_name_binding(target) for target in node.targets
-        )
+        ) and _expression_is_inert_module_binding(node.value)
     if isinstance(node, ast.AnnAssign):
-        return _target_is_pure_name_binding(node.target)
+        return (
+            _target_is_pure_name_binding(node.target)
+            and (node.value is None or _expression_is_inert_module_binding(node.value))
+            and (
+                future_annotations
+                or _expression_is_inert_module_binding(node.annotation)
+            )
+        )
     return False
 
 
 def _top_level_bootstrap_nodes(raw: bytes) -> tuple[ast.AST, ...]:
-    declarative = (
-        ast.FunctionDef,
-        ast.AsyncFunctionDef,
-        ast.ClassDef,
-        ast.Import,
-        ast.ImportFrom,
-    )
+    tree = ast.parse(raw.decode("utf-8"))
+    future_annotations = _module_uses_future_annotations(tree)
+
+    def is_declarative(node: ast.AST) -> bool:
+        if isinstance(node, ast.Expr):
+            return (
+                isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            )
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return _function_definition_is_inert_binding(
+                node,
+                future_annotations=future_annotations,
+            )
+        return _assignment_is_inert_name_binding(
+            node,
+            future_annotations=future_annotations,
+        )
+
     return tuple(
         node
-        for node in ast.parse(raw.decode("utf-8")).body
-        if not isinstance(node, declarative)
-        and not _assignment_is_pure_name_binding(node)
+        for node in tree.body
+        if not is_declarative(node)
     )
 
 
-def _top_level_bootstrap_identity(raw: bytes) -> tuple[str, ...]:
+def _bound_top_level_names(node: ast.AST) -> frozenset[str]:
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return frozenset({node.name})
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return frozenset(
+            alias.asname or alias.name.split(".")[0]
+            for alias in node.names
+        )
+    if isinstance(node, (ast.Assign, ast.AnnAssign)):
+        targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+        return frozenset(
+            item.id
+            for target in targets
+            for item in ast.walk(target)
+            if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store)
+        )
+    return frozenset()
+
+
+_CURRENT_ONLY_ARTIFACT_BOOTSTRAP_BINDINGS = frozenset(
+    {
+        frozenset({"ARCHIVE_EVIDENCE"}),
+        frozenset({"ARCHIVE_EVIDENCE_PROFILE_PATH"}),
+        frozenset({"ReconstructedResolutionAttempt"}),
+    }
+)
+_MIGRATED_ARTIFACT_BOOTSTRAP_BINDINGS = frozenset(
+    {frozenset({"RESOLUTION_ARCHIVE_MEMBERS"})}
+)
+
+
+def _historical_artifact_bootstrap_identity(
+    raw: bytes,
+    *,
+    repaired: bool,
+) -> tuple[str, ...]:
+    excluded = set(_MIGRATED_ARTIFACT_BOOTSTRAP_BINDINGS)
+    if repaired:
+        excluded.update(_CURRENT_ONLY_ARTIFACT_BOOTSTRAP_BINDINGS)
+    seen: set[frozenset[str]] = set()
+    retained: list[ast.AST] = []
+    for node in _top_level_bootstrap_nodes(raw):
+        names = _bound_top_level_names(node)
+        if names in excluded:
+            if names in seen:
+                raise ValueError("historical Git producer bootstrap delta is ambiguous")
+            seen.add(names)
+            continue
+        retained.append(node)
+    if seen != excluded:
+        raise ValueError("historical Git producer bootstrap delta is incomplete")
     return tuple(
         ast.dump(node, include_attributes=False)
-        for node in _top_level_bootstrap_nodes(raw)
+        for node in retained
     )
 
 
@@ -724,9 +854,13 @@ def _verify_historical_git_producer_roots(
     artifacts_path = "scripts/lm9b_p_governed_resolution_artifacts.py"
     current_artifacts = current_blobs[artifacts_path]
     historical_artifacts = git_blobs[artifacts_path]
-    if _top_level_bootstrap_identity(
-        current_artifacts
-    ) != _top_level_bootstrap_identity(historical_artifacts):
+    if _historical_artifact_bootstrap_identity(
+        current_artifacts,
+        repaired=True,
+    ) != _historical_artifact_bootstrap_identity(
+        historical_artifacts,
+        repaired=False,
+    ):
         raise ValueError("historical Git producer artifact bootstrap differs")
     current_reachable, current_executed = _reachable_artifact_producer_symbols(
         current_artifacts, _HISTORICAL_ARTIFACT_PRODUCER_ROOTS
