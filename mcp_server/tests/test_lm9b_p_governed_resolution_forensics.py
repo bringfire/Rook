@@ -5,6 +5,8 @@ import hashlib
 import importlib.util
 import json
 import os
+import copy
+import subprocess
 import shutil
 import sys
 from dataclasses import fields
@@ -55,7 +57,17 @@ def test_task4_forensic_types_import_without_operational_dependencies() -> None:
         "isolation_status",
         "reconstructed_classification",
         "candidate_recipe_raw_sha256",
-        "call_ledger_fingerprint",
+        "runtime_call_projection_fingerprint",
+        "authored_operational_accounting_fingerprint",
+        "controller_conformance",
+        "exact_timing_accounting",
+        "cost_accounting",
+        "cost_stop_compliance",
+        "classification_scope",
+        "original_attempt_state",
+        "official_scientific_checkpoint",
+        "ready_proof",
+        "compiler_eligibility",
         "gate_fingerprint",
         "isolation_fingerprint",
         "reconstruction_fingerprint",
@@ -72,6 +84,8 @@ def test_task4_forensic_types_import_without_operational_dependencies() -> None:
         module.VerifiedHistoricalResolutionPreflightForensics()
     with pytest.raises(TypeError, match="closure-issued"):
         module.VerifiedResolutionForensicSource()
+    with pytest.raises(TypeError, match="closure-issued"):
+        module.VerifiedRuntimeCallProjection()
 
 
 def test_task4_verifies_only_the_pinned_physical_historical_preflight(
@@ -111,27 +125,7 @@ def _historical_carrier(module):
     )
 
 
-def test_task4_historical_reconstruction_rejects_fully_reclosed_source_drift() -> None:
-    """Catches authored downstream hashes replacing the pinned Git authority."""
-
-    module = _load_forensics()
-    _archive, members, _identity = module._flat_snapshot(
-        module.OBSERVED_PREFLIGHT_ARCHIVE,
-        expected=module._PREFLIGHT_MEMBERS,
-    )
-    git_blobs, _manifest = module._git_blob_map(ROOT)
-    changed_blobs = dict(git_blobs)
-    target = "scripts/lm9b_p_governed_resolution_support.py"
-    changed_blobs[target] = changed_blobs[target].replace(
-        b"    payload = {\n", b"    payload  = {\n", 1
-    )
-    record = json.loads(members["record.json"])
-    source = module._source_bytes(
-        changed_blobs[target], "render_planner_revision_request"
-    )
-    record["instrument_contracts"]["planner"][
-        "revision_renderer_source_fingerprint"
-    ] = "sha256:" + hashlib.sha256(source).hexdigest()
+def _reclose_historical_preflight(module, members, record):
     record["instrument_fingerprint"] = module.PLANNER_SUPPORT.fingerprint(
         record["instrument_contracts"]
     )
@@ -145,23 +139,138 @@ def test_task4_historical_reconstruction_rejects_fully_reclosed_source_drift() -
     record["preflight_fingerprint"] = module.PLANNER_SUPPORT.fingerprint_without(
         record, "preflight_fingerprint"
     )
-    changed_members = dict(members)
-    changed_members["record.json"] = module._canonical_bytes(record)
-    checksums = json.loads(changed_members["checksums.json"])
+    changed = dict(members)
+    changed["record.json"] = module._canonical_bytes(record)
+    checksums = json.loads(changed["checksums.json"])
     checksums["members"] = [
         {
             "path": name,
             "raw_sha256": "sha256:"
-            + hashlib.sha256(changed_members[name]).hexdigest(),
+            + hashlib.sha256(changed[name]).hexdigest(),
         }
         for name in ("initial-request.json", "record.json")
     ]
-    changed_members["checksums.json"] = module._canonical_bytes(checksums)
-    with pytest.raises(ValueError, match="historical (preflight|instrument)"):
+    changed["checksums.json"] = module._canonical_bytes(checksums)
+    return changed
+
+
+def test_task4_historical_reconstruction_rejects_fully_reclosed_source_drift() -> None:
+    """Catches authored downstream hashes replacing the pinned Git authority."""
+
+    module = _load_forensics()
+    _archive, members, _identity = module._flat_snapshot(
+        module.OBSERVED_PREFLIGHT_ARCHIVE,
+        expected=module._PREFLIGHT_MEMBERS,
+    )
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    target = "scripts/lm9b_p_governed_resolution_support.py"
+    record = json.loads(members["record.json"])
+    source = module._source_bytes(
+        git_blobs[target], "render_planner_revision_request"
+    )
+    record["instrument_contracts"]["planner"][
+        "revision_renderer_source_fingerprint"
+    ] = "sha256:" + hashlib.sha256(source + b"substituted").hexdigest()
+    changed_members = _reclose_historical_preflight(module, members, record)
+    with pytest.raises(
+        ValueError, match="historical instrument reconstruction differs"
+    ):
         module._verify_historical_preflight_projection(
+            repo=ROOT,
             archive=module.OBSERVED_PREFLIGHT_ARCHIVE,
             members=changed_members,
-            git_blobs=changed_blobs,
+            git_blobs=git_blobs,
+        )
+
+
+@pytest.mark.parametrize(
+    ("dotted", "replacement"),
+    [
+        ("verified_inputs.inputs_fingerprint", "sha256:" + "1" * 64),
+        ("isolation.definition_fingerprint", "sha256:" + "2" * 64),
+        ("evaluator.rubric_fingerprint", "sha256:" + "3" * 64),
+        ("readiness.route_manifest_fingerprint", "sha256:" + "4" * 64),
+        ("decision.outcome_equations_contract_id", "substituted:v1"),
+        ("archive.finalization_equation", "substituted:v1"),
+        ("ready_proof.contract_id", "substituted:v1"),
+    ],
+)
+def test_task4_historical_manifest_claims_are_derived_not_self_authenticated(
+    dotted: str,
+    replacement: object,
+) -> None:
+    """Each row must reach the derived-manifest comparison, not a hash pin."""
+
+    module = _load_forensics()
+    _archive, members, _identity = module._flat_snapshot(
+        module.OBSERVED_PREFLIGHT_ARCHIVE,
+        expected=module._PREFLIGHT_MEMBERS,
+    )
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    record = json.loads(members["record.json"])
+    module._set_mapping_path(record["instrument_contracts"], dotted, replacement)
+    changed = _reclose_historical_preflight(module, members, record)
+    with pytest.raises(
+        ValueError, match="historical instrument reconstruction differs"
+    ):
+        module._verify_historical_preflight_projection(
+            repo=ROOT,
+            archive=module.OBSERVED_PREFLIGHT_ARCHIVE,
+            members=changed,
+            git_blobs=git_blobs,
+        )
+
+
+def test_task4_historical_initial_request_is_rerendered_from_roots() -> None:
+    """A fully reclosed alternate request must fail the renderer derivation."""
+
+    module = _load_forensics()
+    _archive, members, _identity = module._flat_snapshot(
+        module.OBSERVED_PREFLIGHT_ARCHIVE,
+        expected=module._PREFLIGHT_MEMBERS,
+    )
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    record = json.loads(members["record.json"])
+    request = json.loads(members["initial-request.json"])
+    request["brief"] += " substituted"
+    changed = dict(members)
+    changed["initial-request.json"] = module._canonical_bytes(request)
+    request_sha = module._sha256(changed["initial-request.json"])
+    record["initial_request_raw_sha256"] = request_sha
+    record["instrument_contracts"]["planner"][
+        "initial_request_raw_sha256"
+    ] = request_sha
+    changed = _reclose_historical_preflight(module, changed, record)
+    with pytest.raises(
+        ValueError, match="historical instrument reconstruction differs"
+    ):
+        module._verify_historical_preflight_projection(
+            repo=ROOT,
+            archive=module.OBSERVED_PREFLIGHT_ARCHIVE,
+            members=changed,
+            git_blobs=git_blobs,
+        )
+
+
+def test_task4_historical_checksum_schema_is_an_observed_constant() -> None:
+    """Would pass if the checksum schema were copied from its own claim."""
+
+    module = _load_forensics()
+    _archive, members, _identity = module._flat_snapshot(
+        module.OBSERVED_PREFLIGHT_ARCHIVE,
+        expected=module._PREFLIGHT_MEMBERS,
+    )
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    changed = dict(members)
+    checksums = json.loads(changed["checksums.json"])
+    checksums["schema"] = "rook.substituted_checksums:v1"
+    changed["checksums.json"] = module._canonical_bytes(checksums)
+    with pytest.raises(ValueError, match="checksum schema"):
+        module._verify_historical_preflight_projection(
+            repo=ROOT,
+            archive=module.OBSERVED_PREFLIGHT_ARCHIVE,
+            members=changed,
+            git_blobs=git_blobs,
         )
 
 
@@ -217,10 +326,11 @@ def test_task4_reconstructs_the_six_turn_candidate_without_writes(
     )
     before = module._recursive_snapshot(copied)
     commit = module._current_commit(ROOT)
-    result = module.reconstruct_resolution_forensic_candidate(
-        source=source,
+    result = module._reconstruct_resolution_forensic_candidate_unsealed(
+        capability=module._consume_forensic_source(source),
         repo_root=ROOT,
         forensic_commit_sha=commit,
+        require_executing_checkout=False,
     )
     assert result.planner_call_count == 6
     assert result.evaluator_call_count == 0
@@ -230,7 +340,125 @@ def test_task4_reconstructs_the_six_turn_candidate_without_writes(
         result.reconstructed_classification
         == "probe_resolution_isolation_failure"
     )
+    assert result.controller_conformance == "not_verified"
+    assert result.exact_timing_accounting == "not_verified"
+    assert result.cost_accounting == "preserved_unverified"
+    assert result.cost_stop_compliance == "not_verified"
+    assert result.classification_scope == "candidate_level_deterministic_projection"
+    assert result.original_attempt_state == "post_dispatch_unsealed"
+    assert result.official_scientific_checkpoint == "absent"
+    assert result.ready_proof == "prohibited"
+    assert result.compiler_eligibility is False
     assert module._recursive_snapshot(copied) == before
+
+
+def test_task4_runtime_files_are_the_causal_call_projection(
+    tmp_path: Path,
+) -> None:
+    """Would pass if the authored call ledger remained a derivation input."""
+
+    module = _load_forensics()
+    historical = _historical_carrier(module)
+    copied = tmp_path / module.OBSERVED_STAGING.name
+    shutil.copytree(module.OBSERVED_STAGING, copied)
+    source = module.load_verified_resolution_forensic_source(
+        historical_preflight=historical,
+        staging_dir=copied,
+        expected_marker_sha256=module.OBSERVED_MARKER_SHA256,
+        expected_candidate_checksums_sha256=(
+            module.OBSERVED_CANDIDATE_CHECKSUMS_SHA256
+        ),
+    )
+    capability = module._consume_forensic_source(source)
+    files, _identity = module._recursive_snapshot(copied)
+    runtime_files = {
+        path.removeprefix(".resolution-runtime/calls/"): raw
+        for path, raw in files.items()
+        if path.startswith(".resolution-runtime/calls/")
+    }
+    authored = json.loads(
+        capability.source.candidate_members["call-ledger.json"]
+    )
+    contracts = capability.historical.record["instrument_contracts"]
+    proof = module.derive_verified_runtime_call_projection(
+        runtime_call_files=runtime_files,
+        authored_call_ledger=authored,
+        instrument_contracts=contracts,
+    )
+    assert type(proof) is module.VerifiedRuntimeCallProjection
+    value = module._consume_verified_runtime_call_projection(proof)
+    assert value["planner_call_count"] == 6
+    assert value["evaluator_call_count"] == 0
+    assert len(value["unverified_operational_accounting"]) == 6
+
+    changed = copy.deepcopy(authored)
+    changed["calls"][0]["assistant_message"]["content"] = "substituted"
+    with pytest.raises(ValueError, match="causal call projection differs"):
+        module._derive_runtime_call_projection_value(
+            runtime_call_files=runtime_files,
+            authored_call_ledger=changed,
+            instrument_contracts=contracts,
+        )
+
+    accounting_only = copy.deepcopy(authored)
+    accounting_only["calls"][0]["elapsed_ms"] += 1
+    accounting_only["calls"][0]["usage"]["cost_usd"] += 1.0
+    accounting_value = module._derive_runtime_call_projection_value(
+        runtime_call_files=runtime_files,
+        authored_call_ledger=accounting_only,
+        instrument_contracts=contracts,
+    )
+    assert accounting_value["causal_rows"] == value["causal_rows"]
+    assert (
+        accounting_value["unverified_operational_accounting"]
+        != value["unverified_operational_accounting"]
+    )
+    forged = object.__new__(module.VerifiedRuntimeCallProjection)
+    with pytest.raises(ValueError, match="was not issued"):
+        module._consume_verified_runtime_call_projection(forged)
+
+
+def test_task4_public_reconstruction_refuses_dirty_or_alternate_checkout(
+    tmp_path: Path,
+) -> None:
+    """Would pass if caller-supplied HEAD authenticated imported module bytes."""
+
+    module = _load_forensics()
+    historical = _historical_carrier(module)
+    copied = tmp_path / module.OBSERVED_STAGING.name
+    shutil.copytree(module.OBSERVED_STAGING, copied)
+    source = module.load_verified_resolution_forensic_source(
+        historical_preflight=historical,
+        staging_dir=copied,
+        expected_marker_sha256=module.OBSERVED_MARKER_SHA256,
+        expected_candidate_checksums_sha256=(
+            module.OBSERVED_CANDIDATE_CHECKSUMS_SHA256
+        ),
+    )
+    commit = module._current_commit(ROOT)
+    with pytest.raises(ValueError, match="executing checkout is dirty"):
+        module.reconstruct_resolution_forensic_candidate(
+            source=source,
+            repo_root=ROOT,
+            forensic_commit_sha=commit,
+        )
+
+    alternate = tmp_path / "alternate-checkout"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--no-hardlinks", str(ROOT), str(alternate)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "--quiet", commit],
+        cwd=alternate,
+        check=True,
+    )
+    with pytest.raises(ValueError, match="executing checkout root differs"):
+        module.reconstruct_resolution_forensic_candidate(
+            source=source,
+            repo_root=alternate,
+            forensic_commit_sha=commit,
+        )
 
 
 def test_task4_forensic_capabilities_are_unforgeable_and_inert(

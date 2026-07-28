@@ -682,11 +682,33 @@ movement issues no report.
 
 ### 11.2 Reconstruction
 
-The forensic verifier never accepts authored classification as authority. It
-reconstructs:
+The forensic verifier never accepts an authored aggregate as its causal root.
+It uses three explicit layers:
 
 ```text
-exact six-call ledger
+retained runtime roots
+-> verified causal call projection
+-> mechanically reconstructed candidate and isolation result
+
+authored aggregate
+-> preserved operational accounting
+-> explicitly unverified
+
+combined forensic report
+-> no official checkpoint or scientific outcome
+```
+
+The verified call projection excludes only the closed authored paths
+`calls[*].elapsed_ms`, `calls[*].usage.cost_usd`, and their duplicated
+Planner-session projections. Every other runtime-derived field must equal the
+authored ledger exactly. A closure-issued `VerifiedRuntimeCallProjection`
+carries that comparison. The authored timing and cost values and hashes remain
+preserved, but are not inputs to causal reconstruction.
+
+From that projection the verifier reconstructs:
+
+```text
+six physical dispatches and exact retained requests/raw responses
 -> exact assistant projections from raw responses
 -> exact Planner submissions
 -> exact mechanical gates and feedback transcript
@@ -706,6 +728,25 @@ probe_resolution_isolation_failure
 Authored `checkpoint-gate.json`, `isolation.json`, and `classification.json` are
 then compared to independently reconstructed values. They cannot establish
 those values.
+
+The classification is explicitly a **candidate-level deterministic
+projection**, not an official scientific checkpoint outcome. Because elapsed
+timing and exact cost cannot be recovered causally from this specimen, the
+report must state that full controller conformance, exact timing, cost
+accounting, and cost-stop compliance are not verified. No invented timing,
+zero cost, reconstructed price, or full-ledger verifier input is permitted.
+
+This separates the epistemic plane (authority, model evidence, mechanical and
+isolation gates, and candidate-level classification) from the operational
+plane (elapsed time, cost, rate limits, and infrastructure availability).
+Operational controls govern whether observation continues; causally derived
+evidence and deterministic semantic rules govern what the candidate means.
+
+Future governed-resolution attempts must persist terminal per-call evidence
+that binds elapsed timing and either (a) exact cost together with the frozen
+pricing/calculator identity and inputs, or (b) immutable inputs sufficient to
+recompute the exact cost-stop decision. This forward rule does not retrofit or
+estimate the absent historical provenance.
 
 ### 11.3 Report schema and membership
 

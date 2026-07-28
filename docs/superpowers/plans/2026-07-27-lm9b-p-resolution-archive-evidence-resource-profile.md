@@ -780,6 +780,7 @@ git commit -m "fix: retain bounded resolution provider evidence"
 - Produces:
   - closure-issued `VerifiedHistoricalResolutionPreflightForensics`
   - closure-issued `VerifiedResolutionForensicSource`
+  - closure-issued `VerifiedRuntimeCallProjection`
   - immutable `ResolutionForensicReconstruction`
   - `verify_historical_resolution_preflight_forensics(*, repo_root: Path, preflight_archive: Path, expected_preflight_fingerprint: str) -> VerifiedHistoricalResolutionPreflightForensics`
   - `load_verified_resolution_forensic_source(*, historical_preflight: object, staging_dir: Path, expected_marker_sha256: str, expected_candidate_checksums_sha256: str) -> VerifiedResolutionForensicSource`
@@ -802,7 +803,17 @@ class ResolutionForensicReconstruction:
     isolation_status: str
     reconstructed_classification: str
     candidate_recipe_raw_sha256: str
-    call_ledger_fingerprint: str
+    runtime_call_projection_fingerprint: str
+    authored_operational_accounting_fingerprint: str
+    controller_conformance: str
+    exact_timing_accounting: str
+    cost_accounting: str
+    cost_stop_compliance: str
+    classification_scope: str
+    original_attempt_state: str
+    official_scientific_checkpoint: str
+    ready_proof: str
+    compiler_eligibility: bool
     gate_fingerprint: str
     isolation_fingerprint: str
     reconstruction_fingerprint: str
@@ -949,7 +960,13 @@ case and can never issue that carrier. The reconstruction order is:
 consume historical preflight carrier
 -> consume immutable source carrier
 -> admit repaired profile under forensic commit
--> parse/authenticate six-row call ledger and issue call-shape carrier
+-> derive each causal call row from retained runtime dispatch markers,
+   canonical requests, adapter requests, and raw responses
+-> compare those derived rows to the authored call ledger while excluding
+   only calls[*].elapsed_ms and calls[*].usage.cost_usd
+-> preserve the excluded authored timing/cost values as unverified accounting
+-> issue a closure-owned VerifiedRuntimeCallProjection
+-> parse/authenticate the six-row authored call ledger and issue call-shape carrier
 -> parse remaining members under actual P=6, E=0 ceilings
 -> derive assistant/tool projections from raw responses
 -> rebuild all Planner requests, submissions, mechanical gates, and feedback
@@ -969,7 +986,30 @@ assert reconstruction.isolation_status == "isolation_rejected"
 assert reconstruction.reconstructed_classification == (
     "probe_resolution_isolation_failure"
 )
+assert reconstruction.controller_conformance == "not_verified"
+assert reconstruction.exact_timing_accounting == "not_verified"
+assert reconstruction.cost_accounting == "preserved_unverified"
+assert reconstruction.cost_stop_compliance == "not_verified"
+assert reconstruction.classification_scope == (
+    "candidate_level_deterministic_projection"
+)
+assert reconstruction.original_attempt_state == "post_dispatch_unsealed"
+assert reconstruction.official_scientific_checkpoint == "absent"
+assert reconstruction.ready_proof == "prohibited"
+assert reconstruction.compiler_eligibility is False
 ```
+
+The authored aggregate is a comparison target, never the causal source. The
+forensic reconstruction does not call the existing full-ledger verifier with
+invented timing or cost. Six physical dispatches, exact requests/responses,
+submission/feedback progression, the accepted turn-six candidate, and its
+isolation failure are verified. Full controller conformance, exact elapsed
+time, cost accounting, and cost-stop compliance are explicitly not verified.
+
+Future governed-resolution attempts must persist terminal per-call evidence
+that binds elapsed time and either exact cost plus calculator/pricing identity,
+or immutable inputs sufficient to recompute the cost decision. This forward
+requirement does not manufacture missing evidence for the retained attempt.
 
 - [x] **Step 6: Prove read-only snapshot equality and type isolation**
 

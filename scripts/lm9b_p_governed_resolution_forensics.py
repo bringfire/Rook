@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import base64
+import copy
 import hashlib
 import json
 import os
@@ -57,9 +59,10 @@ OBSERVED_CANDIDATE_CHECKSUMS_SHA256 = (
 _OBSERVED_INITIAL_REQUEST_SHA256 = (
     "sha256:c1af3a9bc8b7e9f93fc137140a91155e2fe8297ff2ceb5da8b2e882982563f98"
 )
-_OBSERVED_INSTRUMENT_MANIFEST_FINGERPRINT = (
-    "sha256:06b09362a60af25f4d2f3a445d0555f21794a77f0a7ceecd3aa669d720ad17e0"
+_OBSERVED_PREFLIGHT_CHECKSUMS_SCHEMA_ID = (
+    "rook.lm9b_p.governed_resolution_preflight_checksums:v1"
 )
+_OBSERVED_PREFLIGHT_SCHEMA_ID = "rook.lm9b_p.governed_resolution_preflight:v1"
 _PREFLIGHT_MEMBERS = frozenset(
     {"record.json", "initial-request.json", "checksums.json"}
 )
@@ -322,8 +325,129 @@ def _source_bytes(raw: bytes, qualified_name: str) -> bytes:
     return "".join(lines[start - 1 : selected.end_lineno]).encode("utf-8")
 
 
+def _set_mapping_path(value: dict[str, object], dotted: str, replacement: object) -> None:
+    current: object = value
+    parts = dotted.split(".")
+    for part in parts[:-1]:
+        if type(current) is not dict or type(current.get(part)) is not dict:
+            raise ValueError(f"historical instrument path is absent: {dotted}")
+        current = current[part]
+    if type(current) is not dict or parts[-1] not in current:
+        raise ValueError(f"historical instrument path is absent: {dotted}")
+    current[parts[-1]] = replacement
+
+
+def _reconstruct_historical_instrument_and_request(
+    *,
+    repo: Path,
+    git_blobs: Mapping[str, bytes],
+) -> tuple[dict[str, object], bytes]:
+    """Rebuild historical claims from Git roots and frozen prerequisite evidence."""
+
+    current_commit = _current_commit(repo)
+    sources = ARTIFACTS._load_current_resolution_sources(current_commit)
+    current = ARTIFACTS.assemble_resolution_instrument(
+        sources=sources,
+        isolation_policy_path=ARTIFACTS.ISOLATION_POLICY_PATH,
+        evaluation_rubric_path=ARTIFACTS.EVALUATION_RUBRIC_PATH,
+    )
+    # The current verifier replays the immutable prerequisite archives and the
+    # reviewed forward-carrier fixtures.  Historical callable identities are
+    # then replaced below from pinned Git blobs; historical code is never
+    # imported or executed.
+    manifest = copy.deepcopy(dict(current.contract_manifest))
+    if type(manifest) is not dict:
+        raise ValueError("current derived instrument manifest is malformed")
+    manifest.pop("archive_resource", None)
+
+    qualification = sources.carrier_qualification
+    compatibility_value = {
+        "schema": "rook.lm9b_p.carrier_forward_compatibility:v1",
+        "historical_qualification_identity": (
+            qualification.historical_qualification_identity
+        ),
+        "historical_commit_sha": qualification.historical_commit_sha,
+        "consuming_commit_sha": OBSERVED_COMMIT_SHA,
+        "comparison_rows": [dict(row) for row in qualification.comparison_rows],
+    }
+    compatibility_fingerprint = PLANNER_SUPPORT.fingerprint(compatibility_value)
+    inputs = current.inputs
+    inputs_identity = {
+        "parent_recipe_raw_sha256": _sha256(inputs.parent_recipe_bytes),
+        "successor_envelope_raw_sha256": _sha256(inputs.successor_envelope_bytes),
+        "successor_envelope_fingerprint": inputs.successor_envelope[
+            "artifact_fingerprint"
+        ],
+        "carrier_compatibility_fingerprint": compatibility_fingerprint,
+        "migration_fingerprint": PLANNER_SUPPORT.fingerprint(
+            inputs.migration_ledger
+        ),
+        "correspondence_fingerprint": PLANNER_SUPPORT.fingerprint(
+            inputs.correspondence
+        ),
+        "policy_instance_fingerprint": inputs.policy_instance.instance_fingerprint,
+        "evaluation_rubric_fingerprint": inputs.evaluation_rubric[
+            "rubric_fingerprint"
+        ],
+        "carrier_support_fingerprint": inputs.carrier_support_instrument[
+            "carrier_support_fingerprint"
+        ],
+        "reviewed_commit_sha": OBSERVED_COMMIT_SHA,
+    }
+    manifest["reviewed_commit_sha"] = OBSERVED_COMMIT_SHA
+    manifest["carrier_forward_compatibility"] = {
+        "fingerprint": compatibility_fingerprint,
+        "consuming_commit_sha": OBSERVED_COMMIT_SHA,
+    }
+    verified_inputs = manifest.get("verified_inputs")
+    if type(verified_inputs) is not dict:
+        raise ValueError("derived historical verified-input contract is absent")
+    verified_inputs["inputs_fingerprint"] = PLANNER_SUPPORT.fingerprint(
+        inputs_identity
+    )
+
+    for dotted, relative, symbol in _SOURCE_BINDINGS:
+        _set_mapping_path(
+            manifest,
+            dotted,
+            _sha256(_source_bytes(git_blobs[relative], symbol)),
+        )
+    raw_bindings = {
+        "readiness.role_adapter_binding.execution_module_raw_sha256": (
+            "scripts/lm9b_p_governed_resolution_probe.py"
+        ),
+        "readiness.role_adapter_binding.litellm_provider_module_raw_sha256": (
+            "scripts/lm9b_c_compiler_sufficiency_probe.py"
+        ),
+    }
+    for dotted, relative in raw_bindings.items():
+        _set_mapping_path(manifest, dotted, _sha256(git_blobs[relative]))
+    diagnostic = {
+        "contract": "source_defined_planner_diagnostics:v1",
+        "submission_parser_source": _sha256(
+            _source_bytes(
+                git_blobs["scripts/lm9b_p_planner_recipe_transfer_support.py"],
+                "derive_planner_submission_from_message",
+            )
+        ),
+        "mechanical_gate_source": _mapping_path(
+            manifest, "planner.mechanical_gate_source_fingerprint"
+        ),
+        "feedback_renderer_source": _mapping_path(
+            manifest, "planner.feedback_renderer_source_fingerprint"
+        ),
+    }
+    _set_mapping_path(
+        manifest,
+        "planner.diagnostic_vocabulary_fingerprint",
+        PLANNER_SUPPORT.fingerprint(diagnostic),
+    )
+    return manifest, current.initial_request.raw_bytes
+
+
 def _verify_historical_preflight_projection(
     *,
+    repo: Path,
     archive: Path,
     members: Mapping[str, bytes],
     git_blobs: Mapping[str, bytes],
@@ -331,12 +455,14 @@ def _verify_historical_preflight_projection(
     record = _strict_object(members["record.json"], "historical preflight")
     checksums = _strict_object(members["checksums.json"], "historical checksums")
     expected_checksums = {
-        "schema": checksums.get("schema"),
+        "schema": _OBSERVED_PREFLIGHT_CHECKSUMS_SCHEMA_ID,
         "members": [
             {"path": name, "raw_sha256": _sha256(members[name])}
             for name in ("initial-request.json", "record.json")
         ],
     }
+    if checksums.get("schema") != _OBSERVED_PREFLIGHT_CHECKSUMS_SCHEMA_ID:
+        raise ValueError("historical preflight checksum schema differs")
     if checksums != expected_checksums:
         raise ValueError("historical preflight checksum closure differs")
     if (
@@ -353,24 +479,26 @@ def _verify_historical_preflight_projection(
             "attempt",
             "preflight_fingerprint",
         }
-        or record.get("schema") != ARTIFACTS.PREFLIGHT_SCHEMA_ID
+        or record.get("schema") != _OBSERVED_PREFLIGHT_SCHEMA_ID
         or record.get("canonical_preflight_destination") != str(archive)
         or record.get("reviewed_commit_sha") != OBSERVED_COMMIT_SHA
-        or record.get("instrument_fingerprint") != OBSERVED_INSTRUMENT_FINGERPRINT
-        or record.get("initial_request_raw_sha256") != _OBSERVED_INITIAL_REQUEST_SHA256
-        or _sha256(members["initial-request.json"]) != _OBSERVED_INITIAL_REQUEST_SHA256
-        or record.get("preflight_fingerprint") != OBSERVED_PREFLIGHT_FINGERPRINT
-        or PLANNER_SUPPORT.fingerprint_without(record, "preflight_fingerprint")
-        != OBSERVED_PREFLIGHT_FINGERPRINT
     ):
         raise ValueError("historical preflight root reconstruction differs")
+    expected_manifest, expected_initial_request = (
+        _reconstruct_historical_instrument_and_request(
+            repo=repo,
+            git_blobs=git_blobs,
+        )
+    )
     manifest = record["instrument_contracts"]
     if (
         type(manifest) is not dict
-        or PLANNER_SUPPORT.fingerprint(manifest) != OBSERVED_INSTRUMENT_FINGERPRINT
-        or _sha256(_canonical_bytes(manifest))
-        != _OBSERVED_INSTRUMENT_MANIFEST_FINGERPRINT
-        or manifest.get("reviewed_commit_sha") != OBSERVED_COMMIT_SHA
+        or manifest != expected_manifest
+        or record.get("instrument_fingerprint")
+        != PLANNER_SUPPORT.fingerprint(expected_manifest)
+        or members["initial-request.json"] != expected_initial_request
+        or record.get("initial_request_raw_sha256")
+        != _sha256(expected_initial_request)
     ):
         raise ValueError("historical instrument reconstruction differs")
     attempt = record["attempt"]
@@ -391,39 +519,18 @@ def _verify_historical_preflight_projection(
         }
     ) != OBSERVED_ATTEMPT_FINGERPRINT:
         raise ValueError("historical attempt equation differs")
-    for dotted, relative, symbol in _SOURCE_BINDINGS:
-        observed = _mapping_path(manifest, dotted)
-        derived = _sha256(_source_bytes(git_blobs[relative], symbol))
-        if observed != derived:
-            raise ValueError(f"historical source fingerprint differs: {dotted}")
-    raw_bindings = {
-        "readiness.role_adapter_binding.execution_module_raw_sha256": (
-            "scripts/lm9b_p_governed_resolution_probe.py"
-        ),
-        "readiness.role_adapter_binding.litellm_provider_module_raw_sha256": (
-            "scripts/lm9b_c_compiler_sufficiency_probe.py"
-        ),
-    }
-    for dotted, relative in raw_bindings.items():
-        if _mapping_path(manifest, dotted) != _sha256(git_blobs[relative]):
-            raise ValueError(f"historical raw source differs: {dotted}")
-    diagnostic = {
-        "contract": "source_defined_planner_diagnostics:v1",
-        "submission_parser_source": _sha256(
-            _source_bytes(
-                git_blobs["scripts/lm9b_p_planner_recipe_transfer_support.py"],
-                "derive_planner_submission_from_message",
-            )
-        ),
-        "mechanical_gate_source": _mapping_path(
-            manifest, "planner.mechanical_gate_source_fingerprint"
-        ),
-        "feedback_renderer_source": _mapping_path(
-            manifest, "planner.feedback_renderer_source_fingerprint"
-        ),
-    }
-    if _mapping_path(manifest, "planner.diagnostic_vocabulary_fingerprint") != PLANNER_SUPPORT.fingerprint(diagnostic):
-        raise ValueError("historical diagnostic vocabulary differs")
+    expected_preflight = PLANNER_SUPPORT.fingerprint_without(
+        record, "preflight_fingerprint"
+    )
+    if (
+        record.get("preflight_fingerprint") != expected_preflight
+        or expected_preflight != OBSERVED_PREFLIGHT_FINGERPRINT
+        or record.get("instrument_fingerprint")
+        != OBSERVED_INSTRUMENT_FINGERPRINT
+        or record.get("initial_request_raw_sha256")
+        != _OBSERVED_INITIAL_REQUEST_SHA256
+    ):
+        raise ValueError("historical preflight aggregate equation differs")
     return record, tuple()
 
 
@@ -452,10 +559,28 @@ class ResolutionForensicReconstruction:
     isolation_status: str
     reconstructed_classification: str
     candidate_recipe_raw_sha256: str
-    call_ledger_fingerprint: str
+    runtime_call_projection_fingerprint: str
+    authored_operational_accounting_fingerprint: str
+    controller_conformance: str
+    exact_timing_accounting: str
+    cost_accounting: str
+    cost_stop_compliance: str
+    classification_scope: str
+    original_attempt_state: str
+    official_scientific_checkpoint: str
+    ready_proof: str
+    compiler_eligibility: bool
     gate_fingerprint: str
     isolation_fingerprint: str
     reconstruction_fingerprint: str
+
+
+class VerifiedRuntimeCallProjection:
+    """Opaque process-local proof that runtime roots derived the call rows."""
+
+    def __new__(cls, *args: object, **kwargs: object) -> "VerifiedRuntimeCallProjection":
+        del args, kwargs
+        raise TypeError("VerifiedRuntimeCallProjection is closure-issued")
 
 
 @dataclass(frozen=True)
@@ -571,6 +696,7 @@ def _verify_historical_resolution_preflight_forensics_unsealed(
         raise ValueError("historical forensic preflight location differs")
     git_blobs, git_manifest = _git_blob_map(repo)
     record, _rows = _verify_historical_preflight_projection(
+        repo=repo,
         archive=archive,
         members=members,
         git_blobs=git_blobs,
@@ -769,6 +895,476 @@ def _current_commit(repo: Path) -> str:
     ).stdout.strip()
 
 
+_FORENSIC_EXECUTION_PATHS = (
+    "scripts/lm9_semantic_typed_values.py",
+    "scripts/lm9_typed_fact_carrier_artifacts.py",
+    "scripts/lm9_typed_fact_carrier_qualification.py",
+    "scripts/lm9_typed_fact_carrier_contracts/semantic_value_schema_registry.json",
+    "scripts/lm9_typed_fact_carrier_contracts/planner_task_typed_facts_payload_schema.json",
+    "scripts/lm9_typed_fact_carrier_fixtures/radial_successor_task_envelope.json",
+    "scripts/lm9b_c_compiler_sufficiency_probe.py",
+    "scripts/lm9b_p_fixtures/planner_recipe_probe_schema.json",
+    "scripts/lm9b_p_governed_resolution_archive_evidence.py",
+    "scripts/lm9b_p_governed_resolution_artifacts.py",
+    "scripts/lm9b_p_governed_resolution_contracts/archive_evidence_resource_profile.json",
+    "scripts/lm9b_p_governed_resolution_contracts/isolation_policy.json",
+    "scripts/lm9b_p_governed_resolution_contracts/planner_revision_evaluation_rubric.json",
+    "scripts/lm9b_p_governed_resolution_forensics.py",
+    "scripts/lm9b_p_governed_resolution_support.py",
+    "scripts/lm9b_p_planner_recipe_transfer_artifacts.py",
+    "scripts/lm9b_p_planner_recipe_transfer_support.py",
+    "scripts/lm9b_p_readiness_contract.py",
+)
+
+
+def _verify_executing_checkout(repo: Path, commit: str) -> None:
+    actual_root = _REPO_ROOT.resolve()
+    if repo != actual_root:
+        raise ValueError("forensic executing checkout root differs")
+    if _current_commit(repo) != commit:
+        raise ValueError("forensic reconstruction commit differs")
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    ).stdout
+    if status:
+        raise ValueError("forensic executing checkout is dirty")
+    module_paths = {
+        Path(__file__).resolve(): "scripts/lm9b_p_governed_resolution_forensics.py",
+        Path(ARTIFACTS.__file__).resolve(): (
+            "scripts/lm9b_p_governed_resolution_artifacts.py"
+        ),
+        Path(ARCHIVE_EVIDENCE.__file__).resolve(): (
+            "scripts/lm9b_p_governed_resolution_archive_evidence.py"
+        ),
+        Path(SUPPORT.__file__).resolve(): "scripts/lm9b_p_governed_resolution_support.py",
+        Path(PLANNER_SUPPORT.__file__).resolve(): (
+            "scripts/lm9b_p_planner_recipe_transfer_support.py"
+        ),
+        Path(PLANNER_ARTIFACTS.__file__).resolve(): (
+            "scripts/lm9b_p_planner_recipe_transfer_artifacts.py"
+        ),
+        Path(ARTIFACTS.TYPED_VALUES.__file__).resolve(): (
+            "scripts/lm9_semantic_typed_values.py"
+        ),
+        Path(ARTIFACTS.CARRIER.__file__).resolve(): (
+            "scripts/lm9_typed_fact_carrier_artifacts.py"
+        ),
+        Path(ARTIFACTS.QUALIFICATION.__file__).resolve(): (
+            "scripts/lm9_typed_fact_carrier_qualification.py"
+        ),
+        Path(ARTIFACTS.PROVIDER_ADAPTER.__file__).resolve(): (
+            "scripts/lm9b_c_compiler_sufficiency_probe.py"
+        ),
+        Path(ARTIFACTS.READINESS.__file__).resolve(): (
+            "scripts/lm9b_p_readiness_contract.py"
+        ),
+    }
+    for path, relative in module_paths.items():
+        if path != repo / relative:
+            raise ValueError("forensic imported module checkout differs")
+    for relative in _FORENSIC_EXECUTION_PATHS:
+        worktree_raw = (repo / relative).read_bytes()
+        reviewed_raw = subprocess.run(
+            ["git", "show", f"{commit}:{relative}"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        ).stdout
+        if worktree_raw != reviewed_raw:
+            raise ValueError(f"forensic executing bytes differ: {relative}")
+
+
+def _causalize_authored_call_row(
+    row: Mapping[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
+    causal = copy.deepcopy(dict(row))
+    elapsed = causal.get("elapsed_ms")
+    causal["elapsed_ms"] = None
+    usage = causal.get("usage")
+    cost = None
+    if type(usage) is dict:
+        cost = usage.pop("cost_usd", None)
+    accounting = {
+        "call_index": causal.get("call_index"),
+        "elapsed_ms": elapsed,
+        "cost_usd": cost,
+        "authored_accounting_fingerprint": PLANNER_SUPPORT.fingerprint(
+            {
+                "call_index": causal.get("call_index"),
+                "elapsed_ms": elapsed,
+                "cost_usd": cost,
+            }
+        ),
+        "verification_status": "authored_unverified",
+    }
+    return causal, accounting
+
+
+def _runtime_response_projection(
+    *,
+    raw_response: bytes,
+    role_contract: Mapping[str, object],
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    assistant = ARTIFACTS.PROVIDER_ADAPTER.project_litellm_assistant_message(
+        raw_response
+    )
+    response = json.loads(raw_response)
+    if type(response) is not dict:
+        raise ValueError("runtime provider response is not an object")
+    choices = response.get("choices")
+    if type(choices) is not list or not choices or type(choices[0]) is not dict:
+        raise ValueError("runtime provider response choice is invalid")
+    usage = response.get("usage")
+    if type(usage) is not dict:
+        usage = {}
+    else:
+        usage = copy.deepcopy(usage)
+        usage.pop("cost_usd", None)
+    metadata = {
+        "adapter": "litellm.completion",
+        "model": role_contract["model"],
+        "temperature": role_contract["temperature"],
+        "transport_capture": "complete_litellm_objects_not_http_wire_bytes",
+        "response_id": response.get("id"),
+        "response_model": response.get("model"),
+        "created": response.get("created"),
+        "system_fingerprint": response.get("system_fingerprint"),
+        "finish_reason": choices[0].get("finish_reason"),
+        "model_identity": role_contract["model"],
+        "profile_identity": role_contract["provider_profile"],
+        "requested_model": role_contract["model"],
+        "requested_profile": role_contract["provider_profile"],
+    }
+    return assistant, usage, metadata
+
+
+def _derive_runtime_call_projection_value(
+    *,
+    runtime_call_files: Mapping[str, bytes],
+    authored_call_ledger: Mapping[str, object],
+    instrument_contracts: Mapping[str, object],
+) -> dict[str, object]:
+    """Derive every scientifically used call field from physical runtime roots."""
+
+    if not isinstance(authored_call_ledger, Mapping) or set(authored_call_ledger) != {
+        "schema",
+        "calls",
+    }:
+        raise ValueError("authored forensic call ledger is malformed")
+    if (
+        authored_call_ledger.get("schema")
+        != "rook.lm9b_p.governed_resolution_call_ledger:v1"
+        or type(authored_call_ledger.get("calls")) is not list
+    ):
+        raise ValueError("authored forensic call ledger contract differs")
+    authored_rows = authored_call_ledger["calls"]
+    marker_names = sorted(
+        name
+        for name in runtime_call_files
+        if name.endswith("-dispatch_started.json")
+    )
+    if len(marker_names) != len(authored_rows) or not marker_names:
+        raise ValueError("runtime call marker cardinality differs")
+    causal_rows: list[dict[str, object]] = []
+    accounting_rows: list[dict[str, object]] = []
+    expected_files: set[str] = set()
+    for expected_index, marker_name in enumerate(marker_names):
+        parts = marker_name.split("-", 2)
+        if len(parts) != 3 or parts[2] != "dispatch_started.json":
+            raise ValueError("runtime dispatch marker name is invalid")
+        index_text, role = parts[0], parts[1]
+        if index_text != f"{expected_index:02d}" or role not in {
+            "planner",
+            "planner_evaluator",
+        }:
+            raise ValueError("runtime call order or role differs")
+        prefix = f"{index_text}-{role}"
+        request_name = f"{prefix}-request.json"
+        adapter_name = f"{prefix}-adapter-request.json"
+        response_name = f"{prefix}-adapter-response.bin"
+        error_name = f"{prefix}-adapter-error.bin"
+        marker_raw = runtime_call_files[marker_name]
+        request_raw = runtime_call_files.get(request_name)
+        adapter_raw = runtime_call_files.get(adapter_name)
+        if type(request_raw) is not bytes or type(adapter_raw) is not bytes:
+            raise ValueError("runtime call request evidence is incomplete")
+        marker = _strict_object(marker_raw, "runtime dispatch marker")
+        role_key = "planner" if role == "planner" else "evaluator"
+        role_contract = instrument_contracts.get(role_key)
+        if type(role_contract) is not dict:
+            raise ValueError("runtime role contract is absent")
+        if (
+            marker.get("call_index") != expected_index
+            or marker.get("role") != role
+            or marker.get("request_raw_sha256") != _sha256(request_raw)
+            or marker.get("role_contract_fingerprint")
+            != PLANNER_SUPPORT.fingerprint(role_contract)
+        ):
+            raise ValueError("runtime dispatch marker projection differs")
+        request = ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role=role,
+            ordinal=(expected_index + 1 if role == "planner" else 1),
+            raw_bytes=request_raw,
+            profile=ARCHIVE_EVIDENCE.admit_resolution_archive_resource_profile(
+                ARTIFACTS.ARCHIVE_EVIDENCE_PROFILE_PATH.read_bytes()
+            ),
+        )
+        expected_adapter = (
+            ARTIFACTS.PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
+                model=role_contract["model"],
+                temperature=role_contract["temperature"],
+                provider_request=request,
+            )
+        )
+        if adapter_raw != expected_adapter:
+            raise ValueError("runtime adapter request projection differs")
+        row = {
+            **marker,
+            "dispatch_marker_raw_sha256": _sha256(marker_raw),
+            "canonical_request_json": request_raw.decode("utf-8"),
+            "provider_claimed_raw_request_b64": base64.b64encode(
+                adapter_raw
+            ).decode("ascii"),
+            "provider_claimed_raw_request_sha256": _sha256(adapter_raw),
+            "provider_raw_error_b64": None,
+            "provider_raw_error_sha256": None,
+            "raw_response_b64": None,
+            "raw_response_sha256": None,
+            "assistant_message": None,
+            "usage": None,
+            "provider_metadata": None,
+            "outcome": None,
+            "exception_type": None,
+            "failure_type": None,
+            "elapsed_ms": None,
+            "terminal": True,
+        }
+        response_present = response_name in runtime_call_files
+        error_present = error_name in runtime_call_files
+        if response_present == error_present:
+            raise ValueError("runtime terminal call branch is ambiguous")
+        expected_files.update({marker_name, request_name, adapter_name})
+        if response_present:
+            raw_response = runtime_call_files[response_name]
+            assistant, usage, metadata = _runtime_response_projection(
+                raw_response=raw_response,
+                role_contract=role_contract,
+            )
+            row.update(
+                {
+                    "raw_response_b64": base64.b64encode(raw_response).decode(
+                        "ascii"
+                    ),
+                    "raw_response_sha256": _sha256(raw_response),
+                    "assistant_message": assistant,
+                    "usage": usage,
+                    "provider_metadata": metadata,
+                    "outcome": "returned",
+                }
+            )
+            expected_files.add(response_name)
+        else:
+            raw_error = runtime_call_files[error_name]
+            error = _strict_object(raw_error, "runtime adapter error")
+            row.update(
+                {
+                    "provider_raw_error_b64": base64.b64encode(raw_error).decode(
+                        "ascii"
+                    ),
+                    "provider_raw_error_sha256": _sha256(raw_error),
+                    "outcome": "raised",
+                    "exception_type": "ProviderCallFailure",
+                    "failure_type": error.get("failure_type"),
+                }
+            )
+            expected_files.add(error_name)
+        authored = authored_rows[expected_index]
+        if type(authored) is not dict:
+            raise ValueError("authored forensic call row is malformed")
+        authored_causal, accounting = _causalize_authored_call_row(authored)
+        if authored_causal != row:
+            raise ValueError("causal call projection differs from authored ledger")
+        causal_rows.append(row)
+        accounting_rows.append(accounting)
+    if set(runtime_call_files) != expected_files:
+        raise ValueError("runtime call file membership is not closed")
+    value = {
+        "schema": "rook.lm9b_p.verified_runtime_call_projection:v1",
+        "planner_call_count": sum(
+            1 for row in causal_rows if row["role"] == "planner"
+        ),
+        "evaluator_call_count": sum(
+            1 for row in causal_rows if row["role"] == "planner_evaluator"
+        ),
+        "causal_rows": causal_rows,
+        "unverified_operational_accounting": accounting_rows,
+        "excluded_paths": [
+            "calls[*].elapsed_ms",
+            "calls[*].usage.cost_usd",
+            "planner-session.calls[*].elapsed_ms",
+            "planner-session.calls[*].usage.cost_usd",
+            "planner-session.turns[*].elapsed_ms",
+            "planner-session.turns[*].usage.cost_usd",
+        ],
+        "controller_conformance": "not_verified",
+        "cost_stop_compliance": "not_verified",
+    }
+    value["projection_fingerprint"] = PLANNER_SUPPORT.fingerprint(value)
+    return value
+
+
+def _build_runtime_projection_capability():
+    issued: weakref.WeakKeyDictionary[
+        VerifiedRuntimeCallProjection, tuple[bytes, dict[str, object]]
+    ] = weakref.WeakKeyDictionary()
+
+    def derive(**kwargs: object) -> VerifiedRuntimeCallProjection:
+        value = _derive_runtime_call_projection_value(**kwargs)
+        raw = _canonical_bytes(value)
+        projection = object.__new__(VerifiedRuntimeCallProjection)
+        issued[projection] = (raw, copy.deepcopy(value))
+        return projection
+
+    def consume(value: object) -> Mapping[str, object]:
+        if type(value) is not VerifiedRuntimeCallProjection:
+            raise TypeError("closure-issued runtime call projection is required")
+        retained = issued.get(value)
+        if retained is None:
+            raise ValueError("runtime call projection was not issued")
+        raw, retained_value = retained
+        projection = copy.deepcopy(retained_value)
+        if _canonical_bytes(projection) != raw:
+            raise ValueError("runtime call projection retained snapshot differs")
+        if projection.get("projection_fingerprint") != PLANNER_SUPPORT.fingerprint_without(
+            projection, "projection_fingerprint"
+        ):
+            raise ValueError("runtime call projection integrity differs")
+        return MappingProxyType(projection)
+
+    return derive, consume
+
+
+(
+    derive_verified_runtime_call_projection,
+    _consume_verified_runtime_call_projection,
+) = _build_runtime_projection_capability()
+
+
+def _verify_causal_planner_transcript(
+    *,
+    causal_rows: tuple[Mapping[str, object], ...],
+    inputs: SUPPORT.VerifiedResolutionInputs,
+    initial_request_bytes: bytes,
+    archive_resource_profile: object,
+    candidate_recipe_bytes: bytes,
+) -> dict[str, object]:
+    messages: list[dict[str, object]] = [
+        {"role": "system", "content": SUPPORT.REVISION_SYSTEM_PROMPT},
+        {"role": "user", "content": initial_request_bytes.decode("utf-8")},
+    ]
+    accepted: bytes | None = None
+    turns: list[dict[str, object]] = []
+    accepted_gate: PLANNER_SUPPORT.MechanicalGateResult | None = None
+    for ordinal, row in enumerate(causal_rows, 1):
+        if row.get("role") != "planner":
+            raise ValueError("forensic causal transcript contains a non-Planner call")
+        request_raw = str(row["canonical_request_json"]).encode("utf-8")
+        request = ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role="planner",
+            ordinal=ordinal,
+            raw_bytes=request_raw,
+            profile=archive_resource_profile,
+        )
+        rebuilt = PLANNER_SUPPORT.build_planner_provider_call_request(
+            messages=messages,
+            provider_timeout_s=request["provider_timeout_s"],
+        )
+        if rebuilt != request_raw:
+            raise ValueError("forensic Planner request does not follow causal transcript")
+        if row.get("outcome") != "returned":
+            raise ValueError("retained Planner call did not return complete evidence")
+        assistant = row.get("assistant_message")
+        if type(assistant) is not dict:
+            raise ValueError("forensic Planner assistant projection is absent")
+        tool_arguments, recipe_bytes, rejection, tool_call_id = (
+            PLANNER_SUPPORT.derive_planner_submission_from_message(assistant)
+        )
+        gate = rejection
+        if recipe_bytes is not None:
+            gate = PLANNER_SUPPORT.evaluate_mechanical_gate(
+                recipe_bytes=recipe_bytes,
+                authority=inputs.current_authority,
+                recipe_schema=inputs.recipe_schema,
+                normalization_profile=inputs.normalization_profile,
+                exclusion_policy=inputs.exclusion_policy,
+            )
+        if gate is None or tool_arguments is None:
+            raise ValueError("forensic Planner submission produced no gate")
+        usage = copy.deepcopy(row.get("usage"))
+        if type(usage) is dict:
+            usage.pop("cost_usd", None)
+        turns.append(
+            {
+                "turn_index": ordinal,
+                "raw_response_sha256": row.get("raw_response_sha256"),
+                "tool_arguments_sha256": _sha256(tool_arguments),
+                "gate_status": gate.status,
+                "usage": usage,
+                "elapsed_ms": None,
+            }
+        )
+        if gate.status == "mechanically_accepted":
+            if ordinal != len(causal_rows) or recipe_bytes != candidate_recipe_bytes:
+                raise ValueError("forensic accepted submission differs from candidate")
+            accepted = recipe_bytes
+            accepted_gate = gate
+            continue
+        messages.append(copy.deepcopy(assistant))
+        messages.append(
+            PLANNER_SUPPORT.build_planner_mechanical_feedback_message(
+                gate, tool_call_id
+            )
+        )
+    if accepted != candidate_recipe_bytes:
+        raise ValueError("forensic causal transcript produced no accepted candidate")
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_planner_session:v1",
+        "termination": "mechanically_accepted",
+        "call_count": len(causal_rows),
+        "final_recipe_raw_sha256": _sha256(candidate_recipe_bytes),
+        "calls": [copy.deepcopy(dict(row)) for row in causal_rows],
+        "turns": turns,
+        "accepted_gate": accepted_gate,
+    }
+
+
+def _planner_session_causal_projection(value: object) -> object:
+    projected = copy.deepcopy(value)
+    if type(projected) is not dict:
+        return projected
+    calls = projected.get("calls")
+    if type(calls) is list:
+        projected["calls"] = [
+            _causalize_authored_call_row(row)[0]
+            if isinstance(row, Mapping)
+            else row
+            for row in calls
+        ]
+    turns = projected.get("turns")
+    if type(turns) is list:
+        for row in turns:
+            if type(row) is not dict:
+                continue
+            row["elapsed_ms"] = None
+            usage = row.get("usage")
+            if type(usage) is dict:
+                usage.pop("cost_usd", None)
+    return projected
+
+
 def reconstruct_resolution_forensic_candidate(
     *,
     source: object,
@@ -777,14 +1373,31 @@ def reconstruct_resolution_forensic_candidate(
 ) -> ResolutionForensicReconstruction:
     """Reconstruct one retained outcome without publishing or repairing it."""
 
-    capability = _consume_forensic_source(source)
+    return _reconstruct_resolution_forensic_candidate_unsealed(
+        capability=_consume_forensic_source(source),
+        repo_root=repo_root,
+        forensic_commit_sha=forensic_commit_sha,
+        require_executing_checkout=True,
+    )
+
+
+def _reconstruct_resolution_forensic_candidate_unsealed(
+    *,
+    capability: _ForensicSourceCapabilitySnapshot,
+    repo_root: Path,
+    forensic_commit_sha: str,
+    require_executing_checkout: bool,
+) -> ResolutionForensicReconstruction:
+    if type(capability) is not _ForensicSourceCapabilitySnapshot:
+        raise TypeError("forensic source capability snapshot is required")
     frozen = capability.source
     historical = capability.historical
     repo = Path(repo_root).resolve()
-    if (
-        type(forensic_commit_sha) is not str
-        or _current_commit(repo) != forensic_commit_sha
-    ):
+    if type(forensic_commit_sha) is not str:
+        raise ValueError("forensic reconstruction commit differs")
+    if require_executing_checkout:
+        _verify_executing_checkout(repo, forensic_commit_sha)
+    elif _current_commit(repo) != forensic_commit_sha:
         raise ValueError("forensic reconstruction commit differs")
     if os.path.lexists(frozen.destination_path):
         raise ValueError("reserved governed-resolution destination appeared")
@@ -881,9 +1494,20 @@ def reconstruct_resolution_forensic_candidate(
     ):
         raise ValueError("forensic historical source projection differs")
     contracts = historical.record["instrument_contracts"]
-    calls_value = call_ledger_value.get("calls")
-    if type(calls_value) is not list:
-        raise ValueError("retained forensic call ledger is malformed")
+    runtime_call_files = {
+        relative.removeprefix(".resolution-runtime/calls/"): raw
+        for relative, raw in staging_files.items()
+        if relative.startswith(".resolution-runtime/calls/")
+    }
+    runtime_projection_proof = derive_verified_runtime_call_projection(
+        runtime_call_files=runtime_call_files,
+        authored_call_ledger=call_ledger_value,
+        instrument_contracts=contracts,
+    )
+    runtime_projection = _consume_verified_runtime_call_projection(
+        runtime_projection_proof
+    )
+    calls_value = runtime_projection["causal_rows"]
     call_ledger = tuple(
         MappingProxyType(dict(row))
         for row in calls_value
@@ -892,54 +1516,66 @@ def reconstruct_resolution_forensic_candidate(
     if len(call_ledger) != len(calls_value):
         raise ValueError("retained forensic call row is malformed")
     candidate_bytes = frozen.candidate_members["candidate-recipe.json"]
-    reconstructed = ARTIFACTS._reconstruct_resolution_attempt_from_verified_components(
-        inputs=inputs,
-        instrument_contracts=contracts,
-        archive_resource_profile=profile,
-        call_ledger=call_ledger,
-        candidate_recipe_bytes=candidate_bytes,
-    )
-    ARTIFACTS._verify_resolution_call_ledger_from_verified_components(
+    causal_planner = _verify_causal_planner_transcript(
+        causal_rows=call_ledger,
         inputs=inputs,
         initial_request_bytes=historical.members["initial-request.json"],
-        instrument_contracts=contracts,
         archive_resource_profile=profile,
-        planner_session=reconstructed.planner_session,
-        evaluator_result=reconstructed.evaluator_result,
-        isolation_result=reconstructed.isolation_result,
-        classification=reconstructed.classification,
         candidate_recipe_bytes=candidate_bytes,
-        call_ledger=call_ledger,
-        derived_stop_cause=reconstructed.derived_stop_cause,
+    )
+    checkpoint_gate = PLANNER_SUPPORT.evaluate_mechanical_gate(
+        recipe_bytes=candidate_bytes,
+        authority=inputs.current_authority,
+        recipe_schema=inputs.recipe_schema,
+        normalization_profile=inputs.normalization_profile,
+        exclusion_policy=inputs.exclusion_policy,
     )
     if (
-        reconstructed.checkpoint_gate is None
-        or reconstructed.checkpoint_gate.status != "mechanically_accepted"
-        or reconstructed.isolation_result is None
-        or reconstructed.isolation_result.status != "isolation_rejected"
-        or reconstructed.classification
-        != "probe_resolution_isolation_failure"
-        or reconstructed.evaluator_result is not None
+        checkpoint_gate.status != "mechanically_accepted"
+        or checkpoint_gate.final_recipe_bytes != candidate_bytes
+        or causal_planner["accepted_gate"] != checkpoint_gate
     ):
-        raise ValueError("retained forensic outcome reconstruction differs")
-    expected_planner = ARTIFACTS._planner_session_record(
-        reconstructed.planner_session, [dict(row) for row in call_ledger]
+        raise ValueError("retained forensic mechanical reconstruction differs")
+    isolation_result = SUPPORT.evaluate_resolution_isolation(
+        inputs=inputs,
+        candidate_recipe_bytes=candidate_bytes,
     )
-    expected_gate = ARTIFACTS._gate_record(reconstructed.checkpoint_gate)
-    expected_isolation = ARTIFACTS._isolation_record(
-        reconstructed.isolation_result
+    if isolation_result.status != "isolation_rejected":
+        raise ValueError("retained forensic isolation reconstruction differs")
+    decision_contract = contracts.get("decision")
+    outcome_table = (
+        decision_contract.get("outcome_table")
+        if type(decision_contract) is dict
+        else None
     )
+    if (
+        type(outcome_table) is not dict
+        or outcome_table.get("isolation_rejected")
+        != "probe_resolution_isolation_failure"
+    ):
+        raise ValueError("historical candidate-level outcome equation differs")
+    classification = outcome_table["isolation_rejected"]
+    expected_planner = {
+        key: value
+        for key, value in causal_planner.items()
+        if key != "accepted_gate"
+    }
+    expected_gate = ARTIFACTS._gate_record(checkpoint_gate)
+    expected_isolation = ARTIFACTS._isolation_record(isolation_result)
     expected_classification = ARTIFACTS._classification_record(
-        classification=reconstructed.classification,
-        derived_stop_cause=reconstructed.derived_stop_cause,
+        classification=classification,
+        derived_stop_cause="isolation_rejected",
         candidate_recipe_bytes=candidate_bytes,
     )
     authored_pairs = (
-        ("planner-session.json", expected_planner),
         ("checkpoint-gate.json", expected_gate),
         ("isolation.json", expected_isolation),
         ("classification.json", expected_classification),
     )
+    if _planner_session_causal_projection(
+        parsed_members["planner-session.json"]
+    ) != _planner_session_causal_projection(expected_planner):
+        raise ValueError("retained authored claim differs: planner-session.json")
     for relative, expected in authored_pairs:
         if parsed_members[relative] != expected:
             raise ValueError(f"retained authored claim differs: {relative}")
@@ -949,14 +1585,28 @@ def reconstruct_resolution_forensic_candidate(
         "planner_call_count": shape["planner_count"],
         "evaluator_call_count": shape["evaluator_count"],
         "mechanical_status": "accepted",
-        "isolation_status": reconstructed.isolation_result.status,
-        "reconstructed_classification": reconstructed.classification,
+        "isolation_status": isolation_result.status,
+        "reconstructed_classification": classification,
         "candidate_recipe_raw_sha256": _sha256(candidate_bytes),
-        "call_ledger_fingerprint": PLANNER_SUPPORT.fingerprint(
-            call_ledger_value
+        "runtime_call_projection_fingerprint": runtime_projection[
+            "projection_fingerprint"
+        ],
+        "authored_operational_accounting_fingerprint": (
+            PLANNER_SUPPORT.fingerprint(
+                runtime_projection["unverified_operational_accounting"]
+            )
         ),
+        "controller_conformance": "not_verified",
+        "exact_timing_accounting": "not_verified",
+        "cost_accounting": "preserved_unverified",
+        "cost_stop_compliance": "not_verified",
+        "classification_scope": "candidate_level_deterministic_projection",
+        "original_attempt_state": "post_dispatch_unsealed",
+        "official_scientific_checkpoint": "absent",
+        "ready_proof": "prohibited",
+        "compiler_eligibility": False,
         "gate_fingerprint": PLANNER_SUPPORT.fingerprint(expected_gate),
-        "isolation_fingerprint": reconstructed.isolation_result.result_fingerprint,
+        "isolation_fingerprint": isolation_result.result_fingerprint,
     }
     value["reconstruction_fingerprint"] = PLANNER_SUPPORT.fingerprint(value)
     result = ResolutionForensicReconstruction(**value)
