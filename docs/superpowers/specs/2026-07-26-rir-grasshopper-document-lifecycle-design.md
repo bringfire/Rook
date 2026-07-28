@@ -221,6 +221,7 @@ Rollback is atomic across lifecycle registration and solver ownership. Mixing on
 
 - `src/Rook/InternalBridge/GhSolveReadinessCoordinator.cs`
 - `src/Rook/Handlers/GhSolvePolicy.cs`
+- `src/Rook.Tests/InternalBridge/GhSolveReadinessCoordinatorTests.cs` — deliberately deleted coverage for the retired coordinator and its Rook-owned RiR repair behavior.
 - implicit creation in handler/core context resolution
 - manual document opening through `GH_DocumentIO`
 - delayed `RequestDeferredPostMutationSolve` and its five-second scheduler
@@ -243,10 +244,12 @@ Rollback is atomic across lifecycle registration and solver ownership. Mixing on
 - `src/Rook.Tests/Handlers/GhMutationSolveSuspensionTests.cs`
 - `src/Rook.Tests/Handlers/GhPostMutationSchedulePolicyTests.cs`
 - `src/Rook.Tests/Handlers/GhScheduleInvokerTests.cs`
+- `src/Rook.Tests/Handlers/GhSolvePolicyTests.cs`
 - `src/Rook.Tests/Handlers/RequestPostMutationSolveTests.cs`
 - `src/Rook.Tests/Handlers/GhEditSolvePathSourceTests.cs`
 - `src/Rook.Tests/Handlers/GrasshopperHandlerReadinessTests.cs`
 - `src/Rook.Tests/Handlers/NoSyncExpireInScriptPathTests.cs`
+- `src/Rook.Tests/InternalBridge/GrasshopperStatusDtoTests.cs`
 - `src/Rook.Tests/InternalBridge/NativeGhBridgeRegistrarTests.cs`
 - `mcp_server/tests/test_gh_update_script_defer.py`
 - `mcp_server/tests/test_server_contract_hardening.py`
