@@ -285,7 +285,7 @@ _HISTORICAL_EXACT_DATA_PATHS = (
 )
 
 
-_HISTORICAL_ARTIFACT_PRODUCER_SYMBOLS = (
+_HISTORICAL_ARTIFACT_PRODUCER_ROOTS = (
     "_load_verified_resolution_sources_unsealed",
     "_seal_resolution_source_loader",
     "_resolution_sources_snapshot",
@@ -297,6 +297,10 @@ _HISTORICAL_ARTIFACT_PRODUCER_SYMBOLS = (
     "_launch_invocation_contract",
     "_load_current_resolution_sources",
     "_callable_source_fingerprint",
+)
+
+_CURRENT_ONLY_HISTORICAL_ARTIFACT_CAPABILITIES = frozenset(
+    {"_resolution_archive_resource_contract"}
 )
 
 
@@ -445,6 +449,45 @@ def _node_identity(raw: bytes, name: str) -> str:
     return ast.dump(_top_level_node(raw, name), include_attributes=False)
 
 
+def _top_level_function_graph(raw: bytes) -> Mapping[str, frozenset[str]]:
+    tree = ast.parse(raw.decode("utf-8"))
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    return MappingProxyType(
+        {
+            name: frozenset(
+                item.func.id
+                for item in ast.walk(node)
+                if isinstance(item, ast.Call)
+                and isinstance(item.func, ast.Name)
+                and item.func.id in functions
+            )
+            for name, node in functions.items()
+        }
+    )
+
+
+def _reachable_top_level_functions(
+    raw: bytes,
+    roots: tuple[str, ...],
+) -> frozenset[str]:
+    graph = _top_level_function_graph(raw)
+    if any(root not in graph for root in roots):
+        raise ValueError("historical Git producer artifact root is absent")
+    reached: set[str] = set()
+    pending = list(roots)
+    while pending:
+        symbol = pending.pop()
+        if symbol in reached:
+            continue
+        reached.add(symbol)
+        pending.extend(graph[symbol])
+    return frozenset(reached)
+
+
 def _module_identity_without(raw: bytes, excluded: frozenset[str]) -> str:
     tree = ast.parse(raw.decode("utf-8"))
     retained: list[ast.stmt] = []
@@ -568,7 +611,21 @@ def _verify_historical_git_producer_roots(
     artifacts_path = "scripts/lm9b_p_governed_resolution_artifacts.py"
     current_artifacts = current_blobs[artifacts_path]
     historical_artifacts = git_blobs[artifacts_path]
-    for symbol in _HISTORICAL_ARTIFACT_PRODUCER_SYMBOLS:
+    current_reachable = _reachable_top_level_functions(
+        current_artifacts, _HISTORICAL_ARTIFACT_PRODUCER_ROOTS
+    )
+    historical_reachable = _reachable_top_level_functions(
+        historical_artifacts, _HISTORICAL_ARTIFACT_PRODUCER_ROOTS
+    )
+    if (
+        current_reachable - historical_reachable
+        != _CURRENT_ONLY_HISTORICAL_ARTIFACT_CAPABILITIES
+        or historical_reachable - current_reachable
+    ):
+        raise ValueError("historical Git producer artifact graph differs")
+    for symbol in sorted(
+        historical_reachable - {"assemble_task1_resolution_instrument"}
+    ):
         if _node_identity(current_artifacts, symbol) != _node_identity(
             historical_artifacts, symbol
         ):
@@ -1399,6 +1456,11 @@ _EXECUTION_CAPABILITY_OWNER_PATHS = {
 
 
 def _actual_capability_module(capability_id: str, module_name: str) -> object:
+    if capability_id == "forensic_orchestrator":
+        module = sys.modules.get(__name__)
+        if module is None or getattr(module, "__name__", None) != module_name:
+            raise ValueError(f"execution capability owner differs: {capability_id}")
+        return module
     owner_path = _EXECUTION_CAPABILITY_OWNER_PATHS.get(capability_id)
     if owner_path is None:
         return importlib.import_module(module_name)
@@ -1422,10 +1484,41 @@ def _actual_capability_module(capability_id: str, module_name: str) -> object:
     return module
 
 
+def _module_local_callables(module: object) -> Mapping[str, object]:
+    module_name = getattr(module, "__name__", None)
+    if type(module_name) is not str:
+        raise ValueError("execution capability module identity is absent")
+    return MappingProxyType(
+        {
+            name: value
+            for name, value in vars(module).items()
+            if callable(value) and getattr(value, "__module__", None) == module_name
+        }
+    )
+
+
+def _validate_execution_callable_snapshot(
+    capability_id: str,
+    module: object,
+) -> tuple[str, ...]:
+    issued = _EXECUTION_CALLABLE_SNAPSHOT.get(capability_id)
+    if issued is None:
+        raise ValueError(f"execution callable snapshot is absent: {capability_id}")
+    current = _module_local_callables(module)
+    if set(current) != set(issued) or any(
+        current[name] is not issued[name] for name in issued
+    ):
+        raise ValueError(f"execution callable owner differs: {capability_id}")
+    return tuple(sorted(issued))
+
+
 def _execution_capability_ledger() -> tuple[Mapping[str, object], ...]:
     rows: list[Mapping[str, object]] = []
     for capability_id, module_name, relative in _EXECUTION_CAPABILITY_SPECS:
         module = _actual_capability_module(capability_id, module_name)
+        callable_names = _validate_execution_callable_snapshot(
+            capability_id, module
+        )
         module_path = getattr(module, "__file__", None)
         if type(module_path) is not str:
             raise ValueError(
@@ -1438,6 +1531,7 @@ def _execution_capability_ledger() -> tuple[Mapping[str, object], ...]:
                     "module_name": module_name,
                     "relative_path": relative,
                     "module_path": str(Path(module_path).resolve()),
+                    "callable_names": callable_names,
                 }
             )
         )
@@ -1458,7 +1552,13 @@ def _validate_execution_capability_ledger(
         if (
             not isinstance(row, Mapping)
             or set(row)
-            != {"capability_id", "module_name", "relative_path", "module_path"}
+            != {
+                "capability_id",
+                "module_name",
+                "relative_path",
+                "module_path",
+                "callable_names",
+            }
             or type(row.get("capability_id")) is not str
             or row["capability_id"] in observed
         ):
@@ -1469,11 +1569,15 @@ def _validate_execution_capability_ledger(
     for capability_id, (module_name, relative) in expected.items():
         row = observed[capability_id]
         module = _actual_capability_module(capability_id, module_name)
+        callable_names = _validate_execution_callable_snapshot(
+            capability_id, module
+        )
         actual_path = Path(getattr(module, "__file__", "")).resolve()
         if (
             row["module_name"] != module_name
             or row["relative_path"] != relative
             or Path(str(row["module_path"])).resolve() != actual_path
+            or tuple(row["callable_names"]) != callable_names
         ):
             raise ValueError(
                 f"execution capability owner differs: {capability_id}"
@@ -2162,6 +2266,20 @@ def _reconstruct_resolution_forensic_candidate_unsealed(
     ):
         raise ValueError("historical preflight moved during reconstruction")
     return result
+
+
+def _capture_execution_callable_snapshot() -> Mapping[str, Mapping[str, object]]:
+    return MappingProxyType(
+        {
+            capability_id: _module_local_callables(
+                _actual_capability_module(capability_id, module_name)
+            )
+            for capability_id, module_name, _relative in _EXECUTION_CAPABILITY_SPECS
+        }
+    )
+
+
+_EXECUTION_CALLABLE_SNAPSHOT = _capture_execution_callable_snapshot()
 
 
 __all__ = (

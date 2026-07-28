@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import copy
+import re
 import subprocess
 import shutil
 import sys
@@ -209,36 +210,29 @@ def test_task4_historical_reconstruction_rejects_authored_source_claim_drift() -
 def test_task4_historical_data_git_blobs_are_constructive_roots(
     relative: str,
 ) -> None:
-    """Removing a Git-data equation must make this exact-root mutation pass."""
+    """Historical Git data must equal the reviewed producer's exact Git bytes."""
 
     module = _load_forensics()
     git_blobs, _manifest = module._git_blob_map(ROOT)
-    baseline = module._reconstruct_historical_instrument_and_request(
-        repo=ROOT,
-        git_blobs=git_blobs,
-    )
     changed_blobs = dict(git_blobs)
     changed_blobs[relative] = git_blobs[relative] + b" "
-    try:
-        changed = module._reconstruct_historical_instrument_and_request(
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            f"historical Git producer bytes differ: {relative}"
+        ),
+    ):
+        module._reconstruct_historical_instrument_and_request(
             repo=ROOT,
             git_blobs=changed_blobs,
         )
-    except ValueError as exc:
-        assert "historical Git producer" in str(exc)
-    else:
-        assert changed != baseline
 
 
-def test_task4_historical_renderer_git_blob_constructs_the_initial_request() -> None:
-    """Removing Git-root request construction must leave this mutation invisible."""
+def test_task4_historical_renderer_git_blob_is_bound_to_executing_renderer() -> None:
+    """The historical renderer root must equal the producer that renders bytes."""
 
     module = _load_forensics()
     git_blobs, _manifest = module._git_blob_map(ROOT)
-    baseline = module._reconstruct_historical_instrument_and_request(
-        repo=ROOT,
-        git_blobs=git_blobs,
-    )
     relative = "scripts/lm9b_p_governed_resolution_support.py"
     changed_blobs = dict(git_blobs)
     changed_blobs[relative] = git_blobs[relative].replace(
@@ -247,15 +241,14 @@ def test_task4_historical_renderer_git_blob_constructs_the_initial_request() -> 
         1,
     )
     assert changed_blobs[relative] != git_blobs[relative]
-    try:
-        changed = module._reconstruct_historical_instrument_and_request(
+    with pytest.raises(
+        ValueError,
+        match=re.escape(f"historical Git producer bytes differ: {relative}"),
+    ):
+        module._reconstruct_historical_instrument_and_request(
             repo=ROOT,
             git_blobs=changed_blobs,
         )
-    except ValueError as exc:
-        assert "historical Git producer" in str(exc)
-    else:
-        assert changed[1] != baseline[1]
 
 
 def test_task4_execution_capability_ledger_rejects_a_missing_producer() -> None:
@@ -295,6 +288,49 @@ def test_task4_execution_capability_ledger_binds_the_actual_callable_owner(
         SimpleNamespace(__file__=str(substituted)),
     )
     with pytest.raises(ValueError, match="execution capability owner differs"):
+        module._execution_capability_ledger()
+
+
+def test_task4_historical_artifact_transitive_hash_producer_is_git_bound() -> None:
+    """A helper reached by source loading may not sit outside the producer graph."""
+
+    module = _load_forensics()
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    relative = "scripts/lm9b_p_governed_resolution_artifacts.py"
+    changed_blobs = dict(git_blobs)
+    changed_blobs[relative] = git_blobs[relative].replace(
+        b'hashlib.sha256(raw).hexdigest()',
+        b'hashlib.sha512(raw).hexdigest()',
+        1,
+    )
+    assert changed_blobs[relative] != git_blobs[relative]
+    with pytest.raises(
+        ValueError,
+        match=r"historical Git producer artifact capability differs: _sha256",
+    ):
+        module._reconstruct_historical_instrument_and_request(
+            repo=ROOT,
+            git_blobs=changed_blobs,
+        )
+
+
+def test_task4_execution_capability_ledger_binds_isolation_callable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reviewed module cannot hide a substituted callable actually invoked."""
+
+    module = _load_forensics()
+    original = module.SUPPORT.evaluate_resolution_isolation
+
+    def substituted(*args, **kwargs):
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        module.SUPPORT,
+        "evaluate_resolution_isolation",
+        substituted,
+    )
+    with pytest.raises(ValueError, match="execution callable owner differs"):
         module._execution_capability_ledger()
 
 
@@ -596,6 +632,7 @@ def test_task4_every_execution_identity_path_materializes_as_lf() -> None:
             text=True,
         ).stdout.strip()
         assert result.endswith(": eol: lf"), relative
+        assert b"\r\n" not in (ROOT / relative).read_bytes(), relative
 
 
 def test_task4_forensic_capabilities_are_unforgeable_and_inert(
