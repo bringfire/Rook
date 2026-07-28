@@ -24,6 +24,8 @@ _MCP_SRC = _REPO_ROOT / "mcp_server" / "src"
 for _import_path in (_SCRIPTS_DIR, _MCP_SRC):
     if str(_import_path) not in sys.path:
         sys.path.insert(0, str(_import_path))
+if __name__ == "__main__":
+    sys.modules["lm9b_p_governed_resolution_forensics"] = sys.modules[__name__]
 
 import lm9b_p_governed_resolution_archive_evidence as ARCHIVE_EVIDENCE
 import lm9b_p_governed_resolution_artifacts as ARTIFACTS
@@ -1830,8 +1832,12 @@ _EXECUTION_CAPABILITY_OWNER_PATHS = {
 
 def _actual_capability_owner(capability_id: str, module_name: str) -> object:
     if capability_id == "forensic_orchestrator":
-        module = sys.modules.get(__name__)
-        if module is None or getattr(module, "__name__", None) != module_name:
+        module = sys.modules.get(module_name)
+        if (
+            module is None
+            or Path(str(getattr(module, "__file__", ""))).resolve()
+            != Path(__file__).resolve()
+        ):
             raise ValueError(f"execution capability owner differs: {capability_id}")
         return module
     owner_path = _EXECUTION_CAPABILITY_OWNER_PATHS.get(capability_id)
@@ -1857,7 +1863,10 @@ def _actual_capability_module(capability_id: str, module_name: str) -> object:
         if type(owner_module_name) is not str:
             raise ValueError(f"execution capability owner differs: {capability_id}")
         module = sys.modules.get(owner_module_name)
-    if module is None or getattr(module, "__name__", None) != module_name:
+    if module is None or (
+        capability_id != "forensic_orchestrator"
+        and getattr(module, "__name__", None) != module_name
+    ):
         raise ValueError(f"execution capability owner differs: {capability_id}")
     return module
 
@@ -1868,7 +1877,9 @@ def _capability_owner_projection(
 ) -> tuple[str | None, str]:
     value = _actual_capability_owner(capability_id, module_name)
     owner_path = _EXECUTION_CAPABILITY_OWNER_PATHS.get(capability_id)
-    if getattr(value, "__file__", None) is not None:
+    if capability_id == "forensic_orchestrator":
+        identity = module_name
+    elif getattr(value, "__file__", None) is not None:
         identity = str(getattr(value, "__name__", ""))
     else:
         identity = str(getattr(value, "__qualname__", ""))

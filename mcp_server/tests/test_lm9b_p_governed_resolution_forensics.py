@@ -1862,6 +1862,19 @@ def test_task6_cli_surface_is_closed_and_no_contact() -> None:
         )
 
 
+def test_task6_cli_script_bootstraps_one_canonical_orchestrator_module() -> None:
+    """Direct script execution must not import a second forensic orchestrator."""
+
+    completed = subprocess.run(
+        [sys.executable, str(FORENSICS_PATH), "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "verify-candidate" in completed.stdout
+
+
 def test_task6_cli_commands_are_read_only_except_fresh_report_publication(
     task5_published_report: SimpleNamespace,
     tmp_path: Path,
