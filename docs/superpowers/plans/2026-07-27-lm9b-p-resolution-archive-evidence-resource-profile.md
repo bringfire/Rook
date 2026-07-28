@@ -1073,7 +1073,7 @@ class VerifiedResolutionForensicReport:
 
 It is closure-issued only after public path-bound reconstruction. It has no checkpoint, recipe, ready-proof, retry, or compiler field.
 
-- [ ] **Step 1: Write a failing synthetic report vertical**
+- [x] **Step 1: Write a failing synthetic report vertical**
 
 Build a temp verified historical preflight, six-turn forensic source, and reconstruction through public Task 4 APIs. Choose a fresh direct-child destination under a temp forensic root. Require:
 

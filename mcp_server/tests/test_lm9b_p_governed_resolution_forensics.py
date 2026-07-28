@@ -1029,6 +1029,58 @@ def test_task4_forensic_capabilities_are_unforgeable_and_inert(
     )
 
 
+def test_task5_publishes_and_publicly_verifies_a_separate_forensic_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The forensic observation publishes separately from the failed checkpoint."""
+
+    module = _load_forensics()
+    monkeypatch.setattr(module, "_verify_executing_checkout", lambda *_args: None)
+    historical = _historical_carrier(module)
+    copied = tmp_path / module.OBSERVED_STAGING.name
+    shutil.copytree(module.OBSERVED_STAGING, copied)
+    source = module.load_verified_resolution_forensic_source(
+        historical_preflight=historical,
+        staging_dir=copied,
+        expected_marker_sha256=module.OBSERVED_MARKER_SHA256,
+        expected_candidate_checksums_sha256=(
+            module.OBSERVED_CANDIDATE_CHECKSUMS_SHA256
+        ),
+    )
+    forensic_commit_sha = module._current_commit(ROOT)
+    reconstruction = module._reconstruct_resolution_forensic_candidate_unsealed(
+        capability=module._consume_forensic_source(source),
+        repo_root=ROOT,
+        forensic_commit_sha=forensic_commit_sha,
+        require_executing_checkout=False,
+    )
+    destination = tmp_path / "reports" / "synthetic-resolution-forensics"
+    destination.parent.mkdir()
+
+    published = module.write_resolution_forensic_report(
+        destination=destination,
+        source=source,
+        reconstruction=reconstruction,
+        repo_root=ROOT,
+        forensic_commit_sha=forensic_commit_sha,
+    )
+    assert published.state == "published"
+    assert type(published.report) is module.VerifiedResolutionForensicReport
+    assert published.report is not None
+    verified = module.verify_resolution_forensic_report(
+        destination,
+        expected_identity=published.report.report_identity,
+        expected_historical_preflight_fingerprint=(
+            module.OBSERVED_PREFLIGHT_FINGERPRINT
+        ),
+    )
+    assert verified.reconstructed_classification == (
+        "probe_resolution_isolation_failure"
+    )
+    assert verified.original_attempt_state == "post_dispatch_unsealed"
+
+
 @pytest.mark.parametrize(
     ("mutation", "match"),
     [

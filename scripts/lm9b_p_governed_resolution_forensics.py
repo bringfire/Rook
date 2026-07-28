@@ -1268,6 +1268,98 @@ class VerifiedResolutionForensicSource:
         raise TypeError("resolution forensic source carriers are closure-issued")
 
 
+_FORENSIC_REPORT_SUBSTANTIVE_PATHS = (
+    "boundary.json",
+    "forensic-instrument.json",
+    "observed-instrument.json",
+    "reconstruction.json",
+    "source-snapshot.json",
+)
+_FORENSIC_REPORT_CHECKSUM_PATHS = tuple(
+    sorted((*_FORENSIC_REPORT_SUBSTANTIVE_PATHS, "record.json"))
+)
+_FORENSIC_REPORT_MEMBERS = frozenset(
+    (*_FORENSIC_REPORT_CHECKSUM_PATHS, "checksums.json")
+)
+_FORENSIC_REPORT_SCHEMA_ID = (
+    "rook.lm9b_p.governed_resolution_forensic_report:v1"
+)
+_FORENSIC_REPORT_CHECKSUMS_SCHEMA_ID = (
+    "rook.lm9b_p.governed_resolution_forensic_checksums:v1"
+)
+
+
+@dataclass(frozen=True, eq=False, init=False)
+class VerifiedResolutionForensicReport:
+    archive_dir: Path
+    report_identity: str
+    original_attempt_state: str
+    reconstructed_classification: str
+    observed_instrument_fingerprint: str
+    forensic_instrument_fingerprint: str
+    _snapshot_members: Mapping[str, bytes]
+
+    def __new__(cls, *args: object, **kwargs: object) -> "VerifiedResolutionForensicReport":
+        del args, kwargs
+        raise TypeError("resolution forensic reports are closure-issued")
+
+
+@dataclass(frozen=True)
+class ForensicReportPublicationResult:
+    state: str
+    report: VerifiedResolutionForensicReport | None
+    candidate_path: Path
+    destination_path: Path
+    failure_locus: str | None
+
+
+def _build_forensic_report_capabilities():
+    issued: weakref.WeakKeyDictionary[
+        VerifiedResolutionForensicReport,
+        Mapping[str, bytes],
+    ] = weakref.WeakKeyDictionary()
+
+    def issue(
+        *,
+        archive_dir: Path,
+        report_identity: str,
+        original_attempt_state: str,
+        reconstructed_classification: str,
+        observed_instrument_fingerprint: str,
+        forensic_instrument_fingerprint: str,
+        members: Mapping[str, bytes],
+    ) -> VerifiedResolutionForensicReport:
+        report = object.__new__(VerifiedResolutionForensicReport)
+        snapshot = MappingProxyType(dict(members))
+        for name, value in (
+            ("archive_dir", archive_dir),
+            ("report_identity", report_identity),
+            ("original_attempt_state", original_attempt_state),
+            ("reconstructed_classification", reconstructed_classification),
+            ("observed_instrument_fingerprint", observed_instrument_fingerprint),
+            ("forensic_instrument_fingerprint", forensic_instrument_fingerprint),
+            ("_snapshot_members", snapshot),
+        ):
+            object.__setattr__(report, name, value)
+        issued[report] = snapshot
+        return report
+
+    def consume(value: object) -> Mapping[str, bytes]:
+        if type(value) is not VerifiedResolutionForensicReport:
+            raise TypeError("closure-issued resolution forensic report required")
+        snapshot = issued.get(value)
+        if snapshot is None or snapshot != value._snapshot_members:
+            raise ValueError("resolution forensic report was not issued")
+        return snapshot
+
+    return issue, consume
+
+
+_issue_resolution_forensic_report, _consume_resolution_forensic_report = (
+    _build_forensic_report_capabilities()
+)
+
+
 def _build_forensic_capabilities():
     historical_issued: weakref.WeakKeyDictionary[
         VerifiedHistoricalResolutionPreflightForensics,
@@ -2627,6 +2719,599 @@ def _reconstruct_resolution_forensic_candidate_unsealed(
     ):
         raise ValueError("historical preflight moved during reconstruction")
     return result
+
+
+def _forensic_member_rows(
+    members: Mapping[str, bytes],
+) -> list[dict[str, object]]:
+    return [
+        {"path": path, "raw_sha256": _sha256(raw), "size": len(raw)}
+        for path, raw in sorted(members.items())
+    ]
+
+
+def _forensic_symbol_fingerprint(
+    *,
+    repo: Path,
+    commit: str,
+    relative: str,
+    symbol: str,
+) -> str:
+    raw = _git_object_at(repo, commit, relative)
+    return PLANNER_SUPPORT.fingerprint(
+        {"module_source_sha256": _sha256(raw), "symbol": symbol}
+    )
+
+
+def _observed_forensic_instrument_record(
+    capability: _ForensicSourceCapabilitySnapshot,
+) -> dict[str, object]:
+    historical = capability.historical
+    source = capability.source
+    preflight_record = dict(historical.record)
+    candidate_checksums = _strict_object(
+        source.candidate_members["checksums.json"],
+        "forensic source candidate checksums",
+    )
+    value: dict[str, object] = {
+        "schema": (
+            "rook.lm9b_p.governed_resolution_forensic_observed_instrument:v1"
+        ),
+        "observed_commit_sha": OBSERVED_COMMIT_SHA,
+        "historical_preflight": {
+            "canonical_path": str(historical.archive_dir),
+            "preflight_fingerprint": OBSERVED_PREFLIGHT_FINGERPRINT,
+            "members": _forensic_member_rows(historical.members),
+        },
+        "historical_instrument_fingerprint": OBSERVED_INSTRUMENT_FINGERPRINT,
+        "attempt_id": OBSERVED_ATTEMPT_ID,
+        "attempt_fingerprint": OBSERVED_ATTEMPT_FINGERPRINT,
+        "staging_path": str(source.staging_path),
+        "reserved_checkpoint_destination": str(source.destination_path),
+        "marker": {
+            "raw_b64": base64.b64encode(source.marker_bytes).decode("ascii"),
+            "raw_sha256": _sha256(source.marker_bytes),
+            "size": len(source.marker_bytes),
+        },
+        "candidate_members": _forensic_member_rows(source.candidate_members),
+        "candidate_checksums": candidate_checksums,
+        "candidate_checksums_raw_sha256": _sha256(
+            source.candidate_members["checksums.json"]
+        ),
+        "preflight_instrument_fingerprint": preflight_record.get(
+            "instrument_fingerprint"
+        ),
+    }
+    value["observed_instrument_fingerprint"] = PLANNER_SUPPORT.fingerprint(value)
+    return value
+
+
+def _forensic_instrument_record(
+    *,
+    capability: _ForensicSourceCapabilitySnapshot,
+    repo: Path,
+    forensic_commit_sha: str,
+) -> dict[str, object]:
+    if _current_commit(repo) != forensic_commit_sha:
+        raise ValueError("forensic report commit differs")
+    profile_relative = (
+        "scripts/lm9b_p_governed_resolution_contracts/"
+        "archive_evidence_resource_profile.json"
+    )
+    profile_raw = _git_object_at(repo, forensic_commit_sha, profile_relative)
+    if (repo / profile_relative).read_bytes() != profile_raw:
+        raise ValueError("forensic report profile bytes differ from reviewed Git")
+    profile = ARCHIVE_EVIDENCE.admit_resolution_archive_resource_profile(
+        profile_raw
+    )
+    profile_value = dict(
+        ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(profile)
+    )
+    _profile, profile_binding = ARTIFACTS._resolution_archive_resource_contract(
+        forensic_commit_sha
+    )
+    module_relative = "scripts/lm9b_p_governed_resolution_forensics.py"
+
+    def source_identity(relative: str, symbol: str) -> str:
+        return _forensic_symbol_fingerprint(
+            repo=repo,
+            commit=forensic_commit_sha,
+            relative=relative,
+            symbol=symbol,
+        )
+
+    value: dict[str, object] = {
+        "schema": "rook.lm9b_p.governed_resolution_forensic_instrument:v1",
+        "forensic_commit_sha": forensic_commit_sha,
+        "archive_resource_profile": profile_value,
+        "archive_resource_profile_raw_sha256": _sha256(profile_raw),
+        "archive_resource_binding": profile_binding,
+        "historical_compatibility": {
+            "verifier_source_fingerprint": source_identity(
+                module_relative,
+                "_verify_historical_resolution_preflight_forensics_unsealed",
+            ),
+            "historical_git_object_manifest_fingerprint": (
+                PLANNER_SUPPORT.fingerprint(capability.historical.git_manifest)
+            ),
+        },
+        "reconstruction_contracts": {
+            "reconstruction_source_fingerprint": source_identity(
+                module_relative,
+                "_reconstruct_resolution_forensic_candidate_unsealed",
+            ),
+            "classifier_source_fingerprint": source_identity(
+                "scripts/lm9b_p_planner_recipe_transfer_artifacts.py",
+                "derive_evaluated_recipe_classification",
+            ),
+            "isolation_source_fingerprint": source_identity(
+                "scripts/lm9b_p_governed_resolution_support.py",
+                "evaluate_resolution_isolation",
+            ),
+            "physical_snapshot_contract_id": (
+                "lm9b_p.resolution_forensic_physical_snapshot:v1"
+            ),
+        },
+        "report_contracts": {
+            "content_equation_id": (
+                "lm9b_p.resolution_forensic_five_member_content:v1"
+            ),
+            "record_equation_id": (
+                "lm9b_p.resolution_forensic_destination_record:v1"
+            ),
+            "checksum_equation_id": (
+                "lm9b_p.resolution_forensic_six_member_checksums:v1"
+            ),
+            "writer_source_fingerprint": source_identity(
+                module_relative, "write_resolution_forensic_report"
+            ),
+            "public_verifier_source_fingerprint": source_identity(
+                module_relative, "verify_resolution_forensic_report"
+            ),
+            "publication_source_fingerprint": source_identity(
+                module_relative, "reconcile_resolution_forensic_publication"
+            ),
+            "publication_equation_id": (
+                "lm9b_p.resolution_forensic_atomic_publication:v1"
+            ),
+        },
+    }
+    value["forensic_instrument_fingerprint"] = PLANNER_SUPPORT.fingerprint(value)
+    return value
+
+
+def _forensic_source_snapshot_record(
+    capability: _ForensicSourceCapabilitySnapshot,
+) -> dict[str, object]:
+    source = capability.source
+    value: dict[str, object] = {
+        "schema": (
+            "rook.lm9b_p.governed_resolution_forensic_source_snapshot:v1"
+        ),
+        "staging_path": str(source.staging_path),
+        "reserved_checkpoint_destination": str(source.destination_path),
+        "preflight_members": _forensic_member_rows(source.preflight_members),
+        "marker_raw_sha256": _sha256(source.marker_bytes),
+        "candidate_members": _forensic_member_rows(source.candidate_members),
+        "physical_identity_fingerprint": PLANNER_SUPPORT.fingerprint(
+            source.before_identity
+        ),
+    }
+    value["source_snapshot_fingerprint"] = PLANNER_SUPPORT.fingerprint(value)
+    return value
+
+
+def _forensic_reconstruction_record(
+    reconstruction: ResolutionForensicReconstruction,
+) -> dict[str, object]:
+    value = {
+        name: getattr(reconstruction, name)
+        for name in ResolutionForensicReconstruction.__dataclass_fields__
+    }
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_forensic_reconstruction:v1",
+        **value,
+    }
+
+
+def _forensic_boundary_record(
+    reconstruction: ResolutionForensicReconstruction,
+) -> dict[str, object]:
+    if (
+        reconstruction.original_attempt_state != "post_dispatch_unsealed"
+        or reconstruction.reconstructed_classification
+        != "probe_resolution_isolation_failure"
+        or reconstruction.official_scientific_checkpoint != "absent"
+        or reconstruction.ready_proof != "prohibited"
+        or reconstruction.compiler_eligibility is not False
+    ):
+        raise ValueError("forensic report boundary claim differs")
+    return {
+        "schema": "rook.lm9b_p.governed_resolution_forensic_boundary:v1",
+        "original_attempt_state": "post_dispatch_unsealed",
+        "official_scientific_checkpoint": "absent",
+        "reconstructed_candidate_classification": (
+            "probe_resolution_isolation_failure"
+        ),
+        "ready_proof": "prohibited",
+        "compiler_eligibility": False,
+        "provider_contact_by_forensic_instrument": False,
+        "retry_authorized": False,
+        "policy_recommendation_present": False,
+    }
+
+
+def _derive_resolution_forensic_report_substantive_members(
+    *,
+    capability: _ForensicSourceCapabilitySnapshot,
+    reconstruction: ResolutionForensicReconstruction,
+    repo: Path,
+    forensic_commit_sha: str,
+    require_executing_checkout: bool,
+) -> dict[str, bytes]:
+    derived = _reconstruct_resolution_forensic_candidate_unsealed(
+        capability=capability,
+        repo_root=repo,
+        forensic_commit_sha=forensic_commit_sha,
+        require_executing_checkout=require_executing_checkout,
+    )
+    if derived != reconstruction:
+        raise ValueError("forensic report reconstruction differs from source")
+    values = {
+        "observed-instrument.json": _observed_forensic_instrument_record(
+            capability
+        ),
+        "forensic-instrument.json": _forensic_instrument_record(
+            capability=capability,
+            repo=repo,
+            forensic_commit_sha=forensic_commit_sha,
+        ),
+        "source-snapshot.json": _forensic_source_snapshot_record(capability),
+        "reconstruction.json": _forensic_reconstruction_record(derived),
+        "boundary.json": _forensic_boundary_record(derived),
+    }
+    if set(values) != set(_FORENSIC_REPORT_SUBSTANTIVE_PATHS):
+        raise RuntimeError("forensic report substantive member map differs")
+    return {path: _canonical_bytes(values[path]) for path in values}
+
+
+def _complete_resolution_forensic_report_members(
+    *,
+    destination: Path,
+    forensic_commit_sha: str,
+    substantive_members: Mapping[str, bytes],
+) -> tuple[dict[str, bytes], str]:
+    if set(substantive_members) != set(_FORENSIC_REPORT_SUBSTANTIVE_PATHS):
+        raise ValueError("forensic report substantive membership differs")
+    content_rows = [
+        {"path": path, "raw_sha256": _sha256(substantive_members[path])}
+        for path in _FORENSIC_REPORT_SUBSTANTIVE_PATHS
+    ]
+    content_fingerprint = PLANNER_SUPPORT.fingerprint(content_rows)
+    report_identity = PLANNER_SUPPORT.fingerprint(
+        {
+            "content_fingerprint": content_fingerprint,
+            "canonical_destination": str(destination),
+            "forensic_merge_sha": forensic_commit_sha,
+        }
+    )
+    members = dict(substantive_members)
+    members["record.json"] = _canonical_bytes(
+        {
+            "schema": _FORENSIC_REPORT_SCHEMA_ID,
+            "canonical_destination": str(destination),
+            "forensic_merge_sha": forensic_commit_sha,
+            "content_fingerprint": content_fingerprint,
+            "report_identity": report_identity,
+        }
+    )
+    members["checksums.json"] = _canonical_bytes(
+        {
+            "schema": _FORENSIC_REPORT_CHECKSUMS_SCHEMA_ID,
+            "members": [
+                {"path": path, "raw_sha256": _sha256(members[path])}
+                for path in _FORENSIC_REPORT_CHECKSUM_PATHS
+            ],
+        }
+    )
+    return members, report_identity
+
+
+def _canonical_forensic_report_destination(destination: Path) -> tuple[Path, Path]:
+    argument = Path(destination)
+    if not argument.is_absolute() or argument.name in {"", ".", ".."}:
+        raise ValueError("forensic report destination is not absolute")
+    canonical = argument.resolve(strict=False)
+    if canonical != argument or canonical.parent == canonical:
+        raise ValueError("forensic report destination is not canonical")
+    parent = canonical.parent
+    if not parent.is_dir() or _path_has_reparse_ambiguity(parent):
+        raise ValueError("forensic report root is not a physical directory")
+    candidate = parent / f".{canonical.name}.candidate"
+    if os.path.lexists(canonical) or os.path.lexists(candidate):
+        raise FileExistsError("forensic report destination or candidate exists")
+    return canonical, candidate
+
+
+def _verify_resolution_forensic_report_archive(
+    archive_dir: Path,
+    *,
+    expected_identity: str,
+    expected_historical_preflight_fingerprint: str,
+    require_location_binding: bool,
+    official_destination: Path | None = None,
+    require_executing_checkout: bool,
+) -> VerifiedResolutionForensicReport:
+    archive, members, _physical_identity = _flat_snapshot(
+        archive_dir,
+        expected=_FORENSIC_REPORT_MEMBERS,
+    )
+    record = _strict_object(members["record.json"], "forensic report record")
+    if set(record) != {
+        "schema",
+        "canonical_destination",
+        "forensic_merge_sha",
+        "content_fingerprint",
+        "report_identity",
+    } or record.get("schema") != _FORENSIC_REPORT_SCHEMA_ID:
+        raise ValueError("forensic report record contract differs")
+    destination = Path(str(record["canonical_destination"]))
+    if not destination.is_absolute() or destination.resolve(strict=False) != destination:
+        raise ValueError("forensic report destination binding differs")
+    if require_location_binding and archive != destination:
+        raise ValueError("forensic report physical destination differs")
+    if official_destination is not None and destination != official_destination:
+        raise ValueError("forensic report candidate destination differs")
+    content_rows = [
+        {"path": path, "raw_sha256": _sha256(members[path])}
+        for path in _FORENSIC_REPORT_SUBSTANTIVE_PATHS
+    ]
+    content_fingerprint = PLANNER_SUPPORT.fingerprint(content_rows)
+    report_identity = PLANNER_SUPPORT.fingerprint(
+        {
+            "content_fingerprint": content_fingerprint,
+            "canonical_destination": str(destination),
+            "forensic_merge_sha": record["forensic_merge_sha"],
+        }
+    )
+    if (
+        record.get("content_fingerprint") != content_fingerprint
+        or record.get("report_identity") != report_identity
+        or report_identity != expected_identity
+    ):
+        raise ValueError("forensic report identity differs")
+    checksums = _strict_object(
+        members["checksums.json"], "forensic report checksums"
+    )
+    expected_checksum_rows = [
+        {"path": path, "raw_sha256": _sha256(members[path])}
+        for path in _FORENSIC_REPORT_CHECKSUM_PATHS
+    ]
+    if (
+        set(checksums) != {"schema", "members"}
+        or checksums.get("schema") != _FORENSIC_REPORT_CHECKSUMS_SCHEMA_ID
+        or checksums.get("members") != expected_checksum_rows
+    ):
+        raise ValueError("forensic report checksum closure differs")
+    observed = _strict_object(
+        members["observed-instrument.json"],
+        "forensic observed instrument",
+    )
+    if (
+        observed.get("schema")
+        != "rook.lm9b_p.governed_resolution_forensic_observed_instrument:v1"
+        or expected_historical_preflight_fingerprint
+        != OBSERVED_PREFLIGHT_FINGERPRINT
+    ):
+        raise ValueError("forensic observed instrument root differs")
+    forensic_commit_sha = str(record["forensic_merge_sha"])
+    if require_executing_checkout:
+        _verify_executing_checkout(_REPO_ROOT, forensic_commit_sha)
+    elif _current_commit(_REPO_ROOT) != forensic_commit_sha:
+        raise ValueError("forensic report commit differs")
+    historical = verify_historical_resolution_preflight_forensics(
+        repo_root=_REPO_ROOT,
+        preflight_archive=OBSERVED_PREFLIGHT_ARCHIVE,
+        expected_preflight_fingerprint=expected_historical_preflight_fingerprint,
+    )
+    source = load_verified_resolution_forensic_source(
+        historical_preflight=historical,
+        staging_dir=Path(str(observed.get("staging_path"))),
+        expected_marker_sha256=OBSERVED_MARKER_SHA256,
+        expected_candidate_checksums_sha256=OBSERVED_CANDIDATE_CHECKSUMS_SHA256,
+    )
+    capability = _consume_forensic_source(source)
+    reconstruction = _reconstruct_resolution_forensic_candidate_unsealed(
+        capability=capability,
+        repo_root=_REPO_ROOT,
+        forensic_commit_sha=forensic_commit_sha,
+        require_executing_checkout=False,
+    )
+    expected_substantive = _derive_resolution_forensic_report_substantive_members(
+        capability=capability,
+        reconstruction=reconstruction,
+        repo=_REPO_ROOT,
+        forensic_commit_sha=forensic_commit_sha,
+        require_executing_checkout=False,
+    )
+    if any(members[path] != raw for path, raw in expected_substantive.items()):
+        raise ValueError("forensic report substantive derivation differs")
+    boundary = _strict_object(members["boundary.json"], "forensic boundary")
+    forensic_instrument = _strict_object(
+        members["forensic-instrument.json"],
+        "forensic instrument",
+    )
+    return _issue_resolution_forensic_report(
+        archive_dir=archive,
+        report_identity=report_identity,
+        original_attempt_state=str(boundary["original_attempt_state"]),
+        reconstructed_classification=str(
+            boundary["reconstructed_candidate_classification"]
+        ),
+        observed_instrument_fingerprint=str(
+            observed["observed_instrument_fingerprint"]
+        ),
+        forensic_instrument_fingerprint=str(
+            forensic_instrument["forensic_instrument_fingerprint"]
+        ),
+        members=members,
+    )
+
+
+def verify_resolution_forensic_report(
+    archive_dir: Path,
+    *,
+    expected_identity: str,
+    expected_historical_preflight_fingerprint: str,
+) -> VerifiedResolutionForensicReport:
+    return _verify_resolution_forensic_report_archive(
+        archive_dir,
+        expected_identity=expected_identity,
+        expected_historical_preflight_fingerprint=(
+            expected_historical_preflight_fingerprint
+        ),
+        require_location_binding=True,
+        require_executing_checkout=True,
+    )
+
+
+def _physical_directory_present(path: Path) -> bool:
+    if not os.path.lexists(path):
+        return False
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    attributes = getattr(info, "st_file_attributes", 0)
+    return stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode) and not bool(
+        attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    )
+
+
+def reconcile_resolution_forensic_publication(
+    *,
+    candidate_dir: Path,
+    destination: Path,
+    expected_identity: str,
+    expected_historical_preflight_fingerprint: str,
+) -> ForensicReportPublicationResult:
+    candidate = Path(candidate_dir)
+    final = Path(destination)
+    candidate_present = _physical_directory_present(candidate)
+    destination_present = _physical_directory_present(final)
+    if destination_present and not candidate_present:
+        try:
+            report = verify_resolution_forensic_report(
+                final,
+                expected_identity=expected_identity,
+                expected_historical_preflight_fingerprint=(
+                    expected_historical_preflight_fingerprint
+                ),
+            )
+        except Exception:
+            return ForensicReportPublicationResult(
+                state="publication_indeterminate",
+                report=None,
+                candidate_path=candidate,
+                destination_path=final,
+                failure_locus="destination_verification",
+            )
+        return ForensicReportPublicationResult(
+            state="published",
+            report=report,
+            candidate_path=candidate,
+            destination_path=final,
+            failure_locus=None,
+        )
+    if not os.path.lexists(final) and candidate_present:
+        return ForensicReportPublicationResult(
+            state="unpublished",
+            report=None,
+            candidate_path=candidate,
+            destination_path=final,
+            failure_locus="candidate_retained",
+        )
+    return ForensicReportPublicationResult(
+        state="publication_indeterminate",
+        report=None,
+        candidate_path=candidate,
+        destination_path=final,
+        failure_locus="physical_state_ambiguous",
+    )
+
+
+def write_resolution_forensic_report(
+    *,
+    destination: Path,
+    source: object,
+    reconstruction: ResolutionForensicReconstruction,
+    repo_root: Path,
+    forensic_commit_sha: str,
+) -> ForensicReportPublicationResult:
+    if type(reconstruction) is not ResolutionForensicReconstruction:
+        raise TypeError("resolution forensic reconstruction is required")
+    capability = _consume_forensic_source(source)
+    repo = Path(repo_root).resolve()
+    final, candidate = _canonical_forensic_report_destination(destination)
+    substantive = _derive_resolution_forensic_report_substantive_members(
+        capability=capability,
+        reconstruction=reconstruction,
+        repo=repo,
+        forensic_commit_sha=forensic_commit_sha,
+        require_executing_checkout=False,
+    )
+    members, report_identity = _complete_resolution_forensic_report_members(
+        destination=final,
+        forensic_commit_sha=forensic_commit_sha,
+        substantive_members=substantive,
+    )
+    candidate.mkdir(exist_ok=False)
+    try:
+        parent_info = os.lstat(final.parent)
+        candidate_info = os.lstat(candidate)
+        if getattr(parent_info, "st_dev", None) != getattr(
+            candidate_info, "st_dev", None
+        ):
+            raise ValueError("forensic report candidate filesystem differs")
+        for path in sorted(members):
+            with (candidate / path).open("xb") as stream:
+                stream.write(members[path])
+                stream.flush()
+                os.fsync(stream.fileno())
+        _verify_resolution_forensic_report_archive(
+            candidate,
+            expected_identity=report_identity,
+            expected_historical_preflight_fingerprint=(
+                OBSERVED_PREFLIGHT_FINGERPRINT
+            ),
+            require_location_binding=False,
+            official_destination=final,
+            require_executing_checkout=False,
+        )
+        candidate.rename(final)
+        report = verify_resolution_forensic_report(
+            final,
+            expected_identity=report_identity,
+            expected_historical_preflight_fingerprint=(
+                OBSERVED_PREFLIGHT_FINGERPRINT
+            ),
+        )
+        return ForensicReportPublicationResult(
+            state="published",
+            report=report,
+            candidate_path=candidate,
+            destination_path=final,
+            failure_locus=None,
+        )
+    except Exception:
+        return reconcile_resolution_forensic_publication(
+            candidate_dir=candidate,
+            destination=final,
+            expected_identity=report_identity,
+            expected_historical_preflight_fingerprint=(
+                OBSERVED_PREFLIGHT_FINGERPRINT
+            ),
+        )
 
 
 def _capture_execution_callable_snapshot() -> Mapping[str, Mapping[str, object]]:
