@@ -609,6 +609,7 @@ git commit -m "test: close resolution evidence resource equations"
 
 **Files:**
 - Modify: `scripts/lm9b_p_governed_resolution_archive_evidence.py`
+- Modify: `scripts/lm9b_p_planner_recipe_transfer_support.py`
 - Modify: `scripts/lm9b_p_governed_resolution_probe.py`
 - Modify: `scripts/lm9b_p_governed_resolution_artifacts.py`
 - Modify: `mcp_server/tests/test_lm9b_p_governed_resolution_archive_evidence.py`
@@ -620,6 +621,7 @@ git commit -m "test: close resolution evidence resource equations"
 - Produces:
   - `validate_resolution_dispatch_request(*, role: str, ordinal: int, canonical_request_bytes: bytes, adapter_request_bytes: bytes, profile: object) -> None`
   - `validate_resolution_captured_turn(*, row: Mapping[str, object], profile: object) -> None`
+  - `materialize_resolution_provider_call_request(*, role: str, ordinal: int, raw_bytes: bytes, profile: object) -> dict[str, object]`
   - `ResolutionArchiveEvidenceOverflow(field: str, observed_bytes: int, ceiling_bytes: int, rejection_id: str)`
   - `ReconstructedResolutionAttempt` shared by public checkpoint and forensic verification
   - `reconstruct_resolution_attempt_evidence(*, preflight, call_ledger, candidate_recipe_bytes) -> ReconstructedResolutionAttempt`
@@ -698,6 +700,28 @@ class ReconstructedResolutionAttempt:
 
 Expose `reconstruct_resolution_attempt_evidence()` and make the public checkpoint verifier its only existing consumer. Preserve all current classifications and evidence identities except commit/source-derived instrument/preflight identities that must move.
 
+- [x] **Step 5A: Keep governed request materialization under profile custody**
+
+Add one governed-resolution materializer that selects the request ceiling from
+the closure-issued profile by exact role and ordinal, strictly parses under
+that ceiling, reruns the existing Planner or evaluator request builder, and
+requires canonical byte equality. Route all governed-resolution controller,
+adapter-boundary, call-ledger, public-verifier, and attempt-reconstruction
+materialization through it. Keep the existing Planner controller's historical
+materializer as the default for first-authorship callers; resolution supplies
+the profile-aware callback explicitly.
+
+Prove the transition with genuine, builder-produced requests rather than a
+patched admission decision:
+
+- a turn-2 Planner request above 1 MiB crosses the real bounded controller,
+  staged adapter boundary, sealing, public verification, and attempt
+  reconstruction;
+- an evaluator request above 1 MiB crosses the conditional evaluator call,
+  sealing, public verification, and attempt reconstruction;
+- both remain inside their profile-derived ceilings, while the existing
+  pre-dispatch and post-dispatch overflow outcomes remain unchanged.
+
 - [x] **Step 6: Test future instrument/preflight drift closure**
 
 Fully reclose each mutation and require `verify_resolution_preflight()` refusal:
@@ -722,6 +746,7 @@ Also assert the current feature instrument and development preflight identities 
   -q
 git diff --check
 git add scripts/lm9b_p_governed_resolution_archive_evidence.py `
+  scripts/lm9b_p_planner_recipe_transfer_support.py `
   scripts/lm9b_p_governed_resolution_probe.py `
   scripts/lm9b_p_governed_resolution_artifacts.py `
   mcp_server/tests/test_lm9b_p_governed_resolution_archive_evidence.py `

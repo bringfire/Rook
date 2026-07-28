@@ -1087,6 +1087,165 @@ def test_archive_profile_six_turn_vertical_seals_and_publicly_reconstructs(
     assert reconstructed.candidate_recipe_bytes == result.candidate_recipe_bytes
 
 
+def test_task3_large_turn_two_request_crosses_execution_and_reconstruction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Catches later governed requests reverting to the historical 1 MiB parser."""
+
+    preflight = _task2_preflight(tmp_path)
+    inputs = preflight.instrument.inputs
+    candidate = json.loads(ISOLATED_SUCCESSOR_RECIPE.read_bytes())
+    postcondition_refs = candidate["maintains"][0]["postconditions"][0][
+        "source_refs"
+    ]
+    postcondition_refs.extend(
+        [
+            {
+                "kind": "artifact_value",
+                "artifact_id": "task_envelope",
+                "json_pointer": "/facts/maximum_height",
+            },
+            {
+                "kind": "artifact_value",
+                "artifact_id": "task_envelope",
+                "json_pointer": "/facts/minimum_height",
+            },
+        ]
+    )
+    postcondition_refs.sort(key=lambda row: row["json_pointer"])
+    candidate_raw = _reclose_recipe(candidate, inputs)
+    planner = _FakeProvider(
+        [
+            _planner_turn(
+                recipe_bytes=b"{}",
+                call_id="planner-1",
+                content_padding_chars=1_100_000,
+            ),
+            _planner_turn(recipe_bytes=candidate_raw, call_id="planner-2"),
+        ],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider([], staging_path=preflight.attempt.staging_path)
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+
+    assert len(planner.requests) == 2
+    assert len(planner.requests[1]) > PLANNER_SUPPORT.MAX_RECIPE_BYTES
+    assert not evaluator.requests
+    assert result.state == "sealed"
+    assert result.classification == "probe_resolution_isolation_failure"
+    assert result.sealed_checkpoint is not None
+    verified = RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+        result.sealed_checkpoint.archive_dir,
+        expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
+    )
+    reconstructed = RESOLUTION_ARTIFACTS.reconstruct_resolution_attempt_evidence(
+        preflight=preflight,
+        call_ledger=result.call_ledger,
+        candidate_recipe_bytes=result.candidate_recipe_bytes,
+    )
+    assert verified.classification == "probe_resolution_isolation_failure"
+    assert reconstructed.classification == "probe_resolution_isolation_failure"
+
+
+def test_task3_large_evaluator_request_crosses_execution_and_reconstruction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Catches evaluator execution or reconstruction reverting to 1 MiB."""
+
+    real_render = RESOLUTION_SUPPORT.render_planner_revision_evaluation_request
+
+    def render_large_evaluator_request(*args: object, **kwargs: object) -> object:
+        rendered = real_render(*args, **kwargs)
+        payload = PLANNER_SUPPORT._json_builtins(rendered.payload)
+        payload["resource_profile_test_padding"] = "x" * 1_100_000
+        raw = _canonical_bytes(payload)
+        return replace(
+            rendered,
+            payload=payload,
+            raw_bytes=raw,
+            raw_sha256=PLANNER_SUPPORT.sha256_prefixed(raw),
+            canonical_fingerprint=PLANNER_SUPPORT.fingerprint(payload),
+        )
+
+    monkeypatch.setattr(
+        RESOLUTION_SUPPORT,
+        "render_planner_revision_evaluation_request",
+        render_large_evaluator_request,
+    )
+    preflight = _task2_preflight(tmp_path)
+    planner = _FakeProvider(
+        [
+            _planner_turn(
+                recipe_bytes=ISOLATED_SUCCESSOR_RECIPE.read_bytes(),
+                call_id="planner-1",
+            )
+        ],
+        staging_path=preflight.attempt.staging_path,
+    )
+    evaluator = _FakeProvider(
+        [_evaluator_turn()], staging_path=preflight.attempt.staging_path
+    )
+    head_sha = preflight.record["reviewed_commit_sha"]
+    readiness, manifest, route = _fresh_readiness(head_sha)
+    monkeypatch.setattr(
+        RESOLUTION_ARTIFACTS, "require_clean_reviewed_checkout", lambda *_a: None
+    )
+
+    result = _run_resolution_attempt(
+        monkeypatch=monkeypatch,
+        preflight=preflight,
+        invocation_binding=_invocation(preflight, readiness),
+        readiness_record=readiness,
+        readiness_manifest=manifest,
+        head_sha=head_sha,
+        now_iso="2026-07-25T20:00:06Z",
+        credential_present={route.route_fingerprint: True},
+        planner_provider=planner,
+        evaluator_provider=evaluator,
+    )
+
+    assert len(evaluator.requests) == 1
+    assert len(evaluator.requests[0]) > PLANNER_SUPPORT.MAX_RECIPE_BYTES
+    assert result.state == "sealed"
+    assert result.classification == "probe_candidate_ready"
+    assert result.sealed_checkpoint is not None
+    verified = RESOLUTION_ARTIFACTS.verify_sealed_resolution_checkpoint(
+        result.sealed_checkpoint.archive_dir,
+        expected_identity=result.sealed_checkpoint.checkpoint_identity,
+        preflight_archive=preflight.archive_dir,
+        expected_preflight_fingerprint=preflight.preflight_fingerprint,
+    )
+    reconstructed = RESOLUTION_ARTIFACTS.reconstruct_resolution_attempt_evidence(
+        preflight=preflight,
+        call_ledger=result.call_ledger,
+        candidate_recipe_bytes=result.candidate_recipe_bytes,
+    )
+    assert verified.classification == "probe_candidate_ready"
+    assert reconstructed.classification == "probe_candidate_ready"
+    assert reconstructed.evaluator_result is not None
+
+
 def _install_task3_dispatch_overflow(
     monkeypatch: pytest.MonkeyPatch,
     *,

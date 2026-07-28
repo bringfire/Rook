@@ -1495,8 +1495,11 @@ def validate_initial_resolution_dispatch(
         ),
         provider_timeout_s=PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S,
     )
-    request = PLANNER_SUPPORT.materialize_planner_provider_call_request(
-        request_bytes
+    request = ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+        role="planner",
+        ordinal=1,
+        raw_bytes=request_bytes,
+        profile=archive_resource_profile,
     )
     planner_contract = instrument.contract_manifest["planner"]
     adapter_request_bytes = (
@@ -2255,6 +2258,7 @@ def verify_resolution_call_ledger(
         raise TypeError("Planner session result is required")
     if type(call_ledger) is not tuple or not call_ledger:
         raise ValueError("resolution call ledger is empty or malformed")
+    archive_resource_profile = _verified_resolution_archive_profile(preflight)
     calls = [dict(row) if isinstance(row, Mapping) else None for row in call_ledger]
     if any(row is None for row in calls):
         raise ValueError("resolution call ledger row is malformed")
@@ -2298,9 +2302,14 @@ def verify_resolution_call_ledger(
             role="planner",
             role_contract=preflight.record["instrument_contracts"]["planner"],
             maximum_timeout=PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S,
+            ordinal=int(row["call_index"]) + 1,
+            archive_resource_profile=archive_resource_profile,
         )
-        request = PLANNER_SUPPORT.materialize_planner_provider_call_request(
-            request_raw
+        request = ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role="planner",
+            ordinal=int(row["call_index"]) + 1,
+            raw_bytes=request_raw,
+            profile=archive_resource_profile,
         )
         deadline_state = row.get("controller_deadline_state")
         if type(deadline_state) is not dict or set(deadline_state) != {
@@ -2500,6 +2509,8 @@ def verify_resolution_call_ledger(
             role="planner_evaluator",
             role_contract=preflight.record["instrument_contracts"]["evaluator"],
             maximum_timeout=PLANNER_SUPPORT.PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+            ordinal=1,
+            archive_resource_profile=archive_resource_profile,
         )
         if evaluator_row.get("controller_deadline_state") is not None:
             raise ValueError("evaluator ledger contains Planner deadline state")
@@ -2521,7 +2532,12 @@ def verify_resolution_call_ledger(
                 role="evaluator",
                 role_contract=preflight.record["instrument_contracts"]["evaluator"],
                 provider_request=(
-                    PLANNER_SUPPORT.parse_archive_json(evaluator_raw)
+                    ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+                        role="planner_evaluator",
+                        ordinal=1,
+                        raw_bytes=evaluator_raw,
+                        profile=archive_resource_profile,
+                    )
                 ),
             )
             reconstructed_evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
@@ -2533,7 +2549,12 @@ def verify_resolution_call_ledger(
                 role="evaluator",
                 role_contract=preflight.record["instrument_contracts"]["evaluator"],
                 provider_request=(
-                    PLANNER_SUPPORT.parse_archive_json(evaluator_raw)
+                    ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+                        role="planner_evaluator",
+                        ordinal=1,
+                        raw_bytes=evaluator_raw,
+                        profile=archive_resource_profile,
+                    )
                 ),
             )
             reconstructed_evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
@@ -2566,14 +2587,19 @@ def _verify_dispatch_row(
     role: str,
     role_contract: Mapping[str, object],
     maximum_timeout: float,
+    ordinal: int,
+    archive_resource_profile: object,
 ) -> bytes:
     request_text = row.get("canonical_request_json")
     if type(request_text) is not str:
         raise ValueError("resolution ledger request bytes are absent")
     request_raw = request_text.encode("utf-8")
-    request = PLANNER_SUPPORT.parse_archive_json(request_raw)
-    if type(request) is not dict:
-        raise ValueError("resolution ledger request is not an object")
+    request = ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+        role=role,
+        ordinal=ordinal,
+        raw_bytes=request_raw,
+        profile=archive_resource_profile,
+    )
     timeout = request.get("provider_timeout_s")
     if (
         type(timeout) not in {int, float}
@@ -3126,6 +3152,7 @@ def reconstruct_resolution_attempt_evidence(
     call_ledger: tuple[Mapping[str, object], ...],
     candidate_recipe_bytes: bytes | None,
 ) -> ReconstructedResolutionAttempt:
+    archive_resource_profile = _verified_resolution_archive_profile(preflight)
     calls = [dict(row) for row in call_ledger]
     planner_rows = [row for row in calls if row.get("role") == "planner"]
     evaluator_rows = [
@@ -3144,9 +3171,14 @@ def reconstruct_resolution_attempt_evidence(
             role="planner",
             role_contract=preflight.record["instrument_contracts"]["planner"],
             maximum_timeout=PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S,
+            ordinal=int(row["call_index"]) + 1,
+            archive_resource_profile=archive_resource_profile,
         )
-        request = PLANNER_SUPPORT.materialize_planner_provider_call_request(
-            request_raw
+        request = ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role="planner",
+            ordinal=int(row["call_index"]) + 1,
+            raw_bytes=request_raw,
+            profile=archive_resource_profile,
         )
         if row.get("outcome") == "raised":
             _verify_provider_failure_from_call_row(
@@ -3255,8 +3287,15 @@ def reconstruct_resolution_attempt_evidence(
             role="planner_evaluator",
             role_contract=preflight.record["instrument_contracts"]["evaluator"],
             maximum_timeout=PLANNER_SUPPORT.PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
+            ordinal=1,
+            archive_resource_profile=archive_resource_profile,
         )
-        request = PLANNER_SUPPORT.parse_archive_json(evaluator_raw)
+        request = ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role="planner_evaluator",
+            ordinal=1,
+            raw_bytes=evaluator_raw,
+            profile=archive_resource_profile,
+        )
         if row.get("outcome") == "returned":
             response = _provider_turn_from_call_row(
                 row,

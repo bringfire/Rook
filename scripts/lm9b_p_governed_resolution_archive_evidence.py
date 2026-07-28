@@ -537,6 +537,62 @@ def validate_resolution_dispatch_request(
         )
 
 
+def materialize_resolution_provider_call_request(
+    *,
+    role: str,
+    ordinal: int,
+    raw_bytes: bytes,
+    profile: object,
+) -> dict[str, object]:
+    """Rebuild one governed request under its role/ordinal resource ceiling."""
+
+    if type(raw_bytes) is not bytes:
+        raise TypeError("canonical resolution request bytes are required")
+    profile_value = consume_resolution_archive_resource_profile(profile)
+    constants = profile_value["constants"]
+    assert isinstance(constants, Mapping)
+    request_ceiling, _adapter_ceiling = _request_ceilings(
+        role=role,
+        ordinal=ordinal,
+        constants=constants,
+    )
+    if len(raw_bytes) > request_ceiling:
+        raise ResolutionArchiveEvidenceOverflow(
+            field="canonical_request_bytes",
+            observed_bytes=len(raw_bytes),
+            ceiling_bytes=request_ceiling,
+            rejection_id="resolution_archive_canonical_request_bytes_exceeded",
+        )
+    value = _parse_archive_with_ceiling(raw_bytes, request_ceiling)
+    if type(value) is not dict:
+        raise ValueError("resolution provider request must be an object")
+    if role == "planner":
+        rebuilt = PLANNER_SUPPORT.build_planner_provider_call_request(
+            messages=value.get("messages", []),
+            provider_timeout_s=value.get("provider_timeout_s"),
+        )
+    else:
+        messages = value.get("messages")
+        if (
+            type(messages) is not list
+            or len(messages) != 2
+            or type(messages[0]) is not dict
+            or type(messages[1]) is not dict
+            or messages[0].get("role") != "system"
+            or type(messages[0].get("content")) is not str
+            or messages[1].get("role") != "user"
+            or type(messages[1].get("content")) is not str
+        ):
+            raise ValueError("evaluator provider request messages differ")
+        rebuilt = PLANNER_SUPPORT.build_planner_evaluator_provider_call_request(
+            system_prompt=messages[0]["content"],
+            user_prompt=messages[1]["content"],
+        )
+    if rebuilt != raw_bytes:
+        raise ValueError("resolution provider request differs from builder contract")
+    return copy.deepcopy(value)
+
+
 def validate_resolution_call_field_bounds(
     *,
     row: Mapping[str, object],
@@ -1199,6 +1255,7 @@ __all__ = (
     "consume_resolution_call_shape",
     "parse_resolution_archive_member",
     "parse_resolution_call_ledger",
+    "materialize_resolution_provider_call_request",
     "resolution_call_row_ceiling",
     "resolution_evaluator_member_ceiling",
     "resolution_member_ceiling",

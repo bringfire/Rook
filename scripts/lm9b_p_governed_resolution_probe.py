@@ -285,6 +285,19 @@ class _StagedCallLedger:
         with self._dispatch_lock:
             return self._dispatch_request_failures.get(role)
 
+    def record_dispatch_request_overflow(
+        self,
+        *,
+        role: str,
+        overflow: ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow,
+    ) -> None:
+        if role not in {"planner", "planner_evaluator"}:
+            raise ValueError("unregistered resolution provider role")
+        with self._dispatch_lock:
+            self._dispatch_request_failures[role] = (
+                f"{role}_dispatch_request_overflow:{overflow.field}"
+            )
+
     def role_dispatch_complete(self, role: str) -> bool:
         with self._dispatch_lock:
             rows = [row for row in self._rows if row["role"] == role]
@@ -339,7 +352,7 @@ class _StagedCallLedger:
         provider: Callable[[dict[str, object]], object],
         *,
         role: str,
-        materialize: Callable[[bytes], dict[str, object]],
+        materialize: Callable[[bytes, int], dict[str, object]],
         expected_response_identity: Mapping[str, object],
     ) -> Callable[[dict[str, object]], object]:
         if role not in {"planner", "planner_evaluator"}:
@@ -347,9 +360,6 @@ class _StagedCallLedger:
 
         def invoke(request: dict[str, object]) -> object:
             request_bytes = _canonical_bytes(copy.deepcopy(request))
-            # The role-specific materializer replays the code-owned builder and
-            # rejects drift before the irreversible dispatch marker.
-            materialize(request_bytes)
             role_contract = self._preflight.record["instrument_contracts"][
                 "planner" if role == "planner" else "evaluator"
             ]
@@ -361,15 +371,19 @@ class _StagedCallLedger:
                     if role == "planner"
                     else 1
                 )
-                request_value_for_admission = materialize(request_bytes)
-                adapter_request_bytes = (
-                    PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
-                        model=role_contract["model"],
-                        temperature=role_contract["temperature"],
-                        provider_request=request_value_for_admission,
-                    )
-                )
                 try:
+                    # The governed materializer replays the code-owned builder
+                    # under the same role/ordinal profile used by reconstruction.
+                    request_value_for_admission = materialize(
+                        request_bytes, ordinal
+                    )
+                    adapter_request_bytes = (
+                        PROVIDER_ADAPTER.build_litellm_completion_request_bytes(
+                            model=role_contract["model"],
+                            temperature=role_contract["temperature"],
+                            provider_request=request_value_for_admission,
+                        )
+                    )
                     ARCHIVE_EVIDENCE.validate_resolution_dispatch_request(
                         role=role,
                         ordinal=ordinal,
@@ -386,7 +400,7 @@ class _StagedCallLedger:
                 prefix = f"{call_index:02d}-{role}"
                 request_path = self._calls / f"{prefix}-request.json"
                 self._persist_and_reread(request_path, request_bytes)
-                request_value = materialize(request_path.read_bytes())
+                request_value = materialize(request_path.read_bytes(), ordinal)
                 deadline_state = None
                 if role == "planner":
                     if len(self._planner_call_plans) != call_index + 1:
@@ -762,10 +776,30 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         readiness_verified_at=_kwargs["now_iso"],
         archive_resource_profile=archive_resource_profile,
     )
+
+    def materialize_planner_request(
+        raw_bytes: bytes, ordinal: int
+    ) -> dict[str, object]:
+        return ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role="planner",
+            ordinal=ordinal,
+            raw_bytes=raw_bytes,
+            profile=archive_resource_profile,
+        )
+
+    def materialize_planner_request_for_controller(
+        raw_bytes: bytes, ordinal: int
+    ) -> dict[str, object] | None:
+        try:
+            return materialize_planner_request(raw_bytes, ordinal)
+        except ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow as exc:
+            ledger.record_dispatch_request_overflow(role="planner", overflow=exc)
+            return None
+
     planner_provider = ledger.wrap(
         planner_adapter,
         role="planner",
-        materialize=PLANNER_SUPPORT.materialize_planner_provider_call_request,
+        materialize=materialize_planner_request,
         expected_response_identity=planner_response_identity,
     )
     inputs = preflight.instrument.inputs
@@ -781,6 +815,7 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
         call_completion_observer=lambda quiescent: ledger.complete_quiescent_call(
             "planner", quiescent
         ),
+        provider_request_materializer=materialize_planner_request_for_controller,
     )
     ledger.close_role("planner")
     planner_stop = _planner_stop_cause(planner_session)
@@ -932,20 +967,54 @@ def run_resolution_attempt(**_kwargs: object) -> ResolutionAttemptResult:
             user_prompt=rendered_evaluator.raw_bytes.decode("utf-8"),
         )
     )
+
+    def materialize_evaluator_request(
+        raw_bytes: bytes, ordinal: int
+    ) -> dict[str, object]:
+        return ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role="planner_evaluator",
+            ordinal=ordinal,
+            raw_bytes=raw_bytes,
+            profile=archive_resource_profile,
+        )
+
+    try:
+        materialized_evaluator_request = materialize_evaluator_request(
+            evaluator_request_bytes, 1
+        )
+    except ARCHIVE_EVIDENCE.ResolutionArchiveEvidenceOverflow as exc:
+        ledger.record_dispatch_request_overflow(
+            role="planner_evaluator", overflow=exc
+        )
+        ledger.close_role("planner_evaluator")
+        return _attempt_result(
+            preflight=preflight,
+            classification=None,
+            planner_session=planner_session,
+            evaluator_result=None,
+            isolation_result=isolation,
+            checkpoint_gate=checkpoint_gate,
+            candidate_recipe_bytes=candidate_raw,
+            call_ledger=ledger.frozen_rows(),
+            derived_stop_cause=(
+                ledger.dispatch_request_failure_for_role("planner_evaluator")
+            ),
+            state="post_dispatch_unsealed",
+        )
+
     def evaluator_provider(request: dict[str, object]) -> object:
         return evaluator_adapter(request)
 
     staged_evaluator_provider = ledger.wrap(
         evaluator_provider,
         role="planner_evaluator",
-        materialize=(
-            PLANNER_SUPPORT.materialize_planner_evaluator_provider_call_request
-        ),
+        materialize=materialize_evaluator_request,
         expected_response_identity=evaluator_response_identity,
     )
     evaluator_result = PLANNER_SUPPORT.run_planner_evaluation(
         provider=staged_evaluator_provider,
         provider_call_request_bytes=evaluator_request_bytes,
+        materialized_request=materialized_evaluator_request,
     )
     ledger.complete_quiescent_call(
         "planner_evaluator", evaluator_result.quiescent

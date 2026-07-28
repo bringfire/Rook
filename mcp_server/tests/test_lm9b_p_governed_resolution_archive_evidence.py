@@ -869,6 +869,52 @@ def test_task3_dispatch_request_refuses_one_byte_over_with_bounded_evidence(
     assert caught.value.rejection_id == rejection
 
 
+@pytest.mark.parametrize(
+    ("role", "ordinal", "request_bytes"),
+    (
+        (
+            "planner",
+            2,
+            PLANNER_SUPPORT.build_planner_provider_call_request(
+                messages=[
+                    {"role": "system", "content": "system"},
+                    {"role": "user", "content": "brief"},
+                    {"role": "assistant", "content": "x" * 1_100_000},
+                ],
+                provider_timeout_s=180.0,
+            ),
+        ),
+        (
+            "planner_evaluator",
+            1,
+            PLANNER_SUPPORT.build_planner_evaluator_provider_call_request(
+                system_prompt=PLANNER_SUPPORT.PLANNER_EVALUATOR_SYSTEM_PROMPT,
+                user_prompt="x" * 1_100_000,
+            ),
+        ),
+    ),
+    ids=("planner", "evaluator"),
+)
+def test_task3_profile_materializer_accepts_real_requests_above_recipe_limit(
+    role: str,
+    ordinal: int,
+    request_bytes: bytes,
+) -> None:
+    """Catches governed requests falling back to the historical 1 MiB parser."""
+
+    assert len(request_bytes) > PLANNER_SUPPORT.MAX_RECIPE_BYTES
+    materialized = (
+        ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
+            role=role,
+            ordinal=ordinal,
+            raw_bytes=request_bytes,
+            profile=_profile(),
+        )
+    )
+
+    assert _canonical_bytes(materialized) == request_bytes
+
+
 def test_task3_captured_turn_reports_raw_response_overflow_without_truncation() -> None:
     """Catches a captured response being accepted, truncated, or losing its size."""
 
