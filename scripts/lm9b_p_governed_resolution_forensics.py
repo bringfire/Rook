@@ -476,6 +476,30 @@ def _top_level_node(raw: bytes, name: str) -> ast.AST:
     raise ValueError(f"historical Git producer symbol is absent: {name}")
 
 
+def _top_level_bootstrap_nodes(raw: bytes) -> tuple[ast.AST, ...]:
+    declarative = (
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+        ast.ClassDef,
+        ast.Assign,
+        ast.AnnAssign,
+        ast.Import,
+        ast.ImportFrom,
+    )
+    return tuple(
+        node
+        for node in ast.parse(raw.decode("utf-8")).body
+        if not isinstance(node, declarative)
+    )
+
+
+def _top_level_bootstrap_identity(raw: bytes) -> tuple[str, ...]:
+    return tuple(
+        ast.dump(node, include_attributes=False)
+        for node in _top_level_bootstrap_nodes(raw)
+    )
+
+
 def _node_identity(raw: bytes, name: str) -> str:
     return ast.dump(_top_level_node(raw, name), include_attributes=False)
 
@@ -494,7 +518,14 @@ def _reachable_artifact_producer_symbols(
     included: set[str] = set()
     executed: set[str] = set()
     pending_execution = list(roots)
-    pending_values: list[str] = []
+    pending_values = [
+        item.id
+        for node in _top_level_bootstrap_nodes(raw)
+        for item in ast.walk(node)
+        if isinstance(item, ast.Name)
+        and isinstance(item.ctx, ast.Load)
+        and item.id in symbols
+    ]
     while pending_execution or pending_values:
         if pending_execution:
             symbol = pending_execution.pop()
@@ -674,6 +705,10 @@ def _verify_historical_git_producer_roots(
     artifacts_path = "scripts/lm9b_p_governed_resolution_artifacts.py"
     current_artifacts = current_blobs[artifacts_path]
     historical_artifacts = git_blobs[artifacts_path]
+    if _top_level_bootstrap_identity(
+        current_artifacts
+    ) != _top_level_bootstrap_identity(historical_artifacts):
+        raise ValueError("historical Git producer artifact bootstrap differs")
     current_reachable, current_executed = _reachable_artifact_producer_symbols(
         current_artifacts, _HISTORICAL_ARTIFACT_PRODUCER_ROOTS
     )

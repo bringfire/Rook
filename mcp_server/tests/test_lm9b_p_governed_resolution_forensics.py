@@ -405,6 +405,29 @@ def test_task4_historical_artifact_global_identity_is_git_bound() -> None:
         )
 
 
+def test_task4_historical_artifact_bootstrap_statements_are_git_bound() -> None:
+    """Executable module bootstrap is a producer even without a bound symbol."""
+
+    module = _load_forensics()
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    relative = "scripts/lm9b_p_governed_resolution_artifacts.py"
+    changed_blobs = dict(git_blobs)
+    changed_blobs[relative] = git_blobs[relative].replace(
+        b"sys.path.insert(0, str(_import_path))",
+        b"sys.path.append(str(_import_path))",
+        1,
+    )
+    assert changed_blobs[relative] != git_blobs[relative]
+    with pytest.raises(
+        ValueError,
+        match="historical Git producer artifact bootstrap differs",
+    ):
+        module._reconstruct_historical_instrument_and_request(
+            repo=ROOT,
+            git_blobs=changed_blobs,
+        )
+
+
 def test_task4_execution_capability_ledger_binds_isolation_callable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
