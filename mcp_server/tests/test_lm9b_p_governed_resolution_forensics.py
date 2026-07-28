@@ -428,6 +428,29 @@ def test_task4_historical_artifact_bootstrap_statements_are_git_bound() -> None:
         )
 
 
+def test_task4_historical_artifact_mutation_assignments_are_bootstrap_bound() -> None:
+    """A subscript mutation is executable bootstrap, not a declaration."""
+
+    module = _load_forensics()
+    git_blobs, _manifest = module._git_blob_map(ROOT)
+    relative = "scripts/lm9b_p_governed_resolution_artifacts.py"
+    changed_blobs = dict(git_blobs)
+    changed_blobs[relative] = git_blobs[relative].replace(
+        b"PLANNER_SUPPORT.fingerprint(\n    _READY_PROOF_VALUE\n)",
+        b"PLANNER_SUPPORT.sha256_prefixed(\n    _READY_PROOF_VALUE\n)",
+        1,
+    )
+    assert changed_blobs[relative] != git_blobs[relative]
+    with pytest.raises(
+        ValueError,
+        match="historical Git producer artifact bootstrap differs",
+    ):
+        module._reconstruct_historical_instrument_and_request(
+            repo=ROOT,
+            git_blobs=changed_blobs,
+        )
+
+
 def test_task4_execution_capability_ledger_binds_isolation_callable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -476,13 +476,31 @@ def _top_level_node(raw: bytes, name: str) -> ast.AST:
     raise ValueError(f"historical Git producer symbol is absent: {name}")
 
 
+def _target_is_pure_name_binding(target: ast.AST) -> bool:
+    if isinstance(target, ast.Name):
+        return True
+    if isinstance(target, ast.Starred):
+        return _target_is_pure_name_binding(target.value)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return all(_target_is_pure_name_binding(item) for item in target.elts)
+    return False
+
+
+def _assignment_is_pure_name_binding(node: ast.AST) -> bool:
+    if isinstance(node, ast.Assign):
+        return bool(node.targets) and all(
+            _target_is_pure_name_binding(target) for target in node.targets
+        )
+    if isinstance(node, ast.AnnAssign):
+        return _target_is_pure_name_binding(node.target)
+    return False
+
+
 def _top_level_bootstrap_nodes(raw: bytes) -> tuple[ast.AST, ...]:
     declarative = (
         ast.FunctionDef,
         ast.AsyncFunctionDef,
         ast.ClassDef,
-        ast.Assign,
-        ast.AnnAssign,
         ast.Import,
         ast.ImportFrom,
     )
@@ -490,6 +508,7 @@ def _top_level_bootstrap_nodes(raw: bytes) -> tuple[ast.AST, ...]:
         node
         for node in ast.parse(raw.decode("utf-8")).body
         if not isinstance(node, declarative)
+        and not _assignment_is_pure_name_binding(node)
     )
 
 
