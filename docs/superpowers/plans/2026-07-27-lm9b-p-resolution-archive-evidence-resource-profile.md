@@ -1351,7 +1351,7 @@ git commit -m "feat: complete resolution archive evidence repair"
 
 Require a clean worktree. Every following feature-HEAD witness uses this exact committed identity; it must never qualify uncommitted source bytes.
 
-- [ ] **Step 5: Prove LF and cross-checkout identity stability**
+- [x] **Step 5: Prove LF and cross-checkout identity stability**
 
 From a fresh detached checkout of the same feature SHA with `core.autocrlf=true`, assert:
 
@@ -1363,7 +1363,7 @@ From a fresh detached checkout of the same feature SHA with `core.autocrlf=true`
 
 The test must resolve repository-relative source identities; no feature-worktree absolute path may enter profile or forensic instrument identity.
 
-- [ ] **Step 6: Run the exact retained staging through feature-HEAD read-only verification**
+- [x] **Step 6: Run the exact retained staging through feature-HEAD read-only verification**
 
 First capture a non-following snapshot of:
 
@@ -1407,7 +1407,7 @@ Require canonical output containing:
 
 Capture the same physical snapshot after the command and require byte/type/path identity equality. Do not pass a report destination and do not publish, rename, copy, or promote anything.
 
-- [ ] **Step 7: Run the complete deterministic regression**
+- [x] **Step 7: Run the complete deterministic regression**
 
 ```powershell
 & C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
@@ -1438,7 +1438,7 @@ git status --short
 
 Expected: all tests and compilation pass; only reviewed branch files are changed; the operational worktree and retained evidence remain unchanged.
 
-- [ ] **Step 8: Reconcile the plan ledger and commit the verification ledger**
+- [x] **Step 8: Reconcile the plan ledger and commit the verification ledger**
 
 Mark only commands actually completed. Then:
 
