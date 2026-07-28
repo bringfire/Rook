@@ -1288,7 +1288,7 @@ git commit -m "feat: add resolution forensic derivative report"
   - `publish-report` post-merge-only CLI command
   - `verify-report` public read-only CLI command
 
-- [ ] **Step 1: Add a closed no-contact forensic CLI**
+- [x] **Step 1: Add a closed no-contact forensic CLI**
 
 Use subcommands with these exact arguments:
 
@@ -1314,13 +1314,13 @@ verify-report
 
 There is no profile path, numeric limit, model, provider, readiness, retry, checkpoint destination, ready-proof, or compiler argument. `verify-candidate` prints one canonical JSON summary and writes nothing. `publish-report` requires `HEAD == forensic_commit_sha`, a clean checkout, exact source snapshot, absent destination/candidate, and independently reconstructed `probe_resolution_isolation_failure` before writing. `verify-report` reopens both report and pinned source evidence.
 
-- [ ] **Step 2: Write CLI structural and zero-contact tests**
+- [x] **Step 2: Write CLI structural and zero-contact tests**
 
 Assert parser vocabulary is exact. Patch provider/readiness/controller/evaluator/compiler functions to raise if imported or called. Exercise all three commands with temp evidence and prove zero calls.
 
 For `verify-candidate`, snapshot all source paths before and after and require equality. For `publish-report`, prove the only writes are beneath the fresh forensic report candidate/destination. For `verify-report`, prove read-only behavior.
 
-- [ ] **Step 3: Run focused CLI tests before committing**
+- [x] **Step 3: Run focused CLI tests before committing**
 
 ```powershell
 & C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
@@ -1332,7 +1332,7 @@ For `verify-candidate`, snapshot all source paths before and after and require e
 
 Expected: PASS with no external source changes.
 
-- [ ] **Step 4: Commit the identity-bearing implementation before qualification**
+- [x] **Step 4: Commit the identity-bearing implementation before qualification**
 
 ```powershell
 git add .gitattributes `

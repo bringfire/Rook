@@ -46,6 +46,7 @@ def test_task4_forensic_types_import_without_operational_dependencies() -> None:
         for alias in node.names
     }
     assert not {
+        "lm9b_p_readiness_probe",
         "lm9b_p_governed_resolution_probe",
         "lm9b_p_planner_recipe_transfer_probe",
         "lm9b_c_compiler_sufficiency_probe",
@@ -1805,6 +1806,194 @@ def test_task5_report_types_cannot_enter_checkpoint_or_ready_boundaries(
                 derived_stop_cause="mechanically_rejected",
                 classification="probe_mechanically_rejected",
             )
+
+
+def test_task6_cli_surface_is_closed_and_no_contact() -> None:
+    """The forensic CLI exposes evidence reconstruction, never execution controls."""
+
+    module = _load_forensics()
+    parser = module._build_cli_parser()
+    subparsers = next(
+        action
+        for action in parser._actions
+        if action.__class__.__name__ == "_SubParsersAction"
+    )
+    expected = {
+        "verify-candidate": {
+            "repo_root",
+            "preflight_archive",
+            "expected_preflight_fingerprint",
+            "staging_dir",
+            "expected_marker_sha256",
+            "expected_candidate_checksums_sha256",
+            "forensic_commit_sha",
+        },
+        "publish-report": {
+            "repo_root",
+            "preflight_archive",
+            "expected_preflight_fingerprint",
+            "staging_dir",
+            "expected_marker_sha256",
+            "expected_candidate_checksums_sha256",
+            "forensic_commit_sha",
+            "destination",
+        },
+        "verify-report": {
+            "archive_dir",
+            "expected_identity",
+            "expected_preflight_fingerprint",
+        },
+    }
+    assert set(subparsers.choices) == set(expected)
+    for command, destinations in expected.items():
+        observed = {
+            action.dest
+            for action in subparsers.choices[command]._actions
+            if action.dest != "help"
+        }
+        assert observed == destinations
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "verify-candidate",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+
+
+def test_task6_cli_commands_are_read_only_except_fresh_report_publication(
+    task5_published_report: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """All commands traverse real evidence while every operational call stays absent."""
+
+    fixture = task5_published_report
+    module = fixture.module
+    forbidden_calls: list[str] = []
+
+    def forbidden(name: str):
+        def fail(*_args, **_kwargs):
+            forbidden_calls.append(name)
+            raise AssertionError(f"operational path entered: {name}")
+
+        return fail
+
+    monkeypatch.setattr(
+        module.PLANNER_SUPPORT,
+        "run_planner_session",
+        forbidden("planner"),
+    )
+    monkeypatch.setattr(
+        module.PLANNER_SUPPORT,
+        "run_planner_evaluation",
+        forbidden("evaluator"),
+    )
+    monkeypatch.setattr(
+        module.ARTIFACTS.PROVIDER_ADAPTER,
+        "run_probe",
+        forbidden("compiler"),
+    )
+    monkeypatch.setattr(
+        module.ARTIFACTS.PROVIDER_ADAPTER.LiteLLMProvider,
+        "__call__",
+        forbidden("provider"),
+    )
+    _preflight, preflight_before, preflight_identity_before = module._flat_snapshot(
+        module.OBSERVED_PREFLIGHT_ARCHIVE,
+        expected=module._PREFLIGHT_MEMBERS,
+    )
+    staging_before, staging_identity_before = module._recursive_snapshot(
+        module.OBSERVED_STAGING
+    )
+    common = [
+        "--repo-root",
+        str(ROOT),
+        "--preflight-archive",
+        str(module.OBSERVED_PREFLIGHT_ARCHIVE),
+        "--expected-preflight-fingerprint",
+        module.OBSERVED_PREFLIGHT_FINGERPRINT,
+        "--staging-dir",
+        str(module.OBSERVED_STAGING),
+        "--expected-marker-sha256",
+        module.OBSERVED_MARKER_SHA256,
+        "--expected-candidate-checksums-sha256",
+        module.OBSERVED_CANDIDATE_CHECKSUMS_SHA256,
+        "--forensic-commit-sha",
+        module._current_commit(ROOT),
+    ]
+    assert module.main(["verify-candidate", *common]) == 0
+    candidate_summary = json.loads(capsys.readouterr().out)
+    assert candidate_summary == {
+        "compiler_eligibility": False,
+        "evaluator_call_count": 0,
+        "isolation_status": "isolation_rejected",
+        "mechanical_status": "accepted",
+        "official_scientific_checkpoint": "absent",
+        "original_attempt_state": "post_dispatch_unsealed",
+        "planner_call_count": 6,
+        "ready_proof": "prohibited",
+        "reconstructed_candidate_classification": (
+            "probe_resolution_isolation_failure"
+        ),
+        "report_published": False,
+    }
+    report_root = tmp_path / "reports"
+    report_root.mkdir()
+    destination = report_root / "cli-report"
+    assert module.main(
+        ["publish-report", *common, "--destination", str(destination)]
+    ) == 0
+    publish_summary = json.loads(capsys.readouterr().out)
+    assert publish_summary["state"] == "published"
+    assert publish_summary["report_identity"].startswith("sha256:")
+    assert set(report_root.iterdir()) == {destination}
+    assert module.main(
+        [
+            "verify-report",
+            "--archive-dir",
+            str(destination),
+            "--expected-identity",
+            publish_summary["report_identity"],
+            "--expected-preflight-fingerprint",
+            module.OBSERVED_PREFLIGHT_FINGERPRINT,
+        ]
+    ) == 0
+    verify_summary = json.loads(capsys.readouterr().out)
+    assert verify_summary == {
+        "archive_dir": str(destination),
+        "forensic_instrument_fingerprint": publish_summary[
+            "forensic_instrument_fingerprint"
+        ],
+        "observed_instrument_fingerprint": publish_summary[
+            "observed_instrument_fingerprint"
+        ],
+        "original_attempt_state": "post_dispatch_unsealed",
+        "reconstructed_candidate_classification": (
+            "probe_resolution_isolation_failure"
+        ),
+        "report_identity": publish_summary["report_identity"],
+        "state": "verified",
+    }
+    _preflight, preflight_after, preflight_identity_after = module._flat_snapshot(
+        module.OBSERVED_PREFLIGHT_ARCHIVE,
+        expected=module._PREFLIGHT_MEMBERS,
+    )
+    staging_after, staging_identity_after = module._recursive_snapshot(
+        module.OBSERVED_STAGING
+    )
+    assert (preflight_after, preflight_identity_after) == (
+        preflight_before,
+        preflight_identity_before,
+    )
+    assert (staging_after, staging_identity_after) == (
+        staging_before,
+        staging_identity_before,
+    )
+    assert not os.path.lexists(module.OBSERVED_DESTINATION)
+    assert forbidden_calls == []
 
 
 @pytest.mark.parametrize(

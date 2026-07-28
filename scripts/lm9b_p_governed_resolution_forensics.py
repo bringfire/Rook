@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import argparse
 import base64
 import copy
 import hashlib
@@ -3375,6 +3376,141 @@ def write_resolution_forensic_report(
         )
 
 
+def _add_forensic_source_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--repo-root", type=Path, required=True)
+    parser.add_argument("--preflight-archive", type=Path, required=True)
+    parser.add_argument("--expected-preflight-fingerprint", required=True)
+    parser.add_argument("--staging-dir", type=Path, required=True)
+    parser.add_argument("--expected-marker-sha256", required=True)
+    parser.add_argument("--expected-candidate-checksums-sha256", required=True)
+    parser.add_argument("--forensic-commit-sha", required=True)
+
+
+def _build_cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Read-only and no-contact governed-resolution forensics"
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    verify_candidate = commands.add_parser("verify-candidate")
+    _add_forensic_source_arguments(verify_candidate)
+    publish_report = commands.add_parser("publish-report")
+    _add_forensic_source_arguments(publish_report)
+    publish_report.add_argument("--destination", type=Path, required=True)
+    verify_report = commands.add_parser("verify-report")
+    verify_report.add_argument("--archive-dir", type=Path, required=True)
+    verify_report.add_argument("--expected-identity", required=True)
+    verify_report.add_argument("--expected-preflight-fingerprint", required=True)
+    return parser
+
+
+def _cli_reconstruct_candidate(
+    args: argparse.Namespace,
+) -> tuple[VerifiedResolutionForensicSource, ResolutionForensicReconstruction]:
+    historical = verify_historical_resolution_preflight_forensics(
+        repo_root=args.repo_root,
+        preflight_archive=args.preflight_archive,
+        expected_preflight_fingerprint=args.expected_preflight_fingerprint,
+    )
+    source = load_verified_resolution_forensic_source(
+        historical_preflight=historical,
+        staging_dir=args.staging_dir,
+        expected_marker_sha256=args.expected_marker_sha256,
+        expected_candidate_checksums_sha256=(
+            args.expected_candidate_checksums_sha256
+        ),
+    )
+    reconstruction = reconstruct_resolution_forensic_candidate(
+        source=source,
+        repo_root=args.repo_root,
+        forensic_commit_sha=args.forensic_commit_sha,
+    )
+    return source, reconstruction
+
+
+def _candidate_cli_summary(
+    reconstruction: ResolutionForensicReconstruction,
+) -> dict[str, object]:
+    return {
+        "compiler_eligibility": reconstruction.compiler_eligibility,
+        "evaluator_call_count": reconstruction.evaluator_call_count,
+        "isolation_status": reconstruction.isolation_status,
+        "mechanical_status": reconstruction.mechanical_status,
+        "official_scientific_checkpoint": (
+            reconstruction.official_scientific_checkpoint
+        ),
+        "original_attempt_state": reconstruction.original_attempt_state,
+        "planner_call_count": reconstruction.planner_call_count,
+        "ready_proof": reconstruction.ready_proof,
+        "reconstructed_candidate_classification": (
+            reconstruction.reconstructed_classification
+        ),
+        "report_published": False,
+    }
+
+
+def _print_canonical(value: Mapping[str, object]) -> None:
+    print(_canonical_bytes(dict(value)).decode("utf-8"))
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_cli_parser().parse_args(argv)
+    if args.command == "verify-candidate":
+        _source, reconstruction = _cli_reconstruct_candidate(args)
+        _print_canonical(_candidate_cli_summary(reconstruction))
+        return 0
+    if args.command == "publish-report":
+        source, reconstruction = _cli_reconstruct_candidate(args)
+        result = write_resolution_forensic_report(
+            destination=args.destination,
+            source=source,
+            reconstruction=reconstruction,
+            repo_root=args.repo_root,
+            forensic_commit_sha=args.forensic_commit_sha,
+        )
+        report = result.report
+        _print_canonical(
+            {
+                "destination": str(result.destination_path),
+                "forensic_instrument_fingerprint": (
+                    report.forensic_instrument_fingerprint if report else None
+                ),
+                "observed_instrument_fingerprint": (
+                    report.observed_instrument_fingerprint if report else None
+                ),
+                "report_identity": report.report_identity if report else None,
+                "state": result.state,
+            }
+        )
+        return 0
+    if args.command == "verify-report":
+        report = verify_resolution_forensic_report(
+            args.archive_dir,
+            expected_identity=args.expected_identity,
+            expected_historical_preflight_fingerprint=(
+                args.expected_preflight_fingerprint
+            ),
+        )
+        _print_canonical(
+            {
+                "archive_dir": str(report.archive_dir),
+                "forensic_instrument_fingerprint": (
+                    report.forensic_instrument_fingerprint
+                ),
+                "observed_instrument_fingerprint": (
+                    report.observed_instrument_fingerprint
+                ),
+                "original_attempt_state": report.original_attempt_state,
+                "reconstructed_candidate_classification": (
+                    report.reconstructed_classification
+                ),
+                "report_identity": report.report_identity,
+                "state": "verified",
+            }
+        )
+        return 0
+    raise RuntimeError("unknown governed-resolution forensic command")
+
+
 def _capture_execution_callable_snapshot() -> Mapping[str, Mapping[str, object]]:
     return MappingProxyType(
         {
@@ -3423,3 +3559,7 @@ __all__ = (
     "verify_historical_resolution_preflight_forensics",
     "write_resolution_forensic_report",
 )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
