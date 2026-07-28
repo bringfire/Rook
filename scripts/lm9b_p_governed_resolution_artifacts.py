@@ -2254,11 +2254,55 @@ def verify_resolution_call_ledger(
 
     if type(preflight) is not VerifiedResolutionPreflight:
         raise TypeError("verified resolution preflight is required")
+    archive_resource_profile = _verified_resolution_archive_profile(preflight)
+    return _verify_resolution_call_ledger_from_verified_components(
+        inputs=preflight.instrument.inputs,
+        initial_request_bytes=preflight.instrument.initial_request.raw_bytes,
+        instrument_contracts=preflight.record["instrument_contracts"],
+        archive_resource_profile=archive_resource_profile,
+        planner_session=planner_session,
+        evaluator_result=evaluator_result,
+        isolation_result=isolation_result,
+        classification=classification,
+        candidate_recipe_bytes=candidate_recipe_bytes,
+        call_ledger=call_ledger,
+        derived_stop_cause=derived_stop_cause,
+    )
+
+
+def _verify_resolution_call_ledger_from_verified_components(
+    *,
+    inputs: SUPPORT.VerifiedResolutionInputs,
+    initial_request_bytes: bytes,
+    instrument_contracts: Mapping[str, object],
+    archive_resource_profile: object,
+    planner_session: PLANNER_SUPPORT.PlannerSessionResult,
+    evaluator_result: PLANNER_SUPPORT.PlannerEvaluationResult | None,
+    isolation_result: SUPPORT.IsolationGateResult | None,
+    classification: str | None,
+    candidate_recipe_bytes: bytes | None,
+    call_ledger: tuple[Mapping[str, object], ...],
+    derived_stop_cause: str,
+) -> None:
+    """Verify a ledger from independently authenticated instrument inputs."""
+
+    if type(inputs) is not SUPPORT.VerifiedResolutionInputs:
+        raise TypeError("verified resolution inputs are required")
+    if type(initial_request_bytes) is not bytes:
+        raise TypeError("initial Planner request bytes are required")
+    if type(instrument_contracts) is not dict:
+        raise TypeError("resolution instrument contracts are required")
+    planner_contract = instrument_contracts.get("planner")
+    evaluator_contract = instrument_contracts.get("evaluator")
+    if type(planner_contract) is not dict or type(evaluator_contract) is not dict:
+        raise ValueError("resolution role contracts are incomplete")
+    ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(
+        archive_resource_profile
+    )
     if type(planner_session) is not PLANNER_SUPPORT.PlannerSessionResult:
         raise TypeError("Planner session result is required")
     if type(call_ledger) is not tuple or not call_ledger:
         raise ValueError("resolution call ledger is empty or malformed")
-    archive_resource_profile = _verified_resolution_archive_profile(preflight)
     calls = [dict(row) if isinstance(row, Mapping) else None for row in call_ledger]
     if any(row is None for row in calls):
         raise ValueError("resolution call ledger row is malformed")
@@ -2280,12 +2324,11 @@ def verify_resolution_call_ledger(
     ):
         raise ValueError("resolution call ledger role ordering or terminality differs")
 
-    inputs = preflight.instrument.inputs
     messages: list[dict[str, object]] = [
         {"role": "system", "content": SUPPORT.REVISION_SYSTEM_PROMPT},
         {
             "role": "user",
-            "content": preflight.instrument.initial_request.raw_bytes.decode("utf-8"),
+            "content": initial_request_bytes.decode("utf-8"),
         },
     ]
     turn_cursor = 0
@@ -2300,7 +2343,7 @@ def verify_resolution_call_ledger(
         request_raw = _verify_dispatch_row(
             row,
             role="planner",
-            role_contract=preflight.record["instrument_contracts"]["planner"],
+            role_contract=planner_contract,
             maximum_timeout=PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S,
             ordinal=int(row["call_index"]) + 1,
             archive_resource_profile=archive_resource_profile,
@@ -2364,7 +2407,7 @@ def verify_resolution_call_ledger(
             _verify_provider_failure_from_call_row(
                 row,
                 role="Planner",
-                role_contract=preflight.record["instrument_contracts"]["planner"],
+                role_contract=planner_contract,
                 provider_request=request,
             )
             exception_type = row.get("exception_type")
@@ -2385,7 +2428,7 @@ def verify_resolution_call_ledger(
         response = _provider_turn_from_call_row(
             row,
             role="Planner",
-            role_contract=preflight.record["instrument_contracts"]["planner"],
+            role_contract=planner_contract,
             provider_request=request,
         )
         if response is None:
@@ -2507,7 +2550,7 @@ def verify_resolution_call_ledger(
         evaluator_raw = _verify_dispatch_row(
             evaluator_row,
             role="planner_evaluator",
-            role_contract=preflight.record["instrument_contracts"]["evaluator"],
+            role_contract=evaluator_contract,
             maximum_timeout=PLANNER_SUPPORT.PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
             ordinal=1,
             archive_resource_profile=archive_resource_profile,
@@ -2530,7 +2573,7 @@ def verify_resolution_call_ledger(
             response = _provider_turn_from_call_row(
                 evaluator_row,
                 role="evaluator",
-                role_contract=preflight.record["instrument_contracts"]["evaluator"],
+                role_contract=evaluator_contract,
                 provider_request=(
                     ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
                         role="planner_evaluator",
@@ -2547,7 +2590,7 @@ def verify_resolution_call_ledger(
             _verify_provider_failure_from_call_row(
                 evaluator_row,
                 role="evaluator",
-                role_contract=preflight.record["instrument_contracts"]["evaluator"],
+                role_contract=evaluator_contract,
                 provider_request=(
                     ARCHIVE_EVIDENCE.materialize_resolution_provider_call_request(
                         role="planner_evaluator",
@@ -3153,6 +3196,36 @@ def reconstruct_resolution_attempt_evidence(
     candidate_recipe_bytes: bytes | None,
 ) -> ReconstructedResolutionAttempt:
     archive_resource_profile = _verified_resolution_archive_profile(preflight)
+    return _reconstruct_resolution_attempt_from_verified_components(
+        inputs=preflight.instrument.inputs,
+        instrument_contracts=preflight.record["instrument_contracts"],
+        archive_resource_profile=archive_resource_profile,
+        call_ledger=call_ledger,
+        candidate_recipe_bytes=candidate_recipe_bytes,
+    )
+
+
+def _reconstruct_resolution_attempt_from_verified_components(
+    *,
+    inputs: SUPPORT.VerifiedResolutionInputs,
+    instrument_contracts: Mapping[str, object],
+    archive_resource_profile: object,
+    call_ledger: tuple[Mapping[str, object], ...],
+    candidate_recipe_bytes: bytes | None,
+) -> ReconstructedResolutionAttempt:
+    """Reconstruct from independently verified inputs and request contracts."""
+
+    if type(inputs) is not SUPPORT.VerifiedResolutionInputs:
+        raise TypeError("verified resolution inputs are required")
+    ARCHIVE_EVIDENCE.consume_resolution_archive_resource_profile(
+        archive_resource_profile
+    )
+    if type(instrument_contracts) is not dict:
+        raise TypeError("resolution instrument contracts are required")
+    planner_contract = instrument_contracts.get("planner")
+    evaluator_contract = instrument_contracts.get("evaluator")
+    if type(planner_contract) is not dict or type(evaluator_contract) is not dict:
+        raise ValueError("resolution role contracts are incomplete")
     calls = [dict(row) for row in call_ledger]
     planner_rows = [row for row in calls if row.get("role") == "planner"]
     evaluator_rows = [
@@ -3164,12 +3237,11 @@ def reconstruct_resolution_attempt_evidence(
     total_tokens = 0
     total_cost = 0.0
     cost_complete = True
-    inputs = preflight.instrument.inputs
     for row in planner_rows:
         request_raw = _verify_dispatch_row(
             row,
             role="planner",
-            role_contract=preflight.record["instrument_contracts"]["planner"],
+            role_contract=planner_contract,
             maximum_timeout=PLANNER_SUPPORT.PLANNER_PROVIDER_TIMEOUT_S,
             ordinal=int(row["call_index"]) + 1,
             archive_resource_profile=archive_resource_profile,
@@ -3184,7 +3256,7 @@ def reconstruct_resolution_attempt_evidence(
             _verify_provider_failure_from_call_row(
                 row,
                 role="Planner",
-                role_contract=preflight.record["instrument_contracts"]["planner"],
+                role_contract=planner_contract,
                 provider_request=request,
             )
             provider_terminal = (
@@ -3201,7 +3273,7 @@ def reconstruct_resolution_attempt_evidence(
         response = _provider_turn_from_call_row(
             row,
             role="Planner",
-            role_contract=preflight.record["instrument_contracts"]["planner"],
+            role_contract=planner_contract,
             provider_request=request,
         )
         if response is None:
@@ -3285,7 +3357,7 @@ def reconstruct_resolution_attempt_evidence(
         evaluator_raw = _verify_dispatch_row(
             row,
             role="planner_evaluator",
-            role_contract=preflight.record["instrument_contracts"]["evaluator"],
+            role_contract=evaluator_contract,
             maximum_timeout=PLANNER_SUPPORT.PLANNER_EVALUATOR_PROVIDER_TIMEOUT_S,
             ordinal=1,
             archive_resource_profile=archive_resource_profile,
@@ -3300,7 +3372,7 @@ def reconstruct_resolution_attempt_evidence(
             response = _provider_turn_from_call_row(
                 row,
                 role="evaluator",
-                role_contract=preflight.record["instrument_contracts"]["evaluator"],
+                role_contract=evaluator_contract,
                 provider_request=request,
             )
             evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(
@@ -3310,7 +3382,7 @@ def reconstruct_resolution_attempt_evidence(
             _verify_provider_failure_from_call_row(
                 row,
                 role="evaluator",
-                role_contract=preflight.record["instrument_contracts"]["evaluator"],
+                role_contract=evaluator_contract,
                 provider_request=request,
             )
             evaluator = PLANNER_SUPPORT.derive_planner_evaluation_result(

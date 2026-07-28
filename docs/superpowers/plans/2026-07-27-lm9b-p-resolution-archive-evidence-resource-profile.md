@@ -785,7 +785,7 @@ git commit -m "fix: retain bounded resolution provider evidence"
   - `load_verified_resolution_forensic_source(*, historical_preflight: object, staging_dir: Path, expected_marker_sha256: str, expected_candidate_checksums_sha256: str) -> VerifiedResolutionForensicSource`
   - `reconstruct_resolution_forensic_candidate(*, source: object, repo_root: Path, forensic_commit_sha: str) -> ResolutionForensicReconstruction`
 
-- [ ] **Step 1: Add import-valid forensic types with no operational imports**
+- [x] **Step 1: Add import-valid forensic types with no operational imports**
 
 The new module may import pure support/artifact reconstruction and profile helpers. It must not import `lm9b_p_governed_resolution_probe`, provider construction, checkpoint sealing, ready-proof issuance/consumption, or compiler continuation.
 
@@ -819,7 +819,7 @@ class ForensicSourceSnapshot:
 
 The two verified types must use closure-owned weak registries and immutable external snapshots exactly like the call-shape capability. Forensic execution/sealing/ready/compiler APIs must reject both by exact type.
 
-- [ ] **Step 2: Write a historical-preflight substitution table**
+- [x] **Step 2: Write a historical-preflight substitution table**
 
 Use the pinned physical historical preflight at its canonical path, read-only,
 for the positive witness. Capture a non-following before/after physical
@@ -850,7 +850,7 @@ reconstruction helper receives the immutable byte map produced by the real
 loader. Copying, relocating, or editing the official preflight is never part of
 this test path.
 
-- [ ] **Step 3: Implement the separate historical compatibility verifier**
+- [x] **Step 3: Implement the separate historical compatibility verifier**
 
 Hard-pin:
 
@@ -924,7 +924,7 @@ lm9b_c_compiler_sufficiency_probe:
 
 Also verify the governed-resolution probe raw blob, provider module raw blob, isolation/rubric/fixture bytes, typed-fact registry/payload schema, carrier qualification bindings, and every non-source fingerprint in `instrument_contracts`. Use AST line spans over Git blobs to reproduce `inspect.getsource()` bytes; do not execute those blobs.
 
-- [ ] **Step 4: Test physical source custody before reconstruction**
+- [x] **Step 4: Test physical source custody before reconstruction**
 
 Create a temp forensic source tree shaped like the retained staging. Add mutations for:
 
@@ -939,9 +939,11 @@ Create a temp forensic source tree shaped like the retained staging. Add mutatio
 
 The loader must capture exact bytes and non-following `(path, type, size, device/file identity, SHA-256)` rows before issuing `VerifiedResolutionForensicSource`. It must not trust the candidate's `record.json`, `classification.json`, or `checksums.json` as outcome authority.
 
-- [ ] **Step 5: Reconstruct a copied six-turn candidate from root evidence**
+- [x] **Step 5: Reconstruct a copied six-turn candidate from root evidence**
 
-Use a temp copy of the retained candidate plus a verified copied preflight. The reconstruction order is:
+Use a temp copy of the retained candidate plus the carrier issued from the
+actual pinned physical preflight. A copied preflight is a location-refusal
+case and can never issue that carrier. The reconstruction order is:
 
 ```text
 consume historical preflight carrier
@@ -969,7 +971,7 @@ assert reconstruction.reconstructed_classification == (
 )
 ```
 
-- [ ] **Step 6: Prove read-only snapshot equality and type isolation**
+- [x] **Step 6: Prove read-only snapshot equality and type isolation**
 
 For temp evidence, capture a recursive non-following before snapshot, reconstruct, capture after, and require exact equality. Patch checkpoint sealing, ready-proof issuance, retry, provider construction, and compiler entry points to raise; reconstruction must never touch them.
 
@@ -982,7 +984,7 @@ Pass both forensic carrier types to:
 
 Each must reject by exact type before filesystem or provider behavior.
 
-- [ ] **Step 7: Run focused tests and commit**
+- [x] **Step 7: Run focused tests and commit**
 
 ```powershell
 & C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
