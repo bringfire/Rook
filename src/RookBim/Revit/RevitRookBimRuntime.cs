@@ -90,12 +90,13 @@ namespace RookBim.Revit
 
         public BimApiResponse QueryElements(BimQueryElementsRequest request)
         {
+            var effectiveRequest = request ?? new BimQueryElementsRequest();
             return ExecuteInDocumentContext(
                 "query_elements",
                 (uidoc, document) =>
                 {
-                    var view = ResolveActiveGraphicalView(uidoc, request.EffectiveScope);
-                    return query.Query(document, view, request);
+                    var view = ResolveActiveGraphicalView(uidoc, effectiveRequest.EffectiveScope);
+                    return query.Query(document, view, effectiveRequest);
                 });
         }
 
