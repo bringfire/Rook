@@ -38,6 +38,28 @@ Every supported transition must retain its real producer and consumer:
 
 An authored summary never substitutes for the native record that owns the claim.
 
+The complete transaction line is:
+
+```text
+validated draft
+-> compiled contract/scaffold
+-> actual create request
+-> actual create receipt
+-> closed diagnostic/GUID projections
+-> actual worker request
+-> adapter-loaded response
+-> disposition
+-> action-applied graph
+-> second execution segment
+-> concatenated native ledger
+```
+
+Apply three rules throughout every task:
+
+1. No parallel reconstruction.
+2. No broad mapping passed across a narrower boundary.
+3. No execution prefix discarded.
+
 ---
 
 ### Task 1: Walk the complete repair path vertically
@@ -133,7 +155,15 @@ assert [name for name, _ in tool_executor.calls] == [
 assert len(worker_transport.calls) == 1
 assert result.worker_record.disposition.disposition == "candidate_action_request"
 assert result.action_apply_result.applied is True
+assert [record.accepted_node_id for record in result.step_records] == [
+    "create_script",
+    "verify_create",
+    "repair_same_component",
+    "verify_repair",
+]
 assert result.step_records[-1].verifier_outcome_status == "succeeded"
+assert result.supply_records[-1].decision == "HALT"
+assert result.supply_records[-1].reason == "terminal_node_selected:done"
 ```
 
 ### Step 2: Run the test and prove the red is the missing product module
@@ -290,7 +320,32 @@ The expected internal pause is `max_steps_reached` with accepted node IDs `creat
   - one acceptance packet wrapping that existing packet;
   - exactly one `WorkerAllowedAction` for `draft_repair_params`.
 
-The goal/interface and action rows are fixed:
+Project the worker-visible interface from the actual compiled create
+parameters, and prove it equals the validated draft before rendering it:
+
+```python
+compiled_create_params = scaffold.graph.nodes["create_script"].metadata[
+    EXECUTION_PARAMS_KEY
+]
+compiled_interface = {
+    "inputs": [
+        _pin_from_contract_token(token)
+        for token in compiled_create_params["pins_in"]
+    ],
+    "outputs": [
+        _pin_from_contract_token(token)
+        for token in compiled_create_params["pins_out"]
+    ],
+}
+if compiled_interface != _render_draft_interface(draft.interface):
+    raise RuntimeError("compiled create interface differs from validated draft")
+```
+
+For this fixed specimen `_pin_from_contract_token("A:double")` produces the
+closed `{"name": "A", "type": "double"}` row and rejects every malformed token.
+The goal/interface packet renders `compiled_interface`, never a second literal.
+
+The goal/interface and action rows are:
 
 ```python
 goal_packet = WorkerKnowledgePacket(
@@ -299,10 +354,7 @@ goal_packet = WorkerKnowledgePacket(
     title="Planner goal and fixed component interface",
     content={
         "goal": draft.goal,
-        "interface": {
-            "inputs": [],
-            "outputs": [{"name": "A", "type": "double"}],
-        },
+        "interface": compiled_interface,
     },
 )
 allowed_action = WorkerAllowedAction(
@@ -323,9 +375,47 @@ allowed_action = WorkerAllowedAction(
 
 The same `_script_body_gotcha_packet()` instance is passed to acceptance extraction and worker knowledge. Do not duplicate `mode: body` independently.
 
+- [ ] Immediately after extracting the existing sources, enforce the explicit
+  convention equality that the existing extractor does not own:
+
+```python
+packet_mode = convention_packet.content["body_mode"]
+extracted_mode = sources.convention.value["mode"]
+if packet_mode != extracted_mode:
+    raise RuntimeError("worker convention mode differs from acceptance source")
+```
+
 - [ ] Render the request with `render_local_worker_turn_request_payload()`, call `run_local_worker_adapter()` once, then—only for `response_loaded`—call `run_local_worker_turn(context, lambda _: adapter_record.response)` once. The callback performs no transport or parsing.
 
-- [ ] Extract the anchor from the graph's existing `repair_anchor` memory fact, pass only `action_id`, validated `input`, and anchor into `apply_worker_action_to_node()`, and resume the real current-step stream on `action_apply_result.graph`.
+- [ ] Project rather than pass through the receipt anchor. Require the receipt
+  GUID to equal the graph-memory repair-anchor GUID, then construct exactly:
+
+```python
+receipt_anchor = create_receipt["repair_anchor"]
+memory_anchor = phase_one.final_graph.memory.facts["repair_anchor"]
+if receipt_anchor["component_guid"] != memory_anchor["component_guid"]:
+    raise RuntimeError("receipt and graph-memory repair anchors differ")
+anchor_binding = {
+    "component_guid": receipt_anchor["component_guid"],
+    "language": "csharp",
+}
+```
+
+Pass only `action_id`, validated `input`, and `anchor_binding` into
+`apply_worker_action_to_node()`. Never pass either broad anchor mapping. Resume
+the real current-step stream on `action_apply_result.graph`.
+
+- [ ] Concatenate, never replace, both native execution ledgers:
+
+```python
+step_records = phase_one.records + phase_two.records
+supply_records = phase_one.supply_records + phase_two.supply_records
+```
+
+On success assert the step order is exactly `create_script`, `verify_create`,
+`repair_same_component`, `verify_repair`, followed by the terminal HALT supply
+record. Every early return retains the complete prefix collected before its
+terminal stage.
 
 ### Step 6: Run the vertical and focused baseline
 
@@ -534,7 +624,11 @@ from a concrete code value.
   2. included in the context knowledge;
   3. the source of the visible body-mode packet.
 
-- [ ] Add a valid-red mutation that changes the convention packet before assembly and prove the existing acceptance machinery rejects it. Do not add a second body-mode constant or a new acceptance system.
+- [ ] Add a valid-red mutation that changes
+  `convention_packet.content.body_mode` before assembly and prove the
+  compositor's explicit packet/extracted-source equality rejects it before
+  worker contact. Do not claim the existing extractor or acceptance assembler
+  validates packet content; do not add a new acceptance system.
 
 ### Step 4: Close adapter, response, and rationale behavior
 

@@ -250,11 +250,16 @@ deterministic code derives the worker-visible knowledge from:
 
 ```text
 immutable validated goal
-+ fixed interface from the compiled contract
++ interface projected from the compiled create parameters
 + existing body-style convention source
 + existing acceptance-criteria assembler
 + exact current receipt diagnostic admitted by the existing acceptance-source machinery
 ```
+
+The compositor projects `inputs` and `outputs` from the actual compiled
+`create_script` execution parameters, proves that projection exactly equals
+the validated draft interface, and renders that proven projection. It does not
+reconstruct an equivalent interface literal beside the compiled artifact.
 
 The serialized worker request contains:
 
@@ -266,9 +271,19 @@ The serialized worker request contains:
   machinery;
 - exactly one existing allowed action, `draft_repair_params`.
 
-`body_mode` and the acceptance packet's body-style criterion are derived from
-the same convention source instance. Independent hardcoded copies are not
-allowed to drift.
+The existing acceptance-source extractor derives `{"mode": "body"}` from the
+convention packet's identity and title; it does not inspect packet content.
+The compositor therefore enforces the explicit equality:
+
+```text
+convention_packet.content.body_mode
+== extracted_sources.convention.value.mode
+```
+
+Only after that equality passes does it expose the packet and assembled
+acceptance criteria to the worker. The same convention packet instance feeds
+both paths. A mismatch is an internal contract failure before worker contact;
+independent hardcoded interpretations are not allowed to drift.
 
 The existing `LocalWorkerTurnContext` also renders its current opaque workflow
 identity and status summaries. This slice does not remove or misdescribe those
@@ -364,14 +379,37 @@ The compositor:
 9. For a loaded response, calls the existing worker harness/disposition path
    exactly once through a closed one-shot callback returning that exact loaded
    response. It performs no second transport call or response interpretation.
-10. For an accepted `action_request`, passes only its validated action ID and
-   input plus the separately receipt-derived GUID to
+10. For an accepted `action_request`, constructs the exact closed anchor
+   projection:
+
+   ```python
+   anchor_binding = {
+       "component_guid": receipt_anchor["component_guid"],
+       "language": "csharp",
+   }
+   ```
+
+   It requires that GUID to equal the graph-memory repair-anchor projection,
+   never passes the broader receipt or memory anchor mapping, and passes only
+   the validated action ID, input, and closed anchor binding to
    `apply_worker_action_to_node()`.
 11. Uses the existing provider/current-step runner to execute
     `repair_same_component` and `verify_repair`.
 12. Obtains the existing provider halt when terminal `done` is selected.
 13. Returns native records and the final graph without constructing another
     receipt or evidence archive.
+
+Because execution is intentionally split around the worker boundary, result
+custody is exact concatenation rather than replacement:
+
+```python
+step_records = phase_one.records + phase_two.records
+supply_records = phase_one.supply_records + phase_two.supply_records
+```
+
+The successful ordered ledger is create, verify-create, repair,
+verify-repair, then the terminal halt supply record. Every early result retains
+the complete native prefix observed before its stop.
 
 A small private `SupportsLiveProducerNode` adapter may delegate to
 `run_live_producer_node_with_executor()`. It normalizes the injected executor
@@ -380,6 +418,37 @@ shape only and owns no tool, receipt, or outcome semantics.
 There is one worker turn. There is no hidden repair, worker retry, fallback
 model, alternate action, deterministic repair body, or Planner re-entry in this
 slice.
+
+### 8.3 Continuous transaction lineage
+
+The compositor is a continuous typed pipeline:
+
+```text
+validated draft
+-> compiled contract/scaffold
+-> actual create request
+-> actual create receipt
+-> closed diagnostic/GUID projections
+-> actual worker request
+-> adapter-loaded response
+-> disposition
+-> action-applied graph
+-> second execution segment
+-> concatenated native ledger
+```
+
+Three rules govern every handoff:
+
+1. No parallel reconstruction: downstream values are projected from the
+   actual upstream native artifact.
+2. No broad passthrough: a narrower consumer receives an exact closed
+   projection, never an adjacent evidence mapping with extra fields.
+3. No discarded execution prefix: a later segment extends the native ledger;
+   it never replaces earlier records.
+
+This requires no proof-carrier, archive, fingerprint, or additional verifier
+framework. The existing typed objects and explicit equality checks are the
+transaction line.
 
 ## 9. Result and terminal semantics
 
@@ -538,12 +607,17 @@ Tests prove:
 
 - the serialized request includes the exact goal, fixed interface, body mode,
   acceptance packet, current diagnostic, and one allowed action;
-- body mode and acceptance derive from the same convention source;
+- worker-visible interface is the compiled-create projection and equals the
+  validated draft interface;
+- body mode equals the mode extracted from the same convention source;
 - all explicit excluded fields and values are recursively absent;
 - the complete worker response requires `schema`, `kind`, `action_id`,
   `rationale`, and closed `input`;
 - rationale never feeds action application;
 - only the controller combines accepted worker code with the receipt GUID.
+- the controller passes only the closed GUID/language anchor projection and
+  proves its GUID agrees with graph memory.
+- the result ledger concatenates both execution segments in exact order.
 
 ### 10.4 Stop table
 
