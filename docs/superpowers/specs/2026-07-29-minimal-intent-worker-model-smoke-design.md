@@ -221,12 +221,16 @@ The update body must be an exact built-in `str`, ASCII, and at most 128 UTF-8
 bytes. One private code-owned compiled regular expression uses `fullmatch`:
 
 ```regex
-[ \t]*A[ \t]*=[ \t]*-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[dDfFmM])?[ \t]*;[ \t]*
+[ \t]*A[ \t]*=[ \t]*-?(?:0|[1-9][0-9]{0,8})(?:\.[0-9]{1,16})?[dD]?[ \t]*;[ \t]*
 ```
 
-This admits a simple numeric assignment to `A` without prescribing a specific
-constant. It rejects multiline bodies, identifiers, expressions, calls,
-additional statements, non-ASCII text, and oversized text.
+This deliberately narrow subset admits a bounded integer or ordinary decimal
+double assignment to `A` without prescribing a specific constant. The
+nine-digit integral ceiling stays within C# `int` literal range, and the
+optional `d`/`D` suffix remains assignable to `double`. It rejects decimal and
+float suffixes (`m`/`M`, `f`/`F`), exponents, oversized integral literals,
+multiline bodies, identifiers, expressions, calls, additional statements,
+non-ASCII text, and oversized text.
 
 This grammar is synthetic smoke admission only. Passing it is not evidence of
 C# compilation.
@@ -246,6 +250,18 @@ language: csharp
 Only after these checks does the fake return a clean synthetic update receipt.
 Every unexpected tool, order, parameter, pin, body, GUID, or third call fails
 closed.
+
+The executor owns one private boolean, initialized as:
+
+```text
+contract_failed = false
+```
+
+Immediately before raising for any synthetic contract rejection, it sets that
+boolean to `true`. It retains no rejected body, parameter value, diagnostic, or
+detailed violation. This flag exists only because the existing live-dispatch
+seam correctly converts executor exceptions into the native
+`dispatch_failed` result.
 
 ## 9. Call-count authority
 
@@ -311,9 +327,11 @@ The operator vocabulary is closed:
 
 `completed / native_terminal` requires the existing native terminal stage and
 reason. Ordinary returned Planner, draft, worker, action, or receipt stops use
-`failed / native_stop` while retaining their native terminal fields. An
-unexpected exception that prevents a native result uses
-`failed / operator_internal_error` with all unprovable call counts `null`.
+`failed / native_stop` while retaining their native terminal fields. After a
+native result returns, `contract_failed == true` takes precedence and yields
+`failed / synthetic_tool_contract_failure`; otherwise the ordinary native-stop
+classification applies. An unexpected exception that prevents a native result
+uses `failed / operator_internal_error` with all unprovable call counts `null`.
 
 The summary never includes:
 
@@ -341,7 +359,7 @@ Expected states remain ordinary and one-shot:
 | draft admission or goal mismatch | existing draft stop |
 | worker transport/response failure | existing native handoff stop |
 | worker refusal/clarification/action rejection | existing native handoff stop |
-| fake tool contract violation | bounded operator failure, no further call |
+| fake tool contract violation | native `dispatch_failed`, summarized as `synthetic_tool_contract_failure`; no further call |
 | clean native terminal state | completed smoke summary |
 
 No state triggers retry, fallback, prompt repair, deterministic draft patching,
@@ -406,7 +424,10 @@ Directly reject:
 - a second create or update.
 
 Add exact-limit and limit-plus-one body tests and representative accepted
-numeric assignments.
+numeric assignments. Explicitly refuse `A = 1m;`, an integral literal longer
+than nine digits, exponent notation, expressions, and multiple statements.
+Every contract-refusal case must prove `contract_failed` becomes true without
+retaining the rejected value.
 
 ### 12.5 Surface audit
 
