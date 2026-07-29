@@ -318,6 +318,8 @@ The expected internal pause is `max_steps_reached` with accepted node IDs `creat
   - `extract_acceptance_criteria_sources()` over the actual post-create graph;
   - `assemble_acceptance_criteria_packet()` over those sources;
   - one acceptance packet wrapping that existing packet;
+  - one current-diagnostic packet projecting the exact admitted
+    `sources.receipt_diagnostic.value` without rereading the graph;
   - exactly one `WorkerAllowedAction` for `draft_repair_params`.
 
 Project the worker-visible interface from the actual compiled create

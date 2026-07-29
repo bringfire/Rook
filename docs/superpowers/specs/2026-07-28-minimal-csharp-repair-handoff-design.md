@@ -285,6 +285,11 @@ acceptance criteria to the worker. The same convention packet instance feeds
 both paths. A mismatch is an internal contract failure before worker contact;
 independent hardcoded interpretations are not allowed to drift.
 
+The exact diagnostic is a dedicated worker knowledge packet projected from
+`sources.receipt_diagnostic` after the existing acceptance assembler admits
+that source. The compositor neither rereads the graph nor assumes that the
+generic acceptance packet contains the diagnostic value.
+
 The existing `LocalWorkerTurnContext` also renders its current opaque workflow
 identity and status summaries. This slice does not remove or misdescribe those
 existing fields.

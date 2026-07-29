@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from rook.agent.local_worker_acceptance_criteria import (
+    AcceptanceCriteriaSource,
     assemble_acceptance_criteria_packet,
 )
 from rook.agent.local_worker_acceptance_criteria_sources import (
@@ -260,6 +261,7 @@ async def run_minimal_csharp_repair_handoff(
                 title="Clean compile receipt acceptance",
                 content=acceptance_packet,
             ),
+            _current_diagnostic_packet(sources.receipt_diagnostic),
         ),
         allowed_actions=(_repair_action(),),
     )
@@ -434,6 +436,28 @@ def _repair_action() -> WorkerAllowedAction:
                 "mode": {"const": "body"},
             },
             "required": ["code", "mode"],
+        },
+    )
+
+
+def _current_diagnostic_packet(
+    source: AcceptanceCriteriaSource,
+) -> WorkerKnowledgePacket:
+    value = source.value
+    if (
+        not isinstance(value, list)
+        or len(value) != 1
+        or not isinstance(value[0], str)
+    ):
+        raise RuntimeError("extracted receipt diagnostic is not the admitted shape")
+    return WorkerKnowledgePacket(
+        packet_id="current_receipt_diagnostic",
+        kind="current_diagnostic",
+        title="Current C# compile diagnostic",
+        content={
+            "source_class": source.source_class,
+            "source_path": source.source_path,
+            "target_errors": list(value),
         },
     )
 

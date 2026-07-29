@@ -37,11 +37,17 @@ class _FakePlanner:
 
 
 class _RecordingWorkerTransport:
-    def __init__(self) -> None:
+    def __init__(self, expected_diagnostic: str) -> None:
+        self.expected_diagnostic = expected_diagnostic
         self.calls: list[dict[str, Any]] = []
 
     def send(self, prompt_artifact: Mapping[str, Any]) -> str:
-        self.calls.append(copy.deepcopy(dict(prompt_artifact)))
+        captured = copy.deepcopy(dict(prompt_artifact))
+        self.calls.append(captured)
+        user_message = captured["messages"][1]
+        assert user_message["role"] == "user"
+        request_payload = json.loads(user_message["content"])
+        assert self.expected_diagnostic in set(_iter_strings(request_payload))
         return json.dumps(
             {
                 "schema": "rook.local_worker_turn_response:v1",
@@ -56,7 +62,8 @@ class _RecordingWorkerTransport:
 
 
 class _RecordingToolExecutor:
-    def __init__(self) -> None:
+    def __init__(self, diagnostic: str = _TARGET_DIAGNOSTIC) -> None:
+        self.diagnostic = diagnostic
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def __call__(self, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -66,7 +73,7 @@ class _RecordingToolExecutor:
             assert captured["code"] == _INITIAL_BODY
             assert captured["pins_in"] == ()
             assert captured["pins_out"] == ("A:double",)
-            return _created_with_errors_raw(captured["code"])
+            return _created_with_errors_raw(captured["code"], self.diagnostic)
         if tool_name == "gh_update_script":
             assert captured == {
                 "guid": _COMPONENT_GUID,
@@ -78,7 +85,10 @@ class _RecordingToolExecutor:
         raise AssertionError(f"unexpected tool: {tool_name}")
 
 
-def _created_with_errors_raw(received_body: object) -> dict[str, Any]:
+def _created_with_errors_raw(
+    received_body: object,
+    diagnostic: str,
+) -> dict[str, Any]:
     if received_body != _INITIAL_BODY:
         raise AssertionError("fake create diagnostic requires the invalid specimen body")
     return {
@@ -100,7 +110,7 @@ def _created_with_errors_raw(received_body: object) -> dict[str, Any]:
                 "repair_anchor": {
                     "component_guid": _COMPONENT_GUID,
                     "language": "csharp",
-                    "target_errors": [_TARGET_DIAGNOSTIC],
+                    "target_errors": [diagnostic],
                 },
             }
         },
@@ -131,9 +141,23 @@ def _usable_clean_raw() -> dict[str, Any]:
     }
 
 
+def _iter_strings(value: object):
+    if isinstance(value, str):
+        yield value
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            yield key
+            yield from _iter_strings(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            yield from _iter_strings(item)
+
+
 @pytest.mark.asyncio
 async def test_raw_draft_walks_real_repair_handoff_to_clean_terminal() -> None:
-    transport = _RecordingWorkerTransport()
+    transport = _RecordingWorkerTransport(_TARGET_DIAGNOSTIC)
     tool_executor = _RecordingToolExecutor()
 
     draft = load_minimal_csharp_repair_draft(_FakePlanner().draft())
@@ -170,3 +194,21 @@ async def test_raw_draft_walks_real_repair_handoff_to_clean_terminal() -> None:
     assert result.supply_records[-1].decision == "HALT"
     assert result.supply_records[-1].reason == "terminal_node_selected:done"
     assert result.terminal_reason == result.supply_records[-1].reason
+
+
+@pytest.mark.asyncio
+async def test_changed_receipt_diagnostic_reaches_exact_worker_request() -> None:
+    diagnostic = (
+        "SENTINEL-RECEIPT: CS0103: The name 'DefinitelyMissingSymbol' "
+        "does not exist in the current context."
+    )
+    transport = _RecordingWorkerTransport(diagnostic)
+
+    result = await run_minimal_csharp_repair_handoff(
+        load_minimal_csharp_repair_draft(_FakePlanner().draft()),
+        worker_transport=transport,
+        tool_executor=_RecordingToolExecutor(diagnostic),
+    )
+
+    assert result.terminal_stage == "terminal"
+    assert len(transport.calls) == 1
