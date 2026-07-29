@@ -382,9 +382,11 @@ After the loader succeeds, the runner requires:
 validated_draft.goal == exact accepted user intent
 ```
 
-Equality is byte-for-byte equality of the exact Python strings' UTF-8
-encodings. The runner does not trim or normalize either side. A mismatch stops
-with:
+The runner compares the exact built-in strings directly; it never encodes the
+untrusted decoded goal. Because the accepted intent is already valid UTF-8,
+direct equality also establishes identical UTF-8 bytes without risking an
+encoding failure on a decoded lone surrogate. The runner does not trim or
+normalize either side. A mismatch stops with:
 
 ```text
 terminal_stage: draft_admission
@@ -558,6 +560,7 @@ Tests cover:
 - array, scalar, and null roots;
 - markdown-wrapped or embedded JSON;
 - missing, extra, malformed, and equality-spoof draft fields; and
+- an otherwise valid draft whose JSON-escaped goal decodes to a lone surrogate;
 - an otherwise valid draft with any goal difference, including whitespace.
 
 Every pre-handoff refusal proves zero worker and typed-tool calls. Oversized

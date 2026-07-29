@@ -677,7 +677,7 @@ try:
 except (TypeError, ValueError):
     return _draft_stop(intent, adapter_record, "draft_payload_rejected")
 
-if draft.goal.encode("utf-8") != intent.encode("utf-8"):
+if draft.goal != intent:
     return _draft_stop(intent, adapter_record, "goal_mismatch")
 
 handoff = await run_minimal_csharp_repair_handoff(
@@ -716,9 +716,21 @@ Parameterize both values through `planner_adapter` with type-ignore comments. As
 Add two one-call Planner cases:
 
 - valid object with an extra field -> `draft_admission / draft_payload_rejected`;
-- otherwise valid object whose goal differs by one byte or whitespace -> `draft_admission / goal_mismatch`.
+- otherwise valid object whose goal differs by one character or whitespace -> `draft_admission / goal_mismatch`.
 
 Both must return `validated_draft is None`, `handoff_result is None`, one Planner call, and zero worker/tool calls.
+
+Add a third regression whose raw response is produced with:
+
+```python
+json.dumps(_planner_payload("\ud800"), ensure_ascii=True)
+```
+
+The raw response is valid bounded ASCII JSON, decoding produces a built-in
+string containing a lone surrogate, and the existing draft loader accepts its
+shape. Require the runner to return `draft_admission / goal_mismatch` after one
+Planner call with zero worker/tool calls. The test must fail if the runner
+attempts to UTF-8 encode the decoded goal.
 
 - [ ] **Step 6: Prove the Planner information boundary**
 
@@ -1040,6 +1052,7 @@ Request review against base `f0acdbdb7a9b15adcdb970183e75dd27fedd78c7`. Do not p
 - [ ] Duplicate keys, nonfinite values, trailing content, non-object roots, markdown, coercion, defaults, and repair are refused.
 - [ ] Only the existing draft loader grants semantic admission.
 - [ ] Validated draft goal equals the original intent exactly.
+- [ ] A JSON-escaped lone-surrogate goal produces typed `goal_mismatch`, never an encoding exception.
 - [ ] Malformed Planner output and Planner failure produce typed adapter/draft stops with zero worker/tool calls.
 - [ ] The successful path traverses the real merged handoff, real worker adapter, and native terminal result.
 - [ ] Planner calls equal one and worker calls are zero or one; no retry/fallback exists.
