@@ -216,53 +216,53 @@ namespace Rook.Tests.Plugin
         {
             public bool StatusCalled { get; private set; }
 
-            public BimStatusResponse Status()
+            public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 StatusCalled = true;
                 throw new InvalidOperationException("Status must not be probed by capability status builder.");
             }
 
-            public BimApiResponse ActiveDocument()
+            public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)
             {
                 throw new NotSupportedException();
             }
 
-            public BimApiResponse ListCategories()
+            public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)
             {
                 throw new NotSupportedException();
             }
 
-            public BimApiResponse QueryElements(BimQueryElementsRequest request)
+            public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)
             {
                 throw new NotSupportedException();
             }
 
-            public BimApiResponse ElementInfo(BimElementRequest request)
+            public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)
             {
                 throw new NotSupportedException();
             }
 
-            public BimApiResponse ElementParameters(BimElementRequest request)
+            public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)
             {
                 throw new NotSupportedException();
             }
 
-            public BimApiResponse SelectElements(BimSelectElementsRequest request)
+            public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)
             {
                 throw new NotSupportedException();
             }
 
-            public BimApiResponse ClearSelection()
+            public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)
             {
                 throw new NotSupportedException();
             }
 
-            public BimApiResponse ExportElements(BimExportElementsRequest request)
+            public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)
             {
                 throw new NotSupportedException();
             }
 
-            public BimApiResponse ExportPreset(BimExportPresetRequest request)
+            public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)
             {
                 throw new NotSupportedException();
             }

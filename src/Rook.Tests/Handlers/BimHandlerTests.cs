@@ -62,6 +62,7 @@ namespace Rook.Tests.Handlers
             Assert.Contains(
                 data.GetProperty("errorCode").GetString(),
                 new[] { "rookbim_unavailable", "not_rhino_inside" });
+            AssertStatusDiagnostics(data);
         }
 
         [Fact]
@@ -110,6 +111,7 @@ namespace Rook.Tests.Handlers
             Assert.Equal("not_rhino_inside", data.GetProperty("errorCode").GetString());
             Assert.Equal("standalone", data.GetProperty("host").GetString());
             Assert.Equal("core", data.GetProperty("module").GetString());
+            AssertStatusDiagnostics(data);
             AssertDiagnostic(
                 response,
                 "not_rhino_inside",
@@ -455,6 +457,20 @@ namespace Rook.Tests.Handlers
             return ToJsonElement(response.Diagnostic);
         }
 
+        private static void AssertStatusDiagnostics(JsonElement data)
+        {
+            Assert.Equal(JsonValueKind.String, data.GetProperty("coreVersion").ValueKind);
+            Assert.Equal(JsonValueKind.String, data.GetProperty("coreCommit").ValueKind);
+            Assert.Equal(JsonValueKind.String, data.GetProperty("moduleVersion").ValueKind);
+            Assert.Equal(JsonValueKind.String, data.GetProperty("moduleCommit").ValueKind);
+            Assert.Contains(
+                data.GetProperty("diagnosticsEnabled").ValueKind,
+                new[] { JsonValueKind.True, JsonValueKind.False });
+            Assert.Equal(JsonValueKind.String, data.GetProperty("sinkState").ValueKind);
+            Assert.Equal(JsonValueKind.Number, data.GetProperty("droppedCount").ValueKind);
+            Assert.Equal(JsonValueKind.String, data.GetProperty("sinkFailureCode").ValueKind);
+        }
+
         private static void AssertDiagnostic(
             ApiResponse response,
             string reasonCode,
@@ -538,7 +554,7 @@ namespace Rook.Tests.Handlers
                 this.message = message;
             }
 
-            public BimStatusResponse Status()
+            public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse
                 {
@@ -551,20 +567,20 @@ namespace Rook.Tests.Handlers
                 };
             }
 
-            public BimApiResponse ActiveDocument() => BimApiResponse.Ok(null);
-            public BimApiResponse ListCategories() => BimApiResponse.Ok(null);
-            public BimApiResponse QueryElements(BimQueryElementsRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse ElementInfo(BimElementRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse ElementParameters(BimElementRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse SelectElements(BimSelectElementsRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse ClearSelection() => BimApiResponse.Ok(null);
-            public BimApiResponse ExportElements(BimExportElementsRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse ExportPreset(BimExportPresetRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics) => BimApiResponse.Ok(null);
+            public BimApiResponse ListCategories(BimDiagnosticContext diagnostics) => BimApiResponse.Ok(null);
+            public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request) => BimApiResponse.Ok(null);
         }
 
         private sealed class NoActiveDocumentRuntime : IRookBimRuntime
         {
-            public BimStatusResponse Status()
+            public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse
                 {
@@ -577,7 +593,7 @@ namespace Rook.Tests.Handlers
                 };
             }
 
-            public BimApiResponse ActiveDocument()
+            public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)
             {
                 return BimApiResponse.Fail(
                     BimErrorCode.NoActiveDocument,
@@ -585,24 +601,24 @@ namespace Rook.Tests.Handlers
                     409);
             }
 
-            public BimApiResponse ListCategories() => BimApiResponse.Ok(null);
-            public BimApiResponse QueryElements(BimQueryElementsRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse ElementInfo(BimElementRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse ElementParameters(BimElementRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse SelectElements(BimSelectElementsRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse ClearSelection() => BimApiResponse.Ok(null);
-            public BimApiResponse ExportElements(BimExportElementsRequest request) => BimApiResponse.Ok(null);
-            public BimApiResponse ExportPreset(BimExportPresetRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ListCategories(BimDiagnosticContext diagnostics) => BimApiResponse.Ok(null);
+            public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request) => BimApiResponse.Ok(null);
         }
 
         private sealed class DetailFailureRuntime : IRookBimRuntime
         {
-            public BimStatusResponse Status()
+            public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse { Available = true, Runtime = "test" };
             }
 
-            public BimApiResponse ActiveDocument()
+            public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)
             {
                 return new BimApiResponse
                 {
@@ -617,7 +633,7 @@ namespace Rook.Tests.Handlers
                 };
             }
 
-            public BimApiResponse ListCategories()
+            public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)
             {
                 return BimApiResponse.Ok(new BimListCategoriesResult
                 {
@@ -625,37 +641,37 @@ namespace Rook.Tests.Handlers
                 });
             }
 
-            public BimApiResponse QueryElements(BimQueryElementsRequest request)
+            public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ElementInfo(BimElementRequest request)
+            public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ElementParameters(BimElementRequest request)
+            public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse SelectElements(BimSelectElementsRequest request)
+            public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ClearSelection()
+            public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ExportElements(BimExportElementsRequest request)
+            public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ExportPreset(BimExportPresetRequest request)
+            public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
@@ -663,22 +679,22 @@ namespace Rook.Tests.Handlers
 
         private sealed class CategoryFailureRuntime : IRookBimRuntime
         {
-            public BimStatusResponse Status()
+            public BimStatusResponse Status(BimDiagnosticContext diagnostics)
             {
                 return new BimStatusResponse { Available = true, Runtime = "test" };
             }
 
-            public BimApiResponse ActiveDocument()
+            public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ListCategories()
+            public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)
             {
                 return BimApiResponse.Ok(new BimListCategoriesResult());
             }
 
-            public BimApiResponse QueryElements(BimQueryElementsRequest request)
+            public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)
             {
                 var response = BimApiResponse.Fail(
                     BimErrorCode.InvalidCategory,
@@ -696,32 +712,32 @@ namespace Rook.Tests.Handlers
                 return response;
             }
 
-            public BimApiResponse ElementInfo(BimElementRequest request)
+            public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ElementParameters(BimElementRequest request)
+            public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse SelectElements(BimSelectElementsRequest request)
+            public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ClearSelection()
+            public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ExportElements(BimExportElementsRequest request)
+            public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)
             {
                 return BimApiResponse.Ok(null);
             }
 
-            public BimApiResponse ExportPreset(BimExportPresetRequest request)
+            public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)
             {
                 return BimApiResponse.Ok(null);
             }

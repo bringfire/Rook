@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Xunit;
 
@@ -8,7 +10,894 @@ namespace RookBim.Tests
 {
     public class RookBimModuleSourceTests
     {
+        private const string ModuleType =
+            "public static class RookBimModule";
+        private const string DispatcherType =
+            "public sealed class RevitApiDispatcher";
+        private const string WorkItemType =
+            "private sealed class RevitApiWorkItem<T>";
+        private const string RuntimeType =
+            "public sealed class RevitRookBimRuntime : IRookBimRuntime";
+        private const string IdentitySerializerType =
+            "public static class RevitIdentitySerializer";
+        private const string CategoryResolverType =
+            "internal sealed class RevitCategoryResolver";
+        private const string QueryServiceType =
+            "internal sealed class RevitQueryService";
         private static readonly string RepoRoot = FindRepoRoot();
+
+        [Fact]
+        public void SourceExtractor_IgnoresCommentedOutDeclarationsAndCalls()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    // public void Target(string value) { CommentOnly(); }
+    public void Target(string value)
+    {
+        ActualCall();
+    }
+}";
+
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
+
+            Assert.Contains("ActualCall();", target);
+            Assert.DoesNotContain("CommentOnly();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_BindsTheRequestedOverloadAndExcludesSiblingBodies()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target(int value)
+    {
+        InertSiblingCall();
+    }
+
+    public void Target(string value)
+    {
+        RequestedOverloadCall();
+    }
+}";
+
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
+
+            Assert.Contains("RequestedOverloadCall();", target);
+            Assert.DoesNotContain("InertSiblingCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_LiteralsDoNotCorruptExecutableMemberBoundaries()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target(string value)
+    {
+        var text = ""} // not a comment /* still text {"";
+        var close = '}';
+        var slash = '/';
+        ActualCall();
+    }
+}";
+
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
+
+            Assert.DoesNotContain("// not a comment /* still text", target);
+            Assert.DoesNotContain("var close = '}';", target);
+            Assert.Contains("ActualCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_CodeMaskDoesNotTreatStringContentAsAnExecutableCall()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target()
+    {
+        var decoy = ""RequiredCall();"";
+        ActualCall();
+    }
+}";
+
+            var executableCode = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target()");
+
+            Assert.Contains("ActualCall();", executableCode);
+            Assert.DoesNotContain("RequiredCall();", executableCode);
+        }
+
+        [Fact]
+        public void SourceExtractor_TargetMethodStringCannotSatisfyPositiveCallContract()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target()
+    {
+        var decoy = ""RequiredCall();"";
+        ActualCall();
+    }
+}";
+
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target()");
+
+            Assert.DoesNotContain("RequiredCall();", target);
+            Assert.Contains("ActualCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_InertOverloadCannotSatisfyTargetOverloadContract()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target(int value)
+    {
+        RequiredCall();
+    }
+
+    public void Target(string value)
+    {
+        ActualCall();
+    }
+}";
+
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
+
+            Assert.DoesNotContain("RequiredCall();", target);
+            Assert.Contains("ActualCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_SiblingTypeCannotSatisfyTargetTypeContract()
+        {
+            var source = @"
+internal sealed class SiblingFixture
+{
+    public void Target(string value)
+    {
+        RequiredCall();
+    }
+}
+
+internal sealed class Fixture
+{
+    public void Target(string value)
+    {
+        ActualCall();
+    }
+}";
+
+            var target = ExtractExecutableMember(
+                source,
+                "internal sealed class Fixture",
+                "public void Target(string value)");
+
+            Assert.DoesNotContain("RequiredCall();", target);
+            Assert.Contains("ActualCall();", target);
+        }
+
+        [Fact]
+        public void SourceExtractor_DuplicateMatchingDeclarationsFailClosed()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    public void Target(string value)
+    {
+        FirstCall();
+    }
+
+    public void Target(string value)
+    {
+        SecondCall();
+    }
+}";
+
+            Assert.Throws<InvalidOperationException>(() =>
+                ExtractExecutableMember(
+                    source,
+                    "internal sealed class Fixture",
+                    "public void Target(string value)"));
+        }
+
+        [Fact]
+        public void SourceContracts_HaveNoLegacyPrefixExtractor()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+
+            AssertNoLegacySourceMatchingIdentifiers(source);
+        }
+
+        [Fact]
+        public void SourceIdentifierAudit_RejectsWhitespaceSeparatedLegacyDeclarationsAndReferences()
+        {
+            var declaration = @"
+internal sealed class Fixture
+{
+    private static string ExtractMethod
+    /* layout */
+    (
+        string source)
+    {
+        return source;
+    }
+}";
+            var reference = @"
+internal sealed class Fixture
+{
+
+    public void Target()
+    {
+        var reference = FindIgnoringWhitespace;
+    }
+}";
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoLegacySourceMatchingIdentifiers(declaration));
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoLegacySourceMatchingIdentifiers(reference));
+        }
+
+        [Fact]
+        public void SourceIdentifierAudit_IgnoresLegacyNamesInCommentsAndLiterals()
+        {
+            var source = @"
+internal sealed class Fixture
+{
+    // ExtractMethod (source)
+    /* FindIgnoringWhitespace */
+    public void Target()
+    {
+        var call = ""ExtractMethod (source)"";
+        var reference = @""FindIgnoringWhitespace"";
+        var longerNames = ExtractMethodology + FindIgnoringWhitespaceSuffix;
+    }
+}";
+
+            AssertNoLegacySourceMatchingIdentifiers(source);
+        }
+
+        [Theory]
+        [InlineData("var value = $\"{ExtractMethod (source)}\";")]
+        [InlineData("var value = $@\"{FindIgnoringWhitespace}\";")]
+        [InlineData("var value = @$\"{FindIgnoringWhitespace}\";")]
+        [InlineData("var value = $\"\"\"{ExtractMethod(source)}\"\"\";")]
+        [InlineData("var value = $$\"\"\"{{FindIgnoringWhitespace}}\"\"\";")]
+        public void SourceIdentifierAudit_RejectsLegacyNamesInInterpolatedExpressions(
+            string source)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoLegacySourceMatchingIdentifiers(source));
+        }
+
+        [Fact]
+        public void SourceIdentifierAudit_IgnoresLegacyNamesInInterpolatedLiteralText()
+        {
+            var source =
+                "var ordinary = $\"ExtractMethod {actual}\";\n" +
+                "var verbatim = $@\"FindIgnoringWhitespace {actual}\";\n" +
+                "var raw = $\"\"\"ExtractMethod FindIgnoringWhitespace {actual}\"\"\";";
+
+            AssertNoLegacySourceMatchingIdentifiers(source);
+        }
+
+        [Fact]
+        public void SourceContractAudit_DistinguishesWholeSourcePositivesFromNegativesAndLiterals()
+        {
+            var source = @"
+Assert.Contains(
+    ""required"",
+    runtime);
+Assert.DoesNotContain(""forbidden"", runtime);
+var decoy = ""Assert.Contains(\""required\"", runtime);"";
+Assert.Contains(""required"", member);";
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(source, "runtime"));
+            AssertNoWholeSourcePositiveContains(source, "dispatcher");
+
+            var moduleSource = "Assert.Contains(\"required\", module);";
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(moduleSource, "module"));
+        }
+
+        [Theory]
+        [InlineData("Assert.Contains(\"required\", (runtime));")]
+        [InlineData("Assert.Contains(\"required\", NormalizeLineEndings(runtime));")]
+        public void SourceContractAudit_RejectsWrappedWholeSourceActualArguments(
+            string source)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(source, "runtime"));
+        }
+
+        [Theory]
+        [InlineData(
+            "var alias = runtime;\n" +
+            "Assert.Contains(\"required\", alias);")]
+        [InlineData(
+            "var first = (runtime);\n" +
+            "var alias = first;\n" +
+            "Assert.Contains(\"required\", NormalizeLineEndings((alias)));")]
+        [InlineData(
+            "var alias = (NormalizeLineEndings(runtime));\n" +
+            "Assert.Contains(\"required\", alias);")]
+        public void SourceContractAudit_RejectsDirectWholeSourceAliasChains(
+            string source)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(source, "runtime"));
+        }
+
+        [Theory]
+        [InlineData(
+            "var sourceText = Read(\"src/RookBim/Revit/RevitRookBimRuntime.cs\");\n" +
+            "Assert.Contains(\"required\", sourceText);")]
+        [InlineData(
+            "var sourceText = Read(\"src/RookBim/Revit/RevitRookBimRuntime.cs\");\n" +
+            "var alias = (sourceText);\n" +
+            "Assert.Contains(\"required\", NormalizeLineEndings((alias)));")]
+        [InlineData(
+            "var sourceText = (Read(\"src/RookBim/Revit/RevitRookBimRuntime.cs\"));\n" +
+            "Assert.Contains(\"required\", sourceText);")]
+        public void SourceContractAudit_RejectsRenamedProductionSourceReads(
+            string source)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourcePositiveContains(source));
+        }
+
+        [Fact]
+        public void SourceContractAudit_IgnoresAliasAndReadOriginsInCommentsAndLiterals()
+        {
+            var source =
+                "var literal = \"var sourceText = Read(" +
+                "\\\"src/RookBim/Revit/RevitRookBimRuntime.cs\\\");\";\n" +
+                "// var alias = runtime;\n" +
+                "var interpolation = $\"var alias = runtime; {member}\";\n" +
+                "Assert.Contains(\"required\", member);";
+
+            AssertNoWholeSourcePositiveContains(source, "runtime");
+        }
+
+        [Fact]
+        public void SourceContractAudit_RejectsTask9WholeSourcePositiveChecksThatCouldMatchCommentsOrLiterals()
+        {
+            const string requiredCall =
+                "query.Query(document, activeView, selector, diagnostics)";
+            var decoyProductionSource =
+                "// query.Query(document, activeView, selector, diagnostics)\n" +
+                "var literal = \"query.Query(document, activeView, selector, diagnostics)\";";
+            var weakContract =
+                "var preset = Read(\"src/RookBim/Revit/RevitPresetResolver.cs\");\n" +
+                "Assert.Contains(\"query.Query(document, activeView, selector, diagnostics)\", preset);";
+
+            Assert.Contains(requiredCall, decoyProductionSource);
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourceAssertions(weakContract));
+        }
+
+        [Theory]
+        [InlineData(
+            "var preset = Read(\"src/RookBim/Revit/RevitPresetResolver.cs\");\n" +
+            "Assert.DoesNotContain(\n" +
+            "    \"query.Query(document, activeView, selector);\",\n" +
+            "    preset);")]
+        [InlineData(
+            "var export = Read(\"src/RookBim/Revit/RevitExportService.cs\");\n" +
+            "Assert.DoesNotContain(\"DocumentIdentity(document, diagnostics\", " +
+            "NormalizeLineEndings((export)));")]
+        [InlineData(
+            "var query = Read(\"src/RookBim/Revit/RevitQueryService.cs\");\n" +
+            "var alias = (query);\n" +
+            "Assert.DoesNotContain(\"DocumentIdentity(document, diagnostics\", alias);")]
+        public void SourceContractAudit_RejectsTask9MultilineWrappedAndAliasedWholeSourceNegatives(
+            string weakContract)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertNoWholeSourceAssertions(weakContract));
+        }
+
+        [Theory]
+        [InlineData(
+            "query.Query(document, activeView, (selector));")]
+        [InlineData(
+            "var selectorAlias = (selector);\n" +
+            "query /* decoy */ . Query(document, activeView, selectorAlias);")]
+        [InlineData(
+            "query.Query(document, activeView, selector, " +
+            "(BimDiagnosticContext.Disabled));")]
+        [InlineData(
+            "var contextAlias = BimDiagnosticContext.Disabled;\n" +
+            "query.Query(document, activeView, selector, contextAlias);")]
+        public void SourceInvocationAudit_Task9RejectsUntracedOrWrongContextQueryCalls(
+            string mutatedMemberBody)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutatedMemberBody,
+                    "query.Query",
+                    "document",
+                    "activeView",
+                    "selector",
+                    "diagnostics"));
+        }
+
+        [Theory]
+        [InlineData(
+            "RevitIdentitySerializer.DocumentIdentity(" +
+            "(document), BimDiagnosticContext.Disabled);")]
+        [InlineData(
+            "RevitIdentitySerializer.DocumentIdentity(" +
+            "document, (diagnostics));")]
+        [InlineData(
+            "var documentAlias = (document);\n" +
+            "var contextAlias = diagnostics;\n" +
+            "RevitIdentitySerializer.DocumentIdentity(" +
+            "documentAlias, contextAlias);")]
+        [InlineData(
+            "RevitIdentitySerializer.DocumentIdentity(otherDocument);")]
+        public void SourceInvocationAudit_Task9RejectsDetailedOrWrongDocumentIdentityCalls(
+            string mutatedMemberBody)
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutatedMemberBody,
+                    "RevitIdentitySerializer.DocumentIdentity",
+                    "document"));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ResolvesCorrectDirectAliasesAcrossCommentsAndParentheses()
+        {
+            var queryMember =
+                "var documentAlias = (document);\n" +
+                "var selectorAlias = selector;\n" +
+                "var contextAlias = (diagnostics);\n" +
+                "query /* masked */ . Query(" +
+                "documentAlias, activeView, (selectorAlias), contextAlias);";
+            var identityMember =
+                "var documentAlias = (document);\n" +
+                "RevitIdentitySerializer /* masked */ . DocumentIdentity(" +
+                "(documentAlias));";
+
+            AssertSingleInvocationArguments(
+                queryMember,
+                "query.Query",
+                "document",
+                "activeView",
+                "selector",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                identityMember,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualQueryElementsRejectsAnAddedUntracedCall()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                queryElements,
+                "query.Query(document, view, (request));");
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertTask9QueryElementsCallContract(mutated));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualBuildResultRejectsAnAddedDetailedIdentityCall()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var buildResult = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                buildResult,
+                "var contextAlias = BimDiagnosticContext.Disabled;\n" +
+                "RevitIdentitySerializer.DocumentIdentity(" +
+                "(document), contextAlias, includeAuxiliaryState: false);");
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertTask9BuildResultIdentityCallContract(mutated));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualQueryElementsRejectsAReassignedContextAlias()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var mutated = ReplaceSingle(
+                queryElements,
+                "return query.Query(document, view, effectiveRequest, diagnostics);",
+                "var contextAlias = diagnostics;\n" +
+                "contextAlias = BimDiagnosticContext.Disabled;\n" +
+                "return query.Query(document, view, effectiveRequest, contextAlias);");
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutated,
+                    "query.Query",
+                    "document",
+                    "view",
+                    "effectiveRequest",
+                    "diagnostics"));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualBuildResultRejectsAReassignedDocumentAlias()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var buildResult = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+            var mutated = ReplaceSingle(
+                buildResult,
+                "return new BimQueryElementsResult",
+                "var documentAlias = document;\n" +
+                "documentAlias = otherDocument;\n" +
+                "return new BimQueryElementsResult");
+            mutated = ReplaceSingle(
+                mutated,
+                "RevitIdentitySerializer.DocumentIdentity(document)",
+                "RevitIdentitySerializer.DocumentIdentity(documentAlias)");
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutated,
+                    "RevitIdentitySerializer.DocumentIdentity",
+                    "document"));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualQueryElementsIgnoresLongerReceiverIdentifiers()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                queryElements,
+                "somequery.Query(document, view, request, diagnostics);");
+
+            AssertSingleInvocationArguments(
+                mutated,
+                "query.Query",
+                "document",
+                "view",
+                "effectiveRequest",
+                "diagnostics");
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ResolvesExplicitlyTypedDirectAliases()
+        {
+            const string member =
+                "BimDiagnosticContext contextAlias = diagnostics;\n" +
+                "query.Query(document, view, request, contextAlias);";
+
+            AssertSingleInvocationArguments(
+                member,
+                "query.Query",
+                "document",
+                "view",
+                "request",
+                "diagnostics");
+        }
+
+        [Theory]
+        [InlineData(
+            "BimDiagnosticContext.Disabled",
+            "diagnostics",
+            "BimDiagnosticContext.Disabled")]
+        [InlineData(
+            "diagnostics",
+            "BimDiagnosticContext.Disabled",
+            "diagnostics")]
+        public void SourceInvocationAudit_Task9ActualQueryElementsSnapshotsCopiedContextOrigin(
+            string initialOrigin,
+            string reassignedOrigin,
+            string expectedCopiedOrigin)
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                queryElements,
+                "BimDiagnosticContext sourceContext = " + initialOrigin + ";\n" +
+                "var copiedContext = (sourceContext);\n" +
+                "sourceContext = " + reassignedOrigin + ";\n" +
+                "query.Query(document, view, request, copiedContext);");
+            var code = Lex(mutated).CodeMask;
+            var invocations = FindInvocationArguments(code, "query.Query");
+
+            Assert.Equal(2, invocations.Count);
+            Assert.Equal(4, invocations[0].Arguments.Count);
+            Assert.Equal(4, invocations[1].Arguments.Count);
+            Assert.Equal(
+                "diagnostics",
+                ResolveInvocationArgument(
+                    invocations[0].Arguments[3],
+                    DirectLocalAliases(code, invocations[0].Start)));
+            Assert.Equal(
+                expectedCopiedOrigin,
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[3],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.ThrowsAny<Exception>(() =>
+                AssertTask9QueryElementsCallContract(mutated));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualBuildResultSnapshotsCopiedWrongDocumentOrigin()
+        {
+            var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var buildResult = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                buildResult,
+                "Document sourceDocument = otherDocument;\n" +
+                "var copiedDocument = sourceDocument;\n" +
+                "sourceDocument = document;\n" +
+                "RevitIdentitySerializer.DocumentIdentity(copiedDocument);");
+            var code = Lex(mutated).CodeMask;
+            var invocations = FindInvocationArguments(
+                code,
+                "RevitIdentitySerializer.DocumentIdentity");
+
+            Assert.Equal(2, invocations.Count);
+            Assert.Single(invocations[0].Arguments);
+            Assert.Single(invocations[1].Arguments);
+            Assert.Equal(
+                "document",
+                ResolveInvocationArgument(
+                    invocations[0].Arguments[0],
+                    DirectLocalAliases(code, invocations[0].Start)));
+            Assert.Equal(
+                "otherDocument",
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[0],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.ThrowsAny<Exception>(() =>
+                AssertTask9BuildResultIdentityCallContract(mutated));
+        }
+
+        [Fact]
+        public void SourceInvocationAudit_Task9ActualCategoryListSnapshotsCopiedWrongDetailedIdentityDocumentOrigin()
+        {
+            var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
+            var list = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "public BimListCategoriesResult List(Document document, BimDiagnosticContext diagnostics)");
+            var mutated = InsertBeforeFinalClosingBrace(
+                list,
+                "Document sourceDocument = otherDocument;\n" +
+                "var copiedDocument = (sourceDocument);\n" +
+                "sourceDocument = document;\n" +
+                "RevitIdentitySerializer.DocumentIdentity(" +
+                "copiedDocument, diagnostics, includeAuxiliaryState: false);");
+            var code = Lex(mutated).CodeMask;
+            var invocations = FindInvocationArguments(
+                code,
+                "RevitIdentitySerializer.DocumentIdentity");
+
+            Assert.Equal(2, invocations.Count);
+            Assert.Equal(3, invocations[0].Arguments.Count);
+            Assert.Equal(3, invocations[1].Arguments.Count);
+            Assert.Equal(
+                "document",
+                ResolveInvocationArgument(
+                    invocations[0].Arguments[0],
+                    DirectLocalAliases(code, invocations[0].Start)));
+            Assert.Equal(
+                "otherDocument",
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[0],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.Equal(
+                "diagnostics",
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[1],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.Equal(
+                "includeAuxiliaryState:false",
+                ResolveInvocationArgument(
+                    invocations[1].Arguments[2],
+                    DirectLocalAliases(code, invocations[1].Start)));
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    mutated,
+                    "RevitIdentitySerializer.DocumentIdentity",
+                    "document",
+                    "diagnostics",
+                    "includeAuxiliaryState:false"));
+        }
+
+        [Theory]
+        [InlineData(
+            "var sourceContext = BuildContext();\n" +
+            "var copiedContext = sourceContext;\n" +
+            "sourceContext = diagnostics;")]
+        [InlineData(
+            "var sourceContext = copiedContext;\n" +
+            "var copiedContext = sourceContext;\n" +
+            "sourceContext = diagnostics;")]
+        public void SourceInvocationAudit_Task9TaintsCopiedUnknownOrComplexOrigins(
+            string aliasSetup)
+        {
+            var member = aliasSetup + "\n" +
+                "query.Query(document, view, request, copiedContext);";
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertSingleInvocationArguments(
+                    member,
+                    "query.Query",
+                    "document",
+                    "view",
+                    "request",
+                    "diagnostics"));
+        }
+
+        [Fact]
+        public void SourceContracts_Task8PositivesBindExactMembers()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+
+            AssertNoWholeSourcePositiveContains(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RookBimModuleActivate_InstallsRevitRuntimeFromOptionalAssembly()"),
+                "module");
+            AssertNoWholeSourcePositiveContains(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_UsesRhinoInsideHostContextDispatcherWithoutTransactions()"),
+                "dispatcher");
+            AssertNoWholeSourcePositiveContains(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_RuntimeUsesDispatcherForStatusAndActiveDocument()"),
+                "runtime",
+                "context",
+                "serializer");
+            AssertNoWholeSourcePositiveContains(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_ElementIdSerializationUsesBoundedNullableConversion()"),
+                "serializer");
+            AssertNoWholeSourcePositiveContains(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_DispatchDoesNotMaskFaultedTasksWithAggregateException()"),
+                "runtime");
+            AssertNoWholeSourcePositiveContains(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimModuleSourceTests",
+                    "public void RevitTask7_StatusDispatchFailureKeepsRookBimRuntime()"),
+                "runtime");
+        }
+
+        [Fact]
+        public void SourceContracts_Task9PresetDiagnosticsBindExactExecutableMembers()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimExportPresetSourceTests.cs");
+
+            AssertNoWholeSourceAssertions(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimExportPresetSourceTests",
+                    "public void PresetResolver_ThreadsTheRequestDiagnosticContextThroughEveryCategoryQuery()"));
+            AssertNoWholeSourceAssertions(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimExportPresetSourceTests",
+                    "public void QueryAndPresetExportIdentityPathsRemainUntraced()"));
+            AssertNoWholeSourceAssertions(
+                ExtractSourceMember(
+                    source,
+                    "public class RookBimExportPresetSourceTests",
+                    "public void Runtime_WiresExportPresetThroughResolverAndExportTimeout()"));
+        }
+
+        [Fact]
+        public void SourceContracts_ActiveDocumentResultDoesNotSearchWholeRuntime()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+            var contract = ExtractExecutableMember(
+                source,
+                "public class RookBimModuleSourceTests",
+                "public void RevitTask7_ActiveDocumentResultUsesViewPropertyForCamelCaseContract()");
+
+            Assert.DoesNotContain(", runtime);", contract);
+        }
+
+        [Fact]
+        public void SourceContracts_DispatchTimeoutDoesNotSearchWholeSourceFiles()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+            var contract = ExtractExecutableMember(
+                source,
+                "public class RookBimModuleSourceTests",
+                "public void RevitTask7_DispatchTimeoutAbandonsPendingWork()");
+
+            Assert.DoesNotContain(", dispatcher);", contract);
+            Assert.DoesNotContain(", runtime);", contract);
+        }
+
+        [Fact]
+        public void SourceContracts_SelectionWiringDoesNotUsePrefixExtraction()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+            var contract = ExtractExecutableMember(
+                source,
+                "public class RookBimModuleSourceTests",
+                "public void RevitTask10_RuntimeWiresSelectionThroughDispatcher()");
+
+            Assert.DoesNotContain("ExtractMethod(", contract);
+        }
+
+        [Fact]
+        public void SourceContracts_ElementWiringDoesNotUsePrefixExtraction()
+        {
+            var source = Read(
+                "src/RookBim.Tests/RookBimModuleSourceTests.cs");
+            var contract = ExtractExecutableMember(
+                source,
+                "public class RookBimModuleSourceTests",
+                "public void RevitTask9_RuntimeWiresElementInfoAndParametersThroughDispatcher()");
+
+            Assert.DoesNotContain("ExtractMethod(", contract);
+        }
 
         [Fact]
         public void RookBimProject_TargetsNet48AndReferencesRevitApisPrivately()
@@ -71,36 +960,157 @@ namespace RookBim.Tests
         [Fact]
         public void RookBimModuleActivate_InstallsRevitRuntimeFromOptionalAssembly()
         {
-            var text = Read("src/RookBim/RookBimModule.cs");
+            var module = Read("src/RookBim/RookBimModule.cs");
+            var activate = ExtractExecutableMember(
+                module,
+                ModuleType,
+                "public static void Activate()");
+            var activateSource = ExtractSourceMember(
+                module,
+                ModuleType,
+                "public static void Activate()");
 
-            Assert.Contains("public static class RookBimModule", text);
-            Assert.Contains("public static void Activate()", text);
-            Assert.Contains("IsLoaded(\"RevitAPIUI\")", text);
-            Assert.Contains("IsLoaded(\"RhinoInside.Revit\")", text);
-            Assert.Contains("new RookBimUnavailableRuntime", text);
-            Assert.Contains("\"not_rhino_inside\"", text);
-            Assert.Contains("RookBimRuntimeRegistry.Install", text);
-            Assert.Contains("new RevitRookBimRuntime()", text);
-            Assert.Contains("\"RookBim.dll\"", text);
+            Assert.Equal(2, CountOccurrences(activate, "IsLoaded("));
+            Assert.Contains("IsLoaded(\"RevitAPIUI\")", activateSource);
+            Assert.Contains("IsLoaded(\"RhinoInside.Revit\")", activateSource);
+            Assert.Contains("new RookBimUnavailableRuntime", activate);
+            Assert.Contains("\"not_rhino_inside\"", activateSource);
+            Assert.Contains("RookBimRuntimeRegistry.Install", activate);
+            Assert.Contains("new RevitRookBimRuntime()", activate);
+            Assert.Contains("\"RookBim.dll\"", activateSource);
+        }
+
+        [Fact]
+        public void RookBimModuleActivate_RegistersModuleMetadataBeforeAnyLoadCheck()
+        {
+            var module = Read("src/RookBim/RookBimModule.cs");
+            var activate = ExtractExecutableMember(
+                module,
+                ModuleType,
+                "public static void Activate()");
+
+            Assert.Equal(
+                RemoveWhitespace(
+                    "BimDiagnostics.RegisterModuleMetadata(typeof(RookBimModule).Assembly);"),
+                RemoveWhitespace(FirstExecutableStatement(activate)));
+            Assert.DoesNotContain("InitializeFromEnvironment", activate);
+            Assert.DoesNotContain("GetEnvironmentVariable", activate);
+        }
+
+        [Fact]
+        public void RevitDispatcher_CarriesExplicitContextThroughQueuedWorkItem()
+        {
+            var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
+            var invoke = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "public Task<T> Invoke<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var invokeAbandonable = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var workItemConstructor = ExtractExecutableMember(
+                dispatcher,
+                WorkItemType,
+                "public RevitApiWorkItem(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var execute = ExtractExecutableMember(
+                dispatcher,
+                WorkItemType,
+                "public void Execute()");
+
+            Assert.Contains("InvokeAbandonable(diagnostics, work).Task", invoke);
+            Assert.Contains("new RevitApiWorkItem<T>(diagnostics, work)", invokeAbandonable);
+            Assert.Contains("this.diagnostics = diagnostics", workItemConstructor);
+            Assert.Contains("this.work = work", workItemConstructor);
+            Assert.Contains("BimDiagnosticStage.RevitDispatchExecute", execute);
+            Assert.Contains("work(ActiveUIApplication())", execute);
+            Assert.Contains("BimDiagnostics.ObserveException(", execute);
+            Assert.True(
+                execute.IndexOf("BimDiagnosticOutcome.Start", StringComparison.Ordinal) <
+                execute.IndexOf("work(ActiveUIApplication())", StringComparison.Ordinal));
+            Assert.True(
+                execute.IndexOf("work(ActiveUIApplication())", StringComparison.Ordinal) <
+                execute.IndexOf("BimDiagnosticOutcome.Success", StringComparison.Ordinal));
+
+            var executableDispatcher = ExecutableCode(dispatcher);
+            Assert.DoesNotContain("AsyncLocal", executableDispatcher);
+            Assert.DoesNotContain("[ThreadStatic]", executableDispatcher);
+            Assert.DoesNotContain("ThreadLocal", executableDispatcher);
+            Assert.DoesNotContain("CurrentCorrelation", executableDispatcher);
+            Assert.DoesNotContain("CurrentDiagnostics", executableDispatcher);
+            Assert.DoesNotContain("CurrentContext", executableDispatcher);
+            Assert.DoesNotContain("GlobalCorrelation", executableDispatcher);
+        }
+
+        [Fact]
+        public void RevitDispatcher_ObservesEnqueueAtTheExistingBoundaries()
+        {
+            var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
+            var invoke = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+
+            var startIndex = invoke.IndexOf("BimDiagnosticOutcome.Start", StringComparison.Ordinal);
+            var enqueueIndex = invoke.IndexOf("EnqueueIdlingAction", StringComparison.Ordinal);
+            var successIndex = invoke.IndexOf("BimDiagnosticOutcome.Success", StringComparison.Ordinal);
+            var catchIndex = invoke.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+            var failureIndex = invoke.IndexOf("BimDiagnostics.ObserveException(", StringComparison.Ordinal);
+            var completionIndex = invoke.IndexOf("item.TrySetException(ex);", StringComparison.Ordinal);
+
+            Assert.Contains("BimDiagnosticStage.RevitDispatchEnqueue", invoke);
+            Assert.True(startIndex >= 0 && enqueueIndex > startIndex);
+            Assert.True(successIndex > enqueueIndex && catchIndex > successIndex);
+            Assert.True(failureIndex > catchIndex && completionIndex > failureIndex);
         }
 
         [Fact]
         public void RevitTask7_UsesRhinoInsideHostContextDispatcherWithoutTransactions()
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
+            var revitTypeName = ExtractSourceDirectMember(
+                dispatcher,
+                DispatcherType,
+                "private const string RevitTypeName = \"RhinoInside.Revit.Revit\";");
+            var invokeAbandonable = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var enqueue = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "private static void EnqueueIdlingAction(Action action)");
+            var activeApplication = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "private static UIApplication ActiveUIApplication()");
+            var resolveType = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "private static Type ResolveRhinoInsideType(string typeName)");
+            var completion = ExtractExecutableDirectMember(
+                dispatcher,
+                WorkItemType,
+                "private readonly TaskCompletionSource<T> completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);");
             var revitFiles = Directory
                 .GetFiles(Path.Combine(RepoRoot, "src", "RookBim", "Revit"), "*.cs")
                 .Select(File.ReadAllText);
             var combined = string.Join(Environment.NewLine, revitFiles);
 
-            Assert.Contains("RhinoInside.Revit.Revit", dispatcher);
-            Assert.Contains("EnqueueIdlingAction", dispatcher);
-            Assert.Contains("ActiveUIApplication", dispatcher);
-            Assert.Contains("Type.GetType", dispatcher);
-            Assert.Contains("AppDomain.CurrentDomain", dispatcher);
-            Assert.Contains("TargetInvocationException", dispatcher);
-            Assert.Contains("TaskCompletionSource", dispatcher);
-            Assert.Contains("new Action(item.Execute)", dispatcher);
+            Assert.Equal(
+                "private const string RevitTypeName = \"RhinoInside.Revit.Revit\";",
+                revitTypeName.Trim());
+            Assert.Contains("EnqueueIdlingAction(new Action(item.Execute))", invokeAbandonable);
+            Assert.Contains("ResolveRhinoInsideType(RevitTypeName)", enqueue);
+            Assert.Contains("ResolveRhinoInsideType(RevitTypeName)", activeApplication);
+            Assert.Contains("Type.GetType", resolveType);
+            Assert.Contains("AppDomain.CurrentDomain", resolveType);
+            Assert.Contains("TargetInvocationException", enqueue);
+            Assert.Contains("TargetInvocationException", activeApplication);
+            Assert.Equal(
+                RemoveWhitespace(
+                    "private readonly TaskCompletionSource<T> completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);"),
+                RemoveWhitespace(completion));
             Assert.DoesNotContain("Task.Run", dispatcher);
             Assert.DoesNotContain("ExternalEvent.Create", dispatcher);
             Assert.DoesNotContain("IExternalEventHandler", dispatcher);
@@ -113,83 +1123,452 @@ namespace RookBim.Tests
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
             var context = Read("src/RookBim/Revit/RevitContext.cs");
             var serializer = Read("src/RookBim/Revit/RevitIdentitySerializer.cs");
+            var dispatcherField = ExtractExecutableDirectMember(
+                runtime,
+                RuntimeType,
+                "private readonly RevitApiDispatcher dispatcher;");
+            var dispatch = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private T Dispatch<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var status = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)");
+            var statusSource = ExtractSourceMember(
+                runtime,
+                RuntimeType,
+                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)");
+            var documentContext = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
+            var activeUiDocument = ExtractExecutableMember(
+                context,
+                "public static class RevitContext",
+                "public static UIDocument? ActiveUiDocument(UIApplication uiapp)");
+            var activeDocument = ExtractExecutableMember(
+                context,
+                "public static class RevitContext",
+                "public static Document? ActiveDocument(UIApplication uiapp)");
+            var legacyIdentity = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimDocumentIdentity DocumentIdentity(Document document)");
 
-            Assert.Contains("RevitApiDispatcher", runtime);
-            Assert.Contains("dispatcher.InvokeAbandonable", runtime);
-            Assert.Contains("ActiveDocument(UIApplication", context);
-            Assert.Contains("ActiveUiDocument(UIApplication", context);
-            Assert.Contains("ActiveUIDocument", context);
-            Assert.Contains("GetWorksharingCentralGUID", serializer);
-            Assert.Contains("GuidSource", serializer);
-            Assert.Contains("BimDocumentGuidSource.Unavailable", serializer);
-            Assert.DoesNotContain("PathFallback", serializer);
+            Assert.Equal(
+                RemoveWhitespace("private readonly RevitApiDispatcher dispatcher;"),
+                RemoveWhitespace(dispatcherField));
+            Assert.Contains("dispatcher.InvokeAbandonable", dispatch);
+            Assert.Contains("ActiveUiDocument(uiapp)?.Document", activeDocument);
+            Assert.Contains("uiapp?.ActiveUIDocument", activeUiDocument);
+            Assert.Contains("GetWorksharingCentralGUID(document)", legacyIdentity);
+            Assert.Contains("GuidSource", legacyIdentity);
+            Assert.Contains("BimDocumentGuidSource.Unavailable", legacyIdentity);
+            Assert.DoesNotContain("PathFallback", ExecutableCode(serializer));
 
-            Assert.Contains("Available = true", runtime);
-            Assert.Contains("Runtime = \"rookbim\"", runtime);
-            Assert.Contains("Host = \"revit\"", runtime);
-            Assert.Contains("Module = ModuleName", runtime);
-            Assert.Contains("ErrorCode = \"no_active_document\"", runtime);
-            Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
-            Assert.Contains("409", runtime);
+            Assert.Contains("Available = true", status);
+            Assert.Contains("Runtime = \"rookbim\"", statusSource);
+            Assert.Contains("Host = \"revit\"", statusSource);
+            Assert.Contains("Module = ModuleName", status);
+            Assert.Contains("ErrorCode = \"no_active_document\"", statusSource);
+            Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
+            Assert.Contains("409", documentContext);
         }
 
         [Fact]
         public void RevitTask7_ActiveDocumentResultUsesViewPropertyForCamelCaseContract()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var activeDocument = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)");
+            var viewProperty = ExtractExecutableDirectMember(
+                runtime,
+                "private sealed class ActiveDocumentResult",
+                "public BimViewIdentity? View { get; set; }");
 
-            Assert.Contains("View = SerializeActiveView(uidoc)", runtime);
-            Assert.Contains("public BimViewIdentity? View { get; set; }", runtime);
-            Assert.DoesNotContain("ActiveView = SerializeActiveView(uidoc)", runtime);
-            Assert.DoesNotContain("public BimViewIdentity? ActiveView { get; set; }", runtime);
+            Assert.Contains(
+                "View = SerializeActiveView(uidoc, diagnostics)",
+                activeDocument);
+            Assert.Equal(
+                RemoveWhitespace("public BimViewIdentity? View { get; set; }"),
+                RemoveWhitespace(viewProperty));
+            Assert.DoesNotContain(
+                "ActiveView = SerializeActiveView(uidoc)",
+                activeDocument);
+            Assert.DoesNotContain(
+                "public BimViewIdentity? ActiveView { get; set; }",
+                ExecutableCode(runtime));
         }
 
         [Fact]
         public void RevitRuntime_UsesOnlyActiveGraphicalViewForViewResolution()
         {
-            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var resolve = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private static View? ResolveActiveGraphicalView(UIDocument uidoc, BimQueryScope scope, BimDiagnosticContext diagnostics)");
 
-            Assert.Contains("uidoc.ActiveGraphicalView", runtime);
-            Assert.DoesNotContain("uidoc.ActiveView", runtime);
-            Assert.DoesNotContain("document.ActiveView", runtime);
+            Assert.Contains("uidoc.ActiveGraphicalView", resolve);
+            Assert.DoesNotContain("uidoc.ActiveView", ExecutableCode(runtime));
+            Assert.DoesNotContain("document.ActiveView", ExecutableCode(runtime));
+        }
+
+        [Fact]
+        public void RevitRuntime_ActiveViewProbeHasDisabledFastPathAndNoDocumentScopeViewRead()
+        {
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var resolve = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private static View? ResolveActiveGraphicalView(UIDocument uidoc, BimQueryScope scope, BimDiagnosticContext diagnostics)");
+
+            var documentReturnIndex = resolve.IndexOf(
+                "if (scope != BimQueryScope.ActiveView)", StringComparison.Ordinal);
+            var viewReadIndex = resolve.IndexOf("uidoc.ActiveGraphicalView", StringComparison.Ordinal);
+
+            Assert.True(documentReturnIndex >= 0 && viewReadIndex > documentReturnIndex);
+            Assert.Contains("return null;", resolve);
+            Assert.Contains("return diagnostics.Enabled", resolve);
+            Assert.Contains("BimDiagnosticProbe.Production(", resolve);
+            Assert.Contains("BimDiagnosticStage.RevitViewActiveGraphical", resolve);
+            Assert.Contains("() => uidoc.ActiveGraphicalView", resolve);
+            Assert.Contains(": uidoc.ActiveGraphicalView;", resolve);
+            Assert.Contains("BimDiagnosticDetailCode.NoActiveView", resolve);
+            Assert.Equal(2, CountOccurrences(resolve, "uidoc.ActiveGraphicalView"));
+            Assert.Equal(1, CountOccurrences(resolve, "() => uidoc.ActiveGraphicalView"));
+            Assert.DoesNotContain("uidoc.ActiveView", resolve);
+            Assert.DoesNotContain("document.ActiveView", resolve);
+        }
+
+        [Fact]
+        public void RevitRuntime_CapturesContextBeforeQueueingAndPassesItThroughViewAndIdentity()
+        {
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var dispatch = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private T Dispatch<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var dispatchWithTimeout = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private T DispatchWithTimeout<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work, TimeSpan timeout)");
+            var documentContext = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
+            var activeDocument = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+
+            Assert.True(
+                dispatch.IndexOf("var capturedDiagnostics = diagnostics;", StringComparison.Ordinal) <
+                dispatch.IndexOf(
+                    "dispatcher.InvokeAbandonable(capturedDiagnostics, work)",
+                    StringComparison.Ordinal));
+            Assert.True(
+                dispatchWithTimeout.IndexOf("var capturedDiagnostics = diagnostics;", StringComparison.Ordinal) <
+                dispatchWithTimeout.IndexOf(
+                    "dispatcher.InvokeAbandonable(capturedDiagnostics, work)",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                "return ExecuteInDocumentContext(\n" +
+                "                diagnostics,",
+                activeDocument);
+            Assert.Contains(
+                "DocumentIdentity(\n" +
+                "                            document,\n" +
+                "                            diagnostics,\n" +
+                "                            includeAuxiliaryState: true)",
+                activeDocument);
+            Assert.Contains("SerializeActiveView(uidoc, diagnostics)", activeDocument);
+            Assert.Contains(
+                "return ExecuteInDocumentContext(\n" +
+                "                diagnostics,",
+                queryElements);
+            Assert.Contains(
+                "ResolveActiveGraphicalView(\n" +
+                "                        uidoc, effectiveRequest.EffectiveScope, diagnostics)",
+                queryElements);
+            Assert.Contains("Dispatch(diagnostics, uiapp =>", documentContext);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
+            Assert.Contains("AcquireDocument(uidoc, diagnostics)", documentContext);
+
+            var executableRuntime = ExecutableCode(runtime);
+            Assert.DoesNotContain("AsyncLocal", executableRuntime);
+            Assert.DoesNotContain("[ThreadStatic]", executableRuntime);
+            Assert.DoesNotContain("ThreadLocal", executableRuntime);
+            Assert.DoesNotContain("CurrentCorrelation", executableRuntime);
+            Assert.DoesNotContain("CurrentDiagnostics", executableRuntime);
+            Assert.DoesNotContain("CurrentContext", executableRuntime);
+            Assert.DoesNotContain("GlobalCorrelation", executableRuntime);
+        }
+
+        [Fact]
+        public void RevitRuntime_InstrumentsEveryExistingDocumentAcquisitionWithoutCachingReads()
+        {
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var status = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)");
+            var elementInfo = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)");
+            var parameters = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)");
+            var select = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)");
+            var clear = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)");
+            var preset = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)");
+            var export = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)");
+            var documentContext = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
+            var acquireUiDocument = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private static UIDocument? AcquireActiveUiDocument(UIApplication uiapp, BimDiagnosticContext diagnostics)");
+            var acquireDocument = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private static Document? AcquireDocument(UIDocument uidoc, BimDiagnosticContext diagnostics)");
+            var acquireActiveDocument = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private static Document? AcquireActiveDocument(UIApplication uiapp, BimDiagnosticContext diagnostics)");
+
+            Assert.Equal(1, CountOccurrences(status, "AcquireActiveDocument(uiapp, diagnostics)"));
+            AssertAcquisitionCounts(documentContext, expectedUiDocument: 1, expectedDocument: 2);
+            AssertAcquisitionCounts(elementInfo, expectedUiDocument: 1, expectedDocument: 2);
+            AssertAcquisitionCounts(parameters, expectedUiDocument: 1, expectedDocument: 2);
+            AssertAcquisitionCounts(select, expectedUiDocument: 1, expectedDocument: 1);
+            AssertAcquisitionCounts(clear, expectedUiDocument: 1, expectedDocument: 1);
+            AssertAcquisitionCounts(preset, expectedUiDocument: 1, expectedDocument: 2);
+            AssertAcquisitionCounts(export, expectedUiDocument: 1, expectedDocument: 2);
+
+            AssertDisabledProductionFastPath(
+                acquireUiDocument,
+                "() => RevitContext.ActiveUiDocument(uiapp)",
+                "RevitContext.ActiveUiDocument(uiapp)");
+            AssertDisabledProductionFastPath(
+                acquireDocument,
+                "() => uidoc.Document",
+                "uidoc.Document");
+            AssertDisabledProductionFastPath(
+                acquireActiveDocument,
+                "() => RevitContext.ActiveDocument(uiapp)",
+                "RevitContext.ActiveDocument(uiapp)");
+            Assert.Contains("BimDiagnosticStage.RevitDocumentAcquire", acquireUiDocument);
+            Assert.Contains("BimDiagnosticStage.RevitDocumentAcquire", acquireDocument);
+            Assert.Contains("BimDiagnosticStage.RevitDocumentAcquire", acquireActiveDocument);
+        }
+
+        [Fact]
+        public void RevitIdentitySerializer_DetailedPathPreservesReadOrderAndIndependentWorksharedReads()
+        {
+            var serializer = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
+            var detailed = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimDocumentIdentity DocumentIdentity(Document document, BimDiagnosticContext diagnostics, bool includeAuxiliaryState)");
+            var central = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static Guid? GetWorksharingCentralGUID(Document document, BimDiagnosticContext diagnostics)");
+
+            var centralCall = detailed.IndexOf(
+                "GetWorksharingCentralGUID(document, diagnostics)", StringComparison.Ordinal);
+            var title = detailed.IndexOf("BimDiagnosticStage.RevitDocumentTitle", StringComparison.Ordinal);
+            var path = detailed.IndexOf("BimDiagnosticStage.RevitDocumentPath", StringComparison.Ordinal);
+            var family = detailed.IndexOf("BimDiagnosticStage.RevitDocumentIsFamily", StringComparison.Ordinal);
+            var outputWorkshared = detailed.IndexOf(
+                "BimDiagnosticStage.RevitDocumentOutputIsWorkshared", StringComparison.Ordinal);
+
+            Assert.True(centralCall >= 0 && title > centralCall);
+            Assert.True(path > title && family > path && outputWorkshared > family);
+            Assert.True(
+                central.IndexOf(
+                    "BimDiagnosticStage.RevitDocumentCentralIsWorkshared",
+                    StringComparison.Ordinal) <
+                central.IndexOf(
+                    "BimDiagnosticStage.RevitDocumentCentralGuid",
+                    StringComparison.Ordinal));
+            Assert.Contains("() => document.IsWorkshared", central);
+            Assert.Contains("() => document.IsWorkshared", detailed);
+            Assert.DoesNotContain("IsWorkshared = centralIsWorkshared", detailed);
+            Assert.DoesNotContain("IsWorkshared = isWorkshared", detailed);
+
+            Assert.Equal(1, CountOccurrences(
+                central,
+                "catch (Autodesk.Revit.Exceptions.InapplicableDataException)"));
+            Assert.Equal(1, CountOccurrences(
+                central,
+                "catch (Autodesk.Revit.Exceptions.InvalidOperationException)"));
+            Assert.DoesNotContain("InternalException", central);
+            Assert.DoesNotContain("InternalException", ExecutableCode(serializer));
+        }
+
+        [Fact]
+        public void RevitIdentitySerializer_KeepsOneArgumentElementPathsUntraced()
+        {
+            var serializer = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
+            var untraced = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimDocumentIdentity DocumentIdentity(Document document)");
+            var element = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimElementIdentity ElementIdentity(Element element)");
+            var resolve = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimElementResolveResult Resolve(Document document, BimElementIdentity? identity)");
+
+            Assert.DoesNotContain("BimDiagnostic", untraced);
+            Assert.Contains("DocumentIdentity(document)", element);
+            Assert.Contains("DocumentMatches(DocumentIdentity(document), identity)", resolve);
+            Assert.DoesNotContain("diagnostics", element);
+            Assert.DoesNotContain("diagnostics", resolve);
+        }
+
+        [Fact]
+        public void RevitIdentitySerializer_AuxiliaryStateIsGatedIndependentAndBehaviorNeutral()
+        {
+            var serializer = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitIdentitySerializer.cs"));
+            var detailed = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimDocumentIdentity DocumentIdentity(Document document, BimDiagnosticContext diagnostics, bool includeAuxiliaryState)");
+            var state = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static void ProbeDocumentState(Document document, BimDiagnosticContext diagnostics)");
+            var classify = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static BimDiagnosticDetailCode ClassifyDocumentState(BimAuxiliaryProbeResult<bool> isModelInCloud, BimAuxiliaryProbeResult<bool> isDetached, BimAuxiliaryProbeResult<ModelPath> centralModelPath, BimAuxiliaryProbeResult<bool>? empty, BimAuxiliaryProbeResult<bool>? serverPath, BimAuxiliaryProbeResult<bool>? cloudPath)");
+
+            var dtoIndex = detailed.IndexOf("var result = new BimDocumentIdentity", StringComparison.Ordinal);
+            var probeIndex = detailed.IndexOf("ProbeDocumentState(document, diagnostics);", StringComparison.Ordinal);
+            var returnIndex = detailed.IndexOf("return result;", StringComparison.Ordinal);
+            Assert.True(dtoIndex >= 0 && probeIndex > dtoIndex && returnIndex > probeIndex);
+            Assert.Contains("if (includeAuxiliaryState)", detailed);
+
+            var disabledIndex = state.IndexOf("if (!diagnostics.Enabled)", StringComparison.Ordinal);
+            var firstAuxiliary = state.IndexOf("BimDiagnosticProbe.Auxiliary", StringComparison.Ordinal);
+            Assert.True(disabledIndex >= 0 && firstAuxiliary > disabledIndex);
+            Assert.Contains("return;", state.Substring(disabledIndex, firstAuxiliary - disabledIndex));
+            Assert.DoesNotContain("BimDiagnosticProbe.Production", state);
+            Assert.Contains("() => document.IsModelInCloud", state);
+            Assert.Contains("() => document.IsDetached", state);
+            Assert.Contains("() => document.GetWorksharingCentralModelPath()", state);
+            Assert.Contains("() => modelPath.Empty", state);
+            Assert.Contains("() => modelPath.ServerPath", state);
+            Assert.Contains("() => modelPath.CloudPath", state);
+            Assert.Equal(6, CountOccurrences(state, "BimDiagnosticProbe.Auxiliary"));
+            Assert.Equal(1, CountOccurrences(state, "GetWorksharingCentralModelPath()"));
+            Assert.DoesNotContain("document.Title", state);
+            Assert.DoesNotContain("document.PathName", state);
+            Assert.DoesNotContain("CentralServerPath", state);
+
+            var unknownGateIndex = classify.IndexOf(
+                "if (!isModelInCloud.Known ||", StringComparison.Ordinal);
+            var detachedIndex = classify.IndexOf(
+                "return BimDiagnosticDetailCode.Detached;", StringComparison.Ordinal);
+            Assert.True(unknownGateIndex >= 0 && detachedIndex > unknownGateIndex);
+            Assert.Contains("!isDetached.Known", classify);
+            Assert.Contains("!centralModelPath.Known", classify);
+            Assert.Contains("!empty.HasValue || !empty.Value.Known", classify);
+            Assert.Contains("!serverPath.HasValue || !serverPath.Value.Known", classify);
+            Assert.Contains("!cloudPath.HasValue || !cloudPath.Value.Known", classify);
         }
 
         [Fact]
         public void RevitRuntime_ResolvesGraphicalViewOnlyWhenTheOperationRequiresIt()
         {
-            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
-            var exportPreset = ExtractMethod(runtime, "public BimApiResponse ExportPreset(");
-            var exportElements = ExtractMethod(runtime, "public BimApiResponse ExportElements(");
-            var resolveView = ExtractMethod(runtime, "private static View? ResolveActiveGraphicalView(");
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var exportPreset = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)");
+            var exportElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)");
+            var resolveView = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private static View? ResolveActiveGraphicalView(UIDocument uidoc, BimQueryScope scope, BimDiagnosticContext diagnostics)");
 
-            var activeScopeIndex = resolveView.IndexOf(
-                "scope == BimQueryScope.ActiveView",
+            var scopeGateIndex = resolveView.IndexOf(
+                "scope != BimQueryScope.ActiveView",
+                StringComparison.Ordinal);
+            var noViewIndex = resolveView.IndexOf(
+                "return null;",
+                scopeGateIndex,
                 StringComparison.Ordinal);
             var activeViewIndex = resolveView.IndexOf("uidoc.ActiveGraphicalView", StringComparison.Ordinal);
-            var nullIndex = resolveView.IndexOf("null", activeViewIndex, StringComparison.Ordinal);
-            Assert.True(activeScopeIndex >= 0 && activeScopeIndex < activeViewIndex && activeViewIndex < nullIndex);
-            Assert.Contains("?", resolveView.Substring(activeScopeIndex, activeViewIndex - activeScopeIndex));
-            Assert.Contains(":", resolveView.Substring(activeViewIndex, nullIndex - activeViewIndex));
+            Assert.True(
+                scopeGateIndex >= 0 &&
+                noViewIndex > scopeGateIndex &&
+                activeViewIndex > noViewIndex);
 
             Assert.Contains(
-                "ResolveActiveGraphicalView(uidoc, effectiveRequest.EffectiveScope)",
+                "effectiveRequest.EffectiveScope, diagnostics",
                 queryElements);
             Assert.Contains(
-                "ResolveActiveGraphicalView(uidoc, request.EffectiveScope)",
+                "request.EffectiveScope, diagnostics",
                 exportPreset);
             Assert.Contains(
-                "request.HasSelector\n" +
-                "                            ? ResolveActiveGraphicalView(uidoc, request.Selector!.EffectiveScope)\n" +
-                "                            : null",
-                NormalizeLineEndings(exportElements));
+                "request.Selector!.EffectiveScope, diagnostics",
+                exportElements);
 
-            var presetBoundary = ExtractTryCatchAfter(exportPreset, "var document = uidoc.Document;");
+            var presetBoundary = ExtractTryCatchAfter(
+                exportPreset,
+                "var document = AcquireDocument(uidoc, diagnostics)!;");
             Assert.Contains("ResolveActiveGraphicalView", presetBoundary.Item1);
             Assert.Contains("presetResolver.Resolve", presetBoundary.Item1);
             Assert.Contains("BimErrorCode.ExportFailed", presetBoundary.Item2);
 
-            var exportBoundary = ExtractTryCatchAfter(exportElements, "var document = uidoc.Document;");
+            var exportBoundary = ExtractTryCatchAfter(
+                exportElements,
+                "var document = AcquireDocument(uidoc, diagnostics)!;");
             Assert.Contains("ResolveActiveGraphicalView", exportBoundary.Item1);
             Assert.Contains("export.Export(document, view, request)", exportBoundary.Item1);
             Assert.Contains("BimErrorCode.ExportFailed", exportBoundary.Item2);
@@ -199,16 +1578,19 @@ namespace RookBim.Tests
         public void RevitRuntime_QueryElementsNormalizesNullBeforeResolvingViewScope()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
 
             var defaultIndex = queryElements.IndexOf(
                 "var effectiveRequest = request ?? new BimQueryElementsRequest();",
                 StringComparison.Ordinal);
             var viewIndex = queryElements.IndexOf(
-                "ResolveActiveGraphicalView(uidoc, effectiveRequest.EffectiveScope)",
+                "effectiveRequest.EffectiveScope, diagnostics",
                 StringComparison.Ordinal);
             var queryIndex = queryElements.IndexOf(
-                "query.Query(document, view, effectiveRequest)",
+                "query.Query(document, view, effectiveRequest, diagnostics)",
                 StringComparison.Ordinal);
 
             Assert.True(defaultIndex >= 0 && defaultIndex < viewIndex && viewIndex < queryIndex);
@@ -218,24 +1600,50 @@ namespace RookBim.Tests
         public void RevitRuntime_ActiveDocumentSerializesItsViewInsideTheOperationBoundary()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var activeDocument = ExtractMethod(runtime, "public BimApiResponse ActiveDocument(");
+            var activeDocument = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)");
 
             Assert.Contains("return ExecuteInDocumentContext", activeDocument);
-            Assert.Contains("View = SerializeActiveView(uidoc)", activeDocument);
+            Assert.Contains("View = SerializeActiveView(uidoc, diagnostics)", activeDocument);
         }
 
         [Fact]
         public void RevitTask7_ElementIdSerializationUsesBoundedNullableConversion()
         {
             var serializer = Read("src/RookBim/Revit/RevitIdentitySerializer.cs");
+            var invalidElementId = ExtractExecutableDirectMember(
+                serializer,
+                IdentitySerializerType,
+                "private const int InvalidElementIdValue = -1;");
+            var viewIdentity = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimViewIdentity ViewIdentity(View view)");
+            var elementIdentity = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "public static BimElementIdentity ElementIdentity(Element element)");
+            var toInt32OrNull = ExtractExecutableMember(
+                serializer,
+                IdentitySerializerType,
+                "private static int? ToInt32OrNull(ElementId? id)");
 
-            Assert.Contains("private const int InvalidElementIdValue = -1;", serializer);
-            Assert.Contains("Id = ToInt32OrNull(view.Id) ?? InvalidElementIdValue", serializer);
-            Assert.Contains("ElementId = ToInt32OrNull(element.Id)", serializer);
-            Assert.Contains("private static int? ToInt32OrNull(ElementId? id)", serializer);
-            Assert.Contains("if (value < int.MinValue || value > int.MaxValue)", serializer);
-            Assert.Contains("return null;", serializer);
-            Assert.DoesNotContain("Convert.ToInt32", serializer);
+            Assert.Equal(
+                RemoveWhitespace("private const int InvalidElementIdValue = -1;"),
+                RemoveWhitespace(invalidElementId));
+            Assert.Contains(
+                "Id = ToInt32OrNull(view.Id) ?? InvalidElementIdValue",
+                viewIdentity);
+            Assert.Contains(
+                "ElementId = ToInt32OrNull(element.Id)",
+                elementIdentity);
+            Assert.Contains(
+                "if (value < int.MinValue || value > int.MaxValue)",
+                toInt32OrNull);
+            Assert.Contains("return null;", toInt32OrNull);
+            Assert.DoesNotContain("Convert.ToInt32", ExecutableCode(serializer));
         }
 
         [Fact]
@@ -243,37 +1651,69 @@ namespace RookBim.Tests
         {
             var dispatcher = Read("src/RookBim/Revit/RevitApiDispatcher.cs");
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var invokeAbandonable = ExtractExecutableMember(
+                dispatcher,
+                DispatcherType,
+                "internal RevitApiDispatch<T> InvokeAbandonable<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var abandon = ExtractExecutableMember(
+                dispatcher,
+                "internal sealed class RevitApiDispatch<T>",
+                "public bool Abandon()");
+            var execute = ExtractExecutableMember(
+                dispatcher,
+                WorkItemType,
+                "public void Execute()");
+            var tryAbandon = ExtractExecutableMember(
+                dispatcher,
+                WorkItemType,
+                "public bool TryAbandon()");
+            var dispatchWithTimeout = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private T DispatchWithTimeout<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work, TimeSpan timeout)");
 
-            Assert.Contains("InvokeAbandonable", dispatcher);
-            Assert.Contains("public bool Abandon()", dispatcher);
-            Assert.Contains("TryAbandon()", dispatcher);
-            Assert.Contains("CompareExchange(ref state, Running, Pending)", dispatcher);
-            Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", dispatcher);
-            Assert.Contains("TrySetCanceled", dispatcher);
-            Assert.Contains("var dispatch = dispatcher.InvokeAbandonable(work);", runtime);
-            Assert.Contains("dispatch.Abandon();", runtime);
-            Assert.Contains("throw new TimeoutException", runtime);
-            Assert.Contains("Timed out waiting for RhinoInside Revit idling-queue execution.", runtime);
-            Assert.DoesNotContain("Timed out waiting for Revit ExternalEvent execution.", runtime);
+            Assert.Contains(
+                "var dispatch = dispatcher.InvokeAbandonable(capturedDiagnostics, work);",
+                dispatchWithTimeout);
+            Assert.Contains("new RevitApiWorkItem<T>(diagnostics, work)", invokeAbandonable);
+            Assert.Contains("item.TryAbandon", invokeAbandonable);
+            Assert.Contains("return abandon();", abandon);
+            Assert.Contains("CompareExchange(ref state, Running, Pending)", execute);
+            Assert.Contains("CompareExchange(ref state, Abandoned, Pending)", tryAbandon);
+            Assert.Contains("completion.TrySetCanceled();", tryAbandon);
+            Assert.Contains("dispatch.Abandon();", dispatchWithTimeout);
+            Assert.Contains("throw new TimeoutException(", dispatchWithTimeout);
+            Assert.DoesNotContain("ExternalEvent", ExecutableCode(runtime));
         }
 
         [Fact]
         public void RevitTask7_DispatchDoesNotMaskFaultedTasksWithAggregateException()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var dispatch = ExtractMethod(runtime, "private T Dispatch<T>(");
+            var dispatch = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private T Dispatch<T>(BimDiagnosticContext diagnostics, Func<UIApplication, T> work)");
+            var describeException = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private static string DescribeDispatchException(Exception ex)");
 
             Assert.DoesNotContain(".Wait(DispatchTimeout)", dispatch);
             Assert.Contains("Task.WaitAny", dispatch);
             Assert.Contains("dispatch.Task.GetAwaiter().GetResult();", dispatch);
-            Assert.Contains("DescribeDispatchException", runtime);
-            Assert.Contains("AggregateException", runtime);
+            Assert.Contains("AggregateException", describeException);
+            Assert.Contains("aggregate.Flatten()", describeException);
         }
 
         [Fact]
         public void RevitTask7_StatusDispatchFailureKeepsRookBimRuntime()
         {
             var runtime = NormalizeLineEndings(Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var status = ExtractSourceMember(
+                runtime,
+                RuntimeType,
+                "public BimStatusResponse Status(BimDiagnosticContext diagnostics)");
 
             Assert.Contains(
                 "catch (Exception ex)\n" +
@@ -288,18 +1728,23 @@ namespace RookBim.Tests
                 "                    Module = ModuleName\n" +
                 "                };\n" +
                 "            }",
-                runtime);
-            Assert.DoesNotContain("Runtime = \"unavailable\"", runtime);
+                status);
+            Assert.DoesNotContain("Runtime = \"unavailable\"", status);
         }
 
         [Fact]
         public void RevitTask10_SelectionServiceUsesResolvedIdentitiesAndUiSelectionOnly()
         {
             var service = Read("src/RookBim/Revit/RevitSelectionService.cs");
-            var select = ExtractMethod(service, "public BimApiResponse Select(");
-            var clear = ExtractMethod(service, "public BimApiResponse Clear(");
+            var select = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitSelectionService",
+                "public BimApiResponse Select(UIDocument uiDocument, BimSelectElementsRequest? request)");
+            var clear = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitSelectionService",
+                "public BimApiResponse Clear(UIDocument uiDocument)");
 
-            Assert.Contains("internal sealed class RevitSelectionService", service);
             Assert.Contains("if (request == null || request.Identities == null || request.Identities.Count == 0)", select);
             Assert.Contains("BimErrorCode.InvalidScope", select);
             Assert.True(
@@ -315,24 +1760,40 @@ namespace RookBim.Tests
             Assert.Contains("document = RevitIdentitySerializer.DocumentIdentity(uiDocument.Document)", select);
             Assert.Contains("uiDocument.Selection.SetElementIds(new List<ElementId>())", clear);
             Assert.Contains("selectedCount = 0", clear);
-            Assert.DoesNotContain("Transaction", service);
-            Assert.DoesNotContain("OverrideGraphicSettings", service);
-            Assert.DoesNotContain("TemporaryView", service);
+            Assert.DoesNotContain("Transaction", ExecutableCode(service));
+            Assert.DoesNotContain("OverrideGraphicSettings", ExecutableCode(service));
+            Assert.DoesNotContain("TemporaryView", ExecutableCode(service));
         }
 
         [Fact]
         public void RevitTask10_RuntimeWiresSelectionThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var select = ExtractMethod(runtime, "public BimApiResponse SelectElements(");
-            var clear = ExtractMethod(runtime, "public BimApiResponse ClearSelection(");
+            var selectionField = ExtractExecutableDirectMember(
+                runtime,
+                RuntimeType,
+                "private readonly RevitSelectionService selection;");
+            var constructor = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "internal RevitRookBimRuntime(RevitApiDispatcher dispatcher)");
+            var select = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)");
+            var clear = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)");
 
-            Assert.Contains("private readonly RevitSelectionService selection;", runtime);
-            Assert.Contains("this.selection = new RevitSelectionService();", runtime);
-            Assert.Contains("return Dispatch(uiapp =>", select);
-            Assert.Contains("return Dispatch(uiapp =>", clear);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", select);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", clear);
+            Assert.Equal(
+                RemoveWhitespace("private readonly RevitSelectionService selection;"),
+                RemoveWhitespace(selectionField));
+            Assert.Contains("this.selection = new RevitSelectionService();", constructor);
+            Assert.Contains("return Dispatch(diagnostics, uiapp =>", select);
+            Assert.Contains("return Dispatch(diagnostics, uiapp =>", clear);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", select);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", clear);
             Assert.Contains("BimErrorCode.NoActiveDocument", select);
             Assert.Contains("BimErrorCode.NoActiveDocument", clear);
             Assert.Contains("selection.Select(uidoc, request)", select);
@@ -345,9 +1806,15 @@ namespace RookBim.Tests
         public void RevitCategoryResolver_UsesLiveDocumentCategoryTableAsAuthority()
         {
             var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
+            var liveCategories = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static LiveCategoryTable LiveCategories(Document document, BimDiagnosticContext diagnostics)");
 
-            Assert.Contains("internal sealed class RevitCategoryResolver", resolver);
-            Assert.Contains("document.Settings.Categories", resolver);
+            Assert.Contains("BimDiagnosticEnumerator.ForEach<Category>", liveCategories);
+            Assert.Contains("TryBuildCategoryEntry", liveCategories);
+            Assert.Contains("SkippedCount", liveCategories);
+            Assert.Contains("DegradedCount", liveCategories);
             Assert.Contains("BimCategoryResolution", resolver);
             Assert.Contains("BimCategoryResolutionStrategy.BuiltInExact", resolver);
             Assert.Contains("BimCategoryResolutionStrategy.CategoryIdExact", resolver);
@@ -363,17 +1830,14 @@ namespace RookBim.Tests
             Assert.Contains("private static int EditDistance(", resolver);
             Assert.Contains("OrderBy(candidate => candidate.Rank)", resolver);
             Assert.Contains("TryGetBuiltInCategory", resolver);
-            Assert.Contains("TryBuildCategoryEntry", resolver);
             Assert.Contains("SafeCategoryId", resolver);
             Assert.Contains("SafeCategoryName", resolver);
             Assert.Contains("SafeCategoryType", resolver);
             Assert.Contains("catch (Autodesk.Revit.Exceptions.InternalException)", resolver);
             Assert.Contains("catch (Autodesk.Revit.Exceptions.InvalidOperationException)", resolver);
-            Assert.Contains("SkippedCount", resolver);
-            Assert.Contains("DegradedCount", resolver);
             Assert.Contains("Diagnostics", resolver);
-            Assert.Contains("RecordSkip", resolver);
-            Assert.Contains("RecordDegradation", resolver);
+            Assert.Contains("RecordSkip", liveCategories);
+            Assert.Contains("RecordDegradation", liveCategories);
             Assert.Contains("SafeBuiltInCategory", resolver);
             Assert.Contains("ResolveBuiltIn(document, builtIn)", resolver);
             Assert.DoesNotContain("BuiltInsByCategoryId", resolver);
@@ -383,10 +1847,190 @@ namespace RookBim.Tests
         }
 
         [Fact]
+        public void RevitCategoryResolver_ProbesCategoryMapAndDelegatesAllTraversal()
+        {
+            var resolver = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitCategoryResolver.cs"));
+            var liveCategories = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static LiveCategoryTable LiveCategories(Document document, BimDiagnosticContext diagnostics)");
+
+            Assert.Contains("var settings = diagnostics.Enabled", liveCategories);
+            Assert.Contains("BimDiagnosticStage.RevitCategoriesSettings", liveCategories);
+            Assert.Contains("() => document.Settings", liveCategories);
+            Assert.Contains(": document.Settings;", liveCategories);
+            Assert.Equal(2, CountOccurrences(liveCategories, "document.Settings"));
+            Assert.Equal(1, CountOccurrences(liveCategories, "() => document.Settings"));
+
+            Assert.Contains("var categoryMap = diagnostics.Enabled", liveCategories);
+            Assert.Contains("BimDiagnosticStage.RevitCategoriesCollection", liveCategories);
+            Assert.Contains("() => settings.Categories", liveCategories);
+            Assert.Contains(": settings.Categories;", liveCategories);
+            Assert.Equal(2, CountOccurrences(liveCategories, "settings.Categories"));
+            Assert.Equal(1, CountOccurrences(liveCategories, "() => settings.Categories"));
+            Assert.Equal(2, CountOccurrences(liveCategories, "BimDiagnosticFields.None"));
+
+            Assert.Contains(
+                "BimDiagnosticEnumerator.ForEach<Category>(",
+                liveCategories);
+            Assert.Contains("diagnostics,", liveCategories);
+            Assert.Contains("categoryMap,", liveCategories);
+            Assert.Contains("(category, itemIndex) =>", liveCategories);
+            Assert.Contains(
+                "TryBuildCategoryEntry(category, diagnostics, itemIndex, out var entry)",
+                liveCategories);
+            Assert.DoesNotContain("foreach", liveCategories);
+            Assert.DoesNotContain("GetEnumerator", liveCategories);
+            Assert.DoesNotContain("MoveNext", liveCategories);
+            Assert.DoesNotContain("Dispose", liveCategories);
+            Assert.DoesNotContain("finally", liveCategories);
+            Assert.DoesNotContain("catch", liveCategories);
+        }
+
+        [Fact]
+        public void RevitCategoryResolver_IsolatesEachCategoryPropertyWithOnlyTheItemIndex()
+        {
+            var resolver = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitCategoryResolver.cs"));
+            var buildEntry = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static bool TryBuildCategoryEntry(Category category, BimDiagnosticContext diagnostics, long itemIndex, out CategoryEntry entry)");
+            var safeId = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static int? SafeCategoryId(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
+            var safeName = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static string? SafeCategoryName(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
+            var safeBuiltIn = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static string? SafeBuiltInCategory(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
+            var safeType = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "private static string? SafeCategoryType(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
+
+            Assert.Contains("SafeCategoryId(category, diagnostics, itemIndex)", buildEntry);
+            Assert.Contains("SafeCategoryName(category, diagnostics, itemIndex)", buildEntry);
+            Assert.Contains("SafeBuiltInCategory(category, diagnostics, itemIndex)", buildEntry);
+            Assert.Contains("SafeCategoryType(category, diagnostics, itemIndex)", buildEntry);
+
+            AssertCategoryPropertyProbe(
+                safeId,
+                "BimDiagnosticStage.RevitCategoryId",
+                "() => ToInt32OrNull(category.Id)",
+                "ToInt32OrNull(category.Id)");
+            AssertCategoryPropertyProbe(
+                safeName,
+                "BimDiagnosticStage.RevitCategoryName",
+                "() => category.Name",
+                "category.Name");
+            AssertCategoryPropertyProbe(
+                safeBuiltIn,
+                "BimDiagnosticStage.RevitCategoryBuiltIn",
+                "() => category.BuiltInCategory",
+                "category.BuiltInCategory");
+            AssertCategoryPropertyProbe(
+                safeType,
+                "BimDiagnosticStage.RevitCategoryType",
+                "() => category.CategoryType.ToString()",
+                "category.CategoryType.ToString()");
+        }
+
+        [Fact]
+        public void RevitCategoryResolver_ThreadsContextAndLimitsDetailedIdentityToCategoryResults()
+        {
+            var resolver = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitCategoryResolver.cs"));
+            var runtime = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitRookBimRuntime.cs"));
+            var service = NormalizeLineEndings(
+                Read("src/RookBim/Revit/RevitQueryService.cs"));
+            var list = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "public BimListCategoriesResult List(Document document, BimDiagnosticContext diagnostics)");
+            var resolve = ExtractExecutableMember(
+                resolver,
+                CategoryResolverType,
+                "public BimCategoryResolution Resolve(Document document, string? input, BimDiagnosticContext diagnostics)");
+            var listCategories = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var query = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
+            var untracedQuery = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)");
+            var buildResult = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+
+            AssertSingleInvocationArguments(
+                list,
+                "LiveCategories",
+                "document",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                resolve,
+                "LiveCategories",
+                "document",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                list,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document",
+                "diagnostics",
+                "includeAuxiliaryState:false");
+            AssertSingleInvocationArguments(
+                resolve,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document",
+                "diagnostics",
+                "includeAuxiliaryState:false");
+            AssertSingleInvocationArguments(
+                listCategories,
+                "categories.List",
+                "document",
+                "diagnostics");
+            AssertTask9QueryElementsCallContract(queryElements);
+            AssertSingleInvocationArguments(
+                query,
+                "categories.Resolve",
+                "document",
+                "categoryName",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                FirstExecutableStatement(untracedQuery),
+                "Query",
+                "document",
+                "activeView",
+                "request",
+                "BimDiagnosticContext.Disabled");
+            AssertTask9BuildResultIdentityCallContract(buildResult);
+        }
+
+        [Fact]
         public void RevitCategoryResolver_TreatsInvalidBuiltInAsUnavailable()
         {
             var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
-            var safeBuiltIn = ExtractMethod(resolver, "private static string? SafeBuiltInCategory(");
+            var safeBuiltIn = ExtractExecutableMember(
+                resolver,
+                "internal sealed class RevitCategoryResolver",
+                "private static string? SafeBuiltInCategory(Category category, BimDiagnosticContext diagnostics, long itemIndex)");
 
             Assert.Contains("builtIn == BuiltInCategory.INVALID", safeBuiltIn);
             Assert.Contains("return null;", safeBuiltIn);
@@ -396,7 +2040,10 @@ namespace RookBim.Tests
         public void RevitCategoryResolver_CatchesRevitInvalidOperationDuringExplicitBuiltInLookup()
         {
             var resolver = Read("src/RookBim/Revit/RevitCategoryResolver.cs");
-            var tryGetBuiltIn = ExtractMethod(resolver, "private static bool TryGetBuiltInCategory(");
+            var tryGetBuiltIn = ExtractExecutableMember(
+                resolver,
+                "internal sealed class RevitCategoryResolver",
+                "private static bool TryGetBuiltInCategory(Document document, BuiltInCategory builtIn, out Category category)");
 
             Assert.Contains("catch (Autodesk.Revit.Exceptions.InvalidOperationException)", tryGetBuiltIn);
         }
@@ -405,26 +2052,55 @@ namespace RookBim.Tests
         public void RevitRuntime_WiresListCategoriesThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var listCategories = ExtractMethod(runtime, "public BimApiResponse ListCategories(");
+            var categoriesField = ExtractExecutableDirectMember(
+                runtime,
+                RuntimeType,
+                "private readonly RevitCategoryResolver categories;");
+            var constructor = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "internal RevitRookBimRuntime(RevitApiDispatcher dispatcher)");
+            var listCategories = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)");
+            var documentContext = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
 
-            Assert.Contains("private readonly RevitCategoryResolver categories;", runtime);
-            Assert.Contains("this.categories = new RevitCategoryResolver();", runtime);
+            Assert.Equal(
+                RemoveWhitespace("private readonly RevitCategoryResolver categories;"),
+                RemoveWhitespace(categoriesField));
+            Assert.Contains("this.categories = new RevitCategoryResolver();", constructor);
             Assert.Contains("return ExecuteInDocumentContext", listCategories);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", runtime);
-            Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
-            Assert.Contains("categories.List(document)", runtime);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
+            Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
+            AssertSingleInvocationArguments(
+                listCategories,
+                "categories.List",
+                "document",
+                "diagnostics");
             Assert.DoesNotContain("BimErrorCode.NotRhinoInside", listCategories);
-            Assert.Contains("BimErrorCode.InternalError", runtime);
+            Assert.Contains("BimErrorCode.InternalError", documentContext);
         }
 
         [Fact]
         public void RevitQueryService_UsesCategoryResolverAndReturnsResolutionEvidence()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
-            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var query = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
 
             Assert.Contains("private readonly RevitCategoryResolver categories", service);
-            Assert.Contains("categories.Resolve(document, categoryName)", query);
+            AssertSingleInvocationArguments(
+                query,
+                "categories.Resolve",
+                "document",
+                "categoryName",
+                "diagnostics");
             Assert.Contains("BimErrorCode.AmbiguousCategory", query);
             Assert.Contains("BimErrorCode.CategoryNotQueryable", query);
             Assert.Contains("Data = new { resolution = resolution }", service);
@@ -439,13 +2115,19 @@ namespace RookBim.Tests
         public void RevitTask9_RuntimeWiresElementInfoAndParametersThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var elementInfo = ExtractMethod(runtime, "public BimApiResponse ElementInfo(");
-            var elementParameters = ExtractMethod(runtime, "public BimApiResponse ElementParameters(");
+            var elementInfo = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)");
+            var elementParameters = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)");
 
-            Assert.Contains("return Dispatch(uiapp =>", elementInfo);
-            Assert.Contains("return Dispatch(uiapp =>", elementParameters);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", elementInfo);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", elementParameters);
+            Assert.Contains("return Dispatch(diagnostics, uiapp =>", elementInfo);
+            Assert.Contains("return Dispatch(diagnostics, uiapp =>", elementParameters);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", elementInfo);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", elementParameters);
             Assert.Contains("ResolveElementOrFailure(document, request?.Identity)", elementInfo);
             Assert.Contains("ResolveElementOrFailure(document, request?.Identity)", elementParameters);
             Assert.Contains("BuildElementInfo(document, resolved.Element!)", elementInfo);
@@ -504,14 +2186,31 @@ namespace RookBim.Tests
         public void RevitTask8_RuntimeWiresOnlyQueryElementsThroughDispatcher()
         {
             var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
-            var queryElements = ExtractMethod(runtime, "public BimApiResponse QueryElements(");
+            var queryField = ExtractExecutableDirectMember(
+                runtime,
+                RuntimeType,
+                "private readonly RevitQueryService query;");
+            var constructor = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "internal RevitRookBimRuntime(RevitApiDispatcher dispatcher)");
+            var queryElements = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)");
+            var documentContext = ExtractExecutableMember(
+                runtime,
+                RuntimeType,
+                "private BimApiResponse ExecuteInDocumentContext(BimDiagnosticContext diagnostics, string operation, Func<UIDocument, Document, BimApiResponse> work)");
 
-            Assert.Contains("private readonly RevitQueryService query;", runtime);
-            Assert.Contains("this.query = new RevitQueryService();", runtime);
+            Assert.Equal(
+                RemoveWhitespace("private readonly RevitQueryService query;"),
+                RemoveWhitespace(queryField));
+            Assert.Contains("this.query = new RevitQueryService();", constructor);
             Assert.Contains("return ExecuteInDocumentContext", queryElements);
-            Assert.Contains("RevitContext.ActiveUiDocument(uiapp)", runtime);
-            Assert.Contains("BimErrorCode.NoActiveDocument", runtime);
-            Assert.Contains("query.Query(document, view, effectiveRequest)", queryElements);
+            Assert.Contains("AcquireActiveUiDocument(uiapp, diagnostics)", documentContext);
+            Assert.Contains("BimErrorCode.NoActiveDocument", documentContext);
+            AssertTask9QueryElementsCallContract(queryElements);
             Assert.DoesNotContain("LaterToolUnavailable", queryElements);
         }
 
@@ -519,7 +2218,10 @@ namespace RookBim.Tests
         public void RevitTask8_QueryServiceUsesBoundedCollectorsAndEffectiveFilters()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
-            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var query = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
             var validationIndex = query.IndexOf("var validation = request.Validate();", StringComparison.Ordinal);
             var collectorIndex = query.IndexOf("new FilteredElementCollector", StringComparison.Ordinal);
 
@@ -541,7 +2243,10 @@ namespace RookBim.Tests
         public void RevitTask8_QueryServicePreflightsAmbiguousParametersAcrossCandidateSet()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
-            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var query = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
             var preflightIndex = query.IndexOf("PreflightFilterParameterAmbiguity(document, candidates, filters)", StringComparison.Ordinal);
             var filterIndex = query.IndexOf("MatchesAllFilters(element, document, filters, missingCounts)", StringComparison.Ordinal);
 
@@ -561,13 +2266,20 @@ namespace RookBim.Tests
         public void RevitTask8_QueryServiceCapsUnfilteredCollectionBeforeFullMaterialization()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
-            var query = ExtractMethod(service, "public BimApiResponse Query(");
+            var query = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
+            var collect = ExtractExecutableMember(
+                service,
+                "internal sealed class RevitQueryService",
+                "private static CappedElementCollection CollectUnfilteredResults(FilteredElementCollector collector, int limit)");
 
             Assert.Contains("if (filters.Count == 0)", query);
             Assert.Contains("CollectUnfilteredResults(collector, request.EffectiveLimit)", query);
             Assert.Contains("return BimApiResponse.Ok(BuildResult(", query);
             Assert.Contains("limit + 1", service);
-            Assert.Contains("break;", ExtractMethod(service, "private static CappedElementCollection CollectUnfilteredResults("));
+            Assert.Contains("break;", collect);
         }
 
         [Fact]
@@ -591,8 +2303,17 @@ namespace RookBim.Tests
         public void RevitTask8_QueryServiceAcceptsDisplayNamePluralCategories()
         {
             var service = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var query = ExtractExecutableMember(
+                service,
+                QueryServiceType,
+                "public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request, BimDiagnosticContext diagnostics)");
 
-            Assert.Contains("categories.Resolve(document, categoryName)", service);
+            AssertSingleInvocationArguments(
+                query,
+                "categories.Resolve",
+                "document",
+                "categoryName",
+                "diagnostics");
             Assert.DoesNotContain("NormalizeCategoryCandidate", service);
             Assert.DoesNotContain("TrimTrailingPluralS", service);
             Assert.DoesNotContain("ResolveBuiltInCategory", service);
@@ -678,22 +2399,894 @@ namespace RookBim.Tests
             return value.Replace("\r\n", "\n");
         }
 
-        private static string ExtractMethod(string source, string signatureStartText)
+        private static int CountOccurrences(string source, string value)
         {
-            var signatureStart = source.IndexOf(
-                signatureStartText,
-                StringComparison.Ordinal);
-            if (signatureStart < 0)
-                throw new InvalidOperationException(
-                    "Method not found: " + signatureStartText);
+            var count = 0;
+            var index = 0;
+            while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += value.Length;
+            }
 
-            var bodyStart = source.IndexOf('{', signatureStart);
-            if (bodyStart < 0)
-                throw new InvalidOperationException(
-                    "Method body not found: " + signatureStartText);
+            return count;
+        }
 
-            var bodyEnd = FindMatchingBrace(source, bodyStart);
-            return source.Substring(signatureStart, bodyEnd - signatureStart + 1);
+        private static void AssertAcquisitionCounts(
+            string source,
+            int expectedUiDocument,
+            int expectedDocument)
+        {
+            Assert.Equal(
+                expectedUiDocument,
+                CountOccurrences(source, "AcquireActiveUiDocument(uiapp, diagnostics)"));
+            Assert.Equal(
+                expectedDocument,
+                CountOccurrences(source, "AcquireDocument(uidoc, diagnostics)"));
+        }
+
+        private static void AssertDisabledProductionFastPath(
+            string source,
+            string enabledExpression,
+            string directExpression)
+        {
+            Assert.Contains("return diagnostics.Enabled", source);
+            Assert.Contains("BimDiagnosticProbe.Production(", source);
+            Assert.Contains(enabledExpression, source);
+            Assert.Contains(": " + directExpression + ";", source);
+            Assert.Equal(2, CountOccurrences(source, directExpression));
+            Assert.Equal(1, CountOccurrences(source, enabledExpression));
+        }
+
+        private static void AssertCategoryPropertyProbe(
+            string source,
+            string stage,
+            string enabledExpression,
+            string directExpression)
+        {
+            var compact = RemoveWhitespace(source);
+            var fields = RemoveWhitespace(
+                "new BimDiagnosticFields(BimDiagnosticDetailCode.None, itemIndex, " +
+                "BimDiagnosticFailureImpact.Production)");
+
+            Assert.Contains("diagnostics.Enabled", source);
+            Assert.Contains("BimDiagnosticProbe.Production(", source);
+            Assert.Contains(stage, source);
+            Assert.Contains(enabledExpression, source);
+            Assert.Contains(": " + directExpression + ";", source);
+            Assert.Equal(2, CountOccurrences(source, directExpression));
+            Assert.Equal(1, CountOccurrences(source, enabledExpression));
+            Assert.Equal(1, CountOccurrences(compact, fields));
+            Assert.Equal(1, CountOccurrences(compact, "newBimDiagnosticFields("));
+            Assert.DoesNotContain("BimDiagnosticFields.None", source);
+            Assert.DoesNotContain("Parent", source);
+            Assert.Equal(2, CountOccurrences(source, "catch ("));
+            Assert.Contains(
+                "catch (Autodesk.Revit.Exceptions.InvalidOperationException)",
+                source);
+            Assert.Contains("catch (InvalidOperationException)", source);
+        }
+
+        private static void AssertNoLegacySourceMatchingIdentifiers(string source)
+        {
+            var identifiers = ExecutableIdentifierTokens(source);
+            Assert.DoesNotContain("ExtractMethod", identifiers);
+            Assert.DoesNotContain("FindIgnoringWhitespace", identifiers);
+        }
+
+        private static IReadOnlyList<string> ExecutableIdentifierTokens(
+            string source)
+        {
+            var identifiers = new List<string>();
+            AddIdentifierTokens(ExecutableCode(source), identifiers);
+            foreach (var expression in InterpolatedExpressions(source))
+            {
+                identifiers.AddRange(ExecutableIdentifierTokens(expression));
+            }
+
+            return identifiers;
+        }
+
+        private static void AddIdentifierTokens(
+            string code,
+            ICollection<string> identifiers)
+        {
+            for (var index = 0; index < code.Length;)
+            {
+                var identifierStart = index;
+                if (code[index] == '@' &&
+                    index + 1 < code.Length &&
+                    IsIdentifierStart(code[index + 1]))
+                {
+                    identifierStart = ++index;
+                }
+                else if (!IsIdentifierStart(code[index]))
+                {
+                    index++;
+                    continue;
+                }
+
+                index++;
+                while (index < code.Length &&
+                       IsIdentifierCharacter(code[index]))
+                {
+                    index++;
+                }
+
+                identifiers.Add(code.Substring(
+                    identifierStart,
+                    index - identifierStart));
+            }
+        }
+
+        private static IReadOnlyList<string> InterpolatedExpressions(
+            string source)
+        {
+            var expressions = new List<string>();
+            var outsideCode = ExecutableCode(source);
+            for (var index = 0; index < source.Length;)
+            {
+                if (outsideCode[index] == '$' &&
+                    TryCollectInterpolatedExpressions(
+                        source,
+                        outsideCode,
+                        index,
+                        expressions,
+                        out var stringEnd))
+                {
+                    index = stringEnd;
+                    continue;
+                }
+
+                index++;
+            }
+
+            return expressions;
+        }
+
+        private static bool TryCollectInterpolatedExpressions(
+            string source,
+            string outsideCode,
+            int dollarStart,
+            ICollection<string> expressions,
+            out int stringEnd)
+        {
+            var dollarCount = CountRun(source, dollarStart, '$');
+            var quoteIndex = dollarStart + dollarCount;
+            var verbatim = false;
+            if (quoteIndex < source.Length && source[quoteIndex] == '@')
+            {
+                verbatim = true;
+                quoteIndex++;
+            }
+            else if (dollarStart > 0 &&
+                     source[dollarStart - 1] == '@' &&
+                     outsideCode[dollarStart - 1] == '@')
+            {
+                verbatim = true;
+            }
+
+            if (quoteIndex >= source.Length || source[quoteIndex] != '"')
+            {
+                stringEnd = dollarStart + 1;
+                return false;
+            }
+
+            var quoteCount = CountRun(source, quoteIndex, '"');
+            if (quoteCount >= 3 && !verbatim)
+            {
+                stringEnd = CollectRawInterpolatedExpressions(
+                    source,
+                    quoteIndex,
+                    quoteCount,
+                    dollarCount,
+                    expressions);
+                return true;
+            }
+
+            if (quoteCount != 1 || dollarCount != 1)
+            {
+                stringEnd = dollarStart + 1;
+                return false;
+            }
+
+            stringEnd = CollectQuotedInterpolatedExpressions(
+                source,
+                quoteIndex,
+                verbatim,
+                expressions);
+            return true;
+        }
+
+        private static int CollectQuotedInterpolatedExpressions(
+            string source,
+            int quoteIndex,
+            bool verbatim,
+            ICollection<string> expressions)
+        {
+            var index = quoteIndex + 1;
+            while (index < source.Length)
+            {
+                if (source[index] == '"')
+                {
+                    if (verbatim &&
+                        index + 1 < source.Length &&
+                        source[index + 1] == '"')
+                    {
+                        index += 2;
+                        continue;
+                    }
+
+                    return index + 1;
+                }
+
+                if (!verbatim && source[index] == '\\')
+                {
+                    index = Math.Min(index + 2, source.Length);
+                    continue;
+                }
+
+                if (source[index] == '{')
+                {
+                    if (index + 1 < source.Length &&
+                        source[index + 1] == '{')
+                    {
+                        index += 2;
+                        continue;
+                    }
+
+                    var expressionStart = index + 1;
+                    var expressionEnd = FindInterpolationExpressionEnd(
+                        source,
+                        expressionStart,
+                        closingBraceCount: 1);
+                    if (expressionEnd < 0)
+                    {
+                        return source.Length;
+                    }
+
+                    expressions.Add(source.Substring(
+                        expressionStart,
+                        expressionEnd - expressionStart));
+                    index = expressionEnd + 1;
+                    continue;
+                }
+
+                index++;
+            }
+
+            return source.Length;
+        }
+
+        private static int CollectRawInterpolatedExpressions(
+            string source,
+            int quoteIndex,
+            int quoteCount,
+            int dollarCount,
+            ICollection<string> expressions)
+        {
+            var index = quoteIndex + quoteCount;
+            while (index < source.Length)
+            {
+                if (source[index] == '"' &&
+                    CountRun(source, index, '"') >= quoteCount)
+                {
+                    return index + quoteCount;
+                }
+
+                if (source[index] == '{' &&
+                    CountRun(source, index, '{') >= dollarCount)
+                {
+                    var expressionStart = index + dollarCount;
+                    var expressionEnd = FindInterpolationExpressionEnd(
+                        source,
+                        expressionStart,
+                        dollarCount);
+                    if (expressionEnd < 0)
+                    {
+                        return source.Length;
+                    }
+
+                    expressions.Add(source.Substring(
+                        expressionStart,
+                        expressionEnd - expressionStart));
+                    index = expressionEnd + dollarCount;
+                    continue;
+                }
+
+                index++;
+            }
+
+            return source.Length;
+        }
+
+        private static int FindInterpolationExpressionEnd(
+            string source,
+            int expressionStart,
+            int closingBraceCount)
+        {
+            var remainder = source.Substring(expressionStart);
+            var code = ExecutableCode(remainder);
+            var braces = 0;
+            for (var offset = 0; offset < code.Length; offset++)
+            {
+                if (code[offset] == '{')
+                {
+                    braces++;
+                    continue;
+                }
+
+                if (code[offset] != '}')
+                {
+                    continue;
+                }
+
+                if (braces > 0)
+                {
+                    braces--;
+                    continue;
+                }
+
+                if (CountRun(code, offset, '}') >= closingBraceCount)
+                {
+                    return expressionStart + offset;
+                }
+            }
+
+            return -1;
+        }
+
+        private static void AssertNoWholeSourcePositiveContains(
+            string source,
+            params string[] wholeSourceIdentifiers)
+        {
+            AssertNoWholeSourceAssertion(
+                source,
+                "Contains",
+                "Positive Assert.Contains",
+                wholeSourceIdentifiers);
+        }
+
+        private static void AssertNoWholeSourceAssertions(
+            string source,
+            params string[] wholeSourceIdentifiers)
+        {
+            AssertNoWholeSourceAssertion(
+                source,
+                "Contains",
+                "Positive Assert.Contains",
+                wholeSourceIdentifiers);
+            AssertNoWholeSourceAssertion(
+                source,
+                "DoesNotContain",
+                "Negative Assert.DoesNotContain",
+                wholeSourceIdentifiers);
+        }
+
+        private static void AssertNoWholeSourceAssertion(
+            string source,
+            string assertionName,
+            string description,
+            params string[] wholeSourceIdentifiers)
+        {
+            var lexed = Lex(source);
+            var identifiers = new HashSet<string>(
+                wholeSourceIdentifiers.Select(NormalizeIdentifier),
+                StringComparer.Ordinal);
+            AddProductionSourceOrigins(lexed, identifiers);
+
+            foreach (var identifier in identifiers)
+            {
+                var pattern =
+                    @"\bAssert\s*\.\s*" +
+                    Regex.Escape(assertionName) +
+                    @"\s*\([^;]*" +
+                    @"(?<![A-Za-z0-9_])@?" +
+                    Regex.Escape(identifier) +
+                    @"(?![A-Za-z0-9_])[^;]*\)\s*;";
+                Assert.False(
+                    Regex.IsMatch(
+                        lexed.CodeMask,
+                        pattern,
+                        RegexOptions.CultureInvariant |
+                        RegexOptions.Singleline),
+                    description + " references whole-source identifier '" +
+                    identifier + "'.");
+            }
+        }
+
+        private static void AddProductionSourceOrigins(
+            LexedSource source,
+            ISet<string> identifiers)
+        {
+            var assignments = Regex.Matches(
+                source.CodeMask,
+                @"(?<![A-Za-z0-9_])var\s+" +
+                @"(?<target>@?[A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*" +
+                @"(?<expression>[^;]*);",
+                RegexOptions.CultureInvariant);
+
+            foreach (Match assignment in assignments)
+            {
+                var expression = assignment.Groups["expression"];
+                if (IsProductionSourceRead(
+                        source.WithoutComments.Substring(
+                            expression.Index,
+                            expression.Length),
+                        expression.Value))
+                {
+                    identifiers.Add(NormalizeIdentifier(
+                        assignment.Groups["target"].Value));
+                }
+            }
+
+            var addedAlias = true;
+            while (addedAlias)
+            {
+                addedAlias = false;
+                foreach (Match assignment in assignments)
+                {
+                    if (TryGetDirectSourceIdentifier(
+                            assignment.Groups["expression"].Value,
+                            out var sourceIdentifier) &&
+                        identifiers.Contains(sourceIdentifier))
+                    {
+                        addedAlias |= identifiers.Add(NormalizeIdentifier(
+                            assignment.Groups["target"].Value));
+                    }
+                }
+            }
+        }
+
+        private static bool IsProductionSourceRead(
+            string sourceExpression,
+            string codeExpression)
+        {
+            var expression = StripOuterParentheses(
+                RemoveWhitespace(codeExpression));
+            const string normalizePrefix = "NormalizeLineEndings(";
+            if (expression.StartsWith(
+                    normalizePrefix,
+                    StringComparison.Ordinal) &&
+                expression.EndsWith(")", StringComparison.Ordinal))
+            {
+                expression = StripOuterParentheses(expression.Substring(
+                    normalizePrefix.Length,
+                    expression.Length - normalizePrefix.Length - 1));
+            }
+
+            if (expression != "Read()")
+            {
+                return false;
+            }
+
+            var paths = Regex.Matches(
+                sourceExpression,
+                "\"(?<path>[^\"]+)\"",
+                RegexOptions.CultureInvariant);
+            if (paths.Count != 1)
+            {
+                return false;
+            }
+
+            var path = paths[0]
+                .Groups["path"]
+                .Value
+                .Replace('\\', '/');
+            return path.StartsWith(
+                    "src/RookBim/",
+                    StringComparison.OrdinalIgnoreCase) &&
+                path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryGetDirectSourceIdentifier(
+            string codeExpression,
+            out string identifier)
+        {
+            var expression = StripOuterParentheses(
+                RemoveWhitespace(codeExpression));
+            const string normalizePrefix = "NormalizeLineEndings(";
+            if (expression.StartsWith(
+                    normalizePrefix,
+                    StringComparison.Ordinal) &&
+                expression.EndsWith(")", StringComparison.Ordinal))
+            {
+                expression = StripOuterParentheses(expression.Substring(
+                    normalizePrefix.Length,
+                    expression.Length - normalizePrefix.Length - 1));
+            }
+
+            if (!Regex.IsMatch(
+                    expression,
+                    @"^@?[A-Za-z_][A-Za-z0-9_]*$",
+                    RegexOptions.CultureInvariant))
+            {
+                identifier = string.Empty;
+                return false;
+            }
+
+            identifier = NormalizeIdentifier(expression);
+            return true;
+        }
+
+        private static string StripOuterParentheses(string expression)
+        {
+            while (expression.Length >= 2 && expression[0] == '(')
+            {
+                var depth = 0;
+                var closingParenthesis = -1;
+                for (var index = 0; index < expression.Length; index++)
+                {
+                    if (expression[index] == '(')
+                    {
+                        depth++;
+                    }
+                    else if (expression[index] == ')' && --depth == 0)
+                    {
+                        closingParenthesis = index;
+                        break;
+                    }
+                }
+
+                if (closingParenthesis != expression.Length - 1)
+                {
+                    break;
+                }
+
+                expression = expression.Substring(
+                    1,
+                    expression.Length - 2);
+            }
+
+            return expression;
+        }
+
+        private static string NormalizeIdentifier(string identifier)
+        {
+            return identifier.Length > 0 && identifier[0] == '@'
+                ? identifier.Substring(1)
+                : identifier;
+        }
+
+        private static string ExtractSourceMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
+        {
+            var lexed = Lex(source);
+            var type = FindUniqueBlockDeclaration(
+                lexed.CodeMask,
+                typeDeclaration,
+                0,
+                lexed.CodeMask.Length,
+                containingBodyStart: null);
+            var member = FindUniqueBlockDeclaration(
+                lexed.CodeMask,
+                memberDeclaration,
+                type.BodyStart + 1,
+                type.BodyEnd,
+                type.BodyStart);
+
+            return lexed.WithoutComments.Substring(
+                member.DeclarationStart,
+                member.BodyEnd - member.DeclarationStart + 1);
+        }
+
+        internal static string ExtractExecutableMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
+        {
+            var code = Lex(source).CodeMask;
+            var type = FindUniqueBlockDeclaration(
+                code,
+                typeDeclaration,
+                0,
+                code.Length,
+                containingBodyStart: null);
+            var member = FindUniqueBlockDeclaration(
+                code,
+                memberDeclaration,
+                type.BodyStart + 1,
+                type.BodyEnd,
+                type.BodyStart);
+
+            return code.Substring(
+                member.DeclarationStart,
+                member.BodyEnd - member.DeclarationStart + 1);
+        }
+
+        private static string ExtractExecutableDirectMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
+        {
+            var code = Lex(source).CodeMask;
+            var type = FindUniqueBlockDeclaration(
+                code,
+                typeDeclaration,
+                0,
+                code.Length,
+                containingBodyStart: null);
+            var member = FindUniqueDirectMemberDeclaration(
+                code,
+                code,
+                type,
+                memberDeclaration);
+
+            return code.Substring(
+                member.Start,
+                member.End - member.Start);
+        }
+
+        private static string ExtractSourceDirectMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
+        {
+            var lexed = Lex(source);
+            var type = FindUniqueBlockDeclaration(
+                lexed.CodeMask,
+                typeDeclaration,
+                0,
+                lexed.CodeMask.Length,
+                containingBodyStart: null);
+            var member = FindUniqueDirectMemberDeclaration(
+                lexed.CodeMask,
+                lexed.WithoutComments,
+                type,
+                memberDeclaration);
+
+            return lexed.WithoutComments.Substring(
+                member.Start,
+                member.End - member.Start);
+        }
+
+        private static SourceSpan FindUniqueDirectMemberDeclaration(
+            string code,
+            string declarationSource,
+            SourceBlock type,
+            string memberDeclaration)
+        {
+            var significantDeclaration = new string(memberDeclaration
+                .Where(character => !char.IsWhiteSpace(character))
+                .ToArray());
+            if (significantDeclaration.Length == 0)
+            {
+                throw new ArgumentException(
+                    "Declaration must contain a non-whitespace character.",
+                    nameof(memberDeclaration));
+            }
+
+            var matches = new List<SourceSpan>();
+            for (var candidate = type.BodyStart + 1;
+                 candidate < type.BodyEnd;
+                 candidate++)
+            {
+                if (char.IsWhiteSpace(declarationSource[candidate]) ||
+                    declarationSource[candidate] != significantDeclaration[0] ||
+                    HasIdentifierPrefix(
+                        declarationSource,
+                        candidate,
+                        significantDeclaration[0]) ||
+                    BraceDepth(code, type.BodyStart + 1, candidate) != 0)
+                {
+                    continue;
+                }
+
+                if (TryMatchIgnoringWhitespace(
+                        declarationSource,
+                        candidate,
+                        type.BodyEnd,
+                        significantDeclaration,
+                        out var declarationEnd))
+                {
+                    matches.Add(new SourceSpan(candidate, declarationEnd));
+                }
+            }
+
+            if (matches.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "Expected exactly one direct member declaration for '" +
+                    memberDeclaration + "' but found " + matches.Count + ".");
+            }
+
+            return matches[0];
+        }
+
+        private static SourceBlock FindUniqueBlockDeclaration(
+            string code,
+            string declaration,
+            int searchStart,
+            int searchEnd,
+            int? containingBodyStart)
+        {
+            var significantDeclaration = new string(declaration
+                .Where(character => !char.IsWhiteSpace(character))
+                .ToArray());
+            if (significantDeclaration.Length == 0)
+            {
+                throw new ArgumentException(
+                    "Declaration must contain a non-whitespace character.",
+                    nameof(declaration));
+            }
+
+            var matches = new List<SourceBlock>();
+            for (var candidate = searchStart; candidate < searchEnd; candidate++)
+            {
+                if (char.IsWhiteSpace(code[candidate]) ||
+                    code[candidate] != significantDeclaration[0] ||
+                    HasIdentifierPrefix(code, candidate, significantDeclaration[0]))
+                {
+                    continue;
+                }
+
+                if (!TryMatchIgnoringWhitespace(
+                        code,
+                        candidate,
+                        searchEnd,
+                        significantDeclaration,
+                        out var declarationEnd))
+                {
+                    continue;
+                }
+
+                var bodyStart = NextNonWhitespace(code, declarationEnd, searchEnd);
+                if (bodyStart < 0 || code[bodyStart] != '{')
+                {
+                    continue;
+                }
+
+                if (containingBodyStart.HasValue &&
+                    BraceDepth(
+                        code,
+                        containingBodyStart.Value + 1,
+                        candidate) != 0)
+                {
+                    continue;
+                }
+
+                var bodyEnd = FindClosingBrace(code, bodyStart, searchEnd);
+                matches.Add(new SourceBlock(candidate, bodyStart, bodyEnd));
+            }
+
+            if (matches.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "Expected exactly one declaration for '" + declaration +
+                    "' but found " + matches.Count + ".");
+            }
+
+            return matches[0];
+        }
+
+        private static bool TryMatchIgnoringWhitespace(
+            string source,
+            int candidate,
+            int searchEnd,
+            string significantPattern,
+            out int matchEnd)
+        {
+            var sourceIndex = candidate;
+            var patternIndex = 0;
+            while (sourceIndex < searchEnd &&
+                   patternIndex < significantPattern.Length)
+            {
+                if (char.IsWhiteSpace(source[sourceIndex]))
+                {
+                    sourceIndex++;
+                    continue;
+                }
+
+                if (source[sourceIndex] != significantPattern[patternIndex])
+                {
+                    matchEnd = -1;
+                    return false;
+                }
+
+                sourceIndex++;
+                patternIndex++;
+            }
+
+            matchEnd = sourceIndex;
+            return patternIndex == significantPattern.Length;
+        }
+
+        private static bool HasIdentifierPrefix(
+            string source,
+            int candidate,
+            char patternStart)
+        {
+            if (!IsIdentifierCharacter(patternStart))
+            {
+                return false;
+            }
+
+            for (var index = candidate - 1; index >= 0; index--)
+            {
+                if (char.IsWhiteSpace(source[index]))
+                {
+                    continue;
+                }
+
+                return IsIdentifierCharacter(source[index]);
+            }
+
+            return false;
+        }
+
+        private static bool IsIdentifierCharacter(char value)
+        {
+            return char.IsLetterOrDigit(value) || value == '_';
+        }
+
+        private static bool IsIdentifierStart(char value)
+        {
+            return char.IsLetter(value) || value == '_';
+        }
+
+        private static int NextNonWhitespace(
+            string source,
+            int start,
+            int searchEnd)
+        {
+            for (var index = start; index < searchEnd; index++)
+            {
+                if (!char.IsWhiteSpace(source[index]))
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
+        private static int BraceDepth(
+            string source,
+            int start,
+            int end)
+        {
+            var depth = 0;
+            for (var index = start; index < end; index++)
+            {
+                if (source[index] == '{')
+                {
+                    depth++;
+                }
+                else if (source[index] == '}')
+                {
+                    depth--;
+                }
+            }
+
+            return depth;
+        }
+
+        private static int FindClosingBrace(
+            string source,
+            int bodyStart,
+            int searchEnd)
+        {
+            var depth = 0;
+            for (var index = bodyStart; index < searchEnd; index++)
+            {
+                if (source[index] == '{')
+                {
+                    depth++;
+                }
+                else if (source[index] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        return index;
+                    }
+                }
+            }
+
+            throw new InvalidOperationException(
+                "Brace did not close at index " + bodyStart + ".");
         }
 
         private static Tuple<string, string> ExtractTryCatchAfter(string source, string precedingText)
@@ -724,20 +3317,744 @@ namespace RookBim.Tests
             if (bodyStart < 0 || bodyStart >= source.Length || source[bodyStart] != '{')
                 throw new InvalidOperationException("Block body not found.");
 
+            var lexed = Lex(source);
             var depth = 0;
-            for (var i = bodyStart; i < source.Length; i++)
+            for (var index = bodyStart; index < lexed.CodeMask.Length; index++)
             {
-                if (source[i] == '{')
+                if (lexed.CodeMask[index] == '{')
+                {
                     depth++;
-                else if (source[i] == '}')
+                }
+                else if (lexed.CodeMask[index] == '}')
                 {
                     depth--;
                     if (depth == 0)
-                        return i;
+                    {
+                        return index;
+                    }
                 }
             }
 
             throw new InvalidOperationException("Brace did not close at index " + bodyStart);
+        }
+        private static string FirstExecutableStatement(string method)
+        {
+            var lexed = Lex(method);
+            var bodyStart = lexed.CodeMask.IndexOf('{');
+            if (bodyStart < 0)
+            {
+                throw new InvalidOperationException("Method body not found.");
+            }
+
+            var statementStart = bodyStart + 1;
+            while (statementStart < lexed.CodeMask.Length &&
+                   char.IsWhiteSpace(lexed.CodeMask[statementStart]))
+            {
+                statementStart++;
+            }
+
+            var parentheses = 0;
+            var brackets = 0;
+            var braces = 0;
+            for (var index = statementStart; index < lexed.CodeMask.Length; index++)
+            {
+                switch (lexed.CodeMask[index])
+                {
+                    case '(':
+                        parentheses++;
+                        break;
+                    case ')':
+                        parentheses--;
+                        break;
+                    case '[':
+                        brackets++;
+                        break;
+                    case ']':
+                        brackets--;
+                        break;
+                    case '{':
+                        braces++;
+                        break;
+                    case '}':
+                        if (braces == 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Method has no executable statement.");
+                        }
+
+                        braces--;
+                        break;
+                    case ';':
+                        if (parentheses == 0 && brackets == 0 && braces == 0)
+                        {
+                            return lexed.WithoutComments.Substring(
+                                statementStart,
+                                index - statementStart + 1).Trim();
+                        }
+
+                        break;
+                }
+            }
+
+            throw new InvalidOperationException(
+                "First executable statement did not terminate.");
+        }
+
+        internal static string RemoveWhitespace(string value)
+        {
+            return new string(value
+                .Where(character => !char.IsWhiteSpace(character))
+                .ToArray());
+        }
+
+        private static void AssertTask9QueryElementsCallContract(string source)
+        {
+            AssertSingleInvocationArguments(
+                source,
+                "query.Query",
+                "document",
+                "view",
+                "effectiveRequest",
+                "diagnostics");
+        }
+
+        private static void AssertTask9BuildResultIdentityCallContract(string source)
+        {
+            AssertSingleInvocationArguments(
+                source,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+        }
+
+        private static string InsertBeforeFinalClosingBrace(
+            string source,
+            string insertion)
+        {
+            var close = source.LastIndexOf('}');
+            Assert.True(close >= 0, "Expected an extracted member body.");
+            return source.Insert(close, insertion + Environment.NewLine);
+        }
+
+        private static string ReplaceSingle(
+            string source,
+            string oldValue,
+            string newValue)
+        {
+            Assert.Equal(1, CountOccurrences(source, oldValue));
+            return source.Replace(oldValue, newValue);
+        }
+
+        internal static void AssertSingleInvocationArguments(
+            string source,
+            string invocationTarget,
+            params string[] expectedArguments)
+        {
+            var code = Lex(source).CodeMask;
+            var invocations = FindInvocationArguments(code, invocationTarget);
+
+            var invocation = Assert.Single(invocations);
+            var aliases = DirectLocalAliases(code, invocation.Start);
+            Assert.Equal(expectedArguments.Length, invocation.Arguments.Count);
+            for (var index = 0; index < expectedArguments.Length; index++)
+            {
+                Assert.Equal(
+                    expectedArguments[index],
+                    ResolveInvocationArgument(
+                        invocation.Arguments[index],
+                        aliases));
+            }
+        }
+
+        private static IReadOnlyList<SourceInvocation> FindInvocationArguments(
+            string code,
+            string invocationTarget)
+        {
+            var targetParts = invocationTarget.Split('.');
+            if (targetParts.Length == 0 ||
+                targetParts.Any(part =>
+                    part.Length == 0 ||
+                    !IsIdentifierStart(part[0]) ||
+                    part.Any(character => !IsIdentifierCharacter(character))))
+            {
+                throw new ArgumentException(
+                    "Invocation target must be a dotted identifier.",
+                    nameof(invocationTarget));
+            }
+
+            var invocations = new List<SourceInvocation>();
+            for (var candidate = 0; candidate < code.Length; candidate++)
+            {
+                if (!IsIdentifierStart(code[candidate]))
+                {
+                    continue;
+                }
+
+                if ((candidate > 0 &&
+                     IsIdentifierCharacter(code[candidate - 1])) ||
+                    PreviousNonWhitespaceIsDot(code, candidate))
+                {
+                    continue;
+                }
+
+                var cursor = candidate;
+                if (!TryReadIdentifier(code, ref cursor, out var identifier) ||
+                    !string.Equals(identifier, targetParts[0], StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var matchesTarget = true;
+                for (var partIndex = 1; partIndex < targetParts.Length; partIndex++)
+                {
+                    cursor = NextNonWhitespace(code, cursor, code.Length);
+                    if (cursor < 0 || code[cursor] != '.')
+                    {
+                        matchesTarget = false;
+                        break;
+                    }
+
+                    cursor = NextNonWhitespace(code, cursor + 1, code.Length);
+                    if (cursor < 0 ||
+                        !TryReadIdentifier(code, ref cursor, out identifier) ||
+                        !string.Equals(identifier, targetParts[partIndex], StringComparison.Ordinal))
+                    {
+                        matchesTarget = false;
+                        break;
+                    }
+                }
+
+                if (!matchesTarget)
+                {
+                    continue;
+                }
+
+                cursor = NextNonWhitespace(code, cursor, code.Length);
+                if (cursor < 0 || code[cursor] != '(')
+                {
+                    continue;
+                }
+
+                var close = FindClosingParenthesis(code, cursor);
+                invocations.Add(new SourceInvocation(
+                    candidate,
+                    SplitTopLevelArguments(code, cursor + 1, close)));
+            }
+
+            return invocations;
+        }
+
+        private static bool PreviousNonWhitespaceIsDot(string code, int start)
+        {
+            for (var index = start - 1; index >= 0; index--)
+            {
+                if (!char.IsWhiteSpace(code[index]))
+                {
+                    return code[index] == '.';
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryReadIdentifier(
+            string code,
+            ref int cursor,
+            out string identifier)
+        {
+            if (cursor < 0 ||
+                cursor >= code.Length ||
+                !IsIdentifierStart(code[cursor]))
+            {
+                identifier = string.Empty;
+                return false;
+            }
+
+            var start = cursor++;
+            while (cursor < code.Length && IsIdentifierCharacter(code[cursor]))
+            {
+                cursor++;
+            }
+
+            identifier = code.Substring(start, cursor - start);
+            return true;
+        }
+
+        private static int FindClosingParenthesis(string code, int open)
+        {
+            var depth = 0;
+            for (var index = open; index < code.Length; index++)
+            {
+                if (code[index] == '(')
+                {
+                    depth++;
+                }
+                else if (code[index] == ')' && --depth == 0)
+                {
+                    return index;
+                }
+            }
+
+            throw new InvalidOperationException(
+                "Invocation parenthesis did not close at index " + open + ".");
+        }
+
+        private static IReadOnlyList<string> SplitTopLevelArguments(
+            string code,
+            int start,
+            int end)
+        {
+            var arguments = new List<string>();
+            var argumentStart = start;
+            var parentheses = 0;
+            var brackets = 0;
+            var braces = 0;
+            for (var index = start; index < end; index++)
+            {
+                switch (code[index])
+                {
+                    case '(':
+                        parentheses++;
+                        break;
+                    case ')':
+                        if (--parentheses < 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Unexpected closing parenthesis in invocation arguments.");
+                        }
+
+                        break;
+                    case '[':
+                        brackets++;
+                        break;
+                    case ']':
+                        if (--brackets < 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Unexpected closing bracket in invocation arguments.");
+                        }
+
+                        break;
+                    case '{':
+                        braces++;
+                        break;
+                    case '}':
+                        if (--braces < 0)
+                        {
+                            throw new InvalidOperationException(
+                                "Unexpected closing brace in invocation arguments.");
+                        }
+
+                        break;
+                    case ',':
+                        if (parentheses == 0 && brackets == 0 && braces == 0)
+                        {
+                            arguments.Add(code.Substring(
+                                argumentStart,
+                                index - argumentStart));
+                            argumentStart = index + 1;
+                        }
+
+                        break;
+                }
+            }
+
+            if (parentheses != 0 || brackets != 0 || braces != 0)
+            {
+                throw new InvalidOperationException(
+                    "Invocation arguments contain an unbalanced delimiter.");
+            }
+
+            var finalArgument = code.Substring(argumentStart, end - argumentStart);
+            if (arguments.Count > 0 || !string.IsNullOrWhiteSpace(finalArgument))
+            {
+                arguments.Add(finalArgument);
+            }
+
+            return arguments;
+        }
+
+        private static IReadOnlyDictionary<string, string?> DirectLocalAliases(
+            string code,
+            int end)
+        {
+            var assignments = Regex.Matches(
+                code.Substring(0, end),
+                @"(?<![A-Za-z0-9_.])" +
+                @"(?:(?<declaration>var|@?[A-Z][A-Za-z0-9_]*" +
+                @"(?:\.@?[A-Za-z_][A-Za-z0-9_]*)*(?:\?)?(?:\[\])?)\s+)?" +
+                @"(?<target>@?[A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*" +
+                @"(?<expression>[^;]*);",
+                RegexOptions.CultureInvariant);
+            var aliases = new Dictionary<string, string?>(
+                StringComparer.Ordinal);
+            // Null is an opaque local origin: direct uses keep the local name,
+            // while copies remain opaque instead of following later assignments.
+            var declaredLocals = new HashSet<string>(
+                assignments
+                    .Cast<Match>()
+                    .Where(assignment =>
+                        assignment.Groups["declaration"].Success)
+                    .Select(assignment => NormalizeIdentifier(
+                        assignment.Groups["target"].Value)),
+                StringComparer.Ordinal);
+            foreach (Match assignment in assignments)
+            {
+                var target = NormalizeIdentifier(
+                    assignment.Groups["target"].Value);
+                var isDeclaration = assignment.Groups["declaration"].Success;
+                if (!isDeclaration &&
+                    !aliases.ContainsKey(target))
+                {
+                    continue;
+                }
+
+                var expression = StripOuterParentheses(RemoveWhitespace(
+                    assignment.Groups["expression"].Value));
+                aliases[target] = SnapshotDirectAliasOrigin(
+                    expression,
+                    aliases,
+                    declaredLocals);
+            }
+
+            return aliases;
+        }
+
+        private static string? SnapshotDirectAliasOrigin(
+            string expression,
+            IReadOnlyDictionary<string, string?> aliases,
+            ISet<string> declaredLocals)
+        {
+            if (!IsDirectAliasExpression(expression))
+            {
+                return null;
+            }
+
+            var memberSeparator = expression.IndexOf('.');
+            if (memberSeparator >= 0)
+            {
+                var root = NormalizeIdentifier(expression.Substring(
+                    0,
+                    memberSeparator));
+                return declaredLocals.Contains(root)
+                    ? null
+                    : expression;
+            }
+
+            var identifier = NormalizeIdentifier(expression);
+            if (aliases.TryGetValue(identifier, out var origin))
+            {
+                return origin;
+            }
+
+            return declaredLocals.Contains(identifier)
+                ? null
+                : identifier;
+        }
+
+        private sealed class SourceInvocation
+        {
+            public SourceInvocation(
+                int start,
+                IReadOnlyList<string> arguments)
+            {
+                Start = start;
+                Arguments = arguments;
+            }
+
+            public int Start { get; }
+
+            public IReadOnlyList<string> Arguments { get; }
+        }
+
+        private static bool IsDirectAliasExpression(string expression)
+        {
+            return Regex.IsMatch(
+                expression,
+                @"^@?[A-Za-z_][A-Za-z0-9_]*" +
+                @"(?:\.@?[A-Za-z_][A-Za-z0-9_]*)*$",
+                RegexOptions.CultureInvariant);
+        }
+
+        private static string ResolveInvocationArgument(
+            string argument,
+            IReadOnlyDictionary<string, string?> aliases)
+        {
+            var expression = StripOuterParentheses(RemoveWhitespace(argument));
+            if (!Regex.IsMatch(
+                    expression,
+                    @"^@?[A-Za-z_][A-Za-z0-9_]*$",
+                    RegexOptions.CultureInvariant))
+            {
+                return expression;
+            }
+
+            var identifier = NormalizeIdentifier(expression);
+            if (!aliases.TryGetValue(identifier, out var origin))
+            {
+                return identifier;
+            }
+
+            if (origin == null)
+            {
+                return identifier;
+            }
+
+            return origin;
+        }
+
+        private static string ExecutableCode(string source)
+        {
+            return Lex(source).CodeMask;
+        }
+
+        private static LexedSource Lex(string source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            var withoutComments = source.ToCharArray();
+            var codeMask = source.ToCharArray();
+            var index = 0;
+            while (index < source.Length)
+            {
+                if (source[index] == '/' && index + 1 < source.Length &&
+                    source[index + 1] == '/')
+                {
+                    Blank(withoutComments, index);
+                    Blank(withoutComments, index + 1);
+                    Blank(codeMask, index);
+                    Blank(codeMask, index + 1);
+                    index += 2;
+                    while (index < source.Length &&
+                           source[index] != '\r' &&
+                           source[index] != '\n')
+                    {
+                        Blank(withoutComments, index);
+                        Blank(codeMask, index);
+                        index++;
+                    }
+
+                    continue;
+                }
+
+                if (source[index] == '/' && index + 1 < source.Length &&
+                    source[index + 1] == '*')
+                {
+                    Blank(withoutComments, index);
+                    Blank(withoutComments, index + 1);
+                    Blank(codeMask, index);
+                    Blank(codeMask, index + 1);
+                    index += 2;
+                    while (index < source.Length)
+                    {
+                        if (source[index] == '*' && index + 1 < source.Length &&
+                            source[index + 1] == '/')
+                        {
+                            Blank(withoutComments, index);
+                            Blank(withoutComments, index + 1);
+                            Blank(codeMask, index);
+                            Blank(codeMask, index + 1);
+                            index += 2;
+                            break;
+                        }
+
+                        Blank(withoutComments, index);
+                        Blank(codeMask, index);
+                        index++;
+                    }
+
+                    continue;
+                }
+
+                if (source[index] == '"')
+                {
+                    var quoteCount = CountRun(source, index, '"');
+                    if (quoteCount >= 3)
+                    {
+                        index = MaskRawString(codeMask, source, index, quoteCount);
+                    }
+                    else
+                    {
+                        index = IsVerbatimString(source, index)
+                            ? MaskVerbatimString(codeMask, source, index)
+                            : MaskEscapedLiteral(codeMask, source, index, '"');
+                    }
+
+                    continue;
+                }
+
+                if (source[index] == '\'')
+                {
+                    index = MaskEscapedLiteral(codeMask, source, index, '\'');
+                    continue;
+                }
+
+                index++;
+            }
+
+            return new LexedSource(
+                new string(withoutComments),
+                new string(codeMask));
+        }
+
+        private static int MaskEscapedLiteral(
+            char[] codeMask,
+            string source,
+            int start,
+            char terminator)
+        {
+            var index = start;
+            Blank(codeMask, index++);
+            while (index < source.Length)
+            {
+                var current = source[index];
+                Blank(codeMask, index++);
+                if (current == '\\' && index < source.Length)
+                {
+                    Blank(codeMask, index++);
+                }
+                else if (current == terminator)
+                {
+                    break;
+                }
+            }
+
+            return index;
+        }
+
+        private static int MaskVerbatimString(
+            char[] codeMask,
+            string source,
+            int start)
+        {
+            var index = start;
+            Blank(codeMask, index++);
+            while (index < source.Length)
+            {
+                if (source[index] == '"')
+                {
+                    Blank(codeMask, index++);
+                    if (index < source.Length && source[index] == '"')
+                    {
+                        Blank(codeMask, index++);
+                        continue;
+                    }
+
+                    break;
+                }
+
+                Blank(codeMask, index++);
+            }
+
+            return index;
+        }
+
+        private static int MaskRawString(
+            char[] codeMask,
+            string source,
+            int start,
+            int delimiterLength)
+        {
+            var index = start;
+            for (var offset = 0; offset < delimiterLength; offset++)
+            {
+                Blank(codeMask, index++);
+            }
+
+            while (index < source.Length)
+            {
+                if (source[index] == '"' &&
+                    CountRun(source, index, '"') >= delimiterLength)
+                {
+                    for (var offset = 0; offset < delimiterLength; offset++)
+                    {
+                        Blank(codeMask, index++);
+                    }
+
+                    break;
+                }
+
+                Blank(codeMask, index++);
+            }
+
+            return index;
+        }
+
+        private static bool IsVerbatimString(string source, int quoteIndex)
+        {
+            return quoteIndex > 0 && source[quoteIndex - 1] == '@' ||
+                quoteIndex > 1 &&
+                source[quoteIndex - 2] == '@' &&
+                source[quoteIndex - 1] == '$';
+        }
+
+        private static int CountRun(
+            string source,
+            int start,
+            char value)
+        {
+            var index = start;
+            while (index < source.Length && source[index] == value)
+            {
+                index++;
+            }
+
+            return index - start;
+        }
+
+        private static void Blank(char[] value, int index)
+        {
+            if (value[index] != '\r' && value[index] != '\n')
+            {
+                value[index] = ' ';
+            }
+        }
+
+        private sealed class LexedSource
+        {
+            public LexedSource(string withoutComments, string codeMask)
+            {
+                WithoutComments = withoutComments;
+                CodeMask = codeMask;
+            }
+
+            public string WithoutComments { get; }
+
+            public string CodeMask { get; }
+        }
+
+        private sealed class SourceBlock
+        {
+            public SourceBlock(
+                int declarationStart,
+                int bodyStart,
+                int bodyEnd)
+            {
+                DeclarationStart = declarationStart;
+                BodyStart = bodyStart;
+                BodyEnd = bodyEnd;
+            }
+
+            public int DeclarationStart { get; }
+
+            public int BodyStart { get; }
+
+            public int BodyEnd { get; }
+        }
+
+        private sealed class SourceSpan
+        {
+            public SourceSpan(int start, int end)
+            {
+                Start = start;
+                End = end;
+            }
+
+            public int Start { get; }
+
+            public int End { get; }
         }
 
         private static string FindRepoRoot()

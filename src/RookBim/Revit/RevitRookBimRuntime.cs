@@ -34,11 +34,13 @@ namespace RookBim.Revit
             this.presetResolver = new RevitPresetResolver();
         }
 
-        public BimStatusResponse Status()
+        public BimStatusResponse Status(BimDiagnosticContext diagnostics)
         {
             try
             {
-                var hasActiveDocument = Dispatch(uiapp => RevitContext.ActiveDocument(uiapp) != null);
+                var hasActiveDocument = Dispatch(
+                    diagnostics,
+                    uiapp => AcquireActiveDocument(uiapp, diagnostics) != null);
                 if (!hasActiveDocument)
                 {
                     return new BimStatusResponse
@@ -74,47 +76,54 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ActiveDocument()
+        public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)
         {
             return ExecuteInDocumentContext(
+                diagnostics,
                 "active_document",
                 (uidoc, document) =>
                 {
                     return BimApiResponse.Ok(new ActiveDocumentResult
                     {
-                        Document = RevitIdentitySerializer.DocumentIdentity(document),
-                        View = SerializeActiveView(uidoc)
+                        Document = RevitIdentitySerializer.DocumentIdentity(
+                            document,
+                            diagnostics,
+                            includeAuxiliaryState: true),
+                        View = SerializeActiveView(uidoc, diagnostics)
                     });
                 });
         }
 
-        public BimApiResponse QueryElements(BimQueryElementsRequest request)
+        public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request)
         {
             var effectiveRequest = request ?? new BimQueryElementsRequest();
             return ExecuteInDocumentContext(
+                diagnostics,
                 "query_elements",
                 (uidoc, document) =>
                 {
-                    var view = ResolveActiveGraphicalView(uidoc, effectiveRequest.EffectiveScope);
-                    return query.Query(document, view, effectiveRequest);
+                    var view = ResolveActiveGraphicalView(
+                        uidoc, effectiveRequest.EffectiveScope, diagnostics);
+                    return query.Query(document, view, effectiveRequest, diagnostics);
                 });
         }
 
-        public BimApiResponse ListCategories()
+        public BimApiResponse ListCategories(BimDiagnosticContext diagnostics)
         {
             return ExecuteInDocumentContext(
+                diagnostics,
                 "list_categories",
-                (_uidoc, document) => BimApiResponse.Ok(categories.List(document)));
+                (_uidoc, document) => BimApiResponse.Ok(categories.List(document, diagnostics)));
         }
 
-        public BimApiResponse ElementInfo(BimElementRequest request)
+        public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)
         {
             try
             {
-                return Dispatch(uiapp =>
+                return Dispatch(diagnostics, uiapp =>
                 {
-                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
-                    if (uidoc == null || uidoc.Document == null)
+                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
+                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
                     {
                         return BimApiResponse.Fail(
                             BimErrorCode.NoActiveDocument,
@@ -122,7 +131,7 @@ namespace RookBim.Revit
                             409);
                     }
 
-                    var document = uidoc.Document;
+                    var document = AcquireDocument(uidoc, diagnostics)!;
                     var resolved = ResolveElementOrFailure(document, request?.Identity);
                     if (!resolved.Success)
                     {
@@ -144,14 +153,14 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ElementParameters(BimElementRequest request)
+        public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)
         {
             try
             {
-                return Dispatch(uiapp =>
+                return Dispatch(diagnostics, uiapp =>
                 {
-                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
-                    if (uidoc == null || uidoc.Document == null)
+                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
+                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
                     {
                         return BimApiResponse.Fail(
                             BimErrorCode.NoActiveDocument,
@@ -159,7 +168,7 @@ namespace RookBim.Revit
                             409);
                     }
 
-                    var document = uidoc.Document;
+                    var document = AcquireDocument(uidoc, diagnostics)!;
                     var resolved = ResolveElementOrFailure(document, request?.Identity);
                     if (!resolved.Success)
                     {
@@ -185,14 +194,14 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse SelectElements(BimSelectElementsRequest request)
+        public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)
         {
             try
             {
-                return Dispatch(uiapp =>
+                return Dispatch(diagnostics, uiapp =>
                 {
-                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
-                    if (uidoc == null || uidoc.Document == null)
+                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
+                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
                     {
                         return BimApiResponse.Fail(
                             BimErrorCode.NoActiveDocument,
@@ -212,14 +221,14 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ClearSelection()
+        public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)
         {
             try
             {
-                return Dispatch(uiapp =>
+                return Dispatch(diagnostics, uiapp =>
                 {
-                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
-                    if (uidoc == null || uidoc.Document == null)
+                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
+                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
                     {
                         return BimApiResponse.Fail(
                             BimErrorCode.NoActiveDocument,
@@ -239,7 +248,7 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ExportPreset(BimExportPresetRequest request)
+        public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)
         {
             if (request == null)
             {
@@ -255,19 +264,24 @@ namespace RookBim.Revit
 
             try
             {
-                return DispatchWithTimeout(uiapp =>
+                return DispatchWithTimeout(diagnostics, uiapp =>
                 {
-                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
-                    if (uidoc == null || uidoc.Document == null)
+                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
+                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
                     {
                         return BimApiResponse.Fail(BimErrorCode.NoActiveDocument, "No active Revit document is open.", 409);
                     }
 
-                    var document = uidoc.Document;
+                    var document = AcquireDocument(uidoc, diagnostics)!;
                     try
                     {
-                        var view = ResolveActiveGraphicalView(uidoc, request.EffectiveScope);
-                        var resolution = presetResolver.Resolve(document, view, request);
+                        var view = ResolveActiveGraphicalView(
+                            uidoc, request.EffectiveScope, diagnostics);
+                        var resolution = presetResolver.Resolve(
+                            document,
+                            view,
+                            request,
+                            diagnostics);
                         if (resolution.Failure != null)
                         {
                             return resolution.Failure;
@@ -310,7 +324,7 @@ namespace RookBim.Revit
             }
         }
 
-        public BimApiResponse ExportElements(BimExportElementsRequest request)
+        public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)
         {
             if (request == null)
             {
@@ -326,19 +340,20 @@ namespace RookBim.Revit
 
             try
             {
-                return DispatchWithTimeout(uiapp =>
+                return DispatchWithTimeout(diagnostics, uiapp =>
                 {
-                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
-                    if (uidoc == null || uidoc.Document == null)
+                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
+                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
                     {
                         return BimApiResponse.Fail(BimErrorCode.NoActiveDocument, "No active Revit document is open.", 409);
                     }
 
-                    var document = uidoc.Document;
+                    var document = AcquireDocument(uidoc, diagnostics)!;
                     try
                     {
                         var view = request.HasSelector
-                            ? ResolveActiveGraphicalView(uidoc, request.Selector!.EffectiveScope)
+                            ? ResolveActiveGraphicalView(
+                                uidoc, request.Selector!.EffectiveScope, diagnostics)
                             : null;
                         return export.Export(document, view, request);
                     }
@@ -360,9 +375,12 @@ namespace RookBim.Revit
             }
         }
 
-        private T Dispatch<T>(Func<UIApplication, T> work)
+        private T Dispatch<T>(
+            BimDiagnosticContext diagnostics,
+            Func<UIApplication, T> work)
         {
-            var dispatch = dispatcher.InvokeAbandonable(work);
+            var capturedDiagnostics = diagnostics;
+            var dispatch = dispatcher.InvokeAbandonable(capturedDiagnostics, work);
             if (Task.WaitAny(new Task[] { dispatch.Task }, DispatchTimeout) < 0)
             {
                 dispatch.Abandon();
@@ -372,9 +390,13 @@ namespace RookBim.Revit
             return dispatch.Task.GetAwaiter().GetResult();
         }
 
-        private T DispatchWithTimeout<T>(Func<UIApplication, T> work, TimeSpan timeout)
+        private T DispatchWithTimeout<T>(
+            BimDiagnosticContext diagnostics,
+            Func<UIApplication, T> work,
+            TimeSpan timeout)
         {
-            var dispatch = dispatcher.InvokeAbandonable(work);
+            var capturedDiagnostics = diagnostics;
+            var dispatch = dispatcher.InvokeAbandonable(capturedDiagnostics, work);
             if (Task.WaitAny(new Task[] { dispatch.Task }, timeout) < 0)
             {
                 dispatch.Abandon();
@@ -385,15 +407,16 @@ namespace RookBim.Revit
         }
 
         private BimApiResponse ExecuteInDocumentContext(
+            BimDiagnosticContext diagnostics,
             string operation,
             Func<UIDocument, Document, BimApiResponse> work)
         {
             try
             {
-                return Dispatch(uiapp =>
+                return Dispatch(diagnostics, uiapp =>
                 {
-                    var uidoc = RevitContext.ActiveUiDocument(uiapp);
-                    if (uidoc == null || uidoc.Document == null)
+                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
+                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
                     {
                         return BimApiResponse.Fail(
                             BimErrorCode.NoActiveDocument,
@@ -403,7 +426,7 @@ namespace RookBim.Revit
 
                     try
                     {
-                        return work(uidoc, uidoc.Document);
+                        return work(uidoc, AcquireDocument(uidoc, diagnostics)!);
                     }
                     catch (Exception ex)
                     {
@@ -437,17 +460,83 @@ namespace RookBim.Revit
             return $"{root.GetType().Name}: {root.Message}";
         }
 
-        private static View? ResolveActiveGraphicalView(UIDocument uidoc, BimQueryScope scope)
+        private static View? ResolveActiveGraphicalView(
+            UIDocument uidoc,
+            BimQueryScope scope,
+            BimDiagnosticContext diagnostics)
         {
-            return scope == BimQueryScope.ActiveView
-                ? uidoc.ActiveGraphicalView
-                : null;
+            if (scope != BimQueryScope.ActiveView)
+            {
+                return null;
+            }
+
+            return diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitViewActiveGraphical,
+                    () => uidoc.ActiveGraphicalView,
+                    BimDiagnosticFields.None,
+                    view => view == null
+                        ? BimDiagnosticDetailCode.NoActiveView
+                        : BimDiagnosticDetailCode.True)
+                : uidoc.ActiveGraphicalView;
         }
 
-        private static BimViewIdentity? SerializeActiveView(UIDocument uidoc)
+        private static BimViewIdentity? SerializeActiveView(
+            UIDocument uidoc,
+            BimDiagnosticContext diagnostics)
         {
-            var view = ResolveActiveGraphicalView(uidoc, BimQueryScope.ActiveView);
+            var view = ResolveActiveGraphicalView(
+                uidoc, BimQueryScope.ActiveView, diagnostics);
             return view == null ? null : RevitIdentitySerializer.ViewIdentity(view);
+        }
+
+        private static UIDocument? AcquireActiveUiDocument(
+            UIApplication uiapp,
+            BimDiagnosticContext diagnostics)
+        {
+            return diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentAcquire,
+                    () => RevitContext.ActiveUiDocument(uiapp),
+                    BimDiagnosticFields.None,
+                    value => value == null
+                        ? BimDiagnosticDetailCode.Null
+                        : BimDiagnosticDetailCode.True)
+                : RevitContext.ActiveUiDocument(uiapp);
+        }
+
+        private static Document? AcquireDocument(
+            UIDocument uidoc,
+            BimDiagnosticContext diagnostics)
+        {
+            return diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentAcquire,
+                    () => uidoc.Document,
+                    BimDiagnosticFields.None,
+                    value => value == null
+                        ? BimDiagnosticDetailCode.Null
+                        : BimDiagnosticDetailCode.True)
+                : uidoc.Document;
+        }
+
+        private static Document? AcquireActiveDocument(
+            UIApplication uiapp,
+            BimDiagnosticContext diagnostics)
+        {
+            return diagnostics.Enabled
+                ? BimDiagnosticProbe.Production(
+                    diagnostics,
+                    BimDiagnosticStage.RevitDocumentAcquire,
+                    () => RevitContext.ActiveDocument(uiapp),
+                    BimDiagnosticFields.None,
+                    value => value == null
+                        ? BimDiagnosticDetailCode.Null
+                        : BimDiagnosticDetailCode.True)
+                : RevitContext.ActiveDocument(uiapp);
         }
 
         private static BimElementResolveResult ResolveElementOrFailure(

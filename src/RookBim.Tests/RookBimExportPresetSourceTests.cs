@@ -68,6 +68,77 @@ namespace RookBim.Tests
         }
 
         [Fact]
+        public void PresetResolver_ThreadsTheRequestDiagnosticContextThroughEveryCategoryQuery()
+        {
+            var preset = Read("src/RookBim/Revit/RevitPresetResolver.cs");
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var resolve = ExtractExecutableMember(
+                preset,
+                "internal sealed class RevitPresetResolver",
+                "public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request, BimDiagnosticContext diagnostics)");
+            var exportPreset = ExtractExecutableMember(
+                runtime,
+                "public sealed class RevitRookBimRuntime : IRookBimRuntime",
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)");
+
+            AssertSingleInvocationArguments(
+                resolve,
+                "query.Query",
+                "document",
+                "activeView",
+                "selector",
+                "diagnostics");
+            AssertSingleInvocationArguments(
+                exportPreset,
+                "presetResolver.Resolve",
+                "document",
+                "view",
+                "request",
+                "diagnostics");
+        }
+
+        [Fact]
+        public void QueryAndPresetExportIdentityPathsRemainUntraced()
+        {
+            var query = Read("src/RookBim/Revit/RevitQueryService.cs");
+            var preset = Read("src/RookBim/Revit/RevitPresetResolver.cs");
+            var export = Read("src/RookBim/Revit/RevitExportService.cs");
+            var buildResult = ExtractExecutableMember(
+                query,
+                "internal sealed class RevitQueryService",
+                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
+            var resolve = ExtractExecutableMember(
+                preset,
+                "internal sealed class RevitPresetResolver",
+                "public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request, BimDiagnosticContext diagnostics)");
+            var buildSidecar = ExtractExecutableMember(
+                export,
+                "internal sealed class RevitExportService",
+                "private object BuildSidecar(Document document, BimExportElementsRequest request, IReadOnlyList<Element> elements, bool truncated, List<object> elementRecords, List<object> roomRecords, RevitPresetContext? presetContext)");
+            var buildValidation = ExtractExecutableMember(
+                export,
+                "internal sealed class RevitExportService",
+                "private object BuildValidation(Document document, BimExportCounts counts, double scale, string targetUnits, BimExportArtifactPaths paths, string sidecarJson, RevitPresetContext? presetContext, object? summary, RevitRelationshipIndex relationships, object? modelAudit)");
+
+            AssertSingleInvocationArguments(
+                buildResult,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+            AssertSingleInvocationArguments(
+                resolve,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+            AssertSingleInvocationArguments(
+                buildSidecar,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+            AssertSingleInvocationArguments(
+                buildValidation,
+                "RevitIdentitySerializer.DocumentIdentity",
+                "document");
+        }
+
+        [Fact]
         public void ExportService_FailsRoomsDrivenPresetWhenNoRoomsExported()
         {
             var src = Read("src/RookBim/Revit/RevitExportService.cs");
@@ -122,12 +193,44 @@ namespace RookBim.Tests
         [Fact]
         public void Runtime_WiresExportPresetThroughResolverAndExportTimeout()
         {
-            var src = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var runtime = Read("src/RookBim/Revit/RevitRookBimRuntime.cs");
+            var exportPreset = ExtractExecutableMember(
+                runtime,
+                "public sealed class RevitRookBimRuntime : IRookBimRuntime",
+                "public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)");
 
-            Assert.Contains("public BimApiResponse ExportPreset(BimExportPresetRequest request)", src);
-            Assert.Contains("RevitPresetResolver", src);
-            Assert.Contains("ExportResolved", src);
-            Assert.Contains("ExportDispatchTimeout", src);
+            Assert.Contains("presetResolver.Resolve", exportPreset);
+            Assert.Contains("ExportResolved", exportPreset);
+            Assert.Contains("ExportDispatchTimeout", exportPreset);
+            AssertSingleInvocationArguments(
+                exportPreset,
+                "presetResolver.Resolve",
+                "document",
+                "view",
+                "request",
+                "diagnostics");
+        }
+
+        private static string ExtractExecutableMember(
+            string source,
+            string typeDeclaration,
+            string memberDeclaration)
+        {
+            return RookBimModuleSourceTests.ExtractExecutableMember(
+                source,
+                typeDeclaration,
+                memberDeclaration);
+        }
+
+        private static void AssertSingleInvocationArguments(
+            string source,
+            string invocationTarget,
+            params string[] expectedArguments)
+        {
+            RookBimModuleSourceTests.AssertSingleInvocationArguments(
+                source,
+                invocationTarget,
+                expectedArguments);
         }
 
         internal static string Read(string relativePath)
