@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 import rook.agent.minimal_intent_worker_integration as integration
+from rook.agent.local_worker_adapter import TransportError
 from rook.agent.minimal_intent_worker_integration import (
     MAX_INTENT_UTF8_BYTES,
     MAX_PLANNER_RESPONSE_UTF8_BYTES,
@@ -54,15 +55,77 @@ class _RecordingPlannerTransport:
 
 
 class _EqualitySpoof:
+    def __init__(self, rendered: str = _INTENT) -> None:
+        self.rendered = rendered
+
     def __eq__(self, other: object) -> bool:
         return True
 
     def __str__(self) -> str:
-        return _INTENT
+        return self.rendered
 
 
 class _StringSubclass(str):
     pass
+
+
+_RESPONSE_INVALID_CASES = (
+    (42, "response_not_string", None),
+    (_StringSubclass("{}"), "response_not_string", None),
+    (chr(0xD800), "response_not_utf8", None),
+    (
+        "x" * (MAX_PLANNER_RESPONSE_UTF8_BYTES + 1),
+        "response_too_large",
+        None,
+    ),
+    ("not json", "response_invalid_json", "not json"),
+    ('{"a":1,"a":2}', "response_duplicate_key", '{"a":1,"a":2}'),
+    (
+        '{"outer":{"a":1,"a":2}}',
+        "response_duplicate_key",
+        '{"outer":{"a":1,"a":2}}',
+    ),
+    ('{"value":NaN}', "response_nonfinite_number", '{"value":NaN}'),
+    (
+        '{"value":Infinity}',
+        "response_nonfinite_number",
+        '{"value":Infinity}',
+    ),
+    (
+        '{"value":-Infinity}',
+        "response_nonfinite_number",
+        '{"value":-Infinity}',
+    ),
+    ('{"value":1e400}', "response_nonfinite_number", '{"value":1e400}'),
+    ('{"value":-1e400}', "response_nonfinite_number", '{"value":-1e400}'),
+    (
+        '{"value":' + ("9" * 5_000) + "}",
+        "response_invalid_json",
+        '{"value":' + ("9" * 5_000) + "}",
+    ),
+    ("{} {}", "response_trailing_content", "{} {}"),
+    ("[]", "response_not_object", "[]"),
+    ("```json\n{}\n```", "response_invalid_json", "```json\n{}\n```"),
+)
+
+_RESPONSE_INVALID_IDS = (
+    "non_string",
+    "string_subclass",
+    "non_utf8",
+    "oversized",
+    "invalid_json",
+    "duplicate_root",
+    "duplicate_nested",
+    "nan",
+    "positive_infinity",
+    "negative_infinity",
+    "positive_exponent_overflow",
+    "negative_exponent_overflow",
+    "over_limit_integer_token",
+    "trailing_content",
+    "non_object_root",
+    "markdown",
+)
 
 
 class _RaisingPlannerTransport:
@@ -112,6 +175,39 @@ class _IntegrationWorkerTransport:
         )
 
 
+class _ScriptedIntegrationWorkerTransport:
+    def __init__(self, payload: object) -> None:
+        self.raw_output = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self.calls: list[dict[str, Any]] = []
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        self.calls.append(copy.deepcopy(dict(prompt_artifact)))
+        return self.raw_output
+
+
+class _RawIntegrationWorkerTransport:
+    def __init__(self, raw_output: str) -> None:
+        self.raw_output = raw_output
+        self.calls: list[dict[str, Any]] = []
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        self.calls.append(copy.deepcopy(dict(prompt_artifact)))
+        return self.raw_output
+
+
+class _DeclaredIntegrationWorkerTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        self.calls.append(copy.deepcopy(dict(prompt_artifact)))
+        raise TransportError("declared worker transport stop")
+
+
 class _CausalToolExecutor:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
@@ -140,6 +236,51 @@ class _CausalToolExecutor:
             }
             return _updated_clean()
         raise AssertionError("unexpected extra typed-tool call")
+
+
+class _ScenarioToolExecutor:
+    def __init__(
+        self,
+        *,
+        create_behavior: str = "needs_repair",
+        repair_behavior: str = "clean",
+    ) -> None:
+        self.create_behavior = create_behavior
+        self.repair_behavior = repair_behavior
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def __call__(self, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
+        captured = copy.deepcopy(params)
+        self.calls.append((tool_name, captured))
+        if tool_name == "gh_create_csharp_script":
+            assert len(self.calls) == 1
+            assert captured == {
+                "code": _INITIAL_BODY,
+                "pins_in": (),
+                "pins_out": ("A:double",),
+                "name": "RookMinimalRepairHandoff",
+                "x": 375,
+                "y": 1080,
+            }
+            if self.create_behavior == "raises":
+                raise RuntimeError("create dispatch failed")
+            assert self.create_behavior == "needs_repair"
+            return _created_with_errors(captured["code"])
+        if tool_name == "gh_update_script":
+            assert len(self.calls) == 2
+            assert captured == {
+                "guid": _COMPONENT_GUID,
+                "code": _WORKER_BODY,
+                "mode": "body",
+                "language": "csharp",
+            }
+            if self.repair_behavior == "raises":
+                raise RuntimeError("repair dispatch failed")
+            if self.repair_behavior == "still_broken":
+                return _updated_with_errors()
+            assert self.repair_behavior == "clean"
+            return _updated_clean()
+        raise AssertionError(f"unexpected typed tool: {tool_name}")
 
 
 def _created_with_errors(received_body: object) -> dict[str, Any]:
@@ -191,6 +332,44 @@ def _updated_clean() -> dict[str, Any]:
                 "target_errors": [],
             },
         }
+    }
+
+
+def _updated_with_errors() -> dict[str, Any]:
+    return {
+        "script_receipt": {
+            "version": 1,
+            "operation": "update",
+            "language": "csharp",
+            "artifact_status": "created_with_errors",
+            "mutation": {
+                "status": "written",
+                "component_guid": _COMPONENT_GUID,
+            },
+            "verification": {
+                "status": "failed",
+                "target_error_count": 1,
+            },
+            "repair_anchor": {
+                "component_guid": _COMPONENT_GUID,
+                "language": "csharp",
+                "target_errors": ["CS9999: repair remains invalid"],
+            },
+        }
+    }
+
+
+def _action_response_payload(
+    *,
+    action_id: str = "draft_repair_params",
+    mode: str = "body",
+) -> dict[str, Any]:
+    return {
+        "schema": "rook.local_worker_turn_response:v1",
+        "kind": "action_request",
+        "action_id": action_id,
+        "rationale": "Author a complete replacement body.",
+        "input": {"code": _WORKER_BODY, "mode": mode},
     }
 
 
@@ -301,6 +480,70 @@ async def test_runner_validates_all_capability_boundaries_before_planner_call(
         assert tool_executor.calls == []
 
 
+@pytest.mark.parametrize(
+    "intent",
+    [
+        7,
+        _EqualitySpoof("different intent"),
+        "",
+        "   ",
+        chr(0xD800),
+        "é" * 8_193,
+    ],
+    ids=[
+        "non_string",
+        "equality_spoof",
+        "empty",
+        "whitespace",
+        "non_utf8",
+        "oversized",
+    ],
+)
+@pytest.mark.asyncio
+async def test_runner_rejects_invalid_intent_before_capability_calls(
+    intent: object,
+) -> None:
+    planner_transport = _RecordingPlannerTransport(json.dumps(_planner_payload()))
+    worker_transport = _IntegrationWorkerTransport()
+    tool_executor = _CausalToolExecutor()
+
+    with pytest.raises((TypeError, ValueError)):
+        await integration.run_minimal_intent_worker_integration(
+            intent,  # type: ignore[arg-type]
+            planner_adapter=MinimalPlannerDraftAdapter(planner_transport),
+            worker_transport=worker_transport,
+            tool_executor=tool_executor,
+        )
+
+    assert planner_transport.calls == []
+    assert worker_transport.calls == []
+    assert tool_executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_runner_preserves_exact_maximum_byte_intent_in_planner_prompt() -> None:
+    intent = "é" * 8_192
+    assert len(intent.encode("utf-8")) == MAX_INTENT_UTF8_BYTES
+    planner_transport = _RecordingPlannerTransport("not json")
+    worker_transport = _IntegrationWorkerTransport()
+    tool_executor = _CausalToolExecutor()
+
+    result = await integration.run_minimal_intent_worker_integration(
+        intent,
+        planner_adapter=MinimalPlannerDraftAdapter(planner_transport),
+        worker_transport=worker_transport,
+        tool_executor=tool_executor,
+    )
+
+    assert len(planner_transport.calls) == 1
+    assert json.loads(result.planner_adapter_record.prompt_snapshot.user_content) == {
+        "user_intent": intent
+    }
+    assert result.terminal_stage == "planner_adapter"
+    assert worker_transport.calls == []
+    assert tool_executor.calls == []
+
+
 @pytest.mark.asyncio
 async def test_transport_failure_returns_native_adapter_stop() -> None:
     planner_transport = _RaisingPlannerTransport(RuntimeError("planner unavailable"))
@@ -321,6 +564,199 @@ async def test_transport_failure_returns_native_adapter_stop() -> None:
     assert result.terminal_reason == "transport_failed"
     assert worker_transport.calls == []
     assert tool_executor.calls == []
+
+
+@pytest.mark.parametrize(
+    ("raw_response", "failure_reason", "_retained_raw"),
+    _RESPONSE_INVALID_CASES,
+    ids=_RESPONSE_INVALID_IDS,
+)
+@pytest.mark.asyncio
+async def test_runner_preserves_every_planner_response_refusal(
+    raw_response: object,
+    failure_reason: str,
+    _retained_raw: str | None,
+) -> None:
+    planner_transport = _RecordingPlannerTransport(raw_response)
+    worker_transport = _IntegrationWorkerTransport()
+    tool_executor = _CausalToolExecutor()
+
+    result = await integration.run_minimal_intent_worker_integration(
+        _INTENT,
+        planner_adapter=MinimalPlannerDraftAdapter(planner_transport),
+        worker_transport=worker_transport,
+        tool_executor=tool_executor,
+    )
+
+    assert len(planner_transport.calls) == 1
+    assert result.planner_adapter_record.failure_reason == failure_reason
+    assert result.validated_draft is None
+    assert result.handoff_result is None
+    assert result.terminal_stage == "planner_adapter"
+    assert result.terminal_reason == failure_reason
+    assert worker_transport.calls == []
+    assert tool_executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_runner_does_not_convert_planner_base_exception() -> None:
+    planner_transport = _RaisingPlannerTransport(KeyboardInterrupt())
+    worker_transport = _IntegrationWorkerTransport()
+    tool_executor = _CausalToolExecutor()
+
+    with pytest.raises(KeyboardInterrupt):
+        await integration.run_minimal_intent_worker_integration(
+            _INTENT,
+            planner_adapter=MinimalPlannerDraftAdapter(planner_transport),
+            worker_transport=worker_transport,
+            tool_executor=tool_executor,
+        )
+
+    assert len(planner_transport.calls) == 1
+    assert worker_transport.calls == []
+    assert tool_executor.calls == []
+
+
+@pytest.mark.parametrize(
+    (
+        "case",
+        "terminal_stage",
+        "terminal_reason",
+        "worker_calls",
+        "tool_names",
+    ),
+    [
+        (
+            "create_raises",
+            "create",
+            "dispatch_failed",
+            0,
+            ["gh_create_csharp_script"],
+        ),
+        (
+            "transport_declared",
+            "worker_adapter",
+            "transport_error:declared",
+            1,
+            ["gh_create_csharp_script"],
+        ),
+        (
+            "worker_invalid_json",
+            "worker_adapter",
+            "raw_output_invalid:json_decode",
+            1,
+            ["gh_create_csharp_script"],
+        ),
+        (
+            "clarification",
+            "worker_disposition",
+            "clarification_needed",
+            1,
+            ["gh_create_csharp_script"],
+        ),
+        (
+            "refusal",
+            "worker_disposition",
+            "refusal_recorded",
+            1,
+            ["gh_create_csharp_script"],
+        ),
+        (
+            "unknown_action",
+            "worker_disposition",
+            "blocked:unknown_action_id:other_action",
+            1,
+            ["gh_create_csharp_script"],
+        ),
+        (
+            "invalid_mode",
+            "action_apply",
+            "invalid_mode",
+            1,
+            ["gh_create_csharp_script"],
+        ),
+        (
+            "repair_raises",
+            "repair",
+            "dispatch_failed",
+            1,
+            ["gh_create_csharp_script", "gh_update_script"],
+        ),
+        (
+            "reverify_broken",
+            "verify_repair",
+            "selector_halt:none_ready",
+            1,
+            ["gh_create_csharp_script", "gh_update_script"],
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_runner_projects_representative_native_handoff_stops(
+    case: str,
+    terminal_stage: str,
+    terminal_reason: str,
+    worker_calls: int,
+    tool_names: list[str],
+) -> None:
+    planner_transport = _RecordingPlannerTransport(json.dumps(_planner_payload()))
+    worker_transport: Any = _ScriptedIntegrationWorkerTransport(
+        _action_response_payload()
+    )
+    tool_executor = _ScenarioToolExecutor()
+    if case == "create_raises":
+        tool_executor = _ScenarioToolExecutor(create_behavior="raises")
+    elif case == "transport_declared":
+        worker_transport = _DeclaredIntegrationWorkerTransport()
+    elif case == "worker_invalid_json":
+        worker_transport = _RawIntegrationWorkerTransport("{")
+    elif case == "clarification":
+        worker_transport = _ScriptedIntegrationWorkerTransport(
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "clarification_request",
+                "question": "Which replacement body should I author?",
+                "rationale": None,
+            }
+        )
+    elif case == "refusal":
+        worker_transport = _ScriptedIntegrationWorkerTransport(
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "refusal",
+                "category": "insufficient_context",
+                "reason": "A repair cannot be determined.",
+            }
+        )
+    elif case == "unknown_action":
+        worker_transport = _ScriptedIntegrationWorkerTransport(
+            _action_response_payload(action_id="other_action")
+        )
+    elif case == "invalid_mode":
+        worker_transport = _ScriptedIntegrationWorkerTransport(
+            _action_response_payload(mode="full")
+        )
+    elif case == "repair_raises":
+        tool_executor = _ScenarioToolExecutor(repair_behavior="raises")
+    elif case == "reverify_broken":
+        tool_executor = _ScenarioToolExecutor(repair_behavior="still_broken")
+
+    result = await integration.run_minimal_intent_worker_integration(
+        _INTENT,
+        planner_adapter=MinimalPlannerDraftAdapter(planner_transport),
+        worker_transport=worker_transport,
+        tool_executor=tool_executor,
+    )
+
+    assert len(planner_transport.calls) == 1
+    assert len(worker_transport.calls) == worker_calls
+    assert [name for name, _ in tool_executor.calls] == tool_names
+    assert result.handoff_result is not None
+    assert result.validated_draft == result.handoff_result.draft
+    assert result.terminal_stage == terminal_stage
+    assert result.terminal_reason == terminal_reason
+    assert result.terminal_stage == result.handoff_result.terminal_stage
+    assert result.terminal_reason == result.handoff_result.terminal_reason
 
 
 @pytest.mark.asyncio
@@ -464,15 +900,56 @@ async def test_integration_result_rejects_cross_stage_substitutions() -> None:
     with pytest.raises((TypeError, ValueError)):
         replace(success, terminal_stage="draft_admission")
     with pytest.raises((TypeError, ValueError)):
+        replace(success, terminal_reason="goal_mismatch")
+    with pytest.raises((TypeError, ValueError)):
         replace(success, validated_draft=None)
+    with pytest.raises((TypeError, ValueError)):
+        replace(success, planner_adapter_record={})
     with pytest.raises((TypeError, ValueError)):
         replace(adapter_stop, terminal_reason="goal_mismatch")
     with pytest.raises((TypeError, ValueError)):
         replace(adapter_stop, validated_draft=success.validated_draft)
     with pytest.raises((TypeError, ValueError)):
+        replace(adapter_stop, handoff_result=success.handoff_result)
+    with pytest.raises((TypeError, ValueError)):
         replace(draft_stop, terminal_reason="not_a_draft_stop")
     with pytest.raises((TypeError, ValueError)):
+        replace(draft_stop, validated_draft=success.validated_draft)
+    with pytest.raises((TypeError, ValueError)):
         replace(draft_stop, handoff_result=success.handoff_result)
+    assert success.validated_draft is not None
+    different_draft = replace(success.validated_draft, goal="Different intent")
+    with pytest.raises((TypeError, ValueError)):
+        replace(success, validated_draft=different_draft)
+
+
+@pytest.mark.asyncio
+async def test_runner_does_not_convert_internal_handoff_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_handoff(*args: object, **kwargs: object):
+        raise RuntimeError("synthetic handoff invariant failure")
+
+    monkeypatch.setattr(
+        integration,
+        "run_minimal_csharp_repair_handoff",
+        fail_handoff,
+    )
+    planner_transport = _RecordingPlannerTransport(json.dumps(_planner_payload()))
+    worker_transport = _IntegrationWorkerTransport()
+    tool_executor = _CausalToolExecutor()
+
+    with pytest.raises(RuntimeError, match="synthetic handoff invariant failure"):
+        await integration.run_minimal_intent_worker_integration(
+            _INTENT,
+            planner_adapter=MinimalPlannerDraftAdapter(planner_transport),
+            worker_transport=worker_transport,
+            tool_executor=tool_executor,
+        )
+
+    assert len(planner_transport.calls) == 1
+    assert worker_transport.calls == []
+    assert tool_executor.calls == []
 
 
 @pytest.mark.asyncio
@@ -628,70 +1105,8 @@ def test_response_schema_is_fresh_for_transport_configuration() -> None:
 
 @pytest.mark.parametrize(
     ("raw_response", "failure_reason", "retained_raw"),
-    [
-        (42, "response_not_string", None),
-        (_StringSubclass("{}"), "response_not_string", None),
-        (chr(0xD800), "response_not_utf8", None),
-        (
-            "x" * (MAX_PLANNER_RESPONSE_UTF8_BYTES + 1),
-            "response_too_large",
-            None,
-        ),
-        ("not json", "response_invalid_json", "not json"),
-        ('{"a":1,"a":2}', "response_duplicate_key", '{"a":1,"a":2}'),
-        (
-            '{"outer":{"a":1,"a":2}}',
-            "response_duplicate_key",
-            '{"outer":{"a":1,"a":2}}',
-        ),
-        ('{"value":NaN}', "response_nonfinite_number", '{"value":NaN}'),
-        (
-            '{"value":Infinity}',
-            "response_nonfinite_number",
-            '{"value":Infinity}',
-        ),
-        (
-            '{"value":-Infinity}',
-            "response_nonfinite_number",
-            '{"value":-Infinity}',
-        ),
-        (
-            '{"value":1e400}',
-            "response_nonfinite_number",
-            '{"value":1e400}',
-        ),
-        (
-            '{"value":-1e400}',
-            "response_nonfinite_number",
-            '{"value":-1e400}',
-        ),
-        (
-            '{"value":' + ("9" * 5_000) + "}",
-            "response_invalid_json",
-            '{"value":' + ("9" * 5_000) + "}",
-        ),
-        ("{} {}", "response_trailing_content", "{} {}"),
-        ("[]", "response_not_object", "[]"),
-        ("```json\n{}\n```", "response_invalid_json", "```json\n{}\n```"),
-    ],
-    ids=[
-        "non_string",
-        "string_subclass",
-        "non_utf8",
-        "oversized",
-        "invalid_json",
-        "duplicate_root",
-        "duplicate_nested",
-        "nan",
-        "positive_infinity",
-        "negative_infinity",
-        "positive_exponent_overflow",
-        "negative_exponent_overflow",
-        "over_limit_integer_token",
-        "trailing_content",
-        "non_object_root",
-        "markdown",
-    ],
+    _RESPONSE_INVALID_CASES,
+    ids=_RESPONSE_INVALID_IDS,
 )
 def test_adapter_returns_closed_response_invalid_records(
     raw_response: object,
