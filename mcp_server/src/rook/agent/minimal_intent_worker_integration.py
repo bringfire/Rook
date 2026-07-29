@@ -201,10 +201,13 @@ class MinimalIntentWorkerIntegrationResult:
     terminal_reason: str
 
     def __post_init__(self) -> None:
-        if type(self.intent) is not str:
-            raise TypeError("intent must be an exact string")
+        _require_exact_intent(self.intent)
         if type(self.planner_adapter_record) is not MinimalPlannerDraftAdapterRecord:
             raise TypeError("planner_adapter_record must be the exact record type")
+        if self.planner_adapter_record.prompt_snapshot != _render_prompt_snapshot(
+            self.intent
+        ):
+            raise ValueError("Planner prompt snapshot differs from retained intent")
         if type(self.terminal_stage) is not str:
             raise TypeError("terminal_stage must be an exact string")
         if type(self.terminal_reason) is not str:
@@ -219,6 +222,17 @@ class MinimalIntentWorkerIntegrationResult:
             raise TypeError("validated_draft must be the exact validated draft type")
         if type(self.handoff_result) is not MinimalCSharpRepairHandoffResult:
             raise TypeError("handoff_result must be the exact handoff result type")
+        if self.validated_draft.goal != self.intent:
+            raise ValueError("validated draft goal differs from retained intent")
+        decoded_object = self.planner_adapter_record.decoded_object
+        if decoded_object is None:
+            raise ValueError("reached handoff lacks retained decoded Planner object")
+        try:
+            reconstructed_draft = load_minimal_csharp_repair_draft(decoded_object)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("retained decoded Planner object is not admissible") from exc
+        if reconstructed_draft != self.validated_draft:
+            raise ValueError("retained decoded Planner object differs from draft")
         if self.validated_draft != self.handoff_result.draft:
             raise ValueError("validated draft differs from handoff draft")
         if self.terminal_stage != self.handoff_result.terminal_stage:

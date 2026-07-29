@@ -475,6 +475,92 @@ async def test_integration_result_rejects_cross_stage_substitutions() -> None:
         replace(draft_stop, handoff_result=success.handoff_result)
 
 
+@pytest.mark.asyncio
+async def test_integration_result_rejects_intent_and_planner_record_splices() -> None:
+    success = await integration.run_minimal_intent_worker_integration(
+        _INTENT,
+        planner_adapter=MinimalPlannerDraftAdapter(
+            _RecordingPlannerTransport(json.dumps(_planner_payload()))
+        ),
+        worker_transport=_IntegrationWorkerTransport(),
+        tool_executor=_CausalToolExecutor(),
+    )
+    other_intent = "Different intent"
+    other_record = MinimalPlannerDraftAdapter(
+        _RecordingPlannerTransport(
+            json.dumps(_planner_payload(other_intent))
+        )
+    ).produce(other_intent)
+
+    with pytest.raises((TypeError, ValueError)):
+        replace(success, intent=other_intent)
+    with pytest.raises((TypeError, ValueError)):
+        replace(success, intent="")
+    with pytest.raises((TypeError, ValueError)):
+        replace(success, planner_adapter_record=other_record)
+
+
+@pytest.mark.asyncio
+async def test_integration_result_reloads_retained_decoded_draft() -> None:
+    success = await integration.run_minimal_intent_worker_integration(
+        _INTENT,
+        planner_adapter=MinimalPlannerDraftAdapter(
+            _RecordingPlannerTransport(json.dumps(_planner_payload()))
+        ),
+        worker_transport=_IntegrationWorkerTransport(),
+        tool_executor=_CausalToolExecutor(),
+    )
+    substituted_payload = _planner_payload("Different intent")
+    substituted_record = replace(
+        success.planner_adapter_record,
+        decoded_object=substituted_payload,
+    )
+
+    with pytest.raises((TypeError, ValueError)):
+        replace(success, planner_adapter_record=substituted_record)
+
+
+@pytest.mark.asyncio
+async def test_every_result_state_binds_prompt_to_retained_intent() -> None:
+    success = await integration.run_minimal_intent_worker_integration(
+        _INTENT,
+        planner_adapter=MinimalPlannerDraftAdapter(
+            _RecordingPlannerTransport(json.dumps(_planner_payload()))
+        ),
+        worker_transport=_IntegrationWorkerTransport(),
+        tool_executor=_CausalToolExecutor(),
+    )
+    adapter_stop = await integration.run_minimal_intent_worker_integration(
+        _INTENT,
+        planner_adapter=MinimalPlannerDraftAdapter(
+            _RaisingPlannerTransport(RuntimeError("planner unavailable"))
+        ),
+        worker_transport=_IntegrationWorkerTransport(),
+        tool_executor=_CausalToolExecutor(),
+    )
+    invalid_payload = _planner_payload()
+    invalid_payload["code"] = "not admitted"
+    draft_stop = await integration.run_minimal_intent_worker_integration(
+        _INTENT,
+        planner_adapter=MinimalPlannerDraftAdapter(
+            _RecordingPlannerTransport(json.dumps(invalid_payload))
+        ),
+        worker_transport=_IntegrationWorkerTransport(),
+        tool_executor=_CausalToolExecutor(),
+    )
+    other_snapshot = MinimalPlannerDraftAdapter(
+        _RecordingPlannerTransport(json.dumps(_planner_payload("Other")))
+    ).produce("Other").prompt_snapshot
+
+    for result in (success, adapter_stop, draft_stop):
+        substituted_record = replace(
+            result.planner_adapter_record,
+            prompt_snapshot=other_snapshot,
+        )
+        with pytest.raises((TypeError, ValueError)):
+            replace(result, planner_adapter_record=substituted_record)
+
+
 def test_concrete_adapter_owns_prompt_and_exactly_one_transport_call() -> None:
     raw = json.dumps(
         _planner_payload(),
