@@ -93,10 +93,7 @@ class PlannerDraftOutput:
     type: Literal["double"]
 
     def __post_init__(self) -> None:
-        if self.name != "A":
-            raise ValueError("Planner draft output name must be 'A'")
-        if self.type != "double":
-            raise ValueError("Planner draft output type must be 'double'")
+        _require_planner_output(self)
 
 
 @dataclass(frozen=True)
@@ -113,6 +110,7 @@ class PlannerDraftInterface:
             raise ValueError("Planner draft interface requires exact A:double output")
         object.__setattr__(self, "inputs", inputs)
         object.__setattr__(self, "outputs", outputs)
+        _require_planner_interface(self)
 
 
 @dataclass(frozen=True)
@@ -123,14 +121,7 @@ class ValidatedPlannerDraft:
     acceptance: Literal["clean_compile_receipt"]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.goal, str) or not self.goal.strip():
-            raise ValueError("Planner draft goal must be a non-empty string")
-        if self.capability != _CAPABILITY:
-            raise ValueError(f"Planner draft capability must be {_CAPABILITY!r}")
-        if type(self.interface) is not PlannerDraftInterface:
-            raise TypeError("Planner draft interface must be the exact validated type")
-        if self.acceptance != _ACCEPTANCE:
-            raise ValueError(f"Planner draft acceptance must be {_ACCEPTANCE!r}")
+        _require_validated_draft(self)
 
 
 TerminalStage = Literal[
@@ -213,8 +204,7 @@ async def run_minimal_csharp_repair_handoff(
     worker_transport: LocalWorkerTransport,
     tool_executor: Callable[[str, dict[str, Any]], Any],
 ) -> MinimalCSharpRepairHandoffResult:
-    if type(draft) is not ValidatedPlannerDraft:
-        raise TypeError("draft must be the exact ValidatedPlannerDraft type")
+    _require_validated_draft(draft)
     if not callable(tool_executor):
         raise TypeError("tool_executor must be callable")
 
@@ -330,8 +320,7 @@ async def run_minimal_csharp_repair_handoff(
 def _build_repair_specimen_contract(
     draft: ValidatedPlannerDraft,
 ) -> RookWorkflowContract:
-    if type(draft) is not ValidatedPlannerDraft:
-        raise TypeError("draft must be the exact ValidatedPlannerDraft type")
+    _require_validated_draft(draft)
     return RookWorkflowContract(
         workflow_id=_WORKFLOW_ID,
         template=WorkflowTemplateRef(
@@ -347,8 +336,11 @@ def _build_repair_specimen_contract(
                 node_id=_CREATE_NODE_ID,
                 execution_params={
                     "code": _SPECIMEN_INITIAL_BODY,
-                    "pins_in": [],
-                    "pins_out": ["A:double"],
+                    "pins_in": list(draft.interface.inputs),
+                    "pins_out": [
+                        f"{output.name}:{output.type}"
+                        for output in draft.interface.outputs
+                    ],
                     "name": "RookMinimalRepairHandoff",
                     "x": 375,
                     "y": 1080,
@@ -564,6 +556,40 @@ def _require_mapping(value: object, context: str) -> Mapping[str, Any]:
         raise TypeError(f"{context} must be a mapping")
     if not all(isinstance(key, str) for key in value):
         raise TypeError(f"{context} keys must be strings")
+    return value
+
+
+def _require_planner_output(value: object) -> PlannerDraftOutput:
+    if type(value) is not PlannerDraftOutput:
+        raise TypeError("Planner draft output must be the exact validated type")
+    if value.name != "A":
+        raise ValueError("Planner draft output name must be 'A'")
+    if value.type != "double":
+        raise ValueError("Planner draft output type must be 'double'")
+    return value
+
+
+def _require_planner_interface(value: object) -> PlannerDraftInterface:
+    if type(value) is not PlannerDraftInterface:
+        raise TypeError("Planner draft interface must be the exact validated type")
+    if type(value.inputs) is not tuple or value.inputs:
+        raise ValueError("Planner draft interface inputs must be the exact empty tuple")
+    if type(value.outputs) is not tuple or len(value.outputs) != 1:
+        raise ValueError("Planner draft interface requires one exact output")
+    _require_planner_output(value.outputs[0])
+    return value
+
+
+def _require_validated_draft(value: object) -> ValidatedPlannerDraft:
+    if type(value) is not ValidatedPlannerDraft:
+        raise TypeError("draft must be the exact ValidatedPlannerDraft type")
+    if not isinstance(value.goal, str) or not value.goal.strip():
+        raise ValueError("Planner draft goal must be a non-empty string")
+    if value.capability != _CAPABILITY:
+        raise ValueError(f"Planner draft capability must be {_CAPABILITY!r}")
+    _require_planner_interface(value.interface)
+    if value.acceptance != _ACCEPTANCE:
+        raise ValueError(f"Planner draft acceptance must be {_ACCEPTANCE!r}")
     return value
 
 
