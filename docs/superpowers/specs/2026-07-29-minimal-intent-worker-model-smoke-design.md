@@ -145,18 +145,37 @@ Planner:
 ```text
 model: anthropic/claude-opus-4-6
 profile_api_base: hybrid profile api_base
-generation_params: {temperature: 0}
-structured_response_schema:
-  build_minimal_planner_draft_response_schema()
+generation_params:
+  temperature: 0
+  max_tokens: 1024
+  max_retries: 0
+  response_format:
+    type: json_schema
+    json_schema:
+      name: minimal_planner_draft
+      strict: true
+      schema: build_minimal_planner_draft_response_schema()
+structured_response_schema: null
 timeout_s: 120
 ```
+
+The Planner schema deliberately travels through LiteLLM's
+`response_format` parameter. For the pinned Anthropic model, LiteLLM 1.89.4
+maps that supported OpenAI-compatible request shape to Anthropic
+`output_format`. It must not travel through the transport's
+`structured_response_schema` argument, because that argument materializes as
+top-level `format`, which is the existing Ollama path rather than the
+Anthropic structured-output path.
 
 Worker:
 
 ```text
 model: ollama_chat/qwen3-coder:30b-a3b-q8_0
 profile_api_base: hybrid profile api_base
-generation_params: {temperature: 0}
+generation_params:
+  temperature: 0
+  max_tokens: 1024
+  max_retries: 0
 structured_response_schema:
   _local_worker_response_union_schema()
 timeout_s: 120
@@ -168,6 +187,11 @@ not copy the schema or promote the helper to a public API.
 
 If either provider cannot honor its schema, the existing transport/adapter path
 produces its ordinary stop. There is no prompt-only fallback.
+
+The 1,024-token limits bound generated output before the existing byte-bounded
+response loaders run. `max_retries: 0` makes the one-call limit explicit at
+the LiteLLM boundary. Neither setting changes semantic admission, response
+contracts, or the existing 120-second call timeout.
 
 ## 7. Composition flow
 
@@ -384,7 +408,17 @@ Prove:
 
 Monkeypatch transport construction and call the internal one-run composition
 directly. Prove both constructors receive the exact role, profile API base,
-temperature, timeout, and independently rebuilt code-owned schema.
+temperature, 1,024-token output limit, zero-retry setting, timeout, and
+independently rebuilt code-owned schema.
+
+In a separate offline materialization test, use the actual
+`LiteLLMWorkerTransport` and replace only `litellm.completion` with a capturing
+callable. Prove the exact kwargs at that boundary:
+
+- Planner contains the code-owned `response_format`, `max_tokens: 1024`, and
+  `max_retries: 0`, with no `format` key; and
+- Worker contains the code-owned `format`, `max_tokens: 1024`, and
+  `max_retries: 0`, with no `response_format` key or duplicate schema.
 
 The transport doubles then pass raw strings through the real
 `MinimalPlannerDraftAdapter`, real local-worker adapter, and merged integration

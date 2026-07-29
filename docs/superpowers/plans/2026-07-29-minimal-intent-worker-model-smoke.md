@@ -14,9 +14,9 @@
 - Create only `scripts/minimal_intent_worker_model_smoke.py` and `mcp_server/tests/test_minimal_intent_worker_model_smoke.py`; product modules remain unchanged.
 - Fixed intent is exactly `Create a Grasshopper C# component with one A:double output and compile cleanly.`
 - Resolve only `get_models("hybrid")`; require Planner `anthropic/claude-opus-4-6` and Worker `ollama_chat/qwen3-coder:30b-a3b-q8_0` before constructing either transport.
-- Planner schema is exactly `build_minimal_planner_draft_response_schema()`.
-- Worker schema is exactly the private `_local_worker_response_union_schema()`; do not copy or promote it.
-- Both transports use `generation_params={"temperature": 0}` and `timeout_s=120.0`; no prompt-only fallback.
+- Planner schema is exactly `build_minimal_planner_draft_response_schema()`, wrapped in a code-owned LiteLLM `response_format`; Planner `structured_response_schema` is `None` so no top-level `format` is emitted.
+- Worker schema is exactly the private `_local_worker_response_union_schema()` passed through `structured_response_schema`; do not copy or promote it.
+- Both transports use temperature zero, `max_tokens=1024`, `max_retries=0`, and `timeout_s=120.0`; no prompt-only fallback.
 - One Planner call maximum; zero or one worker call; no retry, fallback, prompt repair, alternate model, model override, or deterministic output patch.
 - No `ToolDispatcher`, real typed-tool bridge, Chat, MCP, Chirp, DSPy, product CLI registration, archive, preflight, readiness, attempt, checksum, or fingerprint machinery.
 - Summary fields contain no raw prompt, response, worker code, rationale, diagnostic, credential, provider metadata, tool parameter, GUID, receipt, or LiteLLM telemetry.
@@ -191,6 +191,8 @@ _PLANNER_MODEL = "anthropic/claude-opus-4-6"
 _WORKER_MODEL = "ollama_chat/qwen3-coder:30b-a3b-q8_0"
 _LIVE_FLAG = "--execute-live"
 _TIMEOUT_S = 120.0
+_MAX_OUTPUT_TOKENS = 1024
+_MAX_RETRIES = 0
 _MAX_MODEL_ID_UTF8_BYTES = 256
 _MAX_BODY_UTF8_BYTES = 128
 _INITIAL_BODY = "A = DefinitelyMissingSymbol;"
@@ -204,6 +206,16 @@ _UPDATE_BODY_PATTERN = re.compile(
     r"(?:\.[0-9]{1,16})?[dD]?[ \t]*;[ \t]*",
     re.ASCII,
 )
+
+def _planner_response_format() -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "minimal_planner_draft",
+            "strict": True,
+            "schema": build_minimal_planner_draft_response_schema(),
+        },
+    }
 ```
 
 Add:
@@ -332,14 +344,23 @@ async def _run_live_once(roles: _ResolvedRoles) -> _LiveRun:
     planner_transport = LiteLLMWorkerTransport(
         model=roles.planner_model,
         profile_api_base=roles.profile_api_base,
-        generation_params={"temperature": 0},
-        structured_response_schema=build_minimal_planner_draft_response_schema(),
+        generation_params={
+            "temperature": 0,
+            "max_tokens": _MAX_OUTPUT_TOKENS,
+            "max_retries": _MAX_RETRIES,
+            "response_format": _planner_response_format(),
+        },
+        structured_response_schema=None,
         timeout_s=_TIMEOUT_S,
     )
     worker_transport = LiteLLMWorkerTransport(
         model=roles.worker_model,
         profile_api_base=roles.profile_api_base,
-        generation_params={"temperature": 0},
+        generation_params={
+            "temperature": 0,
+            "max_tokens": _MAX_OUTPUT_TOKENS,
+            "max_retries": _MAX_RETRIES,
+        },
         structured_response_schema=_local_worker_response_union_schema(),
         timeout_s=_TIMEOUT_S,
     )
@@ -355,7 +376,58 @@ async def _run_live_once(roles: _ResolvedRoles) -> _LiveRun:
 
 Define the exact thirteen `_SUMMARY_FIELDS`. For a returned result derive Planner count `1`; derive Worker count `1` only when `result.handoff_result.adapter_record` exists. Classify `contract_failed` first, exact native terminal second, and other native stops third.
 
-- [ ] **Step 7: Run the vertical and inherited seam**
+- [ ] **Step 7: Prove constructor values and actual LiteLLM materialization offline**
+
+Capture both constructor calls from the walking vertical and exact-compare:
+
+```python
+assert planner_kwargs == {
+    "model": "anthropic/claude-opus-4-6",
+    "profile_api_base": admitted_api_base,
+    "generation_params": {
+        "temperature": 0,
+        "max_tokens": 1024,
+        "max_retries": 0,
+        "response_format": SMOKE._planner_response_format(),
+    },
+    "structured_response_schema": None,
+    "timeout_s": 120.0,
+}
+assert worker_kwargs == {
+    "model": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+    "profile_api_base": admitted_api_base,
+    "generation_params": {
+        "temperature": 0,
+        "max_tokens": 1024,
+        "max_retries": 0,
+    },
+    "structured_response_schema":
+        SMOKE._local_worker_response_union_schema(),
+    "timeout_s": 120.0,
+}
+```
+
+Store the original `LiteLLMWorkerTransport` class before replacing the script's constructor for the walking vertical. Recreate each real transport from the captured kwargs. Monkeypatch only `rook.agent.local_worker_model_transport.litellm.completion` with a capturing callable that returns a minimal response object, then call each real transport's `send()` with a deterministic prompt artifact.
+
+Require:
+
+```python
+assert planner_call["response_format"] == SMOKE._planner_response_format()
+assert planner_call["max_tokens"] == 1024
+assert planner_call["max_retries"] == 0
+assert planner_call["temperature"] == 0
+assert "format" not in planner_call
+
+assert worker_call["format"] == SMOKE._local_worker_response_union_schema()
+assert worker_call["max_tokens"] == 1024
+assert worker_call["max_retries"] == 0
+assert worker_call["temperature"] == 0
+assert "response_format" not in worker_call
+```
+
+Require exactly one schema-bearing key per call. Mutate each captured schema and prove a later composition builds a fresh code-owned value. The test stops at the monkeypatched `litellm.completion` boundary and makes no provider contact.
+
+- [ ] **Step 8: Run the vertical and inherited seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -372,7 +444,7 @@ git diff --check
 
 Expected: all selected tests pass; compilation and diff checks exit zero; no command invokes the live flag.
 
-- [ ] **Step 8: Commit Task 1 and stop for walking-vertical review**
+- [ ] **Step 9: Commit Task 1 and stop for walking-vertical review**
 
 ```powershell
 git add scripts/minimal_intent_worker_model_smoke.py `
@@ -426,32 +498,7 @@ Supply exact `ModelSet`-shaped values for:
 
 For every refusal, replace `LiteLLMWorkerTransport` with a constructor that fails the test if invoked. Require `profile_identity_invalid` for malformed identities and `profile_role_mismatch` for well-formed substitutions. Prove no partial construction: a valid Planner identity plus bad Worker still constructs neither transport.
 
-- [ ] **Step 3: Add valid-red exact-constructor assertions**
-
-Capture both `LiteLLMWorkerTransport` constructor calls from `_run_live_once()`. Assert:
-
-```python
-assert planner_kwargs == {
-    "model": "anthropic/claude-opus-4-6",
-    "profile_api_base": admitted_api_base,
-    "generation_params": {"temperature": 0},
-    "structured_response_schema":
-        SMOKE.build_minimal_planner_draft_response_schema(),
-    "timeout_s": 120.0,
-}
-assert worker_kwargs == {
-    "model": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
-    "profile_api_base": admitted_api_base,
-    "generation_params": {"temperature": 0},
-    "structured_response_schema":
-        SMOKE._local_worker_response_union_schema(),
-    "timeout_s": 120.0,
-}
-```
-
-Mutate the captured schema after construction and prove a later constructor obtains a fresh code-owned schema. Assert the Planner and Worker schemas are unequal and that no prompt-only fallback parameter exists.
-
-- [ ] **Step 4: Implement the refusal summaries and operator entry point**
+- [ ] **Step 3: Implement the refusal summaries and operator entry point**
 
 Add closed helpers rather than a generic result framework:
 
@@ -579,13 +626,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 `_write_summary()` canonically renders one compact JSON object with the exact thirteen fields and no extra diagnostics. Catch ordinary `Exception`, never `BaseException`. The implementation must not add argument parsing, environment overrides, retries, or alternate execution paths.
 
-- [ ] **Step 5: Prove the operator surface is bounded without invoking live execution**
+- [ ] **Step 4: Prove the operator surface is bounded without invoking live execution**
 
 Add a subprocess test for no arguments and one for `--invalid-argument`. Assert exit behavior, exact summary shape, and absence of stderr secrets. Do not launch the script with `--execute-live`; only the pure classifier test may pass that string.
 
 Search the script source in the test and reject `argparse`, `click`, model-override names, retry/fallback loops, `ToolDispatcher`, and product registration imports. Permit only the one literal live flag.
 
-- [ ] **Step 6: Run and commit Task 2**
+- [ ] **Step 5: Run and commit Task 2**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -837,7 +884,7 @@ Do not push, open a PR, merge, or request/run the live smoke until the implement
 - [ ] Exactly one operator script and one test module implement the slice; merged product modules remain unchanged.
 - [ ] The no-flag and invalid-argument paths construct no transports.
 - [ ] Only the exact `hybrid` role pair can reach construction, and both roles are validated first.
-- [ ] Planner and Worker constructors use their distinct exact structured schemas, temperature zero, and 120-second timeout.
+- [ ] Planner uses only `response_format`, Worker uses only `format`, and both calls use temperature zero, `max_tokens=1024`, `max_retries=0`, and the 120-second timeout.
 - [ ] The deterministic vertical traverses the real Planner adapter and merged intent/handoff path with one Planner call and one Worker call.
 - [ ] The private fake derives the create diagnostic and GUID causally, accepts only the safe bounded numeric-body grammar, and reports contract failure truthfully.
 - [ ] Call counts derive only from control flow, native records, and fake call markers.
