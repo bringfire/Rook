@@ -1,6 +1,6 @@
 # Minimal C# Repair-Capability Planner/Worker Handoff Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use Markdown checkboxes for tracking.
 
 **Goal:** Add one internal product compositor that takes an exact validated four-field Planner draft through the existing C# create/verify workflow, one real worker adapter/harness/action turn, and the existing repair/reverify terminal path.
 
@@ -94,8 +94,8 @@ This task intentionally builds the thinnest complete offline transaction first. 
 
 ### Step 1: Write a valid-red end-to-end witness
 
-- [ ] Add a test-only `FakePlanner` helper that returns the exact raw mapping. It is not passed into production code; the test calls the strict loader itself.
-- [ ] Add a recording `FakeWorkerTransport.send(prompt_artifact)` that returns one raw JSON action response containing all required fields:
+- [x] Add a test-only `FakePlanner` helper that returns the exact raw mapping. It is not passed into production code; the test calls the strict loader itself.
+- [x] Add a recording `FakeWorkerTransport.send(prompt_artifact)` that returns one raw JSON action response containing all required fields:
 
 ```python
 {
@@ -107,7 +107,7 @@ This task intentionally builds the thinnest complete offline transaction first. 
 }
 ```
 
-- [ ] Add a recording fake tool executor that derives its create receipt from the request it actually receives:
+- [x] Add a recording fake tool executor that derives its create receipt from the request it actually receives:
 
 ```python
 def __call__(self, tool_name: str, params: dict[str, object]) -> dict[str, object]:
@@ -134,7 +134,7 @@ def __call__(self, tool_name: str, params: dict[str, object]) -> dict[str, objec
 
 The receipt helpers live in the test file and return the existing `script_receipt` shapes. Do not import probe fixtures or add production fake behavior.
 
-- [ ] Assert the complete observed path:
+- [x] Assert the complete observed path:
 
 ```python
 raw = FakePlanner().draft()
@@ -168,18 +168,18 @@ assert result.supply_records[-1].reason == "terminal_node_selected:done"
 
 ### Step 2: Run the test and prove the red is the missing product module
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
   mcp_server\tests\test_minimal_csharp_repair_handoff.py -q
 ```
 
-- [ ] Expected RED: collection fails with `ModuleNotFoundError` for `rook.agent.minimal_csharp_repair_handoff`. An unrelated fixture, import, or test-construction failure is not a valid red state.
+- [x] Expected RED: collection fails with `ModuleNotFoundError` for `rook.agent.minimal_csharp_repair_handoff`. An unrelated fixture, import, or test-construction failure is not a valid red state.
 
 ### Step 3: Add the exact immutable draft types and strict loader
 
-- [ ] Define the minimum public types in the new module:
+- [x] Define the minimum public types in the new module:
 
 ```python
 @dataclass(frozen=True)
@@ -204,7 +204,7 @@ class ValidatedPlannerDraft:
 
 Each dataclass validates direct construction in `__post_init__`, snapshots owned tuples, and rejects subclasses at the compositor boundary. The loader requires exact field sets at every level; strings are not treated as generic sequences.
 
-- [ ] Implement:
+- [x] Implement:
 
 ```python
 def load_minimal_csharp_repair_draft(
@@ -229,7 +229,7 @@ The exact accepted payload is:
 
 ### Step 4: Add the pure specimen contract and runner adapter
 
-- [ ] Add private constants for the fixed workflow, descriptor, template, node IDs, initial body, action ID, interface, and convention packet. The initial body has no injection or configuration path:
+- [x] Add private constants for the fixed workflow, descriptor, template, node IDs, initial body, action ID, interface, and convention packet. The initial body has no injection or configuration path:
 
 ```python
 _SPECIMEN_INITIAL_BODY = "A = DefinitelyMissingSymbol;"
@@ -250,7 +250,7 @@ WorkerKnowledgePacket(
 )
 ```
 
-- [ ] Implement `_build_repair_specimen_contract(draft)` as a pure constructor. The repair rule is exactly:
+- [x] Implement `_build_repair_specimen_contract(draft)` as a pure constructor. The repair rule is exactly:
 
 ```python
 WorkflowNodeRule(
@@ -261,7 +261,7 @@ WorkflowNodeRule(
 
 It contains no `BindStepSpec`; only `create_script` has initial execution parameters.
 
-- [ ] Add a private runner adapter that owns no outcome policy:
+- [x] Add a private runner adapter that owns no outcome policy:
 
 ```python
 @dataclass(frozen=True)
@@ -282,9 +282,9 @@ class _ToolExecutorRunner:
 
 ### Step 5: Add the exact result carrier and minimum compositor
 
-- [ ] Define `MinimalCSharpRepairHandoffResult` with the exact fields and stage literal approved by the design. Add `__post_init__` checks for the optional-field equations so impossible combinations raise instead of becoming operational results.
+- [x] Define `MinimalCSharpRepairHandoffResult` with the exact fields and stage literal approved by the design. Add `__post_init__` checks for the optional-field equations so impossible combinations raise instead of becoming operational results.
 
-- [ ] Implement the successful path as two uses of the real current-step stream:
+- [x] Implement the successful path as two uses of the real current-step stream:
 
 ```text
 phase 1, max_steps=2
@@ -311,7 +311,7 @@ phase_one = await run_current_step_stream(
 
 The expected internal pause is `max_steps_reached` with accepted node IDs `create_script`, `verify_create`, and a graph whose only next ready nonterminal node is `repair_same_component`. Other states return the appropriate existing operational result or raise if the native records are contradictory.
 
-- [ ] Build the worker knowledge from real sources:
+- [x] Build the worker knowledge from real sources:
 
   - one code-owned `script_body_gotcha` packet;
   - one immutable Planner goal/interface packet;
@@ -377,7 +377,7 @@ allowed_action = WorkerAllowedAction(
 
 The same `_script_body_gotcha_packet()` instance is passed to acceptance extraction and worker knowledge. Do not duplicate `mode: body` independently.
 
-- [ ] Immediately after extracting the existing sources, enforce the explicit
+- [x] Immediately after extracting the existing sources, enforce the explicit
   convention equality that the existing extractor does not own:
 
 ```python
@@ -387,9 +387,9 @@ if packet_mode != extracted_mode:
     raise RuntimeError("worker convention mode differs from acceptance source")
 ```
 
-- [ ] Render the request with `render_local_worker_turn_request_payload()`, call `run_local_worker_adapter()` once, then—only for `response_loaded`—call `run_local_worker_turn(context, lambda _: adapter_record.response)` once. The callback performs no transport or parsing.
+- [x] Render the request with `render_local_worker_turn_request_payload()`, call `run_local_worker_adapter()` once, then—only for `response_loaded`—call `run_local_worker_turn(context, lambda _: adapter_record.response)` once. The callback performs no transport or parsing.
 
-- [ ] Project rather than pass through the receipt anchor. Require the receipt
+- [x] Project rather than pass through the receipt anchor. Require the receipt
   GUID to equal the graph-memory repair-anchor GUID, then construct exactly:
 
 ```python
@@ -407,7 +407,7 @@ Pass only `action_id`, validated `input`, and `anchor_binding` into
 `apply_worker_action_to_node()`. Never pass either broad anchor mapping. Resume
 the real current-step stream on `action_apply_result.graph`.
 
-- [ ] Concatenate, never replace, both native execution ledgers:
+- [x] Concatenate, never replace, both native execution ledgers:
 
 ```python
 step_records = phase_one.records + phase_two.records
@@ -421,7 +421,7 @@ terminal stage.
 
 ### Step 6: Run the vertical and focused baseline
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -438,12 +438,12 @@ terminal stage.
   mcp_server\tests\test_plan_graph_current_step_stream.py -q
 ```
 
-- [ ] Expected: new vertical passes; established focused baseline remains at least its pre-implementation `222 passed` with only the new test count added where applicable.
+- [x] Expected: new vertical passes; established focused baseline remains at least its pre-implementation `222 passed` with only the new test count added where applicable.
 
 ### Step 7: Commit the walking skeleton and stop for review
 
-- [ ] Inspect `git diff --check` and `git status --short`.
-- [ ] Commit only the new production module and focused test:
+- [x] Inspect `git diff --check` and `git status --short`.
+- [x] Commit only the new production module and focused test:
 
 ```powershell
 git add mcp_server/src/rook/agent/minimal_csharp_repair_handoff.py `
@@ -451,7 +451,7 @@ git add mcp_server/src/rook/agent/minimal_csharp_repair_handoff.py `
 git commit -m "feat: compose minimal C# repair handoff"
 ```
 
-- [ ] Mandatory review checkpoint: independently inspect the real prompt, tool calls, receipts, repair-code source, and terminal records before Task 2. Do not harden forward on top of a fake or bypassed vertical.
+- [x] Mandatory review checkpoint: independently inspect the real prompt, tool calls, receipts, repair-code source, and terminal records before Task 2. Do not harden forward on top of a fake or bypassed vertical.
 
 ---
 
@@ -469,7 +469,7 @@ git commit -m "feat: compose minimal C# repair handoff"
 
 ### Step 1: Write the invalid-draft and direct-construction table
 
-- [ ] Parameterize mutations for:
+- [x] Parameterize mutations for:
 
   - raw non-mappings;
   - missing or extra top-level fields;
@@ -484,7 +484,7 @@ git commit -m "feat: compose minimal C# repair handoff"
   - Planner-supplied `code`, template, graph, action, worker, routing, GUID, or execution parameter fields;
   - forged direct dataclass values and subclasses.
 
-- [ ] Every case must establish zero downstream capability use:
+- [x] Every case must establish zero downstream capability use:
 
 ```python
 assert worker_transport.calls == []
@@ -495,13 +495,13 @@ The invalid raw cases stop in the loader. Exact-type/subclass cases stop at comp
 
 ### Step 2: Run the table and confirm valid red failures
 
-- [ ] Run the new loader/compiler selection with `-k "draft or contract"`.
-- [ ] Expected RED: missing strict checks or direct-construction invariants, not fake failures.
+- [x] Run the new loader/compiler selection with `-k "draft or contract"`.
+- [x] Expected RED: missing strict checks or direct-construction invariants, not fake failures.
 
 ### Step 3: Harden the loader without adding a schema framework
 
-- [ ] Add small private helpers such as `_require_exact_fields()`, `_require_mapping()`, and `_require_non_empty_string()` inside the module. Do not add JSON Schema, a registry, a new draft version family, or external dependencies.
-- [ ] Use exact field admission rather than permissive `.get()` checks:
+- [x] Add small private helpers such as `_require_exact_fields()`, `_require_mapping()`, and `_require_non_empty_string()` inside the module. Do not add JSON Schema, a registry, a new draft version family, or external dependencies.
+- [x] Use exact field admission rather than permissive `.get()` checks:
 
 ```python
 def _require_exact_fields(
@@ -517,13 +517,13 @@ def _require_exact_fields(
         )
 ```
 
-- [ ] Keep error types deterministic (`TypeError` for wrong container/value types; `ValueError` for wrong admitted values/field sets).
-- [ ] Snapshot the accepted interface into the exact frozen dataclasses; mutation of the input mapping after load must not affect the draft.
+- [x] Keep error types deterministic (`TypeError` for wrong container/value types; `ValueError` for wrong admitted values/field sets).
+- [x] Snapshot the accepted interface into the exact frozen dataclasses; mutation of the input mapping after load must not affect the draft.
 
 ### Step 4: Prove compiler ownership and sole-source repair authority
 
-- [ ] Add tests that build contracts for two different valid goals and compare their normalized snapshots. They must be identical because goal is worker-visible knowledge, not workflow authorship.
-- [ ] Assert:
+- [x] Add tests that build contracts for two different valid goals and compare their normalized snapshots. They must be identical because goal is worker-visible knowledge, not workflow authorship.
+- [x] Assert:
 
 ```python
 contract = _build_repair_specimen_contract(draft)
@@ -544,13 +544,13 @@ assert not any(isinstance(step, BindStepSpec) for step in repair_rule.steps_by_s
 assert EXECUTION_PARAMS_KEY not in scaffold.graph.nodes["repair_same_component"].metadata
 ```
 
-- [ ] Prove no production branch recognizes goal wording or fixture values except the one private code constant and exact fixed capability/interface checks. A source scan is secondary evidence; contract equality is authoritative.
+- [x] Prove no production branch recognizes goal wording or fixture values except the one private code constant and exact fixed capability/interface checks. A source scan is secondary evidence; contract equality is authoritative.
 
 ### Step 5: Run and commit
 
-- [ ] Run the new file and the workflow contract/compiler suites.
-- [ ] Run `git diff --check`.
-- [ ] Commit:
+- [x] Run the new file and the workflow contract/compiler suites.
+- [x] Run `git diff --check`.
+- [x] Commit:
 
 ```powershell
 git add mcp_server/src/rook/agent/minimal_csharp_repair_handoff.py `
@@ -574,8 +574,8 @@ git commit -m "test: close repair handoff draft authority"
 
 ### Step 1: Capture and recursively inspect the real serialized request
 
-- [ ] In the recording fake transport, retain the exact prompt artifact and decode only its existing user message for assertions.
-- [ ] Require the user message to be the canonical serialization of `result.worker_request`:
+- [x] In the recording fake transport, retain the exact prompt artifact and decode only its existing user message for assertions.
+- [x] Require the user message to be the canonical serialization of `result.worker_request`:
 
 ```python
 expected_user = json.dumps(
@@ -590,7 +590,7 @@ assert transport.prompt["messages"][1] == {
 }
 ```
 
-- [ ] Assert the request contains:
+- [x] Assert the request contains:
 
   - exact immutable goal;
   - fixed `inputs: []`, `outputs: [{name: A, type: double}]`;
@@ -601,7 +601,7 @@ assert transport.prompt["messages"][1] == {
 
 ### Step 2: Prove the exclusions against all keys and scalar values
 
-- [ ] Add a recursive walker over test data and reject appearance of:
+- [x] Add a recursive walker over test data and reject appearance of:
 
   - `A = DefinitelyMissingSymbol;`;
   - any concrete initial or expected repair code value;
@@ -620,13 +620,13 @@ from a concrete code value.
 
 ### Step 3: Prove one convention source owns both body-mode claims
 
-- [ ] Arrange the production helper so one local `WorkerKnowledgePacket` instance is:
+- [x] Arrange the production helper so one local `WorkerKnowledgePacket` instance is:
 
   1. passed to `extract_acceptance_criteria_sources()`;
   2. included in the context knowledge;
   3. the source of the visible body-mode packet.
 
-- [ ] Add a valid-red mutation that changes
+- [x] Add a valid-red mutation that changes
   `convention_packet.content.body_mode` before assembly and prove the
   compositor's explicit packet/extracted-source equality rejects it before
   worker contact. Do not claim the existing extractor or acceptance assembler
@@ -634,14 +634,14 @@ from a concrete code value.
 
 ### Step 4: Close adapter, response, and rationale behavior
 
-- [ ] Add tests for missing each required action-response field: `schema`, `kind`, `action_id`, `rationale`, and `input`; extra fields; wrong schema/kind/action; malformed input; and `mode != body`.
-- [ ] Prove raw JSON traverses `run_local_worker_adapter()` before the harness; no production test directly constructs the successful `LocalWorkerTurnResponse`.
-- [ ] Return two otherwise identical responses with different `rationale` values and assert action application stages identical execution parameters and `params_sha256`. The loaded response retains each rationale, but rationale never enters application.
-- [ ] Verify exactly one transport call and one harness/disposition evaluation. The one-shot harness callback must return the adapter's exact loaded response object by identity.
+- [x] Add tests for missing each required action-response field: `schema`, `kind`, `action_id`, `rationale`, and `input`; extra fields; wrong schema/kind/action; malformed input; and `mode != body`.
+- [x] Prove raw JSON traverses `run_local_worker_adapter()` before the harness; no production test directly constructs the successful `LocalWorkerTurnResponse`.
+- [x] Return two otherwise identical responses with different `rationale` values and assert action application stages identical execution parameters and `params_sha256`. The loaded response retains each rationale, but rationale never enters application.
+- [x] Verify exactly one transport call and one harness/disposition evaluation. The one-shot harness callback must return the adapter's exact loaded response object by identity.
 
 ### Step 5: Run and commit
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -653,7 +653,7 @@ from a concrete code value.
   mcp_server\tests\test_local_worker_turn_disposition.py -q
 ```
 
-- [ ] Run `git diff --check` and commit:
+- [x] Run `git diff --check` and commit:
 
 ```powershell
 git add mcp_server/src/rook/agent/minimal_csharp_repair_handoff.py `
@@ -677,7 +677,7 @@ git commit -m "test: close repair worker information boundary"
 
 ### Step 1: Build a stage-by-stage stop matrix
 
-- [ ] Parameterize the following operational cases using recording fakes and native record mutation only at the owning seam:
+- [x] Parameterize the following operational cases using recording fakes and native record mutation only at the owning seam:
 
 | Case | Expected terminal stage | Native reason owner | Downstream zero-call assertion |
 |---|---|---|---|
@@ -692,11 +692,11 @@ git commit -m "test: close repair worker information boundary"
 | verify-repair stops | `verify_repair` | verifier/current supply reason | no terminal success claim |
 | done selected | `terminal` | `terminal_node_selected:done` | exactly one worker and two tools total |
 
-- [ ] Expected operational stops return a `MinimalCSharpRepairHandoffResult`. Contract compilation failure, forged result-state combinations, or impossible record ownership raise.
+- [x] Expected operational stops return a `MinimalCSharpRepairHandoffResult`. Contract compilation failure, forged result-state combinations, or impossible record ownership raise.
 
 ### Step 2: Define one closed native-reason projection helper
 
-- [ ] Implement small private helpers that inspect the owning existing record, for example:
+- [x] Implement small private helpers that inspect the owning existing record, for example:
 
 ```python
 def _current_step_reason(record: CurrentStepRecord) -> str:
@@ -714,11 +714,11 @@ def _current_step_reason(record: CurrentStepRecord) -> str:
 
 Use a stage-specific order rather than this illustrative generic order if multiple reason fields can coexist. Never synthesize `planner_failure`, `worker_failure`, `success`, or another parallel taxonomy.
 
-- [ ] Supply-owned stops retain exact `reason` when present, otherwise the exact existing `invalid_reason`. Adapter, disposition, and action stages use the fields pinned in the design.
+- [x] Supply-owned stops retain exact `reason` when present, otherwise the exact existing `invalid_reason`. Adapter, disposition, and action stages use the fields pinned in the design.
 
 ### Step 3: Enforce the exact optional-field equations
 
-- [ ] Add `MinimalCSharpRepairHandoffResult.__post_init__` tests for every valid row and representative invalid cross-product combinations:
+- [x] Add `MinimalCSharpRepairHandoffResult.__post_init__` tests for every valid row and representative invalid cross-product combinations:
 
   - early stages cannot carry worker records;
   - adapter failure cannot carry worker/action records;
@@ -727,11 +727,11 @@ Use a stage-specific order rather than this illustrative generic order if multip
   - repair/verify/terminal require loaded adapter, candidate disposition, and `applied=True`;
   - no result duplicates receipt evidence.
 
-- [ ] Confirm final graph and native records retain receipt ownership. The result class has no receipt, diagnostic, GUID, or classification field.
+- [x] Confirm final graph and native records retain receipt ownership. The result class has no receipt, diagnostic, GUID, or classification field.
 
 ### Step 4: Prove terminal truthfulness
 
-- [ ] Assert on success:
+- [x] Assert on success:
 
 ```python
 assert result.step_records[-1].verifier_node_id == "verify_repair"
@@ -741,13 +741,13 @@ assert result.supply_records[-1].reason == "terminal_node_selected:done"
 assert result.final_graph.nodes["done"].status == "ready"
 ```
 
-- [ ] Assert the compositor does not apply a synthetic done outcome and does not claim `graph_status == complete`.
+- [x] Assert the compositor does not apply a synthetic done outcome and does not claim `graph_status == complete`.
 
 ### Step 5: Run and commit
 
-- [ ] Run the new file plus current-step, action, and receipt-focused suites.
-- [ ] Run `git diff --check`.
-- [ ] Commit:
+- [x] Run the new file plus current-step, action, and receipt-focused suites.
+- [x] Run `git diff --check`.
+- [x] Commit:
 
 ```powershell
 git add mcp_server/src/rook/agent/minimal_csharp_repair_handoff.py `
@@ -772,7 +772,7 @@ git commit -m "test: close repair handoff terminal semantics"
 
 ### Step 1: Run the complete focused suite
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -785,17 +785,18 @@ git commit -m "test: close repair handoff terminal semantics"
   mcp_server\tests\test_plan_graph_workflow_contract_chain.py `
   mcp_server\tests\test_plan_graph_live_dispatch.py `
   mcp_server\tests\test_plan_graph_current_step_stream.py `
+  mcp_server\tests\test_plan_graph_current_step_runner.py `
   mcp_server\tests\test_local_worker_adapter.py `
   mcp_server\tests\test_local_worker_turn_request.py `
   mcp_server\tests\test_local_worker_turn_response.py `
   mcp_server\tests\test_local_worker_turn_disposition.py -q
 ```
 
-- [ ] Record exact passed/failed/skipped counts. Do not report the historical `222 passed` as a new result unless the fresh command proves it.
+- [x] Record exact passed/failed/skipped counts. Do not report the historical `222 passed` as a new result unless the fresh command proves it.
 
 ### Step 2: Run the broader Python agent regression
 
-- [ ] Run the complete relevant agent family, not live Rhino tests:
+- [x] Run the complete relevant agent family, not live Rhino tests:
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -803,11 +804,11 @@ git commit -m "test: close repair handoff terminal semantics"
   -k "plan_graph or local_worker or workflow_contract or gh_edit_contract or minimal_csharp_repair_handoff"
 ```
 
-- [ ] If the command exceeds a practical review timeout, report the timeout honestly and preserve the complete focused result. Do not call a timed-out run passed.
+- [x] If the command exceeds a practical review timeout, report the timeout honestly and preserve the complete focused result. Do not call a timed-out run passed.
 
 ### Step 3: Audit imports and product-surface scope
 
-- [ ] Verify the new production module imports no:
+- [x] Verify the new production module imports no:
 
   - `scripts` or probe modules;
   - Chat registration or runner modules;
@@ -818,7 +819,7 @@ git commit -m "test: close repair handoff terminal semantics"
   - LM9 artifacts;
   - fake transport/tool behavior.
 
-- [ ] Verify the branch adds no Chat registration, MCP tool, CLI, template, action, registry, archive, or public provider surface:
+- [x] Verify the branch adds no Chat registration, MCP tool, CLI, template, action, registry, archive, or public provider surface:
 
 ```powershell
 git diff --name-only d68459a9fe074e5a5107c991125a625c7463c430...HEAD
@@ -830,7 +831,7 @@ Expected source diff after implementation remains one production module, one tes
 
 ### Step 4: Inspect the exact success witness
 
-- [ ] From test-held records, manually verify:
+- [x] From test-held records, manually verify:
 
 ```text
 raw draft
@@ -848,11 +849,11 @@ raw draft
 -> terminal_node_selected:done
 ```
 
-- [ ] Confirm neither model authored or altered graph topology, while existing opaque context identities remain truthfully visible.
+- [x] Confirm neither model authored or altered graph topology, while existing opaque context identities remain truthfully visible.
 
 ### Step 5: Verify repository state and commit any final bounded correction
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m compileall `
@@ -862,7 +863,7 @@ git diff --check
 git status --short
 ```
 
-- [ ] If Task 5 required no code changes, do not create an empty commit. If it required a reviewed bounded correction, rerun the affected red/green test and commit only that correction:
+- [x] If Task 5 required no code changes, do not create an empty commit. If it required a reviewed bounded correction, rerun the affected red/green test and commit only that correction:
 
 ```powershell
 git add mcp_server/src/rook/agent/minimal_csharp_repair_handoff.py `
@@ -872,9 +873,9 @@ git commit -m "fix: close minimal repair handoff review findings"
 
 ### Step 6: Stop for independent review
 
-- [ ] Request review of the complete merge diff against base `d68459a9fe074e5a5107c991125a625c7463c430`.
-- [ ] Do not expose the compositor through Chat, MCP, CLI, or a live worker test in this branch.
-- [ ] Do not merge until the review confirms the causal tool/worker path, worker visibility boundary, repair-code sole-source equation, terminal truthfulness, and focused regression evidence.
+- [x] Request review of the complete merge diff against base `d68459a9fe074e5a5107c991125a625c7463c430`.
+- [x] Do not expose the compositor through Chat, MCP, CLI, or a live worker test in this branch.
+- [x] Do not merge until the review confirms the causal tool/worker path, worker visibility boundary, repair-code sole-source equation, terminal truthfulness, and focused regression evidence.
 
 ---
 
@@ -882,17 +883,43 @@ git commit -m "fix: close minimal repair handoff review findings"
 
 This implementation slice is complete only when all are true:
 
-- [ ] The raw four-field payload is accepted only through the strict loader.
-- [ ] The compositor rejects raw/forged drafts before capabilities are invoked.
-- [ ] The private invalid body is compiler-owned and goal-independent.
-- [ ] The real existing workflow compiler/template/provider/current-step runners are used.
-- [ ] The create diagnostic and GUID come from the typed tool receipt caused by the received request.
-- [ ] The real prompt renderer, adapter, response loader, harness, and disposition are traversed exactly once.
-- [ ] The worker request excludes body, GUID, graph topology, staged parameters, and deterministic repair answers.
-- [ ] Repair code comes only from the accepted worker action; the GUID comes only from receipt authority.
-- [ ] The existing action application is the only repair-parameter staging path.
-- [ ] The existing clean receipt, verifier, and terminal provider halt establish the narrow success.
-- [ ] Every expected stop preserves its native reason and zero downstream calls.
-- [ ] The result optional-field equations are enforced and no receipt evidence is copied.
-- [ ] Focused and broader relevant tests are freshly reported.
-- [ ] No live contact or new public product surface was introduced.
+- [x] The raw four-field payload is accepted only through the strict loader.
+- [x] The compositor rejects raw/forged drafts before capabilities are invoked.
+- [x] The private invalid body is compiler-owned and goal-independent.
+- [x] The real existing workflow compiler/template/provider/current-step runners are used.
+- [x] The create diagnostic and GUID come from the typed tool receipt caused by the received request.
+- [x] The real prompt renderer, adapter, response loader, harness, and disposition are traversed exactly once.
+- [x] The worker request excludes body, GUID, graph topology, staged parameters, and deterministic repair answers.
+- [x] Repair code comes only from the accepted worker action; the GUID comes only from receipt authority.
+- [x] The existing action application is the only repair-parameter staging path.
+- [x] The existing clean receipt, verifier, and terminal provider halt establish the narrow success.
+- [x] Every expected stop preserves its native reason and zero downstream calls.
+- [x] The result optional-field equations are enforced and no receipt evidence is copied.
+- [x] Focused and broader relevant tests are freshly reported.
+- [x] No live contact or new public product surface was introduced.
+
+---
+
+## Execution reconciliation
+
+Reconciled on 2026-07-29 after completion of Tasks 1–5:
+
+- Base: `d68459a9fe074e5a5107c991125a625c7463c430`.
+- Verified implementation HEAD before this docs-only reconciliation:
+  `683f4c2dc93d929ba2080e4fd5a447c14ca38918`.
+- Complete focused command above, including
+  `test_plan_graph_current_step_runner.py`: **492 passed in 1.39s**.
+- Broader relevant Python-agent regression: **1,217 passed, 8,228
+  deselected, 11 pre-existing DSPy deprecation warnings in 49.54s**.
+- Python compilation, working-tree and merge-diff `git diff --check`, import
+  audit, product-surface audit, and exact success-transaction inspection
+  passed.
+- The shared `project_current_step_record()` extraction is the reviewed
+  concrete dependency that expands the implementation diff to two production
+  modules. It preserves the existing runner path while providing one pure
+  native-record projection for transaction validation.
+- `MinimalCSharpRepairHandoffResult` is an ephemeral internal transaction
+  aggregate over existing native records. It is not a durable evidence object,
+  an immutable evidence claim, or a public integration surface.
+- No Chat, MCP, CLI, provider, live worker-box, Rhino, or Grasshopper contact
+  occurred.
