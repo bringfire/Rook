@@ -84,10 +84,15 @@ namespace RookBim.Tests
         public void ExportService_FreezesIdentitiesGuardsTruncationWritesBundleAndVerifies()
         {
             var src = Read("src/RookBim/Revit/RevitExportService.cs");
+            var resolveElements = RookBimModuleSourceTests.ExtractExecutableMember(
+                src,
+                "internal sealed class RevitExportService",
+                "private ElementResolution ResolveElements(Document document, View? activeView, BimExportElementsRequest request, RevitDocumentIdentityEvidence evidence, BimDiagnosticContext diagnostics)");
 
             // Strict one-of already validated upstream; service resolves both selector + identities.
             Assert.Contains("RevitQueryService", src);
-            Assert.Contains("RevitIdentitySerializer.Resolve", src);
+            RookBimModuleSourceTests.AssertExportIdentityResolutionFlow(resolveElements);
+            Assert.DoesNotContain("RevitIdentitySerializer", src);
 
             // No-silent-truncation guard.
             Assert.Contains("AllowTruncated", src);
@@ -117,6 +122,46 @@ namespace RookBim.Tests
 
             // Read-only.
             Assert.DoesNotContain("Transaction", src);
+        }
+
+        [Fact]
+        public void ExportIdentityResolutionGuardRejectsCommentOnlyAndWrongScopeEvidence()
+        {
+            const string commentDecoy = @"
+private ElementResolution ResolveElements()
+{
+    // RevitDocumentIdentityResolver.PreflightBatch(evidence, identities, diagnostics);
+    var literal = ""RevitDocumentIdentityResolver.ResolveAfterPreflight(evidence, identity) execution.Elements"";
+    var execution = query.Execute(document, activeView, selector, otherEvidence, diagnostics);
+    return ElementResolution.Ok(summary.Identity, false, 0);
+}";
+            const string wrongEvidence = @"
+private ElementResolution ResolveElements()
+{
+    var preflight = RevitDocumentIdentityResolver.PreflightBatch(evidence, identities, diagnostics);
+    foreach (var identity in identities)
+    {
+        var resolved = RevitDocumentIdentityResolver.ResolveAfterPreflight(evidence, identity!);
+    }
+    var execution = query.Execute(document, activeView, request.Selector!, otherEvidence, diagnostics);
+    return ElementResolution.Ok(execution.Elements.ToList(), false, 0);
+}";
+            var source = Read("src/RookBim/Revit/RevitExportService.cs");
+            var resolveElements = RookBimModuleSourceTests.ExtractExecutableMember(
+                source,
+                "internal sealed class RevitExportService",
+                "private ElementResolution ResolveElements(Document document, View? activeView, BimExportElementsRequest request, RevitDocumentIdentityEvidence evidence, BimDiagnosticContext diagnostics)");
+            var staleProjection = RookBimModuleSourceTests.ReplaceSingle(
+                resolveElements,
+                "execution.Elements.ToList()",
+                "summary.Identity");
+
+            Assert.ThrowsAny<Exception>(() =>
+                RookBimModuleSourceTests.AssertExportIdentityResolutionFlow(commentDecoy));
+            Assert.ThrowsAny<Exception>(() =>
+                RookBimModuleSourceTests.AssertExportIdentityResolutionFlow(wrongEvidence));
+            Assert.ThrowsAny<Exception>(() =>
+                RookBimModuleSourceTests.AssertExportIdentityResolutionFlow(staleProjection));
         }
 
         [Fact]

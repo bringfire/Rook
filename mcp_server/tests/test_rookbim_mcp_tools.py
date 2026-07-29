@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from unittest.mock import AsyncMock, patch
@@ -38,6 +39,8 @@ ROOKBIM_READONLY_TOOLS = [
 
 IDENTITY_FIELDS = {
     "source",
+    "documentKey",
+    "documentKeySource",
     "documentGuid",
     "documentGuidSource",
     "documentTitle",
@@ -154,6 +157,19 @@ async def test_rookbim_identity_tool_schema_matches_phase1_contract(name):
     assert "documentGuidSource" in identity["required"]
     assert identity["additionalProperties"] is False
     assert identity["properties"]["source"] == {"const": "revit"}
+    assert identity["properties"]["documentKey"] == {"type": ["string", "null"]}
+    assert identity["properties"]["documentKeySource"] == {
+        "type": "string",
+        "enum": [
+            "revit_creation_guid_central_path_v1",
+            "revit_creation_guid_document_path_v1",
+            "unavailable",
+        ],
+    }
+    assert "documentKey" not in identity["required"]
+    assert "documentKeySource" not in identity["required"]
+    assert identity["required"] == ["documentGuidSource"]
+    assert "pattern" not in identity["properties"]["documentKey"]
     assert identity["properties"]["documentGuid"]["type"] == ["string", "null"]
     assert identity["properties"]["documentGuidSource"] == {
         "type": "string",
@@ -239,6 +255,54 @@ async def test_rookbim_server_dispatches_to_expected_bridge_route(name, route):
         expected_body,
         None,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name,container",
+    [
+        ("rookbim_element_info", "identity"),
+        ("rookbim_element_parameters", "identity"),
+        ("rookbim_select_elements", "identities"),
+        ("rookbim_export_elements", "identities"),
+    ],
+)
+async def test_rookbim_identity_consumers_forward_strong_identity_dictionary_byte_exactly(
+    name, container
+):
+    identity = {
+        "source": "revit",
+        "documentKey": "file-document-v1:50250fd46d4c96e14f57ff283d6fd21965d8525a34d638e5070eaf60df13a0ac",
+        "documentKeySource": "revit_creation_guid_central_path_v1",
+        "documentGuid": None,
+        "documentGuidSource": "unavailable",
+        "documentTitle": "Mødel A",
+        "documentPath": "C:\\Models\\A.rvt",
+        "elementId": 42,
+        "uniqueId": "element-unique-id",
+        "fullUniqueId": "element-unique-id",
+        "linked": False,
+        "resolved": True,
+        "confidence": "exact",
+    }
+    body = {container: identity if container == "identity" else [identity]}
+    if name == "rookbim_export_elements":
+        body["output"] = {"directory": "C:\\fixtures", "name": "walls"}
+
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {}}
+        await server.call_tool(name, body)
+
+    forwarded = _normalize_call_rhino_args(mock.call_args)[2]
+    forwarded_identity = (
+        forwarded[container]
+        if container == "identity"
+        else forwarded[container][0]
+    )
+    before = json.dumps(identity, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    after = json.dumps(forwarded_identity, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    assert forwarded_identity == identity
+    assert after == before
 
 
 @pytest.mark.asyncio

@@ -36,7 +36,7 @@
 - Project 1,000 element identities from one snapshot with zero additional document classification, GUID, ModelPath, normalization, or hashing reads.
 - Validate all identities in a batch before the first `Document.GetElement`, selection change, export conversion, or file output.
 - Live `Autodesk.Revit.DB.Element` references remain inside `src/RookBim`, the captured `Document`, and one Revit operation. They never enter shared DTOs, serialized output, caches, deferred work, or a later request.
-- Every live element must pass `ReferenceEquals(element.Document, evidence.Owner)` before internal use.
+- Every live element must pass the fail-closed `IsSameDocument(element.Document, evidence.Owner)` guard before internal use; its only non-null comparison is Revit `Document.Equals`, and this same-operation ownership check is separate from durable document-key authorization.
 - Expected identity-read failures, including Revit `InternalException`, produce unavailable evidence. Producer routes continue; identity consumers fail closed. Unexpected/programming and process-fatal exceptions remain loud.
 - Diagnostics enabled/disabled paths choose identical classes, keys, comparison results, statuses, and route outcomes. Diagnostics never persist GUID values, keys, paths, titles, filenames, or request identities.
 - Diagnostics stay outside `BimDocumentIdentityPolicy`. The policy accepts only closed success/unavailable reader results and has no diagnostic context, observer, sink, or global flag.
@@ -557,7 +557,7 @@ Keep source tests to isolation/structure that managed tests cannot exercise. Use
 - each runtime operation captures evidence once and passes that same local to consumers/projections;
 - identity batches complete every comparison before the first `GetElement`, `SetElementIds`, export conversion, or file write;
 - selector and preset paths consume `RevitQueryExecutionResult.Elements` directly;
-- preset dedup uses `ElementId.Value` after the owner-reference check;
+- preset dedup uses `ElementId.Value` after the Revit `Document.Equals` owner check;
 - no Autodesk `Element`, `Document`, or `ModelPath` type appears anywhere in `src/Rook`; policy `Evidence`/`Claim` types do not appear as properties of serialized DTOs in `BimContracts.cs`;
 - old serializer file is deleted and the view-only serializer has no document GUID/path logic.
 
@@ -674,7 +674,7 @@ internal BimElementResolveResult ResolveAfterPreflight(
 
 `ProjectDocument` copies the versioned key/source, compatibility title/path, class booleans, and actual legacy Revit Server GUID only. File/saved-project `CreationGUID` never enters `Guid`.
 
-`ProjectElement` first requires `ReferenceEquals(element.Document, evidence.Owner)`, then copies the snapshot's document key/source and approved legacy projection. It never recaptures document evidence.
+`ProjectElement` first requires the fail-closed `IsSameDocument(element.Document, evidence.Owner)` guard, whose only non-null comparison is Revit `Document.Equals`, then copies the snapshot's document key/source and approved legacy projection. It never recaptures document evidence. This same-operation ownership guard is not durable document-key authorization.
 
 `CreateClaim` copies the raw DTO fields needed by the policy, including every linked-evidence and locator field. It performs no normalization and does not turn whitespace into absence. Unknown `documentKeySource` strings remain ordinary serializer/binding HTTP 400 failures; add no converter.
 
@@ -718,7 +718,7 @@ internal sealed class RevitQueryExecutionResult
 }
 ```
 
-`RevitQueryService.Execute` builds the existing public `BimQueryElementsResult` with snapshot-based projections and returns the matching ordered live-element list separately. Failure results carry an empty live list. Validate `ReferenceEquals` before constructing success.
+`RevitQueryService.Execute` builds the existing public `BimQueryElementsResult` with snapshot-based projections and returns the matching ordered live-element list separately. Failure results carry an empty live list. Validate the fail-closed Revit `Document.Equals` ownership guard before constructing success.
 
 Ordinary query routes return only `execution.Response`. Selector export consumes `execution.Elements` directly after truncation policy. Preset resolution consumes each category execution's live list and deduplicates with `HashSet<long>` over `element.Id.Value` after owner verification. Remove document-GUID/UniqueId dedup and every serialize/resolve round-trip.
 
@@ -1175,7 +1175,7 @@ If Revit Server infrastructure is available, verify only the no-key legacy persi
 
 - [ ] **Step 5: Prove trusted selector/preset paths remain available**
 
-For every unavailable class that supports ordinary query/export preconditions, require selector and preset export to consume same-operation live elements without identity re-resolution. Verify each element belongs by reference to the captured document, no live reference survives the operation, and no output is produced from another document.
+For every unavailable class that supports ordinary query/export preconditions, require selector and preset export to consume same-operation live elements without identity re-resolution. Verify each element belongs to the captured document using Revit `Document.Equals`, no live element survives the operation, and no output is produced from another document. The complete live matrix, not source inspection, is authoritative for Revit wrapper equality semantics.
 
 Identity-list export remains fail closed on the same fixture. Use a disposable output directory and verify missing output on every rejected request.
 

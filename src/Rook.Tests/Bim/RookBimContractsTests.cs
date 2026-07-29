@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Rook.Bim;
 using Xunit;
@@ -139,6 +140,25 @@ namespace Rook.Tests.Bim
             Assert.Null(path);
             Assert.False(identity.IsFamilyDocument);
             Assert.False(identity.IsWorkshared);
+        }
+
+        [Fact]
+        public void DocumentKeySource_AndIdentityDefaults_AreTheClosedInitialContract()
+        {
+            Assert.Equal(new[]
+            {
+                "Unavailable",
+                "RevitCreationGuidCentralPathV1",
+                "RevitCreationGuidDocumentPathV1",
+            }, Enum.GetNames(typeof(BimDocumentKeySource)));
+
+            var document = new BimDocumentIdentity();
+            Assert.Null(document.DocumentKey);
+            Assert.Equal(BimDocumentKeySource.Unavailable, document.DocumentKeySource);
+
+            var element = new BimElementIdentity();
+            Assert.Null(element.DocumentKey);
+            Assert.Equal(BimDocumentKeySource.Unavailable, element.DocumentKeySource);
         }
 
         [Fact]

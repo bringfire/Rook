@@ -4,6 +4,12 @@ Date: 2026-05-27
 
 Status: Approved design. This is not an implementation plan.
 
+> **Superseded document-identity doctrine (2026-07-28):** The approved
+> [RookBIM File-Workshared Document Identity Design](2026-07-26-rookbim-file-workshared-identity-design.md)
+> supersedes this document's path-fallback/non-stable and fail-open matching
+> language. Versioned `documentKey` identity and closed comparison now govern
+> production resolution, selection, and export authorization.
+
 Related context:
 
 - `docs/rook_docs/2026-05-26-rookbim-vision.md`

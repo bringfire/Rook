@@ -314,9 +314,9 @@ Identity classification uses this exact branch order:
 
 ### Operation-scoped evidence ownership
 
-Each Revit work item resolves one immutable `RevitDocumentIdentityEvidence` snapshot inside the valid Revit API context before producing or consuming identities. The snapshot contains the owning `Document` reference as a non-serialized scope token, document classification, selected key/source or unavailable reason, approved legacy projection, and already-read DTO display fields. It contains no lazy Revit getters, delegates, raw exceptions, or cross-request mutable state.
+Each Revit work item resolves one immutable `RevitDocumentIdentityEvidence` snapshot inside the valid Revit API context before producing or consuming identities. The snapshot contains the owning live `Document` wrapper as a non-serialized scope value, document classification, selected key/source or unavailable reason, approved legacy projection, and already-read DTO display fields. It contains no lazy Revit getters, delegates, raw exceptions, or cross-request mutable state.
 
-The operation passes that snapshot explicitly to document and element identity projection. Every element identity in a query/list/export response reuses the same snapshot; projection never calls back into document classification, GUID, ModelPath, normalization, or hashing. Element projection verifies by reference that `element.Document` is the snapshot's owner before copying document evidence.
+The operation passes that snapshot explicitly to document and element identity projection. Every element identity in a query/list/export response reuses the same snapshot; projection never calls back into document classification, GUID, ModelPath, normalization, or hashing. Element projection fails closed unless `IsSameDocument(element.Document, evidence.Owner)` succeeds; the helper's only non-null comparison is Revit `Document.Equals`, because Revit may return distinct managed wrappers for the same native document. This same-operation ownership check is separate from durable document-key authorization.
 
 Identity-consuming operations likewise resolve the active-document snapshot once, compare every caller-supplied or persisted identity against that same snapshot, and complete all document-identity validation before any selection, mutation, export, `UniqueId`, or `ElementId` lookup. A batch never recomputes active-document evidence per identity and never partially acts on identities before a later document-evidence failure.
 
@@ -331,7 +331,7 @@ Caller-supplied or persisted identities are untrusted wire evidence and always p
 - never enter `src/Rook` contracts or any shared DTO;
 - never cross the Revit API-context boundary;
 - are never serialized, persisted, cached, placed in deferred work, or reused by another request;
-- are accepted only when `ReferenceEquals(element.Document, capturedDocument)` within that operation.
+- are accepted only when the fail-closed `IsSameDocument(element.Document, capturedDocument)` guard succeeds within that operation using Revit `Document.Equals`.
 
 Selector export consumes this internal live list directly. Preset resolution carries the same live references across its same-operation category queries and deduplicates them within the captured document by `ElementId.Value`, not by serializing a document GUID and resolving the identity again. Public query responses still project wire summaries using the operation-scoped document-evidence snapshot; an unavailable document key therefore produces null keys without discarding the live references.
 

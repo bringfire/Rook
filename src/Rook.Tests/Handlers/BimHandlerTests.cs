@@ -312,6 +312,62 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Dispatch_IdentityProjection_UsesExactDocumentKeyWireNamesAndValues()
+        {
+            RookBimRuntimeRegistry.Install(new IdentityContractRuntime(), "test-identity-contract");
+            try
+            {
+                var response = new BimHandler().Dispatch("{\"op\":\"active_document\"}");
+                var data = ToJsonElement(response.Data);
+
+                Assert.True(response.Success);
+                Assert.Equal(200, response.HttpStatus);
+                Assert.Equal(
+                    "file-document-v1:50250fd46d4c96e14f57ff283d6fd21965d8525a34d638e5070eaf60df13a0ac",
+                    data.GetProperty("document").GetProperty("documentKey").GetString());
+                Assert.Equal(
+                    "revit_creation_guid_central_path_v1",
+                    data.GetProperty("document").GetProperty("documentKeySource").GetString());
+                Assert.Equal(
+                    "file-document-v1:50250fd46d4c96e14f57ff283d6fd21965d8525a34d638e5070eaf60df13a0ac",
+                    data.GetProperty("element").GetProperty("documentKey").GetString());
+                Assert.Equal(
+                    "revit_creation_guid_central_path_v1",
+                    data.GetProperty("element").GetProperty("documentKeySource").GetString());
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Theory]
+        [InlineData(BimErrorCode.DocumentIdentityUnavailable, "document_identity_unavailable", 409)]
+        [InlineData(BimErrorCode.DocumentIdentityInvalid, "document_identity_invalid", 400)]
+        public void Dispatch_MapsClosedIdentityFailuresToExactWireCodeAndStatus(
+            BimErrorCode code,
+            string expectedWireCode,
+            int expectedStatus)
+        {
+            RookBimRuntimeRegistry.Install(
+                new IdentityFailureRuntime(code, expectedStatus),
+                "test-identity-failure");
+            try
+            {
+                var response = new BimHandler().Dispatch("{\"op\":\"active_document\"}");
+                var data = ToJsonElement(response.Data);
+
+                Assert.False(response.Success);
+                Assert.Equal(expectedStatus, response.HttpStatus);
+                Assert.Equal(expectedWireCode, data.GetProperty("errorCode").GetString());
+            }
+            finally
+            {
+                RookBimRuntimeRegistry.ResetForTests();
+            }
+        }
+
+        [Fact]
         public void Dispatch_CategoryFailure_PreservesResolutionUnderDetails()
         {
             RookBimRuntimeRegistry.Install(new CategoryFailureRuntime(), "test-category-failure");
@@ -741,6 +797,66 @@ namespace Rook.Tests.Handlers
             {
                 return BimApiResponse.Ok(null);
             }
+        }
+
+        private sealed class IdentityContractRuntime : IRookBimRuntime
+        {
+            private const string Key =
+                "file-document-v1:50250fd46d4c96e14f57ff283d6fd21965d8525a34d638e5070eaf60df13a0ac";
+
+            public BimStatusResponse Status(BimDiagnosticContext diagnostics) =>
+                new BimStatusResponse { Available = true, Runtime = "test" };
+
+            public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics) =>
+                BimApiResponse.Ok(new
+                {
+                    document = new BimDocumentIdentity
+                    {
+                        DocumentKey = Key,
+                        DocumentKeySource = BimDocumentKeySource.RevitCreationGuidCentralPathV1,
+                    },
+                    element = new BimElementIdentity
+                    {
+                        DocumentKey = Key,
+                        DocumentKeySource = BimDocumentKeySource.RevitCreationGuidCentralPathV1,
+                    },
+                });
+
+            public BimApiResponse ListCategories(BimDiagnosticContext diagnostics) => BimApiResponse.Ok(null);
+            public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request) => BimApiResponse.Ok(null);
+        }
+
+        private sealed class IdentityFailureRuntime : IRookBimRuntime
+        {
+            private readonly BimErrorCode code;
+            private readonly int status;
+
+            internal IdentityFailureRuntime(BimErrorCode code, int status)
+            {
+                this.code = code;
+                this.status = status;
+            }
+
+            public BimStatusResponse Status(BimDiagnosticContext diagnostics) =>
+                new BimStatusResponse { Available = true, Runtime = "test" };
+
+            public BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics) =>
+                BimApiResponse.Fail(code, "Identity evidence failed.", status);
+
+            public BimApiResponse ListCategories(BimDiagnosticContext diagnostics) => BimApiResponse.Ok(null);
+            public BimApiResponse QueryElements(BimDiagnosticContext diagnostics, BimQueryElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request) => BimApiResponse.Ok(null);
+            public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request) => BimApiResponse.Ok(null);
         }
     }
 }

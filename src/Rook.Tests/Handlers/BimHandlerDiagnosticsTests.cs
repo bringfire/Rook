@@ -177,6 +177,36 @@ namespace Rook.Tests.Handlers
             }
         }
 
+        [Theory]
+        [InlineData(BimErrorCode.DocumentIdentityUnavailable, "document_identity_unavailable", 409)]
+        [InlineData(BimErrorCode.DocumentIdentityInvalid, "document_identity_invalid", 400)]
+        public void Dispatch_IdentityFailuresKeepSensitiveIdentityValuesOutOfRequestDiagnostics(
+            BimErrorCode code,
+            string wireCode,
+            int status)
+        {
+            var sink = new RecordingSink();
+            var session = new BimDiagnosticSession(true, sink);
+            var runtime = new IdentityFailureRuntime(code, status);
+
+            using (BimDiagnostics.PushSessionForTests(session))
+            using (InstallRuntime(runtime))
+            {
+                var response = new BimHandler(() => true)
+                    .Dispatch("{\"op\":\"active_document\"}");
+                var data = ToJsonElement(response.Data);
+                var diagnosticJson = JsonSerializer.Serialize(response.Diagnostic);
+
+                Assert.False(response.Success);
+                Assert.Equal(status, response.HttpStatus);
+                Assert.Equal(wireCode, data.GetProperty("errorCode").GetString());
+                Assert.DoesNotContain("documentKey", diagnosticJson, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("documentPath", diagnosticJson, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("documentGuid", diagnosticJson, StringComparison.OrdinalIgnoreCase);
+                Assert.Equal(BimDiagnosticOutcome.Failure, Assert.Single(Terminals(sink)).Outcome);
+            }
+        }
+
         [Fact]
         public void Dispatch_ArgumentSerializerExceptionStillUsesMinimalFallback()
         {
@@ -884,6 +914,24 @@ namespace Rook.Tests.Handlers
                     HttpStatus = 409,
                     Data = new JsonObject { ["expected"] = "bounded" },
                 };
+            }
+        }
+
+        private sealed class IdentityFailureRuntime : RecordingRuntime
+        {
+            private readonly BimErrorCode code;
+            private readonly int status;
+
+            internal IdentityFailureRuntime(BimErrorCode code, int status)
+            {
+                this.code = code;
+                this.status = status;
+            }
+
+            public override BimApiResponse ActiveDocument(BimDiagnosticContext diagnostics)
+            {
+                Record(diagnostics);
+                return BimApiResponse.Fail(code, "Identity evidence failed.", status);
             }
         }
 

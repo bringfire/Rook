@@ -20,6 +20,8 @@ namespace Rook.Bim
         QueryLimitExceeded,
         ElementNotFound,
         DocumentMismatch,
+        DocumentIdentityUnavailable,
+        DocumentIdentityInvalid,
         LinkedElementUnsupported,
         CapabilityUnavailable,
         SelectionFailed,
@@ -197,6 +199,10 @@ namespace Rook.Bim
 
     public sealed class BimDocumentIdentity
     {
+        public string? DocumentKey { get; set; }
+
+        public BimDocumentKeySource DocumentKeySource { get; set; } = BimDocumentKeySource.Unavailable;
+
         public string? Guid { get; set; }
 
         public BimDocumentGuidSource GuidSource { get; set; } = BimDocumentGuidSource.Unavailable;
@@ -224,6 +230,10 @@ namespace Rook.Bim
     public sealed class BimElementIdentity
     {
         public string Source { get; set; } = "revit";
+
+        public string? DocumentKey { get; set; }
+
+        public BimDocumentKeySource DocumentKeySource { get; set; } = BimDocumentKeySource.Unavailable;
 
         public string? DocumentGuid { get; set; }
 
