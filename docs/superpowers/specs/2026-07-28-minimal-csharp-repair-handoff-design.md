@@ -37,8 +37,11 @@ workflow, worker, action, and receipt paths.
 This slice adds that composition for one existing capability only:
 
 > Create a Grasshopper C# component with the declared `A:double` output shape
-> and obtain a clean compile receipt, using one bounded worker repair if
-> required.
+> and obtain a clean compile receipt through exactly one bounded worker repair.
+
+Earlier create or verification stops may prevent the worker turn. Because the
+private initial body is deliberately invalid, every successful path necessarily
+enters the worker exactly once.
 
 This is the first **repair-path specimen**. It is not a general Planner
 contract, a general worker runtime, or the future normal C# creation path.
@@ -250,7 +253,7 @@ immutable validated goal
 + fixed interface from the compiled contract
 + existing body-style convention source
 + existing acceptance-criteria assembler
-+ exact bounded current receipt diagnostic
++ exact current receipt diagnostic admitted by the existing acceptance-source machinery
 ```
 
 The serialized worker request contains:
@@ -259,7 +262,8 @@ The serialized worker request contains:
 - fixed empty inputs and `A:double` output;
 - `body_mode: body`;
 - the existing acceptance packet;
-- the exact bounded current diagnostic;
+- the exact current diagnostic admitted by the existing acceptance-source
+  machinery;
 - exactly one existing allowed action, `draft_repair_params`.
 
 `body_mode` and the acceptance packet's body-style criterion are derived from
@@ -380,19 +384,67 @@ slice.
 ## 9. Result and terminal semantics
 
 `MinimalCSharpRepairHandoffResult` is a thin aggregate over existing records.
-It may retain:
+Its exact fields are:
 
-- the validated draft;
-- `CompiledWorkflowScaffold`;
-- existing supply and current-step records;
-- the rendered worker request;
-- `LocalWorkerTurnContext`;
-- `LocalWorkerAdapterRecord` when transport was entered;
-- `LocalWorkerTurnHarnessRecord` when a worker turn occurred;
-- `WorkerActionApplyResult` when action application occurred;
-- final `PlanGraph`;
-- existing receipt evidence reachable from the graph;
-- the terminal stage and exact underlying native reason.
+```python
+@dataclass(frozen=True)
+class MinimalCSharpRepairHandoffResult:
+    draft: ValidatedPlannerDraft
+    scaffold: CompiledWorkflowScaffold
+    final_graph: PlanGraph
+    supply_records: tuple[EnvelopeSupplyRecord, ...]
+    step_records: tuple[CurrentStepRecord, ...]
+    worker_request: Mapping[str, Any] | None
+    worker_context: LocalWorkerTurnContext | None
+    adapter_record: LocalWorkerAdapterRecord | None
+    worker_record: LocalWorkerTurnHarnessRecord | None
+    action_apply_result: WorkerActionApplyResult | None
+    terminal_stage: Literal[
+        "create",
+        "verify_create",
+        "worker_adapter",
+        "worker_disposition",
+        "action_apply",
+        "repair",
+        "verify_repair",
+        "terminal",
+    ]
+    terminal_reason: str
+```
+
+The result does not copy receipt evidence into another field. The final graph
+and native current-step records remain the sole owners of receipt evidence.
+
+The optional-record equations are closed:
+
+| Terminal stage | Worker request/context | Adapter record | Worker record | Action-apply result |
+|---|---|---|---|---|
+| `create` or `verify_create` | both `None` | `None` | `None` | `None` |
+| `worker_adapter` | both present | present | `None` | `None` |
+| `worker_disposition` | both present | present and `response_loaded` | present with a disposition other than `candidate_action_request` | `None` |
+| `action_apply` | both present | present and `response_loaded` | present with `candidate_action_request` | present and `applied=False` |
+| `repair`, `verify_repair`, or `terminal` | both present | present and `response_loaded` | present with `candidate_action_request` | present and `applied=True` |
+
+No other optional-field combination is constructible. `draft`, `scaffold`,
+`final_graph`, `supply_records`, `step_records`, `terminal_stage`, and
+`terminal_reason` are always present. Contract building or compilation failure
+raises and therefore produces no result.
+
+`terminal_reason` is copied from exactly one native owner according to
+`terminal_stage`:
+
+| Terminal stage | Native reason owner |
+|---|---|
+| `create`, `verify_create`, `repair`, `verify_repair`, `terminal` | the last `EnvelopeSupplyRecord` or `CurrentStepRecord` that stopped that stage |
+| `worker_adapter` | `LocalWorkerAdapterRecord.failure_reason` |
+| `worker_disposition` | `LocalWorkerTurnDispositionRecord.reason` inside `worker_record` |
+| `action_apply` | `WorkerActionApplyResult.reason` |
+
+When a current-step record is the owner, the reason is its applicable existing
+producer, verifier, mapping, or execution reason; the compositor does not
+translate it. When a supply record is the owner, its existing `reason` or
+`invalid_reason` is retained exactly. `terminal_reason` never contains a new
+classification or friendly summary.
 
 The aggregate does not introduce parallel meanings for refusal,
 clarification, observation, invalid response, action rejection, runner refusal,
