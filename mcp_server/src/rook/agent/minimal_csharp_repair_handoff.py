@@ -161,10 +161,14 @@ def load_minimal_csharp_repair_draft(
         frozenset({"goal", "capability", "interface", "acceptance"}),
         "Planner draft",
     )
-    goal = payload["goal"]
-    if not isinstance(goal, str) or not goal.strip():
+    goal = _require_exact_string(payload["goal"], "Planner draft goal")
+    if not goal.strip():
         raise ValueError("Planner draft goal must be a non-empty string")
-    if payload["capability"] != _CAPABILITY:
+    capability = _require_exact_string(
+        payload["capability"],
+        "Planner draft capability",
+    )
+    if capability != _CAPABILITY:
         raise ValueError(f"Planner draft capability must be {_CAPABILITY!r}")
     interface_payload = _require_mapping(payload["interface"], "interface")
     _require_exact_fields(
@@ -188,13 +192,17 @@ def load_minimal_csharp_repair_draft(
         name=output_payload["name"],
         type=output_payload["type"],
     )
-    if payload["acceptance"] != _ACCEPTANCE:
+    acceptance = _require_exact_string(
+        payload["acceptance"],
+        "Planner draft acceptance",
+    )
+    if acceptance != _ACCEPTANCE:
         raise ValueError(f"Planner draft acceptance must be {_ACCEPTANCE!r}")
     return ValidatedPlannerDraft(
         goal=goal,
-        capability=_CAPABILITY,
+        capability=capability,
         interface=PlannerDraftInterface(inputs=(), outputs=(output,)),
-        acceptance=_ACCEPTANCE,
+        acceptance=acceptance,
     )
 
 
@@ -559,12 +567,20 @@ def _require_mapping(value: object, context: str) -> Mapping[str, Any]:
     return value
 
 
+def _require_exact_string(value: object, context: str) -> str:
+    if type(value) is not str:
+        raise TypeError(f"{context} must be an exact string")
+    return value
+
+
 def _require_planner_output(value: object) -> PlannerDraftOutput:
     if type(value) is not PlannerDraftOutput:
         raise TypeError("Planner draft output must be the exact validated type")
-    if value.name != "A":
+    name = _require_exact_string(value.name, "Planner draft output name")
+    if name != "A":
         raise ValueError("Planner draft output name must be 'A'")
-    if value.type != "double":
+    pin_type = _require_exact_string(value.type, "Planner draft output type")
+    if pin_type != "double":
         raise ValueError("Planner draft output type must be 'double'")
     return value
 
@@ -583,12 +599,21 @@ def _require_planner_interface(value: object) -> PlannerDraftInterface:
 def _require_validated_draft(value: object) -> ValidatedPlannerDraft:
     if type(value) is not ValidatedPlannerDraft:
         raise TypeError("draft must be the exact ValidatedPlannerDraft type")
-    if not isinstance(value.goal, str) or not value.goal.strip():
+    goal = _require_exact_string(value.goal, "Planner draft goal")
+    if not goal.strip():
         raise ValueError("Planner draft goal must be a non-empty string")
-    if value.capability != _CAPABILITY:
+    capability = _require_exact_string(
+        value.capability,
+        "Planner draft capability",
+    )
+    if capability != _CAPABILITY:
         raise ValueError(f"Planner draft capability must be {_CAPABILITY!r}")
     _require_planner_interface(value.interface)
-    if value.acceptance != _ACCEPTANCE:
+    acceptance = _require_exact_string(
+        value.acceptance,
+        "Planner draft acceptance",
+    )
+    if acceptance != _ACCEPTANCE:
         raise ValueError(f"Planner draft acceptance must be {_ACCEPTANCE!r}")
     return value
 

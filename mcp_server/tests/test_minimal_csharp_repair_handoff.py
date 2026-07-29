@@ -44,8 +44,57 @@ class _FakePlanner:
         }
 
 
+class _EqualitySpoof:
+    def __init__(self, rendered: str) -> None:
+        self.rendered = rendered
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    def __ne__(self, other: object) -> bool:
+        return False
+
+    def __str__(self) -> str:
+        return self.rendered
+
+
 def _valid_draft() -> ValidatedPlannerDraft:
     return load_minimal_csharp_repair_draft(_FakePlanner().draft())
+
+
+def _payload_with_equality_spoof(field: str) -> dict[str, Any]:
+    payload = _FakePlanner().draft()
+    if field == "output name":
+        payload["interface"]["outputs"][0]["name"] = _EqualitySpoof("B")
+    elif field == "output type":
+        payload["interface"]["outputs"][0]["type"] = _EqualitySpoof("integer")
+    elif field == "capability":
+        payload["capability"] = _EqualitySpoof("forged_capability")
+    elif field == "acceptance":
+        payload["acceptance"] = _EqualitySpoof("forged_acceptance")
+    else:
+        raise AssertionError(f"unknown equality-spoof field: {field}")
+    return payload
+
+
+def _mutate_draft_with_equality_spoof(
+    draft: ValidatedPlannerDraft,
+    field: str,
+) -> None:
+    if field == "output name":
+        object.__setattr__(draft.interface.outputs[0], "name", _EqualitySpoof("B"))
+    elif field == "output type":
+        object.__setattr__(
+            draft.interface.outputs[0],
+            "type",
+            _EqualitySpoof("integer"),
+        )
+    elif field == "capability":
+        object.__setattr__(draft, "capability", _EqualitySpoof("forged_capability"))
+    elif field == "acceptance":
+        object.__setattr__(draft, "acceptance", _EqualitySpoof("forged_acceptance"))
+    else:
+        raise AssertionError(f"unknown equality-spoof field: {field}")
 
 
 def _invalid_draft_payload(case: str) -> object:
@@ -296,7 +345,7 @@ def test_private_builder_revalidates_mutated_exact_class_draft() -> None:
         ("missing_interface", ValueError),
         ("missing_acceptance", ValueError),
         ("goal_empty", ValueError),
-        ("goal_not_string", ValueError),
+        ("goal_not_string", TypeError),
         ("wrong_capability", ValueError),
         ("interface_not_mapping", TypeError),
         ("interface_extra", ValueError),
@@ -331,6 +380,18 @@ def test_strict_loader_rejects_unowned_planner_payloads(
 
     assert transport.calls == []
     assert tool_executor.calls == []
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["output name", "output type", "capability", "acceptance"],
+)
+def test_strict_loader_rejects_equality_spoofed_scalars(field: str) -> None:
+    with pytest.raises(
+        TypeError,
+        match=rf"Planner draft {field} must be an exact string",
+    ):
+        load_minimal_csharp_repair_draft(_payload_with_equality_spoof(field))
 
 
 def test_loader_snapshots_payload_before_caller_mutation() -> None:
@@ -370,6 +431,33 @@ async def test_compositor_revalidates_nested_frozen_draft_before_calls() -> None
     tool_executor = _RecordingToolExecutor()
 
     with pytest.raises(ValueError, match="output name"):
+        await run_minimal_csharp_repair_handoff(
+            draft,
+            worker_transport=transport,
+            tool_executor=tool_executor,
+        )
+
+    assert transport.calls == []
+    assert tool_executor.calls == []
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["output name", "output type", "capability", "acceptance"],
+)
+@pytest.mark.asyncio
+async def test_compositor_rejects_equality_spoofed_scalars_before_calls(
+    field: str,
+) -> None:
+    draft = _valid_draft()
+    _mutate_draft_with_equality_spoof(draft, field)
+    transport = _RecordingWorkerTransport(_TARGET_DIAGNOSTIC)
+    tool_executor = _RecordingToolExecutor()
+
+    with pytest.raises(
+        TypeError,
+        match=rf"Planner draft {field} must be an exact string",
+    ):
         await run_minimal_csharp_repair_handoff(
             draft,
             worker_transport=transport,
