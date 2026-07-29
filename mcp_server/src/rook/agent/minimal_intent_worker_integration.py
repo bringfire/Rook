@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
+
+from rook.agent.local_worker_adapter import LocalWorkerTransport
+from rook.agent.minimal_csharp_repair_handoff import (
+    MinimalCSharpRepairHandoffResult,
+    ValidatedPlannerDraft,
+    load_minimal_csharp_repair_draft,
+    run_minimal_csharp_repair_handoff,
+)
 
 
 MAX_INTENT_UTF8_BYTES = 16_384
@@ -20,6 +28,8 @@ __all__ = (
     "MinimalPlannerDraftAdapterRecord",
     "MinimalPlannerDraftAdapter",
     "build_minimal_planner_draft_response_schema",
+    "MinimalIntentWorkerIntegrationResult",
+    "run_minimal_intent_worker_integration",
 )
 
 _SYSTEM_CONTENT = (
@@ -181,6 +191,124 @@ class MinimalPlannerDraftAdapter:
         return _decode_response(snapshot, raw_response)
 
 
+@dataclass(frozen=True, slots=True)
+class MinimalIntentWorkerIntegrationResult:
+    intent: str
+    planner_adapter_record: MinimalPlannerDraftAdapterRecord
+    validated_draft: ValidatedPlannerDraft | None
+    handoff_result: MinimalCSharpRepairHandoffResult | None
+    terminal_stage: str
+    terminal_reason: str
+
+    def __post_init__(self) -> None:
+        if type(self.intent) is not str:
+            raise TypeError("intent must be an exact string")
+        if type(self.planner_adapter_record) is not MinimalPlannerDraftAdapterRecord:
+            raise TypeError("planner_adapter_record must be the exact record type")
+        if type(self.terminal_stage) is not str:
+            raise TypeError("terminal_stage must be an exact string")
+        if type(self.terminal_reason) is not str:
+            raise TypeError("terminal_reason must be an exact string")
+        if self.planner_adapter_record.status != "decoded":
+            self._require_adapter_stop()
+            return
+        if self.validated_draft is None and self.handoff_result is None:
+            self._require_draft_stop()
+            return
+        if type(self.validated_draft) is not ValidatedPlannerDraft:
+            raise TypeError("validated_draft must be the exact validated draft type")
+        if type(self.handoff_result) is not MinimalCSharpRepairHandoffResult:
+            raise TypeError("handoff_result must be the exact handoff result type")
+        if self.validated_draft != self.handoff_result.draft:
+            raise ValueError("validated draft differs from handoff draft")
+        if self.terminal_stage != self.handoff_result.terminal_stage:
+            raise ValueError("terminal stage differs from handoff result")
+        if self.terminal_reason != self.handoff_result.terminal_reason:
+            raise ValueError("terminal reason differs from handoff result")
+
+    def _require_adapter_stop(self) -> None:
+        if self.validated_draft is not None or self.handoff_result is not None:
+            raise ValueError("Planner adapter stop cannot carry downstream results")
+        if self.terminal_stage != "planner_adapter":
+            raise ValueError("Planner adapter stop stage differs")
+        if self.terminal_reason != self.planner_adapter_record.failure_reason:
+            raise ValueError("Planner adapter stop reason differs")
+
+    def _require_draft_stop(self) -> None:
+        if self.terminal_stage != "draft_admission":
+            raise ValueError("draft admission stop stage differs")
+        if self.terminal_reason not in {
+            "draft_payload_rejected",
+            "goal_mismatch",
+        }:
+            raise ValueError("draft admission stop reason differs")
+
+
+async def run_minimal_intent_worker_integration(
+    intent: str,
+    *,
+    planner_adapter: MinimalPlannerDraftAdapter,
+    worker_transport: LocalWorkerTransport,
+    tool_executor: Callable[[str, dict[str, Any]], Any],
+) -> MinimalIntentWorkerIntegrationResult:
+    intent = _require_exact_intent(intent)
+    if type(planner_adapter) is not MinimalPlannerDraftAdapter:
+        raise TypeError("planner_adapter must be the exact MinimalPlannerDraftAdapter")
+    if not callable(getattr(worker_transport, "send", None)):
+        raise TypeError("worker_transport must provide callable send")
+    if not callable(tool_executor):
+        raise TypeError("tool_executor must be callable")
+
+    adapter_record = planner_adapter.produce(intent)
+    if adapter_record.status != "decoded":
+        if adapter_record.failure_reason is None:
+            raise RuntimeError("Planner adapter stop lacks a failure reason")
+        return MinimalIntentWorkerIntegrationResult(
+            intent=intent,
+            planner_adapter_record=adapter_record,
+            validated_draft=None,
+            handoff_result=None,
+            terminal_stage="planner_adapter",
+            terminal_reason=adapter_record.failure_reason,
+        )
+    if adapter_record.decoded_object is None:
+        raise RuntimeError("decoded Planner adapter record lacks an object")
+    try:
+        draft = load_minimal_csharp_repair_draft(adapter_record.decoded_object)
+    except (TypeError, ValueError):
+        return _draft_stop(intent, adapter_record, "draft_payload_rejected")
+    if draft.goal != intent:
+        return _draft_stop(intent, adapter_record, "goal_mismatch")
+    handoff = await run_minimal_csharp_repair_handoff(
+        draft,
+        worker_transport=worker_transport,
+        tool_executor=tool_executor,
+    )
+    return MinimalIntentWorkerIntegrationResult(
+        intent=intent,
+        planner_adapter_record=adapter_record,
+        validated_draft=draft,
+        handoff_result=handoff,
+        terminal_stage=handoff.terminal_stage,
+        terminal_reason=handoff.terminal_reason,
+    )
+
+
+def _draft_stop(
+    intent: str,
+    adapter_record: MinimalPlannerDraftAdapterRecord,
+    reason: Literal["draft_payload_rejected", "goal_mismatch"],
+) -> MinimalIntentWorkerIntegrationResult:
+    return MinimalIntentWorkerIntegrationResult(
+        intent=intent,
+        planner_adapter_record=adapter_record,
+        validated_draft=None,
+        handoff_result=None,
+        terminal_stage="draft_admission",
+        terminal_reason=reason,
+    )
+
+
 class _DuplicateKeyError(ValueError):
     pass
 
@@ -189,7 +317,7 @@ class _NonFiniteNumberError(ValueError):
     pass
 
 
-def _require_exact_intent(intent: str) -> None:
+def _require_exact_intent(intent: str) -> str:
     if type(intent) is not str:
         raise TypeError("intent must be an exact string")
     if not intent.strip():
@@ -200,6 +328,7 @@ def _require_exact_intent(intent: str) -> None:
         raise ValueError("intent must be valid UTF-8") from exc
     if len(encoded) > MAX_INTENT_UTF8_BYTES:
         raise ValueError("intent exceeds the UTF-8 byte limit")
+    return intent
 
 
 def _render_prompt_snapshot(intent: str) -> MinimalPlannerPromptSnapshot:
