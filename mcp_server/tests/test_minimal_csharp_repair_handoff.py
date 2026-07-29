@@ -1075,6 +1075,98 @@ async def test_result_rejects_impossible_optional_record_combinations() -> None:
 
 
 @pytest.mark.asyncio
+async def test_result_rejects_worker_request_not_rendered_from_context() -> None:
+    success, _transport, _tool = await _run_operational_case("terminal")
+
+    with pytest.raises(ValueError, match="worker_request"):
+        replace(success, worker_request={"forged": True})
+
+
+@pytest.mark.asyncio
+async def test_result_rejects_reclosed_worker_context_outside_transaction() -> None:
+    success, _transport, _tool = await _run_operational_case("terminal")
+    assert success.worker_context is not None
+    forged_context = replace(success.worker_context, knowledge=())
+    forged_request = handoff.render_local_worker_turn_request_payload(
+        forged_context
+    )
+
+    with pytest.raises(ValueError, match="worker_context"):
+        replace(
+            success,
+            worker_context=forged_context,
+            worker_request=forged_request,
+        )
+
+
+@pytest.mark.asyncio
+async def test_result_rejects_reclosed_harness_context_identity() -> None:
+    success, _transport, _tool = await _run_operational_case("terminal")
+    assert success.worker_record is not None
+    assert success.worker_record.disposition is not None
+    disposition = success.worker_record.disposition
+    forged_attempt = replace(
+        disposition.attempt,
+        context_workflow_id="other_workflow",
+    )
+    forged_disposition = replace(disposition, attempt=forged_attempt)
+    forged_record = replace(
+        success.worker_record,
+        disposition=forged_disposition,
+        context_workflow_id="other_workflow",
+    )
+
+    with pytest.raises(ValueError, match="harness.*workflow"):
+        replace(success, worker_record=forged_record)
+
+
+@pytest.mark.parametrize("mutation", ["reordered", "replaced"])
+@pytest.mark.asyncio
+async def test_result_rejects_non_native_step_record_prefix(
+    mutation: str,
+) -> None:
+    success, _transport, _tool = await _run_operational_case("terminal")
+    records = list(success.step_records)
+    if mutation == "reordered":
+        records[0], records[1] = records[1], records[0]
+    else:
+        records[1] = records[0]
+
+    with pytest.raises(ValueError, match="native record prefix"):
+        replace(success, step_records=tuple(records))
+
+
+@pytest.mark.asyncio
+async def test_result_rejects_final_graph_outside_native_record_lineage() -> None:
+    success, _transport, _tool = await _run_operational_case("terminal")
+
+    with pytest.raises(ValueError, match="final_graph"):
+        replace(success, final_graph=success.scaffold.graph)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["terminal_not_ready", "repair_receipt_absent", "reverify_not_verified"],
+)
+@pytest.mark.asyncio
+async def test_result_rejects_incomplete_terminal_native_evidence(
+    mutation: str,
+) -> None:
+    success, _transport, _tool = await _run_operational_case("terminal")
+    if mutation == "terminal_not_ready":
+        success.final_graph.nodes["done"].status = "pending"
+    elif mutation == "repair_receipt_absent":
+        success.final_graph.nodes["repair_same_component"].evidence = None
+    else:
+        evidence = success.final_graph.nodes["verify_repair"].evidence
+        assert evidence is not None
+        evidence.verified = False
+
+    with pytest.raises(ValueError, match="terminal final_graph"):
+        replace(success)
+
+
+@pytest.mark.asyncio
 async def test_contract_compilation_failure_remains_an_internal_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

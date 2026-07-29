@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+import json
 from typing import Any, Literal
 
 from rook.agent.local_worker_acceptance_criteria import (
@@ -243,41 +244,13 @@ async def run_minimal_csharp_repair_handoff(
             terminal_reason=_stream_terminal_reason(phase_one),
         )
 
-    convention_packet = _script_body_gotcha_packet()
-    sources = extract_acceptance_criteria_sources(
-        workflow_contract=contract,
+    context = _build_worker_context(
+        draft=draft,
+        contract=contract,
+        scaffold=scaffold,
         graph=phase_one.final_graph,
-        convention_packets=(convention_packet,),
-    )
-    _require_convention_agreement(convention_packet, sources.convention.value)
-    acceptance_packet = assemble_acceptance_criteria_packet(sources)
-    compiled_interface = _project_compiled_interface(scaffold)
-    if compiled_interface != _render_draft_interface(draft.interface):
-        raise RuntimeError("compiled create interface differs from validated draft")
-
-    context = build_local_worker_turn_context(
-        scaffold,
-        phase_one.final_graph,
-        phase_one.records,
-        phase_one.supply_records,
-        current_node_id=_REPAIR_NODE_ID,
-        knowledge=(
-            WorkerKnowledgePacket(
-                packet_id="planner_goal_and_interface",
-                kind="requirement",
-                title="Planner goal and fixed component interface",
-                content={"goal": draft.goal, "interface": compiled_interface},
-            ),
-            convention_packet,
-            WorkerKnowledgePacket(
-                packet_id="clean_compile_acceptance",
-                kind="acceptance_criteria",
-                title="Clean compile receipt acceptance",
-                content=acceptance_packet,
-            ),
-            _current_diagnostic_packet(sources.receipt_diagnostic),
-        ),
-        allowed_actions=(_repair_action(),),
+        step_records=phase_one.records,
+        supply_records=phase_one.supply_records,
     )
     request = render_local_worker_turn_request_payload(context)
     adapter_record = run_local_worker_adapter(request, worker_transport)
@@ -518,6 +491,52 @@ def _current_diagnostic_packet(
     )
 
 
+def _build_worker_context(
+    *,
+    draft: ValidatedPlannerDraft,
+    contract: RookWorkflowContract,
+    scaffold: CompiledWorkflowScaffold,
+    graph: PlanGraph,
+    step_records: tuple[CurrentStepRecord, ...],
+    supply_records: tuple[EnvelopeSupplyRecord, ...],
+) -> LocalWorkerTurnContext:
+    convention_packet = _script_body_gotcha_packet()
+    sources = extract_acceptance_criteria_sources(
+        workflow_contract=contract,
+        graph=graph,
+        convention_packets=(convention_packet,),
+    )
+    _require_convention_agreement(convention_packet, sources.convention.value)
+    acceptance_packet = assemble_acceptance_criteria_packet(sources)
+    compiled_interface = _project_compiled_interface(scaffold)
+    if compiled_interface != _render_draft_interface(draft.interface):
+        raise RuntimeError("compiled create interface differs from validated draft")
+    return build_local_worker_turn_context(
+        scaffold,
+        graph,
+        step_records,
+        supply_records,
+        current_node_id=_REPAIR_NODE_ID,
+        knowledge=(
+            WorkerKnowledgePacket(
+                packet_id="planner_goal_and_interface",
+                kind="requirement",
+                title="Planner goal and fixed component interface",
+                content={"goal": draft.goal, "interface": compiled_interface},
+            ),
+            convention_packet,
+            WorkerKnowledgePacket(
+                packet_id="clean_compile_acceptance",
+                kind="acceptance_criteria",
+                title="Clean compile receipt acceptance",
+                content=acceptance_packet,
+            ),
+            _current_diagnostic_packet(sources.receipt_diagnostic),
+        ),
+        allowed_actions=(_repair_action(),),
+    )
+
+
 def _handoff_result(
     *,
     draft: ValidatedPlannerDraft,
@@ -679,14 +698,14 @@ def _validate_handoff_result(result: MinimalCSharpRepairHandoffResult) -> None:
     reason = _require_exact_string(result.terminal_reason, "terminal_reason")
     if not reason:
         raise ValueError("terminal_reason must not be empty")
+    _require_native_transaction_lineage(result, stage)
 
     if stage in {"create", "verify_create"}:
         _require_no_worker_material(result)
-        _require_stage_record_owner(result, stage)
         _require_result_reason(result, _ledger_terminal_reason(result))
         return
 
-    _require_worker_request_context(result)
+    context = _require_worker_request_context(result)
     adapter = _require_adapter_record(result.adapter_record)
     if stage == "worker_adapter":
         if adapter.status == "response_loaded":
@@ -697,12 +716,12 @@ def _validate_handoff_result(result: MinimalCSharpRepairHandoffResult) -> None:
             result,
             _required_reason(adapter.failure_reason, "adapter failure"),
         )
-        _require_stage_record_owner(result, stage)
         return
 
     if adapter.status != "response_loaded" or adapter.response is None:
         raise ValueError("later worker stages require a loaded adapter response")
     worker = _require_worker_record(result.worker_record)
+    _require_harness_context_lineage(worker, context)
     if worker.status != "completed" or worker.disposition is None:
         raise ValueError("later worker stages require a completed disposition")
     if worker.response is not adapter.response:
@@ -715,7 +734,6 @@ def _validate_handoff_result(result: MinimalCSharpRepairHandoffResult) -> None:
         if result.action_apply_result is not None:
             raise ValueError("worker_disposition stage cannot carry action application")
         _require_result_reason(result, worker.disposition.reason)
-        _require_stage_record_owner(result, stage)
         return
 
     if not candidate:
@@ -728,12 +746,10 @@ def _validate_handoff_result(result: MinimalCSharpRepairHandoffResult) -> None:
             result,
             _required_reason(action.reason, "rejected action application"),
         )
-        _require_stage_record_owner(result, stage)
         return
 
     if not action.applied:
         raise ValueError("execution stages require an applied worker action")
-    _require_stage_record_owner(result, stage)
     _require_result_reason(result, _ledger_terminal_reason(result))
 
 
@@ -753,11 +769,62 @@ def _require_no_worker_material(result: MinimalCSharpRepairHandoffResult) -> Non
 
 def _require_worker_request_context(
     result: MinimalCSharpRepairHandoffResult,
-) -> None:
-    if not isinstance(result.worker_request, Mapping):
+) -> LocalWorkerTurnContext:
+    if type(result.worker_request) is not dict:
         raise ValueError("worker stage requires worker_request")
-    if not isinstance(result.worker_context, LocalWorkerTurnContext):
+    if type(result.worker_context) is not LocalWorkerTurnContext:
         raise ValueError("worker stage requires worker_context")
+    context = result.worker_context
+    rendered_request = render_local_worker_turn_request_payload(context)
+    if _canonical_payload_bytes(result.worker_request, "worker_request") != (
+        _canonical_payload_bytes(rendered_request, "rendered worker_request")
+    ):
+        raise ValueError("worker_request differs from its retained worker_context")
+
+    workflow = context.workflow
+    record = result.scaffold.compile_record
+    if (
+        workflow.workflow_id,
+        workflow.contract_schema,
+        workflow.contract_fingerprint,
+        workflow.compiler_id,
+        workflow.provider_id,
+        workflow.selected_template_id,
+        workflow.max_steps,
+    ) != (
+        record.workflow_id,
+        record.contract_schema,
+        record.contract_fingerprint,
+        record.compiler_id,
+        record.provider_id,
+        record.selected_template_id,
+        result.scaffold.max_steps,
+    ):
+        raise ValueError("worker_context workflow differs from its scaffold")
+
+    phase_one_records = result.step_records[:2]
+    phase_one_supply = result.supply_records[:2]
+    phase_one_graph = phase_one_records[-1].execution.graph
+    try:
+        expected_context = _build_worker_context(
+            draft=result.draft,
+            contract=_build_repair_specimen_contract(result.draft),
+            scaffold=result.scaffold,
+            graph=phase_one_graph,
+            step_records=phase_one_records,
+            supply_records=phase_one_supply,
+        )
+    except (RuntimeError, TypeError, ValueError) as exc:
+        raise ValueError("worker_context cannot be reconstructed") from exc
+    if _canonical_payload_bytes(
+        render_local_worker_turn_request_payload(context),
+        "worker_context",
+    ) != _canonical_payload_bytes(
+        render_local_worker_turn_request_payload(expected_context),
+        "expected worker_context",
+    ):
+        raise ValueError("worker_context differs from the native transaction")
+    return context
 
 
 def _require_adapter_record(value: object) -> LocalWorkerAdapterRecord:
@@ -778,22 +845,186 @@ def _require_action_result(value: object) -> WorkerActionApplyResult:
     return value
 
 
-def _require_stage_record_owner(
+def _require_native_transaction_lineage(
     result: MinimalCSharpRepairHandoffResult,
     stage: str,
 ) -> None:
-    expected_last_by_stage = {
-        "create": _CREATE_NODE_ID,
-        "verify_create": _VERIFY_CREATE_NODE_ID,
-        "worker_adapter": _VERIFY_CREATE_NODE_ID,
-        "worker_disposition": _VERIFY_CREATE_NODE_ID,
-        "action_apply": _VERIFY_CREATE_NODE_ID,
-        "repair": _REPAIR_NODE_ID,
-        "verify_repair": _VERIFY_REPAIR_NODE_ID,
-        "terminal": _VERIFY_REPAIR_NODE_ID,
+    expected_prefix_by_stage = {
+        "create": (_CREATE_NODE_ID,),
+        "verify_create": (_CREATE_NODE_ID, _VERIFY_CREATE_NODE_ID),
+        "worker_adapter": (_CREATE_NODE_ID, _VERIFY_CREATE_NODE_ID),
+        "worker_disposition": (_CREATE_NODE_ID, _VERIFY_CREATE_NODE_ID),
+        "action_apply": (_CREATE_NODE_ID, _VERIFY_CREATE_NODE_ID),
+        "repair": (
+            _CREATE_NODE_ID,
+            _VERIFY_CREATE_NODE_ID,
+            _REPAIR_NODE_ID,
+        ),
+        "verify_repair": (
+            _CREATE_NODE_ID,
+            _VERIFY_CREATE_NODE_ID,
+            _REPAIR_NODE_ID,
+            _VERIFY_REPAIR_NODE_ID,
+        ),
+        "terminal": (
+            _CREATE_NODE_ID,
+            _VERIFY_CREATE_NODE_ID,
+            _REPAIR_NODE_ID,
+            _VERIFY_REPAIR_NODE_ID,
+        ),
     }
-    if _last_accepted_node_id(result.step_records) != expected_last_by_stage[stage]:
+    observed = tuple(record.accepted_node_id for record in result.step_records)
+    if observed != expected_prefix_by_stage[stage]:
         raise ValueError("terminal stage does not match the native record prefix")
+    if result.final_graph is not result.step_records[-1].execution.graph:
+        raise ValueError("final_graph is not owned by the final native record")
+
+    record_count = len(result.step_records)
+    if len(result.supply_records) not in {record_count, record_count + 1}:
+        raise ValueError("supply records do not match the native record prefix")
+    for index, record in enumerate(result.step_records):
+        supply = result.supply_records[index]
+        if (
+            supply.decision != "SUPPLY"
+            or supply.envelope is None
+            or supply.envelope.mapping is not record.mapping
+        ):
+            raise ValueError("supply records do not own the native record prefix")
+    tail = result.supply_records[record_count:]
+    if tail and (tail[0].decision != "HALT" or tail[0].envelope is not None):
+        raise ValueError("native record prefix has an invalid terminal supply")
+    if tail and stage not in {"create", "repair", "verify_repair", "terminal"}:
+        raise ValueError("terminal supply occurs outside its native stage")
+    if stage == "terminal":
+        if (
+            len(tail) != 1
+            or tail[0].reason != "terminal_node_selected:done"
+        ):
+            raise ValueError("terminal stage lacks its native terminal supply")
+        _require_terminal_graph_evidence(result)
+
+
+def _require_harness_context_lineage(
+    worker: LocalWorkerTurnHarnessRecord,
+    context: LocalWorkerTurnContext,
+) -> None:
+    workflow_id = context.workflow.workflow_id
+    fingerprint = context.workflow.contract_fingerprint
+    if worker.context_workflow_id != workflow_id:
+        raise ValueError("harness workflow identity differs from worker_context")
+    if worker.context_contract_fingerprint != fingerprint:
+        raise ValueError("harness contract identity differs from worker_context")
+    disposition = worker.disposition
+    if disposition is None:
+        return
+    attempt = disposition.attempt
+    if attempt.context_workflow_id != workflow_id:
+        raise ValueError("harness attempt workflow differs from worker_context")
+    if attempt.context_contract_fingerprint != fingerprint:
+        raise ValueError("harness attempt contract differs from worker_context")
+
+
+def _require_terminal_graph_evidence(
+    result: MinimalCSharpRepairHandoffResult,
+) -> None:
+    records = result.step_records
+    expected_record_outcomes = (
+        ("producer", True, "succeeded"),
+        ("verifier", True, "needs_repair"),
+        ("producer", True, "succeeded"),
+        ("verifier", True, "succeeded"),
+    )
+    observed_record_outcomes = (
+        (
+            records[0].execution_kind,
+            records[0].producer_applied,
+            records[0].producer_outcome_status,
+        ),
+        (
+            records[1].execution_kind,
+            records[1].verifier_applied,
+            records[1].verifier_outcome_status,
+        ),
+        (
+            records[2].execution_kind,
+            records[2].producer_applied,
+            records[2].producer_outcome_status,
+        ),
+        (
+            records[3].execution_kind,
+            records[3].verifier_applied,
+            records[3].verifier_outcome_status,
+        ),
+    )
+    if observed_record_outcomes != expected_record_outcomes:
+        raise ValueError("terminal native record outcomes are incomplete")
+
+    graph = result.final_graph
+    expected_statuses = {
+        _CREATE_NODE_ID: "succeeded",
+        _VERIFY_CREATE_NODE_ID: "needs_repair",
+        _REPAIR_NODE_ID: "succeeded",
+        _VERIFY_REPAIR_NODE_ID: "succeeded",
+        _TERMINAL_NODE_ID: "ready",
+    }
+    if not expected_statuses.keys() <= graph.nodes.keys():
+        raise ValueError("terminal final_graph lacks required native nodes")
+    if {
+        node_id: graph.nodes[node_id].status for node_id in expected_statuses
+    } != expected_statuses:
+        raise ValueError("terminal final_graph has incomplete native state")
+    _require_receipt_projection(
+        graph,
+        _CREATE_NODE_ID,
+        operation="create",
+        artifact_status="created_with_errors",
+        verification_status="failed",
+    )
+    _require_receipt_projection(
+        graph,
+        _REPAIR_NODE_ID,
+        operation="update",
+        artifact_status="usable",
+        verification_status="passed",
+    )
+    verify_evidence = graph.nodes[_VERIFY_REPAIR_NODE_ID].evidence
+    if verify_evidence is None or verify_evidence.verified is not True:
+        raise ValueError("terminal final_graph lacks successful reverify evidence")
+
+
+def _require_receipt_projection(
+    graph: PlanGraph,
+    node_id: str,
+    *,
+    operation: str,
+    artifact_status: str,
+    verification_status: str,
+) -> None:
+    evidence = graph.nodes[node_id].evidence
+    receipt = None if evidence is None else evidence.receipt
+    if not isinstance(receipt, Mapping):
+        raise ValueError(f"terminal final_graph lacks {node_id} receipt evidence")
+    verification = receipt.get("verification")
+    if (
+        receipt.get("operation") != operation
+        or receipt.get("artifact_status") != artifact_status
+        or not isinstance(verification, Mapping)
+        or verification.get("status") != verification_status
+    ):
+        raise ValueError(f"terminal final_graph has invalid {node_id} receipt evidence")
+
+
+def _canonical_payload_bytes(value: object, context: str) -> bytes:
+    try:
+        return json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{context} is not canonical JSON evidence") from exc
 
 
 def _ledger_terminal_reason(result: MinimalCSharpRepairHandoffResult) -> str:
