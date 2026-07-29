@@ -860,7 +860,26 @@ Require exactly one behavior-neutral Task 1 commit and one atomic Task 2 commit 
 - every obsolete identity branch/test is removed;
 - no unrelated subsystem changed.
 
-If review finds a defect, return to Task 2 under an explicitly authorized safety wave, commit the complete correction, and repeat the whole-branch review. Do not patch after deployment.
+If review finds a defect before deployment, return to the affected Task 1 or Task 2 work under an explicitly authorized safety wave, add the regression test and correction, and fold that correction into the affected original commit before repeating this review:
+
+```powershell
+# A Task 2 correction can amend HEAD directly.
+git status --short
+git add -u -- .
+git diff --cached --check
+git diff --cached --name-only
+git commit --amend --no-edit
+
+# A Task 1 correction must be fixed up into Task 1, then Task 2 is replayed.
+git status --short
+git add -u -- .
+git diff --cached --check
+git diff --cached --name-only
+git commit --fixup=$task1Commit
+git rebase -i --autosquash $implementationBase
+```
+
+Before either commit command, require the staged path list to be a subset of the affected task's existing file map; the safety wave may not introduce another file or subsystem. Recompute `$task2Head`, `$task1Commit`, and `$implementationBase`; require exactly two commits again; then repeat the whole-branch review and every pre-deployment gate. No standalone correction commit may remain, and no patching is allowed after deployment begins.
 
 - [ ] **Step 2: Repeat final tests and guarded Release builds**
 
@@ -896,6 +915,7 @@ $local = [Environment]::GetFolderPath('LocalApplicationData')
 $roaming = [Environment]::GetFolderPath('ApplicationData')
 $rollbackRoot = Join-Path $local 'Rook\rollback\rookbim-file-workshared-identity'
 $stage = Join-Path $rollbackRoot ("stage-" + $implementationCommit)
+$verificationStage = Join-Path $rollbackRoot ("verify-" + [guid]::NewGuid().ToString('N'))
 $rollbackZip = Join-Path $rollbackRoot ("rookbim-identity-predeploy-" + $implementationCommit + ".zip")
 $rollbackShaFile = $rollbackZip + '.sha256'
 $pluginDir = Join-Path $roaming 'McNeel\Rhinoceros\8.0\Plug-ins\RookNative'
@@ -914,8 +934,11 @@ if ((Test-Path -LiteralPath $stage) -or (Test-Path -LiteralPath $rollbackZip) -o
 
 $rollbackRootFull = [IO.Path]::GetFullPath($rollbackRoot).TrimEnd('\')
 $stageFull = [IO.Path]::GetFullPath($stage)
-if (-not $stageFull.StartsWith($rollbackRootFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Rollback stage escaped the dedicated rollback root'
+$verificationStageFull = [IO.Path]::GetFullPath($verificationStage)
+foreach ($candidate in @($stageFull, $verificationStageFull)) {
+    if (-not $candidate.StartsWith($rollbackRootFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Rollback stage escaped the dedicated rollback root'
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
@@ -942,12 +965,58 @@ $metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stage
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $rollbackZip -CompressionLevel Optimal
 $rollbackSha = (Get-FileHash -LiteralPath $rollbackZip -Algorithm SHA256).Hash
 Set-Content -LiteralPath $rollbackShaFile -Value ($rollbackSha + '  ' + (Split-Path -Leaf $rollbackZip)) -Encoding ASCII
-Remove-Item -LiteralPath $stage -Recurse -Force
 
 if ((Get-FileHash -LiteralPath $rollbackZip -Algorithm SHA256).Hash -ne
     ((Get-Content -LiteralPath $rollbackShaFile -Raw).Trim().Split(' ')[0])) {
     throw 'Rollback ZIP SHA verification failed'
 }
+
+try {
+    Expand-Archive -LiteralPath $rollbackZip -DestinationPath $verificationStage
+    $verificationManifestPath = Join-Path $verificationStage 'manifest.json'
+    if (-not (Test-Path -LiteralPath $verificationManifestPath -PathType Leaf)) {
+        throw 'Rollback ZIP verification manifest is missing'
+    }
+    $verificationManifest = Get-Content -LiteralPath $verificationManifestPath -Raw | ConvertFrom-Json
+    if ($verificationManifest.artifactType -ne 'rookbim-file-workshared-identity-predeploy-v1' -or
+        $verificationManifest.implementationCommit -ne $implementationCommit) {
+        throw 'Rollback ZIP verification manifest is invalid'
+    }
+
+    $verifiedPayload = @(Get-ChildItem -LiteralPath $verificationStage -Recurse -File |
+        Where-Object {
+            -not [string]::Equals($_.FullName, $verificationManifestPath, [StringComparison]::OrdinalIgnoreCase)
+        } |
+        ForEach-Object {
+            [pscustomobject]@{
+                path = $_.FullName.Substring($verificationStageFull.TrimEnd('\').Length + 1).Replace('\','/')
+                length = $_.Length
+                sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+            }
+        })
+    $manifestPayload = @($verificationManifest.payload | ForEach-Object {
+        [pscustomobject]@{
+            path = [string]$_.path
+            length = [long]$_.length
+            sha256 = [string]$_.sha256
+        }
+    })
+    if ($manifestPayload.Count -ne $payload.Count -or $verifiedPayload.Count -ne $manifestPayload.Count) {
+        throw 'Rollback ZIP payload count verification failed'
+    }
+    $payloadDifference = @(Compare-Object $manifestPayload $verifiedPayload -Property path,length,sha256)
+    if ($payloadDifference.Count -ne 0) {
+        $payloadDifference | Format-Table | Out-String | Write-Host
+        throw 'Rollback ZIP payload path/hash verification failed'
+    }
+}
+finally {
+    if (Test-Path -LiteralPath $verificationStage) {
+        Remove-Item -LiteralPath $verificationStage -Recurse -Force
+    }
+}
+
+Remove-Item -LiteralPath $stage -Recurse -Force
 Write-Host "RollbackArtifact=$rollbackZip"
 Write-Host "RollbackSHA256=$rollbackSha"
 ```
@@ -961,9 +1030,12 @@ With Revit, Rhino, Grasshopper, and exact `python -m rook` processes closed, run
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File scripts\deploy-local-testing.ps1 -Configuration Release
+if ($LASTEXITCODE -ne 0) {
+    throw "Deployment failed with exit code $LASTEXITCODE"
+}
 ```
 
-Do not use `setx`. Do not start live acceptance until deploy completes.
+Do not use `setx`. Steps 4 and 5 are one deployment transaction beginning with the first installed-file mutation and ending only when every inventory/provenance check passes. A nonzero deployment exit, copy failure, missing artifact, hash mismatch, inventory mismatch, stale extra file, wrong Python import path, or provenance mismatch is a Task 3 blocker. Keep every host closed, immediately execute the exact Rollback section, verify the restored artifact and inventories, record the blocked deployment in the execution ledger, and stop. Task 4 is prohibited after any such failure; do not repair or retry on top of a partially deployed installation.
 
 - [ ] **Step 5: Verify installed provenance and inventories**
 
@@ -1027,7 +1099,7 @@ Assert-SameInventory $sourceInventory (Get-HashInventory $venvRook $pythonInclud
   "import pathlib, rook.server; print(pathlib.Path(rook.server.__file__).resolve())"
 ```
 
-Require the printed path to be under `%LOCALAPPDATA%\Rook\venv\Lib\site-packages\rook`. After the next launch, confirm `/bim/status` reports the Task 2 head for core and module. Record the rollback ZIP path/SHA and every installed inventory result before beginning Task 4.
+Require the printed path to be under `%LOCALAPPDATA%\Rook\venv\Lib\site-packages\rook`. Any exception or failed assertion in this step triggers the Task 3 rollback rule above. Only successful completion of the entire inventory/provenance gate permits Task 4. After the next launch, confirm `/bim/status` reports the Task 2 head for core and module. Record the rollback ZIP path/SHA and every installed inventory result before beginning Task 4.
 
 ---
 
@@ -1153,7 +1225,7 @@ git commit -m "docs: record RookBIM identity acceptance"
 
 Do not partially roll back the managed contract, policy, Revit adapter, MCP package, or comparator. This repository has no tested runtime switch that disables only identity-based routes, so this plan makes no such claim.
 
-If Task 4 blocks the release, keep Revit, Rhino, Grasshopper, and every `python -m rook` process closed. Restore only the verified Task 3 artifact; do not rebuild an assumed baseline or run the deploy script from a different checkout.
+If the Task 3 deployment transaction fails or Task 4 blocks the release, keep Revit, Rhino, Grasshopper, and every `python -m rook` process closed. Restore only the verified Task 3 artifact; do not rebuild an assumed baseline or run the deploy script from a different checkout. A Task 3 rollback ends execution before Task 4.
 
 ```powershell
 $implementationCommit = (git log -1 --format=%H -- src/RookBim/Revit/RevitDocumentIdentityResolver.cs).Trim()
@@ -1267,5 +1339,7 @@ The artifact restores the exact pre-deploy installation, which still contains th
 - [ ] The policy contains no diagnostics, Autodesk types, generic reader framework, DI, cache, or provider extension point.
 - [ ] Diagnostics parity/privacy and exact wire names are tested.
 - [ ] Whole-branch review precedes deployment.
-- [ ] Pre-deploy rollback ZIP, SHA sidecar, and manifest are verified; restore commands target only the three exact installation roots.
+- [ ] Pre-deploy rollback ZIP and SHA sidecar are test-extracted; every manifest path, length, hash, and payload count is verified before staging cleanup; restore commands target only the three exact installation roots.
+- [ ] Any Task 3 deploy or installed-inventory failure restores the verified artifact with hosts closed and prohibits Task 4.
+- [ ] Pre-deployment corrections are folded into Task 1 or Task 2 so the reviewed implementation remains exactly two commits.
 - [ ] Live two-document Revit acceptance remains the release gate.
