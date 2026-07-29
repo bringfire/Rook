@@ -178,24 +178,27 @@ It owns no provider/model construction, model selection, generation policy,
 worker semantics, workflow compilation, graph mutation, tool routing, receipt
 interpretation, persistence, or registration.
 
-The module defines two narrow structural seams:
+The module defines one narrow structural seam:
 
 ```python
 class MinimalPlannerTransport(Protocol):
     def send(self, prompt_artifact: Mapping[str, Any]) -> str: ...
-
-class MinimalPlannerDraftProducer(Protocol):
-    def produce(self, intent: str) -> MinimalPlannerDraftAdapterRecord: ...
 ```
 
-The concrete one-shot Planner adapter implements
-`MinimalPlannerDraftProducer` over an injected `MinimalPlannerTransport`.
-`LiteLLMWorkerTransport` satisfies only the transport protocol structurally.
+The concrete `MinimalPlannerDraftAdapter` owns prompt rendering, request
+materialization, the one transport invocation, raw response capture, strict
+decoding, and typed record construction over an injected
+`MinimalPlannerTransport`. The integration runner accepts only that exact
+concrete adapter type. Adapter subclasses, substitute producer callables, and
+caller-authored adapter records are not runner inputs.
+
+`LiteLLMWorkerTransport` satisfies only `MinimalPlannerTransport`
+structurally.
 
 ## 6. Intent boundary
 
-The internal runner accepts one user-intent value. Before any prompt,
-transport, worker, or tool construction, it requires:
+The internal runner accepts one user-intent value. Before prompt rendering or
+invoking any Planner, worker, or tool capability, it requires:
 
 ```text
 type(intent) is str
@@ -399,7 +402,7 @@ The internal async function has this ownership shape:
 async def run_minimal_intent_worker_integration(
     intent: str,
     *,
-    planner_draft_producer: MinimalPlannerDraftProducer,
+    planner_adapter: MinimalPlannerDraftAdapter,
     worker_transport: LocalWorkerTransport,
     tool_executor: Callable[[str, dict[str, Any]], Any],
 ) -> MinimalIntentWorkerIntegrationResult:
@@ -410,7 +413,7 @@ It accepts:
 
 ```text
 exact user intent
-injected one-shot Planner draft adapter/producer
+exact concrete MinimalPlannerDraftAdapter
 existing LocalWorkerTransport
 existing typed tool executor
 ```
@@ -419,6 +422,7 @@ Its fixed sequence is:
 
 ```text
 validate exact intent
+-> require exact concrete Planner adapter type
 -> call Planner adapter exactly once
 -> stop on typed adapter failure
 -> strict existing draft admission
@@ -543,6 +547,7 @@ The successful witness proves:
 Tests cover:
 
 - non-string, equality-spoof, blank, unencodable, and oversized intent;
+- Planner adapter subclass and substitute producer object;
 - Planner transport exception;
 - non-string and unencodable transport output;
 - response at the 65,536-byte boundary and one byte above it;
@@ -556,7 +561,9 @@ Tests cover:
 - an otherwise valid draft with any goal difference, including whitespace.
 
 Every pre-handoff refusal proves zero worker and typed-tool calls. Oversized
-intent proves zero Planner calls as well.
+intent, adapter subclass, and substitute producer refusal prove zero Planner
+calls as well. Planner transport behavior is tested only by injecting fake
+transports through the real concrete adapter.
 
 ### 13.3 Prompt information boundary
 
