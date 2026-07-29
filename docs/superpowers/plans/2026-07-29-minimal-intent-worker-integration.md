@@ -104,7 +104,7 @@
 
 - Later tasks must use the exact names and types above. Do not add a producer protocol.
 
-- [ ] **Step 1: Add valid-red tests for the real adapter path**
+- [x] **Step 1: Add valid-red tests for the real adapter path**
 
 Create the test module with test-only helpers and a first successful adapter witness:
 
@@ -174,7 +174,7 @@ def test_concrete_adapter_owns_prompt_and_exactly_one_transport_call() -> None:
 
 Also assert `build_minimal_planner_draft_response_schema()` returns equal but independent fresh dictionaries and that mutating one result does not affect the next.
 
-- [ ] **Step 2: Run the adapter witness and confirm a valid RED**
+- [x] **Step 2: Run the adapter witness and confirm a valid RED**
 
 Run:
 
@@ -185,7 +185,7 @@ Run:
 
 Expected: collection fails because `rook.agent.minimal_intent_worker_integration` does not exist. An import/attribute typo after the module is created is not valid-red evidence.
 
-- [ ] **Step 3: Implement the immutable prompt snapshot and closed response schema**
+- [x] **Step 3: Implement the immutable prompt snapshot and closed response schema**
 
 Start the production module with no LiteLLM/provider import:
 
@@ -301,7 +301,7 @@ json.dumps(
 
 The adapter record retains the frozen snapshot. Call `snapshot.materialize()` once to produce a fresh transport request.
 
-- [ ] **Step 4: Implement strict intent and response decoding**
+- [x] **Step 4: Implement strict intent and response decoding**
 
 Use closed internal exceptions for duplicate keys and nonfinite constants:
 
@@ -341,7 +341,7 @@ json.loads(
 
 Classify `json.JSONDecodeError` with message `Extra data` as `response_trailing_content`; classify other JSON/recursion errors as `response_invalid_json`. Require `type(decoded) is dict` after parsing. Do not strip, extract fences, or search substrings.
 
-- [ ] **Step 5: Implement the closed adapter record and concrete adapter**
+- [x] **Step 5: Implement the closed adapter record and concrete adapter**
 
 Use these exact statuses and failure reasons:
 
@@ -378,7 +378,7 @@ Implement `MinimalPlannerDraftAdapter` with `__slots__ = ("_transport",)`. Valid
 
 Do not catch `KeyboardInterrupt`, `SystemExit`, or any other `BaseException`.
 
-- [ ] **Step 6: Add the complete adapter boundary table**
+- [x] **Step 6: Add the complete adapter boundary table**
 
 Add parameterized tests for:
 
@@ -407,7 +407,7 @@ Add:
 - record mutation tests using `dataclasses.replace()` for every cross-state combination; and
 - a transport that mutates its received request, proving the retained snapshot rematerializes to the original request.
 
-- [ ] **Step 7: Run Task 1 tests and complete the review checkpoint**
+- [x] **Step 7: Run Task 1 tests and complete the review checkpoint**
 
 Run:
 
@@ -424,7 +424,7 @@ Expected: all Task 1 tests pass; compilation and diff checks exit zero.
 
 Before committing, inspect that the production module has no import of `litellm`, `local_worker_model_transport`, Chat, MCP, CLI, DSPy, scripts, or live Rhino code.
 
-- [ ] **Step 8: Commit Task 1**
+- [x] **Step 8: Commit Task 1**
 
 ```powershell
 git add `
@@ -484,7 +484,7 @@ Stop for a focused independent review of the exact adapter type, prompt lineage,
   `MinimalIntentWorkerIntegrationResult` and
   `run_minimal_intent_worker_integration`.
 
-- [ ] **Step 1: Write the failing real vertical test**
+- [x] **Step 1: Write the failing real vertical test**
 
 Add a fake Planner transport that returns `_planner_payload(_INTENT)`, a worker transport that traverses the real worker adapter, and a causally responsive typed executor.
 
@@ -601,7 +601,7 @@ assert result.terminal_reason == result.handoff_result.terminal_reason
 assert result.handoff_result.final_graph.nodes["done"].status == "ready"
 ```
 
-- [ ] **Step 2: Run the vertical test and confirm valid RED**
+- [x] **Step 2: Run the vertical test and confirm valid RED**
 
 Run:
 
@@ -612,7 +612,7 @@ Run:
 
 Expected: fail because `run_minimal_intent_worker_integration` and its result type do not exist. A fake receipt assertion failure is not the intended RED.
 
-- [ ] **Step 3: Implement the aggregate state equations**
+- [x] **Step 3: Implement the aggregate state equations**
 
 In `MinimalIntentWorkerIntegrationResult.__post_init__`, require exact built-in strings and exact record/result classes, then enforce only:
 
@@ -642,7 +642,7 @@ handoff reached:
 
 Do not inspect the handoff graph, worker records, action result, receipts, or tool records in this validator.
 
-- [ ] **Step 4: Implement the exact concrete-adapter runner**
+- [x] **Step 4: Implement the exact concrete-adapter runner**
 
 At the top of the runner, before any capability invocation:
 
@@ -697,7 +697,7 @@ return MinimalIntentWorkerIntegrationResult(
 
 The local assertion narrows the already-closed adapter record; it is not a default or repair. Do not catch exceptions raised by the handoff.
 
-- [ ] **Step 5: Prove exact adapter-type and goal-authority refusal**
+- [x] **Step 5: Prove exact adapter-type and goal-authority refusal**
 
 Add:
 
@@ -732,7 +732,7 @@ shape. Require the runner to return `draft_admission / goal_mismatch` after one
 Planner call with zero worker/tool calls. The test must fail if the runner
 attempts to UTF-8 encode the decoded goal.
 
-- [ ] **Step 6: Prove the Planner information boundary**
+- [x] **Step 6: Prove the Planner information boundary**
 
 Inspect both `record.prompt_snapshot` fields and its materialized mapping. Require the user message to decode exactly to `{"user_intent": _INTENT}`.
 
@@ -751,7 +751,7 @@ CS0103
 
 Assert the system message contains only the closed field vocabulary and no example JSON object. Assert the response schema is not inserted into the user intent envelope.
 
-- [ ] **Step 7: Run Task 2 focused and inherited seam tests**
+- [x] **Step 7: Run Task 2 focused and inherited seam tests**
 
 Run:
 
@@ -765,7 +765,7 @@ git diff --check
 
 Expected: all selected tests pass and the diff check exits zero.
 
-- [ ] **Step 8: Commit Task 2**
+- [x] **Step 8: Commit Task 2**
 
 ```powershell
 git add `
@@ -788,7 +788,7 @@ git commit -m "feat: connect exact intent to minimal worker handoff"
 - Consumes the exact Task 1 adapter and Task 2 runner/result interfaces.
 - Produces complete adversarial coverage without adding a new production type or outcome vocabulary.
 
-- [ ] **Step 1: Add intent-byte and capability-order tests**
+- [x] **Step 1: Add intent-byte and capability-order tests**
 
 Parameterize caller inputs:
 
@@ -807,7 +807,7 @@ Each must raise before Planner, worker, or tool invocation. Add an exact-bound c
 
 Pass invalid worker transport and tool executor objects with a valid Planner adapter. Require caller-contract `TypeError` before the Planner transport is invoked.
 
-- [ ] **Step 2: Add adapter-to-runner refusal coverage**
+- [x] **Step 2: Add adapter-to-runner refusal coverage**
 
 Run the complete Task 1 response-invalid table through `run_minimal_intent_worker_integration()`. For every case assert:
 
@@ -823,7 +823,7 @@ handoff_result is None
 
 Add the transport `RuntimeError` case with the same downstream-zero equations. Do not convert `KeyboardInterrupt` into a result.
 
-- [ ] **Step 3: Add representative native worker/tool stop projections**
+- [x] **Step 3: Add representative native worker/tool stop projections**
 
 Use the real handoff with one valid Planner response and parameterize:
 
@@ -849,7 +849,7 @@ assert result.terminal_reason == result.handoff_result.terminal_reason
 
 Do not recreate the handoff's internal optional-record or graph validations.
 
-- [ ] **Step 4: Add aggregate mutation tests**
+- [x] **Step 4: Add aggregate mutation tests**
 
 Using one adapter-stop, one draft-stop, and one successful result, use `dataclasses.replace()` to reject:
 
@@ -864,7 +864,7 @@ Using one adapter-stop, one draft-stop, and one successful result, use `dataclas
 
 Monkeypatch `run_minimal_csharp_repair_handoff()` to raise one `RuntimeError` after successful Planner/draft admission. Assert that exact exception escapes; the runner must not manufacture an operational result.
 
-- [ ] **Step 5: Run the hardened module tests**
+- [x] **Step 5: Run the hardened module tests**
 
 Run:
 
@@ -883,7 +883,7 @@ git diff --check
 
 Expected: all tests pass; compile and diff checks exit zero.
 
-- [ ] **Step 6: Commit Task 3**
+- [x] **Step 6: Commit Task 3**
 
 ```powershell
 git add `
@@ -907,7 +907,7 @@ git commit -m "test: harden minimal intent worker integration"
 - Consumes the complete implementation from Tasks 1–3.
 - Produces fresh verification evidence and an accurate durable execution ledger; no live integration.
 
-- [ ] **Step 1: Run the complete focused seam**
+- [x] **Step 1: Run the complete focused seam**
 
 Run:
 
@@ -932,7 +932,7 @@ Run:
 
 Record exact passed, failed, skipped, and warning counts. The inherited portion was 492 tests at specification time; do not claim a new total until this fresh command finishes.
 
-- [ ] **Step 2: Run the broader relevant Python-agent family**
+- [x] **Step 2: Run the broader relevant Python-agent family**
 
 Run:
 
@@ -944,7 +944,7 @@ Run:
 
 Use a bounded practical timeout. If it times out, report that state honestly and rely only on the completed focused evidence.
 
-- [ ] **Step 3: Audit the product surface and exact merge diff**
+- [x] **Step 3: Audit the product surface and exact merge diff**
 
 Run:
 
@@ -967,7 +967,7 @@ mcp_server/src/rook/agent/minimal_intent_worker_integration.py
 mcp_server/tests/test_minimal_intent_worker_integration.py
 ```
 
-- [ ] **Step 4: Inspect the exact success transaction**
+- [x] **Step 4: Inspect the exact success transaction**
 
 From the deterministic vertical's retained in-memory records, verify:
 
@@ -991,7 +991,7 @@ exact intent
 
 Confirm the Planner prompt contains no private fixture, topology, worker action, diagnostic, GUID, receipt, or expected repair code.
 
-- [ ] **Step 5: Verify compilation and repository state**
+- [x] **Step 5: Verify compilation and repository state**
 
 Run:
 
@@ -1005,7 +1005,7 @@ git status --short
 
 No provider, worker-box, Rhino, or Grasshopper process may be constructed or contacted by any verification command.
 
-- [ ] **Step 6: Reconcile the execution ledger**
+- [x] **Step 6: Reconcile the execution ledger**
 
 Update every completed checkbox in this plan. Append an `Execution reconciliation` section containing:
 
@@ -1025,7 +1025,7 @@ $plan = Get-Content docs/superpowers/plans/2026-07-29-minimal-intent-worker-inte
 "unchecked=$((($plan | Select-String '^- \[ \]').Count))"
 ```
 
-- [ ] **Step 7: Commit only the reconciliation**
+- [x] **Step 7: Commit only the reconciliation**
 
 ```powershell
 git add docs/superpowers/plans/2026-07-29-minimal-intent-worker-integration.md
@@ -1036,7 +1036,7 @@ git commit -m "docs: reconcile minimal intent integration plan"
 
 The staged name list must contain only the plan.
 
-- [ ] **Step 8: Stop for independent implementation review**
+- [x] **Step 8: Stop for independent implementation review**
 
 Request review against base `f0acdbdb7a9b15adcdb970183e75dd27fedd78c7`. Do not push, open a PR, merge, construct a real provider transport, run the worker box, or contact Rhino/Grasshopper as part of implementation completion.
 
@@ -1044,25 +1044,25 @@ Request review against base `f0acdbdb7a9b15adcdb970183e75dd27fedd78c7`. Do not p
 
 ## Completion Criteria
 
-- [ ] Exact invalid/oversized intent stops before all capability invocation.
-- [ ] Exact concrete Planner adapter is the only runner input; subclasses and substitute producers are refused.
-- [ ] The concrete adapter owns the code-authored prompt and exactly one structural transport call.
-- [ ] Prompt snapshot remains immutable while transport receives a fresh mutable mapping.
-- [ ] Planner raw response is bounded before parsing/retention and retained exactly when admitted.
-- [ ] Duplicate keys, nonfinite values, trailing content, non-object roots, markdown, coercion, defaults, and repair are refused.
-- [ ] Only the existing draft loader grants semantic admission.
-- [ ] Validated draft goal equals the original intent exactly.
-- [ ] A JSON-escaped lone-surrogate goal produces typed `goal_mismatch`, never an encoding exception.
-- [ ] Malformed Planner output and Planner failure produce typed adapter/draft stops with zero worker/tool calls.
-- [ ] The successful path traverses the real merged handoff, real worker adapter, and native terminal result.
-- [ ] Planner calls equal one and worker calls are zero or one; no retry/fallback exists.
-- [ ] Worker repair code remains the sole repair-code source and the update GUID remains receipt-derived.
-- [ ] Planner prompt excludes fixture code, diagnostics, topology, worker action, GUID, receipt, and expected repair code.
-- [ ] Existing worker/tool stop stages and reasons pass through unchanged.
-- [ ] The aggregate validates only its own ownership equations and remains ephemeral.
-- [ ] No new public registration, provider construction, shared transport refactor, fake production executor, or durable evidence layer exists.
-- [ ] Focused and broader relevant tests are freshly reported; compile and diff checks pass.
-- [ ] No provider, worker-box, Rhino, or Grasshopper contact occurred.
+- [x] Exact invalid/oversized intent stops before all capability invocation.
+- [x] Exact concrete Planner adapter is the only runner input; subclasses and substitute producers are refused.
+- [x] The concrete adapter owns the code-authored prompt and exactly one structural transport call.
+- [x] Prompt snapshot remains immutable while transport receives a fresh mutable mapping.
+- [x] Planner raw response is bounded before parsing/retention and retained exactly when admitted.
+- [x] Duplicate keys, nonfinite values, trailing content, non-object roots, markdown, coercion, defaults, and repair are refused.
+- [x] Only the existing draft loader grants semantic admission.
+- [x] Validated draft goal equals the original intent exactly.
+- [x] A JSON-escaped lone-surrogate goal produces typed `goal_mismatch`, never an encoding exception.
+- [x] Malformed Planner output and Planner failure produce typed adapter/draft stops with zero worker/tool calls.
+- [x] The successful path traverses the real merged handoff, real worker adapter, and native terminal result.
+- [x] Planner calls equal one and worker calls are zero or one; no retry/fallback exists.
+- [x] Worker repair code remains the sole repair-code source and the update GUID remains receipt-derived.
+- [x] Planner prompt excludes fixture code, diagnostics, topology, worker action, GUID, receipt, and expected repair code.
+- [x] Existing worker/tool stop stages and reasons pass through unchanged.
+- [x] The aggregate validates only its own ownership equations and remains ephemeral.
+- [x] No new public registration, provider construction, shared transport refactor, fake production executor, or durable evidence layer exists.
+- [x] Focused and broader relevant tests are freshly reported; compile and diff checks pass.
+- [x] No provider, worker-box, Rhino, or Grasshopper contact occurred.
 
 ---
 
@@ -1074,3 +1074,20 @@ These are proposals only and are not authorized by implementation, review, PR, o
 2. **Live tool smoke:** after the first smoke is understood, separately authorize replacement of the fake executor with the unchanged real typed tool bridge and live Rhino/Grasshopper.
 
 Neither smoke permits retry, fallback, automatic prompt changes, or production fake behavior.
+
+---
+
+## Execution Reconciliation
+
+- Base: `f0acdbdb7a9b15adcdb970183e75dd27fedd78c7`.
+- Final implementation HEAD before this documentation-only reconciliation: `3ddf5b08b7f8ef956245a7ff2bf004ec2b94478c`.
+- Complete focused seam: `573 passed`, `0 failed`, `0 skipped`; pytest reported no warnings.
+- Broader relevant Python-agent family: `1298 passed`, `8228 deselected`, with `11` existing dependency deprecation warnings from the installed DSPy package.
+- Forced compilation of the production module and focused test module passed.
+- `git diff --check` passed, and the worktree was clean before this reconciliation.
+- Exact merge scope is four files: this plan, its design specification, `minimal_intent_worker_integration.py`, and `test_minimal_intent_worker_integration.py`.
+- The integration result remains an ephemeral internal aggregate. This slice adds no archive or durable evidence layer.
+- No provider, worker box, Rhino, or Grasshopper contact occurred.
+- Reviewed Task 1 closure: strict numeric decoding now types nonfinite exponent overflow and oversized integer-token failures instead of allowing or raising them.
+- Reviewed Task 2 closure: the aggregate binds only its owned lineage from retained intent through the code-owned prompt, decoded object, strict draft loader, and validated draft; native handoff lineage remains delegated unchanged.
+- These closures hardened the approved boundary without architectural expansion.
