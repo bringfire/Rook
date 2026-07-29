@@ -92,15 +92,19 @@ def _mapped_step_target(step: Any) -> str | None:
     return None
 
 
-async def run_current_mapped_step(
+def project_current_step_record(
     envelope: CurrentStepEnvelope,
-    graph: "PlanGraph",
-    runner: SupportsLiveProducerNode | None = None,
-) -> CurrentStepResult:
-    """Run one already-mapped current step through LM4Q and record observations."""
-    metadata, metadata_status, metadata_error = _copy_metadata(envelope.metadata)
+    execution: StepExecutionResult,
+) -> CurrentStepRecord:
+    """Flatten one supplied mapping and its exact execution into the native record."""
+    if type(envelope) is not CurrentStepEnvelope:
+        raise TypeError("envelope must be the exact CurrentStepEnvelope type")
+    if type(execution) is not StepExecutionResult:
+        raise TypeError("execution must be the exact StepExecutionResult type")
+    if execution.mapping is not envelope.mapping:
+        raise ValueError("execution mapping must be the supplied envelope mapping")
 
-    execution = await execute_mapped_step(envelope.mapping, graph, runner)
+    metadata, metadata_status, metadata_error = _copy_metadata(envelope.metadata)
     mapping = envelope.mapping
     revalidation = mapping.revalidation
     proposal = revalidation.proposal
@@ -108,8 +112,7 @@ async def run_current_mapped_step(
     producer = execution.producer_result
     verifier = execution.verifier_result
     bind = execution.bind_result
-
-    record = CurrentStepRecord(
+    return CurrentStepRecord(
         metadata=metadata,
         metadata_status=metadata_status,
         metadata_error=metadata_error,
@@ -147,4 +150,14 @@ async def run_current_mapped_step(
         bind_applied=bind.applied if bind is not None else None,
         bind_reason=bind.reason if bind is not None else None,
     )
+
+
+async def run_current_mapped_step(
+    envelope: CurrentStepEnvelope,
+    graph: "PlanGraph",
+    runner: SupportsLiveProducerNode | None = None,
+) -> CurrentStepResult:
+    """Run one already-mapped current step through LM4Q and record observations."""
+    execution = await execute_mapped_step(envelope.mapping, graph, runner)
+    record = project_current_step_record(envelope, execution)
     return CurrentStepResult(graph=execution.graph, record=record)
