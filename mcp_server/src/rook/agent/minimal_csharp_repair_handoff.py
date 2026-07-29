@@ -39,6 +39,7 @@ from rook.agent.local_worker_turn_request import (
 from rook.agent.local_worker_turn_response import WorkerActionRequest
 from rook.agent.plan_graph_current_step_runner import CurrentStepRecord
 from rook.agent.plan_graph_current_step_stream import (
+    CurrentStepStreamResult,
     EnvelopeSupplyRecord,
     run_current_step_stream,
 )
@@ -151,6 +152,9 @@ class MinimalCSharpRepairHandoffResult:
     terminal_stage: TerminalStage
     terminal_reason: str
 
+    def __post_init__(self) -> None:
+        _validate_handoff_result(self)
+
 
 def load_minimal_csharp_repair_draft(
     payload: Mapping[str, Any],
@@ -225,7 +229,19 @@ async def run_minimal_csharp_repair_handoff(
         max_steps=2,
         runner=runner,
     )
-    _require_phase_one_frontier(phase_one)
+    if not _phase_one_reached_frontier(phase_one):
+        stage: TerminalStage = (
+            "verify_create"
+            if _last_accepted_node_id(phase_one.records) == _VERIFY_CREATE_NODE_ID
+            else "create"
+        )
+        return _handoff_result(
+            draft=draft,
+            scaffold=scaffold,
+            phase_one=phase_one,
+            terminal_stage=stage,
+            terminal_reason=_stream_terminal_reason(phase_one),
+        )
 
     convention_packet = _script_body_gotcha_packet()
     sources = extract_acceptance_criteria_sources(
@@ -265,8 +281,22 @@ async def run_minimal_csharp_repair_handoff(
     )
     request = render_local_worker_turn_request_payload(context)
     adapter_record = run_local_worker_adapter(request, worker_transport)
-    if adapter_record.status != "response_loaded" or adapter_record.response is None:
-        raise RuntimeError("Task 1 vertical requires a loaded worker response")
+    if adapter_record.status != "response_loaded":
+        return _handoff_result(
+            draft=draft,
+            scaffold=scaffold,
+            phase_one=phase_one,
+            terminal_stage="worker_adapter",
+            terminal_reason=_required_reason(
+                adapter_record.failure_reason,
+                "adapter failure",
+            ),
+            worker_request=request,
+            worker_context=context,
+            adapter_record=adapter_record,
+        )
+    if adapter_record.response is None:
+        raise RuntimeError("loaded adapter record lacks a response")
 
     loaded_response = adapter_record.response
 
@@ -277,12 +307,20 @@ async def run_minimal_csharp_repair_handoff(
 
     worker_record = run_local_worker_turn(context, one_shot_worker)
     disposition = worker_record.disposition
-    if (
-        worker_record.status != "completed"
-        or disposition is None
-        or disposition.disposition != "candidate_action_request"
-    ):
-        raise RuntimeError("Task 1 vertical requires a candidate worker action")
+    if worker_record.status != "completed" or disposition is None:
+        raise RuntimeError("one-shot worker harness did not complete")
+    if disposition.disposition != "candidate_action_request":
+        return _handoff_result(
+            draft=draft,
+            scaffold=scaffold,
+            phase_one=phase_one,
+            terminal_stage="worker_disposition",
+            terminal_reason=disposition.reason,
+            worker_request=request,
+            worker_context=context,
+            adapter_record=adapter_record,
+            worker_record=worker_record,
+        )
     payload = loaded_response.payload
     if type(payload) is not WorkerActionRequest:
         raise RuntimeError("candidate disposition lacks exact action payload")
@@ -296,8 +334,20 @@ async def run_minimal_csharp_repair_handoff(
         anchor_binding=anchor_binding,
     )
     if not action_apply_result.applied:
-        raise RuntimeError(
-            f"Task 1 vertical action application failed: {action_apply_result.reason}"
+        return _handoff_result(
+            draft=draft,
+            scaffold=scaffold,
+            phase_one=phase_one,
+            terminal_stage="action_apply",
+            terminal_reason=_required_reason(
+                action_apply_result.reason,
+                "rejected action application",
+            ),
+            worker_request=request,
+            worker_context=context,
+            adapter_record=adapter_record,
+            worker_record=worker_record,
+            action_apply_result=action_apply_result,
         )
 
     phase_two = await run_current_step_stream(
@@ -306,22 +356,28 @@ async def run_minimal_csharp_repair_handoff(
         max_steps=scaffold.max_steps,
         runner=runner,
     )
-    _require_phase_two_terminal(phase_two)
-    step_records = phase_one.records + phase_two.records
-    supply_records = phase_one.supply_records + phase_two.supply_records
-    return MinimalCSharpRepairHandoffResult(
+    terminal = _phase_two_reached_terminal(phase_two)
+    stage = (
+        "terminal"
+        if terminal
+        else (
+            "verify_repair"
+            if _last_accepted_node_id(phase_two.records) == _VERIFY_REPAIR_NODE_ID
+            else "repair"
+        )
+    )
+    return _handoff_result(
         draft=draft,
         scaffold=scaffold,
-        final_graph=phase_two.final_graph,
-        supply_records=supply_records,
-        step_records=step_records,
+        phase_one=phase_one,
+        phase_two=phase_two,
         worker_request=request,
         worker_context=context,
         adapter_record=adapter_record,
         worker_record=worker_record,
         action_apply_result=action_apply_result,
-        terminal_stage="terminal",
-        terminal_reason=phase_two.supply_records[-1].reason,
+        terminal_stage=stage,
+        terminal_reason=_stream_terminal_reason(phase_two),
     )
 
 
@@ -462,30 +518,300 @@ def _current_diagnostic_packet(
     )
 
 
-def _require_phase_one_frontier(result: Any) -> None:
+def _handoff_result(
+    *,
+    draft: ValidatedPlannerDraft,
+    scaffold: CompiledWorkflowScaffold,
+    phase_one: CurrentStepStreamResult,
+    terminal_stage: TerminalStage,
+    terminal_reason: str,
+    phase_two: CurrentStepStreamResult | None = None,
+    worker_request: Mapping[str, Any] | None = None,
+    worker_context: LocalWorkerTurnContext | None = None,
+    adapter_record: LocalWorkerAdapterRecord | None = None,
+    worker_record: LocalWorkerTurnHarnessRecord | None = None,
+    action_apply_result: WorkerActionApplyResult | None = None,
+) -> MinimalCSharpRepairHandoffResult:
+    if phase_two is None:
+        final_graph = phase_one.final_graph
+        step_records = phase_one.records
+        supply_records = phase_one.supply_records
+    else:
+        final_graph = phase_two.final_graph
+        step_records = phase_one.records + phase_two.records
+        supply_records = phase_one.supply_records + phase_two.supply_records
+    return MinimalCSharpRepairHandoffResult(
+        draft=draft,
+        scaffold=scaffold,
+        final_graph=final_graph,
+        supply_records=supply_records,
+        step_records=step_records,
+        worker_request=worker_request,
+        worker_context=worker_context,
+        adapter_record=adapter_record,
+        worker_record=worker_record,
+        action_apply_result=action_apply_result,
+        terminal_stage=terminal_stage,
+        terminal_reason=terminal_reason,
+    )
+
+
+def _phase_one_reached_frontier(result: CurrentStepStreamResult) -> bool:
+    accepted = tuple(record.accepted_node_id for record in result.records)
+    _require_record_prefix(
+        accepted,
+        (_CREATE_NODE_ID, _VERIFY_CREATE_NODE_ID),
+        "create phase",
+    )
+    if accepted != (_CREATE_NODE_ID, _VERIFY_CREATE_NODE_ID):
+        return False
     if result.stop_reason != "max_steps_reached":
-        raise RuntimeError(f"create phase stopped unexpectedly: {result.stop_reason}")
-    if tuple(record.accepted_node_id for record in result.records) != (
-        _CREATE_NODE_ID,
-        _VERIFY_CREATE_NODE_ID,
-    ):
-        raise RuntimeError("create phase records differ from the repair frontier")
+        return False
     repair = result.final_graph.nodes[_REPAIR_NODE_ID]
-    if repair.status != "ready" or EXECUTION_PARAMS_KEY in repair.metadata:
-        raise RuntimeError("create phase did not reach an unstaged repair frontier")
+    return repair.status == "ready" and EXECUTION_PARAMS_KEY not in repair.metadata
 
 
-def _require_phase_two_terminal(result: Any) -> None:
-    if result.stop_reason != "provider_halt":
-        raise RuntimeError(f"repair phase stopped unexpectedly: {result.stop_reason}")
-    if tuple(record.accepted_node_id for record in result.records) != (
-        _REPAIR_NODE_ID,
-        _VERIFY_REPAIR_NODE_ID,
+def _phase_two_reached_terminal(result: CurrentStepStreamResult) -> bool:
+    accepted = tuple(record.accepted_node_id for record in result.records)
+    _require_record_prefix(
+        accepted,
+        (_REPAIR_NODE_ID, _VERIFY_REPAIR_NODE_ID),
+        "repair phase",
+    )
+    terminal_selected = (
+        result.stop_reason == "provider_halt"
+        and bool(result.supply_records)
+        and result.supply_records[-1].decision == "HALT"
+        and result.supply_records[-1].reason == "terminal_node_selected:done"
+    )
+    if not terminal_selected:
+        return False
+    if accepted != (_REPAIR_NODE_ID, _VERIFY_REPAIR_NODE_ID):
+        raise RuntimeError("terminal selection lacks the complete repair record path")
+    verifier = result.records[-1]
+    if verifier.verifier_outcome_status != "succeeded":
+        raise RuntimeError("terminal selection lacks successful reverify evidence")
+    if result.final_graph.nodes[_TERMINAL_NODE_ID].status != "ready":
+        raise RuntimeError("terminal selection lacks the native ready terminal node")
+    return True
+
+
+def _require_record_prefix(
+    observed: tuple[str | None, ...],
+    expected: tuple[str, ...],
+    context: str,
+) -> None:
+    if observed != expected[: len(observed)]:
+        raise RuntimeError(f"{context} record sequence is not an allowed prefix")
+
+
+def _last_accepted_node_id(
+    records: tuple[CurrentStepRecord, ...],
+) -> str | None:
+    return records[-1].accepted_node_id if records else None
+
+
+def _stream_terminal_reason(result: CurrentStepStreamResult) -> str:
+    if result.stop_reason in {"provider_halt", "provider_invalid"}:
+        if not result.supply_records:
+            raise RuntimeError("stream stop lacks a supply record")
+        return _supply_record_reason(result.supply_records[-1])
+    if result.stop_reason == "provider_error":
+        raise RuntimeError("provider error lacks a projected native reason")
+    if not result.records:
+        raise RuntimeError("stream stop lacks a current-step record")
+    return _current_step_reason(result.records[-1])
+
+
+def _current_step_reason(record: CurrentStepRecord) -> str:
+    if record.execution_kind == "producer" and record.producer_reason is not None:
+        return _required_reason(record.producer_reason, "producer stop")
+    if record.execution_kind == "verifier" and record.verifier_reason is not None:
+        return _required_reason(record.verifier_reason, "verifier stop")
+    if record.execution_kind == "bind" and record.bind_reason is not None:
+        return _required_reason(record.bind_reason, "bind stop")
+    for value in (record.execution_failure, record.mapping_failure):
+        if value is not None:
+            return _required_reason(value, "current-step stop")
+    return _required_reason(record.execution.reason, "current-step execution")
+
+
+def _supply_record_reason(record: EnvelopeSupplyRecord) -> str:
+    if record.reason is not None:
+        return _required_reason(record.reason, "supply stop")
+    if record.invalid_reason is not None:
+        return _required_reason(record.invalid_reason, "invalid supply stop")
+    raise RuntimeError("supply stop lacks reason or invalid_reason")
+
+
+def _required_reason(value: object, context: str) -> str:
+    if type(value) is not str or not value:
+        raise RuntimeError(f"{context} lacks an exact native reason")
+    return value
+
+
+def _validate_handoff_result(result: MinimalCSharpRepairHandoffResult) -> None:
+    _require_validated_draft(result.draft)
+    if not isinstance(result.scaffold, CompiledWorkflowScaffold):
+        raise TypeError("result scaffold must be CompiledWorkflowScaffold")
+    if not isinstance(result.final_graph, PlanGraph):
+        raise TypeError("result final_graph must be PlanGraph")
+    if type(result.step_records) is not tuple or not all(
+        type(record) is CurrentStepRecord for record in result.step_records
     ):
-        raise RuntimeError("repair phase records differ from the clean terminal path")
-    terminal = result.supply_records[-1]
-    if terminal.decision != "HALT" or terminal.reason != "terminal_node_selected:done":
-        raise RuntimeError("repair phase did not halt on terminal done")
+        raise TypeError("result step_records must be exact native records")
+    if type(result.supply_records) is not tuple or not all(
+        type(record) is EnvelopeSupplyRecord for record in result.supply_records
+    ):
+        raise TypeError("result supply_records must be exact native records")
+    stage = _require_exact_string(result.terminal_stage, "terminal_stage")
+    if stage not in {
+        "create",
+        "verify_create",
+        "worker_adapter",
+        "worker_disposition",
+        "action_apply",
+        "repair",
+        "verify_repair",
+        "terminal",
+    }:
+        raise ValueError(f"unknown terminal_stage: {stage!r}")
+    reason = _require_exact_string(result.terminal_reason, "terminal_reason")
+    if not reason:
+        raise ValueError("terminal_reason must not be empty")
+
+    if stage in {"create", "verify_create"}:
+        _require_no_worker_material(result)
+        _require_stage_record_owner(result, stage)
+        _require_result_reason(result, _ledger_terminal_reason(result))
+        return
+
+    _require_worker_request_context(result)
+    adapter = _require_adapter_record(result.adapter_record)
+    if stage == "worker_adapter":
+        if adapter.status == "response_loaded":
+            raise ValueError("worker_adapter stage requires an adapter failure")
+        if result.worker_record is not None or result.action_apply_result is not None:
+            raise ValueError("worker_adapter stage cannot carry later records")
+        _require_result_reason(
+            result,
+            _required_reason(adapter.failure_reason, "adapter failure"),
+        )
+        _require_stage_record_owner(result, stage)
+        return
+
+    if adapter.status != "response_loaded" or adapter.response is None:
+        raise ValueError("later worker stages require a loaded adapter response")
+    worker = _require_worker_record(result.worker_record)
+    if worker.status != "completed" or worker.disposition is None:
+        raise ValueError("later worker stages require a completed disposition")
+    if worker.response is not adapter.response:
+        raise ValueError("worker response must be the exact adapter-loaded object")
+    candidate = worker.disposition.disposition == "candidate_action_request"
+
+    if stage == "worker_disposition":
+        if candidate:
+            raise ValueError("worker_disposition stage requires a non-candidate result")
+        if result.action_apply_result is not None:
+            raise ValueError("worker_disposition stage cannot carry action application")
+        _require_result_reason(result, worker.disposition.reason)
+        _require_stage_record_owner(result, stage)
+        return
+
+    if not candidate:
+        raise ValueError("action and execution stages require a candidate disposition")
+    action = _require_action_result(result.action_apply_result)
+    if stage == "action_apply":
+        if action.applied:
+            raise ValueError("action_apply stage requires an unapplied action")
+        _require_result_reason(
+            result,
+            _required_reason(action.reason, "rejected action application"),
+        )
+        _require_stage_record_owner(result, stage)
+        return
+
+    if not action.applied:
+        raise ValueError("execution stages require an applied worker action")
+    _require_stage_record_owner(result, stage)
+    _require_result_reason(result, _ledger_terminal_reason(result))
+
+
+def _require_no_worker_material(result: MinimalCSharpRepairHandoffResult) -> None:
+    if any(
+        value is not None
+        for value in (
+            result.worker_request,
+            result.worker_context,
+            result.adapter_record,
+            result.worker_record,
+            result.action_apply_result,
+        )
+    ):
+        raise ValueError("early execution stages cannot carry worker records")
+
+
+def _require_worker_request_context(
+    result: MinimalCSharpRepairHandoffResult,
+) -> None:
+    if not isinstance(result.worker_request, Mapping):
+        raise ValueError("worker stage requires worker_request")
+    if not isinstance(result.worker_context, LocalWorkerTurnContext):
+        raise ValueError("worker stage requires worker_context")
+
+
+def _require_adapter_record(value: object) -> LocalWorkerAdapterRecord:
+    if type(value) is not LocalWorkerAdapterRecord:
+        raise ValueError("worker stage requires an exact adapter record")
+    return value
+
+
+def _require_worker_record(value: object) -> LocalWorkerTurnHarnessRecord:
+    if type(value) is not LocalWorkerTurnHarnessRecord:
+        raise ValueError("worker stage requires an exact harness record")
+    return value
+
+
+def _require_action_result(value: object) -> WorkerActionApplyResult:
+    if type(value) is not WorkerActionApplyResult:
+        raise ValueError("action stage requires an exact action-apply result")
+    return value
+
+
+def _require_stage_record_owner(
+    result: MinimalCSharpRepairHandoffResult,
+    stage: str,
+) -> None:
+    expected_last_by_stage = {
+        "create": _CREATE_NODE_ID,
+        "verify_create": _VERIFY_CREATE_NODE_ID,
+        "worker_adapter": _VERIFY_CREATE_NODE_ID,
+        "worker_disposition": _VERIFY_CREATE_NODE_ID,
+        "action_apply": _VERIFY_CREATE_NODE_ID,
+        "repair": _REPAIR_NODE_ID,
+        "verify_repair": _VERIFY_REPAIR_NODE_ID,
+        "terminal": _VERIFY_REPAIR_NODE_ID,
+    }
+    if _last_accepted_node_id(result.step_records) != expected_last_by_stage[stage]:
+        raise ValueError("terminal stage does not match the native record prefix")
+
+
+def _ledger_terminal_reason(result: MinimalCSharpRepairHandoffResult) -> str:
+    if result.supply_records:
+        supply = result.supply_records[-1]
+        if supply.decision == "HALT" or supply.invalid_reason is not None:
+            return _supply_record_reason(supply)
+    if not result.step_records:
+        raise RuntimeError("execution result lacks a native reason owner")
+    return _current_step_reason(result.step_records[-1])
+
+
+def _require_result_reason(
+    result: MinimalCSharpRepairHandoffResult,
+    expected: str,
+) -> None:
+    if result.terminal_reason != expected:
+        raise ValueError("terminal_reason differs from its native owner")
 
 
 def _project_compiled_interface(

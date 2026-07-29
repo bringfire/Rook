@@ -3,12 +3,14 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
 import rook.agent.local_worker_turn_harness as worker_harness
 import rook.agent.minimal_csharp_repair_handoff as handoff
+from rook.agent.local_worker_adapter import TransportError
 from rook.agent.minimal_csharp_repair_handoff import (
     MinimalCSharpRepairHandoffResult,
     ValidatedPlannerDraft,
@@ -22,6 +24,7 @@ from rook.agent.plan_graph_workflow_contract import (
     compile_workflow_contract,
     snapshot_workflow_contract,
 )
+from rook.learning.plan_graph import graph_status
 
 
 _COMPONENT_GUID = "minimal-handoff-component-guid"
@@ -190,6 +193,25 @@ class _ScriptedWorkerTransport:
         return self.raw_output
 
 
+class _RawWorkerTransport:
+    def __init__(self, raw_output: str) -> None:
+        self.raw_output = raw_output
+        self.calls: list[dict[str, Any]] = []
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        self.calls.append(copy.deepcopy(dict(prompt_artifact)))
+        return self.raw_output
+
+
+class _DeclaredFailureTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        self.calls.append(copy.deepcopy(dict(prompt_artifact)))
+        raise TransportError("declared test transport stop")
+
+
 class _RecordingToolExecutor:
     def __init__(self, diagnostic: str = _TARGET_DIAGNOSTIC) -> None:
         self.diagnostic = diagnostic
@@ -212,6 +234,58 @@ class _RecordingToolExecutor:
             }
             return _usable_clean_raw()
         raise AssertionError(f"unexpected tool: {tool_name}")
+
+
+class _ScenarioToolExecutor:
+    def __init__(
+        self,
+        *,
+        create: str = "needs_repair",
+        repair: str = "clean",
+    ) -> None:
+        self.create = create
+        self.repair = repair
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def __call__(self, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
+        captured = copy.deepcopy(params)
+        self.calls.append((tool_name, captured))
+        if tool_name == "gh_create_csharp_script":
+            return self._create(captured)
+        if tool_name == "gh_update_script":
+            return self._repair(captured)
+        raise AssertionError(f"unexpected tool: {tool_name}")
+
+    def _create(self, params: dict[str, Any]) -> dict[str, Any]:
+        assert params["code"] == _INITIAL_BODY
+        if self.create == "raises":
+            raise RuntimeError("create dispatch failed")
+        if self.create == "malformed":
+            return {}
+        if self.create == "refused":
+            return {"success": False, "error": "declared refusal"}
+        if self.create == "clean":
+            return _created_clean_raw()
+        if self.create == "needs_repair":
+            return _created_with_errors_raw(params["code"], _TARGET_DIAGNOSTIC)
+        raise AssertionError(f"unknown create behavior: {self.create}")
+
+    def _repair(self, params: dict[str, Any]) -> dict[str, Any]:
+        assert params == {
+            "guid": _COMPONENT_GUID,
+            "code": _WORKER_BODY,
+            "mode": "body",
+            "language": "csharp",
+        }
+        if self.repair == "raises":
+            raise RuntimeError("repair dispatch failed")
+        if self.repair == "malformed":
+            return {}
+        if self.repair == "still_broken":
+            return _repair_with_errors_raw()
+        if self.repair == "clean":
+            return _usable_clean_raw()
+        raise AssertionError(f"unknown repair behavior: {self.repair}")
 
 
 def _created_with_errors_raw(
@@ -246,6 +320,33 @@ def _created_with_errors_raw(
     }
 
 
+def _created_clean_raw() -> dict[str, Any]:
+    return {
+        "success": True,
+        "data": {
+            "script_receipt": {
+                "version": 1,
+                "operation": "create",
+                "language": "csharp",
+                "artifact_status": "usable",
+                "mutation": {
+                    "status": "created",
+                    "component_guid": _COMPONENT_GUID,
+                },
+                "verification": {
+                    "status": "passed",
+                    "target_error_count": 0,
+                },
+                "repair_anchor": {
+                    "component_guid": _COMPONENT_GUID,
+                    "language": "csharp",
+                    "target_errors": [],
+                },
+            }
+        },
+    }
+
+
 def _usable_clean_raw() -> dict[str, Any]:
     return {
         "script_receipt": {
@@ -265,6 +366,30 @@ def _usable_clean_raw() -> dict[str, Any]:
                 "component_guid": _COMPONENT_GUID,
                 "language": "csharp",
                 "target_errors": [],
+            },
+        }
+    }
+
+
+def _repair_with_errors_raw() -> dict[str, Any]:
+    return {
+        "script_receipt": {
+            "version": 1,
+            "operation": "update",
+            "language": "csharp",
+            "artifact_status": "created_with_errors",
+            "mutation": {
+                "status": "written",
+                "component_guid": _COMPONENT_GUID,
+            },
+            "verification": {
+                "status": "failed",
+                "target_error_count": 1,
+            },
+            "repair_anchor": {
+                "component_guid": _COMPONENT_GUID,
+                "language": "csharp",
+                "target_errors": ["CS9999: repair remains invalid"],
             },
         }
     }
@@ -316,6 +441,87 @@ def _invalid_action_response_payload(case: str) -> dict[str, Any]:
     else:
         raise AssertionError(f"unknown invalid worker response case: {case}")
     return payload
+
+
+async def _run_operational_case(
+    case: str,
+) -> tuple[
+    MinimalCSharpRepairHandoffResult,
+    object,
+    _ScenarioToolExecutor,
+]:
+    tool_executor = _ScenarioToolExecutor()
+    transport: object = _ScriptedWorkerTransport(_action_response_payload())
+
+    if case.startswith("create_"):
+        tool_executor = _ScenarioToolExecutor(
+            create=case.removeprefix("create_")
+        )
+    elif case == "verify_create_clean":
+        tool_executor = _ScenarioToolExecutor(create="clean")
+    elif case == "transport_declared":
+        transport = _DeclaredFailureTransport()
+    elif case == "adapter_invalid_json":
+        transport = _RawWorkerTransport("{")
+    elif case == "adapter_invalid_payload":
+        transport = _ScriptedWorkerTransport(
+            _invalid_action_response_payload("missing_schema")
+        )
+    elif case == "clarification":
+        transport = _ScriptedWorkerTransport(
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "clarification_request",
+                "question": "Which replacement body should I author?",
+                "rationale": None,
+            }
+        )
+    elif case == "refusal":
+        transport = _ScriptedWorkerTransport(
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "refusal",
+                "category": "insufficient_context",
+                "reason": "A repair cannot be determined.",
+            }
+        )
+    elif case == "observation":
+        transport = _ScriptedWorkerTransport(
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "observation",
+                "message": "The current component needs repair.",
+                "data": None,
+            }
+        )
+    elif case == "unknown_action":
+        transport = _ScriptedWorkerTransport(
+            _invalid_action_response_payload("wrong_action")
+        )
+    elif case in {"action_extra", "action_blank", "action_wrong_mode"}:
+        payload = _action_response_payload()
+        if case == "action_extra":
+            payload["input"]["unexpected"] = True
+        elif case == "action_blank":
+            payload["input"]["code"] = "   "
+        else:
+            payload["input"]["mode"] = "full"
+        transport = _ScriptedWorkerTransport(payload)
+    elif case == "repair_raises":
+        tool_executor = _ScenarioToolExecutor(repair="raises")
+    elif case == "repair_malformed":
+        tool_executor = _ScenarioToolExecutor(repair="malformed")
+    elif case == "verify_repair_stops":
+        tool_executor = _ScenarioToolExecutor(repair="still_broken")
+    elif case != "terminal":
+        raise AssertionError(f"unknown operational case: {case}")
+
+    result = await run_minimal_csharp_repair_handoff(
+        _valid_draft(),
+        worker_transport=transport,
+        tool_executor=tool_executor,
+    )
+    return result, transport, tool_executor
 
 
 def _json_key_paths(
@@ -538,38 +744,38 @@ async def test_changed_receipt_diagnostic_reaches_exact_worker_request() -> None
 
 
 @pytest.mark.parametrize(
-    ("case", "failure"),
+    ("case", "terminal_stage"),
     [
-        ("missing_schema", "requires a loaded worker response"),
-        ("missing_kind", "requires a loaded worker response"),
-        ("missing_action_id", "requires a loaded worker response"),
-        ("missing_rationale", "requires a loaded worker response"),
-        ("missing_input", "requires a loaded worker response"),
-        ("extra_field", "requires a loaded worker response"),
-        ("wrong_schema", "requires a loaded worker response"),
-        ("wrong_kind", "requires a loaded worker response"),
-        ("wrong_action", "requires a candidate worker action"),
-        ("malformed_input", "requires a loaded worker response"),
-        ("wrong_mode", "action application failed: invalid_mode"),
+        ("missing_schema", "worker_adapter"),
+        ("missing_kind", "worker_adapter"),
+        ("missing_action_id", "worker_adapter"),
+        ("missing_rationale", "worker_adapter"),
+        ("missing_input", "worker_adapter"),
+        ("extra_field", "worker_adapter"),
+        ("wrong_schema", "worker_adapter"),
+        ("wrong_kind", "worker_adapter"),
+        ("wrong_action", "worker_disposition"),
+        ("malformed_input", "worker_adapter"),
+        ("wrong_mode", "action_apply"),
     ],
 )
 @pytest.mark.asyncio
 async def test_invalid_raw_worker_response_never_reaches_repair_tool(
     case: str,
-    failure: str,
+    terminal_stage: str,
 ) -> None:
     transport = _ScriptedWorkerTransport(
         _invalid_action_response_payload(case)
     )
     tool_executor = _RecordingToolExecutor()
 
-    with pytest.raises(RuntimeError, match=failure):
-        await run_minimal_csharp_repair_handoff(
-            _valid_draft(),
-            worker_transport=transport,
-            tool_executor=tool_executor,
-        )
+    result = await run_minimal_csharp_repair_handoff(
+        _valid_draft(),
+        worker_transport=transport,
+        tool_executor=tool_executor,
+    )
 
+    assert result.terminal_stage == terminal_stage
     assert len(transport.calls) == 1
     assert [name for name, _params in tool_executor.calls] == [
         "gh_create_csharp_script"
@@ -664,6 +870,246 @@ async def test_worker_rationale_does_not_enter_action_parameters(
         "mode": "body",
         "language": "csharp",
     }
+
+
+@pytest.mark.parametrize(
+    (
+        "case",
+        "terminal_stage",
+        "terminal_reason",
+        "tool_names",
+        "worker_calls",
+    ),
+    [
+        ("create_raises", "create", "dispatch_failed", ["gh_create_csharp_script"], 0),
+        (
+            "create_refused",
+            "create",
+            "selector_halt:none_ready",
+            ["gh_create_csharp_script"],
+            0,
+        ),
+        (
+            "create_malformed",
+            "create",
+            "selector_halt:none_ready",
+            ["gh_create_csharp_script"],
+            0,
+        ),
+        (
+            "verify_create_clean",
+            "verify_create",
+            "executed verifier step 'verify_create'",
+            ["gh_create_csharp_script"],
+            0,
+        ),
+        (
+            "transport_declared",
+            "worker_adapter",
+            "transport_error:declared",
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "adapter_invalid_json",
+            "worker_adapter",
+            "raw_output_invalid:json_decode",
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "adapter_invalid_payload",
+            "worker_adapter",
+            (
+                "response_payload_invalid:local_worker_turn_response_payload_"
+                "missing_required_fields____schema"
+            ),
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "clarification",
+            "worker_disposition",
+            "clarification_needed",
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "refusal",
+            "worker_disposition",
+            "refusal_recorded",
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "observation",
+            "worker_disposition",
+            "observation_recorded",
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "unknown_action",
+            "worker_disposition",
+            "blocked:unknown_action_id:other_action",
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "action_extra",
+            "action_apply",
+            "unexpected_action_input_key",
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "action_blank",
+            "action_apply",
+            "invalid_code",
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "action_wrong_mode",
+            "action_apply",
+            "invalid_mode",
+            ["gh_create_csharp_script"],
+            1,
+        ),
+        (
+            "repair_raises",
+            "repair",
+            "dispatch_failed",
+            ["gh_create_csharp_script", "gh_update_script"],
+            1,
+        ),
+        (
+            "repair_malformed",
+            "repair",
+            "selector_halt:none_ready",
+            ["gh_create_csharp_script", "gh_update_script"],
+            1,
+        ),
+        (
+            "verify_repair_stops",
+            "verify_repair",
+            "selector_halt:none_ready",
+            ["gh_create_csharp_script", "gh_update_script"],
+            1,
+        ),
+        (
+            "terminal",
+            "terminal",
+            "terminal_node_selected:done",
+            ["gh_create_csharp_script", "gh_update_script"],
+            1,
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_operational_stop_matrix_preserves_native_terminal_reason(
+    case: str,
+    terminal_stage: str,
+    terminal_reason: str,
+    tool_names: list[str],
+    worker_calls: int,
+) -> None:
+    result, transport, tool_executor = await _run_operational_case(case)
+
+    assert result.terminal_stage == terminal_stage
+    assert result.terminal_reason == terminal_reason
+    assert [name for name, _params in tool_executor.calls] == tool_names
+    assert len(transport.calls) == worker_calls
+
+    if terminal_stage in {"create", "verify_create"}:
+        assert result.worker_request is None
+        assert result.worker_context is None
+        assert result.adapter_record is None
+        assert result.worker_record is None
+        assert result.action_apply_result is None
+    elif terminal_stage == "worker_adapter":
+        assert result.worker_request is not None
+        assert result.worker_context is not None
+        assert result.adapter_record is not None
+        assert result.worker_record is None
+        assert result.action_apply_result is None
+    elif terminal_stage == "worker_disposition":
+        assert result.adapter_record is not None
+        assert result.worker_record is not None
+        assert result.worker_record.disposition is not None
+        assert result.action_apply_result is None
+    elif terminal_stage == "action_apply":
+        assert result.action_apply_result is not None
+        assert result.action_apply_result.applied is False
+    else:
+        assert result.action_apply_result is not None
+        assert result.action_apply_result.applied is True
+
+
+@pytest.mark.asyncio
+async def test_result_rejects_impossible_optional_record_combinations() -> None:
+    create, _transport, _tool = await _run_operational_case("create_raises")
+    adapter, _transport, _tool = await _run_operational_case("transport_declared")
+    disposition, _transport, _tool = await _run_operational_case("clarification")
+    action, _transport, _tool = await _run_operational_case("action_wrong_mode")
+    success, _transport, _tool = await _run_operational_case("terminal")
+
+    with pytest.raises(ValueError):
+        replace(
+            create,
+            worker_request=success.worker_request,
+            worker_context=success.worker_context,
+        )
+    with pytest.raises(ValueError):
+        replace(adapter, worker_record=success.worker_record)
+    with pytest.raises(ValueError):
+        replace(disposition, action_apply_result=success.action_apply_result)
+    with pytest.raises(ValueError):
+        replace(action, action_apply_result=success.action_apply_result)
+    with pytest.raises(ValueError):
+        replace(success, terminal_stage="repair", action_apply_result=None)
+    with pytest.raises(ValueError):
+        replace(success, terminal_reason="synthetic_success")
+    with pytest.raises(ValueError):
+        replace(success, step_records=success.step_records[:-1])
+
+
+@pytest.mark.asyncio
+async def test_contract_compilation_failure_remains_an_internal_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_compilation(contract: object):
+        raise ValueError("synthetic compiler contract failure")
+
+    monkeypatch.setattr(handoff, "compile_workflow_contract", fail_compilation)
+    transport = _RecordingWorkerTransport(_TARGET_DIAGNOSTIC)
+    tool_executor = _RecordingToolExecutor()
+
+    with pytest.raises(ValueError, match="synthetic compiler contract failure"):
+        await run_minimal_csharp_repair_handoff(
+            _valid_draft(),
+            worker_transport=transport,
+            tool_executor=tool_executor,
+        )
+
+    assert transport.calls == []
+    assert tool_executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_terminal_result_preserves_native_ready_not_complete_state() -> None:
+    result, _transport, _tool = await _run_operational_case("terminal")
+
+    assert result.step_records[-1].verifier_node_id == "verify_repair"
+    assert result.step_records[-1].verifier_outcome_status == "succeeded"
+    assert result.supply_records[-1].decision == "HALT"
+    assert result.supply_records[-1].reason == "terminal_node_selected:done"
+    assert result.final_graph.nodes["done"].status == "ready"
+    assert graph_status(result.final_graph) != "complete"
+    assert not hasattr(result, "receipt")
+    assert not hasattr(result, "diagnostic")
+    assert not hasattr(result, "component_guid")
+    assert not hasattr(result, "classification")
 
 
 def test_private_builder_revalidates_mutated_exact_class_draft() -> None:
