@@ -39,6 +39,13 @@ namespace Rook.Bim
         Unavailable
     }
 
+    public enum BimDocumentKeySource
+    {
+        Unavailable,
+        RevitCreationGuidCentralPathV1,
+        RevitCreationGuidDocumentPathV1
+    }
+
     public enum BimIdentityConfidence
     {
         Exact,
