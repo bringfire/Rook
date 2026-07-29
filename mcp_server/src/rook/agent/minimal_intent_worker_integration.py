@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
@@ -231,6 +232,7 @@ def _decode_response(
             raw_response,
             object_pairs_hook=_object_pairs,
             parse_constant=_reject_constant,
+            parse_float=_parse_finite_float,
         )
     except _DuplicateKeyError:
         return _response_failure(snapshot, "response_duplicate_key", raw_response)
@@ -244,6 +246,8 @@ def _decode_response(
         )
         return _response_failure(snapshot, reason, raw_response)
     except RecursionError:
+        return _response_failure(snapshot, "response_invalid_json", raw_response)
+    except ValueError:
         return _response_failure(snapshot, "response_invalid_json", raw_response)
     if type(decoded) is not dict:
         return _response_failure(snapshot, "response_not_object", raw_response)
@@ -268,6 +272,13 @@ def _object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _reject_constant(value: str) -> Any:
     raise _NonFiniteNumberError(value)
+
+
+def _parse_finite_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise _NonFiniteNumberError(value)
+    return parsed
 
 
 def _response_failure(
