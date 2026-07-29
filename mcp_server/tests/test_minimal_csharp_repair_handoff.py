@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import rook.agent.local_worker_turn_harness as worker_harness
 import rook.agent.minimal_csharp_repair_handoff as handoff
 from rook.agent.minimal_csharp_repair_handoff import (
     MinimalCSharpRepairHandoffResult,
@@ -175,6 +176,20 @@ class _RecordingWorkerTransport:
         )
 
 
+class _ScriptedWorkerTransport:
+    def __init__(self, payload: object) -> None:
+        self.raw_output = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self.calls: list[dict[str, Any]] = []
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        self.calls.append(copy.deepcopy(dict(prompt_artifact)))
+        return self.raw_output
+
+
 class _RecordingToolExecutor:
     def __init__(self, diagnostic: str = _TARGET_DIAGNOSTIC) -> None:
         self.diagnostic = diagnostic
@@ -269,6 +284,55 @@ def _iter_strings(value: object):
             yield from _iter_strings(item)
 
 
+def _action_response_payload(
+    *,
+    rationale: str = "Replace the invalid body while preserving A:double.",
+) -> dict[str, Any]:
+    return {
+        "schema": "rook.local_worker_turn_response:v1",
+        "kind": "action_request",
+        "action_id": "draft_repair_params",
+        "rationale": rationale,
+        "input": {"code": _WORKER_BODY, "mode": "body"},
+    }
+
+
+def _invalid_action_response_payload(case: str) -> dict[str, Any]:
+    payload = _action_response_payload()
+    if case.startswith("missing_"):
+        payload.pop(case.removeprefix("missing_"))
+    elif case == "extra_field":
+        payload["unexpected"] = True
+    elif case == "wrong_schema":
+        payload["schema"] = "rook.local_worker_turn_response:v999"
+    elif case == "wrong_kind":
+        payload["kind"] = "unsupported"
+    elif case == "wrong_action":
+        payload["action_id"] = "other_action"
+    elif case == "malformed_input":
+        payload["input"] = []
+    elif case == "wrong_mode":
+        payload["input"]["mode"] = "full"
+    else:
+        raise AssertionError(f"unknown invalid worker response case: {case}")
+    return payload
+
+
+def _json_key_paths(
+    value: object,
+    path: tuple[object, ...] = (),
+):
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            key_path = path + (key,)
+            yield key_path
+            yield from _json_key_paths(item, key_path)
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _json_key_paths(item, path + (index,))
+
+
 @pytest.mark.asyncio
 async def test_raw_draft_walks_real_repair_handoff_to_clean_terminal() -> None:
     transport = _RecordingWorkerTransport(_TARGET_DIAGNOSTIC)
@@ -311,6 +375,151 @@ async def test_raw_draft_walks_real_repair_handoff_to_clean_terminal() -> None:
 
 
 @pytest.mark.asyncio
+async def test_worker_prompt_exactly_serializes_the_visible_request() -> None:
+    transport = _RecordingWorkerTransport(_TARGET_DIAGNOSTIC)
+    draft = _valid_draft()
+
+    result = await run_minimal_csharp_repair_handoff(
+        draft,
+        worker_transport=transport,
+        tool_executor=_RecordingToolExecutor(),
+    )
+
+    assert result.worker_request is not None
+    expected_user = json.dumps(
+        dict(result.worker_request),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    assert transport.calls[0]["messages"][1] == {
+        "role": "user",
+        "content": expected_user,
+    }
+
+    context = result.worker_request["context"]
+    knowledge = {
+        packet["packet_id"]: packet
+        for packet in context["knowledge"]
+    }
+    assert knowledge["planner_goal_and_interface"]["content"] == {
+        "goal": draft.goal,
+        "interface": {
+            "inputs": [],
+            "outputs": [{"name": "A", "type": "double"}],
+        },
+    }
+    assert knowledge["script_body_gotcha"]["content"] == {
+        "body_mode": "body"
+    }
+    acceptance = knowledge["clean_compile_acceptance"]["content"]
+    assert acceptance["schema"] == "rook.acceptance_criteria_packet:v1"
+    assert acceptance["fingerprint"].startswith("sha256:")
+    assert len(acceptance["fingerprint"]) == 71
+    assert knowledge["current_receipt_diagnostic"]["content"] == {
+        "source_class": "receipt_diagnostic",
+        "source_path": (
+            "create_script.receipt.script_receipt.repair_anchor.target_errors"
+        ),
+        "target_errors": [_TARGET_DIAGNOSTIC],
+    }
+    assert context["allowed_actions"] == [
+        {
+            "action_id": "draft_repair_params",
+            "kind": "draft_repair_params",
+            "description": "Draft a complete replacement C# body.",
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "code": {"type": "string"},
+                    "mode": {"const": "body"},
+                },
+                "required": ["code", "mode"],
+            },
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_worker_request_excludes_code_guid_and_topology_authority() -> None:
+    transport = _RecordingWorkerTransport(_TARGET_DIAGNOSTIC)
+    result = await run_minimal_csharp_repair_handoff(
+        _valid_draft(),
+        worker_transport=transport,
+        tool_executor=_RecordingToolExecutor(),
+    )
+
+    assert result.worker_request is not None
+    assert len(transport.calls) == 1
+    strings = tuple(_iter_strings(transport.calls[0]))
+    for value in strings:
+        assert _INITIAL_BODY not in value
+        assert _WORKER_BODY not in value
+        assert _COMPONENT_GUID not in value
+
+    key_paths = tuple(_json_key_paths(result.worker_request))
+    keys = {path[-1] for path in key_paths}
+    assert "edges" not in keys
+    assert "rules" not in keys
+    assert EXECUTION_PARAMS_KEY not in keys
+    assert not keys.intersection(
+        {
+            "expected_code",
+            "repair_code",
+            "suggested_code",
+            "suggestion",
+            "patch",
+        }
+    )
+    assert [path for path in key_paths if path[-1] == "code"] == [
+        (
+            "context",
+            "allowed_actions",
+            0,
+            "input_schema",
+            "properties",
+            "code",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_convention_packet_drift_stops_before_worker_contact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = handoff._script_body_gotcha_packet()
+    mutated = handoff.WorkerKnowledgePacket(
+        packet_id=original.packet_id,
+        kind=original.kind,
+        title=original.title,
+        content={"body_mode": "full"},
+    )
+    monkeypatch.setattr(
+        handoff,
+        "_script_body_gotcha_packet",
+        lambda: mutated,
+    )
+    transport = _RecordingWorkerTransport(_TARGET_DIAGNOSTIC)
+    tool_executor = _RecordingToolExecutor()
+
+    with pytest.raises(
+        RuntimeError,
+        match="worker convention mode differs from acceptance source",
+    ):
+        await run_minimal_csharp_repair_handoff(
+            _valid_draft(),
+            worker_transport=transport,
+            tool_executor=tool_executor,
+        )
+
+    assert transport.calls == []
+    assert [name for name, _params in tool_executor.calls] == [
+        "gh_create_csharp_script"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_changed_receipt_diagnostic_reaches_exact_worker_request() -> None:
     diagnostic = (
         "SENTINEL-RECEIPT: CS0103: The name 'DefinitelyMissingSymbol' "
@@ -326,6 +535,135 @@ async def test_changed_receipt_diagnostic_reaches_exact_worker_request() -> None
 
     assert result.terminal_stage == "terminal"
     assert len(transport.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("case", "failure"),
+    [
+        ("missing_schema", "requires a loaded worker response"),
+        ("missing_kind", "requires a loaded worker response"),
+        ("missing_action_id", "requires a loaded worker response"),
+        ("missing_rationale", "requires a loaded worker response"),
+        ("missing_input", "requires a loaded worker response"),
+        ("extra_field", "requires a loaded worker response"),
+        ("wrong_schema", "requires a loaded worker response"),
+        ("wrong_kind", "requires a loaded worker response"),
+        ("wrong_action", "requires a candidate worker action"),
+        ("malformed_input", "requires a loaded worker response"),
+        ("wrong_mode", "action application failed: invalid_mode"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_raw_worker_response_never_reaches_repair_tool(
+    case: str,
+    failure: str,
+) -> None:
+    transport = _ScriptedWorkerTransport(
+        _invalid_action_response_payload(case)
+    )
+    tool_executor = _RecordingToolExecutor()
+
+    with pytest.raises(RuntimeError, match=failure):
+        await run_minimal_csharp_repair_handoff(
+            _valid_draft(),
+            worker_transport=transport,
+            tool_executor=tool_executor,
+        )
+
+    assert len(transport.calls) == 1
+    assert [name for name, _params in tool_executor.calls] == [
+        "gh_create_csharp_script"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_adapter_loaded_response_is_exact_one_shot_harness_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_harness = handoff.run_local_worker_turn
+    original_disposition = worker_harness.dispose_local_worker_turn_response
+    observed: dict[str, Any] = {
+        "harness_calls": 0,
+        "worker_calls": 0,
+        "disposition_calls": 0,
+        "disposition_responses": [],
+        "responses": [],
+    }
+
+    def audited_harness(context: object, worker: object):
+        observed["harness_calls"] += 1
+
+        def audited_worker(supplied_context: object):
+            observed["worker_calls"] += 1
+            response = worker(supplied_context)
+            observed["responses"].append(response)
+            return response
+
+        return original_harness(context, audited_worker)
+
+    def audited_disposition(context: object, response: object):
+        observed["disposition_calls"] += 1
+        observed["disposition_responses"].append(response)
+        return original_disposition(context, response)
+
+    monkeypatch.setattr(handoff, "run_local_worker_turn", audited_harness)
+    monkeypatch.setattr(
+        worker_harness,
+        "dispose_local_worker_turn_response",
+        audited_disposition,
+    )
+    transport = _ScriptedWorkerTransport(_action_response_payload())
+    result = await run_minimal_csharp_repair_handoff(
+        _valid_draft(),
+        worker_transport=transport,
+        tool_executor=_RecordingToolExecutor(),
+    )
+
+    assert len(transport.calls) == 1
+    assert observed["harness_calls"] == 1
+    assert observed["worker_calls"] == 1
+    assert observed["disposition_calls"] == 1
+    assert result.adapter_record is not None
+    assert result.worker_record is not None
+    assert observed["responses"] == [result.adapter_record.response]
+    assert observed["disposition_responses"] == [result.adapter_record.response]
+    assert result.worker_record.response is result.adapter_record.response
+
+
+@pytest.mark.parametrize(
+    "rationale",
+    [
+        "Replace the invalid body while preserving A:double.",
+        "A different non-authoritative explanation.",
+    ],
+)
+@pytest.mark.asyncio
+async def test_worker_rationale_does_not_enter_action_parameters(
+    rationale: str,
+) -> None:
+    result = await run_minimal_csharp_repair_handoff(
+        _valid_draft(),
+        worker_transport=_ScriptedWorkerTransport(
+            _action_response_payload(rationale=rationale)
+        ),
+        tool_executor=_RecordingToolExecutor(),
+    )
+
+    assert result.adapter_record is not None
+    assert result.adapter_record.response is not None
+    assert result.adapter_record.response.payload.rationale == rationale
+    assert result.action_apply_result is not None
+    assert result.action_apply_result.params_sha256 == (
+        "4b5ff636e245b7eae50899fa7f0a5b5c167c01d6ed6a977174188206e1eef010"
+    )
+    assert result.final_graph.nodes["repair_same_component"].metadata[
+        EXECUTION_PARAMS_KEY
+    ] == {
+        "guid": _COMPONENT_GUID,
+        "code": _WORKER_BODY,
+        "mode": "body",
+        "language": "csharp",
+    }
 
 
 def test_private_builder_revalidates_mutated_exact_class_draft() -> None:
