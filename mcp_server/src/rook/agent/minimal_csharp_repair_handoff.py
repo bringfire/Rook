@@ -34,11 +34,21 @@ from rook.agent.local_worker_turn_harness import (
     LocalWorkerTurnHarnessRecord,
     run_local_worker_turn,
 )
+from rook.agent.local_worker_turn_disposition import (
+    dispose_local_worker_turn_response,
+)
 from rook.agent.local_worker_turn_request import (
     render_local_worker_turn_request_payload,
 )
-from rook.agent.local_worker_turn_response import WorkerActionRequest
-from rook.agent.plan_graph_current_step_runner import CurrentStepRecord
+from rook.agent.local_worker_turn_response import (
+    LocalWorkerTurnResponse,
+    WorkerActionRequest,
+)
+from rook.agent.plan_graph_current_step_runner import (
+    CurrentStepEnvelope,
+    CurrentStepRecord,
+    project_current_step_record,
+)
 from rook.agent.plan_graph_current_step_stream import (
     CurrentStepStreamResult,
     EnvelopeSupplyRecord,
@@ -48,6 +58,9 @@ from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY, LiveProducerResult
 from rook.agent.plan_graph_live_dispatch import (
     run_live_producer_node_with_executor,
 )
+from rook.agent.plan_graph_sequence_runner import ProducerStep, VerifierStep
+from rook.agent.plan_graph_step_executor import StepExecutionResult
+from rook.agent.plan_graph_step_mapping import map_accepted_proposal_to_step
 from rook.agent.plan_graph_worker_action_apply import (
     WorkerActionApplyResult,
     apply_worker_action_to_node,
@@ -63,7 +76,9 @@ from rook.agent.plan_graph_workflow_contract import (
     WorkflowTemplateRef,
     compile_workflow_contract,
 )
-from rook.learning.plan_graph import PlanGraph
+from rook.learning.plan_graph import PlanGraph, apply_outcome
+from rook.learning.plan_graph_projection import project_receipt_outcome
+from rook.learning.plan_graph_runner import apply_verifier_step
 
 
 __all__ = (
@@ -699,6 +714,8 @@ def _validate_handoff_result(result: MinimalCSharpRepairHandoffResult) -> None:
     if not reason:
         raise ValueError("terminal_reason must not be empty")
     _require_native_transaction_lineage(result, stage)
+    if len(result.step_records) <= 2:
+        _require_graph_chain(result, action_graph=None)
 
     if stage in {"create", "verify_create"}:
         _require_no_worker_material(result)
@@ -726,6 +743,12 @@ def _validate_handoff_result(result: MinimalCSharpRepairHandoffResult) -> None:
         raise ValueError("later worker stages require a completed disposition")
     if worker.response is not adapter.response:
         raise ValueError("worker response must be the exact adapter-loaded object")
+    expected_disposition = dispose_local_worker_turn_response(
+        context,
+        adapter.response,
+    )
+    if worker.disposition != expected_disposition:
+        raise ValueError("worker disposition differs from the retained response")
     candidate = worker.disposition.disposition == "candidate_action_request"
 
     if stage == "worker_disposition":
@@ -739,6 +762,7 @@ def _validate_handoff_result(result: MinimalCSharpRepairHandoffResult) -> None:
     if not candidate:
         raise ValueError("action and execution stages require a candidate disposition")
     action = _require_action_result(result.action_apply_result)
+    _require_action_lineage(result, adapter.response, action)
     if stage == "action_apply":
         if action.applied:
             raise ValueError("action_apply stage requires an unapplied action")
@@ -750,6 +774,7 @@ def _validate_handoff_result(result: MinimalCSharpRepairHandoffResult) -> None:
 
     if not action.applied:
         raise ValueError("execution stages require an applied worker action")
+    _require_graph_chain(result, action_graph=action.graph)
     _require_result_reason(result, _ledger_terminal_reason(result))
 
 
@@ -845,6 +870,148 @@ def _require_action_result(value: object) -> WorkerActionApplyResult:
     return value
 
 
+def _require_action_lineage(
+    result: MinimalCSharpRepairHandoffResult,
+    response: LocalWorkerTurnResponse,
+    action: WorkerActionApplyResult,
+) -> None:
+    payload = response.payload
+    if type(payload) is not WorkerActionRequest:
+        raise ValueError("candidate disposition lacks an exact action response")
+    phase_one_graph = result.step_records[1].execution.graph
+    expected = apply_worker_action_to_node(
+        phase_one_graph,
+        _REPAIR_NODE_ID,
+        action_id=payload.action_id,
+        action_input=payload.input,
+        anchor_binding=_project_anchor_binding(phase_one_graph),
+    )
+    if (
+        type(action.graph) is not PlanGraph
+        or type(action.applied) is not bool
+        or type(action.node_id) is not str
+        or (action.reason is not None and type(action.reason) is not str)
+        or (
+            action.params_sha256 is not None
+            and type(action.params_sha256) is not str
+        )
+        or action.applied is not expected.applied
+        or action.node_id != expected.node_id
+        or action.reason != expected.reason
+        or action.params_sha256 != expected.params_sha256
+        or action.graph != expected.graph
+    ):
+        raise ValueError("action result differs from the retained worker response")
+
+
+def _require_graph_chain(
+    result: MinimalCSharpRepairHandoffResult,
+    *,
+    action_graph: PlanGraph | None,
+) -> None:
+    prior_graph = result.scaffold.graph
+    for index, record in enumerate(result.step_records):
+        if index == 2:
+            if action_graph is None:
+                raise ValueError("repair record lacks its action-applied graph")
+            prior_graph = action_graph
+        _require_record_transition(record, prior_graph)
+        prior_graph = record.execution.graph
+
+
+def _require_record_transition(
+    record: CurrentStepRecord,
+    prior_graph: PlanGraph,
+) -> None:
+    mapping = record.mapping
+    step = mapping.step
+    accepted = record.accepted_node_id
+    if accepted is None or step is None:
+        raise ValueError("native record lacks an accepted mapped step")
+    expected_mapping = map_accepted_proposal_to_step(
+        mapping.revalidation.proposal,
+        prior_graph,
+        {accepted: step},
+        mapping.revalidation.expected_selector_ids,
+    )
+    if mapping != expected_mapping:
+        raise ValueError("native record mapping differs from its preceding graph")
+    execution = record.execution
+    if execution.mapping is not mapping:
+        raise ValueError("native record execution carries another mapping")
+    if type(step) is ProducerStep:
+        _require_producer_transition(prior_graph, step, execution)
+        return
+    if type(step) is VerifierStep:
+        expected = apply_verifier_step(
+            prior_graph,
+            step.verifier_node_id,
+            step.source_node_id,
+        )
+        if (
+            execution.ran is not True
+            or execution.kind != "verifier"
+            or execution.failure is not None
+            or execution.reason
+            != f"executed verifier step {step.verifier_node_id!r}"
+            or execution.producer_result is not None
+            or execution.bind_result is not None
+            or execution.verifier_result != expected
+            or execution.graph is not execution.verifier_result.graph
+        ):
+            raise ValueError("verifier graph transition differs from its native inputs")
+        return
+    raise ValueError("repair handoff record carries an unsupported step kind")
+
+
+def _require_producer_transition(
+    prior_graph: PlanGraph,
+    step: ProducerStep,
+    execution: StepExecutionResult,
+) -> None:
+    producer = getattr(execution, "producer_result", None)
+    if type(producer) is not LiveProducerResult:
+        raise ValueError("producer graph transition lacks its native result")
+    execution_ref = prior_graph.nodes[step.node_id].execution_ref
+    expected_tool = (
+        execution_ref.partition(":")[0]
+        if type(execution_ref) is str and execution_ref
+        else None
+    )
+    if (
+        execution.ran is not True
+        or execution.kind != "producer"
+        or execution.failure is not None
+        or execution.reason != f"executed producer step {step.node_id!r}"
+        or execution.verifier_result is not None
+        or execution.bind_result is not None
+        or execution.graph is not producer.graph
+        or producer.node_id != step.node_id
+        or producer.tool_name != expected_tool
+    ):
+        raise ValueError("producer graph transition differs from its native inputs")
+    if producer.applied is False:
+        if (
+            producer.graph is not prior_graph
+            or producer.outcome_status is not None
+            or producer.reason is None
+        ):
+            raise ValueError("unapplied producer transition is not input-preserving")
+        return
+    if producer.applied is not True or producer.reason is not None:
+        raise ValueError("producer transition has an invalid applied state")
+    evidence = producer.graph.nodes[step.node_id].evidence
+    if evidence is None:
+        raise ValueError("applied producer transition lacks receipt evidence")
+    outcome = project_receipt_outcome(evidence, "artifact_producer")
+    expected_graph = apply_outcome(prior_graph, step.node_id, outcome)
+    if (
+        producer.outcome_status != outcome.status
+        or producer.graph != expected_graph
+    ):
+        raise ValueError("producer graph transition differs from receipt projection")
+
+
 def _require_native_transaction_lineage(
     result: MinimalCSharpRepairHandoffResult,
     stage: str,
@@ -890,6 +1057,15 @@ def _require_native_transaction_lineage(
             or supply.envelope.mapping is not record.mapping
         ):
             raise ValueError("supply records do not own the native record prefix")
+        try:
+            expected_record = project_current_step_record(
+                supply.envelope,
+                record.execution,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("native record projection cannot be reconstructed") from exc
+        if record != expected_record:
+            raise ValueError("native record differs from its flattened projection")
     tail = result.supply_records[record_count:]
     if tail and (tail[0].decision != "HALT" or tail[0].envelope is not None):
         raise ValueError("native record prefix has an invalid terminal supply")

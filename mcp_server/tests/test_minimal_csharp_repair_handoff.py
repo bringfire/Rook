@@ -1166,6 +1166,114 @@ async def test_result_rejects_incomplete_terminal_native_evidence(
         replace(success)
 
 
+@pytest.mark.parametrize("mutation", ["graph", "node_id", "params_sha256"])
+@pytest.mark.asyncio
+async def test_result_rejects_action_result_spliced_after_worker_response(
+    mutation: str,
+) -> None:
+    success, _transport, _tool = await _run_operational_case("terminal")
+    assert success.action_apply_result is not None
+    action = success.action_apply_result
+    if mutation == "graph":
+        action = replace(action, graph=success.scaffold.graph)
+    elif mutation == "node_id":
+        action = replace(action, node_id="verify_repair")
+    else:
+        action = replace(action, params_sha256="0" * 64)
+
+    with pytest.raises(ValueError, match="action.*worker response"):
+        replace(success, action_apply_result=action)
+
+
+@pytest.mark.asyncio
+async def test_result_rejects_disposition_from_another_worker_response() -> None:
+    clarification, _transport, _tool = await _run_operational_case("clarification")
+    refusal, _transport, _tool = await _run_operational_case("refusal")
+    assert clarification.worker_record is not None
+    assert refusal.worker_record is not None
+    assert refusal.worker_record.disposition is not None
+    forged_record = replace(
+        clarification.worker_record,
+        disposition=refusal.worker_record.disposition,
+        reason="completed:refusal_recorded",
+    )
+
+    with pytest.raises(ValueError, match="disposition.*retained response"):
+        replace(
+            clarification,
+            worker_record=forged_record,
+            terminal_reason="refusal_recorded",
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "repair_execution",
+        "final_execution_mapping",
+        "producer_tool_name",
+        "nested_producer_tool_name",
+    ],
+)
+@pytest.mark.asyncio
+async def test_result_rejects_spliced_current_step_record(
+    mutation: str,
+) -> None:
+    success, _transport, _tool = await _run_operational_case("terminal")
+    records = list(success.step_records)
+    if mutation == "repair_execution":
+        records[2] = replace(records[2], execution=records[1].execution)
+    elif mutation == "final_execution_mapping":
+        execution = replace(records[3].execution, mapping=records[0].mapping)
+        records[3] = replace(records[3], execution=execution)
+    elif mutation == "producer_tool_name":
+        records[2] = replace(records[2], producer_tool_name="forged_tool")
+    else:
+        producer = records[2].execution.producer_result
+        assert producer is not None
+        forged_producer = replace(producer, tool_name="forged_tool")
+        forged_execution = replace(
+            records[2].execution,
+            producer_result=forged_producer,
+        )
+        records[2] = replace(
+            records[2],
+            execution=forged_execution,
+            producer_tool_name="forged_tool",
+        )
+
+    with pytest.raises(ValueError, match="native record|graph transition"):
+        replace(success, step_records=tuple(records))
+
+
+@pytest.mark.asyncio
+async def test_result_rejects_reclosed_mapping_from_another_graph_state() -> None:
+    success, _transport, _tool = await _run_operational_case("terminal")
+    records = list(success.step_records)
+    supply_records = list(success.supply_records)
+    repair = records[2]
+    forged_mapping = replace(
+        repair.mapping,
+        revalidation=records[0].mapping.revalidation,
+    )
+    forged_execution = replace(repair.execution, mapping=forged_mapping)
+    envelope = supply_records[2].envelope
+    assert envelope is not None
+    forged_envelope = replace(envelope, mapping=forged_mapping)
+    supply_records[2] = replace(supply_records[2], envelope=forged_envelope)
+    records[2] = handoff.project_current_step_record(
+        forged_envelope,
+        forged_execution,
+    )
+
+    with pytest.raises(ValueError, match="mapping.*preceding graph"):
+        replace(
+            success,
+            step_records=tuple(records),
+            supply_records=tuple(supply_records),
+        )
+
+
 @pytest.mark.asyncio
 async def test_contract_compilation_failure_remains_an_internal_exception(
     monkeypatch: pytest.MonkeyPatch,
