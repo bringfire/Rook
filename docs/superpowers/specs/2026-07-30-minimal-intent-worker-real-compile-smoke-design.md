@@ -212,7 +212,7 @@ tool shape:
 type(result) is dict
 result.success is True
 type(result.data) is dict
-data.Created is True
+data.created is True
 ```
 
 The post-status check, not the authored creation response alone, proves the

@@ -93,7 +93,7 @@ class _ScriptedDispatcher:
         if index == 1 and name == "gh_status" and captured == {}:
             return _status(_PRE_DOCUMENT_ID)
         if index == 2 and name == "gh_document_new" and captured == {}:
-            return {"success": True, "data": {"Created": True}}
+            return {"success": True, "data": {"created": True}}
         if index == 3 and name == "gh_status" and captured == {}:
             return _status(_POST_DOCUMENT_ID)
         if index == 4 and name == "gh_create_csharp_script":
@@ -636,7 +636,7 @@ async def test_status_equations_refuse_before_model_construction(
         if phase == "pre"
         else [
             _status(_PRE_DOCUMENT_ID),
-            {"success": True, "data": {"Created": True}},
+            {"success": True, "data": {"created": True}},
             _mutated_status(case, _POST_DOCUMENT_ID),
         ]
     )
@@ -669,7 +669,7 @@ async def test_post_status_requires_a_different_document_id(
     dispatcher = _SequenceDispatcher(
         [
             _status(_PRE_DOCUMENT_ID),
-            {"success": True, "data": {"Created": True}},
+            {"success": True, "data": {"created": True}},
             _status(_PRE_DOCUMENT_ID),
         ]
     )
@@ -704,11 +704,18 @@ _DOCUMENT_NEW_MUTATIONS = (
     "created_missing",
     "created_false",
     "created_spoof",
+    "created_legacy_uppercase_only",
 )
 
 
+def test_document_new_accepts_actual_camel_case_wire_contract() -> None:
+    SMOKE._require_document_new(
+        {"success": True, "data": {"created": True}}
+    )
+
+
 def _mutated_document_new(case: str) -> object:
-    row: dict[str, Any] = {"success": True, "data": {"Created": True}}
+    row: dict[str, Any] = {"success": True, "data": {"created": True}}
     if case == "result_subclass":
         return _DictSubclass(row)
     if case == "result_not_dict":
@@ -729,11 +736,13 @@ def _mutated_document_new(case: str) -> object:
         data = row["data"]
         assert type(data) is dict
         if case == "created_missing":
-            data.pop("Created")
+            data.pop("created")
         elif case == "created_false":
-            data["Created"] = False
+            data["created"] = False
         elif case == "created_spoof":
-            data["Created"] = _EqualitySpoof()
+            data["created"] = _EqualitySpoof()
+        elif case == "created_legacy_uppercase_only":
+            data["Created"] = data.pop("created")
         else:
             raise AssertionError(f"unknown document-new mutation: {case}")
     return row
@@ -806,7 +815,7 @@ def test_preparation_exceptions_are_bounded_and_construct_no_models(
         "document_new": [_status(_PRE_DOCUMENT_ID), failure],
         "post": [
             _status(_PRE_DOCUMENT_ID),
-            {"success": True, "data": {"Created": True}},
+            {"success": True, "data": {"created": True}},
             failure,
         ],
     }
@@ -840,7 +849,7 @@ def test_post_preparation_exception_retains_verified_document_state(
     dispatcher = _SequenceDispatcher(
         [
             _status(_PRE_DOCUMENT_ID),
-            {"success": True, "data": {"Created": True}},
+            {"success": True, "data": {"created": True}},
             _status(_POST_DOCUMENT_ID),
         ]
     )
@@ -1249,7 +1258,7 @@ class _SensitiveReceiptDispatcher(_ScriptedDispatcher):
         if index == 1 and name == "gh_status" and captured == {}:
             return _status(_PRE_DOCUMENT_ID)
         if index == 2 and name == "gh_document_new" and captured == {}:
-            return {"success": True, "data": {"Created": True}}
+            return {"success": True, "data": {"created": True}}
         if index == 3 and name == "gh_status" and captured == {}:
             return _status(_POST_DOCUMENT_ID)
         if index == 4 and name == "gh_create_csharp_script":

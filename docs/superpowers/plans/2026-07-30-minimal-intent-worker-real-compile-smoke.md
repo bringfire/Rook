@@ -228,7 +228,7 @@ class _ScriptedDispatcher:
         if index == 1 and name == "gh_status" and params == {}:
             return _status(_PRE_DOCUMENT_ID)
         if index == 2 and name == "gh_document_new" and params == {}:
-            return {"success": True, "data": {"Created": True}}
+            return {"success": True, "data": {"created": True}}
         if index == 3 and name == "gh_status" and params == {}:
             return _status(_POST_DOCUMENT_ID)
         if index == 4 and name == "gh_create_csharp_script":
@@ -651,7 +651,7 @@ def _require_document_new(result: object) -> None:
     if type(result) is not dict or result.get("success") is not True:
         raise ValueError("document new rejected")
     data = result.get("data")
-    if type(data) is not dict or data.get("Created") is not True:
+    if type(data) is not dict or data.get("created") is not True:
         raise ValueError("document new data rejected")
 ```
 
@@ -935,11 +935,12 @@ with `document_new_started`. Both construct zero model transports.
 The admitted row is exactly:
 
 ```python
-{"success": True, "data": {"Created": True}}
+{"success": True, "data": {"created": True}}
 ```
 
 Reject result/data subclasses, false or equality-spoof success, missing data,
-missing `Created`, false `Created`, and equality-spoof `Created`. Require two
+missing `created`, false `created`, equality-spoof `created`, and an
+uppercase-only pre-serialization `Created`. Require two
 preparation calls, `document_new_started`, and zero model construction.
 
 - [x] **Step 5: Add all preparation exception and timeout cases**
