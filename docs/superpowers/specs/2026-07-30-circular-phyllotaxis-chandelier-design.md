@@ -6,7 +6,7 @@
 
 - Rhino document: `VIP Check-in lounge Chandelier.3dm`
 - Grasshopper document: `Chandelier_Circular_Droop-01.gh`
-- Referenced circular driver surface: approximately 7,080 mm across, centered at approximately `(-68174.4566, -5175.3158, 13100.0003)` in Rhino world coordinates.
+- Referenced circular driver surface: 5,900 mm trimmed diameter, centered at approximately `(-68174.4566, -5175.3158, 13100.0003)` in Rhino world coordinates. Its underlying untrimmed Brep box is approximately 7,080 mm across, so the circular edge—not the box—controls the usable radius.
 - Selected Rhino reference block: `small droppy check-in lounge`.
 - Reference block envelope: approximately 5,629 x 5,629 x 2,015 mm.
 - Reference block contents: 308 closed mesh fin stacks.
@@ -39,7 +39,7 @@ Inputs:
 |---|---|---:|---|
 | `surface` | Surface, item | Existing referenced circular surface | Supplies center, local plane, and outer radius |
 | `count` | Integer, item | 308 | Number of fin-stack placement planes |
-| `fill` | Number, item | 0.80 | Ratio of field radius to surface outer radius |
+| `fill` | Number, item | 0.92 | Ratio of field radius to surface outer radius; calibrated to the selected 5,629 mm reference block |
 | `angle` | Number, item | 137.508 degrees | Phyllotaxis divergence angle |
 | `arms` | Integer, item | 13 | Step used to organize points into arms and calculate arm tangents |
 
@@ -137,7 +137,7 @@ After each script and wiring batch:
 1. Wait for Grasshopper to reach a ready, post-process solve state.
 2. Inspect canvas errors and warnings.
 3. Confirm `CircularPhyllotaxis` emits exactly 308 points and 308 planes.
-4. Confirm all points lie within approximately 80% of the surface radius and are centered on the referenced surface.
+4. Confirm all points lie within approximately 92% of the surface radius and are centered on the referenced surface.
 5. Confirm the fin component emits exactly 308 closed meshes.
 6. Confirm the projected footprint is approximately 5.6 m across.
 7. Confirm the deepest central stack is approximately 2.05 m and the droop decreases smoothly toward the perimeter.
@@ -151,7 +151,7 @@ The first pass is additive. If it fails or is visually unsuitable, delete only t
 
 - A live circular phyllotaxis chandelier preview appears at the referenced surface location.
 - The branch contains approximately 300 fin stacks, specifically 308 at the initial setting.
-- The field footprint is approximately 5.6 m within the 7.08 m driver surface.
+- The placement field is 5.428 m across within the 5.9 m trimmed driver surface; the 220 mm fin length brings the projected fin envelope to approximately 5.648 m, closely matching the 5.629 m reference block.
 - The droop is centered on the surface rather than world origin and reaches approximately 2.05 m at the center.
 - The fin scale visually agrees with the selected reference block.
 - Grasshopper reports no runtime errors.

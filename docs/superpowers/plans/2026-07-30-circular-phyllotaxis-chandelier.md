@@ -15,7 +15,7 @@
 - Add no external dependencies and modify no Rook project source files.
 - Use the referenced circular surface for the first pass.
 - Target exactly 308 placement planes and 308 fin meshes.
-- Use `fill = 0.80`, `angle = 137.508`, and `arms = 13` initially.
+- Use `fill = 0.92`, `angle = 137.508`, and `arms = 13` initially. The fill was calibrated after reading the surface's 2,950 mm trimmed radius rather than its larger underlying Brep bounds.
 - Use two panels, two minimum layers, three extra central layers, 380 mm nominal fin height, 38 mm gap, 110 mm half-length, and 13 mm half-thickness.
 - Check Grasshopper solve readiness and errors after every mutation batch.
 - Use a fresh `gh_snapshot` epoch immediately before every `gh_edit` call.
@@ -349,7 +349,7 @@ Call `gh_edit` once with the fresh epoch. Create these sliders at the indicated 
 | Temp ID | Nickname | Min | Max | Value | Position |
 |---|---|---:|---:|---:|---|
 | T1 | Count | 50 | 600 | 308 | `[-500, 800]` |
-| T2 | Fill | 0.50 | 1.00 | 0.80 | `[-500, 825]` |
+| T2 | Fill | 0.50 | 1.00 | 0.92 | `[-500, 825]` |
 | T3 | Angle | 100 | 180 | 137.508 | `[-500, 850]` |
 | T4 | Arms | 1 | 34 | 13 | `[-500, 875]` |
 | T5 | Panels | 1 | 6 | 2 | `[150, 800]` |
@@ -391,8 +391,9 @@ Expected results:
 - `CircularPhyllotaxis.Points`: total count 308.
 - `CircularPhyllotaxis.Planes`: total count 308.
 - `Center`: approximately `(-68174.4566, -5175.3158, 13100.0003)`.
-- `OuterRadius`: approximately 3,540 mm.
-- `FieldRadius`: approximately 2,832 mm.
+- `OuterRadius`: approximately 2,950 mm from the trimmed circular edge.
+- `FieldRadius`: approximately 2,714 mm.
+- Placement-point diameter: approximately 5,428 mm; projected fin envelope: approximately 5,648 mm.
 - `ChandelierSmoothLayersCircular.Fins`: total count 308, each preview item a `Rhino.Geometry.Mesh`.
 - No compile or runtime errors.
 
