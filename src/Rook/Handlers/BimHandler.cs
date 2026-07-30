@@ -663,6 +663,8 @@ namespace Rook.Handlers
                 BimErrorCode.AmbiguousParameter => "ambiguous_parameter",
                 BimErrorCode.ElementNotFound => "element_not_found",
                 BimErrorCode.DocumentMismatch => "document_mismatch",
+                BimErrorCode.DocumentIdentityUnavailable => "document_identity_unavailable",
+                BimErrorCode.DocumentIdentityInvalid => "document_identity_invalid",
                 BimErrorCode.LinkedElementUnsupported => "linked_element_unsupported",
                 BimErrorCode.CapabilityUnavailable => "capability_unavailable",
                 BimErrorCode.SelectionFailed => "selection_failed",

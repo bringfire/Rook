@@ -10,41 +10,45 @@ namespace RookBim.Revit
     {
         private readonly RevitCategoryResolver categories = new RevitCategoryResolver();
 
-        public BimApiResponse Query(Document document, View? activeView, BimQueryElementsRequest request)
-        {
-            return Query(document, activeView, request, BimDiagnosticContext.Disabled);
-        }
-
-        public BimApiResponse Query(
+        public RevitQueryExecutionResult Execute(
             Document document,
             View? activeView,
             BimQueryElementsRequest request,
+            RevitDocumentIdentityEvidence evidence,
             BimDiagnosticContext diagnostics)
         {
             if (document == null)
             {
-                return BimApiResponse.Fail(
+                return Failure(BimApiResponse.Fail(
                     BimErrorCode.NoActiveDocument,
                     "No active Revit document is open.",
-                    409);
+                    409));
+            }
+
+            if (evidence == null || !RevitDocumentIdentityResolver.IsSameDocument(document, evidence.Owner))
+            {
+                return Failure(BimApiResponse.Fail(
+                    BimErrorCode.DocumentIdentityInvalid,
+                    "Query document does not match the captured identity evidence.",
+                    400));
             }
 
             request ??= new BimQueryElementsRequest();
             var validation = request.Validate();
             if (!validation.Success)
             {
-                return BimApiResponse.Fail(
+                return Failure(BimApiResponse.Fail(
                     validation.ErrorCode,
                     validation.Message ?? "BIM query validation failed.",
-                    400);
+                    400));
             }
 
             if (request.EffectiveScope == BimQueryScope.ActiveView && activeView == null)
             {
-                return BimApiResponse.Fail(
+                return Failure(BimApiResponse.Fail(
                     BimErrorCode.NoActiveView,
                     "active_view scope requires an active Revit view.",
-                    409);
+                    409));
             }
 
             var filters = request.EffectiveFilters;
@@ -58,11 +62,11 @@ namespace RookBim.Revit
             }
             catch (Autodesk.Revit.Exceptions.ArgumentException)
             {
-                return InvalidActiveViewForCollection();
+                return Failure(InvalidActiveViewForCollection());
             }
             catch (ArgumentException)
             {
-                return InvalidActiveViewForCollection();
+                return Failure(InvalidActiveViewForCollection());
             }
 
             collector.WhereElementIsNotElementType();
@@ -70,7 +74,7 @@ namespace RookBim.Revit
             if (!string.IsNullOrWhiteSpace(request.Category))
             {
                 var categoryName = request.Category!;
-                var resolution = categories.Resolve(document, categoryName, diagnostics);
+                var resolution = categories.Resolve(document, categoryName, evidence, diagnostics);
                 categoryResolution = resolution;
                 if (resolution.Status == BimCategoryResolutionStatus.Ambiguous)
                 {
@@ -79,7 +83,7 @@ namespace RookBim.Revit
                         $"Revit category '{categoryName}' is ambiguous.",
                         400);
                     response.Data = new { resolution = resolution };
-                    return response;
+                    return Failure(response);
                 }
 
                 if (resolution.Status != BimCategoryResolutionStatus.Resolved || resolution.Category == null)
@@ -89,7 +93,7 @@ namespace RookBim.Revit
                         $"Unknown Revit category '{categoryName}'.",
                         400);
                     response.Data = new { resolution = resolution };
-                    return response;
+                    return Failure(response);
                 }
 
                 if (!TryResolvedCategoryFilter(resolution, out var categoryFilter))
@@ -100,7 +104,7 @@ namespace RookBim.Revit
                         $"Revit category '{categoryName}' cannot be safely used for element collection.",
                         400);
                     response.Data = new { resolution = resolution };
-                    return response;
+                    return Failure(response);
                 }
 
                 try
@@ -115,7 +119,7 @@ namespace RookBim.Revit
                         $"Revit category '{categoryName}' cannot be safely used for element collection.",
                         400);
                     response.Data = new { resolution = resolution };
-                    return response;
+                    return Failure(response);
                 }
                 catch (ArgumentException)
                 {
@@ -125,28 +129,29 @@ namespace RookBim.Revit
                         $"Revit category '{categoryName}' cannot be safely used for element collection.",
                         400);
                     response.Data = new { resolution = resolution };
-                    return response;
+                    return Failure(response);
                 }
             }
 
             if (filters.Count == 0)
             {
                 var capped = CollectUnfilteredResults(collector, request.EffectiveLimit);
-                return BimApiResponse.Ok(BuildResult(
+                return Success(
                     document,
                     activeView,
                     request,
+                    evidence,
                     capped.Elements,
                     capped.Truncated,
                     new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
-                    categoryResolution));
+                    categoryResolution);
             }
 
             var candidates = collector.ToElements();
             var parameterAmbiguity = PreflightFilterParameterAmbiguity(document, candidates, filters);
             if (parameterAmbiguity != null)
             {
-                return parameterAmbiguity;
+                return Failure(parameterAmbiguity);
             }
 
             var missingCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -171,37 +176,46 @@ namespace RookBim.Revit
                 }
             }
 
-            return BimApiResponse.Ok(BuildResult(
+            return Success(
                 document,
                 activeView,
                 request,
+                evidence,
                 matched,
                 matchedBeyondLimit,
                 missingCounts,
-                categoryResolution));
+                categoryResolution);
         }
 
-        private static BimQueryElementsResult BuildResult(
+        private static RevitQueryExecutionResult Success(
             Document document,
             View? activeView,
             BimQueryElementsRequest request,
-            IReadOnlyCollection<Element> elements,
+            RevitDocumentIdentityEvidence evidence,
+            IEnumerable<Element> elements,
             bool truncated,
             Dictionary<string, int> missingCounts,
             BimCategoryResolution? categoryResolution)
         {
-            return new BimQueryElementsResult
+            var ordered = elements.ToList();
+            if (ordered.Any(element => !RevitDocumentIdentityResolver.IsSameDocument(element.Document, evidence.Owner)))
             {
-                Document = RevitIdentitySerializer.DocumentIdentity(document),
+                throw new InvalidOperationException(
+                    "Query returned an element outside the captured document.");
+            }
+
+            var result = new BimQueryElementsResult
+            {
+                Document = RevitDocumentIdentityResolver.ProjectDocument(evidence),
                 Scope = request.EffectiveScope,
                 View = request.EffectiveScope == BimQueryScope.ActiveView
-                    ? RevitIdentitySerializer.ViewIdentity(activeView!)
+                    ? RevitViewIdentitySerializer.ViewIdentity(activeView!)
                     : null,
                 Query = new BimQuerySummary
                 {
                     Category = request.Category,
                     Limit = request.EffectiveLimit,
-                    Returned = elements.Count,
+                    Returned = ordered.Count,
                     Truncated = truncated,
                     CategoryResolution = categoryResolution,
                     Filters = request.EffectiveFilters.Select(filter => new BimQueryFilterSummary
@@ -212,9 +226,9 @@ namespace RookBim.Revit
                     }).ToList(),
                     MissingParameterCounts = missingCounts
                 },
-                Elements = elements.Select(element => new BimElementSummary
+                Elements = ordered.Select(element => new BimElementSummary
                 {
-                    Identity = RevitIdentitySerializer.ElementIdentity(element),
+                    Identity = RevitDocumentIdentityResolver.ProjectElement(evidence, element),
                     Name = NullIfWhiteSpace(element.Name),
                     Category = new BimCategorySummary
                     {
@@ -224,6 +238,13 @@ namespace RookBim.Revit
                     Type = BuildTypeSummary(document, element)
                 }).ToList()
             };
+
+            return new RevitQueryExecutionResult(BimApiResponse.Ok(result), ordered);
+        }
+
+        private static RevitQueryExecutionResult Failure(BimApiResponse response)
+        {
+            return new RevitQueryExecutionResult(response);
         }
 
         private static bool MatchesAllFilters(

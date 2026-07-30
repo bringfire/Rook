@@ -36,9 +36,19 @@ namespace RookBim.Revit
         private readonly RevitQueryService query = new RevitQueryService();
         private readonly RevitLabelExtractor labels = new RevitLabelExtractor();
 
-        public BimApiResponse Export(Document document, View? activeView, BimExportElementsRequest request)
+        public BimApiResponse Export(
+            Document document,
+            View? activeView,
+            BimExportElementsRequest request,
+            RevitDocumentIdentityEvidence evidence,
+            BimDiagnosticContext diagnostics)
         {
-            var resolution = ResolveElements(document, activeView, request);
+            var resolution = ResolveElements(
+                document,
+                activeView,
+                request,
+                evidence,
+                diagnostics);
             if (resolution.Failure != null)
             {
                 return resolution.Failure;
@@ -46,6 +56,7 @@ namespace RookBim.Revit
 
             return ExportResolved(
                 document,
+                evidence,
                 resolution.Elements,
                 resolution.Truncated,
                 resolution.RequestedCount,
@@ -60,6 +71,7 @@ namespace RookBim.Revit
         // (element/room records + frozen identities), <name>.validation.json (counts + hashes).
         internal BimApiResponse ExportResolved(
             Document document,
+            RevitDocumentIdentityEvidence evidence,
             IReadOnlyList<Element> elements,
             bool truncated,
             int requestedCount,
@@ -67,6 +79,15 @@ namespace RookBim.Revit
             BimExportOrganizationPolicy policy,
             RevitPresetContext? presetContext)
         {
+            if (!RevitDocumentIdentityResolver.IsSameDocument(document, evidence.Owner) ||
+                elements.Any(element => !RevitDocumentIdentityResolver.IsSameDocument(element.Document, evidence.Owner)))
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.ExportFailed,
+                    "Export elements do not belong to the captured Revit document.",
+                    500);
+            }
+
             // 1. Output-path safety.
             var pathShape = BimExportPathPolicy.ValidateRequestShape(request.Output);
             if (!pathShape.Success)
@@ -121,7 +142,8 @@ namespace RookBim.Revit
                     var conversion = converter.Convert(element, request.AllowBboxProxy);
                     var labelSet = labels.Extract(document, element);
                     var stamp = BuildStampData(document, element, conversion, presetContext, exportId);
-                    elementRecords.Add(BuildElementRecord(document, element, conversion, labelSet, stamp));
+                    elementRecords.Add(BuildElementRecord(
+                        document, evidence, element, conversion, labelSet, stamp));
 
                     if (presetContext != null)
                     {
@@ -152,7 +174,7 @@ namespace RookBim.Revit
                 catch (Exception ex)
                 {
                     counts.Failed++;
-                    elementRecords.Add(BuildFailedElementRecord(element, ex));
+                    elementRecords.Add(BuildFailedElementRecord(evidence, element, ex));
                     exportId++;
                 }
             }
@@ -206,7 +228,8 @@ namespace RookBim.Revit
 
             // 6. Assemble sidecar + validation; write all three path-safely.
             _pendingRelationships = presetContext == null ? null : relationships;
-            var sidecar = BuildSidecar(document, request, elements, truncated, elementRecords, roomRecords, presetContext);
+            var sidecar = BuildSidecar(
+                evidence, request, elements, truncated, elementRecords, roomRecords, presetContext);
             var sidecarJson = JsonSerializer.Serialize(sidecar, JsonOptions);
             var written = new List<string>();
 
@@ -228,7 +251,7 @@ namespace RookBim.Revit
                     ? null
                     : BuildSummary(presetContext, counts, perCategoryExport, roomRepCounts, layerCache.Count, paths);
                 var validation = BuildValidation(
-                    document, counts, scale, request.Output.Units, paths, sidecarJson, presetContext, summary, relationships, modelAudit);
+                    evidence, counts, scale, request.Output.Units, paths, sidecarJson, presetContext, summary, relationships, modelAudit);
                 File.WriteAllText(paths.Validation, JsonSerializer.Serialize(validation, JsonOptions), new UTF8Encoding(false));
                 written.Add(paths.Validation);
 
@@ -249,29 +272,57 @@ namespace RookBim.Revit
             }
         }
 
-        private ElementResolution ResolveElements(Document document, View? activeView, BimExportElementsRequest request)
+        private ElementResolution ResolveElements(
+            Document document,
+            View? activeView,
+            BimExportElementsRequest request,
+            RevitDocumentIdentityEvidence evidence,
+            BimDiagnosticContext diagnostics)
         {
             if (request.HasIdentities)
             {
-                var elements = new List<Element>();
-                foreach (var identity in request.Identities!)
+                var identities = request.Identities!
+                    .Cast<BimElementIdentity?>()
+                    .ToList();
+                var preflight = RevitDocumentIdentityResolver.PreflightBatch(
+                    evidence,
+                    identities,
+                    diagnostics);
+                if (!preflight.Success)
                 {
-                    var resolved = RevitIdentitySerializer.Resolve(document, identity);
+                    return ElementResolution.Fail(BimApiResponse.Fail(
+                        preflight.ErrorCode,
+                        preflight.Message ?? "One or more element identities failed preflight.",
+                        RevitDocumentIdentityResolver.HttpStatusFor(preflight.ErrorCode)));
+                }
+
+                var elements = new List<Element>();
+                foreach (var identity in identities)
+                {
+                    var resolved = RevitDocumentIdentityResolver.ResolveAfterPreflight(
+                        evidence,
+                        identity!);
                     if (!resolved.Success)
                     {
                         return ElementResolution.Fail(BimApiResponse.Fail(
                             resolved.ErrorCode,
                             resolved.Message ?? "An element identity did not resolve.",
-                            404));
+                            RevitDocumentIdentityResolver.HttpStatusFor(resolved.ErrorCode)));
                     }
 
                     elements.Add(resolved.Element!);
                 }
 
-                return ElementResolution.Ok(elements, truncated: false, requestedCount: request.Identities!.Count);
+                return ElementResolution.Ok(elements, truncated: false, requestedCount: identities.Count);
             }
 
-            var queryResponse = query.Query(document, activeView, request.Selector!);
+            var execution = query.Execute(
+                document,
+                activeView,
+                request.Selector!,
+                evidence,
+                diagnostics);
+            var queryResponse = execution.Response;
             if (!queryResponse.Success || !(queryResponse.Data is BimQueryElementsResult queryResult))
             {
                 return ElementResolution.Fail(queryResponse);
@@ -288,22 +339,24 @@ namespace RookBim.Revit
                 return ElementResolution.Fail(failure);
             }
 
-            var resolvedElements = queryResult.Elements
-                .Select(summary => RevitIdentitySerializer.Resolve(document, summary.Identity))
-                .Where(r => r.Success)
-                .Select(r => r.Element!)
-                .ToList();
-
-            return ElementResolution.Ok(resolvedElements, queryResult.Query.Truncated, requestedCount: queryResult.Query.Returned);
+            return ElementResolution.Ok(
+                execution.Elements.ToList(),
+                queryResult.Query.Truncated,
+                requestedCount: queryResult.Query.Returned);
         }
 
         private object BuildElementRecord(
-            Document document, Element element, RevitGeometryConversion conversion, RevitElementLabels labelSet, RevitStampData stamp)
+            Document document,
+            RevitDocumentIdentityEvidence evidence,
+            Element element,
+            RevitGeometryConversion conversion,
+            RevitElementLabels labelSet,
+            RevitStampData stamp)
         {
             var bb = element.get_BoundingBox(null);
             return new
             {
-                identity = RevitIdentitySerializer.ElementIdentity(element),
+                identity = RevitDocumentIdentityResolver.ProjectElement(evidence, element),
                 category = stamp.Category,
                 family = stamp.Family,
                 type = stamp.Type,
@@ -322,10 +375,13 @@ namespace RookBim.Revit
             };
         }
 
-        private object BuildFailedElementRecord(Element element, Exception ex)
+        private object BuildFailedElementRecord(
+            RevitDocumentIdentityEvidence evidence,
+            Element element,
+            Exception ex)
         {
             object identity;
-            try { identity = RevitIdentitySerializer.ElementIdentity(element); }
+            try { identity = RevitDocumentIdentityResolver.ProjectElement(evidence, element); }
             catch { identity = new { source = "revit", uniqueId = TryUniqueId(element) }; }
 
             return new
@@ -598,7 +654,7 @@ namespace RookBim.Revit
         }
 
         private object BuildSidecar(
-            Document document,
+            RevitDocumentIdentityEvidence evidence,
             BimExportElementsRequest request,
             IReadOnlyList<Element> elements,
             bool truncated,
@@ -631,13 +687,15 @@ namespace RookBim.Revit
             var sidecar = new Dictionary<string, object?>
             {
                 ["schemaVersion"] = 1,
-                ["document"] = RevitIdentitySerializer.DocumentIdentity(document),
+                ["document"] = RevitDocumentIdentityResolver.ProjectDocument(evidence),
                 ["request"] = requestSection,
                 ["resolved"] = new
                 {
                     count = elements.Count,
                     truncated = truncated,
-                    identities = elements.Select(RevitIdentitySerializer.ElementIdentity).ToList()
+                    identities = elements
+                        .Select(element => RevitDocumentIdentityResolver.ProjectElement(evidence, element))
+                        .ToList()
                 },
                 ["elements"] = elementRecords,
                 ["rooms"] = roomRecords,
@@ -653,7 +711,7 @@ namespace RookBim.Revit
         }
 
         private object BuildValidation(
-            Document document,
+            RevitDocumentIdentityEvidence evidence,
             BimExportCounts counts,
             double scale,
             string targetUnits,
@@ -667,7 +725,7 @@ namespace RookBim.Revit
             var validation = new Dictionary<string, object?>
             {
                 ["schemaVersion"] = 1,
-                ["document"] = RevitIdentitySerializer.DocumentIdentity(document),
+                ["document"] = RevitDocumentIdentityResolver.ProjectDocument(evidence),
                 ["units"] = new { source = "feet", target = targetUnits, scaleFactor = scale },
                 ["counts"] = counts,
                 ["hashes"] = new

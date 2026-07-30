@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Rook.Bim;
@@ -8,7 +9,11 @@ namespace RookBim.Revit
 {
     internal sealed class RevitSelectionService
     {
-        public BimApiResponse Select(UIDocument uiDocument, BimSelectElementsRequest? request)
+        public BimApiResponse Select(
+            UIDocument uiDocument,
+            RevitDocumentIdentityEvidence evidence,
+            BimSelectElementsRequest? request,
+            BimDiagnosticContext diagnostics)
         {
             if (uiDocument == null)
             {
@@ -23,23 +28,47 @@ namespace RookBim.Revit
                     400);
             }
 
+            if (evidence == null || !RevitDocumentIdentityResolver.IsSameDocument(uiDocument.Document, evidence.Owner))
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.DocumentIdentityInvalid,
+                    "Selection document does not match the captured identity evidence.",
+                    400);
+            }
+
+            var identities = request.Identities
+                .Cast<BimElementIdentity?>()
+                .ToList();
+            var preflight = RevitDocumentIdentityResolver.PreflightBatch(
+                evidence,
+                identities,
+                diagnostics);
+            if (!preflight.Success)
+            {
+                return BimApiResponse.Fail(
+                    preflight.ErrorCode,
+                    preflight.Message ?? "One or more element identities failed preflight.",
+                    RevitDocumentIdentityResolver.HttpStatusFor(preflight.ErrorCode));
+            }
+
             var ids = new List<ElementId>();
             var selectedIdentities = new List<BimElementIdentity>();
-            var identities = request.Identities;
-
             foreach (var identity in identities)
             {
-                var resolved = RevitIdentitySerializer.Resolve(uiDocument.Document, identity);
+                var resolved = RevitDocumentIdentityResolver.ResolveAfterPreflight(
+                    evidence,
+                    identity!);
                 if (!resolved.Success)
                 {
                     return BimApiResponse.Fail(
                         resolved.ErrorCode,
                         resolved.Message ?? "One or more element identities did not resolve in the active Revit document.",
-                        ResolveHttpStatus(resolved.ErrorCode));
+                        RevitDocumentIdentityResolver.HttpStatusFor(resolved.ErrorCode));
                 }
 
                 ids.Add(resolved.Element!.Id);
-                selectedIdentities.Add(RevitIdentitySerializer.ElementIdentity(resolved.Element!));
+                selectedIdentities.Add(
+                    RevitDocumentIdentityResolver.ProjectElement(evidence, resolved.Element!));
             }
 
             try
@@ -58,15 +87,25 @@ namespace RookBim.Revit
             {
                 selectedCount = ids.Count,
                 identities = selectedIdentities,
-                document = RevitIdentitySerializer.DocumentIdentity(uiDocument.Document)
+                document = RevitDocumentIdentityResolver.ProjectDocument(evidence)
             });
         }
 
-        public BimApiResponse Clear(UIDocument uiDocument)
+        public BimApiResponse Clear(
+            UIDocument uiDocument,
+            RevitDocumentIdentityEvidence evidence)
         {
             if (uiDocument == null)
             {
                 throw new ArgumentNullException(nameof(uiDocument));
+            }
+
+            if (evidence == null || !RevitDocumentIdentityResolver.IsSameDocument(uiDocument.Document, evidence.Owner))
+            {
+                return BimApiResponse.Fail(
+                    BimErrorCode.DocumentIdentityInvalid,
+                    "Selection document does not match the captured identity evidence.",
+                    400);
             }
 
             try
@@ -84,22 +123,8 @@ namespace RookBim.Revit
             return BimApiResponse.Ok(new
             {
                 selectedCount = 0,
-                document = RevitIdentitySerializer.DocumentIdentity(uiDocument.Document)
+                document = RevitDocumentIdentityResolver.ProjectDocument(evidence)
             });
-        }
-
-        private static int ResolveHttpStatus(BimErrorCode code)
-        {
-            switch (code)
-            {
-                case BimErrorCode.DocumentMismatch:
-                case BimErrorCode.LinkedElementUnsupported:
-                    return 409;
-                case BimErrorCode.ElementNotFound:
-                    return 404;
-                default:
-                    return 400;
-            }
         }
     }
 }

@@ -40,7 +40,17 @@ namespace RookBim.Revit
             {
                 var hasActiveDocument = Dispatch(
                     diagnostics,
-                    uiapp => AcquireActiveDocument(uiapp, diagnostics) != null);
+                    uiapp =>
+                    {
+                        var document = AcquireActiveDocument(uiapp, diagnostics);
+                        if (document == null)
+                        {
+                            return false;
+                        }
+
+                        RevitDocumentIdentityResolver.Capture(document, diagnostics);
+                        return true;
+                    });
                 if (!hasActiveDocument)
                 {
                     return new BimStatusResponse
@@ -81,14 +91,11 @@ namespace RookBim.Revit
             return ExecuteInDocumentContext(
                 diagnostics,
                 "active_document",
-                (uidoc, document) =>
+                (uidoc, document, evidence) =>
                 {
                     return BimApiResponse.Ok(new ActiveDocumentResult
                     {
-                        Document = RevitIdentitySerializer.DocumentIdentity(
-                            document,
-                            diagnostics,
-                            includeAuxiliaryState: true),
+                        Document = RevitDocumentIdentityResolver.ProjectDocument(evidence),
                         View = SerializeActiveView(uidoc, diagnostics)
                     });
                 });
@@ -100,11 +107,16 @@ namespace RookBim.Revit
             return ExecuteInDocumentContext(
                 diagnostics,
                 "query_elements",
-                (uidoc, document) =>
+                (uidoc, document, evidence) =>
                 {
                     var view = ResolveActiveGraphicalView(
                         uidoc, effectiveRequest.EffectiveScope, diagnostics);
-                    return query.Query(document, view, effectiveRequest, diagnostics);
+                    return query.Execute(
+                        document,
+                        view,
+                        effectiveRequest,
+                        evidence,
+                        diagnostics).Response;
                 });
         }
 
@@ -113,139 +125,78 @@ namespace RookBim.Revit
             return ExecuteInDocumentContext(
                 diagnostics,
                 "list_categories",
-                (_uidoc, document) => BimApiResponse.Ok(categories.List(document, diagnostics)));
+                (_uidoc, document, evidence) =>
+                    BimApiResponse.Ok(categories.List(document, evidence, diagnostics)));
         }
 
         public BimApiResponse ElementInfo(BimDiagnosticContext diagnostics, BimElementRequest request)
         {
-            try
-            {
-                return Dispatch(diagnostics, uiapp =>
+            return ExecuteInDocumentContext(
+                diagnostics,
+                "element_info",
+                (_uidoc, document, evidence) =>
                 {
-                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
-                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
-                    {
-                        return BimApiResponse.Fail(
-                            BimErrorCode.NoActiveDocument,
-                            "No active Revit document is open.",
-                            409);
-                    }
-
-                    var document = AcquireDocument(uidoc, diagnostics)!;
-                    var resolved = ResolveElementOrFailure(document, request?.Identity);
+                    var resolved = ResolveElementOrFailure(
+                        evidence,
+                        request?.Identity,
+                        diagnostics);
                     if (!resolved.Success)
                     {
                         return BimApiResponse.Fail(
                             resolved.ErrorCode,
                             resolved.Message ?? "Element identity did not resolve in the active Revit document.",
-                            ResolveHttpStatus(resolved.ErrorCode));
+                            RevitDocumentIdentityResolver.HttpStatusFor(resolved.ErrorCode));
                     }
 
-                    return BimApiResponse.Ok(BuildElementInfo(document, resolved.Element!));
+                    return BimApiResponse.Ok(
+                        BuildElementInfo(document, evidence, resolved.Element!));
                 });
-            }
-            catch (Exception ex)
-            {
-                return BimApiResponse.Fail(
-                    BimErrorCode.NotRhinoInside,
-                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
-                    503);
-            }
         }
 
         public BimApiResponse ElementParameters(BimDiagnosticContext diagnostics, BimElementRequest request)
         {
-            try
-            {
-                return Dispatch(diagnostics, uiapp =>
+            return ExecuteInDocumentContext(
+                diagnostics,
+                "element_parameters",
+                (_uidoc, _document, evidence) =>
                 {
-                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
-                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
-                    {
-                        return BimApiResponse.Fail(
-                            BimErrorCode.NoActiveDocument,
-                            "No active Revit document is open.",
-                            409);
-                    }
-
-                    var document = AcquireDocument(uidoc, diagnostics)!;
-                    var resolved = ResolveElementOrFailure(document, request?.Identity);
+                    var resolved = ResolveElementOrFailure(
+                        evidence,
+                        request?.Identity,
+                        diagnostics);
                     if (!resolved.Success)
                     {
                         return BimApiResponse.Fail(
                             resolved.ErrorCode,
                             resolved.Message ?? "Element identity did not resolve in the active Revit document.",
-                            ResolveHttpStatus(resolved.ErrorCode));
+                            RevitDocumentIdentityResolver.HttpStatusFor(resolved.ErrorCode));
                     }
 
                     return BimApiResponse.Ok(new
                     {
-                        identity = RevitIdentitySerializer.ElementIdentity(resolved.Element!),
+                        identity = RevitDocumentIdentityResolver.ProjectElement(
+                            evidence,
+                            resolved.Element!),
                         parameters = RevitParameterSerializer.Serialize(resolved.Element!)
                     });
                 });
-            }
-            catch (Exception ex)
-            {
-                return BimApiResponse.Fail(
-                    BimErrorCode.NotRhinoInside,
-                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
-                    503);
-            }
         }
 
         public BimApiResponse SelectElements(BimDiagnosticContext diagnostics, BimSelectElementsRequest request)
         {
-            try
-            {
-                return Dispatch(diagnostics, uiapp =>
-                {
-                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
-                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
-                    {
-                        return BimApiResponse.Fail(
-                            BimErrorCode.NoActiveDocument,
-                            "No active Revit document is open.",
-                            409);
-                    }
-
-                    return selection.Select(uidoc, request);
-                });
-            }
-            catch (Exception ex)
-            {
-                return BimApiResponse.Fail(
-                    BimErrorCode.NotRhinoInside,
-                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
-                    503);
-            }
+            return ExecuteInDocumentContext(
+                diagnostics,
+                "select_elements",
+                (uidoc, _document, evidence) =>
+                    selection.Select(uidoc, evidence, request, diagnostics));
         }
 
         public BimApiResponse ClearSelection(BimDiagnosticContext diagnostics)
         {
-            try
-            {
-                return Dispatch(diagnostics, uiapp =>
-                {
-                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
-                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
-                    {
-                        return BimApiResponse.Fail(
-                            BimErrorCode.NoActiveDocument,
-                            "No active Revit document is open.",
-                            409);
-                    }
-
-                    return selection.Clear(uidoc);
-                });
-            }
-            catch (Exception ex)
-            {
-                return BimApiResponse.Fail(
-                    BimErrorCode.NotRhinoInside,
-                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
-                    503);
-            }
+            return ExecuteInDocumentContext(
+                diagnostics,
+                "clear_selection",
+                (uidoc, _document, evidence) => selection.Clear(uidoc, evidence));
         }
 
         public BimApiResponse ExportPreset(BimDiagnosticContext diagnostics, BimExportPresetRequest request)
@@ -262,17 +213,11 @@ namespace RookBim.Revit
                     validation.ErrorCode, validation.Message ?? "export-preset validation failed.", 400);
             }
 
-            try
-            {
-                return DispatchWithTimeout(diagnostics, uiapp =>
+            return ExecuteInDocumentContext(
+                diagnostics,
+                "export_preset",
+                (uidoc, document, evidence) =>
                 {
-                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
-                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
-                    {
-                        return BimApiResponse.Fail(BimErrorCode.NoActiveDocument, "No active Revit document is open.", 409);
-                    }
-
-                    var document = AcquireDocument(uidoc, diagnostics)!;
                     try
                     {
                         var view = ResolveActiveGraphicalView(
@@ -281,6 +226,7 @@ namespace RookBim.Revit
                             document,
                             view,
                             request,
+                            evidence,
                             diagnostics);
                         if (resolution.Failure != null)
                         {
@@ -299,6 +245,7 @@ namespace RookBim.Revit
 
                         return export.ExportResolved(
                             document,
+                            evidence,
                             resolution.Elements,
                             resolution.Truncated,
                             resolution.RequestedCount,
@@ -313,15 +260,8 @@ namespace RookBim.Revit
                             $"RookBIM preset export failed inside the Revit document context: {DescribeDispatchException(ex)}",
                             500);
                     }
-                }, ExportDispatchTimeout);
-            }
-            catch (Exception ex)
-            {
-                return BimApiResponse.Fail(
-                    BimErrorCode.NotRhinoInside,
-                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
-                    503);
-            }
+                },
+                ExportDispatchTimeout);
         }
 
         public BimApiResponse ExportElements(BimDiagnosticContext diagnostics, BimExportElementsRequest request)
@@ -338,24 +278,23 @@ namespace RookBim.Revit
                     validation.ErrorCode, validation.Message ?? "export-elements validation failed.", 400);
             }
 
-            try
-            {
-                return DispatchWithTimeout(diagnostics, uiapp =>
+            return ExecuteInDocumentContext(
+                diagnostics,
+                "export_elements",
+                (uidoc, document, evidence) =>
                 {
-                    var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
-                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
-                    {
-                        return BimApiResponse.Fail(BimErrorCode.NoActiveDocument, "No active Revit document is open.", 409);
-                    }
-
-                    var document = AcquireDocument(uidoc, diagnostics)!;
                     try
                     {
                         var view = request.HasSelector
                             ? ResolveActiveGraphicalView(
                                 uidoc, request.Selector!.EffectiveScope, diagnostics)
                             : null;
-                        return export.Export(document, view, request);
+                        return export.Export(
+                            document,
+                            view,
+                            request,
+                            evidence,
+                            diagnostics);
                     }
                     catch (Exception ex)
                     {
@@ -364,15 +303,8 @@ namespace RookBim.Revit
                             $"RookBIM export failed inside the Revit document context: {DescribeDispatchException(ex)}",
                             500);
                     }
-                }, ExportDispatchTimeout);
-            }
-            catch (Exception ex)
-            {
-                return BimApiResponse.Fail(
-                    BimErrorCode.NotRhinoInside,
-                    $"RookBIM could not enter the Revit API context: {DescribeDispatchException(ex)}",
-                    503);
-            }
+                },
+                ExportDispatchTimeout);
         }
 
         private T Dispatch<T>(
@@ -409,14 +341,18 @@ namespace RookBim.Revit
         private BimApiResponse ExecuteInDocumentContext(
             BimDiagnosticContext diagnostics,
             string operation,
-            Func<UIDocument, Document, BimApiResponse> work)
+            Func<UIDocument, Document, RevitDocumentIdentityEvidence, BimApiResponse> work,
+            TimeSpan? timeout = null)
         {
             try
             {
-                return Dispatch(diagnostics, uiapp =>
+                Func<UIApplication, BimApiResponse> callback = uiapp =>
                 {
                     var uidoc = AcquireActiveUiDocument(uiapp, diagnostics);
-                    if (uidoc == null || AcquireDocument(uidoc, diagnostics) == null)
+                    var document = uidoc == null
+                        ? null
+                        : AcquireDocument(uidoc, diagnostics);
+                    if (uidoc == null || document == null)
                     {
                         return BimApiResponse.Fail(
                             BimErrorCode.NoActiveDocument,
@@ -424,9 +360,12 @@ namespace RookBim.Revit
                             409);
                     }
 
+                    var evidence = RevitDocumentIdentityResolver.Capture(
+                        document,
+                        diagnostics);
                     try
                     {
-                        return work(uidoc, AcquireDocument(uidoc, diagnostics)!);
+                        return work(uidoc, document, evidence);
                     }
                     catch (Exception ex)
                     {
@@ -441,7 +380,11 @@ namespace RookBim.Revit
                         };
                         return response;
                     }
-                });
+                };
+
+                return timeout.HasValue
+                    ? DispatchWithTimeout(diagnostics, callback, timeout.Value)
+                    : Dispatch(diagnostics, callback);
             }
             catch (Exception ex)
             {
@@ -488,7 +431,7 @@ namespace RookBim.Revit
         {
             var view = ResolveActiveGraphicalView(
                 uidoc, BimQueryScope.ActiveView, diagnostics);
-            return view == null ? null : RevitIdentitySerializer.ViewIdentity(view);
+            return view == null ? null : RevitViewIdentitySerializer.ViewIdentity(view);
         }
 
         private static UIDocument? AcquireActiveUiDocument(
@@ -540,17 +483,27 @@ namespace RookBim.Revit
         }
 
         private static BimElementResolveResult ResolveElementOrFailure(
-            Document document,
-            BimElementIdentity? identity)
+            RevitDocumentIdentityEvidence evidence,
+            BimElementIdentity? identity,
+            BimDiagnosticContext diagnostics)
         {
-            return RevitIdentitySerializer.Resolve(document, identity);
+            var preflight = RevitDocumentIdentityResolver.PreflightBatch(
+                evidence,
+                new BimElementIdentity?[] { identity },
+                diagnostics);
+            return preflight.Success
+                ? RevitDocumentIdentityResolver.ResolveAfterPreflight(evidence, identity!)
+                : preflight;
         }
 
-        private static object BuildElementInfo(Document document, Element element)
+        private static object BuildElementInfo(
+            Document document,
+            RevitDocumentIdentityEvidence evidence,
+            Element element)
         {
             return new
             {
-                identity = RevitIdentitySerializer.ElementIdentity(element),
+                identity = RevitDocumentIdentityResolver.ProjectElement(evidence, element),
                 name = NullIfWhiteSpace(element.Name),
                 category = new BimCategorySummary
                 {
@@ -580,20 +533,6 @@ namespace RookBim.Revit
                     type.get_Parameter(BuiltInParameter.SYMBOL_FAMILY_NAME_PARAM)?.AsString()),
                 Name = NullIfWhiteSpace(type.Name)
             };
-        }
-
-        private static int ResolveHttpStatus(BimErrorCode code)
-        {
-            switch (code)
-            {
-                case BimErrorCode.DocumentMismatch:
-                case BimErrorCode.LinkedElementUnsupported:
-                    return 409;
-                case BimErrorCode.ElementNotFound:
-                    return 404;
-                default:
-                    return 400;
-            }
         }
 
         private static string? NullIfWhiteSpace(string? value)

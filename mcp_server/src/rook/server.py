@@ -428,6 +428,15 @@ def _rookbim_identity_schema() -> dict[str, Any]:
         "type": "object",
         "properties": {
             "source": {"const": "revit"},
+            "documentKey": {"type": ["string", "null"]},
+            "documentKeySource": {
+                "type": "string",
+                "enum": [
+                    "revit_creation_guid_central_path_v1",
+                    "revit_creation_guid_document_path_v1",
+                    "unavailable",
+                ],
+            },
             "documentGuid": {"type": ["string", "null"]},
             "documentGuidSource": {
                 "type": "string",

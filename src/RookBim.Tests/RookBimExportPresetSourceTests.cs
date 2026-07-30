@@ -30,17 +30,21 @@ namespace RookBim.Tests
         }
 
         [Fact]
-        public void PresetResolver_LoopsCategoriesUnionsByIdentityAndDegradesGracefully()
+        public void PresetResolver_LoopsCategoriesUsesTrustedLiveElementsAndDegradesGracefully()
         {
             var src = Read("src/RookBim/Revit/RevitPresetResolver.cs");
+            var resolve = ExtractExecutableMember(
+                src,
+                "internal sealed class RevitPresetResolver",
+                "public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request, RevitDocumentIdentityEvidence evidence, BimDiagnosticContext diagnostics)");
 
             // Reuses the existing single-category query path per category.
             Assert.Contains("RevitQueryService", src);
             Assert.Contains("BimPresetCatalog.TryGet", src);
 
-            // Dedup by document GUID + unique id, not display name.
-            Assert.Contains("documentGuid", src);
-            Assert.Contains("UniqueId", src);
+            // Same-operation elements are owner-checked, then deduplicated by the live ElementId.
+            RookBimModuleSourceTests.AssertPresetTrustedElementFlow(resolve);
+            Assert.DoesNotContain("RevitIdentitySerializer", src);
 
             // include/exclude overrides.
             Assert.Contains("IncludeCategories", src);
@@ -56,6 +60,49 @@ namespace RookBim.Tests
 
             // Read-only.
             Assert.DoesNotContain("Transaction", src);
+        }
+
+        [Fact]
+        public void PresetTrustedElementGuardRejectsWrongScopeAndCommentOnlyOwnerOrDedupEvidence()
+        {
+            const string decoy = @"
+public RevitPresetResolution Resolve()
+{
+    // var seen = new HashSet<long>();
+    var literal = ""RevitDocumentIdentityResolver.IsSameDocument(element.Document, evidence.Owner) execution.Elements HashSet<long>"";
+    foreach (var element in result.Elements)
+    {
+        var elementId = element.Id.Value;
+        ordered.Add(element);
+    }
+    return result;
+}";
+            var source = Read("src/RookBim/Revit/RevitPresetResolver.cs");
+            var resolve = ExtractExecutableMember(
+                source,
+                "internal sealed class RevitPresetResolver",
+                "public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request, RevitDocumentIdentityEvidence evidence, BimDiagnosticContext diagnostics)");
+            var wrongCollection = RookBimModuleSourceTests.ReplaceSingle(
+                resolve,
+                "execution.Elements",
+                "result.Elements");
+            var wrongOwner = RookBimModuleSourceTests.ReplaceSingle(
+                resolve,
+                "evidence.Owner",
+                "document");
+            var missingDedup = RookBimModuleSourceTests.ReplaceSingle(
+                resolve,
+                "seen.Add(elementId)",
+                "seen.Contains(elementId)");
+
+            Assert.ThrowsAny<Exception>(() =>
+                RookBimModuleSourceTests.AssertPresetTrustedElementFlow(decoy));
+            Assert.ThrowsAny<Exception>(() =>
+                RookBimModuleSourceTests.AssertPresetTrustedElementFlow(wrongCollection));
+            Assert.ThrowsAny<Exception>(() =>
+                RookBimModuleSourceTests.AssertPresetTrustedElementFlow(wrongOwner));
+            Assert.ThrowsAny<Exception>(() =>
+                RookBimModuleSourceTests.AssertPresetTrustedElementFlow(missingDedup));
         }
 
         [Fact]
@@ -75,7 +122,7 @@ namespace RookBim.Tests
             var resolve = ExtractExecutableMember(
                 preset,
                 "internal sealed class RevitPresetResolver",
-                "public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request, BimDiagnosticContext diagnostics)");
+                "public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request, RevitDocumentIdentityEvidence evidence, BimDiagnosticContext diagnostics)");
             var exportPreset = ExtractExecutableMember(
                 runtime,
                 "public sealed class RevitRookBimRuntime : IRookBimRuntime",
@@ -83,10 +130,11 @@ namespace RookBim.Tests
 
             AssertSingleInvocationArguments(
                 resolve,
-                "query.Query",
+                "query.Execute",
                 "document",
                 "activeView",
                 "selector",
+                "evidence",
                 "diagnostics");
             AssertSingleInvocationArguments(
                 exportPreset,
@@ -94,48 +142,8 @@ namespace RookBim.Tests
                 "document",
                 "view",
                 "request",
+                "evidence",
                 "diagnostics");
-        }
-
-        [Fact]
-        public void QueryAndPresetExportIdentityPathsRemainUntraced()
-        {
-            var query = Read("src/RookBim/Revit/RevitQueryService.cs");
-            var preset = Read("src/RookBim/Revit/RevitPresetResolver.cs");
-            var export = Read("src/RookBim/Revit/RevitExportService.cs");
-            var buildResult = ExtractExecutableMember(
-                query,
-                "internal sealed class RevitQueryService",
-                "private static BimQueryElementsResult BuildResult(Document document, View? activeView, BimQueryElementsRequest request, IReadOnlyCollection<Element> elements, bool truncated, Dictionary<string, int> missingCounts, BimCategoryResolution? categoryResolution)");
-            var resolve = ExtractExecutableMember(
-                preset,
-                "internal sealed class RevitPresetResolver",
-                "public RevitPresetResolution Resolve(Document document, View? activeView, BimExportPresetRequest request, BimDiagnosticContext diagnostics)");
-            var buildSidecar = ExtractExecutableMember(
-                export,
-                "internal sealed class RevitExportService",
-                "private object BuildSidecar(Document document, BimExportElementsRequest request, IReadOnlyList<Element> elements, bool truncated, List<object> elementRecords, List<object> roomRecords, RevitPresetContext? presetContext)");
-            var buildValidation = ExtractExecutableMember(
-                export,
-                "internal sealed class RevitExportService",
-                "private object BuildValidation(Document document, BimExportCounts counts, double scale, string targetUnits, BimExportArtifactPaths paths, string sidecarJson, RevitPresetContext? presetContext, object? summary, RevitRelationshipIndex relationships, object? modelAudit)");
-
-            AssertSingleInvocationArguments(
-                buildResult,
-                "RevitIdentitySerializer.DocumentIdentity",
-                "document");
-            AssertSingleInvocationArguments(
-                resolve,
-                "RevitIdentitySerializer.DocumentIdentity",
-                "document");
-            AssertSingleInvocationArguments(
-                buildSidecar,
-                "RevitIdentitySerializer.DocumentIdentity",
-                "document");
-            AssertSingleInvocationArguments(
-                buildValidation,
-                "RevitIdentitySerializer.DocumentIdentity",
-                "document");
         }
 
         [Fact]
@@ -208,6 +216,7 @@ namespace RookBim.Tests
                 "document",
                 "view",
                 "request",
+                "evidence",
                 "diagnostics");
         }
 

@@ -18,6 +18,7 @@ namespace RookBim.Revit
             Document document,
             View? activeView,
             BimExportPresetRequest request,
+            RevitDocumentIdentityEvidence evidence,
             BimDiagnosticContext diagnostics)
         {
             if (!BimPresetCatalog.TryGet(request.Preset, out var definition))
@@ -61,9 +62,8 @@ namespace RookBim.Revit
                 EffectiveCategories = categories.ToList(),
             };
 
-            // Dedup by (documentGuid, uniqueId); first category to surface an element wins ordering.
-            var documentGuid = RevitIdentitySerializer.DocumentIdentity(document).Guid ?? string.Empty;
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            // First category to surface a same-operation live element wins ordering.
+            var seen = new HashSet<long>();
             var ordered = new List<Element>();
             var totalResolved = 0;
 
@@ -76,7 +76,8 @@ namespace RookBim.Revit
                     Limit = limitPerCategory,
                 };
 
-                var response = query.Query(document, activeView, selector, diagnostics);
+                var execution = query.Execute(document, activeView, selector, evidence, diagnostics);
+                var response = execution.Response;
                 if (!response.Success || !(response.Data is BimQueryElementsResult result))
                 {
                     // Unknown/unqueryable category in THIS model degrades to a warning, not a failure.
@@ -103,20 +104,20 @@ namespace RookBim.Revit
                     return RevitPresetResolution.Fail(failure);
                 }
 
-                var categoryCount = 0;
-                foreach (var summary in result.Elements)
+                foreach (var element in execution.Elements)
                 {
-                    var resolved = RevitIdentitySerializer.Resolve(document, summary.Identity);
-                    if (!resolved.Success || resolved.Element == null)
+                    if (!RevitDocumentIdentityResolver.IsSameDocument(element.Document, evidence.Owner))
                     {
-                        continue;
+                        return RevitPresetResolution.Fail(BimApiResponse.Fail(
+                            BimErrorCode.ExportFailed,
+                            "Preset query returned an element outside the captured document.",
+                            500));
                     }
 
-                    var dedupKey = documentGuid + "|" + resolved.Element.UniqueId;
-                    if (seen.Add(dedupKey))
+                    var elementId = element.Id.Value;
+                    if (seen.Add(elementId))
                     {
-                        ordered.Add(resolved.Element);
-                        categoryCount++;
+                        ordered.Add(element);
                     }
                 }
 

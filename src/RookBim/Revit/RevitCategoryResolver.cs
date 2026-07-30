@@ -13,15 +13,13 @@ namespace RookBim.Revit
 
         public BimListCategoriesResult List(
             Document document,
+            RevitDocumentIdentityEvidence evidence,
             BimDiagnosticContext diagnostics)
         {
             var table = LiveCategories(document, diagnostics);
             return new BimListCategoriesResult
             {
-                Document = RevitIdentitySerializer.DocumentIdentity(
-                    document,
-                    diagnostics,
-                    includeAuxiliaryState: false),
+                Document = RevitDocumentIdentityResolver.ProjectDocument(evidence),
                 SkippedCount = table.SkippedCount,
                 DegradedCount = table.DegradedCount,
                 Diagnostics = table.Diagnostics,
@@ -35,6 +33,7 @@ namespace RookBim.Revit
         public BimCategoryResolution Resolve(
             Document document,
             string? input,
+            RevitDocumentIdentityEvidence evidence,
             BimDiagnosticContext diagnostics)
         {
             var entries = LiveCategories(document, diagnostics).Entries;
@@ -42,10 +41,7 @@ namespace RookBim.Revit
             {
                 Input = input,
                 NormalizedInput = Normalize(input),
-                Document = RevitIdentitySerializer.DocumentIdentity(
-                    document,
-                    diagnostics,
-                    includeAuxiliaryState: false)
+                Document = RevitDocumentIdentityResolver.ProjectDocument(evidence)
             };
 
             if (string.IsNullOrWhiteSpace(input))

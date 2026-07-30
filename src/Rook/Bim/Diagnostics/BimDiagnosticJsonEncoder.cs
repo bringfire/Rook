@@ -164,6 +164,20 @@ namespace Rook.Bim
                     return "cloud";
                 case BimDiagnosticDetailCode.Detached:
                     return "detached";
+                case BimDiagnosticDetailCode.FileWorkshared:
+                    return "file_workshared";
+                case BimDiagnosticDetailCode.SavedProject:
+                    return "saved_project";
+                case BimDiagnosticDetailCode.Family:
+                    return "family";
+                case BimDiagnosticDetailCode.Match:
+                    return "match";
+                case BimDiagnosticDetailCode.Mismatch:
+                    return "mismatch";
+                case BimDiagnosticDetailCode.Unavailable:
+                    return "unavailable";
+                case BimDiagnosticDetailCode.InvalidEvidence:
+                    return "invalid_evidence";
                 case BimDiagnosticDetailCode.Unknown:
                     return "unknown";
                 case BimDiagnosticDetailCode.ProbeFailure:
@@ -291,6 +305,18 @@ namespace Rook.Bim
                     return "revit.document.model_path_server";
                 case BimDiagnosticStage.RevitDocumentModelPathCloud:
                     return "revit.document.model_path_cloud";
+                case BimDiagnosticStage.RevitDocumentIdentityClassify:
+                    return "revit.document.identity_classify";
+                case BimDiagnosticStage.RevitDocumentCreationGuid:
+                    return "revit.document.creation_guid";
+                case BimDiagnosticStage.RevitDocumentModelPathConvert:
+                    return "revit.document.model_path_convert";
+                case BimDiagnosticStage.RevitDocumentPathCanonicalize:
+                    return "revit.document.path_canonicalize";
+                case BimDiagnosticStage.RevitDocumentKeySource:
+                    return "revit.document.key_source";
+                case BimDiagnosticStage.RevitDocumentIdentityCompare:
+                    return "revit.document.identity_compare";
                 case BimDiagnosticStage.RevitCategoriesSettings:
                     return "revit.categories.settings";
                 case BimDiagnosticStage.RevitCategoriesCollection:
