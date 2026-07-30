@@ -78,7 +78,7 @@ claim that scripted receipts prove real compilation.
 - Consumes: `get_models()`, `discover_instances()`, `ToolDispatcher`, `build_local_tools()`, `LiteLLMWorkerTransport`, `MinimalPlannerDraftAdapter`, and `run_minimal_intent_worker_integration()`.
 - Produces: `_ProfileRefusal`, `_TargetRefusal`, `_ResolvedRoles`, `_ResolvedRhinoTarget`, `_PreparedDocument`, `_RestrictedRealToolExecutor`, `_LiveRun`, `_run_live_once()`, and the first bounded successful summary path.
 
-- [ ] **Step 1: Create an importable skeleton and the behavioral vertical test**
+- [x] **Step 1: Create an importable skeleton and the behavioral vertical test**
 
 Create the operator script as this importable skeleton first:
 
@@ -240,7 +240,7 @@ class _ScriptedDispatcher:
                 "in the current context."
             )
             return {
-                "success": True,
+                "success": False,
                 "data": {
                     "script_receipt": {
                         "version": 1,
@@ -391,7 +391,7 @@ and the exact Worker-authored body. Do not write a test that expects
 `NotImplementedError`; the missing behavior must make this desired-behavior
 test fail.
 
-- [ ] **Step 2: Run the vertical and verify the intended behavioral red**
+- [x] **Step 2: Run the vertical and verify the intended behavioral red**
 
 Run:
 
@@ -411,7 +411,7 @@ If collection, imports, monkeypatch setup, or scripted fixtures fail first,
 repair that test infrastructure and rerun until the behavioral assertion is
 the sole failure.
 
-- [ ] **Step 3: Add the script constants, exact types, and pure builders**
+- [x] **Step 3: Add the script constants, exact types, and pure builders**
 
 Create the script with the same repository-path bootstrap and fixed model
 construction constants as the synthetic sibling. Do not import that sibling.
@@ -575,7 +575,7 @@ The response schemas are rebuilt freshly by
 script owns this intentional operator-level duplication; it imports no private
 helper from the synthetic smoke.
 
-- [ ] **Step 4: Implement the happy-path target, preparation, and restricted executor**
+- [x] **Step 4: Implement the happy-path target, preparation, and restricted executor**
 
 Add pure target validation:
 
@@ -720,7 +720,7 @@ class _RestrictedRealToolExecutor:
 The executor records a legitimate dispatch attempt before awaiting it. It
 must not append anything for a port, shape, or prefix refusal.
 
-- [ ] **Step 5: Implement the happy-path live composition**
+- [x] **Step 5: Implement the happy-path live composition**
 
 Construct the dispatcher and finish preparation before constructing either
 model transport:
@@ -789,7 +789,7 @@ completed = (
 All other returned native results use `failed / native_stop`; Task 3 hardens
 redaction and all summary states.
 
-- [ ] **Step 6: Rerun the walking vertical green**
+- [x] **Step 6: Rerun the walking vertical green**
 
 Use the test and monkeypatches already established in Step 1, in order:
 
@@ -814,7 +814,9 @@ Run:
 
 Expected: `1 passed`; no external contact.
 
-- [ ] **Step 7: Run the inherited compositor seam**
+Observed during Task 1: `1 passed in 1.80s`; no external contact.
+
+- [x] **Step 7: Run the inherited compositor seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -825,7 +827,10 @@ Expected: `1 passed`; no external contact.
 
 Expected: all selected tests pass.
 
-- [ ] **Step 8: Commit Task 1 and stop for a vertical review checkpoint**
+Observed with the new vertical included: `194 passed in 2.45s`; both new
+files also passed `compileall`, and `git diff --check` was clean.
+
+- [x] **Step 8: Commit Task 1 and stop for a vertical review checkpoint**
 
 ```powershell
 git add scripts/minimal_intent_worker_real_compile_smoke.py `
