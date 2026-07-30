@@ -897,3 +897,423 @@ def test_post_preparation_exception_retains_verified_document_state(
     assert summary["worker_adapter_status"] is None
     assert "POST_PREPARATION_SENTINEL" not in json.dumps(summary)
     assert len(dispatcher.calls) == 3
+
+
+class _RecordingDispatch:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.fail_if_called = False
+
+    async def __call__(
+        self,
+        name: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.fail_if_called:
+            raise AssertionError("rejected tool call reached dispatcher")
+        self.calls.append((name, copy.deepcopy(params)))
+        return {}
+
+
+def _roles() -> Any:
+    return SMOKE._ResolvedRoles(
+        profile="hybrid",
+        planner_model="anthropic/claude-opus-4-6",
+        worker_model="ollama_chat/qwen3-coder:30b-a3b-q8_0",
+        profile_api_base=None,
+    )
+
+
+async def _run_scripted_worker(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_payload: Mapping[str, Any],
+    *,
+    planner_payload: Mapping[str, Any] | None = None,
+    dispatcher_type: type[Any] = _ScriptedDispatcher,
+) -> Any:
+    monkeypatch.setattr(SMOKE, "ToolDispatcher", dispatcher_type)
+    monkeypatch.setattr(
+        SMOKE,
+        "build_local_tools",
+        lambda: {
+            "gh_create_csharp_script": object(),
+            "gh_update_script": object(),
+        },
+    )
+    transports = iter(
+        (
+            _RawTransport(
+                _planner_payload() if planner_payload is None else planner_payload
+            ),
+            _RawTransport(worker_payload),
+        )
+    )
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+    return await SMOKE._run_live_once(
+        _roles(),
+        SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix_length", [0, 1, 2])
+async def test_restricted_executor_accepts_each_legitimate_prefix(
+    prefix_length: int,
+) -> None:
+    dispatch = _RecordingDispatch()
+    executor = SMOKE._RestrictedRealToolExecutor(dispatch)
+    calls = [
+        ("gh_create_csharp_script", {"create": "parameters"}),
+        ("gh_update_script", {"update": "parameters"}),
+    ]
+
+    for name, params in calls[:prefix_length]:
+        await executor(name, params)
+
+    assert executor.call_names == tuple(name for name, _params in calls[:prefix_length])
+    assert dispatch.calls == calls[:prefix_length]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prefix", "attempted_tool"),
+    [
+        ((), "gh_update_script"),
+        (("gh_create_csharp_script",), "gh_create_csharp_script"),
+        (
+            ("gh_create_csharp_script", "gh_update_script"),
+            "gh_update_script",
+        ),
+        ((), "gh_status"),
+        (
+            ("gh_create_csharp_script", "gh_update_script"),
+            "gh_create_csharp_script",
+        ),
+        (("gh_create_csharp_script", "gh_update_script"), "gh_status"),
+    ],
+)
+async def test_restricted_executor_rejects_sequence_changes_without_mutation(
+    prefix: tuple[str, ...],
+    attempted_tool: str,
+) -> None:
+    dispatch = _RecordingDispatch()
+    executor = SMOKE._RestrictedRealToolExecutor(dispatch)
+    for name in prefix:
+        await executor(name, {"accepted": name})
+    before_executor = executor.call_names
+    before_dispatch = copy.deepcopy(dispatch.calls)
+    dispatch.fail_if_called = True
+
+    with pytest.raises(ValueError, match="restricted tool sequence differs"):
+        await executor(attempted_tool, {"rejected": attempted_tool})
+
+    assert executor.call_names == before_executor
+    assert dispatch.calls == before_dispatch
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["gh_create_csharp_script", "gh_update_script"])
+@pytest.mark.parametrize("port_value", [12345, None, 0, object()])
+async def test_per_call_port_override_never_reaches_dispatcher(
+    tool_name: str,
+    port_value: object,
+) -> None:
+    dispatch = _RecordingDispatch()
+    executor = SMOKE._RestrictedRealToolExecutor(dispatch)
+    if tool_name == "gh_update_script":
+        await executor("gh_create_csharp_script", {"accepted": "create"})
+    before_executor = executor.call_names
+    before_dispatch = copy.deepcopy(dispatch.calls)
+    dispatch.fail_if_called = True
+
+    with pytest.raises(ValueError, match="parameters contain port"):
+        await executor(tool_name, {"port": port_value})
+
+    assert executor.call_names == before_executor
+    assert dispatch.calls == before_dispatch
+
+
+@pytest.mark.asyncio
+async def test_worker_refusal_preserves_legitimate_create_only_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    live_run = await _run_scripted_worker(
+        monkeypatch,
+        {
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "refusal",
+            "category": "insufficient_context",
+            "reason": "A repair cannot be determined.",
+        },
+    )
+
+    summary = SMOKE._summary_from_result(_roles(), live_run)
+
+    assert live_run.executor.call_names == ("gh_create_csharp_script",)
+    assert live_run.result.terminal_stage == "worker_disposition"
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "native_stop"
+    assert summary["execution_tool_calls"] == 1
+    assert summary["terminal_reason"] == "refusal_recorded"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix_length", [0, 1])
+async def test_native_terminal_requires_the_complete_executor_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+    prefix_length: int,
+) -> None:
+    terminal_run = await _run_scripted_worker(monkeypatch, _worker_payload())
+    dispatch = _RecordingDispatch()
+    executor = SMOKE._RestrictedRealToolExecutor(dispatch)
+    if prefix_length == 1:
+        await executor("gh_create_csharp_script", {"accepted": "create"})
+    mismatched_run = SMOKE._LiveRun(
+        result=terminal_run.result,
+        target=terminal_run.target,
+        preparation=terminal_run.preparation,
+        executor=executor,
+    )
+
+    with pytest.raises(RuntimeError, match="executor prefix differs"):
+        SMOKE._summary_from_result(_roles(), mismatched_run)
+
+
+def test_operator_summary_field_order_is_closed() -> None:
+    assert SMOKE._SUMMARY_FIELDS == (
+        "operator_status",
+        "operator_reason",
+        "intent",
+        "profile",
+        "planner_model",
+        "worker_model",
+        "rooknative_process_id",
+        "rooknative_port",
+        "document_preparation_status",
+        "preparation_tool_calls",
+        "planner_calls",
+        "worker_calls",
+        "execution_tool_calls",
+        "terminal_stage",
+        "terminal_reason",
+        "planner_adapter_status",
+        "worker_adapter_status",
+    )
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected"),
+    [
+        ("terminal_node_selected:done", "terminal_node_selected:done"),
+        ("refusal_recorded", "refusal_recorded"),
+        (
+            "response_payload_invalid:SENSITIVE_SENTINEL",
+            "worker_response_payload_invalid",
+        ),
+        ("SENSITIVE_SENTINEL", "native_reason_unclassified"),
+        (object(), "native_reason_unclassified"),
+    ],
+)
+def test_terminal_reason_projection_is_closed_and_bounded(
+    reason: object,
+    expected: str,
+) -> None:
+    projected = SMOKE._project_terminal_reason(reason)
+
+    assert projected == expected
+    assert "SENSITIVE_SENTINEL" not in projected
+
+
+@pytest.mark.asyncio
+async def test_malformed_worker_content_is_reduced_to_a_safe_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    malformed = _worker_payload()
+    malformed["SENSITIVE_SENTINEL"] = "untrusted worker content"
+    live_run = await _run_scripted_worker(monkeypatch, malformed)
+
+    summary = SMOKE._summary_from_result(_roles(), live_run)
+    serialized = json.dumps(summary, ensure_ascii=True, separators=(",", ":"))
+
+    assert summary["operator_status"] == "failed"
+    assert summary["terminal_reason"] == "worker_response_payload_invalid"
+    assert "SENSITIVE_SENTINEL" not in serialized
+    assert "untrusted worker content" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_planner_response_content_is_not_exported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    malformed = _planner_payload()
+    malformed["SENSITIVE_SENTINEL"] = "untrusted Planner content"
+    live_run = await _run_scripted_worker(
+        monkeypatch,
+        _worker_payload(),
+        planner_payload=malformed,
+    )
+
+    summary = SMOKE._summary_from_result(_roles(), live_run)
+    serialized = json.dumps(summary, ensure_ascii=True, separators=(",", ":"))
+
+    assert live_run.executor.call_names == ()
+    assert summary["terminal_reason"] == "draft_payload_rejected"
+    assert "SENSITIVE_SENTINEL" not in serialized
+    assert "untrusted Planner content" not in serialized
+
+
+def test_summary_emission_refuses_additional_fields(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    summary = SMOKE._bounded_summary(
+        operator_status="refused",
+        operator_reason="live_execution_not_requested",
+    )
+    summary["SENSITIVE_SENTINEL"] = "untrusted"
+
+    with pytest.raises(RuntimeError, match="summary fields differ"):
+        SMOKE._emit_summary(summary)
+
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "worker_payload",
+    [
+        {
+            **_worker_payload(),
+            "rationale": "SENSITIVE_SENTINEL worker rationale",
+        },
+        _worker_payload("SENSITIVE_SENTINEL worker code"),
+    ],
+)
+async def test_worker_rationale_and_code_do_not_enter_the_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    worker_payload: Mapping[str, Any],
+) -> None:
+    live_run = await _run_scripted_worker(monkeypatch, worker_payload)
+
+    serialized = json.dumps(
+        SMOKE._summary_from_result(_roles(), live_run),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+    assert "SENSITIVE_SENTINEL" not in serialized
+
+
+def test_discovery_metadata_does_not_enter_the_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(
+        SMOKE,
+        "discover_instances",
+        lambda: [
+            {
+                **_native_row(),
+                "metadata": "SENSITIVE_SENTINEL discovery metadata",
+            }
+        ],
+    )
+
+    async def fail_preparation(*_args: Any, **_kwargs: Any) -> None:
+        raise SMOKE._PreparationFailure(
+            "pre_status_rejected",
+            "status_rejected",
+            1,
+        )
+
+    monkeypatch.setattr(SMOKE, "_run_live_once", fail_preparation)
+
+    _exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert "SENSITIVE_SENTINEL" not in json.dumps(summary)
+
+
+class _SensitiveReceiptDispatcher(_ScriptedDispatcher):
+    async def dispatch(self, name: str, params: dict[str, Any]) -> dict[str, Any]:
+        captured = copy.deepcopy(params)
+        self.calls.append((name, captured))
+        index = len(self.calls)
+        if index == 1 and name == "gh_status" and captured == {}:
+            return _status(_PRE_DOCUMENT_ID)
+        if index == 2 and name == "gh_document_new" and captured == {}:
+            return {"success": True, "data": {"Created": True}}
+        if index == 3 and name == "gh_status" and captured == {}:
+            return _status(_POST_DOCUMENT_ID)
+        if index == 4 and name == "gh_create_csharp_script":
+            return {
+                "success": False,
+                "data": {
+                    "script_receipt": {
+                        "version": 1,
+                        "operation": "create",
+                        "language": "csharp",
+                        "artifact_status": "created_with_errors",
+                        "mutation": {
+                            "status": "created",
+                            "component_guid": "SENSITIVE_SENTINEL_GUID",
+                        },
+                        "verification": {
+                            "status": "failed",
+                            "target_error_count": 1,
+                        },
+                        "repair_anchor": {
+                            "component_guid": "SENSITIVE_SENTINEL_GUID",
+                            "language": "csharp",
+                            "target_errors": [
+                                "SENSITIVE_SENTINEL: DefinitelyMissingSymbol "
+                                "was not found."
+                            ],
+                        },
+                    }
+                },
+            }
+        if index == 5 and name == "gh_update_script":
+            assert captured["guid"] == "SENSITIVE_SENTINEL_GUID"
+            return {
+                "script_receipt": {
+                    "version": 1,
+                    "operation": "update",
+                    "language": "csharp",
+                    "artifact_status": "usable",
+                    "mutation": {
+                        "status": "written",
+                        "component_guid": "SENSITIVE_SENTINEL_GUID",
+                    },
+                    "verification": {
+                        "status": "passed",
+                        "target_error_count": 0,
+                    },
+                    "repair_anchor": {
+                        "component_guid": "SENSITIVE_SENTINEL_GUID",
+                        "language": "csharp",
+                        "target_errors": [],
+                    },
+                }
+            }
+        raise AssertionError(f"unexpected sensitive dispatch {index}: {name}")
+
+
+@pytest.mark.asyncio
+async def test_receipt_diagnostic_and_guid_do_not_enter_the_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    live_run = await _run_scripted_worker(
+        monkeypatch,
+        _worker_payload(),
+        dispatcher_type=_SensitiveReceiptDispatcher,
+    )
+
+    summary = SMOKE._summary_from_result(_roles(), live_run)
+    serialized = json.dumps(summary, ensure_ascii=True, separators=(",", ":"))
+
+    assert summary["operator_status"] == "completed"
+    assert "SENSITIVE_SENTINEL" not in serialized

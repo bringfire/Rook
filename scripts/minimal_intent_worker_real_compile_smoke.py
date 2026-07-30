@@ -65,6 +65,37 @@ _SUMMARY_FIELDS = (
     "planner_adapter_status",
     "worker_adapter_status",
 )
+_SAFE_TERMINAL_REASON_TOKENS = frozenset(
+    {
+        "clarification_needed",
+        "dispatch_failed",
+        "draft_payload_rejected",
+        "executed verifier step 'verify_create'",
+        "goal_mismatch",
+        "invalid_code",
+        "invalid_mode",
+        "observation_recorded",
+        "refusal_recorded",
+        "response_duplicate_key",
+        "response_invalid_json",
+        "response_nonfinite_number",
+        "response_not_object",
+        "response_not_string",
+        "response_not_utf8",
+        "response_too_large",
+        "response_trailing_content",
+        "selector_halt:none_ready",
+        "terminal_node_selected:done",
+        "transport_failed",
+        "unexpected_action_input_key",
+    }
+)
+_TERMINAL_REASON_CATEGORY_PREFIXES = (
+    ("transport_error:", "worker_transport_error"),
+    ("raw_output_invalid:", "worker_raw_output_invalid"),
+    ("response_payload_invalid:", "worker_response_payload_invalid"),
+    ("blocked:", "worker_response_blocked"),
+)
 
 _ArgumentDecision = Literal[
     "live_execution_not_requested",
@@ -78,6 +109,17 @@ _PreparationState = Literal[
     "document_new_started",
     "fresh_document_verified",
 ]
+
+
+def _project_terminal_reason(reason: object) -> str:
+    if type(reason) is not str:
+        return "native_reason_unclassified"
+    if reason in _SAFE_TERMINAL_REASON_TOKENS:
+        return reason
+    for prefix, category in _TERMINAL_REASON_CATEGORY_PREFIXES:
+        if reason.startswith(prefix):
+            return category
+    return "native_reason_unclassified"
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,12 +507,21 @@ def _summary_from_result(
         if handoff is not None and handoff.adapter_record is not None
         else None
     )
+    execution_prefix = live_run.executor.call_names
+    native_terminal = (
+        result.terminal_stage == "terminal"
+        and result.terminal_reason == "terminal_node_selected:done"
+    )
+    if native_terminal and execution_prefix != (
+        "gh_create_csharp_script",
+        "gh_update_script",
+    ):
+        raise RuntimeError("native terminal executor prefix differs")
     completed = (
         live_run.preparation.state == "fresh_document_verified"
-        and live_run.executor.call_names
+        and execution_prefix
         == ("gh_create_csharp_script", "gh_update_script")
-        and result.terminal_stage == "terminal"
-        and result.terminal_reason == "terminal_node_selected:done"
+        and native_terminal
     )
     return {
         "operator_status": "completed" if completed else "failed",
@@ -487,11 +538,9 @@ def _summary_from_result(
         "worker_calls": int(
             handoff is not None and handoff.adapter_record is not None
         ),
-        "execution_tool_calls": len(live_run.executor.call_names),
+        "execution_tool_calls": len(execution_prefix),
         "terminal_stage": result.terminal_stage,
-        "terminal_reason": (
-            result.terminal_reason if completed else "native_reason_unclassified"
-        ),
+        "terminal_reason": _project_terminal_reason(result.terminal_reason),
         "planner_adapter_status": result.planner_adapter_record.status,
         "worker_adapter_status": worker_status,
     }
@@ -591,7 +640,7 @@ def _operator_internal_error_summary(
 
 def _emit_summary(summary: dict[str, object]) -> None:
     if tuple(summary) != _SUMMARY_FIELDS:
-        raise ValueError("operator summary fields differ")
+        raise RuntimeError("operator summary fields differ")
     print(
         json.dumps(
             summary,

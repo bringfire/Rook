@@ -1215,7 +1215,7 @@ git commit -m "test: close real compile smoke preparation"
 - Consumes: Task 1's restricted executor and native integration result; Task 2's target and preparation carriers.
 - Produces: exact prefix enforcement, zero-dispatch port protection, complete summary validation, safe reason projection, and truthful incomplete-prefix handling.
 
-- [ ] **Step 1: Add exact restricted-prefix tests**
+- [x] **Step 1: Add exact restricted-prefix tests**
 
 Use a recording async dispatch callable. Prove these prefixes do not fail
 merely because they are incomplete:
@@ -1239,7 +1239,7 @@ recording dispatcher. Directly reject:
 Require every rejected prefix to leave both `executor.call_names` and the
 recording dispatcher's calls unchanged from their pre-call snapshots.
 
-- [ ] **Step 2: Add zero-dispatch per-call port override tests**
+- [x] **Step 2: Add zero-dispatch per-call port override tests**
 
 Parameterize both allowed tools with mappings containing:
 
@@ -1255,7 +1255,7 @@ then assert the port-bearing call raises before either ledger changes. Use a
 dispatch callable that fails the test if invoked by the mutated call. Zero calls
 from each override attempt may reach the dispatcher.
 
-- [ ] **Step 3: Prove incomplete create prefix remains a native stop**
+- [x] **Step 3: Prove incomplete create prefix remains a native stop**
 
 Run the real merged integration with:
 
@@ -1285,14 +1285,14 @@ assert summary["execution_tool_calls"] == 1
 Use the exact existing worker response schema and disposition vocabulary; do
 not invent a new refusal meaning.
 
-- [ ] **Step 4: Add completion-prefix mismatch tests**
+- [x] **Step 4: Add completion-prefix mismatch tests**
 
 Retain a valid native terminal result from the Task 1 vertical. Pair it with a
 fresh executor whose ledger is `[]` and then `[create]`. `_summary_from_result`
 must raise an internal-contract error rather than print `completed`. The exact
 `[create, update]` ledger must produce `completed / native_terminal`.
 
-- [ ] **Step 5: Add bounded-summary and sentinel tests**
+- [x] **Step 5: Add bounded-summary and sentinel tests**
 
 Require the exact ordered field tuple:
 
@@ -1324,7 +1324,7 @@ diagnostics, GUIDs, receipts, and unknown terminal reasons. Serialize the
 summary and assert the sentinel is absent. Unknown terminal reasons must map to
 `native_reason_unclassified`.
 
-- [ ] **Step 6: Implement exact summary validation and safe projection**
+- [x] **Step 6: Implement exact summary validation and safe projection**
 
 Define the complete safe native-reason vocabulary in this script; do not
 import a private helper from the synthetic smoke:
@@ -1403,7 +1403,7 @@ json.dumps(summary, ensure_ascii=True, separators=(",", ":"))
 
 No helper may accept arbitrary additional output fields.
 
-- [ ] **Step 7: Run Task 3 tests and the complete handoff seam**
+- [x] **Step 7: Run Task 3 tests and the complete handoff seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1416,7 +1416,7 @@ No helper may accept arbitrary additional output fields.
 
 Expected: all selected tests pass; no external contact.
 
-- [ ] **Step 8: Commit Task 3**
+- [x] **Step 8: Commit Task 3**
 
 ```powershell
 git add scripts/minimal_intent_worker_real_compile_smoke.py `
