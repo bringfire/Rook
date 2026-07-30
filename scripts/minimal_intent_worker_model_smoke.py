@@ -184,17 +184,30 @@ class _CausalFakeToolExecutor:
         self._fail()
 
     def _create(self, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
-        expected = {
-            "code": _INITIAL_BODY,
-            "pins_in": (),
-            "pins_out": ("A:double",),
-            "name": "RookMinimalRepairHandoff",
-            "x": 375,
-            "y": 1080,
-        }
-        if type(params) is not dict or tool_name != "gh_create_csharp_script":
+        if (
+            type(tool_name) is not str
+            or tool_name != "gh_create_csharp_script"
+            or type(params) is not dict
+            or not all(type(key) is str for key in params)
+            or set(params)
+            != {"code", "pins_in", "pins_out", "name", "x", "y"}
+        ):
             self._fail()
-        if params != expected:
+        if (
+            type(params["code"]) is not str
+            or params["code"] != _INITIAL_BODY
+            or type(params["pins_in"]) is not tuple
+            or params["pins_in"] != ()
+            or type(params["pins_out"]) is not tuple
+            or not all(type(pin) is str for pin in params["pins_out"])
+            or params["pins_out"] != ("A:double",)
+            or type(params["name"]) is not str
+            or params["name"] != "RookMinimalRepairHandoff"
+            or type(params["x"]) is not int
+            or params["x"] != 375
+            or type(params["y"]) is not int
+            or params["y"] != 1080
+        ):
             self._fail()
         try:
             diagnostic = _diagnostic_for_initial_body(params["code"])
@@ -227,13 +240,21 @@ class _CausalFakeToolExecutor:
         }
 
     def _update(self, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
-        if type(params) is not dict or tool_name != "gh_update_script":
+        if (
+            type(tool_name) is not str
+            or tool_name != "gh_update_script"
+            or type(params) is not dict
+            or not all(type(key) is str for key in params)
+        ):
             self._fail()
         if set(params) != {"guid", "code", "mode", "language"}:
             self._fail()
         if (
-            params["guid"] != self._issued_guid
+            type(params["guid"]) is not str
+            or params["guid"] != self._issued_guid
+            or type(params["mode"]) is not str
             or params["mode"] != "body"
+            or type(params["language"]) is not str
             or params["language"] != "csharp"
         ):
             self._fail()
