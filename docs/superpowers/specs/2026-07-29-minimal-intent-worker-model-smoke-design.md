@@ -131,9 +131,13 @@ human authorization and does not replace the explicit approval required before
 the post-merge smoke.
 
 The live flag must not be invoked during specification, planning,
-implementation, or review. Deterministic tests exercise argument
-classification and the composition function separately; they never run the
-operator command with `--execute-live`.
+implementation, or review except for one in-process pre-contact regression:
+it calls `main(["--execute-live"])` with the real role validator supplied an
+exact valid Planner and an invalid Worker, while both transport construction
+and `_run_live_once` are fail-if-reached sentinels. The test must prove zero
+transport construction. No test launches the script with the live flag or
+allows that flag to reach transport construction, `_run_live_once`, or any
+external capability.
 
 ## 6. Transport construction
 

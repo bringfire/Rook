@@ -21,7 +21,7 @@
 - No `ToolDispatcher`, real typed-tool bridge, Chat, MCP, Chirp, DSPy, product CLI registration, archive, preflight, readiness, attempt, checksum, or fingerprint machinery.
 - Summary fields contain no raw prompt, response, worker code, rationale, diagnostic, credential, provider metadata, tool parameter, GUID, receipt, or LiteLLM telemetry.
 - Call counts derive from control flow and native records, never telemetry or a counting wrapper.
-- Do not invoke `--execute-live` during implementation, tests, review, or verification. Tests may classify that argument but may not call `main(["--execute-live"])` or launch the script with it.
+- Do not launch the script with `--execute-live` during implementation, tests, review, or verification. One in-process Task 2 regression may call `main(["--execute-live"])` only with an exact valid Planner, invalid Worker, and fail-if-reached constructor/run sentinels; it must prove zero transport construction. No test may let that flag reach `_run_live_once` or an external capability.
 - No provider, worker box, Rhino, or Grasshopper contact is authorized.
 
 ---
@@ -498,6 +498,12 @@ Supply exact `ModelSet`-shaped values for:
 
 For every refusal, replace `LiteLLMWorkerTransport` with a constructor that fails the test if invoked. Require `profile_identity_invalid` for malformed identities and `profile_role_mismatch` for well-formed substitutions. Prove no partial construction: a valid Planner identity plus bad Worker still constructs neither transport.
 
+For that last equation, call the final `main(["--execute-live"])` entry in
+process with the real resolver and a fail-if-reached constructor. Require the
+bounded `profile_role_mismatch` summary and zero constructor calls. This is the
+only permitted in-process live-flag invocation; it cannot reach
+`_run_live_once`.
+
 - [ ] **Step 3: Implement the refusal summaries and operator entry point**
 
 Add closed helpers rather than a generic result framework:
@@ -851,7 +857,7 @@ rg -n -- "--execute-live" `
 
 Require exactly the approved four-file merge scope: specification, plan, operator script, and its test. Inspect the successful retained in-memory path and confirm exact role resolution precedes both constructors; one concrete Planner adapter call precedes strict admission; the merged runner owns compilation/worker/native results; the create receipt owns the GUID; the worker body owns the update code; and the summary derives counts from control flow/native records.
 
-The `--execute-live` search may find the constant and pure classifier cases only. It must find no test or verification command that invokes `main(["--execute-live"])` or launches the script with that flag.
+The `--execute-live` search may find the constant, pure classifier cases, and the single controlled Task 2 pre-construction refusal. It must find no command that launches the script with the flag and no test that allows the flag to reach `_run_live_once` or transport construction.
 
 - [ ] **Step 4: Reconcile this plan with fresh evidence**
 
