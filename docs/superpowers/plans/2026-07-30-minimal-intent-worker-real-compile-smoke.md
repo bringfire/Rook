@@ -852,7 +852,7 @@ Stop for independent review of the real transaction ordering before Task 2.
 - Consumes: Task 1's role/target refusals, roles, target, dispatcher construction, preparation functions, and successful composition path.
 - Produces: `_PreparationFailure`, `_PostPreparationFailure`, complete `_prepare_fresh_document()`, `_classify_arguments()`, and truthful pre-model/post-preparation `main()` outcomes.
 
-- [ ] **Step 1: Add valid-red argument and profile-order tests**
+- [x] **Step 1: Add valid-red argument and profile-order tests**
 
 Parameterize `_classify_arguments()` over:
 
@@ -874,7 +874,7 @@ For `main(["--execute-live"])`, add profile-load failure, malformed role,
 Planner substitution, Worker substitution, and valid-Planner/invalid-Worker
 cases. Require discovery and dispatcher construction to remain zero.
 
-- [ ] **Step 2: Add valid-red discovery tests**
+- [x] **Step 2: Add valid-red discovery tests**
 
 Use exact rows:
 
@@ -895,7 +895,7 @@ Every refusal must prove zero `ToolDispatcher` and model transport
 construction. The valid row must produce exact `_ResolvedRhinoTarget(4001,
 9877)`. No environment mutation may change it.
 
-- [ ] **Step 3: Add valid-red strict pre-status and post-status tables**
+- [x] **Step 3: Add valid-red strict pre-status and post-status tables**
 
 Start from:
 
@@ -930,7 +930,7 @@ Require pre-status mutations to stop after one preparation call with
 `status_rejected`. Require post-status mutations to stop after three calls
 with `document_new_started`. Both construct zero model transports.
 
-- [ ] **Step 4: Add valid-red document-new response tests**
+- [x] **Step 4: Add valid-red document-new response tests**
 
 The admitted row is exactly:
 
@@ -942,7 +942,7 @@ Reject result/data subclasses, false or equality-spoof success, missing data,
 missing `Created`, false `Created`, and equality-spoof `Created`. Require two
 preparation calls, `document_new_started`, and zero model construction.
 
-- [ ] **Step 5: Add all preparation exception and timeout cases**
+- [x] **Step 5: Add all preparation exception and timeout cases**
 
 Parameterize `RuntimeError("PREPARATION_SENTINEL")` and `TimeoutError(
 "PREPARATION_SENTINEL")` at each call. Assert:
@@ -956,7 +956,7 @@ post-status:    state=document_new_started,  calls=3
 For every case, parse stdout and prove `PREPARATION_SENTINEL` is absent, both
 model constructors are untouched, and no later dispatcher call occurs.
 
-- [ ] **Step 6: Add valid-red post-preparation exception-custody tests**
+- [x] **Step 6: Add valid-red post-preparation exception-custody tests**
 
 Begin from a successful three-call preparation. Parameterize ordinary
 `RuntimeError("POST_PREPARATION_SENTINEL")` failures from:
@@ -991,7 +991,7 @@ Assert the sentinel is absent from serialized stdout. The tests are valid-red
 only when the current generic exception branch reports no proven preparation
 state; a failure during scripted preparation is not the intended boundary.
 
-- [ ] **Step 7: Implement typed failure carriers and exact preparation flow**
+- [x] **Step 7: Implement typed failure carriers and exact preparation flow**
 
 Add both control-state carriers:
 
@@ -1163,7 +1163,7 @@ async def _run_live_once(
 The wrapper catches ordinary post-preparation exceptions only. It does not
 catch `BaseException`, retry, or invent later call counts.
 
-- [ ] **Step 8: Implement pre-contact and preparation summaries in `main()`**
+- [x] **Step 8: Implement pre-contact and preparation summaries in `main()`**
 
 Order the live branch exactly:
 
@@ -1185,7 +1185,7 @@ its exact target, `fresh_document_verified`, three preparation calls, and
 proven preparation use `operator_internal_error` without exception text and
 must not claim document replacement succeeded.
 
-- [ ] **Step 9: Run Task 2 tests and inherited guard tests**
+- [x] **Step 9: Run Task 2 tests and inherited guard tests**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1195,7 +1195,7 @@ must not claim document replacement succeeded.
 
 Expected: all tests pass; no external contact.
 
-- [ ] **Step 10: Commit Task 2**
+- [x] **Step 10: Commit Task 2**
 
 ```powershell
 git add scripts/minimal_intent_worker_real_compile_smoke.py `

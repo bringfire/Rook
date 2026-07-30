@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -43,6 +46,38 @@ _TIMEOUT_S = 120.0
 _MAX_OUTPUT_TOKENS = 1024
 _MAX_RETRIES = 0
 _MAX_MODEL_ID_UTF8_BYTES = 256
+_SUMMARY_FIELDS = (
+    "operator_status",
+    "operator_reason",
+    "intent",
+    "profile",
+    "planner_model",
+    "worker_model",
+    "rooknative_process_id",
+    "rooknative_port",
+    "document_preparation_status",
+    "preparation_tool_calls",
+    "planner_calls",
+    "worker_calls",
+    "execution_tool_calls",
+    "terminal_stage",
+    "terminal_reason",
+    "planner_adapter_status",
+    "worker_adapter_status",
+)
+
+_ArgumentDecision = Literal[
+    "live_execution_not_requested",
+    "invalid_arguments",
+    "execute_live",
+]
+_PreparationState = Literal[
+    "not_started",
+    "status_rejected",
+    "status_verified",
+    "document_new_started",
+    "fresh_document_verified",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +98,31 @@ class _ResolvedRhinoTarget:
 class _PreparedDocument:
     state: Literal["fresh_document_verified"]
     tool_calls: int
+
+
+class _PreparationFailure(RuntimeError):
+    def __init__(
+        self,
+        reason: str,
+        state: Literal["status_rejected", "document_new_started"],
+        tool_calls: int,
+    ) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.state = state
+        self.tool_calls = tool_calls
+
+
+class _PostPreparationFailure(RuntimeError):
+    def __init__(
+        self,
+        target: _ResolvedRhinoTarget,
+        preparation: _PreparedDocument,
+    ) -> None:
+        super().__init__("operator_internal_error")
+        self.reason = "operator_internal_error"
+        self.target = target
+        self.preparation = preparation
 
 
 class _ProfileRefusal(ValueError):
@@ -89,6 +149,19 @@ class _TargetRefusal(ValueError):
         self.reason = reason
         self.process_id = process_id
         self.port = port
+
+
+def _classify_arguments(argv: Sequence[str]) -> _ArgumentDecision:
+    supplied = list(argv)
+    if supplied == []:
+        return "live_execution_not_requested"
+    if (
+        len(supplied) == 1
+        and type(supplied[0]) is str
+        and supplied[0] == _LIVE_FLAG
+    ):
+        return "execute_live"
+    return "invalid_arguments"
 
 
 def _bounded_identity(value: object) -> str | None:
@@ -201,15 +274,69 @@ def _require_document_new(result: object) -> None:
 async def _prepare_fresh_document(
     dispatcher: ToolDispatcher,
 ) -> _PreparedDocument:
-    pre = await dispatcher.dispatch("gh_status", {})
-    pre_id = _require_status(pre, previous_document_id=None)
-    created = await dispatcher.dispatch("gh_document_new", {})
-    _require_document_new(created)
-    post = await dispatcher.dispatch("gh_status", {})
-    _require_status(post, previous_document_id=pre_id)
+    preparation_state: _PreparationState = "not_started"
+    tool_calls = 1
+    try:
+        pre = await dispatcher.dispatch("gh_status", {})
+    except Exception as exc:
+        preparation_state = "status_rejected"
+        raise _PreparationFailure(
+            "pre_status_exception",
+            preparation_state,
+            tool_calls,
+        ) from exc
+    try:
+        pre_id = _require_status(pre, previous_document_id=None)
+    except (TypeError, ValueError) as exc:
+        preparation_state = "status_rejected"
+        raise _PreparationFailure(
+            "pre_status_rejected",
+            preparation_state,
+            tool_calls,
+        ) from exc
+
+    preparation_state = "status_verified"
+    preparation_state = "document_new_started"
+    tool_calls = 2
+    try:
+        created = await dispatcher.dispatch("gh_document_new", {})
+    except Exception as exc:
+        raise _PreparationFailure(
+            "document_new_exception",
+            preparation_state,
+            tool_calls,
+        ) from exc
+    try:
+        _require_document_new(created)
+    except (TypeError, ValueError) as exc:
+        raise _PreparationFailure(
+            "document_new_rejected",
+            preparation_state,
+            tool_calls,
+        ) from exc
+
+    tool_calls = 3
+    try:
+        post = await dispatcher.dispatch("gh_status", {})
+    except Exception as exc:
+        raise _PreparationFailure(
+            "post_status_exception",
+            preparation_state,
+            tool_calls,
+        ) from exc
+    try:
+        _require_status(post, previous_document_id=pre_id)
+    except (TypeError, ValueError) as exc:
+        raise _PreparationFailure(
+            "post_status_rejected",
+            preparation_state,
+            tool_calls,
+        ) from exc
+
+    preparation_state = "fresh_document_verified"
     return _PreparedDocument(
-        state="fresh_document_verified",
-        tool_calls=3,
+        state=preparation_state,
+        tool_calls=tool_calls,
     )
 
 
@@ -270,6 +397,24 @@ async def _run_live_once(
         local_tools=build_local_tools(),
     )
     preparation = await _prepare_fresh_document(dispatcher)
+
+    try:
+        return await _run_prepared_once(
+            roles,
+            target,
+            dispatcher,
+            preparation,
+        )
+    except Exception as exc:
+        raise _PostPreparationFailure(target, preparation) from exc
+
+
+async def _run_prepared_once(
+    roles: _ResolvedRoles,
+    target: _ResolvedRhinoTarget,
+    dispatcher: ToolDispatcher,
+    preparation: _PreparedDocument,
+) -> _LiveRun:
 
     planner_transport = LiteLLMWorkerTransport(
         model=roles.planner_model,
@@ -350,3 +495,166 @@ def _summary_from_result(
         "planner_adapter_status": result.planner_adapter_record.status,
         "worker_adapter_status": worker_status,
     }
+
+
+def _bounded_summary(
+    *,
+    operator_status: str,
+    operator_reason: str,
+    roles: _ResolvedRoles | None = None,
+    target: _ResolvedRhinoTarget | None = None,
+    preparation_state: _PreparationState = "not_started",
+    preparation_tool_calls: int = 0,
+    planner_calls: int | None = 0,
+    worker_calls: int | None = 0,
+    execution_tool_calls: int | None = 0,
+) -> dict[str, object]:
+    return {
+        "operator_status": operator_status,
+        "operator_reason": operator_reason,
+        "intent": _FIXED_INTENT,
+        "profile": roles.profile if roles is not None else _PROFILE,
+        "planner_model": roles.planner_model if roles is not None else None,
+        "worker_model": roles.worker_model if roles is not None else None,
+        "rooknative_process_id": (
+            target.process_id if target is not None else None
+        ),
+        "rooknative_port": target.port if target is not None else None,
+        "document_preparation_status": preparation_state,
+        "preparation_tool_calls": preparation_tool_calls,
+        "planner_calls": planner_calls,
+        "worker_calls": worker_calls,
+        "execution_tool_calls": execution_tool_calls,
+        "terminal_stage": None,
+        "terminal_reason": None,
+        "planner_adapter_status": None,
+        "worker_adapter_status": None,
+    }
+
+
+def _profile_refusal_summary(exc: _ProfileRefusal) -> dict[str, object]:
+    summary = _bounded_summary(
+        operator_status="refused",
+        operator_reason=exc.reason,
+    )
+    summary["planner_model"] = exc.planner_model
+    summary["worker_model"] = exc.worker_model
+    return summary
+
+
+def _preparation_failure_summary(
+    roles: _ResolvedRoles,
+    target: _ResolvedRhinoTarget,
+    exc: _PreparationFailure,
+) -> dict[str, object]:
+    return _bounded_summary(
+        operator_status="preparation_failed",
+        operator_reason=exc.reason,
+        roles=roles,
+        target=target,
+        preparation_state=exc.state,
+        preparation_tool_calls=exc.tool_calls,
+    )
+
+
+def _post_preparation_failure_summary(
+    roles: _ResolvedRoles,
+    exc: _PostPreparationFailure,
+) -> dict[str, object]:
+    return _bounded_summary(
+        operator_status="failed",
+        operator_reason=exc.reason,
+        roles=roles,
+        target=exc.target,
+        preparation_state=exc.preparation.state,
+        preparation_tool_calls=exc.preparation.tool_calls,
+        planner_calls=None,
+        worker_calls=None,
+        execution_tool_calls=None,
+    )
+
+
+def _operator_internal_error_summary(
+    roles: _ResolvedRoles | None,
+    target: _ResolvedRhinoTarget | None,
+) -> dict[str, object]:
+    return _bounded_summary(
+        operator_status="failed",
+        operator_reason="operator_internal_error",
+        roles=roles,
+        target=target,
+        planner_calls=None,
+        worker_calls=None,
+        execution_tool_calls=None,
+    )
+
+
+def _emit_summary(summary: dict[str, object]) -> None:
+    if tuple(summary) != _SUMMARY_FIELDS:
+        raise ValueError("operator summary fields differ")
+    print(
+        json.dumps(
+            summary,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    supplied = sys.argv[1:] if argv is None else list(argv)
+    decision = _classify_arguments(supplied)
+    if decision != "execute_live":
+        _emit_summary(
+            _bounded_summary(
+                operator_status="refused",
+                operator_reason=decision,
+            )
+        )
+        return 0 if decision == "live_execution_not_requested" else 1
+
+    roles: _ResolvedRoles | None = None
+    target: _ResolvedRhinoTarget | None = None
+    try:
+        roles = _resolve_hybrid_roles()
+    except _ProfileRefusal as exc:
+        _emit_summary(_profile_refusal_summary(exc))
+        return 1
+    except Exception:
+        _emit_summary(_operator_internal_error_summary(None, None))
+        return 1
+
+    try:
+        target = _resolve_single_rhino_target(discover_instances())
+    except _TargetRefusal as exc:
+        _emit_summary(
+            _bounded_summary(
+                operator_status="refused",
+                operator_reason=exc.reason,
+                roles=roles,
+            )
+        )
+        return 1
+    except Exception:
+        _emit_summary(_operator_internal_error_summary(roles, None))
+        return 1
+
+    try:
+        live_run = asyncio.run(_run_live_once(roles, target))
+    except _PreparationFailure as exc:
+        _emit_summary(_preparation_failure_summary(roles, target, exc))
+        return 1
+    except _PostPreparationFailure as exc:
+        _emit_summary(_post_preparation_failure_summary(roles, exc))
+        return 1
+    except Exception:
+        _emit_summary(_operator_internal_error_summary(roles, target))
+        return 1
+
+    summary = _summary_from_result(roles, live_run)
+    _emit_summary(summary)
+    return 0 if summary["operator_status"] == "completed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
