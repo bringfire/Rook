@@ -22,8 +22,9 @@ fixed intent
 ```
 
 The live observation reached both model roles and the typed-tool seam. It
-stopped because the worker-authored body was outside the intentionally narrow
-synthetic grammar. That observation did not test whether the body compiles in
+stopped with an update-time synthetic contract failure. The retained bounded
+summary did not establish which synthetic predicate failed. That observation
+therefore did not test whether the worker-authored body compiles in
 Grasshopper.
 
 This slice replaces only the synthetic executor with the existing real tool
@@ -154,6 +155,9 @@ ToolDispatcher(
 )
 ```
 
+The process ID is recorded discovery identity only. `ToolDispatcher` transport
+is bound by the frozen constructor port, not by process ID.
+
 There is no `ROOK_RHINO_PORT`, CLI port, fallback port, panel selection,
 automatic selection, or rediscovery-based substitution.
 
@@ -243,10 +247,16 @@ The state machine is closed:
 
 ```text
 not_started
--> status_rejected
--> document_new_started
--> fresh_document_verified
+├─ status_rejected
+└─ status_verified
+   └─ document_new_started
+      ├─ failure remains document_new_started
+      └─ fresh_document_verified
 ```
+
+`status_rejected` is terminal for preparation. `status_verified` is the
+successful pre-status branch immediately before document mutation; it is not
+another name for pre-status failure.
 
 Outcomes distinguish contact and mutation truthfully:
 
@@ -298,10 +308,16 @@ prefixes:
 ```
 
 It rejects update-before-create, repeated create, repeated update, substituted
-tools, a third call, and any call after update. It does not require update at
-finalization: a Planner, worker, action, create, or native stop may truthfully
-leave an incomplete prefix. Only `completed` requires the full two-call prefix
-and the existing verified native terminal result.
+tools, a third call, and any call after update. Before any prefix transition or
+delegation, it also rejects every parameter mapping containing the key
+`port`. This check occurs before `ToolDispatcher.dispatch()`, whose existing
+implementation otherwise permits a caller-supplied port to override the
+constructor port. A rejected `port` key produces zero dispatcher calls.
+
+The executor does not require update at finalization: a Planner, worker,
+action, create, or native stop may truthfully leave an incomplete prefix. Only
+`completed` requires the full two-call prefix and the existing verified native
+terminal result.
 
 The restricted executor does not reinterpret or reconstruct tool parameters,
 component identity, worker code, receipts, graph state, or terminal meaning.
@@ -519,10 +535,11 @@ Directly admit exactly:
 ```
 
 Directly reject update-before-create, repeated create/update, substitution,
-extra calls, and calls after update. A returned native worker refusal with
-prefix `[create]` must remain the native stop and must not be relabeled as a
-restricted-executor failure. Completion must refuse any prefix other than
-`[create, update]`.
+extra calls, calls after update, and a `port` key on either allowed tool. The
+`port` mutation tests must prove zero calls reach the dispatcher. A returned
+native worker refusal with prefix `[create]` must remain the native stop and
+must not be relabeled as a restricted-executor failure. Completion must refuse
+any prefix other than `[create, update]`.
 
 ### 10.4 Model and integration boundary
 
