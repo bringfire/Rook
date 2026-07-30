@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -329,3 +330,259 @@ def test_synthetic_tool_derives_diagnostic_and_rejects_unsafe_update() -> None:
     assert executor.contract_failed is True
     assert executor.tool_call_count == 2
     assert "A = 1m;" not in repr(vars(executor))
+
+
+@pytest.mark.parametrize(
+    ("argv", "reason", "exit_code"),
+    (
+        ([], "live_execution_not_requested", 0),
+        (["--unknown"], "invalid_arguments", 1),
+        (["--execute-live", "extra"], "invalid_arguments", 1),
+        (["--execute-live", "--execute-live"], "invalid_arguments", 1),
+    ),
+)
+def test_main_refuses_non_live_arguments_before_model_or_transport_use(
+    monkeypatch,
+    capsys,
+    argv,
+    reason,
+    exit_code,
+) -> None:
+    def forbidden(*args, **kwargs):
+        raise AssertionError("pre-contact refusal crossed a capability boundary")
+
+    monkeypatch.setattr(SMOKE, "get_models", forbidden)
+    monkeypatch.setattr(SMOKE, "LiteLLMWorkerTransport", forbidden)
+    monkeypatch.setattr(SMOKE, "_run_live_once", forbidden)
+
+    assert SMOKE.main(argv) == exit_code
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == {
+        "operator_status": "refused",
+        "operator_reason": reason,
+        "intent": _INTENT,
+        "profile": "hybrid",
+        "planner_model": None,
+        "worker_model": None,
+        "planner_calls": 0,
+        "worker_calls": 0,
+        "tool_calls": 0,
+        "terminal_stage": None,
+        "terminal_reason": None,
+        "planner_adapter_status": None,
+        "worker_adapter_status": None,
+    }
+
+
+def test_main_valid_planner_invalid_worker_constructs_zero_transports(
+    monkeypatch,
+    capsys,
+) -> None:
+    resolved_profiles: list[str] = []
+    constructor_calls: list[dict[str, Any]] = []
+
+    def models(profile: str) -> ModelSet:
+        resolved_profiles.append(profile)
+        return ModelSet(
+            planner="anthropic/claude-opus-4-6",
+            worker="anthropic/claude-sonnet-5",
+            specialist="unused",
+            guardian="unused",
+            dspy="unused",
+        )
+
+    def forbidden_constructor(**kwargs):
+        constructor_calls.append(copy.deepcopy(kwargs))
+        raise AssertionError("transport construction must follow both role checks")
+
+    monkeypatch.setattr(SMOKE, "get_models", models)
+    monkeypatch.setattr(SMOKE, "LiteLLMWorkerTransport", forbidden_constructor)
+
+    assert SMOKE.main(["--execute-live"]) == 1
+
+    assert resolved_profiles == ["hybrid"]
+    assert constructor_calls == []
+    assert json.loads(capsys.readouterr().out) == {
+        "operator_status": "refused",
+        "operator_reason": "profile_role_mismatch",
+        "intent": _INTENT,
+        "profile": "hybrid",
+        "planner_model": "anthropic/claude-opus-4-6",
+        "worker_model": "anthropic/claude-sonnet-5",
+        "planner_calls": 0,
+        "worker_calls": 0,
+        "tool_calls": 0,
+        "terminal_stage": None,
+        "terminal_reason": None,
+        "planner_adapter_status": None,
+        "worker_adapter_status": None,
+    }
+
+
+def test_main_internal_error_retains_no_exception_or_invented_counts(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(
+        SMOKE,
+        "get_models",
+        lambda profile: ModelSet(
+            planner="anthropic/claude-opus-4-6",
+            worker="ollama_chat/qwen3-coder:30b-a3b-q8_0",
+            specialist="unused",
+            guardian="unused",
+            dspy="unused",
+            api_base="http://localhost:11434/v1",
+        ),
+    )
+
+    async def fail_without_contact(roles):
+        raise RuntimeError("sensitive failure detail")
+
+    monkeypatch.setattr(SMOKE, "_run_live_once", fail_without_contact)
+
+    assert SMOKE.main(["--execute-live"]) == 1
+
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert "sensitive failure detail" not in output.out
+    assert json.loads(output.out) == {
+        "operator_status": "failed",
+        "operator_reason": "operator_internal_error",
+        "intent": _INTENT,
+        "profile": "hybrid",
+        "planner_model": "anthropic/claude-opus-4-6",
+        "worker_model": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+        "planner_calls": None,
+        "worker_calls": None,
+        "tool_calls": None,
+        "terminal_stage": None,
+        "terminal_reason": None,
+        "planner_adapter_status": None,
+        "worker_adapter_status": None,
+    }
+
+
+def test_main_profile_loader_exception_is_bounded_before_construction(
+    monkeypatch,
+    capsys,
+) -> None:
+    constructor_calls: list[dict[str, Any]] = []
+
+    def fail_profile_load(profile: str):
+        raise RuntimeError("sensitive profile failure")
+
+    def forbidden_constructor(**kwargs):
+        constructor_calls.append(copy.deepcopy(kwargs))
+        raise AssertionError("profile failure must precede construction")
+
+    monkeypatch.setattr(SMOKE, "get_models", fail_profile_load)
+    monkeypatch.setattr(SMOKE, "LiteLLMWorkerTransport", forbidden_constructor)
+
+    assert SMOKE.main(["--execute-live"]) == 1
+
+    assert constructor_calls == []
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert "sensitive profile failure" not in output.out
+    assert json.loads(output.out) == {
+        "operator_status": "failed",
+        "operator_reason": "operator_internal_error",
+        "intent": _INTENT,
+        "profile": "hybrid",
+        "planner_model": None,
+        "worker_model": None,
+        "planner_calls": None,
+        "worker_calls": None,
+        "tool_calls": None,
+        "terminal_stage": None,
+        "terminal_reason": None,
+        "planner_adapter_status": None,
+        "worker_adapter_status": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("planner", "worker", "reason"),
+    (
+        ("wrong/planner", "ollama_chat/qwen3-coder:30b-a3b-q8_0", "profile_role_mismatch"),
+        ("anthropic/claude-opus-4-6", "wrong/worker", "profile_role_mismatch"),
+        ("wrong/planner", "wrong/worker", "profile_role_mismatch"),
+        ("", "ollama_chat/qwen3-coder:30b-a3b-q8_0", "profile_identity_invalid"),
+        ("anthropic/claude-opus-4-6", " ", "profile_identity_invalid"),
+        ("anthropic/claude-opus-4-6", "wörker", "profile_identity_invalid"),
+        ("p" * 257, "ollama_chat/qwen3-coder:30b-a3b-q8_0", "profile_identity_invalid"),
+        ("anthropic/claude-opus-4-6", object(), "profile_identity_invalid"),
+    ),
+)
+def test_role_resolver_refuses_substituted_or_malformed_identities(
+    monkeypatch,
+    planner,
+    worker,
+    reason,
+) -> None:
+    profiles: list[str] = []
+
+    def models(profile: str) -> ModelSet:
+        profiles.append(profile)
+        return ModelSet(
+            planner=planner,
+            worker=worker,
+            specialist="unused",
+            guardian="unused",
+            dspy="unused",
+        )
+
+    monkeypatch.setattr(SMOKE, "get_models", models)
+
+    with pytest.raises(SMOKE._ProfileRefusal, match=reason):
+        SMOKE._resolve_hybrid_roles()
+    assert profiles == ["hybrid"]
+
+
+@pytest.mark.parametrize(
+    ("args", "reason", "exit_code"),
+    (
+        ([], "live_execution_not_requested", 0),
+        (["--invalid-argument"], "invalid_arguments", 1),
+    ),
+)
+def test_script_process_emits_one_bounded_precontact_summary(
+    args,
+    reason,
+    exit_code,
+) -> None:
+    completed = subprocess.run(
+        [sys.executable, str(_SCRIPT), *args],
+        cwd=_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == exit_code
+    assert completed.stderr == ""
+    summary = json.loads(completed.stdout)
+    assert tuple(summary) == (
+        "operator_status",
+        "operator_reason",
+        "intent",
+        "profile",
+        "planner_model",
+        "worker_model",
+        "planner_calls",
+        "worker_calls",
+        "tool_calls",
+        "terminal_stage",
+        "terminal_reason",
+        "planner_adapter_status",
+        "worker_adapter_status",
+    )
+    assert summary["operator_status"] == "refused"
+    assert summary["operator_reason"] == reason
+    assert summary["planner_calls"] == 0
+    assert summary["worker_calls"] == 0
+    assert summary["tool_calls"] == 0

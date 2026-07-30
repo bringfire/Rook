@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
 import sys
 from collections.abc import Sequence
@@ -339,3 +341,100 @@ def _summary_from_result(
     if tuple(summary) != _SUMMARY_FIELDS:
         raise RuntimeError("operator summary fields differ")
     return summary
+
+
+def _refusal_summary(
+    reason: Literal[
+        "live_execution_not_requested",
+        "invalid_arguments",
+        "profile_identity_invalid",
+        "profile_role_mismatch",
+    ],
+    *,
+    planner_model: str | None = None,
+    worker_model: str | None = None,
+) -> dict[str, object]:
+    return {
+        "operator_status": "refused",
+        "operator_reason": reason,
+        "intent": _FIXED_INTENT,
+        "profile": _PROFILE,
+        "planner_model": planner_model,
+        "worker_model": worker_model,
+        "planner_calls": 0,
+        "worker_calls": 0,
+        "tool_calls": 0,
+        "terminal_stage": None,
+        "terminal_reason": None,
+        "planner_adapter_status": None,
+        "worker_adapter_status": None,
+    }
+
+
+def _internal_error_summary(
+    roles: _ResolvedRoles | None,
+) -> dict[str, object]:
+    return {
+        "operator_status": "failed",
+        "operator_reason": "operator_internal_error",
+        "intent": _FIXED_INTENT,
+        "profile": _PROFILE if roles is None else roles.profile,
+        "planner_model": None if roles is None else roles.planner_model,
+        "worker_model": None if roles is None else roles.worker_model,
+        "planner_calls": None,
+        "worker_calls": None,
+        "tool_calls": None,
+        "terminal_stage": None,
+        "terminal_reason": None,
+        "planner_adapter_status": None,
+        "worker_adapter_status": None,
+    }
+
+
+def _write_summary(summary: dict[str, object]) -> None:
+    if tuple(summary) != _SUMMARY_FIELDS:
+        raise RuntimeError("operator summary fields differ")
+    print(json.dumps(summary, ensure_ascii=True, separators=(",", ":")))
+
+
+def _exit_code(summary: dict[str, object]) -> int:
+    if summary["operator_reason"] in {
+        "live_execution_not_requested",
+        "native_terminal",
+    }:
+        return 0
+    return 1
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    supplied = tuple(sys.argv[1:] if argv is None else argv)
+    decision = _classify_arguments(supplied)
+    if decision != "execute_live":
+        summary = _refusal_summary(decision)
+        _write_summary(summary)
+        return _exit_code(summary)
+    try:
+        roles = _resolve_hybrid_roles()
+    except _ProfileRefusal as exc:
+        summary = _refusal_summary(
+            exc.reason,
+            planner_model=exc.planner_model,
+            worker_model=exc.worker_model,
+        )
+        _write_summary(summary)
+        return _exit_code(summary)
+    except Exception:
+        summary = _internal_error_summary(None)
+        _write_summary(summary)
+        return _exit_code(summary)
+    try:
+        live_run = asyncio.run(_run_live_once(roles))
+        summary = _summary_from_result(roles, live_run)
+    except Exception:
+        summary = _internal_error_summary(roles)
+    _write_summary(summary)
+    return _exit_code(summary)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
