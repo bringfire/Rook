@@ -901,7 +901,23 @@ Do not push, open a PR, merge, or request/run the live smoke until the implement
 
 ## Separately Authorized Post-Merge Operation
 
-After merge and only after explicit authorization, an operator may run exactly:
+After merge, first identify the exact interpreter intended for the smoke and
+run these no-contact checks with that same interpreter:
+
+```powershell
+& C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -c `
+  "import importlib.metadata as m; print(m.version('litellm'))"
+& C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
+  mcp_server\tests\test_minimal_intent_worker_model_smoke.py::test_real_transport_materializes_provider_specific_schema_kwargs -q
+```
+
+Record the observed LiteLLM version and require the later smoke command to use
+that same absolute interpreter. Do not infer it from another venv or from
+`uv.lock`: this venv reported 1.89.4 during design while the lock resolved
+1.92.0. A missing or failing same-runtime materialization check stops before
+contact.
+
+Only after those checks and explicit authorization may an operator run exactly:
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe `

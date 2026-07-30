@@ -493,6 +493,14 @@ Worker calls: 0 or 1
 Rhino/Grasshopper calls: 0
 ```
 
+Before that authorization is exercised, the operator must identify the exact
+Python interpreter that will run the command, record its installed LiteLLM
+distribution version, and rerun the offline Planner/Worker materialization
+test with that same interpreter. The shared test venv reported LiteLLM 1.89.4
+during design while `mcp_server/uv.lock` resolved 1.92.0; neither version may
+stand in for the actual execution runtime. A missing or failing same-runtime
+check stops before the smoke.
+
 The authorized smoke stops after its first result, whether completed or failed.
 No second attempt is implied.
 
