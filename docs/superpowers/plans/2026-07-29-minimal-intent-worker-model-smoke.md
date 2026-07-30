@@ -51,7 +51,7 @@ Loads the script with `importlib.util.spec_from_file_location`, supplies determi
 - Consumes: `get_models("hybrid")`, `LiteLLMWorkerTransport`, `_local_worker_response_union_schema()`, `MinimalPlannerDraftAdapter`, `build_minimal_planner_draft_response_schema()`, and `run_minimal_intent_worker_integration()`.
 - Produces: private `_classify_arguments(argv)`, `_resolve_hybrid_roles()`, `_run_live_once(roles)`, `_CausalFakeToolExecutor`, `_summary_from_result(roles, live_run)`, and script `main(argv=None) -> int`.
 
-- [ ] **Step 1: Add the valid-red script loader and walking vertical**
+- [x] **Step 1: Add the valid-red script loader and walking vertical**
 
 Create the test file with the existing script-import pattern:
 
@@ -140,7 +140,7 @@ async def test_internal_live_composition_reaches_native_terminal_without_contact
 
 Call the internal composition directly. Do not call `main()` with the live flag.
 
-- [ ] **Step 2: Run the walking test and confirm valid RED**
+- [x] **Step 2: Run the walking test and confirm valid RED**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -149,7 +149,7 @@ Call the internal composition directly. Do not call `main()` with the live flag.
 
 Expected: collection fails because the script does not exist. An import typo after the script exists is not valid-red evidence.
 
-- [ ] **Step 3: Implement constants, private types, and argument classification**
+- [x] **Step 3: Implement constants, private types, and argument classification**
 
 Create the script with these imports and constants:
 
@@ -241,7 +241,7 @@ def _classify_arguments(argv: Sequence[str]) -> _ArgumentDecision:
     return "invalid_arguments"
 ```
 
-- [ ] **Step 4: Implement exact role validation before construction**
+- [x] **Step 4: Implement exact role validation before construction**
 
 ```python
 class _ProfileRefusal(ValueError):
@@ -271,7 +271,7 @@ def _resolve_hybrid_roles() -> _ResolvedRoles:
 
 No `LiteLLMWorkerTransport` expression may run before this returns successfully.
 
-- [ ] **Step 5: Implement the causal executor's successful path**
+- [x] **Step 5: Implement the causal executor's successful path**
 
 ```python
 class _SyntheticToolContractError(ValueError):
@@ -326,7 +326,7 @@ diagnostic = (
 
 Issue `_FAKE_COMPONENT_GUID` in the existing create receipt. On update, require exact keys, the issued GUID, `mode == "body"`, `language == "csharp"`, exact built-in ASCII code no longer than 128 bytes, and `_UPDATE_BODY_PATTERN.fullmatch(code)`. Return the existing clean update receipt shape from `test_minimal_intent_worker_integration.py:286-340` with the issued GUID. Every rejection calls `_fail()` and retains no submitted value.
 
-- [ ] **Step 6: Implement the internal composition and first summary projection**
+- [x] **Step 6: Implement the internal composition and first summary projection**
 
 Define `_LiveRun` after the executor:
 
@@ -376,7 +376,7 @@ async def _run_live_once(roles: _ResolvedRoles) -> _LiveRun:
 
 Define the exact thirteen `_SUMMARY_FIELDS`. For a returned result derive Planner count `1`; derive Worker count `1` only when `result.handoff_result.adapter_record` exists. Classify `contract_failed` first, exact native terminal second, and other native stops third.
 
-- [ ] **Step 7: Prove constructor values and actual LiteLLM materialization offline**
+- [x] **Step 7: Prove constructor values and actual LiteLLM materialization offline**
 
 Capture both constructor calls from the walking vertical and exact-compare:
 
@@ -427,7 +427,7 @@ assert "response_format" not in worker_call
 
 Require exactly one schema-bearing key per call. Mutate each captured schema and prove a later composition builds a fresh code-owned value. The test stops at the monkeypatched `litellm.completion` boundary and makes no provider contact.
 
-- [ ] **Step 8: Run the vertical and inherited seam**
+- [x] **Step 8: Run the vertical and inherited seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -444,7 +444,7 @@ git diff --check
 
 Expected: all selected tests pass; compilation and diff checks exit zero; no command invokes the live flag.
 
-- [ ] **Step 9: Commit Task 1 and stop for walking-vertical review**
+- [x] **Step 9: Commit Task 1 and stop for walking-vertical review**
 
 ```powershell
 git add scripts/minimal_intent_worker_model_smoke.py `
@@ -470,7 +470,7 @@ Stop for independent review of the traversal, constructor configs, causal fake, 
 - Consumes: the Task 1 argument classifier, role resolver, transport constructors, and summary projection.
 - Produces: a closed pre-contact CLI boundary and constructor-argument evidence; no live execution.
 
-- [ ] **Step 1: Add valid-red argument and zero-construction cases**
+- [x] **Step 1: Add valid-red argument and zero-construction cases**
 
 Parameterize `_classify_arguments()` over:
 
@@ -486,7 +486,7 @@ Parameterize `_classify_arguments()` over:
 
 Test `main([])` and `main(["--unknown"])` while monkeypatching `get_models`, `LiteLLMWorkerTransport`, and `_run_live_once` to raise if touched. Parse the single JSON line and assert the exact thirteen-field refusal summary. Do not call `main(["--execute-live"])`.
 
-- [ ] **Step 2: Add valid-red profile and role substitution cases**
+- [x] **Step 2: Add valid-red profile and role substitution cases**
 
 Supply exact `ModelSet`-shaped values for:
 
@@ -511,7 +511,7 @@ Require zero constructor calls in all three cases. The first two must not
 reach `_run_live_once`; the third reaches only the fail-before-construction
 stub. None launches the script or reaches the real live composition path.
 
-- [ ] **Step 3: Implement the refusal summaries and operator entry point**
+- [x] **Step 3: Implement the refusal summaries and operator entry point**
 
 Add closed helpers rather than a generic result framework:
 
@@ -639,13 +639,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 `_write_summary()` canonically renders one compact JSON object with the exact thirteen fields and no extra diagnostics. Catch ordinary `Exception`, never `BaseException`. The implementation must not add argument parsing, environment overrides, retries, or alternate execution paths.
 
-- [ ] **Step 4: Prove the operator surface is bounded without invoking live execution**
+- [x] **Step 4: Prove the operator surface is bounded without invoking live execution**
 
 Add a subprocess test for no arguments and one for `--invalid-argument`. Assert exit behavior, exact summary shape, and absence of stderr secrets. Do not launch the script with `--execute-live`; apart from pure classifier cases, the flag may enter only the exact three controlled in-process guard exercises defined in Step 2.
 
 Search the script source in the test and reject `argparse`, `click`, model-override names, retry/fallback loops, `ToolDispatcher`, and product registration imports. Permit only the one literal live flag.
 
-- [ ] **Step 5: Run and commit Task 2**
+- [x] **Step 5: Run and commit Task 2**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -678,7 +678,7 @@ Expected: all tests pass without constructing a real transport or invoking a pro
 - Consumes: actual typed-tool calls made by the merged handoff and native integration records returned by the runner.
 - Produces: a fail-closed operator-only fake and an exact bounded summary; no production fake or new native outcome.
 
-- [ ] **Step 1: Add exact numeric-body grammar boundaries**
+- [x] **Step 1: Add exact numeric-body grammar boundaries**
 
 Parameterize accepted bodies:
 
@@ -713,7 +713,7 @@ Parameterize refused bodies:
 
 Each refused case must set `contract_failed`, raise `_SyntheticToolContractError`, retain no rejected value or violation detail, and make no later tool call. This is a full-match grammar; no substring extraction, trimming, normalization, or numeric conversion is allowed.
 
-- [ ] **Step 2: Prove the create diagnostic and GUID are causally derived**
+- [x] **Step 2: Prove the create diagnostic and GUID are causally derived**
 
 Test the first tool call directly and through the vertical:
 
@@ -726,11 +726,11 @@ Test the first tool call directly and through the vertical:
 
 Keep the operational create contract itself exact: the real vertical still admits only `_INITIAL_BODY` and the fixed create name, position, and pins.
 
-- [ ] **Step 3: Close every synthetic tool parameter boundary**
+- [x] **Step 3: Close every synthetic tool parameter boundary**
 
 Add direct refusal tests for wrong tool name, call order, exact key set, initial body, name, `x`, `y`, `pins_in`, `pins_out`, update GUID, `mode`, `language`, and non-exact built-in body type. Prove rejected mappings are not retained. Do not add a fake registry or generic dispatcher.
 
-- [ ] **Step 4: Prove native conversion and summary precedence**
+- [x] **Step 4: Prove native conversion and summary precedence**
 
 Run the real integration with a worker response whose action body is syntactically invalid for the private fake. Require:
 
@@ -743,7 +743,7 @@ assert summary["operator_reason"] == "synthetic_tool_contract_failure"
 
 Then produce an ordinary native stop without a fake-contract rejection and require `failed / native_stop`. Do not change or wrap the native `dispatch_failed` meaning.
 
-- [ ] **Step 5: Prove call counts from control flow and native records**
+- [x] **Step 5: Prove call counts from control flow and native records**
 
 Cover this closed matrix:
 
@@ -758,7 +758,7 @@ Cover this closed matrix:
 
 For returned results, derive Planner count as one because the concrete adapter was invoked. Derive Worker count from `handoff_result.adapter_record` only. Derive tool count from the private executor's call markers. Supply contradictory fake transport telemetry and prove it cannot affect any count.
 
-- [ ] **Step 6: Close the thirteen-field summary and exclusions**
+- [x] **Step 6: Close the thirteen-field summary and exclusions**
 
 Assert exact key order and set:
 
@@ -782,7 +782,7 @@ Assert exact key order and set:
 
 Search serialized summaries for sentinel prompt, response, worker code, rationale, diagnostic, GUID, credential, provider metadata, telemetry, tool parameters, and receipt content; none may appear. Exact intent and resolved role identities must appear when known.
 
-- [ ] **Step 7: Run and commit Task 3**
+- [x] **Step 7: Run and commit Task 3**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -810,7 +810,7 @@ git commit -m "test: harden causal model smoke boundary"
 - Consumes: the completed operator script and deterministic tests.
 - Produces: fresh no-contact verification evidence and an accurate execution ledger; no live smoke.
 
-- [ ] **Step 1: Run the new tests and inherited 573-test seam**
+- [x] **Step 1: Run the new tests and inherited 573-test seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -834,7 +834,7 @@ git commit -m "test: harden causal model smoke boundary"
 
 Record exact passed, failed, skipped, warning, and elapsed results. The inherited set was 573 tests at design time; the new total is not known until this command completes.
 
-- [ ] **Step 2: Run compilation and safe operator refusals only**
+- [x] **Step 2: Run compilation and safe operator refusals only**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m compileall -f `
@@ -850,7 +850,7 @@ Record exact passed, failed, skipped, warning, and elapsed results. The inherite
 
 The first script command must emit `live_execution_not_requested`; the second must emit `invalid_arguments`. Do not invoke `--execute-live`.
 
-- [ ] **Step 3: Audit the exact surface and transaction**
+- [x] **Step 3: Audit the exact surface and transaction**
 
 ```powershell
 git diff --name-only 2e9faf0dd3df16bb14e7d6c024b09136fef752d0...HEAD
@@ -866,7 +866,7 @@ Require exactly the approved four-file merge scope: specification, plan, operato
 
 The `--execute-live` search may find the constant, pure classifier cases, and exactly three controlled Task 2 in-process guard exercises: profile-load refusal, role-mismatch refusal, and the fail-before-construction `_run_live_once` stub. It must find no command that launches the script with the flag and no test that reaches the real `_run_live_once`, transport construction, or an external capability through the flag.
 
-- [ ] **Step 4: Reconcile this plan with fresh evidence**
+- [x] **Step 4: Reconcile this plan with fresh evidence**
 
 Mark every completed checkbox. Append an execution record containing:
 
@@ -886,7 +886,7 @@ git diff --cached --check
 git commit -m "docs: reconcile minimal model smoke plan"
 ```
 
-- [ ] **Step 5: Stop for final independent implementation review**
+- [x] **Step 5: Stop for final independent implementation review**
 
 Do not push, open a PR, merge, or request/run the live smoke until the implementation and execution ledger receive independent review.
 
@@ -894,17 +894,45 @@ Do not push, open a PR, merge, or request/run the live smoke until the implement
 
 ## Completion Criteria
 
-- [ ] Exactly one operator script and one test module implement the slice; merged product modules remain unchanged.
-- [ ] The no-flag and invalid-argument paths construct no transports.
-- [ ] Only the exact `hybrid` role pair can reach construction, and both roles are validated first.
-- [ ] Planner uses only `response_format`, Worker uses only `format`, and both calls use temperature zero, `max_tokens=1024`, `max_retries=0`, and the 120-second timeout.
-- [ ] The deterministic vertical traverses the real Planner adapter and merged intent/handoff path with one Planner call and one Worker call.
-- [ ] The private fake derives the create diagnostic and GUID causally, accepts only the safe bounded numeric-body grammar, and reports contract failure truthfully.
-- [ ] Call counts derive only from control flow, native records, and fake call markers.
-- [ ] The thirteen-field summary contains no disallowed raw or sensitive evidence.
-- [ ] The inherited 573-test seam plus new smoke tests pass at final verification.
-- [ ] No provider, worker box, Rhino, or Grasshopper contact occurs during implementation or review.
-- [ ] The operator script remains unlaunched with `--execute-live` pending separate post-merge authorization; only the exact three controlled in-process guard invocations occur.
+- [x] Exactly one operator script and one test module implement the slice; merged product modules remain unchanged.
+- [x] The no-flag and invalid-argument paths construct no transports.
+- [x] Only the exact `hybrid` role pair can reach construction, and both roles are validated first.
+- [x] Planner uses only `response_format`, Worker uses only `format`, and both calls use temperature zero, `max_tokens=1024`, `max_retries=0`, and the 120-second timeout.
+- [x] The deterministic vertical traverses the real Planner adapter and merged intent/handoff path with one Planner call and one Worker call.
+- [x] The private fake derives the create diagnostic and GUID causally, accepts only the safe bounded numeric-body grammar, and reports contract failure truthfully.
+- [x] Call counts derive only from control flow, native records, and fake call markers.
+- [x] The thirteen-field summary contains no disallowed raw or sensitive evidence.
+- [x] The inherited 573-test seam plus new smoke tests pass at final verification.
+- [x] No provider, worker box, Rhino, or Grasshopper contact occurs during implementation or review.
+- [x] The operator script remains unlaunched with `--execute-live` pending separate post-merge authorization; only the exact three controlled in-process guard invocations occur.
+
+## Execution Record
+
+- Base: `2e9faf0dd3df16bb14e7d6c024b09136fef752d0`.
+- Verified implementation HEAD before this documentation-only reconciliation:
+  `f40a332986b9e2030842621f9fee5150091da895`.
+- Merge scope: exactly this specification, this plan, the operator script, and
+  its test module. No merged product module changed.
+- Task 3 focused seam: `259 passed` in `6.55s`; zero failed, skipped, or
+  warnings reported.
+- Final complete seam: `652 passed` in `7.79s`; zero failed, skipped, or
+  warnings reported.
+- Python compilation completed successfully for the operator script and test;
+  `git diff --check` passed.
+- Safe no-argument command: exit `0`, reason
+  `live_execution_not_requested`, with zero reported calls.
+- Safe invalid-argument command: exit `1`, reason `invalid_arguments`, with
+  zero reported calls.
+- The exact four-file audit found no `ToolDispatcher`, Chat, DSPy, MCP-tool,
+  readiness, preflight, checksum, or fingerprint surface in the operator
+  script.
+- The live flag appeared in exactly three controlled in-process `main()` guard
+  tests: profile-load failure, role mismatch, and a fail-before-construction
+  `_run_live_once` stub. The operator script was never launched with the flag;
+  no real `_run_live_once` path or transport constructor was reached through
+  those tests.
+- No provider, worker box, Rhino, or Grasshopper contact occurred. No live
+  smoke was requested or run.
 
 ## Separately Authorized Post-Merge Operation
 
