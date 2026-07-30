@@ -1437,7 +1437,7 @@ git commit -m "test: harden real compile smoke boundary"
 - Consumes: completed script and deterministic test module.
 - Produces: no-contact transport/materialization evidence, safe CLI evidence, complete focused regression evidence, and an accurate plan execution ledger.
 
-- [ ] **Step 1: Add exact constructor and provider-materialization tests**
+- [x] **Step 1: Add exact constructor and provider-materialization tests**
 
 Capture both `LiteLLMWorkerTransport` constructor calls after successful
 preparation. Exact-compare Planner kwargs:
@@ -1489,7 +1489,7 @@ litellm.supports_response_schema(
 and `response_format` in the model's supported OpenAI parameters. This test is
 offline because `litellm.completion` is replaced before transport send.
 
-- [ ] **Step 2: Prove dispatcher construction uses existing product seams**
+- [x] **Step 2: Prove dispatcher construction uses existing product seams**
 
 Instantiate the actual `build_local_tools()` without dispatching. Require
 exact callable entries for `gh_create_csharp_script` and `gh_update_script`.
@@ -1500,7 +1500,7 @@ Search the new script and fail review if it imports `_mcp_tool_executor`,
 creates a fake executor, defines receipt fabrication, or calls any tool name
 outside the four-name vocabulary.
 
-- [ ] **Step 3: Add safe subprocess refusal tests**
+- [x] **Step 3: Add safe subprocess refusal tests**
 
 Run the script with no arguments and with `--invalid-argument`. Parse exactly
 one stdout JSON line, require empty stderr, and assert:
@@ -1515,7 +1515,7 @@ Planner, Worker, and execution calls, and null RookNative identity.
 
 Do not launch a subprocess with `--execute-live`.
 
-- [ ] **Step 4: Run the new tests and complete prior 654-test seam**
+- [x] **Step 4: Run the new tests and complete prior 654-test seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1541,7 +1541,7 @@ Do not launch a subprocess with `--execute-live`.
 Expected: the prior 654 tests plus the new module's collected tests all pass.
 Record the exact fresh count; do not preserve `654` as the new total.
 
-- [ ] **Step 5: Run compilation, diff, and source-surface checks**
+- [x] **Step 5: Run compilation, diff, and source-surface checks**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m compileall -f `
@@ -1574,7 +1574,7 @@ Review the search results rather than treating presence alone as failure:
 The merge diff must contain exactly the approved four files: spec, plan,
 operator script, and its test.
 
-- [ ] **Step 6: Exercise only safe operator commands**
+- [x] **Step 6: Exercise only safe operator commands**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe `
@@ -1587,7 +1587,7 @@ operator script, and its test.
 Require the exact bounded refusal summaries and expected exit codes. Do not
 invoke `--execute-live`.
 
-- [ ] **Step 7: Reconcile this plan with fresh execution evidence**
+- [x] **Step 7: Reconcile this plan with fresh execution evidence**
 
 Mark every operational checkbox complete and append an execution record with:
 
@@ -1609,26 +1609,49 @@ git add docs/superpowers/plans/2026-07-30-minimal-intent-worker-real-compile-smo
 git commit -m "docs: reconcile real compile smoke plan"
 ```
 
-- [ ] **Step 8: Stop for final independent implementation review**
+- [x] **Step 8: Stop for final independent implementation review**
 
 Do not push, open a PR, merge, or request/run the live smoke until the complete
 four-file branch and fresh evidence receive independent review.
 
 ---
 
+## Execution record
+
+- Implementation HEAD: `8c6533cf700dce1b83b5772a0db3ee7fecdd72af`.
+- Focused regression: `816 passed in 15.15s` using the exact 17-file Task 4
+  selection.
+- Compilation: `compileall -f` passed for the operator script and its test.
+- Diff validation: `git diff --check` passed.
+- Merge scope from `2bb2b5a7d7c708b738252ed96a4d0b547fbe45a2` is exactly the specification,
+  plan, operator script, and operator test module.
+- Safe operator refusals:
+  - no arguments: exit `0`, `refused/live_execution_not_requested`;
+  - `--invalid-argument`: exit `1`, `refused/invalid_arguments`.
+- Offline materialization runtime: Python `3.12.12`, LiteLLM `1.89.4`.
+- Source audit confirmed the real `ToolDispatcher` / `build_local_tools` seam,
+  the closed five-operation vocabulary, and no product fake, receipt
+  fabrication, `_mcp_tool_executor`, generalized operator framework, or live
+  product registration.
+- No provider, worker box, Rhino, or Grasshopper contact occurred.
+- The operator script was never launched with `--execute-live`; controlled
+  in-process tests exercised only monkeypatched no-contact boundaries.
+
+---
+
 ## Completion Criteria
 
-- [ ] Exactly one sibling operator script and one test module are added; product modules and the synthetic smoke remain unchanged.
-- [ ] Exact arguments and fixed model hierarchy stop every alternate path before discovery or contact.
-- [ ] Exactly one native discovery record freezes one positive integer port; PID is recorded identity only.
-- [ ] Preparation proves the existing canvas and replacement document are active, ready, empty, and unsaved before model construction.
-- [ ] Preparation exceptions preserve truthful mutation state and expose no exception text.
-- [ ] Per-call `port` parameters are rejected before executor-prefix mutation or dispatcher entry.
-- [ ] Legitimate executor prefixes remain valid, including native stops after create without update.
-- [ ] Only the existing native terminal plus exact create/update prefix produces completed status.
-- [ ] Output is bounded and excludes all sensitive/model/tool evidence listed in the specification.
-- [ ] The complete focused regression, compilation, diff, and source audit pass without external contact.
-- [ ] No implementation or review command launches `--execute-live`.
+- [x] Exactly one sibling operator script and one test module are added; product modules and the synthetic smoke remain unchanged.
+- [x] Exact arguments and fixed model hierarchy stop every alternate path before discovery or contact.
+- [x] Exactly one native discovery record freezes one positive integer port; PID is recorded identity only.
+- [x] Preparation proves the existing canvas and replacement document are active, ready, empty, and unsaved before model construction.
+- [x] Preparation exceptions preserve truthful mutation state and expose no exception text.
+- [x] Per-call `port` parameters are rejected before executor-prefix mutation or dispatcher entry.
+- [x] Legitimate executor prefixes remain valid, including native stops after create without update.
+- [x] Only the existing native terminal plus exact create/update prefix produces completed status.
+- [x] Output is bounded and excludes all sensitive/model/tool evidence listed in the specification.
+- [x] The complete focused regression, compilation, diff, and source audit pass without external contact.
+- [x] No implementation or review command launches `--execute-live`.
 
 ## Post-merge live boundary
 
