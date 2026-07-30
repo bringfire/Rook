@@ -78,11 +78,62 @@ claim that scripted receipts prove real compilation.
 - Consumes: `get_models()`, `discover_instances()`, `ToolDispatcher`, `build_local_tools()`, `LiteLLMWorkerTransport`, `MinimalPlannerDraftAdapter`, and `run_minimal_intent_worker_integration()`.
 - Produces: `_ProfileRefusal`, `_TargetRefusal`, `_ResolvedRoles`, `_ResolvedRhinoTarget`, `_PreparedDocument`, `_RestrictedRealToolExecutor`, `_LiveRun`, `_run_live_once()`, and the first bounded successful summary path.
 
-- [ ] **Step 1: Add the valid-red script loader and walking-vertical fixtures**
+- [ ] **Step 1: Create an importable skeleton and the behavioral vertical test**
 
-Create the test module with an import-by-path loader. The loader must fail
-because the script does not yet exist; an import typo after creation is not a
-valid red state.
+Create the operator script as this importable skeleton first:
+
+```python
+#!/usr/bin/env python
+"""Operator-only real Grasshopper compile smoke for the minimal handoff."""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_MCP_SRC = _REPO_ROOT / "mcp_server" / "src"
+if str(_MCP_SRC) not in sys.path:
+    sys.path.insert(0, str(_MCP_SRC))
+
+from rook.agent.local_worker_model_transport import (  # noqa: E402
+    LiteLLMWorkerTransport,
+)
+from rook.agent.tool_dispatcher import (  # noqa: E402
+    ToolDispatcher,
+    build_local_tools,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedRoles:
+    profile: str
+    planner_model: str
+    worker_model: str
+    profile_api_base: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedRhinoTarget:
+    process_id: int
+    port: int
+
+
+async def _run_live_once(
+    roles: _ResolvedRoles,
+    target: _ResolvedRhinoTarget,
+) -> "_LiveRun":
+    raise NotImplementedError("real compile smoke composition not implemented")
+```
+
+Step 3 adds the remaining production imports and replaces the quoted `_LiveRun`
+annotation with the complete declared carrier after the test is demonstrably
+red.
+
+Then create the test module with an import-by-path loader. Because the script
+already imports successfully, import errors, missing symbols, and fixture
+construction failures are not valid red states.
 
 ```python
 from __future__ import annotations
@@ -257,7 +308,90 @@ def _status(document_id: str) -> dict[str, Any]:
     }
 ```
 
-- [ ] **Step 2: Run the loader test and verify the intended red state**
+Add the desired-behavior test now:
+
+```python
+@pytest.mark.asyncio
+async def test_no_contact_walking_vertical_reaches_native_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_dispatchers: list[_ScriptedDispatcher] = []
+
+    def make_dispatcher(*, port: int, local_tools: dict[str, Any]):
+        dispatcher = _ScriptedDispatcher(port=port, local_tools=local_tools)
+        created_dispatchers.append(dispatcher)
+        return dispatcher
+
+    transports = iter(
+        (_RawTransport(_planner_payload()), _RawTransport(_worker_payload()))
+    )
+    monkeypatch.setattr(SMOKE, "ToolDispatcher", make_dispatcher)
+    monkeypatch.setattr(
+        SMOKE,
+        "build_local_tools",
+        lambda: {
+            "gh_create_csharp_script": object(),
+            "gh_update_script": object(),
+        },
+    )
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+
+    live_run = await SMOKE._run_live_once(
+        SMOKE._ResolvedRoles(
+            profile="hybrid",
+            planner_model="anthropic/claude-opus-4-6",
+            worker_model="ollama_chat/qwen3-coder:30b-a3b-q8_0",
+            profile_api_base=None,
+        ),
+        SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+    )
+
+    assert live_run.result.terminal_stage == "terminal"
+    assert live_run.result.terminal_reason == "terminal_node_selected:done"
+    assert live_run.preparation.state == "fresh_document_verified"
+    assert live_run.preparation.tool_calls == 3
+    assert live_run.executor.call_names == (
+        "gh_create_csharp_script",
+        "gh_update_script",
+    )
+    assert created_dispatchers[0].calls == [
+        ("gh_status", {}),
+        ("gh_document_new", {}),
+        ("gh_status", {}),
+        (
+            "gh_create_csharp_script",
+            {
+                "code": "A = DefinitelyMissingSymbol;",
+                "pins_in": (),
+                "pins_out": ("A:double",),
+                "name": "RookMinimalRepairHandoff",
+                "x": 375,
+                "y": 1080,
+            },
+        ),
+        (
+            "gh_update_script",
+            {
+                "guid": _COMPONENT_GUID,
+                "code": "A = 42.0;",
+                "mode": "body",
+                "language": "csharp",
+            },
+        ),
+    ]
+```
+
+The scripted create response is the only producer of `_COMPONENT_GUID`; the
+expected update mapping proves the controller used that receipt-derived value
+and the exact Worker-authored body. Do not write a test that expects
+`NotImplementedError`; the missing behavior must make this desired-behavior
+test fail.
+
+- [ ] **Step 2: Run the vertical and verify the intended behavioral red**
 
 Run:
 
@@ -266,8 +400,16 @@ Run:
   mcp_server\tests\test_minimal_intent_worker_real_compile_smoke.py -q
 ```
 
-Expected: collection fails because
-`scripts/minimal_intent_worker_real_compile_smoke.py` does not exist.
+Expected: collection succeeds and
+`test_no_contact_walking_vertical_reaches_native_terminal` fails only with:
+
+```text
+NotImplementedError: real compile smoke composition not implemented
+```
+
+If collection, imports, monkeypatch setup, or scripted fixtures fail first,
+repair that test infrastructure and rerun until the behavioral assertion is
+the sole failure.
 
 - [ ] **Step 3: Add the script constants, exact types, and pure builders**
 
@@ -491,7 +633,7 @@ def _require_status(
         or data.get("ready_for_edit") is not True
         or data.get("has_active_document") is not True
         or type(document_id) is not str
-        or not document_id
+        or not document_id.strip()
         or type(object_count) is not int
         or object_count != 0
         or type(data.get("document_path")) is not str
@@ -647,9 +789,9 @@ completed = (
 All other returned native results use `failed / native_stop`; Task 3 hardens
 redaction and all summary states.
 
-- [ ] **Step 6: Add and run the walking vertical**
+- [ ] **Step 6: Rerun the walking vertical green**
 
-Monkeypatch, in order:
+Use the test and monkeypatches already established in Step 1, in order:
 
 - `SMOKE.ToolDispatcher` to `_ScriptedDispatcher`;
 - `SMOKE.build_local_tools` to return a mapping containing exact create/update
@@ -657,28 +799,11 @@ Monkeypatch, in order:
 - `SMOKE.LiteLLMWorkerTransport` to return the Planner then Worker raw
   transports.
 
-Call `_run_live_once()` directly with exact roles and target. Assert:
-
-```python
-assert live_run.result.terminal_stage == "terminal"
-assert live_run.result.terminal_reason == "terminal_node_selected:done"
-assert live_run.preparation.state == "fresh_document_verified"
-assert live_run.preparation.tool_calls == 3
-assert live_run.executor.call_names == (
-    "gh_create_csharp_script",
-    "gh_update_script",
-)
-assert dispatcher.calls == [
-    ("gh_status", {}),
-    ("gh_document_new", {}),
-    ("gh_status", {}),
-    ("gh_create_csharp_script", expected_create_params),
-    ("gh_update_script", expected_update_params),
-]
-```
-
-Also assert the create response originates `_COMPONENT_GUID`, the update call
-uses that exact GUID, and the update body equals the Worker response body.
+Call `_run_live_once()` directly with the exact roles and target. Do not change
+the Step 1 assertions or replace the two literal create/update parameter
+mappings with looser helpers. They already prove the create response originates
+`_COMPONENT_GUID`, the update call uses that exact GUID, and the update body
+equals the Worker response body.
 
 Run:
 
@@ -719,8 +844,8 @@ Stop for independent review of the real transaction ordering before Task 2.
 - Modify: `mcp_server/tests/test_minimal_intent_worker_real_compile_smoke.py`
 
 **Interfaces:**
-- Consumes: Task 1's role/target refusals, roles, target, dispatcher construction, and preparation functions.
-- Produces: `_PreparationFailure`, complete `_prepare_fresh_document()`, `_classify_arguments()`, and pre-model `main()` outcomes.
+- Consumes: Task 1's role/target refusals, roles, target, dispatcher construction, preparation functions, and successful composition path.
+- Produces: `_PreparationFailure`, `_PostPreparationFailure`, complete `_prepare_fresh_document()`, `_classify_arguments()`, and truthful pre-model/post-preparation `main()` outcomes.
 
 - [ ] **Step 1: Add valid-red argument and profile-order tests**
 
@@ -788,7 +913,8 @@ Mutate independently:
 - result and data to subclasses/non-dicts;
 - `success`, `available`, `ready_for_edit`, and `has_active_document` to every
   non-`True` or equality-spoof value;
-- document ID to missing, empty, non-string, and equality-spoof values;
+- document ID to missing, empty, whitespace-only (`"   "` and `"\t\r\n"`),
+  non-string, and equality-spoof values;
 - object count to missing, `False`, `True`, `-1`, `1`, float, string, and
   equality-spoof values;
 - document path to missing, non-string, saved path, and equality-spoof values;
@@ -825,9 +951,44 @@ post-status:    state=document_new_started,  calls=3
 For every case, parse stdout and prove `PREPARATION_SENTINEL` is absent, both
 model constructors are untouched, and no later dispatcher call occurs.
 
-- [ ] **Step 6: Implement typed failure carriers and exact preparation flow**
+- [ ] **Step 6: Add valid-red post-preparation exception-custody tests**
 
-Add:
+Begin from a successful three-call preparation. Parameterize ordinary
+`RuntimeError("POST_PREPARATION_SENTINEL")` failures from:
+
+- the first `LiteLLMWorkerTransport` construction;
+- the second `LiteLLMWorkerTransport` construction;
+- `MinimalPlannerDraftAdapter` construction; and
+- `run_minimal_intent_worker_integration()`.
+
+For each call `main(["--execute-live"])` in process with discovery and all
+preparation contacts replaced. The result must preserve:
+
+```python
+{
+    "operator_status": "failed",
+    "operator_reason": "operator_internal_error",
+    "rooknative_process_id": 4001,
+    "rooknative_port": 9877,
+    "document_preparation_status": "fresh_document_verified",
+    "preparation_tool_calls": 3,
+    "planner_calls": None,
+    "worker_calls": None,
+    "execution_tool_calls": None,
+    "terminal_stage": None,
+    "terminal_reason": None,
+    "planner_adapter_status": None,
+    "worker_adapter_status": None,
+}
+```
+
+Assert the sentinel is absent from serialized stdout. The tests are valid-red
+only when the current generic exception branch reports no proven preparation
+state; a failure during scripted preparation is not the intended boundary.
+
+- [ ] **Step 7: Implement typed failure carriers and exact preparation flow**
+
+Add both control-state carriers:
 
 ```python
 class _PreparationFailure(RuntimeError):
@@ -841,28 +1002,52 @@ class _PreparationFailure(RuntimeError):
         self.reason = reason
         self.state = state
         self.tool_calls = tool_calls
+
+
+class _PostPreparationFailure(RuntimeError):
+    def __init__(
+        self,
+        target: _ResolvedRhinoTarget,
+        preparation: _PreparedDocument,
+    ) -> None:
+        super().__init__("post-preparation execution failed")
+        self.reason = "operator_internal_error"
+        self.target = target
+        self.preparation = preparation
 ```
 
-Implement preparation without a loop:
+Implement preparation without a loop. Materialize every internal branch state
+before the next destructive transition:
 
 ```python
 async def _prepare_fresh_document(
     dispatcher: ToolDispatcher,
 ) -> _PreparedDocument:
+    preparation_state: Literal[
+        "not_started",
+        "status_rejected",
+        "status_verified",
+        "document_new_started",
+        "fresh_document_verified",
+    ] = "not_started"
     calls = 1
     try:
         pre = await dispatcher.dispatch("gh_status", {})
     except Exception as exc:
+        preparation_state = "status_rejected"
         raise _PreparationFailure(
             "pre_status_exception", "status_rejected", calls
         ) from exc
     try:
         pre_id = _require_status(pre, previous_document_id=None)
     except (TypeError, ValueError) as exc:
+        preparation_state = "status_rejected"
         raise _PreparationFailure(
             "pre_status_rejected", "status_rejected", calls
         ) from exc
 
+    preparation_state = "status_verified"
+    preparation_state = "document_new_started"
     calls = 2
     try:
         created = await dispatcher.dispatch("gh_document_new", {})
@@ -890,17 +1075,90 @@ async def _prepare_fresh_document(
         raise _PreparationFailure(
             "post_status_rejected", "document_new_started", calls
         ) from exc
+    preparation_state = "fresh_document_verified"
     return _PreparedDocument(
-        state="fresh_document_verified",
+        state=preparation_state,
         tool_calls=calls,
     )
 ```
 
-The internal successful pre-status branch is `status_verified`; no observable
-failure may label it `status_rejected`. Set `document_new_started` before the
-second await, as represented by every second/third-call failure carrier.
+`status_verified` is now an actual assigned transition, not explanatory text.
+No observable failure after that assignment may label the pre-status result
+`status_rejected`. `document_new_started` is assigned before the second await,
+so every second/third-call failure preserves mutation truth.
 
-- [ ] **Step 7: Implement pre-contact and preparation summaries in `main()`**
+Split the Task 1 post-preparation lines into a private helper and wrap them only
+after `_PreparedDocument` exists:
+
+```python
+async def _run_prepared_once(
+    roles: _ResolvedRoles,
+    target: _ResolvedRhinoTarget,
+    dispatcher: ToolDispatcher,
+    preparation: _PreparedDocument,
+) -> _LiveRun:
+    planner_transport = LiteLLMWorkerTransport(
+        model=roles.planner_model,
+        profile_api_base=roles.profile_api_base,
+        generation_params={
+            "temperature": 0,
+            "max_tokens": _MAX_OUTPUT_TOKENS,
+            "max_retries": _MAX_RETRIES,
+            "response_format": _planner_response_format(),
+        },
+        structured_response_schema=None,
+        timeout_s=_TIMEOUT_S,
+    )
+    worker_transport = LiteLLMWorkerTransport(
+        model=roles.worker_model,
+        profile_api_base=roles.profile_api_base,
+        generation_params={
+            "temperature": 0,
+            "max_tokens": _MAX_OUTPUT_TOKENS,
+            "max_retries": _MAX_RETRIES,
+        },
+        structured_response_schema=_local_worker_response_union_schema(),
+        timeout_s=_TIMEOUT_S,
+    )
+    executor = _RestrictedRealToolExecutor(dispatcher.dispatch)
+    result = await run_minimal_intent_worker_integration(
+        _FIXED_INTENT,
+        planner_adapter=MinimalPlannerDraftAdapter(planner_transport),
+        worker_transport=worker_transport,
+        tool_executor=executor,
+    )
+    return _LiveRun(
+        result=result,
+        target=target,
+        preparation=preparation,
+        executor=executor,
+    )
+
+
+async def _run_live_once(
+    roles: _ResolvedRoles,
+    target: _ResolvedRhinoTarget,
+) -> _LiveRun:
+    dispatcher = ToolDispatcher(
+        port=target.port,
+        local_tools=build_local_tools(),
+    )
+    preparation = await _prepare_fresh_document(dispatcher)
+    try:
+        return await _run_prepared_once(
+            roles,
+            target,
+            dispatcher,
+            preparation,
+        )
+    except Exception as exc:
+        raise _PostPreparationFailure(target, preparation) from exc
+```
+
+The wrapper catches ordinary post-preparation exceptions only. It does not
+catch `BaseException`, retry, or invent later call counts.
+
+- [ ] **Step 8: Implement pre-contact and preparation summaries in `main()`**
 
 Order the live branch exactly:
 
@@ -914,10 +1172,15 @@ Profile and target refusals return `operator_status="refused"` with
 `document_preparation_status="not_started"` and
 `preparation_tool_calls=0`. `_PreparationFailure` returns
 `operator_status="preparation_failed"`, the carried safe reason/state/count,
-the frozen process ID/port, and zero Planner/Worker calls. Generic exceptions
-use `operator_internal_error` without exception text.
+the frozen process ID/port, and zero Planner/Worker calls.
+`_PostPreparationFailure` must be caught before the generic exception branch
+and return `operator_status="failed"`, `operator_reason="operator_internal_error"`,
+its exact target, `fresh_document_verified`, three preparation calls, and
+`None` for every unprovable later count/status. Generic exceptions before a
+proven preparation use `operator_internal_error` without exception text and
+must not claim document replacement succeeded.
 
-- [ ] **Step 8: Run Task 2 tests and inherited guard tests**
+- [ ] **Step 9: Run Task 2 tests and inherited guard tests**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -927,7 +1190,7 @@ use `operator_internal_error` without exception text.
 
 Expected: all tests pass; no external contact.
 
-- [ ] **Step 9: Commit Task 2**
+- [ ] **Step 10: Commit Task 2**
 
 ```powershell
 git add scripts/minimal_intent_worker_real_compile_smoke.py `
