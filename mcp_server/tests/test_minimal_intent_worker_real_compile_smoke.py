@@ -4,6 +4,7 @@ import asyncio
 import copy
 import importlib.util
 import json
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -43,6 +44,8 @@ def _load_smoke():
 
 
 SMOKE = _load_smoke()
+
+from rook.agent import local_worker_model_transport as transport_module  # noqa: E402
 
 
 def _planner_payload() -> dict[str, Any]:
@@ -1356,3 +1359,196 @@ def test_final_projection_exception_returns_one_bounded_summary(
     assert summary["planner_adapter_status"] is None
     assert summary["worker_adapter_status"] is None
     assert "SENSITIVE_SENTINEL" not in json.dumps(summary)
+
+
+@pytest.mark.asyncio
+async def test_live_composition_materializes_exact_provider_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert (
+        transport_module.litellm.supports_response_schema(
+            model="anthropic/claude-opus-4-6"
+        )
+        is True
+    )
+    supported = transport_module.litellm.get_supported_openai_params(
+        model="anthropic/claude-opus-4-6"
+    )
+    assert supported is not None
+    assert "response_format" in supported
+
+    real_transport_type = SMOKE.LiteLLMWorkerTransport
+    planner_transport = _RawTransport(_planner_payload())
+    worker_transport = _RawTransport(_worker_payload())
+    fake_transports = iter((planner_transport, worker_transport))
+    constructor_calls: list[dict[str, Any]] = []
+
+    def capture_transport(**kwargs: Any) -> _RawTransport:
+        constructor_calls.append(copy.deepcopy(kwargs))
+        return next(fake_transports)
+
+    created_dispatchers: list[_ScriptedDispatcher] = []
+
+    def make_dispatcher(*, port: int, local_tools: dict[str, Any]) -> Any:
+        dispatcher = _ScriptedDispatcher(port=port, local_tools=local_tools)
+        created_dispatchers.append(dispatcher)
+        return dispatcher
+
+    monkeypatch.setattr(SMOKE, "LiteLLMWorkerTransport", capture_transport)
+    monkeypatch.setattr(SMOKE, "ToolDispatcher", make_dispatcher)
+    monkeypatch.setattr(
+        SMOKE,
+        "build_local_tools",
+        lambda: {
+            "gh_create_csharp_script": object(),
+            "gh_update_script": object(),
+        },
+    )
+    roles = SMOKE._ResolvedRoles(
+        profile="hybrid",
+        planner_model="anthropic/claude-opus-4-6",
+        worker_model="ollama_chat/qwen3-coder:30b-a3b-q8_0",
+        profile_api_base="http://localhost:11434/v1",
+    )
+
+    live_run = await SMOKE._run_live_once(
+        roles,
+        SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+    )
+
+    planner_kwargs = {
+        "model": "anthropic/claude-opus-4-6",
+        "profile_api_base": "http://localhost:11434/v1",
+        "generation_params": {
+            "temperature": 0,
+            "max_tokens": 1024,
+            "max_retries": 0,
+            "response_format": SMOKE._planner_response_format(),
+        },
+        "structured_response_schema": None,
+        "timeout_s": 120.0,
+    }
+    worker_kwargs = {
+        "model": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+        "profile_api_base": "http://localhost:11434/v1",
+        "generation_params": {
+            "temperature": 0,
+            "max_tokens": 1024,
+            "max_retries": 0,
+        },
+        "structured_response_schema": (
+            SMOKE._local_worker_response_union_schema()
+        ),
+        "timeout_s": 120.0,
+    }
+    assert constructor_calls == [planner_kwargs, worker_kwargs]
+    assert live_run.result.terminal_reason == "terminal_node_selected:done"
+    assert len(created_dispatchers) == 1
+
+    provider_calls: list[dict[str, Any]] = []
+
+    def completion(**kwargs: Any) -> Any:
+        provider_calls.append(copy.deepcopy(kwargs))
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))],
+            usage=None,
+        )
+
+    monkeypatch.setattr(transport_module.litellm, "completion", completion)
+    monkeypatch.setattr(
+        transport_module.litellm,
+        "completion_cost",
+        lambda completion_response: None,
+    )
+    planner = real_transport_type(**planner_kwargs)
+    worker = real_transport_type(**worker_kwargs)
+    prompt = {"messages": [{"role": "user", "content": "fixed"}]}
+
+    assert planner.send(prompt) == "{}"
+    assert worker.send(prompt) == "{}"
+
+    planner_call, worker_call = provider_calls
+    assert planner_call["response_format"] == planner_kwargs["generation_params"][
+        "response_format"
+    ]
+    assert "format" not in planner_call
+    assert planner_call["max_tokens"] == 1024
+    assert planner_call["max_retries"] == 0
+    assert worker_call["format"] == worker_kwargs["structured_response_schema"]
+    assert "response_format" not in worker_call
+    assert worker_call["max_tokens"] == 1024
+    assert worker_call["max_retries"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.filterwarnings(
+    "ignore:The 'prefix' argument in InputField/OutputField is deprecated:"
+    "DeprecationWarning"
+)
+async def test_dispatcher_construction_uses_the_existing_local_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    local_tools = SMOKE.build_local_tools()
+    assert callable(local_tools["gh_create_csharp_script"])
+    assert callable(local_tools["gh_update_script"])
+    captured: list[tuple[int, dict[str, Any]]] = []
+
+    def make_dispatcher(*, port: int, local_tools: dict[str, Any]) -> Any:
+        captured.append((port, local_tools))
+        return _ScriptedDispatcher(port=port, local_tools=local_tools)
+
+    transports = iter(
+        (_RawTransport(_planner_payload()), _RawTransport(_worker_payload()))
+    )
+    monkeypatch.setattr(SMOKE, "ToolDispatcher", make_dispatcher)
+    monkeypatch.setattr(SMOKE, "build_local_tools", lambda: local_tools)
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+
+    live_run = await SMOKE._run_live_once(
+        _roles(),
+        SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+    )
+
+    assert live_run.result.terminal_reason == "terminal_node_selected:done"
+    assert captured == [(9877, local_tools)]
+    assert captured[0][1] is local_tools
+
+
+@pytest.mark.parametrize(
+    ("args", "expected_code", "expected_reason"),
+    [
+        ([], 0, "live_execution_not_requested"),
+        (["--invalid-argument"], 1, "invalid_arguments"),
+    ],
+)
+def test_operator_subprocess_refuses_without_live_contact(
+    args: list[str],
+    expected_code: int,
+    expected_reason: str,
+) -> None:
+    completed = subprocess.run(
+        [sys.executable, str(_SCRIPT), *args],
+        cwd=_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == expected_code
+    assert completed.stderr == ""
+    lines = completed.stdout.splitlines()
+    assert len(lines) == 1
+    summary = json.loads(lines[0])
+    assert summary["operator_status"] == "refused"
+    assert summary["operator_reason"] == expected_reason
+    assert summary["rooknative_process_id"] is None
+    assert summary["rooknative_port"] is None
+    assert summary["document_preparation_status"] == "not_started"
+    assert summary["preparation_tool_calls"] == 0
+    assert summary["planner_calls"] == 0
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
