@@ -610,13 +610,25 @@ def _post_preparation_failure_summary(
     roles: _ResolvedRoles,
     exc: _PostPreparationFailure,
 ) -> dict[str, object]:
+    return _verified_preparation_internal_error_summary(
+        roles,
+        exc.target,
+        exc.preparation,
+    )
+
+
+def _verified_preparation_internal_error_summary(
+    roles: _ResolvedRoles,
+    target: _ResolvedRhinoTarget,
+    preparation: _PreparedDocument,
+) -> dict[str, object]:
     return _bounded_summary(
         operator_status="failed",
-        operator_reason=exc.reason,
+        operator_reason="operator_internal_error",
         roles=roles,
-        target=exc.target,
-        preparation_state=exc.preparation.state,
-        preparation_tool_calls=exc.preparation.tool_calls,
+        target=target,
+        preparation_state=preparation.state,
+        preparation_tool_calls=preparation.tool_calls,
         planner_calls=None,
         worker_calls=None,
         execution_tool_calls=None,
@@ -700,8 +712,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit_summary(_operator_internal_error_summary(roles, target))
         return 1
 
-    summary = _summary_from_result(roles, live_run)
-    _emit_summary(summary)
+    try:
+        summary = _summary_from_result(roles, live_run)
+        _emit_summary(summary)
+    except Exception:
+        _emit_summary(
+            _verified_preparation_internal_error_summary(
+                roles,
+                live_run.target,
+                live_run.preparation,
+            )
+        )
+        return 1
     return 0 if summary["operator_status"] == "completed" else 1
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import importlib.util
 import json
@@ -1317,3 +1318,41 @@ async def test_receipt_diagnostic_and_guid_do_not_enter_the_summary(
 
     assert summary["operator_status"] == "completed"
     assert "SENSITIVE_SENTINEL" not in serialized
+
+
+def test_final_projection_exception_returns_one_bounded_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    terminal_run = asyncio.run(
+        _run_scripted_worker(monkeypatch, _worker_payload())
+    )
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
+
+    async def return_terminal_run(*_args: Any, **_kwargs: Any) -> Any:
+        return terminal_run
+
+    def raise_projection(_reason: object) -> str:
+        raise RuntimeError("SENSITIVE_SENTINEL projection failure")
+
+    monkeypatch.setattr(SMOKE, "_run_live_once", return_terminal_run)
+    monkeypatch.setattr(SMOKE, "_project_terminal_reason", raise_projection)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "operator_internal_error"
+    assert summary["rooknative_process_id"] == 4001
+    assert summary["rooknative_port"] == 9877
+    assert summary["document_preparation_status"] == "fresh_document_verified"
+    assert summary["preparation_tool_calls"] == 3
+    assert summary["planner_calls"] is None
+    assert summary["worker_calls"] is None
+    assert summary["execution_tool_calls"] is None
+    assert summary["terminal_stage"] is None
+    assert summary["terminal_reason"] is None
+    assert summary["planner_adapter_status"] is None
+    assert summary["worker_adapter_status"] is None
+    assert "SENSITIVE_SENTINEL" not in json.dumps(summary)
