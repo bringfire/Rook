@@ -157,13 +157,16 @@ operator status/reason and safely known call counts; detailed native fields
 remain in `final_native_result` when that owning result exists.
 
 `run_finished` appears only when the logical event stream is complete: every
-preceding event and the final native projection were written successfully. It
-is written and flushed last. Close must then succeed before stdout may report
-an ordinarily successful operator result. A close failure after that flush may
-leave `run_finished` in the file, but the operator still reports
-`trace_write_failed`; the row claims logical event-stream completion, not close
-or durability success. A stream that fails before `run_finished` ends at its
-last successfully flushed row and never receives the event later.
+preceding event and every applicable, ownership-backed projection were written
+successfully. Role, discovery, preparation, Planner, and draft-admission stops
+are complete without a native projection and still receive `run_finished` when
+their applicable events succeeded. The event is written and flushed last.
+Close must then succeed before stdout may report an ordinarily successful
+operator result. A close failure after that flush may leave `run_finished` in
+the file, but the operator still reports `trace_write_failed`; the row claims
+logical event-stream completion, not close or durability success. A stream that
+fails before `run_finished` ends at its last successfully flushed row and never
+receives the event later.
 
 ## 6. Bounds
 
@@ -195,6 +198,18 @@ message, the recorder writes and flushes one small rejection row. It contains:
 - exactly one fixed rejection reason:
   `json_serialization_failed`, `row_size_exceeded`,
   `total_size_exceeded`, or `exception_message_size_exceeded`.
+
+Event selection is exact:
+
+```text
+json_serialization_failed
+-> event_serialization_failed
+
+row_size_exceeded
+total_size_exceeded
+exception_message_size_exceeded
+-> event_rejected
+```
 
 The trace is then incomplete and no further external call occurs. If the
 rejection row itself cannot be written or flushed, the partial trace simply
@@ -388,8 +403,11 @@ Prove:
 - serialization failure and all fixed rejection reasons;
 - escaped-surrogate exception-message measurement through
   `ensure_ascii=True` JSON-string encoding;
-- ordinary write/flush/close failure behavior; and
-- absence of `run_finished` from every incomplete trace.
+- ordinary write/flush/close failure behavior;
+- absence of `run_finished` whenever failure occurs before its successful
+  flush; and
+- possible retained `run_finished` plus `trace_write_failed` when final close
+  alone fails after that flush.
 
 ### 11.2 Wrapper transparency and ordering
 
