@@ -309,7 +309,7 @@ def _require_document_new(result: object) -> None:
     if type(result) is not dict or result.get("success") is not True:
         raise ValueError("document new rejected")
     data = result.get("data")
-    if type(data) is not dict or data.get("Created") is not True:
+    if type(data) is not dict or data.get("created") is not True:
         raise ValueError("document new data rejected")
 
 
