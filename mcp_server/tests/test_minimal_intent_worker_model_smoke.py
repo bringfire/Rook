@@ -800,6 +800,45 @@ async def test_success_summary_is_closed_and_excludes_retained_sensitive_evidenc
         assert forbidden not in serialized
 
 
+@pytest.mark.asyncio
+async def test_malformed_worker_content_is_projected_out_of_operator_stdout(
+    monkeypatch,
+    capsys,
+) -> None:
+    sentinel = "SENTINEL_MODEL_AUTHORED_KIND"
+    malformed_worker = {
+        "schema": "rook.local_worker_turn_response:v1",
+        "kind": sentinel,
+    }
+    live_run, _planner_transport, _worker_transport = await _run_with_payloads(
+        monkeypatch,
+        _planner_payload(),
+        malformed_worker,
+    )
+
+    assert sentinel in live_run.result.terminal_reason
+
+    summary = SMOKE._summary_from_result(_roles(), live_run)
+    SMOKE._write_summary(summary)
+    output = capsys.readouterr()
+
+    assert output.err == ""
+    assert sentinel not in output.out
+    assert json.loads(output.out)["terminal_reason"] == (
+        "worker_response_payload_invalid"
+    )
+
+
+def test_terminal_reason_projector_closes_unknown_native_reasons() -> None:
+    projector = getattr(SMOKE, "_project_terminal_reason", None)
+
+    assert callable(projector)
+    assert projector("terminal_node_selected:done") == "terminal_node_selected:done"
+    assert projector("SENTINEL_UNKNOWN_NATIVE_REASON") == (
+        "native_reason_unclassified"
+    )
+
+
 @pytest.mark.parametrize(
     ("argv", "reason", "exit_code"),
     (

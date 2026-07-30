@@ -364,8 +364,12 @@ The operator vocabulary is closed:
 
 `completed / native_terminal` requires the existing native terminal stage and
 reason. Ordinary returned Planner, draft, worker, action, or receipt stops use
-`failed / native_stop` while retaining their native terminal fields. After a
-native result returns, `contract_failed == true` takes precedence and yields
+`failed / native_stop` while retaining the native terminal stage and a closed
+terminal-reason projection. Exact code-owned reason tokens remain unchanged;
+known native reason families map to fixed categories, and every unknown reason
+maps to `native_reason_unclassified`. The full native result remains available
+internally and is not rewritten. After a native result returns,
+`contract_failed == true` takes precedence and yields
 `failed / synthetic_tool_contract_failure`; otherwise the ordinary native-stop
 classification applies. An unexpected exception that prevents a native result
 uses `failed / operator_internal_error` with all unprovable call counts `null`.
@@ -375,6 +379,7 @@ The summary never includes:
 - raw prompts or responses;
 - worker code or rationale;
 - diagnostics or component GUIDs;
+- model-authored terminal-reason details;
 - credentials;
 - provider-returned metadata;
 - LiteLLM telemetry; or

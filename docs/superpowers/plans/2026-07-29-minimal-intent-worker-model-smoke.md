@@ -425,7 +425,11 @@ assert worker_call["temperature"] == 0
 assert "response_format" not in worker_call
 ```
 
-Require exactly one schema-bearing key per call. Mutate each captured schema and prove a later composition builds a fresh code-owned value. The test stops at the monkeypatched `litellm.completion` boundary and makes no provider contact.
+Require exactly one schema-bearing key per call and exact equality with the
+corresponding code-owned schema value. This test proves provider-request
+materialization only; it does not claim cross-call schema-mutation isolation.
+The test stops at the monkeypatched `litellm.completion` boundary and makes no
+provider contact.
 
 - [x] **Step 8: Run the vertical and inherited seam**
 
@@ -576,7 +580,7 @@ def _summary_from_result(
         ),
         "tool_calls": live_run.executor.tool_call_count,
         "terminal_stage": result.terminal_stage,
-        "terminal_reason": result.terminal_reason,
+        "terminal_reason": _project_terminal_reason(result.terminal_reason),
         "planner_adapter_status": result.planner_adapter_record.status,
         "worker_adapter_status": worker_status,
     }
@@ -643,7 +647,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 Add a subprocess test for no arguments and one for `--invalid-argument`. Assert exit behavior, exact summary shape, and absence of stderr secrets. Do not launch the script with `--execute-live`; apart from pure classifier cases, the flag may enter only the exact three controlled in-process guard exercises defined in Step 2.
 
-Search the script source in the test and reject `argparse`, `click`, model-override names, retry/fallback loops, `ToolDispatcher`, and product registration imports. Permit only the one literal live flag.
+Perform that source-surface search during the final Task 4 audit, rejecting
+`argparse`, `click`, model-override names, retry/fallback loops,
+`ToolDispatcher`, and product registration imports. Permit only the one
+literal live flag. This is a reviewed source audit, not an automated
+source-text invariant.
 
 - [x] **Step 5: Run and commit Task 2**
 
@@ -915,17 +923,20 @@ Do not push, open a PR, merge, or request/run the live smoke until the implement
   its test module. No merged product module changed.
 - Task 3 focused seam: `259 passed` in `6.55s`; zero failed, skipped, or
   warnings reported.
-- Final complete seam: `652 passed` in `7.79s`; zero failed, skipped, or
-  warnings reported.
+- Review-closure focused seam: `261 passed` in `6.46s`; zero failed, skipped,
+  or warnings reported.
+- Post-review final complete seam: `654 passed` in `9.58s`; zero failed,
+  skipped, or warnings reported.
 - Python compilation completed successfully for the operator script and test;
   `git diff --check` passed.
 - Safe no-argument command: exit `0`, reason
   `live_execution_not_requested`, with zero reported calls.
 - Safe invalid-argument command: exit `1`, reason `invalid_arguments`, with
   zero reported calls.
-- The exact four-file audit found no `ToolDispatcher`, Chat, DSPy, MCP-tool,
-  readiness, preflight, checksum, or fingerprint surface in the operator
-  script.
+- The reviewed Task 4 source audit found no `ToolDispatcher`, Chat, DSPy,
+  MCP-tool, readiness, preflight, checksum, or fingerprint surface in the
+  operator script. This is a manual/source audit, not an automated
+  source-text invariant.
 - The live flag appeared in exactly three controlled in-process `main()` guard
   tests: profile-load failure, role mismatch, and a fail-before-construction
   `_run_live_once` stub. The operator script was never launched with the flag;
@@ -933,6 +944,11 @@ Do not push, open a PR, merge, or request/run the live smoke until the implement
   those tests.
 - No provider, worker box, Rhino, or Grasshopper contact occurred. No live
   smoke was requested or run.
+- The review closure preserves the full native terminal reason internally but
+  projects only closed reason tokens or fixed categories into the operator
+  summary. A malformed Worker sentinel was retained in the native result and
+  absent from serialized stdout; unknown reasons map to
+  `native_reason_unclassified`.
 
 ## Separately Authorized Post-Merge Operation
 
