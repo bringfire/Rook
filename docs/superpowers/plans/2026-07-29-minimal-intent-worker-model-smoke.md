@@ -21,7 +21,7 @@
 - No `ToolDispatcher`, real typed-tool bridge, Chat, MCP, Chirp, DSPy, product CLI registration, archive, preflight, readiness, attempt, checksum, or fingerprint machinery.
 - Summary fields contain no raw prompt, response, worker code, rationale, diagnostic, credential, provider metadata, tool parameter, GUID, receipt, or LiteLLM telemetry.
 - Call counts derive from control flow and native records, never telemetry or a counting wrapper.
-- Do not launch the script with `--execute-live` during implementation, tests, review, or verification. One in-process Task 2 regression may call `main(["--execute-live"])` only with an exact valid Planner, invalid Worker, and fail-if-reached constructor/run sentinels; it must prove zero transport construction. No test may let that flag reach `_run_live_once` or an external capability.
+- Do not launch the script with `--execute-live` during implementation, tests, review, or verification. Task 2 may call `main(["--execute-live"])` in process exactly three times: profile-load failure before construction; exact Planner plus invalid Worker before construction; and exact roles with `_run_live_once` replaced by a fail-before-construction stub. No test may reach the real `_run_live_once`, a transport constructor, or an external capability through that flag.
 - No provider, worker box, Rhino, or Grasshopper contact is authorized.
 
 ---
@@ -498,11 +498,18 @@ Supply exact `ModelSet`-shaped values for:
 
 For every refusal, replace `LiteLLMWorkerTransport` with a constructor that fails the test if invoked. Require `profile_identity_invalid` for malformed identities and `profile_role_mismatch` for well-formed substitutions. Prove no partial construction: a valid Planner identity plus bad Worker still constructs neither transport.
 
-For that last equation, call the final `main(["--execute-live"])` entry in
-process with the real resolver and a fail-if-reached constructor. Require the
-bounded `profile_role_mismatch` summary and zero constructor calls. This is the
-only permitted in-process live-flag invocation; it cannot reach
-`_run_live_once`.
+The closed in-process live-flag matrix contains exactly:
+
+1. profile loading raises, with transport construction fail-if-reached;
+2. the real resolver receives exact Planner plus invalid Worker identities,
+   with transport construction fail-if-reached; and
+3. exact roles reach a monkeypatched `_run_live_once` that raises before any
+   construction, proving a bounded `operator_internal_error` without leaking
+   exception text.
+
+Require zero constructor calls in all three cases. The first two must not
+reach `_run_live_once`; the third reaches only the fail-before-construction
+stub. None launches the script or reaches the real live composition path.
 
 - [ ] **Step 3: Implement the refusal summaries and operator entry point**
 
@@ -634,7 +641,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 - [ ] **Step 4: Prove the operator surface is bounded without invoking live execution**
 
-Add a subprocess test for no arguments and one for `--invalid-argument`. Assert exit behavior, exact summary shape, and absence of stderr secrets. Do not launch the script with `--execute-live`; only the pure classifier test may pass that string.
+Add a subprocess test for no arguments and one for `--invalid-argument`. Assert exit behavior, exact summary shape, and absence of stderr secrets. Do not launch the script with `--execute-live`; apart from pure classifier cases, the flag may enter only the exact three controlled in-process guard exercises defined in Step 2.
 
 Search the script source in the test and reject `argparse`, `click`, model-override names, retry/fallback loops, `ToolDispatcher`, and product registration imports. Permit only the one literal live flag.
 
@@ -857,7 +864,7 @@ rg -n -- "--execute-live" `
 
 Require exactly the approved four-file merge scope: specification, plan, operator script, and its test. Inspect the successful retained in-memory path and confirm exact role resolution precedes both constructors; one concrete Planner adapter call precedes strict admission; the merged runner owns compilation/worker/native results; the create receipt owns the GUID; the worker body owns the update code; and the summary derives counts from control flow/native records.
 
-The `--execute-live` search may find the constant, pure classifier cases, and the single controlled Task 2 pre-construction refusal. It must find no command that launches the script with the flag and no test that allows the flag to reach `_run_live_once` or transport construction.
+The `--execute-live` search may find the constant, pure classifier cases, and exactly three controlled Task 2 in-process guard exercises: profile-load refusal, role-mismatch refusal, and the fail-before-construction `_run_live_once` stub. It must find no command that launches the script with the flag and no test that reaches the real `_run_live_once`, transport construction, or an external capability through the flag.
 
 - [ ] **Step 4: Reconcile this plan with fresh evidence**
 
@@ -869,7 +876,7 @@ Mark every completed checkbox. Append an execution record containing:
 - compile and diff-check results;
 - the two safe refusal command results;
 - confirmation that no provider, worker box, Rhino, or Grasshopper contact occurred; and
-- confirmation that `--execute-live` was never invoked.
+- confirmation that the operator script was never launched with `--execute-live`, together with the exact three controlled in-process guard invocations and their zero-construction/no-contact results.
 
 Commit only the plan reconciliation:
 
@@ -897,7 +904,7 @@ Do not push, open a PR, merge, or request/run the live smoke until the implement
 - [ ] The thirteen-field summary contains no disallowed raw or sensitive evidence.
 - [ ] The inherited 573-test seam plus new smoke tests pass at final verification.
 - [ ] No provider, worker box, Rhino, or Grasshopper contact occurs during implementation or review.
-- [ ] `--execute-live` remains uninvoked pending separate post-merge authorization.
+- [ ] The operator script remains unlaunched with `--execute-live` pending separate post-merge authorization; only the exact three controlled in-process guard invocations occur.
 
 ## Separately Authorized Post-Merge Operation
 
@@ -914,8 +921,10 @@ run these no-contact checks with that same interpreter:
 Record the observed LiteLLM version and require the later smoke command to use
 that same absolute interpreter. Do not infer it from another venv or from
 `uv.lock`: this venv reported 1.89.4 during design while the lock resolved
-1.92.0. A missing or failing same-runtime materialization check stops before
-contact.
+1.92.0. The materialization test must also require
+`supports_response_schema(model="anthropic/claude-opus-4-6") is True` and
+`response_format` in the model's supported parameters. A missing or failing
+same-runtime capability or materialization check stops before contact.
 
 Only after those checks and explicit authorization may an operator run exactly:
 

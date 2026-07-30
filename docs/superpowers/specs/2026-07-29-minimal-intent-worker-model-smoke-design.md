@@ -130,14 +130,23 @@ anything else
 human authorization and does not replace the explicit approval required before
 the post-merge smoke.
 
-The live flag must not be invoked during specification, planning,
-implementation, or review except for one in-process pre-contact regression:
-it calls `main(["--execute-live"])` with the real role validator supplied an
-exact valid Planner and an invalid Worker, while both transport construction
-and `_run_live_once` are fail-if-reached sentinels. The test must prove zero
-transport construction. No test launches the script with the live flag or
-allows that flag to reach transport construction, `_run_live_once`, or any
-external capability.
+The operator script must not be launched with the live flag during
+specification, planning, implementation, or review. Tests may exercise exactly
+this closed three-case matrix by calling `main(["--execute-live"])` in process:
+
+1. profile loading raises before role resolution; transport construction is a
+   fail-if-reached sentinel;
+2. role resolution returns the exact Planner and an invalid Worker; transport
+   construction is a fail-if-reached sentinel; and
+3. both roles validate, but `_run_live_once` is replaced with a bounded
+   fail-before-construction stub to prove ordinary internal failures are
+   summarized without leaking exception text.
+
+The first two cases prove zero transport construction. The third reaches only
+the monkeypatched stub, not the real `_run_live_once`, either transport
+constructor, or an external capability. No test launches the operator script
+with the live flag. These controlled in-process guard exercises are not live
+script execution and do not authorize contact.
 
 ## 6. Transport construction
 
@@ -482,7 +491,9 @@ The existing 573-test seam remains the focused regression baseline.
 ## 13. Live execution boundary
 
 Specification, planning, implementation, and review perform no external
-contact and do not invoke `--execute-live`.
+contact and do not launch the operator script with `--execute-live`. The only
+in-process uses of the flag are the closed three-case guard matrix in Section
+5; none reaches the real live composition path.
 
 After implementation review and merge, a separate explicit authorization may
 permit exactly one command with that flag. That operation may make:
@@ -496,10 +507,13 @@ Rhino/Grasshopper calls: 0
 Before that authorization is exercised, the operator must identify the exact
 Python interpreter that will run the command, record its installed LiteLLM
 distribution version, and rerun the offline Planner/Worker materialization
-test with that same interpreter. The shared test venv reported LiteLLM 1.89.4
-during design while `mcp_server/uv.lock` resolved 1.92.0; neither version may
-stand in for the actual execution runtime. A missing or failing same-runtime
-check stops before the smoke.
+test with that same interpreter. That test must also require LiteLLM to report
+`supports_response_schema(model="anthropic/claude-opus-4-6") is True` and to
+include `response_format` among the model's supported parameters. The shared
+test venv reported LiteLLM 1.89.4 during design while `mcp_server/uv.lock`
+resolved 1.92.0; neither version may stand in for the actual execution runtime.
+A missing or failing same-runtime capability or materialization check stops
+before the smoke.
 
 The authorized smoke stops after its first result, whether completed or failed.
 No second attempt is implied.
