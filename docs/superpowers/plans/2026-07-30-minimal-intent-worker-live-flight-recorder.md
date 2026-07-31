@@ -66,7 +66,7 @@ tests, the current returned-stop witness, stdout secrecy, and full regression.
   - `close_incomplete() -> None`
   - read-only `path`, `bytes_written`, `failed`, `closed`, and `sequence`.
 
-- [ ] **Step 1: Add recorder test fakes and the behavioral RED**
+- [x] **Step 1: Add recorder test fakes and the behavioral RED**
 
 Add a binary stream fake that retains bytes and can fail exact write, flush, or
 close calls:
@@ -116,7 +116,7 @@ Write a test constructing the wished-for recorder with a fixed path, stream,
 and UTC clock. Record `run_started`; parse the line and require exact sequence,
 timestamp, event, payload, newline, byte count, and one flush.
 
-- [ ] **Step 2: Run the RED and verify the intended missing behavior**
+- [x] **Step 2: Run the RED and verify the intended missing behavior**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -126,7 +126,7 @@ timestamp, event, payload, newline, byte count, and one flush.
 Expected: FAIL because `_JsonlFlightRecorder` does not exist. Import, fixture,
 timestamp, and path errors are invalid RED states.
 
-- [ ] **Step 3: Implement the closed vocabulary and core writer**
+- [x] **Step 3: Implement the closed vocabulary and core writer**
 
 Add the exact resource constants and mappings:
 
@@ -192,7 +192,7 @@ Implement `record()` with this order:
 Use one raw writer. A short write or OS write/flush failure sets failed state
 and raises without trying a second trace row.
 
-- [ ] **Step 4: Add exact-bound and rejection RED tests**
+- [x] **Step 4: Add exact-bound and rejection RED tests**
 
 Construct payload lengths from actual serialized row bytes. Prove:
 
@@ -212,7 +212,7 @@ prefix and returns a count smaller than the row. Require `_TraceWriteFailure`,
 no flush, no retry or rejection-row attempt, no second row, and byte-for-byte
 unchanged partial content after every refused later write.
 
-- [ ] **Step 5: Implement rejection and exception-message behavior**
+- [x] **Step 5: Implement rejection and exception-message behavior**
 
 Implement `_reject(attempted_event, reason)` without recursively calling
 `record()`. Its payload is exactly:
@@ -251,7 +251,7 @@ whose `__str__()` raises; it must flush exactly one
 `event_serialization_failed / json_serialization_failed` row, mark the recorder
 incomplete, and reject every later write.
 
-- [ ] **Step 6: Add open, finish, and close fault tests**
+- [x] **Step 6: Add open, finish, and close fault tests**
 
 With `LOCALAPPDATA=tmp_path`, prove exclusive creation under
 `Rook/traces`, collision-resistant filenames, no-clobber behavior, and an
@@ -264,7 +264,7 @@ close fails -> parseable run_finished retained + trace_write_failed
 prior failure -> close_incomplete writes no run_finished
 ```
 
-- [ ] **Step 7: Implement exclusive open and finalization**
+- [x] **Step 7: Implement exclusive open and finalization**
 
 `_open_live_flight_recorder()` accepts no path/configuration arguments. Read
 exact nonblank `%LOCALAPPDATA%`, create `Rook/traces`, and use:
@@ -283,7 +283,7 @@ private recorder. `finish()` records/flushed `run_finished` then closes.
 `close_incomplete()` writes nothing and closes. Any close exception becomes
 `_TraceWriteFailure("close_failed", path)`.
 
-- [ ] **Step 8: Run Task 1 tests**
+- [x] **Step 8: Run Task 1 tests**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -293,7 +293,7 @@ private recorder. `finish()` records/flushed `run_finished` then closes.
 
 Expected: all selected tests pass; no live transport or tool is constructed.
 
-- [ ] **Step 9: Commit Task 1 and stop for independent review**
+- [x] **Step 9: Commit Task 1 and stop for independent review**
 
 ```powershell
 git add scripts/minimal_intent_worker_real_compile_smoke.py `
@@ -320,7 +320,7 @@ adding any boundary wrapper.
   - `_RecordingModelTransport(role, delegate, recorder, counts)`
   - recorder-aware `_RestrictedRealToolExecutor(dispatch, recorder, counts)`.
 
-- [ ] **Step 1: Write the wrapper ordering RED**
+- [x] **Step 1: Write the wrapper ordering RED**
 
 Create sync model and async tool delegates that append entry sentinels. Use a
 recording stream that appends a sentinel after each flush. Require:
@@ -333,12 +333,12 @@ response flush
 
 Require returned raw string/tool mapping object identity to be unchanged.
 
-- [ ] **Step 2: Run the RED**
+- [x] **Step 2: Run the RED**
 
 Run the exact new test. Expected: FAIL because the recording wrappers do not
 exist; delegate behavior itself must be valid.
 
-- [ ] **Step 3: Implement call counts and preparation wrapper**
+- [x] **Step 3: Implement call counts and preparation wrapper**
 
 ```python
 @dataclass(slots=True)
@@ -354,21 +354,21 @@ Preparation assigns `call_index=counts.preparation + 1`, records/flushed
 delegation, delegates once, then records raw response or exception before
 return/raise.
 
-- [ ] **Step 4: Implement the closed Planner/Worker transport wrapper**
+- [x] **Step 4: Implement the closed Planner/Worker transport wrapper**
 
 Accept only exact roles `planner` and `worker`. `send()` writes role-local
 request index and exact prompt artifact, increments the role count immediately
 before one delegate call, then writes exact raw response or exception. Never
 record provider kwargs, headers, call telemetry, or transport attributes.
 
-- [ ] **Step 5: Make the restricted execution wrapper recorder-aware**
+- [x] **Step 5: Make the restricted execution wrapper recorder-aware**
 
 Preserve all existing sequence and `port` checks before any trace event. For an
 admitted call, write phase `execution`, execution-local call index, tool name,
 and exact params; increment before delegation; record raw response before exact
 dict validation. A non-dict response is traced before the existing `TypeError`.
 
-- [ ] **Step 6: Add identity, exception, and trace-failure tests**
+- [x] **Step 6: Add identity, exception, and trace-failure tests**
 
 For every wrapper prove:
 
@@ -387,14 +387,14 @@ delegate; the unstringable delegate exception counts that one delegate call,
 flushes the fixed serialization-rejection row, and prevents the next external
 call.
 
-- [ ] **Step 7: Add phase/index and zero-dispatch tests**
+- [x] **Step 7: Add phase/index and zero-dispatch tests**
 
 Drive preparation `[1,2,3]`, execution `[1,2]`, Planner `[1]`, and Worker `[1]`.
 Require one global recorder sequence without gaps. Port override,
 update-before-create, repeated/substituted calls, and post-update calls must
 write no admitted request event and enter no delegate.
 
-- [ ] **Step 8: Run Task 2 tests**
+- [x] **Step 8: Run Task 2 tests**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -404,7 +404,7 @@ write no admitted request event and enter no delegate.
   mcp_server\tests\test_local_worker_adapter.py -q
 ```
 
-- [ ] **Step 9: Commit Task 2**
+- [x] **Step 9: Commit Task 2**
 
 ```powershell
 git add scripts/minimal_intent_worker_real_compile_smoke.py `
@@ -423,7 +423,7 @@ This task connects the private recorder to the existing operator lifecycle. It
 does not change live eligibility, preparation equations, model configuration,
 the product integration runner, or native stop meanings.
 
-- [ ] **Step 1: Write lifecycle RED tests**
+- [x] **Step 1: Write lifecycle RED tests**
 
 Add tests using a temporary `LOCALAPPDATA` and injected private seams. Prove:
 
@@ -445,12 +445,12 @@ trace open/header failure
 The live-flag tests remain controlled in-process tests. They must not launch the
 operator script or contact an external system.
 
-- [ ] **Step 2: Run the lifecycle RED**
+- [x] **Step 2: Run the lifecycle RED**
 
 Run only the new tests. Expected: FAIL because `main()` does not own a trace
 and the summary has no `trace_path`.
 
-- [ ] **Step 3: Add the bounded summary field and failure projector**
+- [x] **Step 3: Add the bounded summary field and failure projector**
 
 Add `trace_path` to `_SUMMARY_FIELDS` and every `_bounded_summary()` result.
 Use an exact string path only after a trace path is allocated; otherwise use
@@ -473,7 +473,7 @@ an exception message. It may preserve safely known native status fields after
 normal native completion, but it sets any unprovable later counts or fields to
 `None`.
 
-- [ ] **Step 4: Open and flush `run_started` before live contact**
+- [x] **Step 4: Open and flush `run_started` before live contact**
 
 After exact argument admission, allocate the no-clobber trace path, open the
 recorder, and flush `run_started` before discovery, Rhino, Planner, or Worker
@@ -491,7 +491,7 @@ contact. Its payload is closed and local:
 Do not include authorization claims, credentials, environment dumps, model
 responses, or provider metadata.
 
-- [ ] **Step 5: Thread one recorder and one call counter through the run**
+- [x] **Step 5: Thread one recorder and one call counter through the run**
 
 Update only private script functions. The top-level exact-live path in `main()`
 owns recorder creation, `_LiveCallCounts`, every early-stop `run_finished`, and
@@ -515,7 +515,7 @@ Planner/Worker transports and recording restricted executor. The same
 monotonically increasing recorder sequence spans pre-role/profile stops,
 discovery, preparation, Planner, execution tools, and Worker.
 
-- [ ] **Step 6: Enforce trace-failure precedence after every phase**
+- [x] **Step 6: Enforce trace-failure precedence after every phase**
 
 Product adapters may convert ordinary transport exceptions into native typed
 stops. Therefore the operator must inspect the recorder failure state after
@@ -532,7 +532,7 @@ stdout reports only bounded trace_write_failed
 Use the existing graph/control flow to stop downstream execution; do not add a
 retry, product observer, or replacement result inside product modules.
 
-- [ ] **Step 7: Centralize logical completion and physical close**
+- [x] **Step 7: Centralize logical completion and physical close**
 
 Add private helpers with equivalent closed responsibilities:
 
@@ -558,7 +558,7 @@ The `run_finished` payload is an explicit projection of only
 `operator_status`, `operator_reason`, and the safely known preparation,
 Planner, Worker, and execution-tool call counts.
 
-- [ ] **Step 8: Add the complete failure-locus matrix**
+- [x] **Step 8: Add the complete failure-locus matrix**
 
 Cover open, header, request, response, exception, projection, `run_finished`,
 final flush, and close failures. For each case assert exact call counts and the
@@ -573,7 +573,7 @@ close failure after run_finished flush   -> run_finished may remain
 
 No sentinel exception message may reach stdout or stderr.
 
-- [ ] **Step 9: Run Task 3 tests**
+- [x] **Step 9: Run Task 3 tests**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -582,7 +582,7 @@ No sentinel exception message may reach stdout or stderr.
   mcp_server\tests\test_minimal_intent_worker_integration.py -q
 ```
 
-- [ ] **Step 10: Commit Task 3**
+- [x] **Step 10: Commit Task 3**
 
 ```powershell
 git add scripts/minimal_intent_worker_real_compile_smoke.py `
@@ -601,7 +601,7 @@ These are explicit, script-local projectors over already returned native
 objects. They are telemetry only. They never replace existing typed receipts,
 graph state, native results, or product validation.
 
-- [ ] **Step 1: Write the observed-stop RED witness**
+- [x] **Step 1: Write the observed-stop RED witness**
 
 Use the causal fake dispatcher to return a create response whose normalized
 receipt is retained but whose producer projection prevents `verify_create`
@@ -621,7 +621,7 @@ the retained normalized receipt, producer outcome, resulting node statuses,
 empty ready-node set, and `selector_halt:none_ready`. Expected initial result:
 FAIL because returned-record projectors do not exist.
 
-- [ ] **Step 2: Add the Planner-admission projector**
+- [x] **Step 2: Add the Planner-admission projector**
 
 Implement:
 
@@ -634,7 +634,7 @@ Emit it only when the validated draft exists. Include only the admitted four
 fields and the adapter status needed to understand admission. Do not serialize
 raw dataclasses, prompts, provider metadata, or nonexistent placeholders.
 
-- [ ] **Step 3: Add the compiled-workflow projector**
+- [x] **Step 3: Add the compiled-workflow projector**
 
 Implement:
 
@@ -651,7 +651,7 @@ the scaffold workflow ID, node IDs, and `max_steps` to agree with that retained
 record. Do not copy execution parameters, C# code, component GUIDs, prompts, or
 full graph rules into this summary.
 
-- [ ] **Step 4: Add native step and graph-state projectors**
+- [x] **Step 4: Add native step and graph-state projectors**
 
 Implement explicit field projectors rather than `asdict()`:
 
@@ -677,7 +677,7 @@ index, accepted node, execution kind/failure, producer outcome, verifier
 outcome, normalized receipt projection, graph state, and supply decision/reason.
 Reject record/supply/graph length disagreement as an internal projection error.
 
-- [ ] **Step 5: Add the final native-result projector**
+- [x] **Step 5: Add the final native-result projector**
 
 Implement:
 
@@ -697,7 +697,7 @@ native reason. Only the separate stdout summary passes that reason through the
 existing safe reason projector, so model-authored diagnostic text does not leak
 to stdout.
 
-- [ ] **Step 6: Emit projections only from owning returns**
+- [x] **Step 6: Emit projections only from owning returns**
 
 After a normal integration return, emit in order when applicable:
 
@@ -715,7 +715,7 @@ exist. If the integration raises, write `handoff_raised` with bounded local
 exception type/message and do not fabricate workflow, graph, or native-result
 projections.
 
-- [ ] **Step 7: Complete the ownership and prefix test matrix**
+- [x] **Step 7: Complete the ownership and prefix test matrix**
 
 Cover:
 
@@ -732,7 +732,7 @@ integration raise               -> handoff_raised only after observed calls
 Add sentinel payloads to raw model/tool trace events and prove they are present
 in the local JSONL but absent from stdout/stderr.
 
-- [ ] **Step 8: Run Task 4 tests**
+- [x] **Step 8: Run Task 4 tests**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -743,7 +743,7 @@ in the local JSONL but absent from stdout/stderr.
   mcp_server\tests\test_plan_graph_current_step_stream.py -q
 ```
 
-- [ ] **Step 9: Commit Task 4**
+- [x] **Step 9: Commit Task 4**
 
 ```powershell
 git add scripts/minimal_intent_worker_real_compile_smoke.py `
@@ -757,7 +757,7 @@ git commit -m "feat(smoke): trace native graph transitions"
 
 - Modify: `docs/superpowers/plans/2026-07-30-minimal-intent-worker-live-flight-recorder.md`
 
-- [ ] **Step 1: Run the full focused regression seam**
+- [x] **Step 1: Run the full focused regression seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -783,7 +783,7 @@ git commit -m "feat(smoke): trace native graph transitions"
 Record the exact count and duration. Any failure returns to the owning task; do
 not weaken a test or broaden the recorder.
 
-- [ ] **Step 2: Run compilation and repository hygiene checks**
+- [x] **Step 2: Run compilation and repository hygiene checks**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m compileall `
@@ -793,7 +793,7 @@ git diff --check
 git status --short
 ```
 
-- [ ] **Step 3: Audit the final surface**
+- [x] **Step 3: Audit the final surface**
 
 Require the complete merge diff to contain exactly:
 
@@ -815,13 +815,13 @@ rg -n "manifest|checksum|fingerprint|seal|archive|database|retry|fallback|observ
 Only the approved local trace path and ordinary existing live-run terminology
 may remain; no evidence-lifecycle framework is allowed.
 
-- [ ] **Step 4: Run only safe subprocess refusals**
+- [x] **Step 4: Run only safe subprocess refusals**
 
 Run the script with no arguments and with one invalid argument. Assert one
 bounded JSON line, empty stderr, refusal exit codes, `trace_path: null`, and no
 trace file. Do not run `--execute-live` during implementation or review.
 
-- [ ] **Step 5: Reconcile the plan execution ledger**
+- [x] **Step 5: Reconcile the plan execution ledger**
 
 Mark every operational checkbox complete only after its evidence exists. Append
 an execution record containing:
@@ -836,30 +836,78 @@ an execution record containing:
   occurred;
 - the deterministic current-stop trace witness result.
 
-- [ ] **Step 6: Commit the documentation-only reconciliation**
+- [x] **Step 6: Commit the documentation-only reconciliation**
 
 ```powershell
 git add docs/superpowers/plans/2026-07-30-minimal-intent-worker-live-flight-recorder.md
 git commit -m "docs: reconcile live flight recorder plan"
 ```
 
-- [ ] **Step 7: Stop for final independent implementation review**
+- [x] **Step 7: Stop for final independent implementation review**
 
 Do not push, open a PR, merge, or execute the live flag. Report the exact HEAD,
 test evidence, diff scope, and clean worktree for independent review.
 
 ## Completion Criteria
 
-- [ ] The recorder is private to the real compile smoke script.
-- [ ] A no-clobber JSONL trace is opened and flushed before any live contact.
-- [ ] Every admitted external request is flushed before its call.
-- [ ] Every raw response or ordinary exception is flushed before a later call.
-- [ ] Rows and total bytes obey the exact 256 KiB / 4 MiB-minus-4-KiB rules.
-- [ ] Rejection rows use the closed event/reason mapping and reserve.
-- [ ] Trace failure stops subsequent contact and yields bounded stdout.
-- [ ] `run_finished` reflects logical completion; close success remains separate.
-- [ ] Returned-record projectors emit only ownership-backed native facts.
-- [ ] The observed `selector_halt:none_ready` chain is visible end to end.
-- [ ] Existing product modules and native receipt/result authority remain unchanged.
-- [ ] The full focused seam passes and the worktree is clean.
-- [ ] No external system is contacted during implementation or review.
+- [x] The recorder is private to the real compile smoke script.
+- [x] A no-clobber JSONL trace is opened and flushed before any live contact.
+- [x] Every admitted external request is flushed before its call.
+- [x] Every raw response or ordinary exception is flushed before a later call.
+- [x] Rows and total bytes obey the exact 256 KiB / 4 MiB-minus-4-KiB rules.
+- [x] Rejection rows use the closed event/reason mapping and reserve.
+- [x] Trace failure stops subsequent contact and yields bounded stdout.
+- [x] `run_finished` reflects logical completion; close success remains separate.
+- [x] Returned-record projectors emit only ownership-backed native facts.
+- [x] The observed `selector_halt:none_ready` chain is visible end to end.
+- [x] Existing product modules and native receipt/result authority remain unchanged.
+- [x] The full focused seam passes and the worktree is clean.
+- [x] No external system is contacted during implementation or review.
+
+## Execution Record
+
+- Reviewed implementation HEAD before this documentation-only reconciliation:
+  `b611e149aec47cca8425445182b1c9a9faef9735`.
+- Full focused regression seam: **939 passed in 16.06 seconds**
+  (**17.256 seconds** measured wall time).
+- Python compilation: `compileall` completed with exit code `0` for the operator
+  script and its focused test.
+- Repository hygiene: `git diff --check` passed; the implementation worktree was
+  clean before this documentation update.
+- Merge scope from base `619ca24e8a34cb83a02db828d37d1dc7a3c8d2e3`
+  is exactly:
+
+  ```text
+  docs/superpowers/plans/2026-07-30-minimal-intent-worker-live-flight-recorder.md
+  docs/superpowers/specs/2026-07-30-minimal-intent-worker-live-flight-recorder-design.md
+  mcp_server/tests/test_minimal_intent_worker_real_compile_smoke.py
+  scripts/minimal_intent_worker_real_compile_smoke.py
+  ```
+
+- No `mcp_server/src/rook/**` product module changed. The only forbidden-term
+  audit matches are the existing native workflow compile-record fingerprint
+  fields projected as local diagnostic telemetry; no manifest, checksum,
+  archive, database, retry, fallback, observer, registry, or evidence-lifecycle
+  framework was introduced.
+- Safe no-argument subprocess: exit `0`, empty stderr, no trace file, and exact
+  stdout:
+
+  ```json
+  {"operator_status":"refused","operator_reason":"live_execution_not_requested","trace_path":null,"intent":"Create a Grasshopper C# component with one A:double output and compile cleanly.","profile":"hybrid","planner_model":null,"worker_model":null,"rooknative_process_id":null,"rooknative_port":null,"document_preparation_status":"not_started","preparation_tool_calls":0,"planner_calls":0,"worker_calls":0,"execution_tool_calls":0,"terminal_stage":null,"terminal_reason":null,"planner_adapter_status":null,"worker_adapter_status":null}
+  ```
+
+- Safe invalid-argument subprocess: exit `1`, empty stderr, no trace file, and
+  exact stdout:
+
+  ```json
+  {"operator_status":"refused","operator_reason":"invalid_arguments","trace_path":null,"intent":"Create a Grasshopper C# component with one A:double output and compile cleanly.","profile":"hybrid","planner_model":null,"worker_model":null,"rooknative_process_id":null,"rooknative_port":null,"document_preparation_status":"not_started","preparation_tool_calls":0,"planner_calls":0,"worker_calls":0,"execution_tool_calls":0,"terminal_stage":null,"terminal_reason":null,"planner_adapter_status":null,"worker_adapter_status":null}
+  ```
+
+- The deterministic current-stop witness reconstructs the complete local trace
+  chain: raw `gh_create_csharp_script` response -> retained normalized create
+  receipt -> blocked producer outcome -> blocked create node with no ready nodes
+  -> terminal supply `selector_halt:none_ready`. It records one Planner call,
+  zero Worker calls, and one execution-tool call.
+- No provider, worker box, Rhino, or Grasshopper contact occurred during
+  implementation, review, or Task 5 verification. The `--execute-live` flag was
+  not executed.
