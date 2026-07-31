@@ -1908,7 +1908,9 @@ def test_completed_trace_projects_only_the_returned_native_transaction(
     ]
     assert [step["step_index"] for step in steps] == [1, 2, 3, 4]
     assert steps[0]["receipt"]["operation"] == "create"
+    assert steps[1]["receipt"]["operation"] == "create"
     assert steps[2]["receipt"]["operation"] == "update"
+    assert steps[3]["receipt"]["operation"] == "update"
     final_native = projection_rows[-1]["payload"]
     assert final_native["terminal_stage"] == "terminal"
     assert final_native["terminal_reason"] == "terminal_node_selected:done"
@@ -2069,6 +2071,64 @@ def test_returned_projection_trace_failure_preserves_native_status_but_not_compl
     assert "native_step_projection" not in events
     assert "final_native_result" not in events
     assert "run_finished" not in events
+
+
+def test_projector_exception_leaves_trace_incomplete_and_preserves_native_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _patch_complete_live_main(monkeypatch)
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+
+    def raise_projector(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("PROJECTOR_SENTINEL")
+
+    monkeypatch.setattr(SMOKE, "_project_native_steps", raise_projector)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["terminal_stage"] == "terminal"
+    assert summary["terminal_reason"] == "terminal_node_selected:done"
+    assert summary["preparation_tool_calls"] == 3
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 2
+    assert "PROJECTOR_SENTINEL" not in json.dumps(summary)
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert rows[-1]["event"] == "compiled_workflow"
+    assert "run_finished" not in [row["event"] for row in rows]
+
+
+@pytest.mark.asyncio
+async def test_verifier_receipts_are_projected_from_their_source_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    live_run = await _run_scripted_worker(monkeypatch, _worker_payload())
+    handoff = live_run.result.handoff_result
+    assert handoff is not None
+    verify_create_graph = handoff.step_records[1].execution.graph
+    verify_repair_graph = handoff.step_records[3].execution.graph
+    assert verify_create_graph.nodes["verify_create"].evidence is not None
+    assert verify_repair_graph.nodes["verify_repair"].evidence is not None
+    verify_create_graph.nodes["verify_create"].evidence.receipt = {
+        "operation": "FORGED_VERIFIER_RECEIPT"
+    }
+    verify_repair_graph.nodes["verify_repair"].evidence.receipt = {
+        "operation": "FORGED_VERIFIER_RECEIPT"
+    }
+
+    steps = SMOKE._project_native_steps(handoff)
+
+    assert steps[1]["accepted_node_id"] == "verify_create"
+    assert steps[1]["receipt"]["operation"] == "create"
+    assert steps[3]["accepted_node_id"] == "verify_repair"
+    assert steps[3]["receipt"]["operation"] == "update"
+    assert "FORGED_VERIFIER_RECEIPT" not in json.dumps(steps)
 
 
 @pytest.mark.asyncio

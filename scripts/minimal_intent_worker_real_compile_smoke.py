@@ -498,9 +498,14 @@ def _project_native_steps(
         graph = record.execution.graph
         if type(graph) is not PlanGraph:
             raise TypeError("native execution graph must be exact")
+        evidence_node_id: str | None = None
+        if record.execution_kind == "producer":
+            evidence_node_id = record.producer_node_id
+        elif record.execution_kind == "verifier":
+            evidence_node_id = record.verifier_source_node_id
         node = (
-            graph.nodes.get(record.accepted_node_id)
-            if record.accepted_node_id is not None
+            graph.nodes.get(evidence_node_id)
+            if evidence_node_id is not None
             else None
         )
         evidence = None if node is None else node.evidence
@@ -1630,7 +1635,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit_summary(summary)
         return 1
 
-    summary: dict[str, object] | None = None
     try:
         summary = _summary_from_result(
             roles,
@@ -1638,21 +1642,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             trace_path=recorder.path,
             call_counts=call_counts,
         )
-        _record_returned_projections(
-            recorder,
-            live_run.result,
-            call_counts,
-        )
-    except _TraceWriteFailure:
-        _close_incomplete_trace(recorder)
-        _emit_summary(
-            _trace_write_failure_summary(
-                trace_path=recorder.path,
-                call_counts=call_counts,
-                known_native_summary=summary,
-            )
-        )
-        return 1
     except Exception:
         summary = _finish_trace_or_failure(
             recorder,
@@ -1666,8 +1655,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _emit_summary(summary)
         return 1
-    if summary is None:
-        raise RuntimeError("native summary was not constructed")
+    try:
+        _record_returned_projections(
+            recorder,
+            live_run.result,
+            call_counts,
+        )
+    except Exception:
+        _close_incomplete_trace(recorder)
+        _emit_summary(
+            _trace_write_failure_summary(
+                trace_path=recorder.path,
+                call_counts=call_counts,
+                known_native_summary=summary,
+            )
+        )
+        return 1
     summary = _finish_trace_or_failure(
         recorder,
         summary,
