@@ -811,6 +811,10 @@ def _normalize_gh_create_script_kwargs(kwargs: dict) -> dict:
                 normalized["code"] = value
                 break
 
+    for key in ("pins_in", "pins_out"):
+        if type(normalized.get(key)) is tuple:
+            normalized[key] = list(normalized[key])
+
     return normalized
 
 
