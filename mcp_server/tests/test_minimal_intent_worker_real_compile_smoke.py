@@ -1961,7 +1961,7 @@ def _patch_main_recorder(
         "expected_preparation_state",
     ),
     [
-        (2, (0, 0, 0, 0), "run_started", "status_rejected"),
+        (2, (0, 0, 0, 0), "run_started", "not_started"),
         (3, (1, 0, 0, 0), "tool_request", "status_rejected"),
         (8, (3, 0, 0, 0), "tool_response", "fresh_document_verified"),
         (9, (3, 1, 0, 0), "planner_request", "fresh_document_verified"),
@@ -2159,8 +2159,10 @@ def test_profile_load_exception_is_safe_and_precedes_discovery(
     assert summary["operator_reason"] == "operator_internal_error"
     assert "PROFILE_LOAD_SENTINEL" not in json.dumps(summary)
     assert summary["document_preparation_status"] == "not_started"
-    assert summary["planner_calls"] is None
-    assert summary["worker_calls"] is None
+    assert summary["preparation_tool_calls"] == 0
+    assert summary["planner_calls"] == 0
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
 
 
 @pytest.mark.parametrize(
@@ -2658,9 +2660,9 @@ def test_post_preparation_exception_retains_verified_document_state(
     assert summary["rooknative_port"] == 9877
     assert summary["document_preparation_status"] == "fresh_document_verified"
     assert summary["preparation_tool_calls"] == 3
-    assert summary["planner_calls"] is None
-    assert summary["worker_calls"] is None
-    assert summary["execution_tool_calls"] is None
+    assert summary["planner_calls"] == 0
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
     assert summary["terminal_stage"] is None
     assert summary["terminal_reason"] is None
     assert summary["planner_adapter_status"] is None
@@ -3097,19 +3099,11 @@ def test_final_projection_exception_returns_one_bounded_summary(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    terminal_run = asyncio.run(
-        _run_scripted_worker(monkeypatch, _worker_payload())
-    )
-    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
-    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
-
-    async def return_terminal_run(*_args: Any, **_kwargs: Any) -> Any:
-        return terminal_run
+    _patch_complete_live_main(monkeypatch)
 
     def raise_projection(_reason: object) -> str:
         raise RuntimeError("SENSITIVE_SENTINEL projection failure")
 
-    monkeypatch.setattr(SMOKE, "_run_live_once", return_terminal_run)
     monkeypatch.setattr(SMOKE, "_project_terminal_reason", raise_projection)
 
     exit_code, summary = _invoke_main(capsys, ["--execute-live"])
@@ -3121,9 +3115,9 @@ def test_final_projection_exception_returns_one_bounded_summary(
     assert summary["rooknative_port"] == 9877
     assert summary["document_preparation_status"] == "fresh_document_verified"
     assert summary["preparation_tool_calls"] == 3
-    assert summary["planner_calls"] is None
-    assert summary["worker_calls"] is None
-    assert summary["execution_tool_calls"] is None
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 2
     assert summary["terminal_stage"] is None
     assert summary["terminal_reason"] is None
     assert summary["planner_adapter_status"] is None
@@ -3131,7 +3125,12 @@ def test_final_projection_exception_returns_one_bounded_summary(
     assert "SENSITIVE_SENTINEL" not in json.dumps(summary)
     trace_path = Path(summary["trace_path"])
     rows = [json.loads(line) for line in trace_path.read_bytes().splitlines()]
-    assert [row["event"] for row in rows] == ["run_started", "run_finished"]
+    assert rows[0]["event"] == "run_started"
+    assert rows[-1]["event"] == "run_finished"
+    assert rows[-1]["payload"]["preparation_tool_calls"] == 3
+    assert rows[-1]["payload"]["planner_calls"] == 1
+    assert rows[-1]["payload"]["worker_calls"] == 1
+    assert rows[-1]["payload"]["execution_tool_calls"] == 2
 
 
 @pytest.mark.asyncio

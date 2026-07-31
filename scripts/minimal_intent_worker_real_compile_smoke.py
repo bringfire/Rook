@@ -718,10 +718,13 @@ async def _prepare_fresh_document(
     try:
         pre = await dispatcher.dispatch("gh_status", {})
     except _TraceWriteFailure as exc:
+        entered_calls = (
+            call_counts.preparation if call_counts is not None else 0
+        )
         raise _PreparationTraceFailure(
             exc,
-            "status_rejected",
-            call_counts.preparation if call_counts is not None else 0,
+            "not_started" if entered_calls == 0 else "status_rejected",
+            entered_calls,
         ) from exc
     except Exception as exc:
         preparation_state = "status_rejected"
@@ -1243,16 +1246,21 @@ def _finish_trace_or_failure(
     *,
     call_counts: _LiveCallCounts,
 ) -> dict[str, object]:
+    normalized_summary = dict(summary)
+    normalized_summary["preparation_tool_calls"] = call_counts.preparation
+    normalized_summary["planner_calls"] = call_counts.planner
+    normalized_summary["worker_calls"] = call_counts.worker
+    normalized_summary["execution_tool_calls"] = call_counts.execution
     try:
-        recorder.finish(_run_finished_payload(summary))
+        recorder.finish(_run_finished_payload(normalized_summary))
     except _TraceWriteFailure:
         _close_incomplete_trace(recorder)
         return _trace_write_failure_summary(
             trace_path=recorder.path,
             call_counts=call_counts,
-            known_native_summary=summary,
+            known_native_summary=normalized_summary,
         )
-    return dict(summary)
+    return normalized_summary
 
 
 def _close_incomplete_trace(recorder: _JsonlFlightRecorder) -> None:
