@@ -89,6 +89,17 @@ class _TraceStream:
             raise OSError("TRACE_CLOSE_SENTINEL")
 
 
+class _TimelineTraceStream(_TraceStream):
+    def __init__(self, timeline: list[str]) -> None:
+        super().__init__()
+        self._timeline = timeline
+
+    def flush(self) -> None:
+        super().flush()
+        last_row = json.loads(bytes(self.content).splitlines()[-1])
+        self._timeline.append(f"{last_row['event']}_flush")
+
+
 _TRACE_TIME = datetime(2026, 7, 30, 21, 30, tzinfo=timezone.utc)
 
 
@@ -803,6 +814,584 @@ def test_open_live_flight_recorder_bounds_path_resolution_failure(
 
     assert raised.value.reason == "trace_path_prepare_failed"
     assert raised.value.path is None
+
+
+@pytest.mark.asyncio
+async def test_recording_wrappers_flush_around_one_exact_delegate_call(
+    tmp_path: Path,
+) -> None:
+    timeline: list[str] = []
+    stream = _TimelineTraceStream(timeline)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+    prompt = {"messages": [{"role": "user", "content": "exact"}]}
+    planner_response = "".join(["planner", "-response"])
+
+    class _PlannerDelegate:
+        def send(self, received: Mapping[str, Any]) -> str:
+            assert received is prompt
+            timeline.append("planner_delegate")
+            return planner_response
+
+    class _PreparationDelegate:
+        async def dispatch(
+            self,
+            tool_name: str,
+            params: dict[str, Any],
+        ) -> dict[str, Any]:
+            assert tool_name == "gh_status"
+            assert params is preparation_params
+            timeline.append("preparation_delegate")
+            return preparation_response
+
+    planner = SMOKE._RecordingModelTransport(
+        role="planner",
+        delegate=_PlannerDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    preparation = SMOKE._RecordingPreparationDispatcher(
+        delegate=_PreparationDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    preparation_params: dict[str, Any] = {}
+    preparation_response = {"success": True, "data": {"available": True}}
+
+    returned_planner = planner.send(prompt)
+    returned_preparation = await preparation.dispatch(
+        "gh_status",
+        preparation_params,
+    )
+
+    assert returned_planner is planner_response
+    assert returned_preparation is preparation_response
+    assert timeline == [
+        "planner_request_flush",
+        "planner_delegate",
+        "planner_response_flush",
+        "tool_request_flush",
+        "preparation_delegate",
+        "tool_response_flush",
+    ]
+    assert counts.planner == 1
+    assert counts.worker == 0
+    assert counts.preparation == 1
+    assert counts.execution == 0
+
+
+@pytest.mark.asyncio
+async def test_restricted_executor_traces_admitted_calls_around_exact_delegate(
+    tmp_path: Path,
+) -> None:
+    timeline: list[str] = []
+    stream = _TimelineTraceStream(timeline)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+    create_params = {"code": _INITIAL_BODY}
+    update_params = {
+        "guid": _COMPONENT_GUID,
+        "code": _WORKER_BODY,
+        "mode": "body",
+        "language": "csharp",
+    }
+    create_response = {"success": False, "data": {"created": True}}
+    update_response = {"success": True, "data": {"updated": True}}
+
+    async def dispatch(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
+        timeline.append(f"{tool_name}_delegate")
+        if tool_name == "gh_create_csharp_script":
+            assert params is create_params
+            return create_response
+        assert tool_name == "gh_update_script"
+        assert params is update_params
+        return update_response
+
+    executor = SMOKE._RestrictedRealToolExecutor(
+        dispatch,
+        recorder=recorder,
+        counts=counts,
+    )
+
+    returned_create = await executor("gh_create_csharp_script", create_params)
+    returned_update = await executor("gh_update_script", update_params)
+
+    assert returned_create is create_response
+    assert returned_update is update_response
+    assert executor.call_names == (
+        "gh_create_csharp_script",
+        "gh_update_script",
+    )
+    assert counts.execution == 2
+    assert timeline == [
+        "tool_request_flush",
+        "gh_create_csharp_script_delegate",
+        "tool_response_flush",
+        "tool_request_flush",
+        "gh_update_script_delegate",
+        "tool_response_flush",
+    ]
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert [row["payload"]["phase"] for row in rows] == ["execution"] * 4
+    assert [row["payload"]["call_index"] for row in rows] == [1, 1, 2, 2]
+
+
+class _BoundaryDelegateException(Exception):
+    pass
+
+
+def _recording_boundary(
+    *,
+    kind: str,
+    stream: _TraceStream,
+    tmp_path: Path,
+    result: object,
+    exception: Exception | None = None,
+) -> tuple[
+    SMOKE._JsonlFlightRecorder,
+    SMOKE._LiveCallCounts,
+    list[tuple[object, ...]],
+    Any,
+]:
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / f"{kind}.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+    delegate_calls: list[tuple[object, ...]] = []
+
+    if kind in {"planner", "worker"}:
+        prompt = {"messages": [{"role": "user", "content": kind}]}
+
+        class _Delegate:
+            def send(self, received: Mapping[str, Any]) -> object:
+                delegate_calls.append((received,))
+                if exception is not None:
+                    raise exception
+                return result
+
+        wrapper = SMOKE._RecordingModelTransport(
+            role=kind,
+            delegate=_Delegate(),
+            recorder=recorder,
+            counts=counts,
+        )
+
+        async def invoke() -> object:
+            return wrapper.send(prompt)
+
+        return recorder, counts, delegate_calls, invoke
+
+    if kind == "preparation":
+        params: dict[str, Any] = {"probe": True}
+
+        class _Delegate:
+            async def dispatch(
+                self,
+                tool_name: str,
+                received: dict[str, Any],
+            ) -> object:
+                delegate_calls.append((tool_name, received))
+                if exception is not None:
+                    raise exception
+                return result
+
+        wrapper = SMOKE._RecordingPreparationDispatcher(
+            delegate=_Delegate(),
+            recorder=recorder,
+            counts=counts,
+        )
+
+        async def invoke() -> object:
+            return await wrapper.dispatch("gh_status", params)
+
+        return recorder, counts, delegate_calls, invoke
+
+    if kind == "execution":
+        params = {"code": _INITIAL_BODY}
+
+        async def dispatch(tool_name: str, received: dict[str, Any]) -> object:
+            delegate_calls.append((tool_name, received))
+            if exception is not None:
+                raise exception
+            return result
+
+        wrapper = SMOKE._RestrictedRealToolExecutor(
+            dispatch,
+            recorder=recorder,
+            counts=counts,
+        )
+
+        async def invoke() -> object:
+            return await wrapper("gh_create_csharp_script", params)
+
+        return recorder, counts, delegate_calls, invoke
+
+    raise AssertionError(f"unsupported boundary kind: {kind}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+async def test_recording_boundary_preserves_return_and_exception_identity(
+    kind: str,
+    tmp_path: Path,
+) -> None:
+    result: object = "exact-response" if kind in {"planner", "worker"} else {
+        "success": True
+    }
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=_TraceStream(),
+        tmp_path=tmp_path,
+        result=result,
+    )
+
+    assert await invoke() is result
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+
+    exception = _BoundaryDelegateException("BOUNDARY_EXCEPTION_SENTINEL")
+    stream = _TraceStream()
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=stream,
+        tmp_path=tmp_path,
+        result=result,
+        exception=exception,
+    )
+
+    with pytest.raises(_BoundaryDelegateException) as raised:
+        await invoke()
+
+    assert raised.value is exception
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+    exception_row = json.loads(bytes(stream.content).splitlines()[-1])
+    expected_event = (
+        f"{kind}_exception" if kind in {"planner", "worker"} else "tool_exception"
+    )
+    assert exception_row["event"] == expected_event
+    assert exception_row["payload"]["exception_type"] == (
+        "_BoundaryDelegateException"
+    )
+    assert exception_row["payload"]["exception_message"] == (
+        "BOUNDARY_EXCEPTION_SENTINEL"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+@pytest.mark.parametrize("request_fault", ["write", "short_write"])
+async def test_request_trace_failure_prevents_boundary_contact(
+    kind: str,
+    request_fault: str,
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(
+        fail_write_at=1 if request_fault == "write" else None,
+        short_write_at=1 if request_fault == "short_write" else None,
+    )
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=stream,
+        tmp_path=tmp_path,
+        result="response" if kind in {"planner", "worker"} else {"success": True},
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        await invoke()
+
+    assert calls == []
+    assert getattr(counts, kind) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+async def test_response_trace_failure_supersedes_one_completed_boundary_call(
+    kind: str,
+    tmp_path: Path,
+) -> None:
+    result: object = "response" if kind in {"planner", "worker"} else {
+        "success": True
+    }
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=_TraceStream(fail_write_at=2),
+        tmp_path=tmp_path,
+        result=result,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        await invoke()
+
+    assert raised.value.reason == "write_failed"
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+async def test_exception_trace_failure_supersedes_one_raised_boundary_call(
+    kind: str,
+    tmp_path: Path,
+) -> None:
+    exception = _BoundaryDelegateException("BOUNDARY_EXCEPTION_SENTINEL")
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=_TraceStream(fail_write_at=2),
+        tmp_path=tmp_path,
+        result="unused",
+        exception=exception,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        await invoke()
+
+    assert raised.value.reason == "write_failed"
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+async def test_unstringable_boundary_exception_rejects_trace_and_next_contact(
+    kind: str,
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=stream,
+        tmp_path=tmp_path,
+        result="unused",
+        exception=_UnstringableException(),
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        await invoke()
+
+    assert raised.value.reason == "json_serialization_failed"
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert rows[-1]["event"] == "event_serialization_failed"
+    assert rows[-1]["payload"] == {
+        "attempted_event": (
+            f"{kind}_exception" if kind in {"planner", "worker"} else "tool_exception"
+        ),
+        "rejection_reason": "json_serialization_failed",
+    }
+
+    next_calls: list[Mapping[str, Any]] = []
+
+    class _NextDelegate:
+        def send(self, prompt: Mapping[str, Any]) -> str:
+            next_calls.append(prompt)
+            return "must-not-run"
+
+    next_wrapper = SMOKE._RecordingModelTransport(
+        role="planner",
+        delegate=_NextDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    with pytest.raises(SMOKE._TraceWriteFailure) as next_raised:
+        next_wrapper.send({"messages": []})
+    assert next_raised.value.reason == "recorder_failed"
+    assert next_calls == []
+
+
+@pytest.mark.asyncio
+async def test_recording_boundaries_share_one_global_sequence_and_local_indexes(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+
+    class _PreparationDelegate:
+        async def dispatch(self, _name: str, _params: dict[str, Any]) -> dict[str, Any]:
+            return {"success": True}
+
+    class _ModelDelegate:
+        def send(self, _prompt: Mapping[str, Any]) -> str:
+            return "{}"
+
+    async def execution_dispatch(
+        _name: str,
+        _params: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {"success": True}
+
+    preparation = SMOKE._RecordingPreparationDispatcher(
+        delegate=_PreparationDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    planner = SMOKE._RecordingModelTransport(
+        role="planner",
+        delegate=_ModelDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    worker = SMOKE._RecordingModelTransport(
+        role="worker",
+        delegate=_ModelDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    executor = SMOKE._RestrictedRealToolExecutor(
+        execution_dispatch,
+        recorder=recorder,
+        counts=counts,
+    )
+
+    for name in ("gh_status", "gh_document_new", "gh_status"):
+        await preparation.dispatch(name, {})
+    planner.send({"messages": [{"role": "user", "content": "planner"}]})
+    worker.send({"messages": [{"role": "user", "content": "worker"}]})
+    await executor("gh_create_csharp_script", {"code": _INITIAL_BODY})
+    await executor("gh_update_script", {"guid": _COMPONENT_GUID})
+
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert [row["sequence"] for row in rows] == list(range(1, 15))
+    preparation_rows = [
+        row for row in rows if row["payload"].get("phase") == "preparation"
+    ]
+    execution_rows = [
+        row for row in rows if row["payload"].get("phase") == "execution"
+    ]
+    assert [row["payload"]["call_index"] for row in preparation_rows] == [
+        1,
+        1,
+        2,
+        2,
+        3,
+        3,
+    ]
+    assert [row["payload"]["call_index"] for row in execution_rows] == [
+        1,
+        1,
+        2,
+        2,
+    ]
+    assert [
+        row["payload"]["call_index"]
+        for row in rows
+        if row["payload"].get("role") == "planner"
+    ] == [1, 1]
+    assert [
+        row["payload"]["call_index"]
+        for row in rows
+        if row["payload"].get("role") == "worker"
+    ] == [1, 1]
+    assert counts == SMOKE._LiveCallCounts(
+        preparation=3,
+        planner=1,
+        worker=1,
+        execution=2,
+    )
+
+
+@pytest.mark.asyncio
+async def test_non_object_execution_response_is_traced_before_native_rejection(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+
+    async def dispatch(_name: str, _params: dict[str, Any]) -> list[str]:
+        return ["not", "an", "object"]
+
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    executor = SMOKE._RestrictedRealToolExecutor(
+        dispatch,
+        recorder=recorder,
+        counts=SMOKE._LiveCallCounts(),
+    )
+
+    with pytest.raises(TypeError, match="dispatcher result must be an exact object"):
+        await executor("gh_create_csharp_script", {"code": _INITIAL_BODY})
+
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert [row["event"] for row in rows] == ["tool_request", "tool_response"]
+    assert rows[-1]["payload"]["raw_response"] == ["not", "an", "object"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prefix", "attempted_tool", "attempted_params", "message"),
+    [
+        ((), "gh_update_script", {"code": "x"}, "sequence differs"),
+        (("gh_create_csharp_script",), "gh_create_csharp_script", {}, "sequence differs"),
+        (
+            ("gh_create_csharp_script", "gh_update_script"),
+            "gh_update_script",
+            {},
+            "sequence differs",
+        ),
+        ((), "gh_status", {}, "sequence differs"),
+        ((), "gh_create_csharp_script", {"port": 9878}, "contain port"),
+        (
+            ("gh_create_csharp_script",),
+            "gh_update_script",
+            {"port": 9878},
+            "contain port",
+        ),
+    ],
+)
+async def test_restricted_executor_rejection_writes_no_event_and_enters_no_delegate(
+    prefix: tuple[str, ...],
+    attempted_tool: str,
+    attempted_params: dict[str, Any],
+    message: str,
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+    dispatch = _RecordingDispatch()
+    executor = SMOKE._RestrictedRealToolExecutor(
+        dispatch,
+        recorder=recorder,
+        counts=counts,
+    )
+    for tool_name in prefix:
+        await executor(tool_name, {"accepted": tool_name})
+
+    before_bytes = bytes(stream.content)
+    before_calls = copy.deepcopy(dispatch.calls)
+    before_names = executor.call_names
+    before_count = counts.execution
+    dispatch.fail_if_called = True
+
+    with pytest.raises(ValueError, match=message):
+        await executor(attempted_tool, attempted_params)
+
+    assert bytes(stream.content) == before_bytes
+    assert dispatch.calls == before_calls
+    assert executor.call_names == before_names
+    assert counts.execution == before_count
 
 
 def _planner_payload() -> dict[str, Any]:

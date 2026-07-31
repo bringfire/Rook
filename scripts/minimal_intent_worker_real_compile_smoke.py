@@ -398,6 +398,118 @@ class _PreparedDocument:
     tool_calls: int
 
 
+@dataclass(slots=True)
+class _LiveCallCounts:
+    preparation: int = 0
+    planner: int = 0
+    worker: int = 0
+    execution: int = 0
+
+
+class _RecordingPreparationDispatcher:
+    __slots__ = ("_counts", "_delegate", "_recorder")
+
+    def __init__(
+        self,
+        *,
+        delegate: Any,
+        recorder: _JsonlFlightRecorder,
+        counts: _LiveCallCounts,
+    ) -> None:
+        if not callable(getattr(delegate, "dispatch", None)):
+            raise TypeError("preparation delegate must expose dispatch")
+        if type(recorder) is not _JsonlFlightRecorder:
+            raise TypeError("recorder must be the exact flight recorder")
+        if type(counts) is not _LiveCallCounts:
+            raise TypeError("counts must be the exact live call counts")
+        self._delegate = delegate
+        self._recorder = recorder
+        self._counts = counts
+
+    async def dispatch(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+    ) -> Any:
+        call_index = self._counts.preparation + 1
+        common = {
+            "phase": "preparation",
+            "call_index": call_index,
+            "tool_name": tool_name,
+        }
+        self._recorder.record(
+            "tool_request",
+            {**common, "params": params},
+        )
+        self._counts.preparation = call_index
+        try:
+            response = await self._delegate.dispatch(tool_name, params)
+        except Exception as exc:
+            self._recorder.record_exception("tool_exception", common, exc)
+            raise
+        self._recorder.record(
+            "tool_response",
+            {**common, "raw_response": response},
+        )
+        return response
+
+
+class _RecordingModelTransport:
+    __slots__ = ("_counts", "_delegate", "_recorder", "_role")
+
+    def __init__(
+        self,
+        *,
+        role: Literal["planner", "worker"],
+        delegate: Any,
+        recorder: _JsonlFlightRecorder,
+        counts: _LiveCallCounts,
+    ) -> None:
+        if type(role) is not str or role not in {"planner", "worker"}:
+            raise ValueError("recording model role differs")
+        if not callable(getattr(delegate, "send", None)):
+            raise TypeError("model delegate must expose send")
+        if type(recorder) is not _JsonlFlightRecorder:
+            raise TypeError("recorder must be the exact flight recorder")
+        if type(counts) is not _LiveCallCounts:
+            raise TypeError("counts must be the exact live call counts")
+        self._role = role
+        self._delegate = delegate
+        self._recorder = recorder
+        self._counts = counts
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        previous_count = (
+            self._counts.planner
+            if self._role == "planner"
+            else self._counts.worker
+        )
+        call_index = previous_count + 1
+        common = {"role": self._role, "call_index": call_index}
+        self._recorder.record(
+            f"{self._role}_request",
+            {**common, "prompt_artifact": prompt_artifact},
+        )
+        if self._role == "planner":
+            self._counts.planner = call_index
+        else:
+            self._counts.worker = call_index
+        try:
+            response = self._delegate.send(prompt_artifact)
+        except Exception as exc:
+            self._recorder.record_exception(
+                f"{self._role}_exception",
+                common,
+                exc,
+            )
+            raise
+        self._recorder.record(
+            f"{self._role}_response",
+            {**common, "raw_response": response},
+        )
+        return response
+
+
 class _PreparationFailure(RuntimeError):
     def __init__(
         self,
@@ -639,12 +751,26 @@ async def _prepare_fresh_document(
 
 
 class _RestrictedRealToolExecutor:
-    __slots__ = ("_dispatch", "_calls")
+    __slots__ = ("_calls", "_counts", "_dispatch", "_recorder")
 
-    def __init__(self, dispatch: Any) -> None:
+    def __init__(
+        self,
+        dispatch: Any,
+        *,
+        recorder: _JsonlFlightRecorder | None = None,
+        counts: _LiveCallCounts | None = None,
+    ) -> None:
         if not callable(dispatch):
             raise TypeError("dispatch must be callable")
+        if (recorder is None) != (counts is None):
+            raise TypeError("recorder and counts must be supplied together")
+        if recorder is not None and type(recorder) is not _JsonlFlightRecorder:
+            raise TypeError("recorder must be the exact flight recorder")
+        if counts is not None and type(counts) is not _LiveCallCounts:
+            raise TypeError("counts must be the exact live call counts")
         self._dispatch = dispatch
+        self._recorder = recorder
+        self._counts = counts
         self._calls: list[str] = []
 
     @property
@@ -669,10 +795,33 @@ class _RestrictedRealToolExecutor:
         )
         if expected is None or tool_name != expected:
             raise ValueError("restricted tool sequence differs")
+        common: dict[str, Any] | None = None
+        if self._recorder is not None and self._counts is not None:
+            call_index = self._counts.execution + 1
+            common = {
+                "phase": "execution",
+                "call_index": call_index,
+                "tool_name": tool_name,
+            }
+            self._recorder.record(
+                "tool_request",
+                {**common, "params": params},
+            )
+            self._counts.execution = call_index
         self._calls.append(tool_name)
-        result = self._dispatch(tool_name, params)
-        if hasattr(result, "__await__"):
-            result = await result
+        try:
+            result = self._dispatch(tool_name, params)
+            if hasattr(result, "__await__"):
+                result = await result
+        except Exception as exc:
+            if self._recorder is not None and common is not None:
+                self._recorder.record_exception("tool_exception", common, exc)
+            raise
+        if self._recorder is not None and common is not None:
+            self._recorder.record(
+                "tool_response",
+                {**common, "raw_response": result},
+            )
         if type(result) is not dict:
             raise TypeError("dispatcher result must be an exact object")
         return result
