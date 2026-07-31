@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -48,6 +49,1397 @@ SMOKE = _load_smoke()
 from rook.agent import local_worker_model_transport as transport_module  # noqa: E402
 
 
+class _TraceStream:
+    def __init__(
+        self,
+        *,
+        fail_write_at: int | None = None,
+        short_write_at: int | None = None,
+        fail_flush_at: int | None = None,
+        fail_close: bool = False,
+    ) -> None:
+        self.content = bytearray()
+        self.write_calls = 0
+        self.flush_calls = 0
+        self.close_calls = 0
+        self.fail_write_at = fail_write_at
+        self.short_write_at = short_write_at
+        self.fail_flush_at = fail_flush_at
+        self.fail_close = fail_close
+
+    def write(self, value: bytes) -> int:
+        self.write_calls += 1
+        if self.write_calls == self.fail_write_at:
+            raise OSError("TRACE_WRITE_SENTINEL")
+        if self.write_calls == self.short_write_at:
+            written = max(0, len(value) - 1)
+            self.content.extend(value[:written])
+            return written
+        self.content.extend(value)
+        return len(value)
+
+    def flush(self) -> None:
+        self.flush_calls += 1
+        if self.flush_calls == self.fail_flush_at:
+            raise OSError("TRACE_FLUSH_SENTINEL")
+
+    def close(self) -> None:
+        self.close_calls += 1
+        if self.fail_close:
+            raise OSError("TRACE_CLOSE_SENTINEL")
+
+
+class _TimelineTraceStream(_TraceStream):
+    def __init__(self, timeline: list[str]) -> None:
+        super().__init__()
+        self._timeline = timeline
+
+    def flush(self) -> None:
+        super().flush()
+        last_row = json.loads(bytes(self.content).splitlines()[-1])
+        self._timeline.append(f"{last_row['event']}_flush")
+
+
+class _EventFailTraceStream(_TraceStream):
+    def __init__(
+        self,
+        *,
+        fail_write_event: str | None = None,
+        fail_flush_event: str | None = None,
+    ) -> None:
+        super().__init__()
+        self._fail_write_event = fail_write_event
+        self._fail_flush_event = fail_flush_event
+        self._last_event: str | None = None
+
+    def write(self, value: bytes) -> int:
+        event = json.loads(value)["event"]
+        self._last_event = event
+        if event == self._fail_write_event:
+            self.write_calls += 1
+            raise OSError("TRACE_EVENT_WRITE_SENTINEL")
+        return super().write(value)
+
+    def flush(self) -> None:
+        self.flush_calls += 1
+        if self._last_event == self._fail_flush_event:
+            raise OSError("TRACE_EVENT_FLUSH_SENTINEL")
+
+
+_TRACE_TIME = datetime(2026, 7, 30, 21, 30, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_live_trace_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+
+def _in_memory_trace(
+    name: str = "flight.jsonl",
+) -> tuple[SMOKE._JsonlFlightRecorder, SMOKE._LiveCallCounts, _TraceStream]:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=Path(name),
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    return recorder, SMOKE._LiveCallCounts(), stream
+
+
+def _serialized_trace_row(
+    *,
+    sequence: int,
+    event: str,
+    payload: Mapping[str, Any],
+) -> bytes:
+    return (
+        json.dumps(
+            {
+                "sequence": sequence,
+                "recorded_at_utc": "2026-07-30T21:30:00.000000Z",
+                "event": event,
+                "payload": payload,
+            },
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _padding_payload_for_row_size(
+    *,
+    sequence: int,
+    event: str,
+    target_size: int,
+) -> dict[str, str]:
+    empty_size = len(
+        _serialized_trace_row(
+            sequence=sequence,
+            event=event,
+            payload={"padding": ""},
+        )
+    )
+    padding_size = target_size - empty_size
+    assert padding_size >= 0
+    payload = {"padding": "x" * padding_size}
+    assert len(
+        _serialized_trace_row(
+            sequence=sequence,
+            event=event,
+            payload=payload,
+        )
+    ) == target_size
+    return payload
+
+
+def test_flight_recorder_writes_one_flushed_jsonl_row(tmp_path: Path) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    recorder.record("run_started", {"intent": "fixed"})
+
+    expected = {
+        "sequence": 1,
+        "recorded_at_utc": "2026-07-30T21:30:00.000000Z",
+        "event": "run_started",
+        "payload": {"intent": "fixed"},
+    }
+    assert bytes(stream.content) == (
+        json.dumps(expected, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    assert recorder.sequence == 1
+    assert recorder.bytes_written == len(stream.content)
+
+
+def test_flight_recorder_serialization_rejection_flushes_then_raises(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    path = tmp_path / "flight.jsonl"
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=path,
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("planner_response", {"raw_response": object()})
+
+    assert str(raised.value) == "trace_write_failed"
+    assert raised.value.reason == "json_serialization_failed"
+    assert raised.value.path == path
+    assert recorder.failed is True
+    assert recorder.sequence == 1
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    lines = bytes(stream.content).splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0]) == {
+        "sequence": 1,
+        "recorded_at_utc": "2026-07-30T21:30:00.000000Z",
+        "event": "event_serialization_failed",
+        "payload": {
+            "attempted_event": "planner_response",
+            "rejection_reason": "json_serialization_failed",
+        },
+    }
+
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_event"),
+    [
+        ("json_serialization_failed", "event_serialization_failed"),
+        ("row_size_exceeded", "event_rejected"),
+        ("total_size_exceeded", "event_rejected"),
+        ("exception_message_size_exceeded", "event_rejected"),
+    ],
+)
+def test_flight_recorder_reject_always_flushes_then_raises(
+    tmp_path: Path,
+    reason: str,
+    expected_event: str,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder._reject("planner_response", reason)
+
+    assert raised.value.reason == reason
+    assert recorder.failed is True
+    assert recorder.sequence == 1
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == expected_event
+    assert row["payload"] == {
+        "attempted_event": "planner_response",
+        "rejection_reason": reason,
+    }
+
+
+def test_flight_recorder_short_write_retains_partial_bytes_and_stops(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(short_write_at=1)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("run_started", {"intent": "fixed"})
+
+    assert raised.value.reason == "short_write"
+    assert recorder.failed is True
+    assert recorder.sequence == 0
+    assert recorder.bytes_written == len(stream.content)
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 0
+    assert bytes(stream.content)
+    assert not bytes(stream.content).endswith(b"\n")
+
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+    assert stream.write_calls == 1
+
+
+def test_flight_recorder_accepts_exact_complete_row_limit(tmp_path: Path) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    payload = _padding_payload_for_row_size(
+        sequence=1,
+        event="planner_response",
+        target_size=256 * 1024,
+    )
+
+    recorder.record("planner_response", payload)
+
+    assert len(stream.content) == 256 * 1024
+    assert recorder.bytes_written == 256 * 1024
+    assert recorder.sequence == 1
+    assert recorder.failed is False
+
+
+def test_flight_recorder_rejects_complete_row_limit_plus_one(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    payload = _padding_payload_for_row_size(
+        sequence=1,
+        event="planner_response",
+        target_size=(256 * 1024) + 1,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("planner_response", payload)
+
+    assert raised.value.reason == "row_size_exceeded"
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "event_rejected"
+    assert row["payload"] == {
+        "attempted_event": "planner_response",
+        "rejection_reason": "row_size_exceeded",
+    }
+    assert len(stream.content) <= 4 * 1024
+
+
+def test_flight_recorder_reserves_tail_after_exact_normal_total(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    row_max = 256 * 1024
+    normal_total = (4 * 1024 * 1024) - (4 * 1024)
+    row_sizes = ([row_max] * 15) + [normal_total - (15 * row_max)]
+    assert sum(row_sizes) == normal_total
+
+    for sequence, row_size in enumerate(row_sizes, start=1):
+        recorder.record(
+            "tool_response",
+            _padding_payload_for_row_size(
+                sequence=sequence,
+                event="tool_response",
+                target_size=row_size,
+            ),
+        )
+
+    assert recorder.bytes_written == normal_total
+    assert len(stream.content) == normal_total
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("run_finished", {})
+
+    assert raised.value.reason == "total_size_exceeded"
+    assert recorder.sequence == len(row_sizes) + 1
+    assert recorder.failed is True
+    assert recorder.bytes_written == len(stream.content)
+    assert recorder.bytes_written <= 4 * 1024 * 1024
+    rejection = json.loads(bytes(stream.content).splitlines()[-1])
+    assert rejection["event"] == "event_rejected"
+    assert rejection["payload"] == {
+        "attempted_event": "run_finished",
+        "rejection_reason": "total_size_exceeded",
+    }
+
+
+class _UnstringableException(Exception):
+    def __str__(self) -> str:
+        raise ValueError("UNSTRINGABLE_SENTINEL")
+
+
+def test_flight_recorder_records_escaped_surrogate_exception_message(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    error = RuntimeError("prefix-\ud800-suffix")
+
+    recorder.record_exception(
+        "tool_exception",
+        {"phase": "execution", "call_index": 1},
+        error,
+    )
+
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "tool_exception"
+    assert row["payload"] == {
+        "phase": "execution",
+        "call_index": 1,
+        "exception_type": "RuntimeError",
+        "exception_message": "prefix-\ud800-suffix",
+    }
+    assert recorder.failed is False
+
+
+@pytest.mark.parametrize(
+    ("message_size", "should_reject"),
+    [
+        ((16 * 1024) - 2, False),
+        ((16 * 1024) - 1, True),
+    ],
+)
+def test_flight_recorder_bounds_ensure_ascii_exception_message(
+    tmp_path: Path,
+    message_size: int,
+    should_reject: bool,
+) -> None:
+    message = "x" * message_size
+    encoded = json.dumps(
+        message,
+        ensure_ascii=True,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    expected_size = 16 * 1024 if not should_reject else (16 * 1024) + 1
+    assert len(encoded) == expected_size
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    if should_reject:
+        with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+            recorder.record_exception("planner_exception", {}, RuntimeError(message))
+        assert raised.value.reason == "exception_message_size_exceeded"
+        row = json.loads(bytes(stream.content))
+        assert row["event"] == "event_rejected"
+        assert row["payload"]["rejection_reason"] == (
+            "exception_message_size_exceeded"
+        )
+    else:
+        recorder.record_exception("planner_exception", {}, RuntimeError(message))
+        row = json.loads(bytes(stream.content))
+        assert row["event"] == "planner_exception"
+        assert row["payload"]["exception_message"] == message
+
+
+def test_flight_recorder_unstringable_exception_rejects_and_stops(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record_exception(
+            "worker_exception",
+            {"role": "worker", "call_index": 1},
+            _UnstringableException(),
+        )
+
+    assert raised.value.reason == "json_serialization_failed"
+    assert recorder.failed is True
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "event_serialization_failed"
+    assert row["payload"] == {
+        "attempted_event": "worker_exception",
+        "rejection_reason": "json_serialization_failed",
+    }
+    assert "UNSTRINGABLE_SENTINEL" not in bytes(stream.content).decode("utf-8")
+
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+
+
+def test_flight_recorder_finish_flushes_run_finished_then_closes(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    recorder.finish({"operator_status": "refused", "planner_calls": 0})
+
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "run_finished"
+    assert row["payload"] == {
+        "operator_status": "refused",
+        "planner_calls": 0,
+    }
+    assert recorder.sequence == 1
+    assert recorder.closed is True
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    assert stream.close_calls == 1
+
+
+def test_open_live_flight_recorder_creates_exclusive_local_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    recorder = SMOKE._open_live_flight_recorder()
+
+    expected_parent = (tmp_path / "Rook" / "traces").resolve()
+    assert recorder.path.is_absolute()
+    assert recorder.path.parent.resolve() == expected_parent
+    assert recorder.path.is_file()
+    assert recorder.path.name.startswith(
+        "minimal-intent-worker-real-compile-"
+    )
+    assert recorder.path.name.endswith(".jsonl")
+    assert recorder.path.read_bytes() == b""
+    recorder.close_incomplete()
+    assert recorder.closed is True
+    assert recorder.path.read_bytes() == b""
+
+
+def test_open_live_flight_recorder_uses_unbuffered_exclusive_stream(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    real_open = Path.open
+    observed: list[tuple[str, int]] = []
+
+    def capture_open(
+        path: Path,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ):
+        observed.append((mode, buffering))
+        return real_open(path, mode, buffering, encoding, errors, newline)
+
+    monkeypatch.setattr(Path, "open", capture_open)
+
+    recorder = SMOKE._open_live_flight_recorder()
+
+    assert observed == [("xb", 0)]
+    recorder.close_incomplete()
+
+
+def test_open_live_flight_recorder_requires_nonblank_localappdata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", "   ")
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        SMOKE._open_live_flight_recorder()
+
+    assert raised.value.reason == "localappdata_missing"
+    assert raised.value.path is None
+
+
+def test_open_live_flight_recorder_refuses_name_collision_without_clobber(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FrozenDatetime:
+        @classmethod
+        def now(cls, tz: object) -> datetime:
+            assert tz is timezone.utc
+            return _TRACE_TIME
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(SMOKE, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(SMOKE.os, "getpid", lambda: 1234)
+    monkeypatch.setattr(SMOKE.secrets, "token_hex", lambda _size: "cafebabe")
+    first = SMOKE._open_live_flight_recorder()
+    first.record("run_started", {"intent": "retained"})
+    retained = first.path.read_bytes()
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        SMOKE._open_live_flight_recorder()
+
+    assert raised.value.reason == "exclusive_open_failed"
+    assert raised.value.path is None
+    assert first.path.read_bytes() == retained
+    first.close_incomplete()
+
+
+@pytest.mark.parametrize(
+    ("stream", "expected_reason", "expected_bytes", "expected_flushes"),
+    [
+        (_TraceStream(fail_write_at=1), "write_failed", 0, 0),
+        (_TraceStream(fail_flush_at=1), "flush_failed", None, 1),
+    ],
+)
+def test_flight_recorder_write_or_flush_failure_stops_without_retry(
+    tmp_path: Path,
+    stream: _TraceStream,
+    expected_reason: str,
+    expected_bytes: int | None,
+    expected_flushes: int,
+) -> None:
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("run_started", {"intent": "fixed"})
+
+    assert raised.value.reason == expected_reason
+    assert recorder.failed is True
+    assert recorder.sequence == 0
+    assert recorder.bytes_written == len(stream.content)
+    assert stream.write_calls == 1
+    assert stream.flush_calls == expected_flushes
+    if expected_bytes is not None:
+        assert len(stream.content) == expected_bytes
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+    assert stream.write_calls == 1
+
+
+def test_flight_recorder_finish_close_failure_retains_flushed_terminal_row(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(fail_close=True)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.finish({"operator_status": "completed"})
+
+    assert raised.value.reason == "close_failed"
+    assert recorder.failed is True
+    assert recorder.closed is False
+    assert recorder.sequence == 1
+    assert stream.flush_calls == 1
+    assert stream.close_calls == 1
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "run_finished"
+
+
+def test_flight_recorder_failed_close_cleanup_is_one_shot(tmp_path: Path) -> None:
+    stream = _TraceStream(fail_close=True)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.finish({"operator_status": "completed"})
+    assert raised.value.reason == "close_failed"
+    retained = bytes(stream.content)
+
+    recorder.close_incomplete()
+    recorder.close_incomplete()
+
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    assert stream.close_calls == 1
+    assert bytes(stream.content) == retained
+
+
+def test_flight_recorder_failed_flush_cleanup_does_not_repeat_io(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(fail_flush_at=1)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("run_started", {"intent": "fixed"})
+    assert raised.value.reason == "flush_failed"
+    retained = bytes(stream.content)
+
+    recorder.close_incomplete()
+    recorder.close_incomplete()
+
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    assert stream.close_calls == 1
+    assert bytes(stream.content) == retained
+
+
+def test_flight_recorder_closes_failed_partial_trace_without_new_row(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(short_write_at=1)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_started", {"intent": "fixed"})
+    retained = bytes(stream.content)
+
+    recorder.close_incomplete()
+
+    assert recorder.closed is True
+    assert recorder.failed is True
+    assert stream.close_calls == 1
+    assert bytes(stream.content) == retained
+    assert b"run_finished" not in retained
+
+
+def test_flight_recorder_rejects_unknown_event_before_write(tmp_path: Path) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(ValueError, match="closed vocabulary"):
+        recorder.record("invented_event", {})
+
+    assert stream.write_calls == 0
+    assert stream.flush_calls == 0
+    assert recorder.failed is False
+
+
+def test_flight_recorder_nonfinite_payload_uses_serialization_rejection(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("planner_response", {"value": float("nan")})
+
+    assert raised.value.reason == "json_serialization_failed"
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "event_serialization_failed"
+    assert row["payload"]["rejection_reason"] == "json_serialization_failed"
+
+
+@pytest.mark.parametrize(
+    ("stream", "expected_reason", "expected_flushes"),
+    [
+        (_TraceStream(fail_write_at=1), "write_failed", 0),
+        (_TraceStream(fail_flush_at=1), "flush_failed", 1),
+    ],
+)
+def test_flight_recorder_rejection_write_or_flush_failure_still_terminates(
+    tmp_path: Path,
+    stream: _TraceStream,
+    expected_reason: str,
+    expected_flushes: int,
+) -> None:
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("planner_response", {"raw_response": object()})
+
+    assert raised.value.reason == expected_reason
+    assert recorder.failed is True
+    assert recorder.sequence == 0
+    assert recorder.bytes_written == len(stream.content)
+    assert stream.write_calls == 1
+    assert stream.flush_calls == expected_flushes
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+    assert stream.write_calls == 1
+
+
+def test_open_live_flight_recorder_bounds_path_resolution_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    real_resolve = Path.resolve
+
+    def fail_trace_resolve(path: Path, *args: Any, **kwargs: Any) -> Path:
+        if path.suffix == ".jsonl":
+            raise OSError("PATH_RESOLVE_SENTINEL")
+        return real_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", fail_trace_resolve)
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        SMOKE._open_live_flight_recorder()
+
+    assert raised.value.reason == "trace_path_prepare_failed"
+    assert raised.value.path is None
+
+
+@pytest.mark.asyncio
+async def test_recording_wrappers_flush_around_one_exact_delegate_call(
+    tmp_path: Path,
+) -> None:
+    timeline: list[str] = []
+    stream = _TimelineTraceStream(timeline)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+    prompt = {"messages": [{"role": "user", "content": "exact"}]}
+    planner_response = "".join(["planner", "-response"])
+
+    class _PlannerDelegate:
+        def send(self, received: Mapping[str, Any]) -> str:
+            assert received is prompt
+            timeline.append("planner_delegate")
+            return planner_response
+
+    class _PreparationDelegate:
+        async def dispatch(
+            self,
+            tool_name: str,
+            params: dict[str, Any],
+        ) -> dict[str, Any]:
+            assert tool_name == "gh_status"
+            assert params is preparation_params
+            timeline.append("preparation_delegate")
+            return preparation_response
+
+    planner = SMOKE._RecordingModelTransport(
+        role="planner",
+        delegate=_PlannerDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    preparation = SMOKE._RecordingPreparationDispatcher(
+        delegate=_PreparationDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    preparation_params: dict[str, Any] = {}
+    preparation_response = {"success": True, "data": {"available": True}}
+
+    returned_planner = planner.send(prompt)
+    returned_preparation = await preparation.dispatch(
+        "gh_status",
+        preparation_params,
+    )
+
+    assert returned_planner is planner_response
+    assert returned_preparation is preparation_response
+    assert timeline == [
+        "planner_request_flush",
+        "planner_delegate",
+        "planner_response_flush",
+        "tool_request_flush",
+        "preparation_delegate",
+        "tool_response_flush",
+    ]
+    assert counts.planner == 1
+    assert counts.worker == 0
+    assert counts.preparation == 1
+    assert counts.execution == 0
+
+
+@pytest.mark.asyncio
+async def test_restricted_executor_traces_admitted_calls_around_exact_delegate(
+    tmp_path: Path,
+) -> None:
+    timeline: list[str] = []
+    stream = _TimelineTraceStream(timeline)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+    create_params = {"code": _INITIAL_BODY}
+    update_params = {
+        "guid": _COMPONENT_GUID,
+        "code": _WORKER_BODY,
+        "mode": "body",
+        "language": "csharp",
+    }
+    create_response = {"success": False, "data": {"created": True}}
+    update_response = {"success": True, "data": {"updated": True}}
+
+    async def dispatch(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
+        timeline.append(f"{tool_name}_delegate")
+        if tool_name == "gh_create_csharp_script":
+            assert params is create_params
+            return create_response
+        assert tool_name == "gh_update_script"
+        assert params is update_params
+        return update_response
+
+    executor = SMOKE._RestrictedRealToolExecutor(
+        dispatch,
+        recorder=recorder,
+        counts=counts,
+    )
+
+    returned_create = await executor("gh_create_csharp_script", create_params)
+    returned_update = await executor("gh_update_script", update_params)
+
+    assert returned_create is create_response
+    assert returned_update is update_response
+    assert executor.call_names == (
+        "gh_create_csharp_script",
+        "gh_update_script",
+    )
+    assert counts.execution == 2
+    assert timeline == [
+        "tool_request_flush",
+        "gh_create_csharp_script_delegate",
+        "tool_response_flush",
+        "tool_request_flush",
+        "gh_update_script_delegate",
+        "tool_response_flush",
+    ]
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert [row["payload"]["phase"] for row in rows] == ["execution"] * 4
+    assert [row["payload"]["call_index"] for row in rows] == [1, 1, 2, 2]
+
+
+class _BoundaryDelegateException(Exception):
+    pass
+
+
+def _recording_boundary(
+    *,
+    kind: str,
+    stream: _TraceStream,
+    tmp_path: Path,
+    result: object,
+    exception: Exception | None = None,
+) -> tuple[
+    SMOKE._JsonlFlightRecorder,
+    SMOKE._LiveCallCounts,
+    list[tuple[object, ...]],
+    Any,
+]:
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / f"{kind}.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+    delegate_calls: list[tuple[object, ...]] = []
+
+    if kind in {"planner", "worker"}:
+        prompt = {"messages": [{"role": "user", "content": kind}]}
+
+        class _Delegate:
+            def send(self, received: Mapping[str, Any]) -> object:
+                delegate_calls.append((received,))
+                if exception is not None:
+                    raise exception
+                return result
+
+        wrapper = SMOKE._RecordingModelTransport(
+            role=kind,
+            delegate=_Delegate(),
+            recorder=recorder,
+            counts=counts,
+        )
+
+        async def invoke() -> object:
+            return wrapper.send(prompt)
+
+        return recorder, counts, delegate_calls, invoke
+
+    if kind == "preparation":
+        params: dict[str, Any] = {"probe": True}
+
+        class _Delegate:
+            async def dispatch(
+                self,
+                tool_name: str,
+                received: dict[str, Any],
+            ) -> object:
+                delegate_calls.append((tool_name, received))
+                if exception is not None:
+                    raise exception
+                return result
+
+        wrapper = SMOKE._RecordingPreparationDispatcher(
+            delegate=_Delegate(),
+            recorder=recorder,
+            counts=counts,
+        )
+
+        async def invoke() -> object:
+            return await wrapper.dispatch("gh_status", params)
+
+        return recorder, counts, delegate_calls, invoke
+
+    if kind == "execution":
+        params = {"code": _INITIAL_BODY}
+
+        async def dispatch(tool_name: str, received: dict[str, Any]) -> object:
+            delegate_calls.append((tool_name, received))
+            if exception is not None:
+                raise exception
+            return result
+
+        wrapper = SMOKE._RestrictedRealToolExecutor(
+            dispatch,
+            recorder=recorder,
+            counts=counts,
+        )
+
+        async def invoke() -> object:
+            return await wrapper("gh_create_csharp_script", params)
+
+        return recorder, counts, delegate_calls, invoke
+
+    raise AssertionError(f"unsupported boundary kind: {kind}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+async def test_recording_boundary_preserves_return_and_exception_identity(
+    kind: str,
+    tmp_path: Path,
+) -> None:
+    result: object = "exact-response" if kind in {"planner", "worker"} else {
+        "success": True
+    }
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=_TraceStream(),
+        tmp_path=tmp_path,
+        result=result,
+    )
+
+    assert await invoke() is result
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+
+    exception = _BoundaryDelegateException("BOUNDARY_EXCEPTION_SENTINEL")
+    stream = _TraceStream()
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=stream,
+        tmp_path=tmp_path,
+        result=result,
+        exception=exception,
+    )
+
+    with pytest.raises(_BoundaryDelegateException) as raised:
+        await invoke()
+
+    assert raised.value is exception
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+    exception_row = json.loads(bytes(stream.content).splitlines()[-1])
+    expected_event = (
+        f"{kind}_exception" if kind in {"planner", "worker"} else "tool_exception"
+    )
+    assert exception_row["event"] == expected_event
+    assert exception_row["payload"]["exception_type"] == (
+        "_BoundaryDelegateException"
+    )
+    assert exception_row["payload"]["exception_message"] == (
+        "BOUNDARY_EXCEPTION_SENTINEL"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+@pytest.mark.parametrize("request_fault", ["write", "short_write"])
+async def test_request_trace_failure_prevents_boundary_contact(
+    kind: str,
+    request_fault: str,
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(
+        fail_write_at=1 if request_fault == "write" else None,
+        short_write_at=1 if request_fault == "short_write" else None,
+    )
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=stream,
+        tmp_path=tmp_path,
+        result="response" if kind in {"planner", "worker"} else {"success": True},
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        await invoke()
+
+    assert calls == []
+    assert getattr(counts, kind) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+async def test_response_trace_failure_supersedes_one_completed_boundary_call(
+    kind: str,
+    tmp_path: Path,
+) -> None:
+    result: object = "response" if kind in {"planner", "worker"} else {
+        "success": True
+    }
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=_TraceStream(fail_write_at=2),
+        tmp_path=tmp_path,
+        result=result,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        await invoke()
+
+    assert raised.value.reason == "write_failed"
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+async def test_exception_trace_failure_supersedes_one_raised_boundary_call(
+    kind: str,
+    tmp_path: Path,
+) -> None:
+    exception = _BoundaryDelegateException("BOUNDARY_EXCEPTION_SENTINEL")
+    _recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=_TraceStream(fail_write_at=2),
+        tmp_path=tmp_path,
+        result="unused",
+        exception=exception,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        await invoke()
+
+    assert raised.value.reason == "write_failed"
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["planner", "worker", "preparation", "execution"])
+async def test_unstringable_boundary_exception_rejects_trace_and_next_contact(
+    kind: str,
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder, counts, calls, invoke = _recording_boundary(
+        kind=kind,
+        stream=stream,
+        tmp_path=tmp_path,
+        result="unused",
+        exception=_UnstringableException(),
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        await invoke()
+
+    assert raised.value.reason == "json_serialization_failed"
+    assert len(calls) == 1
+    assert getattr(counts, kind) == 1
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert rows[-1]["event"] == "event_serialization_failed"
+    assert rows[-1]["payload"] == {
+        "attempted_event": (
+            f"{kind}_exception" if kind in {"planner", "worker"} else "tool_exception"
+        ),
+        "rejection_reason": "json_serialization_failed",
+    }
+
+    next_calls: list[Mapping[str, Any]] = []
+
+    class _NextDelegate:
+        def send(self, prompt: Mapping[str, Any]) -> str:
+            next_calls.append(prompt)
+            return "must-not-run"
+
+    next_wrapper = SMOKE._RecordingModelTransport(
+        role="planner",
+        delegate=_NextDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    with pytest.raises(SMOKE._TraceWriteFailure) as next_raised:
+        next_wrapper.send({"messages": []})
+    assert next_raised.value.reason == "recorder_failed"
+    assert next_calls == []
+
+
+@pytest.mark.asyncio
+async def test_recording_boundaries_share_one_global_sequence_and_local_indexes(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+
+    class _PreparationDelegate:
+        async def dispatch(self, _name: str, _params: dict[str, Any]) -> dict[str, Any]:
+            return {"success": True}
+
+    class _ModelDelegate:
+        def send(self, _prompt: Mapping[str, Any]) -> str:
+            return "{}"
+
+    async def execution_dispatch(
+        _name: str,
+        _params: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {"success": True}
+
+    preparation = SMOKE._RecordingPreparationDispatcher(
+        delegate=_PreparationDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    planner = SMOKE._RecordingModelTransport(
+        role="planner",
+        delegate=_ModelDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    worker = SMOKE._RecordingModelTransport(
+        role="worker",
+        delegate=_ModelDelegate(),
+        recorder=recorder,
+        counts=counts,
+    )
+    executor = SMOKE._RestrictedRealToolExecutor(
+        execution_dispatch,
+        recorder=recorder,
+        counts=counts,
+    )
+
+    for name in ("gh_status", "gh_document_new", "gh_status"):
+        await preparation.dispatch(name, {})
+    planner.send({"messages": [{"role": "user", "content": "planner"}]})
+    worker.send({"messages": [{"role": "user", "content": "worker"}]})
+    await executor("gh_create_csharp_script", {"code": _INITIAL_BODY})
+    await executor("gh_update_script", {"guid": _COMPONENT_GUID})
+
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert [row["sequence"] for row in rows] == list(range(1, 15))
+    preparation_rows = [
+        row for row in rows if row["payload"].get("phase") == "preparation"
+    ]
+    execution_rows = [
+        row for row in rows if row["payload"].get("phase") == "execution"
+    ]
+    assert [row["payload"]["call_index"] for row in preparation_rows] == [
+        1,
+        1,
+        2,
+        2,
+        3,
+        3,
+    ]
+    assert [row["payload"]["call_index"] for row in execution_rows] == [
+        1,
+        1,
+        2,
+        2,
+    ]
+    assert [
+        row["payload"]["call_index"]
+        for row in rows
+        if row["payload"].get("role") == "planner"
+    ] == [1, 1]
+    assert [
+        row["payload"]["call_index"]
+        for row in rows
+        if row["payload"].get("role") == "worker"
+    ] == [1, 1]
+    assert counts == SMOKE._LiveCallCounts(
+        preparation=3,
+        planner=1,
+        worker=1,
+        execution=2,
+    )
+
+
+@pytest.mark.asyncio
+async def test_non_object_execution_response_is_traced_before_native_rejection(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+
+    async def dispatch(_name: str, _params: dict[str, Any]) -> list[str]:
+        return ["not", "an", "object"]
+
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    executor = SMOKE._RestrictedRealToolExecutor(
+        dispatch,
+        recorder=recorder,
+        counts=SMOKE._LiveCallCounts(),
+    )
+
+    with pytest.raises(TypeError, match="dispatcher result must be an exact object"):
+        await executor("gh_create_csharp_script", {"code": _INITIAL_BODY})
+
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert [row["event"] for row in rows] == ["tool_request", "tool_response"]
+    assert rows[-1]["payload"]["raw_response"] == ["not", "an", "object"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prefix", "attempted_tool", "attempted_params", "message"),
+    [
+        ((), "gh_update_script", {"code": "x"}, "sequence differs"),
+        (("gh_create_csharp_script",), "gh_create_csharp_script", {}, "sequence differs"),
+        (
+            ("gh_create_csharp_script", "gh_update_script"),
+            "gh_update_script",
+            {},
+            "sequence differs",
+        ),
+        ((), "gh_status", {}, "sequence differs"),
+        ((), "gh_create_csharp_script", {"port": 9878}, "contain port"),
+        (
+            ("gh_create_csharp_script",),
+            "gh_update_script",
+            {"port": 9878},
+            "contain port",
+        ),
+    ],
+)
+async def test_restricted_executor_rejection_writes_no_event_and_enters_no_delegate(
+    prefix: tuple[str, ...],
+    attempted_tool: str,
+    attempted_params: dict[str, Any],
+    message: str,
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    counts = SMOKE._LiveCallCounts()
+    dispatch = _RecordingDispatch()
+    executor = SMOKE._RestrictedRealToolExecutor(
+        dispatch,
+        recorder=recorder,
+        counts=counts,
+    )
+    for tool_name in prefix:
+        await executor(tool_name, {"accepted": tool_name})
+
+    before_bytes = bytes(stream.content)
+    before_calls = copy.deepcopy(dispatch.calls)
+    before_names = executor.call_names
+    before_count = counts.execution
+    dispatch.fail_if_called = True
+
+    with pytest.raises(ValueError, match=message):
+        await executor(attempted_tool, attempted_params)
+
+    assert bytes(stream.content) == before_bytes
+    assert dispatch.calls == before_calls
+    assert executor.call_names == before_names
+    assert counts.execution == before_count
+
+
 def _planner_payload() -> dict[str, Any]:
     return {
         "goal": _INTENT,
@@ -78,6 +1470,15 @@ class _RawTransport:
     def send(self, prompt_artifact: Mapping[str, Any]) -> str:
         self.calls.append(copy.deepcopy(dict(prompt_artifact)))
         return self._raw
+
+
+class _RaisingTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        self.calls.append(copy.deepcopy(dict(prompt_artifact)))
+        raise RuntimeError("PLANNER_TRANSPORT_SENTINEL")
 
 
 class _ScriptedDispatcher:
@@ -115,6 +1516,39 @@ class _ScriptedDispatcher:
             }
             return _updated_clean(captured["guid"])
         raise AssertionError(f"unexpected scripted dispatch {index}: {name}")
+
+
+class _CreateExistenceUnconfirmedDispatcher(_ScriptedDispatcher):
+    async def dispatch(self, name: str, params: dict[str, Any]) -> dict[str, Any]:
+        captured = copy.deepcopy(params)
+        self.calls.append((name, captured))
+        index = len(self.calls)
+        if index == 1 and name == "gh_status" and captured == {}:
+            return _status(_PRE_DOCUMENT_ID)
+        if index == 2 and name == "gh_document_new" and captured == {}:
+            return {"success": True, "data": {"created": True}}
+        if index == 3 and name == "gh_status" and captured == {}:
+            return _status(_POST_DOCUMENT_ID)
+        if index == 4 and name == "gh_create_csharp_script":
+            assert captured["code"] == _INITIAL_BODY
+            return {
+                "success": False,
+                "data": {
+                    "script_receipt": {
+                        "version": 1,
+                        "operation": "create",
+                        "language": "csharp",
+                        "artifact_status": "created_with_errors",
+                        "mutation": {"status": "failed"},
+                        "verification": {
+                            "status": "failed",
+                            "target_error_count": 1,
+                        },
+                        "repair_anchor": {},
+                    }
+                },
+            }
+        raise AssertionError(f"unexpected stopped dispatch {index}: {name}")
 
 
 def _status(document_id: str) -> dict[str, Any]:
@@ -187,6 +1621,7 @@ def _updated_clean(received_guid: object) -> dict[str, Any]:
 @pytest.mark.asyncio
 async def test_no_contact_walking_vertical_reaches_native_terminal(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     created_dispatchers: list[_ScriptedDispatcher] = []
 
@@ -219,9 +1654,18 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
         worker_model="ollama_chat/qwen3-coder:30b-a3b-q8_0",
         profile_api_base=None,
     )
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "walking.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    call_counts = SMOKE._LiveCallCounts()
     live_run = await SMOKE._run_live_once(
         roles,
         SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+        recorder=recorder,
+        call_counts=call_counts,
     )
 
     assert live_run.result.terminal_stage == "terminal"
@@ -261,9 +1705,33 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
             },
         ),
     ]
+    assert call_counts == SMOKE._LiveCallCounts(
+        preparation=3,
+        planner=1,
+        worker=1,
+        execution=2,
+    )
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert [row["event"] for row in rows] == [
+        "tool_request",
+        "tool_response",
+        "tool_request",
+        "tool_response",
+        "tool_request",
+        "tool_response",
+        "planner_request",
+        "planner_response",
+        "tool_request",
+        "tool_response",
+        "worker_request",
+        "worker_response",
+        "tool_request",
+        "tool_response",
+    ]
     assert SMOKE._summary_from_result(roles, live_run) == {
         "operator_status": "completed",
         "operator_reason": "native_terminal",
+        "trace_path": None,
         "intent": _INTENT,
         "profile": "hybrid",
         "planner_model": "anthropic/claude-opus-4-6",
@@ -280,6 +1748,418 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
         "planner_adapter_status": "decoded",
         "worker_adapter_status": "response_loaded",
     }
+
+
+def test_observed_create_stop_trace_preserves_the_native_causal_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    dispatcher = _CreateExistenceUnconfirmedDispatcher(port=9877, local_tools={})
+    planner_transport = _RawTransport(_planner_payload())
+    worker_transport = _RawTransport(_worker_payload())
+    transports = iter((planner_transport, worker_transport))
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
+    monkeypatch.setattr(
+        SMOKE,
+        "ToolDispatcher",
+        lambda *, port, local_tools: dispatcher,
+    )
+    monkeypatch.setattr(SMOKE, "build_local_tools", lambda: {})
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_reason"] == "native_stop"
+    assert summary["terminal_stage"] == "create"
+    assert summary["terminal_reason"] == "selector_halt:none_ready"
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 1
+    assert len(planner_transport.calls) == 1
+    assert worker_transport.calls == []
+
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    events = [row["event"] for row in rows]
+    raw_create = next(
+        row["payload"]["raw_response"]
+        for row in rows
+        if row["event"] == "tool_response"
+        and row["payload"]["phase"] == "execution"
+    )
+    native_step = next(
+        row["payload"]
+        for row in rows
+        if row["event"] == "native_step_projection"
+    )
+    final_native = next(
+        row["payload"]
+        for row in rows
+        if row["event"] == "final_native_result"
+    )
+
+    assert raw_create == {
+        "success": False,
+        "data": {
+            "script_receipt": {
+                "version": 1,
+                "operation": "create",
+                "language": "csharp",
+                "artifact_status": "created_with_errors",
+                "mutation": {"status": "failed"},
+                "verification": {
+                    "status": "failed",
+                    "target_error_count": 1,
+                },
+                "repair_anchor": {},
+            }
+        },
+    }
+    assert native_step["receipt"] == raw_create["data"]["script_receipt"]
+    assert native_step["producer_outcome_status"] == "blocked"
+    assert native_step["graph"]["node_statuses"] == [
+        {"node_id": "create_script", "status": "blocked"},
+        {"node_id": "done", "status": "pending"},
+        {"node_id": "repair_same_component", "status": "pending"},
+        {"node_id": "verify_create", "status": "pending"},
+        {"node_id": "verify_repair", "status": "pending"},
+    ]
+    assert native_step["graph"]["ready_node_ids"] == []
+    assert final_native["terminal_supply"] == {
+        "decision": "HALT",
+        "reason": "selector_halt:none_ready",
+    }
+    assert final_native["terminal_stage"] == "create"
+    assert final_native["terminal_reason"] == "selector_halt:none_ready"
+    assert events[-5:] == [
+        "planner_admission",
+        "compiled_workflow",
+        "native_step_projection",
+        "final_native_result",
+        "run_finished",
+    ]
+
+
+def test_completed_trace_projects_only_the_returned_native_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _patch_complete_live_main(monkeypatch)
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 0
+    assert summary["operator_status"] == "completed"
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    projection_rows = [
+        row
+        for row in rows
+        if row["event"]
+        in {
+            "planner_admission",
+            "compiled_workflow",
+            "native_step_projection",
+            "final_native_result",
+        }
+    ]
+    assert [row["event"] for row in projection_rows] == [
+        "planner_admission",
+        "compiled_workflow",
+        "native_step_projection",
+        "native_step_projection",
+        "native_step_projection",
+        "native_step_projection",
+        "final_native_result",
+    ]
+    admission = projection_rows[0]["payload"]
+    assert admission == {
+        "adapter_status": "decoded",
+        "draft": _planner_payload(),
+    }
+    compiled = projection_rows[1]["payload"]
+    assert compiled["workflow_id"] == "minimal_csharp_repair_handoff"
+    assert compiled["selected_template_id"] == (
+        "gh_csharp_create_verify_repair_verify"
+    )
+    assert compiled["graph_node_ids"] == [
+        "create_script",
+        "done",
+        "repair_same_component",
+        "verify_create",
+        "verify_repair",
+    ]
+    steps = [row["payload"] for row in projection_rows[2:6]]
+    assert [step["accepted_node_id"] for step in steps] == [
+        "create_script",
+        "verify_create",
+        "repair_same_component",
+        "verify_repair",
+    ]
+    assert [step["step_index"] for step in steps] == [1, 2, 3, 4]
+    assert steps[0]["receipt"]["operation"] == "create"
+    assert steps[1]["receipt"]["operation"] == "create"
+    assert steps[2]["receipt"]["operation"] == "update"
+    assert steps[3]["receipt"]["operation"] == "update"
+    final_native = projection_rows[-1]["payload"]
+    assert final_native["terminal_stage"] == "terminal"
+    assert final_native["terminal_reason"] == "terminal_node_selected:done"
+    assert final_native["terminal_supply"] == {
+        "decision": "HALT",
+        "reason": "terminal_node_selected:done",
+    }
+    assert final_native["call_counts"] == {
+        "preparation": 3,
+        "planner": 1,
+        "worker": 1,
+        "execution": 2,
+    }
+    assert rows[-1]["event"] == "run_finished"
+
+
+@pytest.mark.parametrize("planner_stop", ["transport_failed", "draft_rejected"])
+def test_planner_stops_emit_no_unowned_workflow_or_graph_projection(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    planner_stop: str,
+) -> None:
+    dispatcher = _ScriptedDispatcher(port=9877, local_tools={})
+    planner_transport: Any
+    if planner_stop == "transport_failed":
+        planner_transport = _RaisingTransport()
+    else:
+        malformed = _planner_payload()
+        malformed["unexpected"] = "DRAFT_SENTINEL"
+        planner_transport = _RawTransport(malformed)
+    worker_transport = _RawTransport(_worker_payload())
+    transports = iter((planner_transport, worker_transport))
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
+    monkeypatch.setattr(
+        SMOKE,
+        "ToolDispatcher",
+        lambda *, port, local_tools: dispatcher,
+    )
+    monkeypatch.setattr(SMOKE, "build_local_tools", lambda: {})
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
+    assert worker_transport.calls == []
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    events = [row["event"] for row in rows]
+    assert "planner_admission" not in events
+    assert "compiled_workflow" not in events
+    assert "native_step_projection" not in events
+    assert events[-2:] == ["final_native_result", "run_finished"]
+    final_native = rows[-2]["payload"]
+    expected_stage = (
+        "planner_adapter"
+        if planner_stop == "transport_failed"
+        else "draft_admission"
+    )
+    assert final_native["terminal_stage"] == expected_stage
+    assert "DRAFT_SENTINEL" not in json.dumps(summary)
+
+
+def test_worker_refusal_trace_retains_only_the_legitimate_native_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    dispatcher = _ScriptedDispatcher(port=9877, local_tools={})
+    planner_transport = _RawTransport(_planner_payload())
+    worker_transport = _RawTransport(
+        {
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "refusal",
+            "category": "insufficient_context",
+            "reason": "A repair cannot be determined.",
+        }
+    )
+    transports = iter((planner_transport, worker_transport))
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
+    monkeypatch.setattr(
+        SMOKE,
+        "ToolDispatcher",
+        lambda *, port, local_tools: dispatcher,
+    )
+    monkeypatch.setattr(SMOKE, "build_local_tools", lambda: {})
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["terminal_stage"] == "worker_disposition"
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 1
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    native_steps = [
+        row["payload"]
+        for row in rows
+        if row["event"] == "native_step_projection"
+    ]
+    assert [step["accepted_node_id"] for step in native_steps] == [
+        "create_script",
+        "verify_create",
+    ]
+    assert [
+        row["payload"]["tool_name"]
+        for row in rows
+        if row["event"] == "tool_request"
+        and row["payload"]["phase"] == "execution"
+    ] == ["gh_create_csharp_script"]
+    final_native = next(
+        row["payload"] for row in rows if row["event"] == "final_native_result"
+    )
+    assert final_native["worker_adapter_status"] == "response_loaded"
+    assert "terminal_supply" not in final_native
+    assert rows[-1]["event"] == "run_finished"
+
+
+def test_returned_projection_trace_failure_preserves_native_status_but_not_completion(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _patch_complete_live_main(monkeypatch)
+    stream = _EventFailTraceStream(fail_write_event="native_step_projection")
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["terminal_stage"] == "terminal"
+    assert summary["terminal_reason"] == "terminal_node_selected:done"
+    assert summary["preparation_tool_calls"] == 3
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 2
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    events = [row["event"] for row in rows]
+    assert events[-2:] == ["planner_admission", "compiled_workflow"]
+    assert "native_step_projection" not in events
+    assert "final_native_result" not in events
+    assert "run_finished" not in events
+
+
+def test_projector_exception_leaves_trace_incomplete_and_preserves_native_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _patch_complete_live_main(monkeypatch)
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+
+    def raise_projector(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("PROJECTOR_SENTINEL")
+
+    monkeypatch.setattr(SMOKE, "_project_native_steps", raise_projector)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["terminal_stage"] == "terminal"
+    assert summary["terminal_reason"] == "terminal_node_selected:done"
+    assert summary["preparation_tool_calls"] == 3
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 2
+    assert "PROJECTOR_SENTINEL" not in json.dumps(summary)
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert rows[-1]["event"] == "compiled_workflow"
+    assert "run_finished" not in [row["event"] for row in rows]
+
+
+@pytest.mark.asyncio
+async def test_verifier_receipts_are_projected_from_their_source_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    live_run = await _run_scripted_worker(monkeypatch, _worker_payload())
+    handoff = live_run.result.handoff_result
+    assert handoff is not None
+    verify_create_graph = handoff.step_records[1].execution.graph
+    verify_repair_graph = handoff.step_records[3].execution.graph
+    assert verify_create_graph.nodes["verify_create"].evidence is not None
+    assert verify_repair_graph.nodes["verify_repair"].evidence is not None
+    verify_create_graph.nodes["verify_create"].evidence.receipt = {
+        "operation": "FORGED_VERIFIER_RECEIPT"
+    }
+    verify_repair_graph.nodes["verify_repair"].evidence.receipt = {
+        "operation": "FORGED_VERIFIER_RECEIPT"
+    }
+
+    steps = SMOKE._project_native_steps(handoff)
+
+    assert steps[1]["accepted_node_id"] == "verify_create"
+    assert steps[1]["receipt"]["operation"] == "create"
+    assert steps[3]["accepted_node_id"] == "verify_repair"
+    assert steps[3]["receipt"]["operation"] == "update"
+    assert "FORGED_VERIFIER_RECEIPT" not in json.dumps(steps)
+
+
+@pytest.mark.asyncio
+async def test_returned_projectors_reject_native_ownership_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    live_run = await _run_scripted_worker(monkeypatch, _worker_payload())
+    handoff = live_run.result.handoff_result
+    assert handoff is not None
+    supplies = handoff.supply_records
+
+    object.__setattr__(
+        handoff,
+        "supply_records",
+        supplies[:-2],
+    )
+
+    with pytest.raises(ValueError, match="record and supply lengths differ"):
+        SMOKE._project_native_steps(handoff)
+    object.__setattr__(handoff, "supply_records", supplies)
+
+    max_steps = handoff.scaffold.max_steps
+    object.__setattr__(
+        handoff.scaffold,
+        "max_steps",
+        max_steps + 1,
+    )
+
+    with pytest.raises(ValueError, match="maximum steps differ"):
+        SMOKE._project_compiled_workflow(handoff)
+    object.__setattr__(handoff.scaffold, "max_steps", max_steps)
 
 
 class _EqualitySpoof:
@@ -367,6 +2247,7 @@ def test_argument_classifier_is_closed(argv: list[str], expected: str) -> None:
 def test_argument_refusal_precedes_every_capability(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
     argv: list[str],
     expected_code: int,
     expected_reason: str,
@@ -386,6 +2267,300 @@ def test_argument_refusal_precedes_every_capability(
     assert summary["planner_calls"] == 0
     assert summary["worker_calls"] == 0
     assert summary["execution_tool_calls"] == 0
+    assert summary["trace_path"] is None
+    assert list(tmp_path.rglob("*.jsonl")) == []
+
+
+def test_live_profile_refusal_writes_and_closes_one_complete_trace(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        SMOKE,
+        "get_models",
+        lambda _profile: _models(
+            "anthropic/claude-sonnet",
+            "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+        ),
+    )
+    monkeypatch.setattr(SMOKE, "discover_instances", _fail_if_reached)
+    monkeypatch.setattr(SMOKE, "ToolDispatcher", _fail_if_reached)
+    monkeypatch.setattr(SMOKE, "LiteLLMWorkerTransport", _fail_if_reached)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "refused"
+    assert summary["operator_reason"] == "profile_role_mismatch"
+    trace_path = Path(summary["trace_path"])
+    assert trace_path.is_absolute()
+    rows = [json.loads(line) for line in trace_path.read_bytes().splitlines()]
+    assert [row["event"] for row in rows] == ["run_started", "run_finished"]
+    assert rows[0]["payload"] == {
+        "intent": _INTENT,
+        "profile": "hybrid",
+        "expected_planner_model": "anthropic/claude-opus-4-6",
+        "expected_worker_model": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+    }
+    assert rows[1]["payload"] == {
+        "operator_status": "refused",
+        "operator_reason": "profile_role_mismatch",
+        "document_preparation_status": "not_started",
+        "preparation_tool_calls": 0,
+        "planner_calls": 0,
+        "worker_calls": 0,
+        "execution_tool_calls": 0,
+    }
+
+
+def test_live_header_failure_refuses_before_profile_or_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    path = (tmp_path / "header-failed.jsonl").resolve()
+    path.touch()
+    stream = _TraceStream(fail_flush_at=1)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=path,
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    monkeypatch.setattr(SMOKE, "_open_live_flight_recorder", lambda: recorder)
+    monkeypatch.setattr(SMOKE, "get_models", _fail_if_reached)
+    monkeypatch.setattr(SMOKE, "discover_instances", _fail_if_reached)
+    monkeypatch.setattr(SMOKE, "ToolDispatcher", _fail_if_reached)
+    monkeypatch.setattr(SMOKE, "LiteLLMWorkerTransport", _fail_if_reached)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["trace_path"] == str(path)
+    assert stream.close_calls == 1
+    assert summary["preparation_tool_calls"] == 0
+    assert summary["planner_calls"] == 0
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
+
+
+def test_live_trace_open_failure_reports_no_path_and_no_contact(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail_open() -> None:
+        raise SMOKE._TraceWriteFailure("exclusive_open_failed", None)
+
+    monkeypatch.setattr(SMOKE, "_open_live_flight_recorder", fail_open)
+    monkeypatch.setattr(SMOKE, "get_models", _fail_if_reached)
+    monkeypatch.setattr(SMOKE, "discover_instances", _fail_if_reached)
+    monkeypatch.setattr(SMOKE, "ToolDispatcher", _fail_if_reached)
+    monkeypatch.setattr(SMOKE, "LiteLLMWorkerTransport", _fail_if_reached)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["trace_path"] is None
+    assert summary["preparation_tool_calls"] == 0
+    assert summary["planner_calls"] == 0
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
+
+
+def _patch_complete_live_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[_ScriptedDispatcher, _RawTransport, _RawTransport]:
+    dispatcher = _ScriptedDispatcher(port=9877, local_tools={})
+    planner_transport = _RawTransport(_planner_payload())
+    worker_transport = _RawTransport(_worker_payload())
+    transports = iter((planner_transport, worker_transport))
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
+    monkeypatch.setattr(
+        SMOKE,
+        "ToolDispatcher",
+        lambda *, port, local_tools: dispatcher,
+    )
+    monkeypatch.setattr(SMOKE, "build_local_tools", lambda: {})
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+    return dispatcher, planner_transport, worker_transport
+
+
+def _patch_main_recorder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stream: _TraceStream,
+) -> SMOKE._JsonlFlightRecorder:
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=(tmp_path / "live-trace.jsonl").resolve(),
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    monkeypatch.setattr(SMOKE, "_open_live_flight_recorder", lambda: recorder)
+    return recorder
+
+
+@pytest.mark.parametrize(
+    (
+        "failed_write",
+        "expected_counts",
+        "expected_last_event",
+        "expected_preparation_state",
+    ),
+    [
+        (2, (0, 0, 0, 0), "run_started", "not_started"),
+        (3, (1, 0, 0, 0), "tool_request", "status_rejected"),
+        (8, (3, 0, 0, 0), "tool_response", "fresh_document_verified"),
+        (9, (3, 1, 0, 0), "planner_request", "fresh_document_verified"),
+        (10, (3, 1, 0, 0), "planner_response", "fresh_document_verified"),
+        (11, (3, 1, 0, 1), "tool_request", "fresh_document_verified"),
+        (12, (3, 1, 0, 1), "tool_response", "fresh_document_verified"),
+        (13, (3, 1, 1, 1), "worker_request", "fresh_document_verified"),
+        (14, (3, 1, 1, 1), "worker_response", "fresh_document_verified"),
+        (15, (3, 1, 1, 2), "tool_request", "fresh_document_verified"),
+    ],
+)
+def test_live_trace_write_failure_stops_at_the_exact_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    failed_write: int,
+    expected_counts: tuple[int, int, int, int],
+    expected_last_event: str,
+    expected_preparation_state: str,
+) -> None:
+    stream = _TraceStream(fail_write_at=failed_write)
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    dispatcher, planner_transport, worker_transport = _patch_complete_live_main(
+        monkeypatch
+    )
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    preparation, planner, worker, execution = expected_counts
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["document_preparation_status"] == expected_preparation_state
+    assert summary["preparation_tool_calls"] == preparation
+    assert summary["planner_calls"] == planner
+    assert summary["worker_calls"] == worker
+    assert summary["execution_tool_calls"] == execution
+    assert len(dispatcher.calls) == preparation + execution
+    assert len(planner_transport.calls) == planner
+    assert len(worker_transport.calls) == worker
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert rows[-1]["event"] == expected_last_event
+    assert all(row["event"] != "run_finished" for row in rows)
+
+
+def test_live_exception_trace_failure_counts_the_call_and_blocks_the_next(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(fail_write_at=3)
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    dispatcher = _SequenceDispatcher([RuntimeError("PREPARATION_SENTINEL")])
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
+    monkeypatch.setattr(
+        SMOKE,
+        "ToolDispatcher",
+        lambda *, port, local_tools: dispatcher,
+    )
+    monkeypatch.setattr(SMOKE, "build_local_tools", lambda: {})
+    monkeypatch.setattr(SMOKE, "LiteLLMWorkerTransport", _fail_if_reached)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["document_preparation_status"] == "status_rejected"
+    assert summary["preparation_tool_calls"] == 1
+    assert summary["planner_calls"] == 0
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
+    assert len(dispatcher.calls) == 1
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert [row["event"] for row in rows] == ["run_started", "tool_request"]
+    assert "PREPARATION_SENTINEL" not in json.dumps(summary)
+
+
+def test_live_trace_close_failure_preserves_run_finished_and_native_status(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(fail_close=True)
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    _patch_complete_live_main(monkeypatch)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["document_preparation_status"] == "fresh_document_verified"
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 2
+    assert summary["terminal_stage"] == "terminal"
+    assert summary["terminal_reason"] == "terminal_node_selected:done"
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert rows[-1]["event"] == "run_finished"
+    assert stream.close_calls == 1
+
+
+def test_live_run_finished_write_failure_never_claims_trace_completion(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    stream = _EventFailTraceStream(fail_write_event="run_finished")
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    _patch_complete_live_main(monkeypatch)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["terminal_stage"] == "terminal"
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 2
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    assert all(row["event"] != "run_finished" for row in rows)
+    assert stream.close_calls == 1
+
+
+def test_live_run_finished_flush_failure_closes_once_without_success(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    stream = _EventFailTraceStream(fail_flush_event="run_finished")
+    recorder = _patch_main_recorder(monkeypatch, tmp_path, stream)
+    _patch_complete_live_main(monkeypatch)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["terminal_stage"] == "terminal"
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 2
+    assert recorder.sequence == stream.flush_calls - 1
+    assert stream.close_calls == 1
 
 
 @pytest.mark.parametrize(
@@ -438,8 +2613,10 @@ def test_profile_load_exception_is_safe_and_precedes_discovery(
     assert summary["operator_reason"] == "operator_internal_error"
     assert "PROFILE_LOAD_SENTINEL" not in json.dumps(summary)
     assert summary["document_preparation_status"] == "not_started"
-    assert summary["planner_calls"] is None
-    assert summary["worker_calls"] is None
+    assert summary["preparation_tool_calls"] == 0
+    assert summary["planner_calls"] == 0
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
 
 
 @pytest.mark.parametrize(
@@ -487,6 +2664,9 @@ def test_discovery_refusal_precedes_dispatcher_and_models(
     assert summary["document_preparation_status"] == "not_started"
     assert summary["planner_calls"] == 0
     assert summary["worker_calls"] == 0
+    trace_path = Path(summary["trace_path"])
+    rows = [json.loads(line) for line in trace_path.read_bytes().splitlines()]
+    assert [row["event"] for row in rows] == ["run_started", "run_finished"]
 
 
 def test_discovery_freezes_the_only_exact_native_identity() -> None:
@@ -623,9 +2803,21 @@ def _patch_dispatcher_prefix(
     return model_constructions
 
 
+@pytest.mark.parametrize("case", _STATUS_MUTATIONS)
+def test_status_equations_reject_every_closed_mutation(case: str) -> None:
+    with pytest.raises(ValueError, match="status"):
+        SMOKE._require_status(
+            _mutated_status(case, _PRE_DOCUMENT_ID),
+            previous_document_id=None,
+        )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["pre", "post"])
-@pytest.mark.parametrize("case", _STATUS_MUTATIONS)
+@pytest.mark.parametrize(
+    "case",
+    [case for case in _STATUS_MUTATIONS if not case.endswith("_spoof")],
+)
 async def test_status_equations_refuse_before_model_construction(
     monkeypatch: pytest.MonkeyPatch,
     phase: str,
@@ -642,6 +2834,7 @@ async def test_status_equations_refuse_before_model_construction(
     )
     dispatcher = _SequenceDispatcher(responses)
     model_constructions = _patch_dispatcher_prefix(monkeypatch, dispatcher)
+    recorder, call_counts, _stream = _in_memory_trace()
 
     with pytest.raises(SMOKE._PreparationFailure) as caught:
         await SMOKE._run_live_once(
@@ -652,6 +2845,8 @@ async def test_status_equations_refuse_before_model_construction(
                 profile_api_base=None,
             ),
             SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+            recorder=recorder,
+            call_counts=call_counts,
         )
 
     expected_calls = 1 if phase == "pre" else 3
@@ -674,6 +2869,7 @@ async def test_post_status_requires_a_different_document_id(
         ]
     )
     model_constructions = _patch_dispatcher_prefix(monkeypatch, dispatcher)
+    recorder, call_counts, _stream = _in_memory_trace()
 
     with pytest.raises(SMOKE._PreparationFailure) as caught:
         await SMOKE._run_live_once(
@@ -684,6 +2880,8 @@ async def test_post_status_requires_a_different_document_id(
                 profile_api_base=None,
             ),
             SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+            recorder=recorder,
+            call_counts=call_counts,
         )
 
     assert caught.value.reason == "post_status_rejected"
@@ -748,8 +2946,17 @@ def _mutated_document_new(case: str) -> object:
     return row
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("case", _DOCUMENT_NEW_MUTATIONS)
+def test_document_new_equations_reject_every_closed_mutation(case: str) -> None:
+    with pytest.raises(ValueError, match="document new"):
+        SMOKE._require_document_new(_mutated_document_new(case))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    [case for case in _DOCUMENT_NEW_MUTATIONS if not case.endswith("_spoof")],
+)
 async def test_document_new_equations_preserve_mutation_truth(
     monkeypatch: pytest.MonkeyPatch,
     case: str,
@@ -758,6 +2965,7 @@ async def test_document_new_equations_preserve_mutation_truth(
         [_status(_PRE_DOCUMENT_ID), _mutated_document_new(case)]
     )
     model_constructions = _patch_dispatcher_prefix(monkeypatch, dispatcher)
+    recorder, call_counts, _stream = _in_memory_trace()
 
     with pytest.raises(SMOKE._PreparationFailure) as caught:
         await SMOKE._run_live_once(
@@ -768,6 +2976,8 @@ async def test_document_new_equations_preserve_mutation_truth(
                 profile_api_base=None,
             ),
             SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+            recorder=recorder,
+            call_counts=call_counts,
         )
 
     assert caught.value.reason == "document_new_rejected"
@@ -835,6 +3045,9 @@ def test_preparation_exceptions_are_bounded_and_construct_no_models(
     assert "PREPARATION_SENTINEL" not in json.dumps(summary)
     assert len(dispatcher.calls) == expected_calls
     assert model_constructions == []
+    trace_path = Path(summary["trace_path"])
+    rows = [json.loads(line) for line in trace_path.read_bytes().splitlines()]
+    assert rows[-1]["event"] == "run_finished"
 
 
 @pytest.mark.parametrize(
@@ -901,15 +3114,35 @@ def test_post_preparation_exception_retains_verified_document_state(
     assert summary["rooknative_port"] == 9877
     assert summary["document_preparation_status"] == "fresh_document_verified"
     assert summary["preparation_tool_calls"] == 3
-    assert summary["planner_calls"] is None
-    assert summary["worker_calls"] is None
-    assert summary["execution_tool_calls"] is None
+    assert summary["planner_calls"] == 0
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
     assert summary["terminal_stage"] is None
     assert summary["terminal_reason"] is None
     assert summary["planner_adapter_status"] is None
     assert summary["worker_adapter_status"] is None
     assert "POST_PREPARATION_SENTINEL" not in json.dumps(summary)
     assert len(dispatcher.calls) == 3
+    trace_rows = [
+        json.loads(line)
+        for line in Path(summary["trace_path"]).read_bytes().splitlines()
+    ]
+    traced_events = [row["event"] for row in trace_rows]
+    assert ("handoff_raised" in traced_events) is (locus == "integration")
+    assert "planner_admission" not in traced_events
+    assert "compiled_workflow" not in traced_events
+    assert "native_step_projection" not in traced_events
+    assert "final_native_result" not in traced_events
+    if locus == "integration":
+        handoff_row = next(
+            row for row in trace_rows if row["event"] == "handoff_raised"
+        )
+        assert handoff_row["payload"] == {
+            "phase": "integration",
+            "exception_type": "RuntimeError",
+            "exception_message": "POST_PREPARATION_SENTINEL",
+        }
+    assert trace_rows[-1]["event"] == "run_finished"
 
 
 class _RecordingDispatch:
@@ -966,9 +3199,12 @@ async def _run_scripted_worker(
         "LiteLLMWorkerTransport",
         lambda **_kwargs: next(transports),
     )
+    recorder, call_counts, _stream = _in_memory_trace()
     return await SMOKE._run_live_once(
         _roles(),
         SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+        recorder=recorder,
+        call_counts=call_counts,
     )
 
 
@@ -1100,6 +3336,7 @@ def test_operator_summary_field_order_is_closed() -> None:
     assert SMOKE._SUMMARY_FIELDS == (
         "operator_status",
         "operator_reason",
+        "trace_path",
         "intent",
         "profile",
         "planner_model",
@@ -1336,19 +3573,11 @@ def test_final_projection_exception_returns_one_bounded_summary(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    terminal_run = asyncio.run(
-        _run_scripted_worker(monkeypatch, _worker_payload())
-    )
-    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
-    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
-
-    async def return_terminal_run(*_args: Any, **_kwargs: Any) -> Any:
-        return terminal_run
+    _patch_complete_live_main(monkeypatch)
 
     def raise_projection(_reason: object) -> str:
         raise RuntimeError("SENSITIVE_SENTINEL projection failure")
 
-    monkeypatch.setattr(SMOKE, "_run_live_once", return_terminal_run)
     monkeypatch.setattr(SMOKE, "_project_terminal_reason", raise_projection)
 
     exit_code, summary = _invoke_main(capsys, ["--execute-live"])
@@ -1360,14 +3589,22 @@ def test_final_projection_exception_returns_one_bounded_summary(
     assert summary["rooknative_port"] == 9877
     assert summary["document_preparation_status"] == "fresh_document_verified"
     assert summary["preparation_tool_calls"] == 3
-    assert summary["planner_calls"] is None
-    assert summary["worker_calls"] is None
-    assert summary["execution_tool_calls"] is None
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 2
     assert summary["terminal_stage"] is None
     assert summary["terminal_reason"] is None
     assert summary["planner_adapter_status"] is None
     assert summary["worker_adapter_status"] is None
     assert "SENSITIVE_SENTINEL" not in json.dumps(summary)
+    trace_path = Path(summary["trace_path"])
+    rows = [json.loads(line) for line in trace_path.read_bytes().splitlines()]
+    assert rows[0]["event"] == "run_started"
+    assert rows[-1]["event"] == "run_finished"
+    assert rows[-1]["payload"]["preparation_tool_calls"] == 3
+    assert rows[-1]["payload"]["planner_calls"] == 1
+    assert rows[-1]["payload"]["worker_calls"] == 1
+    assert rows[-1]["payload"]["execution_tool_calls"] == 2
 
 
 @pytest.mark.asyncio
@@ -1419,10 +3656,13 @@ async def test_live_composition_materializes_exact_provider_requests(
         worker_model="ollama_chat/qwen3-coder:30b-a3b-q8_0",
         profile_api_base="http://localhost:11434/v1",
     )
+    recorder, call_counts, _stream = _in_memory_trace()
 
     live_run = await SMOKE._run_live_once(
         roles,
         SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+        recorder=recorder,
+        call_counts=call_counts,
     )
 
     planner_kwargs = {
@@ -1516,10 +3756,13 @@ async def test_dispatcher_construction_uses_the_existing_local_tools(
         "LiteLLMWorkerTransport",
         lambda **_kwargs: next(transports),
     )
+    recorder, call_counts, _stream = _in_memory_trace()
 
     live_run = await SMOKE._run_live_once(
         _roles(),
         SMOKE._ResolvedRhinoTarget(process_id=4001, port=9877),
+        recorder=recorder,
+        call_counts=call_counts,
     )
 
     assert live_run.result.terminal_reason == "terminal_node_selected:done"
