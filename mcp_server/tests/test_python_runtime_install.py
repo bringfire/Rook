@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def load_runtime_install():
     repo_root = Path(__file__).resolve().parents[2]
@@ -1216,3 +1218,226 @@ def test_chirp_install_uses_separate_guard_window(
 
     assert post_install.install_chirp(chirp_dir, runtime_root) is True
     assert labels == ["Chirp"]
+
+
+def test_retired_codex_skill_cleanup_removes_only_exact_targets(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    runtime_root = tmp_path / "runtime"
+    skills = tmp_path / ".codex" / "skills"
+    claude = tmp_path / ".claude" / "skills" / "design-road"
+    sibling = skills / "design-grasshopper"
+    retired_dir = skills / "design-road"
+    retired_file = skills / "masterplan-roads"
+
+    (retired_dir / "nested").mkdir(parents=True)
+    (retired_dir / "nested" / "payload.txt").write_text(
+        "retired", encoding="utf-8"
+    )
+    retired_file.write_text("retired-file", encoding="utf-8")
+    sibling.mkdir()
+    (sibling / "SKILL.md").write_text("supported", encoding="utf-8")
+    claude.mkdir(parents=True)
+    (claude / "SKILL.md").write_text("claude-owned", encoding="utf-8")
+
+    first = post_install.cleanup_retired_codex_skills(runtime_root)
+    second = post_install.cleanup_retired_codex_skills(runtime_root)
+
+    assert [item["outcome"] for item in first] == [
+        "removed_directory",
+        "removed_file",
+    ]
+    assert [item["outcome"] for item in second] == ["absent", "absent"]
+    assert not retired_dir.exists()
+    assert not retired_file.exists()
+    assert (sibling / "SKILL.md").read_text(encoding="utf-8") == "supported"
+    assert (claude / "SKILL.md").read_text(encoding="utf-8") == "claude-owned"
+
+
+def test_retired_codex_skill_cleanup_unlinks_link_without_following_target(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    runtime_root = tmp_path / "runtime"
+    skills = tmp_path / ".codex" / "skills"
+    skills.mkdir(parents=True)
+    external = tmp_path / "external-road-data"
+    external.mkdir()
+    sentinel = external / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    target = skills / "design-road"
+
+    if sys.platform == "win32":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(target), str(external)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        target.symlink_to(external, target_is_directory=True)
+
+    outcomes = post_install.cleanup_retired_codex_skills(runtime_root)
+
+    assert outcomes[0]["outcome"] == "unlinked_reparse_point"
+    assert not target.exists()
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_retired_cleanup_does_not_follow_nested_reparse_point(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    runtime_root = tmp_path / "runtime"
+    retired = tmp_path / ".codex" / "skills" / "masterplan-roads"
+    retired.mkdir(parents=True)
+    external = tmp_path / "external-nested-data"
+    external.mkdir()
+    sentinel = external / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    nested_link = retired / "nested-link"
+
+    if sys.platform == "win32":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(nested_link), str(external)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        nested_link.symlink_to(external, target_is_directory=True)
+
+    outcomes = post_install.cleanup_retired_codex_skills(runtime_root)
+
+    assert outcomes[1]["outcome"] == "removed_directory"
+    assert not retired.exists()
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_retired_cleanup_failure_is_nonfatal_and_records_incomplete_summary(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    runtime_root = tmp_path / "runtime"
+    skills = tmp_path / ".codex" / "skills"
+    design = skills / "design-road"
+    masterplan = skills / "masterplan-roads"
+    design.mkdir(parents=True)
+    masterplan.write_text("remove me", encoding="utf-8")
+    post_install._update_install_summary(
+        runtime_root,
+        phase_reached="finalizer-started",
+        final_outcome="running",
+    )
+
+    real_rmtree = post_install.shutil.rmtree
+
+    def fail_design(path):
+        if Path(path) == design:
+            raise PermissionError("blocked design-road")
+        return real_rmtree(path)
+
+    monkeypatch.setattr(post_install.shutil, "rmtree", fail_design)
+    outcomes = post_install.cleanup_retired_codex_skills(runtime_root)
+    summary = json.loads(
+        (runtime_root / "logs" / "post_install_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert [item["outcome"] for item in outcomes] == ["failed", "removed_file"]
+    assert design.exists()
+    assert not masterplan.exists()
+    assert summary["retired_codex_skill_cleanup"]["complete"] is False
+    assert summary["retired_codex_skill_cleanup"]["targets"] == outcomes
+    assert summary["final_outcome"] == "running"
+    assert any(
+        "retired-skill containment is incomplete" in item.lower()
+        for item in summary["warnings"]
+    )
+
+
+def _run_main_for_retired_skill_migration(
+    post_install,
+    tmp_path: Path,
+    monkeypatch,
+    codex_selected: bool,
+    cleanup_outcomes: list[dict[str, str]] | None = None,
+) -> tuple[list[Path], list[bool]]:
+    install_dir = tmp_path / "app"
+    mcp_server_dir = install_dir / "mcp_server"
+    runtime_root = tmp_path / "runtime"
+    mcp_server_dir.mkdir(parents=True)
+    managed_python = runtime_root / "venv" / "Scripts" / "python.exe"
+    managed_python.parent.mkdir(parents=True)
+    managed_python.write_text("fake", encoding="utf-8")
+    argv = [
+        "post_install.py",
+        "--install-dir",
+        str(install_dir),
+        "--mcp-server-dir",
+        str(mcp_server_dir),
+        "--runtime-root",
+        str(runtime_root),
+        "--skip-validation",
+    ]
+    if codex_selected:
+        argv.append("--codex")
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(
+        post_install, "install_mcp_server", lambda *_args: managed_python
+    )
+    monkeypatch.setattr(post_install, "configure_codex", lambda *_args: True)
+    monkeypatch.setattr(
+        post_install, "write_chat_service_manifest", lambda *_args: True
+    )
+    monkeypatch.setattr(post_install, "create_env_examples", lambda *_args: None)
+    cleanup_calls = []
+    asset_calls = []
+    monkeypatch.setattr(
+        post_install,
+        "cleanup_retired_codex_skills",
+        lambda runtime: cleanup_calls.append(runtime)
+        or list(cleanup_outcomes or []),
+    )
+    monkeypatch.setattr(
+        post_install,
+        "install_user_assets",
+        lambda _install_dir, install_claude, install_codex: (
+            asset_calls.append(install_codex) or True
+        ),
+    )
+    assert post_install.main() == 0
+    return cleanup_calls, asset_calls
+
+
+@pytest.mark.parametrize("codex_selected", [False, True])
+def test_main_runs_retired_skill_migration_regardless_of_codex_selection(
+    tmp_path: Path, monkeypatch, codex_selected: bool
+) -> None:
+    post_install = load_post_install()
+    cleanup_calls, asset_calls = _run_main_for_retired_skill_migration(
+        post_install, tmp_path, monkeypatch, codex_selected
+    )
+    assert cleanup_calls == [tmp_path / "runtime"]
+    assert asset_calls == [codex_selected]
+
+
+def test_cleanup_failure_does_not_block_selected_codex_skill_copy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    cleanup_calls, asset_calls = _run_main_for_retired_skill_migration(
+        post_install,
+        tmp_path,
+        monkeypatch,
+        codex_selected=True,
+        cleanup_outcomes=[{"name": "design-road", "outcome": "failed"}],
+    )
+    assert cleanup_calls == [tmp_path / "runtime"]
+    assert asset_calls == [True]

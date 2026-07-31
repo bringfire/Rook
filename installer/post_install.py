@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -919,6 +920,90 @@ def _copy_children(source_root: Path, target_root: Path, label: str) -> bool:
     return True
 
 
+RETIRED_CODEX_SKILL_NAMES = ("design-road", "masterplan-roads")
+_REPARSE_POINT_ATTRIBUTE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+def _is_reparse_point(metadata: os.stat_result) -> bool:
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        getattr(metadata, "st_file_attributes", 0) & _REPARSE_POINT_ATTRIBUTE
+    )
+
+
+def _remove_retired_codex_skill(target: Path) -> dict[str, str]:
+    result = {"name": target.name, "outcome": "absent"}
+    try:
+        metadata = target.lstat()
+    except FileNotFoundError:
+        return result
+    except OSError as exc:
+        return {
+            "name": target.name,
+            "outcome": "failed",
+            "error": str(exc)[:500],
+        }
+
+    try:
+        if _is_reparse_point(metadata):
+            if stat.S_ISDIR(metadata.st_mode):
+                os.rmdir(target)
+            else:
+                target.unlink()
+            result["outcome"] = "unlinked_reparse_point"
+        elif stat.S_ISDIR(metadata.st_mode):
+            shutil.rmtree(target)
+            result["outcome"] = "removed_directory"
+        else:
+            target.unlink()
+            result["outcome"] = "removed_file"
+    except OSError as exc:
+        result["outcome"] = "failed"
+        result["error"] = str(exc)[:500]
+    return result
+
+
+def cleanup_retired_codex_skills(runtime_root: Path) -> list[dict[str, str]]:
+    try:
+        skills_root = (Path.home() / ".codex" / "skills").resolve(strict=False)
+    except OSError as exc:
+        outcomes = [
+            {"name": name, "outcome": "failed", "error": str(exc)[:500]}
+            for name in RETIRED_CODEX_SKILL_NAMES
+        ]
+    else:
+        outcomes = []
+        for name in RETIRED_CODEX_SKILL_NAMES:
+            target = skills_root / name
+            if target.parent != skills_root or target.name != name:
+                outcomes.append({
+                    "name": name,
+                    "outcome": "failed",
+                    "error": "target is not a direct child of the canonical Codex skills root",
+                })
+                continue
+            outcomes.append(_remove_retired_codex_skill(target))
+
+    failed = [item for item in outcomes if item["outcome"] == "failed"]
+    payload = _read_install_summary(runtime_root)
+    payload["retired_codex_skill_cleanup"] = {
+        "complete": not failed,
+        "targets": outcomes,
+    }
+    if failed:
+        warning = (
+            "Retired-skill containment is incomplete: "
+            + ", ".join(item["name"] for item in failed)
+        )
+        _append_install_summary_warnings(payload, [warning])
+        print(f"WARNING: {warning}")
+        _INSTALL_LOGGER.warning("%s outcomes=%s", warning, outcomes)
+    else:
+        print(f"Retired Codex skill migration: {outcomes}")
+        _INSTALL_LOGGER.info("Retired Codex skill migration outcomes=%s", outcomes)
+    _write_install_summary(runtime_root, payload)
+    return outcomes
+
+
 def install_user_assets(install_dir: Path, install_claude: bool, install_codex: bool) -> bool:
     """Copy curated Codex skills to the user-level Codex home.
 
@@ -1231,6 +1316,8 @@ def main() -> int:
     print("=" * 50)
     print(f"Install root:  {install_dir}")
     print(f"Runtime root:  {runtime_root}")
+
+    cleanup_retired_codex_skills(runtime_root)
 
     # Step 1: Install MCP server
     managed_python = install_mcp_server(mcp_server_dir, runtime_root)
