@@ -247,38 +247,49 @@ where client behavior genuinely differs; do not introduce a general templating s
 
 ## Workstream RS-05 — Decide the supported external-plugin surface
 
-**Recommended disposition:** Unless product ownership explicitly admits and tests these
-dependencies, remove RoadCreator/RookRoads skills and `rc_*` discovery, and remove Wasp
-instructions from general-purpose skills. Review native `road_*` tools separately;
-their native fallback means they are not automatically part of the external-plugin
-removal.
+**Current status:** `ready_for_spec` for RoadCreator/RookRoads surface containment;
+`investigating` for Wasp admission.
+
+**Approved disposition:** RoadCreator and RookRoads are unsupported and must be contained
+at Rook's user-facing and agent-facing boundaries. Their dormant adapter, bridge,
+targeting, native, historical, and compatibility implementation may remain when it is
+not visible or invocable through those boundaries. Wasp remains a powerful optional
+Grasshopper integration pending a focused admission audit. Native `road_*` tools and
+Wasp are outside the RoadCreator/RookRoads containment change.
 
 ### Confirmed evidence
 
 - `design-road` and `masterplan-roads` require separate RookRoads/RoadCreator plugins.
-- Full MCP discovery includes approximately 40 `rc_*` tools and two `road_*` tools.
+- Full MCP discovery includes exactly 40 `rc_*` tools and two `road_*` tools at the audit
+  baseline.
 - `rc_*` target selection is special-cased to a `roadcreator` plugin type.
 - General Grasshopper skills contain Wasp-specific reference material.
 - Build and developer scripts also assume sibling RookRoads and SA_Banana repositories
   in places.
 
-### Required product decisions
+### Approved support split
 
-For each of RoadCreator/RookRoads, Wasp, and SA_Banana, choose exactly one state:
+| Integration | Status | Release contract |
+|---|---|---|
+| RoadCreator/RookRoads | Unsupported and contained | Remove their shipped skills and active user/agent guidance. Omit `rc_*` tools from MCP discovery, profiles, progressive search/read, and agent catalogs; deny direct MCP and internal-agent dispatch through the existing lifecycle-containment mechanism. Leave non-exposed implementation in place. |
+| Wasp | Optional experimental pending admission | Preserve its current material. Do not assume installation or claim default support. Audit versions, capability detection, absence behavior, guidance, and a representative live workflow before promotion. |
+| SA_Banana | Decision not included | Make no support or containment change under this workstream. Track independently if needed. |
 
-1. **Supported:** define versions, installation, discovery, degradation behavior,
-   ownership, automated coverage, and a live acceptance host.
-2. **Optional experimental:** exclude from the default installer/profile/docs and admit
-   it through a separately versioned extension contract.
-3. **Unsupported:** remove default schemas, dispatch, targeting, skills, docs, examples,
-   build assumptions, public marketing, and upgrade residue.
+The RoadCreator/RookRoads containment boundary is specified in
+[`2026-07-31-roadcreator-rookroads-surface-containment-design.md`](../superpowers/specs/2026-07-31-roadcreator-rookroads-surface-containment-design.md).
+Wasp admission requires a separate evidence-driven specification; it is not part of the
+containment implementation.
 
 ### Exit criteria
 
-- Every external dependency has an explicit support state and owner.
-- Unsupported dependencies are absent from default tool discovery and installed skills.
+- Every externally visible dependency has an explicit support state.
+- RoadCreator/RookRoads are absent from tool discovery, progressive disclosure, agent
+  catalogs, installed skills, active user guidance, and public claims.
+- Direct attempts to invoke `rc_*` tools are denied before arguments or downstream
+  handlers are touched.
 - Retained native road tools are documented according to their actual native behavior,
   without implying RoadCreator availability.
+- Wasp content is not removed by the RoadCreator/RookRoads containment change.
 - Clean machines without external plugins receive no broken skill or advertised tool
   path.
 
@@ -498,7 +509,8 @@ The current installer guard suite passes even though it does not detect:
 
 ### Wave A — Product decisions and containment
 
-1. Decide external-plugin support states (RS-05).
+1. Review the approved RoadCreator/RookRoads containment boundary and begin the separate
+   Wasp admission audit (RS-05).
 2. Approve RUI retirement while preserving panel evaluation (RS-01/RS-02).
 3. Approve the Codex lean-plus-gateway direction (RS-03).
 4. Freeze new public capability claims until promotion controls exist (RS-07).
@@ -506,7 +518,7 @@ The current installer guard suite passes even though it does not detect:
 ### Wave B — Remove contradictions at their source
 
 1. Retire the RUI and obsolete installer/registry residue (RS-01).
-2. Remove or isolate unsupported integrations (RS-05).
+2. Contain unsupported integrations at user/agent boundaries (RS-05).
 3. Establish the skill source/allowlist and correct Codex skills (RS-03/RS-04).
 4. Correct the Grasshopper contract vocabulary (RS-10).
 
@@ -554,11 +566,13 @@ test report, or decision record that supports it.
 | Date | Workstream | From | To | Evidence | Notes |
 |---|---|---|---|---|---|
 | 2026-07-31 | RS-01–RS-11 | — | Baseline statuses | Audit of `90242fa4f09abf8f3b8ec994044787b61e77b446` | Initial release-surface audit; no product files changed. |
+| 2026-07-31 | RS-05 | `decision_required` | `ready_for_spec` / `investigating` | [Road surface-containment design](../superpowers/specs/2026-07-31-roadcreator-rookroads-surface-containment-design.md) | RoadCreator/RookRoads classified unsupported and contained only at user/agent boundaries; Wasp retained; SA_Banana unchanged. |
 
 ## Immediate next action
 
-Review and approve the three Wave A product decisions: external-plugin support, RUI
-retirement, and Codex lean-plus-gateway skills. After those decisions are recorded,
-write separate focused specifications for RS-01/RS-02, RS-03–RS-05, and RS-09/RS-11.
-Documentation and public-promotion workstreams may then reference those approved
-contracts instead of guessing future product behavior.
+Review the RoadCreator/RookRoads containment specification, then approve the remaining
+Wave A decisions for RUI retirement and Codex lean-plus-gateway skills. After those
+decisions are recorded, write separate focused specifications for RS-01/RS-02,
+RS-03/RS-04, Wasp admission, and RS-09/RS-11. Documentation and public-promotion
+workstreams may then reference those approved contracts instead of guessing future
+product behavior.
