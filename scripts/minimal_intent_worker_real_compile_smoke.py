@@ -29,12 +29,16 @@ from rook.agent.minimal_intent_worker_integration import (  # noqa: E402
     build_minimal_planner_draft_response_schema,
     run_minimal_intent_worker_integration,
 )
+from rook.agent.minimal_csharp_repair_handoff import (  # noqa: E402
+    MinimalCSharpRepairHandoffResult,
+)
 from rook.agent.model_profiles import get_models  # noqa: E402
 from rook.agent.tool_dispatcher import (  # noqa: E402
     ToolDispatcher,
     build_local_tools,
 )
 from rook.bridge import discover_instances  # noqa: E402, F401
+from rook.learning.plan_graph import PlanGraph, runnable_nodes  # noqa: E402
 
 
 _FIXED_INTENT = (
@@ -405,6 +409,179 @@ class _LiveCallCounts:
     planner: int = 0
     worker: int = 0
     execution: int = 0
+
+
+def _project_planner_admission(
+    result: MinimalIntentWorkerIntegrationResult,
+) -> dict[str, object]:
+    draft = result.validated_draft
+    if draft is None:
+        raise ValueError("Planner admission requires an admitted draft")
+    return {
+        "adapter_status": result.planner_adapter_record.status,
+        "draft": {
+            "goal": draft.goal,
+            "capability": draft.capability,
+            "interface": {
+                "inputs": list(draft.interface.inputs),
+                "outputs": [
+                    {"name": output.name, "type": output.type}
+                    for output in draft.interface.outputs
+                ],
+            },
+            "acceptance": draft.acceptance,
+        },
+    }
+
+
+def _project_compiled_workflow(
+    result: MinimalCSharpRepairHandoffResult,
+) -> dict[str, object]:
+    scaffold = result.scaffold
+    record = scaffold.compile_record
+    if scaffold.workflow_id != record.workflow_id:
+        raise ValueError("compiled scaffold workflow identity differs")
+    if tuple(sorted(scaffold.graph.nodes)) != record.graph_node_ids:
+        raise ValueError("compiled scaffold graph nodes differ")
+    if scaffold.max_steps != record.max_steps:
+        raise ValueError("compiled scaffold maximum steps differ")
+    return {
+        "workflow_id": record.workflow_id,
+        "compiler_id": record.compiler_id,
+        "contract_schema": record.contract_schema,
+        "contract_fingerprint_algorithm": record.contract_fingerprint_algorithm,
+        "contract_fingerprint": record.contract_fingerprint,
+        "provider_id": record.provider_id,
+        "expected_template_id": record.expected_template_id,
+        "selected_template_id": record.selected_template_id,
+        "graph_node_ids": list(record.graph_node_ids),
+        "initial_param_node_ids": list(record.initial_param_node_ids),
+        "rule_node_ids": list(record.rule_node_ids),
+        "terminal_node_ids": list(record.terminal_node_ids),
+        "expected_refs": [list(item) for item in record.expected_refs],
+        "step_kinds_by_rule": [
+            [rule_id, list(step_kinds)]
+            for rule_id, step_kinds in record.step_kinds_by_rule
+        ],
+        "max_steps": record.max_steps,
+    }
+
+
+def _project_graph_state(graph: PlanGraph) -> dict[str, object]:
+    if type(graph) is not PlanGraph:
+        raise TypeError("graph must be the exact PlanGraph type")
+    return {
+        "node_statuses": [
+            {"node_id": node_id, "status": graph.nodes[node_id].status}
+            for node_id in sorted(graph.nodes)
+        ],
+        "ready_node_ids": sorted(node.id for node in runnable_nodes(graph)),
+    }
+
+
+def _project_native_steps(
+    result: MinimalCSharpRepairHandoffResult,
+) -> tuple[dict[str, object], ...]:
+    records = result.step_records
+    supplies = result.supply_records
+    if len(supplies) not in {len(records), len(records) + 1}:
+        raise ValueError("native record and supply lengths differ")
+    projected: list[dict[str, object]] = []
+    for index, record in enumerate(records):
+        supply = supplies[index]
+        if (
+            supply.decision != "SUPPLY"
+            or supply.envelope is None
+            or supply.envelope.mapping is not record.mapping
+        ):
+            raise ValueError("native step lacks its owning supply")
+        graph = record.execution.graph
+        if type(graph) is not PlanGraph:
+            raise TypeError("native execution graph must be exact")
+        node = (
+            graph.nodes.get(record.accepted_node_id)
+            if record.accepted_node_id is not None
+            else None
+        )
+        evidence = None if node is None else node.evidence
+        receipt = None if evidence is None else evidence.receipt
+        projected.append(
+            {
+                "step_index": index + 1,
+                "accepted_node_id": record.accepted_node_id,
+                "execution_kind": record.execution_kind,
+                "ran": record.ran,
+                "execution_failure": record.execution_failure,
+                "producer_applied": record.producer_applied,
+                "producer_outcome_status": record.producer_outcome_status,
+                "producer_reason": record.producer_reason,
+                "verifier_applied": record.verifier_applied,
+                "verifier_outcome_status": record.verifier_outcome_status,
+                "verifier_reason": record.verifier_reason,
+                "receipt": receipt,
+                "graph": _project_graph_state(graph),
+                "supply": {
+                    "decision": supply.decision,
+                    "reason": supply.reason,
+                },
+            }
+        )
+    return tuple(projected)
+
+
+def _project_final_native_result(
+    integration: MinimalIntentWorkerIntegrationResult,
+    call_counts: _LiveCallCounts,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "terminal_stage": integration.terminal_stage,
+        "terminal_reason": integration.terminal_reason,
+        "call_counts": {
+            "preparation": call_counts.preparation,
+            "planner": call_counts.planner,
+            "worker": call_counts.worker,
+            "execution": call_counts.execution,
+        },
+    }
+    handoff = integration.handoff_result
+    if handoff is None:
+        return payload
+    payload["graph"] = _project_graph_state(handoff.final_graph)
+    if handoff.adapter_record is not None:
+        payload["worker_adapter_status"] = handoff.adapter_record.status
+    tail = handoff.supply_records[len(handoff.step_records) :]
+    if len(tail) > 1:
+        raise ValueError("native result has multiple control supplies")
+    if tail:
+        payload["terminal_supply"] = {
+            "decision": tail[0].decision,
+            "reason": tail[0].reason,
+        }
+    return payload
+
+
+def _record_returned_projections(
+    recorder: _JsonlFlightRecorder,
+    integration: MinimalIntentWorkerIntegrationResult,
+    call_counts: _LiveCallCounts,
+) -> None:
+    if integration.validated_draft is not None:
+        recorder.record(
+            "planner_admission",
+            _project_planner_admission(integration),
+        )
+    handoff = integration.handoff_result
+    if handoff is not None:
+        recorder.record(
+            "compiled_workflow",
+            _project_compiled_workflow(handoff),
+        )
+        for step in _project_native_steps(handoff):
+            recorder.record("native_step_projection", step)
+    recorder.record(
+        "final_native_result",
+        _project_final_native_result(integration, call_counts),
+    )
 
 
 class _RecordingPreparationDispatcher:
@@ -980,12 +1157,23 @@ async def _run_prepared_once(
         recorder=recorder,
         counts=call_counts,
     )
-    result = await run_minimal_intent_worker_integration(
-        _FIXED_INTENT,
-        planner_adapter=MinimalPlannerDraftAdapter(planner_transport),
-        worker_transport=worker_transport,
-        tool_executor=executor,
-    )
+    planner_adapter = MinimalPlannerDraftAdapter(planner_transport)
+    try:
+        result = await run_minimal_intent_worker_integration(
+            _FIXED_INTENT,
+            planner_adapter=planner_adapter,
+            worker_transport=worker_transport,
+            tool_executor=executor,
+        )
+    except _TraceWriteFailure:
+        raise
+    except Exception as exc:
+        recorder.record_exception(
+            "handoff_raised",
+            {"phase": "integration"},
+            exc,
+        )
+        raise
     if recorder.failed:
         raise _TraceWriteFailure("recorder_failed", recorder.path)
     return _LiveRun(
@@ -1442,6 +1630,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit_summary(summary)
         return 1
 
+    summary: dict[str, object] | None = None
     try:
         summary = _summary_from_result(
             roles,
@@ -1449,6 +1638,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             trace_path=recorder.path,
             call_counts=call_counts,
         )
+        _record_returned_projections(
+            recorder,
+            live_run.result,
+            call_counts,
+        )
+    except _TraceWriteFailure:
+        _close_incomplete_trace(recorder)
+        _emit_summary(
+            _trace_write_failure_summary(
+                trace_path=recorder.path,
+                call_counts=call_counts,
+                known_native_summary=summary,
+            )
+        )
+        return 1
     except Exception:
         summary = _finish_trace_or_failure(
             recorder,
@@ -1462,6 +1666,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _emit_summary(summary)
         return 1
+    if summary is None:
+        raise RuntimeError("native summary was not constructed")
     summary = _finish_trace_or_failure(
         recorder,
         summary,

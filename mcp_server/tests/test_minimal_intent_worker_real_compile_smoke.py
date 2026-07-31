@@ -1472,6 +1472,15 @@ class _RawTransport:
         return self._raw
 
 
+class _RaisingTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        self.calls.append(copy.deepcopy(dict(prompt_artifact)))
+        raise RuntimeError("PLANNER_TRANSPORT_SENTINEL")
+
+
 class _ScriptedDispatcher:
     def __init__(self, *, port: int, local_tools: dict[str, Any]) -> None:
         self.port = port
@@ -1507,6 +1516,39 @@ class _ScriptedDispatcher:
             }
             return _updated_clean(captured["guid"])
         raise AssertionError(f"unexpected scripted dispatch {index}: {name}")
+
+
+class _CreateExistenceUnconfirmedDispatcher(_ScriptedDispatcher):
+    async def dispatch(self, name: str, params: dict[str, Any]) -> dict[str, Any]:
+        captured = copy.deepcopy(params)
+        self.calls.append((name, captured))
+        index = len(self.calls)
+        if index == 1 and name == "gh_status" and captured == {}:
+            return _status(_PRE_DOCUMENT_ID)
+        if index == 2 and name == "gh_document_new" and captured == {}:
+            return {"success": True, "data": {"created": True}}
+        if index == 3 and name == "gh_status" and captured == {}:
+            return _status(_POST_DOCUMENT_ID)
+        if index == 4 and name == "gh_create_csharp_script":
+            assert captured["code"] == _INITIAL_BODY
+            return {
+                "success": False,
+                "data": {
+                    "script_receipt": {
+                        "version": 1,
+                        "operation": "create",
+                        "language": "csharp",
+                        "artifact_status": "created_with_errors",
+                        "mutation": {"status": "failed"},
+                        "verification": {
+                            "status": "failed",
+                            "target_error_count": 1,
+                        },
+                        "repair_anchor": {},
+                    }
+                },
+            }
+        raise AssertionError(f"unexpected stopped dispatch {index}: {name}")
 
 
 def _status(document_id: str) -> dict[str, Any]:
@@ -1706,6 +1748,358 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
         "planner_adapter_status": "decoded",
         "worker_adapter_status": "response_loaded",
     }
+
+
+def test_observed_create_stop_trace_preserves_the_native_causal_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    dispatcher = _CreateExistenceUnconfirmedDispatcher(port=9877, local_tools={})
+    planner_transport = _RawTransport(_planner_payload())
+    worker_transport = _RawTransport(_worker_payload())
+    transports = iter((planner_transport, worker_transport))
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
+    monkeypatch.setattr(
+        SMOKE,
+        "ToolDispatcher",
+        lambda *, port, local_tools: dispatcher,
+    )
+    monkeypatch.setattr(SMOKE, "build_local_tools", lambda: {})
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_reason"] == "native_stop"
+    assert summary["terminal_stage"] == "create"
+    assert summary["terminal_reason"] == "selector_halt:none_ready"
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 1
+    assert len(planner_transport.calls) == 1
+    assert worker_transport.calls == []
+
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    events = [row["event"] for row in rows]
+    raw_create = next(
+        row["payload"]["raw_response"]
+        for row in rows
+        if row["event"] == "tool_response"
+        and row["payload"]["phase"] == "execution"
+    )
+    native_step = next(
+        row["payload"]
+        for row in rows
+        if row["event"] == "native_step_projection"
+    )
+    final_native = next(
+        row["payload"]
+        for row in rows
+        if row["event"] == "final_native_result"
+    )
+
+    assert raw_create == {
+        "success": False,
+        "data": {
+            "script_receipt": {
+                "version": 1,
+                "operation": "create",
+                "language": "csharp",
+                "artifact_status": "created_with_errors",
+                "mutation": {"status": "failed"},
+                "verification": {
+                    "status": "failed",
+                    "target_error_count": 1,
+                },
+                "repair_anchor": {},
+            }
+        },
+    }
+    assert native_step["receipt"] == raw_create["data"]["script_receipt"]
+    assert native_step["producer_outcome_status"] == "blocked"
+    assert native_step["graph"]["node_statuses"] == [
+        {"node_id": "create_script", "status": "blocked"},
+        {"node_id": "done", "status": "pending"},
+        {"node_id": "repair_same_component", "status": "pending"},
+        {"node_id": "verify_create", "status": "pending"},
+        {"node_id": "verify_repair", "status": "pending"},
+    ]
+    assert native_step["graph"]["ready_node_ids"] == []
+    assert final_native["terminal_supply"] == {
+        "decision": "HALT",
+        "reason": "selector_halt:none_ready",
+    }
+    assert final_native["terminal_stage"] == "create"
+    assert final_native["terminal_reason"] == "selector_halt:none_ready"
+    assert events[-5:] == [
+        "planner_admission",
+        "compiled_workflow",
+        "native_step_projection",
+        "final_native_result",
+        "run_finished",
+    ]
+
+
+def test_completed_trace_projects_only_the_returned_native_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _patch_complete_live_main(monkeypatch)
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 0
+    assert summary["operator_status"] == "completed"
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    projection_rows = [
+        row
+        for row in rows
+        if row["event"]
+        in {
+            "planner_admission",
+            "compiled_workflow",
+            "native_step_projection",
+            "final_native_result",
+        }
+    ]
+    assert [row["event"] for row in projection_rows] == [
+        "planner_admission",
+        "compiled_workflow",
+        "native_step_projection",
+        "native_step_projection",
+        "native_step_projection",
+        "native_step_projection",
+        "final_native_result",
+    ]
+    admission = projection_rows[0]["payload"]
+    assert admission == {
+        "adapter_status": "decoded",
+        "draft": _planner_payload(),
+    }
+    compiled = projection_rows[1]["payload"]
+    assert compiled["workflow_id"] == "minimal_csharp_repair_handoff"
+    assert compiled["selected_template_id"] == (
+        "gh_csharp_create_verify_repair_verify"
+    )
+    assert compiled["graph_node_ids"] == [
+        "create_script",
+        "done",
+        "repair_same_component",
+        "verify_create",
+        "verify_repair",
+    ]
+    steps = [row["payload"] for row in projection_rows[2:6]]
+    assert [step["accepted_node_id"] for step in steps] == [
+        "create_script",
+        "verify_create",
+        "repair_same_component",
+        "verify_repair",
+    ]
+    assert [step["step_index"] for step in steps] == [1, 2, 3, 4]
+    assert steps[0]["receipt"]["operation"] == "create"
+    assert steps[2]["receipt"]["operation"] == "update"
+    final_native = projection_rows[-1]["payload"]
+    assert final_native["terminal_stage"] == "terminal"
+    assert final_native["terminal_reason"] == "terminal_node_selected:done"
+    assert final_native["terminal_supply"] == {
+        "decision": "HALT",
+        "reason": "terminal_node_selected:done",
+    }
+    assert final_native["call_counts"] == {
+        "preparation": 3,
+        "planner": 1,
+        "worker": 1,
+        "execution": 2,
+    }
+    assert rows[-1]["event"] == "run_finished"
+
+
+@pytest.mark.parametrize("planner_stop", ["transport_failed", "draft_rejected"])
+def test_planner_stops_emit_no_unowned_workflow_or_graph_projection(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    planner_stop: str,
+) -> None:
+    dispatcher = _ScriptedDispatcher(port=9877, local_tools={})
+    planner_transport: Any
+    if planner_stop == "transport_failed":
+        planner_transport = _RaisingTransport()
+    else:
+        malformed = _planner_payload()
+        malformed["unexpected"] = "DRAFT_SENTINEL"
+        planner_transport = _RawTransport(malformed)
+    worker_transport = _RawTransport(_worker_payload())
+    transports = iter((planner_transport, worker_transport))
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
+    monkeypatch.setattr(
+        SMOKE,
+        "ToolDispatcher",
+        lambda *, port, local_tools: dispatcher,
+    )
+    monkeypatch.setattr(SMOKE, "build_local_tools", lambda: {})
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 0
+    assert summary["execution_tool_calls"] == 0
+    assert worker_transport.calls == []
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    events = [row["event"] for row in rows]
+    assert "planner_admission" not in events
+    assert "compiled_workflow" not in events
+    assert "native_step_projection" not in events
+    assert events[-2:] == ["final_native_result", "run_finished"]
+    final_native = rows[-2]["payload"]
+    expected_stage = (
+        "planner_adapter"
+        if planner_stop == "transport_failed"
+        else "draft_admission"
+    )
+    assert final_native["terminal_stage"] == expected_stage
+    assert "DRAFT_SENTINEL" not in json.dumps(summary)
+
+
+def test_worker_refusal_trace_retains_only_the_legitimate_native_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    dispatcher = _ScriptedDispatcher(port=9877, local_tools={})
+    planner_transport = _RawTransport(_planner_payload())
+    worker_transport = _RawTransport(
+        {
+            "schema": "rook.local_worker_turn_response:v1",
+            "kind": "refusal",
+            "category": "insufficient_context",
+            "reason": "A repair cannot be determined.",
+        }
+    )
+    transports = iter((planner_transport, worker_transport))
+    stream = _TraceStream()
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+    monkeypatch.setattr(SMOKE, "get_models", lambda _profile: _models())
+    monkeypatch.setattr(SMOKE, "discover_instances", lambda: [_native_row()])
+    monkeypatch.setattr(
+        SMOKE,
+        "ToolDispatcher",
+        lambda *, port, local_tools: dispatcher,
+    )
+    monkeypatch.setattr(SMOKE, "build_local_tools", lambda: {})
+    monkeypatch.setattr(
+        SMOKE,
+        "LiteLLMWorkerTransport",
+        lambda **_kwargs: next(transports),
+    )
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["terminal_stage"] == "worker_disposition"
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 1
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    native_steps = [
+        row["payload"]
+        for row in rows
+        if row["event"] == "native_step_projection"
+    ]
+    assert [step["accepted_node_id"] for step in native_steps] == [
+        "create_script",
+        "verify_create",
+    ]
+    assert [
+        row["payload"]["tool_name"]
+        for row in rows
+        if row["event"] == "tool_request"
+        and row["payload"]["phase"] == "execution"
+    ] == ["gh_create_csharp_script"]
+    final_native = next(
+        row["payload"] for row in rows if row["event"] == "final_native_result"
+    )
+    assert final_native["worker_adapter_status"] == "response_loaded"
+    assert "terminal_supply" not in final_native
+    assert rows[-1]["event"] == "run_finished"
+
+
+def test_returned_projection_trace_failure_preserves_native_status_but_not_completion(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _patch_complete_live_main(monkeypatch)
+    stream = _EventFailTraceStream(fail_write_event="native_step_projection")
+    _patch_main_recorder(monkeypatch, tmp_path, stream)
+
+    exit_code, summary = _invoke_main(capsys, ["--execute-live"])
+
+    assert exit_code == 1
+    assert summary["operator_status"] == "failed"
+    assert summary["operator_reason"] == "trace_write_failed"
+    assert summary["terminal_stage"] == "terminal"
+    assert summary["terminal_reason"] == "terminal_node_selected:done"
+    assert summary["preparation_tool_calls"] == 3
+    assert summary["planner_calls"] == 1
+    assert summary["worker_calls"] == 1
+    assert summary["execution_tool_calls"] == 2
+    rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
+    events = [row["event"] for row in rows]
+    assert events[-2:] == ["planner_admission", "compiled_workflow"]
+    assert "native_step_projection" not in events
+    assert "final_native_result" not in events
+    assert "run_finished" not in events
+
+
+@pytest.mark.asyncio
+async def test_returned_projectors_reject_native_ownership_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    live_run = await _run_scripted_worker(monkeypatch, _worker_payload())
+    handoff = live_run.result.handoff_result
+    assert handoff is not None
+    supplies = handoff.supply_records
+
+    object.__setattr__(
+        handoff,
+        "supply_records",
+        supplies[:-2],
+    )
+
+    with pytest.raises(ValueError, match="record and supply lengths differ"):
+        SMOKE._project_native_steps(handoff)
+    object.__setattr__(handoff, "supply_records", supplies)
+
+    max_steps = handoff.scaffold.max_steps
+    object.__setattr__(
+        handoff.scaffold,
+        "max_steps",
+        max_steps + 1,
+    )
+
+    with pytest.raises(ValueError, match="maximum steps differ"):
+        SMOKE._project_compiled_workflow(handoff)
+    object.__setattr__(handoff.scaffold, "max_steps", max_steps)
 
 
 class _EqualitySpoof:
@@ -2669,6 +3063,26 @@ def test_post_preparation_exception_retains_verified_document_state(
     assert summary["worker_adapter_status"] is None
     assert "POST_PREPARATION_SENTINEL" not in json.dumps(summary)
     assert len(dispatcher.calls) == 3
+    trace_rows = [
+        json.loads(line)
+        for line in Path(summary["trace_path"]).read_bytes().splitlines()
+    ]
+    traced_events = [row["event"] for row in trace_rows]
+    assert ("handoff_raised" in traced_events) is (locus == "integration")
+    assert "planner_admission" not in traced_events
+    assert "compiled_workflow" not in traced_events
+    assert "native_step_projection" not in traced_events
+    assert "final_native_result" not in traced_events
+    if locus == "integration":
+        handoff_row = next(
+            row for row in trace_rows if row["event"] == "handoff_raised"
+        )
+        assert handoff_row["payload"] == {
+            "phase": "integration",
+            "exception_type": "RuntimeError",
+            "exception_message": "POST_PREPARATION_SENTINEL",
+        }
+    assert trace_rows[-1]["event"] == "run_finished"
 
 
 class _RecordingDispatch:
