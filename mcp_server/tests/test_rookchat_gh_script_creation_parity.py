@@ -3,6 +3,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 
+class _TuplePins(tuple):
+    pass
+
+
 def test_build_local_tools_registers_script_creation_tools():
     from rook.agent.tool_dispatcher import build_local_tools
 
@@ -214,6 +218,137 @@ async def test_dispatcher_aliases_force_language_and_preserve_tool_name(
             "tool_name": tool_name,
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "expected_language"),
+    [
+        ("gh_create_script", "csharp"),
+        ("gh_create_python_script", "python"),
+        ("gh_create_csharp_script", "csharp"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_dispatcher_create_scripts_materialize_contract_pin_tuples_as_lists(
+    monkeypatch,
+    tool_name,
+    expected_language,
+):
+    from rook import server
+    from rook.agent.tool_dispatcher import ToolDispatcher, build_local_tools
+
+    calls = []
+
+    async def fake_execute(language, arguments, port, *, tool_name="gh_create_script"):
+        calls.append((language, arguments, port, tool_name))
+        return {"success": True, "data": {"component_guid": "script-guid"}}
+
+    monkeypatch.setattr(server, "_execute_gh_create_script", fake_execute)
+
+    owned_pins_in = ("X:double",)
+    owned_pins_out = ("A:double",)
+    dispatcher = ToolDispatcher(port=9877, local_tools=build_local_tools())
+    result = await dispatcher.dispatch(
+        tool_name,
+        {
+            "language": "csharp",
+            "code": "A = 1.0;",
+            "pins_in": owned_pins_in,
+            "pins_out": owned_pins_out,
+        },
+    )
+
+    assert result["success"] is True
+    assert len(calls) == 1
+    language, arguments, port, dispatched_tool_name = calls[0]
+    assert language == expected_language
+    assert port == 9877
+    assert dispatched_tool_name == tool_name
+    assert type(arguments["pins_in"]) is list
+    assert type(arguments["pins_out"]) is list
+    assert arguments["pins_in"] == ["X:double"]
+    assert arguments["pins_out"] == ["A:double"]
+    assert arguments["pins_in"] is not owned_pins_in
+    assert arguments["pins_out"] is not owned_pins_out
+    assert owned_pins_in == ("X:double",)
+    assert owned_pins_out == ("A:double",)
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_create_script_preserves_valid_pin_lists_without_mutation(monkeypatch):
+    from rook import server
+    from rook.agent.tool_dispatcher import ToolDispatcher, build_local_tools
+
+    calls = []
+
+    async def fake_execute(language, arguments, port, *, tool_name="gh_create_script"):
+        calls.append(arguments)
+        return {"success": True, "data": {"component_guid": "script-guid"}}
+
+    monkeypatch.setattr(server, "_execute_gh_create_script", fake_execute)
+
+    owned_pins_in = ["X:double"]
+    owned_pins_out = ["A:double"]
+    dispatcher = ToolDispatcher(port=9877, local_tools=build_local_tools())
+    result = await dispatcher.dispatch(
+        "gh_create_csharp_script",
+        {
+            "code": "A = 1.0;",
+            "pins_in": owned_pins_in,
+            "pins_out": owned_pins_out,
+        },
+    )
+
+    assert result["success"] is True
+    assert len(calls) == 1
+    assert type(calls[0]["pins_in"]) is list
+    assert type(calls[0]["pins_out"]) is list
+    assert calls[0]["pins_in"] == ["X:double"]
+    assert calls[0]["pins_out"] == ["A:double"]
+    assert owned_pins_in == ["X:double"]
+    assert owned_pins_out == ["A:double"]
+
+
+@pytest.mark.parametrize(
+    "unsupported_pins",
+    [
+        "A:double",
+        {"name": "A", "type": "double"},
+        {"A:double"},
+        frozenset({"A:double"}),
+        _TuplePins(("A:double",)),
+    ],
+)
+@pytest.mark.asyncio
+async def test_dispatcher_create_script_does_not_coerce_unsupported_pin_shapes(
+    monkeypatch,
+    unsupported_pins,
+):
+    from rook import server
+    from rook.agent.tool_dispatcher import ToolDispatcher, build_local_tools
+
+    calls = []
+
+    async def fake_execute(language, arguments, port, *, tool_name="gh_create_script"):
+        calls.append(arguments)
+        return {"success": True, "data": {"component_guid": "script-guid"}}
+
+    monkeypatch.setattr(server, "_execute_gh_create_script", fake_execute)
+
+    dispatcher = ToolDispatcher(port=9877, local_tools=build_local_tools())
+    result = await dispatcher.dispatch(
+        "gh_create_csharp_script",
+        {
+            "code": "A = 1.0;",
+            "pins_in": unsupported_pins,
+            "pins_out": unsupported_pins,
+        },
+    )
+
+    assert result["success"] is True
+    assert len(calls) == 1
+    assert calls[0]["pins_in"] is unsupported_pins
+    assert calls[0]["pins_out"] is unsupported_pins
 
 
 @pytest.mark.asyncio
