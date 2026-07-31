@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import secrets
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal, NoReturn
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _MCP_SRC = _REPO_ROOT / "mcp_server" / "src"
@@ -46,6 +49,41 @@ _TIMEOUT_S = 120.0
 _MAX_OUTPUT_TOKENS = 1024
 _MAX_RETRIES = 0
 _MAX_MODEL_ID_UTF8_BYTES = 256
+_TRACE_ROW_MAX_BYTES = 256 * 1024
+_TRACE_TOTAL_MAX_BYTES = 4 * 1024 * 1024
+_TRACE_REJECTION_RESERVE_BYTES = 4 * 1024
+_TRACE_NORMAL_MAX_BYTES = (
+    _TRACE_TOTAL_MAX_BYTES - _TRACE_REJECTION_RESERVE_BYTES
+)
+_TRACE_EXCEPTION_MESSAGE_MAX_JSON_BYTES = 16 * 1024
+_TRACE_EVENTS = frozenset(
+    {
+        "run_started",
+        "tool_request",
+        "tool_response",
+        "tool_exception",
+        "planner_request",
+        "planner_response",
+        "planner_exception",
+        "worker_request",
+        "worker_response",
+        "worker_exception",
+        "planner_admission",
+        "compiled_workflow",
+        "native_step_projection",
+        "final_native_result",
+        "handoff_raised",
+        "event_rejected",
+        "event_serialization_failed",
+        "run_finished",
+    }
+)
+_TRACE_REJECTION_EVENTS = {
+    "json_serialization_failed": "event_serialization_failed",
+    "row_size_exceeded": "event_rejected",
+    "total_size_exceeded": "event_rejected",
+    "exception_message_size_exceeded": "event_rejected",
+}
 _SUMMARY_FIELDS = (
     "operator_status",
     "operator_reason",
@@ -109,6 +147,217 @@ _PreparationState = Literal[
     "document_new_started",
     "fresh_document_verified",
 ]
+
+
+class _TraceWriteFailure(RuntimeError):
+    def __init__(self, reason: str, path: Path | None) -> None:
+        super().__init__("trace_write_failed")
+        self.reason = reason
+        self.path = path
+
+
+class _JsonlFlightRecorder:
+    def __init__(
+        self,
+        *,
+        path: Path,
+        stream: BinaryIO,
+        clock: Callable[[], datetime],
+    ) -> None:
+        self._path = path
+        self._stream = stream
+        self._clock = clock
+        self._bytes_written = 0
+        self._sequence = 0
+        self._failed = False
+        self._closed = False
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    @property
+    def bytes_written(self) -> int:
+        return self._bytes_written
+
+    @property
+    def sequence(self) -> int:
+        return self._sequence
+
+    @property
+    def failed(self) -> bool:
+        return self._failed
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def record(self, event: str, payload: Mapping[str, Any]) -> None:
+        self._require_writable()
+        if type(event) is not str or event not in _TRACE_EVENTS:
+            raise ValueError("trace event is not in the closed vocabulary")
+        next_sequence = self._sequence + 1
+        try:
+            row = self._serialize_row(next_sequence, event, payload)
+        except Exception:
+            self._reject(event, "json_serialization_failed")
+        if len(row) > _TRACE_ROW_MAX_BYTES:
+            self._reject(event, "row_size_exceeded")
+        if self._bytes_written + len(row) > _TRACE_NORMAL_MAX_BYTES:
+            self._reject(event, "total_size_exceeded")
+        self._write_complete_row(row, next_sequence)
+
+    def record_exception(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+        exc: Exception,
+    ) -> None:
+        self._require_writable()
+        try:
+            message = str(exc)
+        except Exception:
+            self._reject(event, "json_serialization_failed")
+        try:
+            encoded_message = json.dumps(
+                message,
+                ensure_ascii=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except Exception:
+            self._reject(event, "json_serialization_failed")
+        if len(encoded_message) > _TRACE_EXCEPTION_MESSAGE_MAX_JSON_BYTES:
+            self._reject(event, "exception_message_size_exceeded")
+        exception_payload = dict(payload)
+        exception_payload.update(
+            {
+                "exception_type": type(exc).__name__,
+                "exception_message": message,
+            }
+        )
+        self.record(event, exception_payload)
+
+    def finish(self, payload: Mapping[str, Any]) -> None:
+        self.record("run_finished", payload)
+        self._close()
+
+    def close_incomplete(self) -> None:
+        if self._closed:
+            return
+        self._close()
+
+    def _require_writable(self) -> None:
+        if self._failed:
+            raise _TraceWriteFailure("recorder_failed", self._path)
+        if self._closed:
+            raise _TraceWriteFailure("recorder_closed", self._path)
+
+    def _serialize_row(
+        self,
+        sequence: int,
+        event: str,
+        payload: Mapping[str, Any],
+    ) -> bytes:
+        recorded_at = self._clock().astimezone(timezone.utc)
+        return (
+            json.dumps(
+                {
+                    "sequence": sequence,
+                    "recorded_at_utc": recorded_at.strftime(
+                        "%Y-%m-%dT%H:%M:%S.%fZ"
+                    ),
+                    "event": event,
+                    "payload": payload,
+                },
+                ensure_ascii=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+
+    def _write_complete_row(self, row: bytes, sequence: int) -> None:
+        try:
+            written = self._stream.write(row)
+        except Exception:
+            self._failed = True
+            raise _TraceWriteFailure("write_failed", self._path) from None
+        if type(written) is not int or written < 0:
+            self._failed = True
+            raise _TraceWriteFailure("invalid_write_count", self._path)
+        self._bytes_written += written
+        if written != len(row):
+            self._failed = True
+            raise _TraceWriteFailure("short_write", self._path)
+        try:
+            self._stream.flush()
+        except Exception:
+            self._failed = True
+            raise _TraceWriteFailure("flush_failed", self._path) from None
+        self._sequence = sequence
+
+    def _reject(self, attempted_event: str, reason: str) -> NoReturn:
+        rejection_event = _TRACE_REJECTION_EVENTS[reason]
+        next_sequence = self._sequence + 1
+        try:
+            row = self._serialize_row(
+                next_sequence,
+                rejection_event,
+                {
+                    "attempted_event": attempted_event,
+                    "rejection_reason": reason,
+                },
+            )
+        except Exception:
+            self._failed = True
+            raise _TraceWriteFailure(
+                "rejection_serialization_failed",
+                self._path,
+            ) from None
+        if len(row) > _TRACE_REJECTION_RESERVE_BYTES:
+            self._failed = True
+            raise _TraceWriteFailure("rejection_row_size_exceeded", self._path)
+        if self._bytes_written + len(row) > _TRACE_TOTAL_MAX_BYTES:
+            self._failed = True
+            raise _TraceWriteFailure("rejection_total_size_exceeded", self._path)
+        self._write_complete_row(row, next_sequence)
+        self._failed = True
+        raise _TraceWriteFailure(reason, self._path)
+
+    def _close(self) -> None:
+        try:
+            self._stream.close()
+        except Exception:
+            self._failed = True
+            raise _TraceWriteFailure("close_failed", self._path) from None
+        self._closed = True
+
+
+def _open_live_flight_recorder() -> _JsonlFlightRecorder:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if type(local_app_data) is not str or not local_app_data.strip():
+        raise _TraceWriteFailure("localappdata_missing", None)
+    trace_directory = Path(local_app_data) / "Rook" / "traces"
+    try:
+        trace_directory.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        raise _TraceWriteFailure("trace_directory_create_failed", None) from None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    filename = (
+        f"minimal-intent-worker-real-compile-{stamp}-"
+        f"p{os.getpid()}-{secrets.token_hex(4)}.jsonl"
+    )
+    path = (trace_directory / filename).resolve()
+    try:
+        stream = path.open("xb")
+    except Exception:
+        raise _TraceWriteFailure("exclusive_open_failed", None) from None
+    return _JsonlFlightRecorder(
+        path=path,
+        stream=stream,
+        clock=lambda: datetime.now(timezone.utc),
+    )
 
 
 def _project_terminal_reason(reason: object) -> str:

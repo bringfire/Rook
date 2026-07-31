@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -46,6 +47,670 @@ def _load_smoke():
 SMOKE = _load_smoke()
 
 from rook.agent import local_worker_model_transport as transport_module  # noqa: E402
+
+
+class _TraceStream:
+    def __init__(
+        self,
+        *,
+        fail_write_at: int | None = None,
+        short_write_at: int | None = None,
+        fail_flush_at: int | None = None,
+        fail_close: bool = False,
+    ) -> None:
+        self.content = bytearray()
+        self.write_calls = 0
+        self.flush_calls = 0
+        self.close_calls = 0
+        self.fail_write_at = fail_write_at
+        self.short_write_at = short_write_at
+        self.fail_flush_at = fail_flush_at
+        self.fail_close = fail_close
+
+    def write(self, value: bytes) -> int:
+        self.write_calls += 1
+        if self.write_calls == self.fail_write_at:
+            raise OSError("TRACE_WRITE_SENTINEL")
+        if self.write_calls == self.short_write_at:
+            written = max(0, len(value) - 1)
+            self.content.extend(value[:written])
+            return written
+        self.content.extend(value)
+        return len(value)
+
+    def flush(self) -> None:
+        self.flush_calls += 1
+        if self.flush_calls == self.fail_flush_at:
+            raise OSError("TRACE_FLUSH_SENTINEL")
+
+    def close(self) -> None:
+        self.close_calls += 1
+        if self.fail_close:
+            raise OSError("TRACE_CLOSE_SENTINEL")
+
+
+_TRACE_TIME = datetime(2026, 7, 30, 21, 30, tzinfo=timezone.utc)
+
+
+def _serialized_trace_row(
+    *,
+    sequence: int,
+    event: str,
+    payload: Mapping[str, Any],
+) -> bytes:
+    return (
+        json.dumps(
+            {
+                "sequence": sequence,
+                "recorded_at_utc": "2026-07-30T21:30:00.000000Z",
+                "event": event,
+                "payload": payload,
+            },
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _padding_payload_for_row_size(
+    *,
+    sequence: int,
+    event: str,
+    target_size: int,
+) -> dict[str, str]:
+    empty_size = len(
+        _serialized_trace_row(
+            sequence=sequence,
+            event=event,
+            payload={"padding": ""},
+        )
+    )
+    padding_size = target_size - empty_size
+    assert padding_size >= 0
+    payload = {"padding": "x" * padding_size}
+    assert len(
+        _serialized_trace_row(
+            sequence=sequence,
+            event=event,
+            payload=payload,
+        )
+    ) == target_size
+    return payload
+
+
+def test_flight_recorder_writes_one_flushed_jsonl_row(tmp_path: Path) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    recorder.record("run_started", {"intent": "fixed"})
+
+    expected = {
+        "sequence": 1,
+        "recorded_at_utc": "2026-07-30T21:30:00.000000Z",
+        "event": "run_started",
+        "payload": {"intent": "fixed"},
+    }
+    assert bytes(stream.content) == (
+        json.dumps(expected, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    assert recorder.sequence == 1
+    assert recorder.bytes_written == len(stream.content)
+
+
+def test_flight_recorder_serialization_rejection_flushes_then_raises(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    path = tmp_path / "flight.jsonl"
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=path,
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("planner_response", {"raw_response": object()})
+
+    assert str(raised.value) == "trace_write_failed"
+    assert raised.value.reason == "json_serialization_failed"
+    assert raised.value.path == path
+    assert recorder.failed is True
+    assert recorder.sequence == 1
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    lines = bytes(stream.content).splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0]) == {
+        "sequence": 1,
+        "recorded_at_utc": "2026-07-30T21:30:00.000000Z",
+        "event": "event_serialization_failed",
+        "payload": {
+            "attempted_event": "planner_response",
+            "rejection_reason": "json_serialization_failed",
+        },
+    }
+
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_event"),
+    [
+        ("json_serialization_failed", "event_serialization_failed"),
+        ("row_size_exceeded", "event_rejected"),
+        ("total_size_exceeded", "event_rejected"),
+        ("exception_message_size_exceeded", "event_rejected"),
+    ],
+)
+def test_flight_recorder_reject_always_flushes_then_raises(
+    tmp_path: Path,
+    reason: str,
+    expected_event: str,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder._reject("planner_response", reason)
+
+    assert raised.value.reason == reason
+    assert recorder.failed is True
+    assert recorder.sequence == 1
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == expected_event
+    assert row["payload"] == {
+        "attempted_event": "planner_response",
+        "rejection_reason": reason,
+    }
+
+
+def test_flight_recorder_short_write_retains_partial_bytes_and_stops(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(short_write_at=1)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("run_started", {"intent": "fixed"})
+
+    assert raised.value.reason == "short_write"
+    assert recorder.failed is True
+    assert recorder.sequence == 0
+    assert recorder.bytes_written == len(stream.content)
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 0
+    assert bytes(stream.content)
+    assert not bytes(stream.content).endswith(b"\n")
+
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+    assert stream.write_calls == 1
+
+
+def test_flight_recorder_accepts_exact_complete_row_limit(tmp_path: Path) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    payload = _padding_payload_for_row_size(
+        sequence=1,
+        event="planner_response",
+        target_size=256 * 1024,
+    )
+
+    recorder.record("planner_response", payload)
+
+    assert len(stream.content) == 256 * 1024
+    assert recorder.bytes_written == 256 * 1024
+    assert recorder.sequence == 1
+    assert recorder.failed is False
+
+
+def test_flight_recorder_rejects_complete_row_limit_plus_one(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    payload = _padding_payload_for_row_size(
+        sequence=1,
+        event="planner_response",
+        target_size=(256 * 1024) + 1,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("planner_response", payload)
+
+    assert raised.value.reason == "row_size_exceeded"
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "event_rejected"
+    assert row["payload"] == {
+        "attempted_event": "planner_response",
+        "rejection_reason": "row_size_exceeded",
+    }
+    assert len(stream.content) <= 4 * 1024
+
+
+def test_flight_recorder_reserves_tail_after_exact_normal_total(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    row_max = 256 * 1024
+    normal_total = (4 * 1024 * 1024) - (4 * 1024)
+    row_sizes = ([row_max] * 15) + [normal_total - (15 * row_max)]
+    assert sum(row_sizes) == normal_total
+
+    for sequence, row_size in enumerate(row_sizes, start=1):
+        recorder.record(
+            "tool_response",
+            _padding_payload_for_row_size(
+                sequence=sequence,
+                event="tool_response",
+                target_size=row_size,
+            ),
+        )
+
+    assert recorder.bytes_written == normal_total
+    assert len(stream.content) == normal_total
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("run_finished", {})
+
+    assert raised.value.reason == "total_size_exceeded"
+    assert recorder.sequence == len(row_sizes) + 1
+    assert recorder.failed is True
+    assert recorder.bytes_written == len(stream.content)
+    assert recorder.bytes_written <= 4 * 1024 * 1024
+    rejection = json.loads(bytes(stream.content).splitlines()[-1])
+    assert rejection["event"] == "event_rejected"
+    assert rejection["payload"] == {
+        "attempted_event": "run_finished",
+        "rejection_reason": "total_size_exceeded",
+    }
+
+
+class _UnstringableException(Exception):
+    def __str__(self) -> str:
+        raise ValueError("UNSTRINGABLE_SENTINEL")
+
+
+def test_flight_recorder_records_escaped_surrogate_exception_message(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    error = RuntimeError("prefix-\ud800-suffix")
+
+    recorder.record_exception(
+        "tool_exception",
+        {"phase": "execution", "call_index": 1},
+        error,
+    )
+
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "tool_exception"
+    assert row["payload"] == {
+        "phase": "execution",
+        "call_index": 1,
+        "exception_type": "RuntimeError",
+        "exception_message": "prefix-\ud800-suffix",
+    }
+    assert recorder.failed is False
+
+
+@pytest.mark.parametrize(
+    ("message_size", "should_reject"),
+    [
+        ((16 * 1024) - 2, False),
+        ((16 * 1024) - 1, True),
+    ],
+)
+def test_flight_recorder_bounds_ensure_ascii_exception_message(
+    tmp_path: Path,
+    message_size: int,
+    should_reject: bool,
+) -> None:
+    message = "x" * message_size
+    encoded = json.dumps(
+        message,
+        ensure_ascii=True,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    expected_size = 16 * 1024 if not should_reject else (16 * 1024) + 1
+    assert len(encoded) == expected_size
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    if should_reject:
+        with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+            recorder.record_exception("planner_exception", {}, RuntimeError(message))
+        assert raised.value.reason == "exception_message_size_exceeded"
+        row = json.loads(bytes(stream.content))
+        assert row["event"] == "event_rejected"
+        assert row["payload"]["rejection_reason"] == (
+            "exception_message_size_exceeded"
+        )
+    else:
+        recorder.record_exception("planner_exception", {}, RuntimeError(message))
+        row = json.loads(bytes(stream.content))
+        assert row["event"] == "planner_exception"
+        assert row["payload"]["exception_message"] == message
+
+
+def test_flight_recorder_unstringable_exception_rejects_and_stops(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record_exception(
+            "worker_exception",
+            {"role": "worker", "call_index": 1},
+            _UnstringableException(),
+        )
+
+    assert raised.value.reason == "json_serialization_failed"
+    assert recorder.failed is True
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "event_serialization_failed"
+    assert row["payload"] == {
+        "attempted_event": "worker_exception",
+        "rejection_reason": "json_serialization_failed",
+    }
+    assert "UNSTRINGABLE_SENTINEL" not in bytes(stream.content).decode("utf-8")
+
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+
+
+def test_flight_recorder_finish_flushes_run_finished_then_closes(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    recorder.finish({"operator_status": "refused", "planner_calls": 0})
+
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "run_finished"
+    assert row["payload"] == {
+        "operator_status": "refused",
+        "planner_calls": 0,
+    }
+    assert recorder.sequence == 1
+    assert recorder.closed is True
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    assert stream.close_calls == 1
+
+
+def test_open_live_flight_recorder_creates_exclusive_local_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    recorder = SMOKE._open_live_flight_recorder()
+
+    expected_parent = (tmp_path / "Rook" / "traces").resolve()
+    assert recorder.path.is_absolute()
+    assert recorder.path.parent.resolve() == expected_parent
+    assert recorder.path.is_file()
+    assert recorder.path.name.startswith(
+        "minimal-intent-worker-real-compile-"
+    )
+    assert recorder.path.name.endswith(".jsonl")
+    assert recorder.path.read_bytes() == b""
+    recorder.close_incomplete()
+    assert recorder.closed is True
+    assert recorder.path.read_bytes() == b""
+
+
+def test_open_live_flight_recorder_requires_nonblank_localappdata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", "   ")
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        SMOKE._open_live_flight_recorder()
+
+    assert raised.value.reason == "localappdata_missing"
+    assert raised.value.path is None
+
+
+def test_open_live_flight_recorder_refuses_name_collision_without_clobber(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FrozenDatetime:
+        @classmethod
+        def now(cls, tz: object) -> datetime:
+            assert tz is timezone.utc
+            return _TRACE_TIME
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(SMOKE, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(SMOKE.os, "getpid", lambda: 1234)
+    monkeypatch.setattr(SMOKE.secrets, "token_hex", lambda _size: "cafebabe")
+    first = SMOKE._open_live_flight_recorder()
+    first.record("run_started", {"intent": "retained"})
+    retained = first.path.read_bytes()
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        SMOKE._open_live_flight_recorder()
+
+    assert raised.value.reason == "exclusive_open_failed"
+    assert raised.value.path is None
+    assert first.path.read_bytes() == retained
+    first.close_incomplete()
+
+
+@pytest.mark.parametrize(
+    ("stream", "expected_reason", "expected_bytes", "expected_flushes"),
+    [
+        (_TraceStream(fail_write_at=1), "write_failed", 0, 0),
+        (_TraceStream(fail_flush_at=1), "flush_failed", None, 1),
+    ],
+)
+def test_flight_recorder_write_or_flush_failure_stops_without_retry(
+    tmp_path: Path,
+    stream: _TraceStream,
+    expected_reason: str,
+    expected_bytes: int | None,
+    expected_flushes: int,
+) -> None:
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("run_started", {"intent": "fixed"})
+
+    assert raised.value.reason == expected_reason
+    assert recorder.failed is True
+    assert recorder.sequence == 0
+    assert recorder.bytes_written == len(stream.content)
+    assert stream.write_calls == 1
+    assert stream.flush_calls == expected_flushes
+    if expected_bytes is not None:
+        assert len(stream.content) == expected_bytes
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+    assert stream.write_calls == 1
+
+
+def test_flight_recorder_finish_close_failure_retains_flushed_terminal_row(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(fail_close=True)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.finish({"operator_status": "completed"})
+
+    assert raised.value.reason == "close_failed"
+    assert recorder.failed is True
+    assert recorder.closed is False
+    assert recorder.sequence == 1
+    assert stream.flush_calls == 1
+    assert stream.close_calls == 1
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "run_finished"
+
+
+def test_flight_recorder_closes_failed_partial_trace_without_new_row(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(short_write_at=1)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_started", {"intent": "fixed"})
+    retained = bytes(stream.content)
+
+    recorder.close_incomplete()
+
+    assert recorder.closed is True
+    assert recorder.failed is True
+    assert stream.close_calls == 1
+    assert bytes(stream.content) == retained
+    assert b"run_finished" not in retained
+
+
+def test_flight_recorder_rejects_unknown_event_before_write(tmp_path: Path) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(ValueError, match="closed vocabulary"):
+        recorder.record("invented_event", {})
+
+    assert stream.write_calls == 0
+    assert stream.flush_calls == 0
+    assert recorder.failed is False
+
+
+def test_flight_recorder_nonfinite_payload_uses_serialization_rejection(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream()
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("planner_response", {"value": float("nan")})
+
+    assert raised.value.reason == "json_serialization_failed"
+    row = json.loads(bytes(stream.content))
+    assert row["event"] == "event_serialization_failed"
+    assert row["payload"]["rejection_reason"] == "json_serialization_failed"
+
+
+@pytest.mark.parametrize(
+    ("stream", "expected_reason", "expected_flushes"),
+    [
+        (_TraceStream(fail_write_at=1), "write_failed", 0),
+        (_TraceStream(fail_flush_at=1), "flush_failed", 1),
+    ],
+)
+def test_flight_recorder_rejection_write_or_flush_failure_still_terminates(
+    tmp_path: Path,
+    stream: _TraceStream,
+    expected_reason: str,
+    expected_flushes: int,
+) -> None:
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("planner_response", {"raw_response": object()})
+
+    assert raised.value.reason == expected_reason
+    assert recorder.failed is True
+    assert recorder.sequence == 0
+    assert recorder.bytes_written == len(stream.content)
+    assert stream.write_calls == 1
+    assert stream.flush_calls == expected_flushes
+    retained = bytes(stream.content)
+    with pytest.raises(SMOKE._TraceWriteFailure):
+        recorder.record("run_finished", {})
+    assert bytes(stream.content) == retained
+    assert stream.write_calls == 1
 
 
 def _planner_payload() -> dict[str, Any]:
