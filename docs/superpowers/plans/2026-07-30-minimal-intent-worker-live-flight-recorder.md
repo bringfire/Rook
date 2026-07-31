@@ -21,7 +21,9 @@
 - Open one exclusive file under `%LOCALAPPDATA%\Rook\traces\` after exact live-argument admission and before profile resolution, discovery, transport construction, or tool contact.
 - Complete JSONL row plus newline is bounded to `256 * 1024` bytes.
 - Actual trace bytes are bounded to `4 * 1024 * 1024`; normal rows may consume only that total minus an exact `4 * 1024` byte rejection reserve.
-- Exception messages use exact `str(exc)` and are bounded by their `ensure_ascii=True` JSON-string encoding to `16 * 1024` bytes.
+- Exception messages attempt exact `str(exc)` and are bounded by their
+  `ensure_ascii=True` JSON-string encoding to `16 * 1024` bytes;
+  message-extraction failure enters the fixed serialization-rejection path.
 - No truncation, compression, lossy summary, substitute hash, retry, fallback, second trace, or reopened trace is permitted.
 - Every request row flushes before delegate entry. Every response/exception row flushes before a later external call.
 - Trace failure supersedes normal propagation and stops the next external call; completed calls remain truthfully counted.
@@ -71,12 +73,20 @@ close calls:
 
 ```python
 class _TraceStream:
-    def __init__(self, *, fail_write_at=None, fail_flush_at=None, fail_close=False):
+    def __init__(
+        self,
+        *,
+        fail_write_at=None,
+        short_write_at=None,
+        fail_flush_at=None,
+        fail_close=False,
+    ):
         self.content = bytearray()
         self.write_calls = 0
         self.flush_calls = 0
         self.close_calls = 0
         self.fail_write_at = fail_write_at
+        self.short_write_at = short_write_at
         self.fail_flush_at = fail_flush_at
         self.fail_close = fail_close
 
@@ -84,6 +94,10 @@ class _TraceStream:
         self.write_calls += 1
         if self.write_calls == self.fail_write_at:
             raise OSError("TRACE_WRITE_SENTINEL")
+        if self.write_calls == self.short_write_at:
+            written = max(0, len(value) - 1)
+            self.content.extend(value[:written])
+            return written
         self.content.extend(value)
         return len(value)
 
@@ -169,12 +183,14 @@ Implement `record()` with this order:
 4. serialize with `ensure_ascii=True`, `allow_nan=False`, compact separators,
    and one newline;
 5. route serialization, row, and total failures through one rejection write;
-6. require full-length binary write;
-7. flush;
-8. update bytes and sequence only after both operations succeed.
+6. perform one binary write and add its returned nonnegative byte count to
+   actual `bytes_written` immediately;
+7. require that count to equal the full encoded row length;
+8. flush;
+9. advance sequence only after the complete row and flush both succeed.
 
-Use one raw writer. An OS write/flush failure sets failed state and raises
-without trying a second trace row.
+Use one raw writer. A short write or OS write/flush failure sets failed state
+and raises without trying a second trace row.
 
 - [ ] **Step 4: Add exact-bound and rejection RED tests**
 
@@ -191,7 +207,10 @@ second post-rejection write -> zero bytes, _TraceWriteFailure
 Use an unserializable value to require
 `event_serialization_failed / json_serialization_failed`. Require every
 rejection row to name its attempted event, fit in 4 KiB, and keep total bytes at
-or below 4 MiB.
+or below 4 MiB. Add a short-write RED where the stream retains only the written
+prefix and returns a count smaller than the row. Require `_TraceWriteFailure`,
+no flush, no retry or rejection-row attempt, no second row, and byte-for-byte
+unchanged partial content after every refused later write.
 
 - [ ] **Step 5: Implement rejection and exception-message behavior**
 
@@ -208,10 +227,15 @@ Implement `_reject(attempted_event, reason)` without recursively calling
 After flushing one reserve row, mark the recorder failed and prevent every
 later write.
 
-`record_exception()` computes the limit from:
+`record_exception()` first extracts and measures the message inside an ordinary
+exception boundary:
 
 ```python
-message = str(exc)
+try:
+    message = str(exc)
+except Exception:
+    self._reject(event, "json_serialization_failed")
+
 encoded_message = json.dumps(
     message,
     ensure_ascii=True,
@@ -222,7 +246,10 @@ encoded_message = json.dumps(
 
 At or below 16 KiB, record exact `exception_type` and `exception_message`.
 Bound-plus-one rejects the attempted exception event without truncation. Add a
-lone-surrogate regression proving no `UnicodeEncodeError`.
+lone-surrogate regression proving no `UnicodeEncodeError`. Add an exception
+whose `__str__()` raises; it must flush exactly one
+`event_serialization_failed / json_serialization_failed` row, mark the recorder
+incomplete, and reject every later write.
 
 - [ ] **Step 6: Add open, finish, and close fault tests**
 
@@ -354,7 +381,11 @@ exception trace failure        -> one delegate call, trace failure supersedes
 ```
 
 Exception rows retain local type/message. Stdout-facing trace failures contain
-no sentinel message.
+no sentinel message. Repeat the matrix with a request short write and with a
+delegate exception whose `__str__()` raises. The short request write enters no
+delegate; the unstringable delegate exception counts that one delegate call,
+flushes the fixed serialization-rejection row, and prevents the next external
+call.
 
 - [ ] **Step 7: Add phase/index and zero-dispatch tests**
 
@@ -401,7 +432,7 @@ no arguments / invalid arguments
 -> trace_path is null
 -> discovery, tools, Planner, and Worker remain at zero
 
-exact --execute-live + profile refusal
+exact --execute-live + profile or discovery refusal
 -> run_started and run_finished are flushed
 -> no live capability is constructed or called
 
@@ -462,11 +493,27 @@ responses, or provider metadata.
 
 - [ ] **Step 5: Thread one recorder and one call counter through the run**
 
-Update only private script functions. `_run_live_once()` owns the recorder and
-`_LiveCallCounts`; `_run_prepared_once()` receives them and constructs the
-recording Planner/Worker transports and recording restricted executor. The
-same monotonically increasing recorder sequence spans preparation, Planner,
-execution tools, and Worker.
+Update only private script functions. The top-level exact-live path in `main()`
+owns recorder creation, `_LiveCallCounts`, every early-stop `run_finished`, and
+final close. It opens the recorder before profile resolution and discovery,
+then passes the same recorder and counters into `_run_live_once()`:
+
+```python
+async def _run_live_once(
+    roles: _ResolvedRoles,
+    target: _ResolvedRhinoTarget,
+    *,
+    recorder: _JsonlFlightRecorder,
+    call_counts: _LiveCallCounts,
+) -> _LiveRun:
+    ...
+```
+
+`_run_live_once()` must not create, finish, close, or replace either object.
+It passes both into `_run_prepared_once()`, which constructs the recording
+Planner/Worker transports and recording restricted executor. The same
+monotonically increasing recorder sequence spans pre-role/profile stops,
+discovery, preparation, Planner, execution tools, and Worker.
 
 - [ ] **Step 6: Enforce trace-failure precedence after every phase**
 
