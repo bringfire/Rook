@@ -87,6 +87,7 @@ _TRACE_REJECTION_EVENTS = {
 _SUMMARY_FIELDS = (
     "operator_status",
     "operator_reason",
+    "trace_path",
     "intent",
     "profile",
     "planner_model",
@@ -523,6 +524,19 @@ class _PreparationFailure(RuntimeError):
         self.tool_calls = tool_calls
 
 
+class _PreparationTraceFailure(RuntimeError):
+    def __init__(
+        self,
+        trace_failure: _TraceWriteFailure,
+        state: _PreparationState,
+        tool_calls: int,
+    ) -> None:
+        super().__init__("trace_write_failed")
+        self.trace_failure = trace_failure
+        self.state = state
+        self.tool_calls = tool_calls
+
+
 class _PostPreparationFailure(RuntimeError):
     def __init__(
         self,
@@ -531,6 +545,19 @@ class _PostPreparationFailure(RuntimeError):
     ) -> None:
         super().__init__("operator_internal_error")
         self.reason = "operator_internal_error"
+        self.target = target
+        self.preparation = preparation
+
+
+class _PostPreparationTraceFailure(RuntimeError):
+    def __init__(
+        self,
+        trace_failure: _TraceWriteFailure,
+        target: _ResolvedRhinoTarget,
+        preparation: _PreparedDocument,
+    ) -> None:
+        super().__init__("trace_write_failed")
+        self.trace_failure = trace_failure
         self.target = target
         self.preparation = preparation
 
@@ -682,12 +709,20 @@ def _require_document_new(result: object) -> None:
 
 
 async def _prepare_fresh_document(
-    dispatcher: ToolDispatcher,
+    dispatcher: Any,
+    *,
+    call_counts: _LiveCallCounts | None = None,
 ) -> _PreparedDocument:
     preparation_state: _PreparationState = "not_started"
     tool_calls = 1
     try:
         pre = await dispatcher.dispatch("gh_status", {})
+    except _TraceWriteFailure as exc:
+        raise _PreparationTraceFailure(
+            exc,
+            "status_rejected",
+            call_counts.preparation if call_counts is not None else 0,
+        ) from exc
     except Exception as exc:
         preparation_state = "status_rejected"
         raise _PreparationFailure(
@@ -710,6 +745,17 @@ async def _prepare_fresh_document(
     tool_calls = 2
     try:
         created = await dispatcher.dispatch("gh_document_new", {})
+    except _TraceWriteFailure as exc:
+        state: _PreparationState = (
+            "document_new_started"
+            if call_counts is not None and call_counts.preparation >= 2
+            else "status_verified"
+        )
+        raise _PreparationTraceFailure(
+            exc,
+            state,
+            call_counts.preparation if call_counts is not None else 1,
+        ) from exc
     except Exception as exc:
         raise _PreparationFailure(
             "document_new_exception",
@@ -728,6 +774,12 @@ async def _prepare_fresh_document(
     tool_calls = 3
     try:
         post = await dispatcher.dispatch("gh_status", {})
+    except _TraceWriteFailure as exc:
+        raise _PreparationTraceFailure(
+            exc,
+            "document_new_started",
+            call_counts.preparation if call_counts is not None else 2,
+        ) from exc
     except Exception as exc:
         raise _PreparationFailure(
             "post_status_exception",
@@ -838,12 +890,23 @@ class _LiveRun:
 async def _run_live_once(
     roles: _ResolvedRoles,
     target: _ResolvedRhinoTarget,
+    *,
+    recorder: _JsonlFlightRecorder,
+    call_counts: _LiveCallCounts,
 ) -> _LiveRun:
     dispatcher = ToolDispatcher(
         port=target.port,
         local_tools=build_local_tools(),
     )
-    preparation = await _prepare_fresh_document(dispatcher)
+    recording_preparation = _RecordingPreparationDispatcher(
+        delegate=dispatcher,
+        recorder=recorder,
+        counts=call_counts,
+    )
+    preparation = await _prepare_fresh_document(
+        recording_preparation,
+        call_counts=call_counts,
+    )
 
     try:
         return await _run_prepared_once(
@@ -851,7 +914,15 @@ async def _run_live_once(
             target,
             dispatcher,
             preparation,
+            recorder=recorder,
+            call_counts=call_counts,
         )
+    except _TraceWriteFailure as exc:
+        raise _PostPreparationTraceFailure(
+            exc,
+            target,
+            preparation,
+        ) from exc
     except Exception as exc:
         raise _PostPreparationFailure(target, preparation) from exc
 
@@ -861,9 +932,12 @@ async def _run_prepared_once(
     target: _ResolvedRhinoTarget,
     dispatcher: ToolDispatcher,
     preparation: _PreparedDocument,
+    *,
+    recorder: _JsonlFlightRecorder,
+    call_counts: _LiveCallCounts,
 ) -> _LiveRun:
 
-    planner_transport = LiteLLMWorkerTransport(
+    planner_delegate = LiteLLMWorkerTransport(
         model=roles.planner_model,
         profile_api_base=roles.profile_api_base,
         generation_params={
@@ -875,7 +949,7 @@ async def _run_prepared_once(
         structured_response_schema=None,
         timeout_s=_TIMEOUT_S,
     )
-    worker_transport = LiteLLMWorkerTransport(
+    worker_delegate = LiteLLMWorkerTransport(
         model=roles.worker_model,
         profile_api_base=roles.profile_api_base,
         generation_params={
@@ -886,13 +960,31 @@ async def _run_prepared_once(
         structured_response_schema=_local_worker_response_union_schema(),
         timeout_s=_TIMEOUT_S,
     )
-    executor = _RestrictedRealToolExecutor(dispatcher.dispatch)
+    planner_transport = _RecordingModelTransport(
+        role="planner",
+        delegate=planner_delegate,
+        recorder=recorder,
+        counts=call_counts,
+    )
+    worker_transport = _RecordingModelTransport(
+        role="worker",
+        delegate=worker_delegate,
+        recorder=recorder,
+        counts=call_counts,
+    )
+    executor = _RestrictedRealToolExecutor(
+        dispatcher.dispatch,
+        recorder=recorder,
+        counts=call_counts,
+    )
     result = await run_minimal_intent_worker_integration(
         _FIXED_INTENT,
         planner_adapter=MinimalPlannerDraftAdapter(planner_transport),
         worker_transport=worker_transport,
         tool_executor=executor,
     )
+    if recorder.failed:
+        raise _TraceWriteFailure("recorder_failed", recorder.path)
     return _LiveRun(
         result=result,
         target=target,
@@ -904,6 +996,9 @@ async def _run_prepared_once(
 def _summary_from_result(
     roles: _ResolvedRoles,
     live_run: _LiveRun,
+    *,
+    trace_path: Path | None = None,
+    call_counts: _LiveCallCounts | None = None,
 ) -> dict[str, object]:
     result = live_run.result
     handoff = result.handoff_result
@@ -931,6 +1026,7 @@ def _summary_from_result(
     return {
         "operator_status": "completed" if completed else "failed",
         "operator_reason": "native_terminal" if completed else "native_stop",
+        "trace_path": str(trace_path) if trace_path is not None else None,
         "intent": _FIXED_INTENT,
         "profile": roles.profile,
         "planner_model": roles.planner_model,
@@ -938,12 +1034,22 @@ def _summary_from_result(
         "rooknative_process_id": live_run.target.process_id,
         "rooknative_port": live_run.target.port,
         "document_preparation_status": live_run.preparation.state,
-        "preparation_tool_calls": live_run.preparation.tool_calls,
-        "planner_calls": 1,
-        "worker_calls": int(
-            handoff is not None and handoff.adapter_record is not None
+        "preparation_tool_calls": (
+            call_counts.preparation
+            if call_counts is not None
+            else live_run.preparation.tool_calls
         ),
-        "execution_tool_calls": len(execution_prefix),
+        "planner_calls": call_counts.planner if call_counts is not None else 1,
+        "worker_calls": (
+            call_counts.worker
+            if call_counts is not None
+            else int(handoff is not None and handoff.adapter_record is not None)
+        ),
+        "execution_tool_calls": (
+            call_counts.execution
+            if call_counts is not None
+            else len(execution_prefix)
+        ),
         "terminal_stage": result.terminal_stage,
         "terminal_reason": _project_terminal_reason(result.terminal_reason),
         "planner_adapter_status": result.planner_adapter_record.status,
@@ -955,6 +1061,7 @@ def _bounded_summary(
     *,
     operator_status: str,
     operator_reason: str,
+    trace_path: Path | None = None,
     roles: _ResolvedRoles | None = None,
     target: _ResolvedRhinoTarget | None = None,
     preparation_state: _PreparationState = "not_started",
@@ -966,6 +1073,7 @@ def _bounded_summary(
     return {
         "operator_status": operator_status,
         "operator_reason": operator_reason,
+        "trace_path": str(trace_path) if trace_path is not None else None,
         "intent": _FIXED_INTENT,
         "profile": roles.profile if roles is not None else _PROFILE,
         "planner_model": roles.planner_model if roles is not None else None,
@@ -986,10 +1094,15 @@ def _bounded_summary(
     }
 
 
-def _profile_refusal_summary(exc: _ProfileRefusal) -> dict[str, object]:
+def _profile_refusal_summary(
+    exc: _ProfileRefusal,
+    *,
+    trace_path: Path | None = None,
+) -> dict[str, object]:
     summary = _bounded_summary(
         operator_status="refused",
         operator_reason=exc.reason,
+        trace_path=trace_path,
     )
     summary["planner_model"] = exc.planner_model
     summary["worker_model"] = exc.worker_model
@@ -1000,10 +1113,13 @@ def _preparation_failure_summary(
     roles: _ResolvedRoles,
     target: _ResolvedRhinoTarget,
     exc: _PreparationFailure,
+    *,
+    trace_path: Path | None = None,
 ) -> dict[str, object]:
     return _bounded_summary(
         operator_status="preparation_failed",
         operator_reason=exc.reason,
+        trace_path=trace_path,
         roles=roles,
         target=target,
         preparation_state=exc.state,
@@ -1014,11 +1130,14 @@ def _preparation_failure_summary(
 def _post_preparation_failure_summary(
     roles: _ResolvedRoles,
     exc: _PostPreparationFailure,
+    *,
+    trace_path: Path | None = None,
 ) -> dict[str, object]:
     return _verified_preparation_internal_error_summary(
         roles,
         exc.target,
         exc.preparation,
+        trace_path=trace_path,
     )
 
 
@@ -1026,10 +1145,13 @@ def _verified_preparation_internal_error_summary(
     roles: _ResolvedRoles,
     target: _ResolvedRhinoTarget,
     preparation: _PreparedDocument,
+    *,
+    trace_path: Path | None = None,
 ) -> dict[str, object]:
     return _bounded_summary(
         operator_status="failed",
         operator_reason="operator_internal_error",
+        trace_path=trace_path,
         roles=roles,
         target=target,
         preparation_state=preparation.state,
@@ -1043,16 +1165,101 @@ def _verified_preparation_internal_error_summary(
 def _operator_internal_error_summary(
     roles: _ResolvedRoles | None,
     target: _ResolvedRhinoTarget | None,
+    *,
+    trace_path: Path | None = None,
 ) -> dict[str, object]:
     return _bounded_summary(
         operator_status="failed",
         operator_reason="operator_internal_error",
+        trace_path=trace_path,
         roles=roles,
         target=target,
         planner_calls=None,
         worker_calls=None,
         execution_tool_calls=None,
     )
+
+
+def _run_finished_payload(
+    summary: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "operator_status": summary["operator_status"],
+        "operator_reason": summary["operator_reason"],
+        "document_preparation_status": summary[
+            "document_preparation_status"
+        ],
+        "preparation_tool_calls": summary["preparation_tool_calls"],
+        "planner_calls": summary["planner_calls"],
+        "worker_calls": summary["worker_calls"],
+        "execution_tool_calls": summary["execution_tool_calls"],
+    }
+
+
+def _trace_write_failure_summary(
+    *,
+    trace_path: Path | None,
+    roles: _ResolvedRoles | None = None,
+    target: _ResolvedRhinoTarget | None = None,
+    preparation_status: _PreparationState = "not_started",
+    call_counts: _LiveCallCounts | None = None,
+    known_native_summary: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    if known_native_summary is None:
+        summary = _bounded_summary(
+            operator_status="failed",
+            operator_reason="trace_write_failed",
+            trace_path=trace_path,
+            roles=roles,
+            target=target,
+            preparation_state=preparation_status,
+            preparation_tool_calls=(
+                call_counts.preparation if call_counts is not None else 0
+            ),
+            planner_calls=call_counts.planner if call_counts is not None else 0,
+            worker_calls=call_counts.worker if call_counts is not None else 0,
+            execution_tool_calls=(
+                call_counts.execution if call_counts is not None else 0
+            ),
+        )
+    else:
+        summary = dict(known_native_summary)
+        summary["operator_status"] = "failed"
+        summary["operator_reason"] = "trace_write_failed"
+        summary["trace_path"] = (
+            str(trace_path) if trace_path is not None else None
+        )
+        if call_counts is not None:
+            summary["preparation_tool_calls"] = call_counts.preparation
+            summary["planner_calls"] = call_counts.planner
+            summary["worker_calls"] = call_counts.worker
+            summary["execution_tool_calls"] = call_counts.execution
+    return summary
+
+
+def _finish_trace_or_failure(
+    recorder: _JsonlFlightRecorder,
+    summary: Mapping[str, object],
+    *,
+    call_counts: _LiveCallCounts,
+) -> dict[str, object]:
+    try:
+        recorder.finish(_run_finished_payload(summary))
+    except _TraceWriteFailure:
+        _close_incomplete_trace(recorder)
+        return _trace_write_failure_summary(
+            trace_path=recorder.path,
+            call_counts=call_counts,
+            known_native_summary=summary,
+        )
+    return dict(summary)
+
+
+def _close_incomplete_trace(recorder: _JsonlFlightRecorder) -> None:
+    try:
+        recorder.close_incomplete()
+    except _TraceWriteFailure:
+        pass
 
 
 def _emit_summary(summary: dict[str, object]) -> None:
@@ -1079,56 +1286,180 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if decision == "live_execution_not_requested" else 1
 
+    recorder: _JsonlFlightRecorder | None = None
+    call_counts = _LiveCallCounts()
+    try:
+        recorder = _open_live_flight_recorder()
+        recorder.record(
+            "run_started",
+            {
+                "intent": _FIXED_INTENT,
+                "profile": _PROFILE,
+                "expected_planner_model": _PLANNER_MODEL,
+                "expected_worker_model": _WORKER_MODEL,
+            },
+        )
+    except _TraceWriteFailure as exc:
+        if recorder is not None:
+            _close_incomplete_trace(recorder)
+        _emit_summary(
+            _trace_write_failure_summary(
+                trace_path=exc.path,
+                call_counts=call_counts,
+            )
+        )
+        return 1
+
     roles: _ResolvedRoles | None = None
     target: _ResolvedRhinoTarget | None = None
     try:
         roles = _resolve_hybrid_roles()
     except _ProfileRefusal as exc:
-        _emit_summary(_profile_refusal_summary(exc))
+        summary = _finish_trace_or_failure(
+            recorder,
+            _profile_refusal_summary(exc, trace_path=recorder.path),
+            call_counts=call_counts,
+        )
+        _emit_summary(summary)
         return 1
     except Exception:
-        _emit_summary(_operator_internal_error_summary(None, None))
+        summary = _finish_trace_or_failure(
+            recorder,
+            _operator_internal_error_summary(
+                None,
+                None,
+                trace_path=recorder.path,
+            ),
+            call_counts=call_counts,
+        )
+        _emit_summary(summary)
         return 1
 
     try:
         target = _resolve_single_rhino_target(discover_instances())
     except _TargetRefusal as exc:
-        _emit_summary(
+        summary = _finish_trace_or_failure(
+            recorder,
             _bounded_summary(
                 operator_status="refused",
                 operator_reason=exc.reason,
+                trace_path=recorder.path,
                 roles=roles,
+            ),
+            call_counts=call_counts,
+        )
+        _emit_summary(summary)
+        return 1
+    except Exception:
+        summary = _finish_trace_or_failure(
+            recorder,
+            _operator_internal_error_summary(
+                roles,
+                None,
+                trace_path=recorder.path,
+            ),
+            call_counts=call_counts,
+        )
+        _emit_summary(summary)
+        return 1
+
+    try:
+        live_run = asyncio.run(
+            _run_live_once(
+                roles,
+                target,
+                recorder=recorder,
+                call_counts=call_counts,
+            )
+        )
+    except _PreparationTraceFailure as exc:
+        _close_incomplete_trace(recorder)
+        _emit_summary(
+            _trace_write_failure_summary(
+                trace_path=recorder.path,
+                roles=roles,
+                target=target,
+                preparation_status=exc.state,
+                call_counts=call_counts,
             )
         )
         return 1
-    except Exception:
-        _emit_summary(_operator_internal_error_summary(roles, None))
+    except _PostPreparationTraceFailure as exc:
+        _close_incomplete_trace(recorder)
+        _emit_summary(
+            _trace_write_failure_summary(
+                trace_path=recorder.path,
+                roles=roles,
+                target=target,
+                preparation_status=exc.preparation.state,
+                call_counts=call_counts,
+            )
+        )
         return 1
-
-    try:
-        live_run = asyncio.run(_run_live_once(roles, target))
     except _PreparationFailure as exc:
-        _emit_summary(_preparation_failure_summary(roles, target, exc))
+        summary = _finish_trace_or_failure(
+            recorder,
+            _preparation_failure_summary(
+                roles,
+                target,
+                exc,
+                trace_path=recorder.path,
+            ),
+            call_counts=call_counts,
+        )
+        _emit_summary(summary)
         return 1
     except _PostPreparationFailure as exc:
-        _emit_summary(_post_preparation_failure_summary(roles, exc))
+        summary = _finish_trace_or_failure(
+            recorder,
+            _post_preparation_failure_summary(
+                roles,
+                exc,
+                trace_path=recorder.path,
+            ),
+            call_counts=call_counts,
+        )
+        _emit_summary(summary)
         return 1
     except Exception:
-        _emit_summary(_operator_internal_error_summary(roles, target))
+        summary = _finish_trace_or_failure(
+            recorder,
+            _operator_internal_error_summary(
+                roles,
+                target,
+                trace_path=recorder.path,
+            ),
+            call_counts=call_counts,
+        )
+        _emit_summary(summary)
         return 1
 
     try:
-        summary = _summary_from_result(roles, live_run)
-        _emit_summary(summary)
+        summary = _summary_from_result(
+            roles,
+            live_run,
+            trace_path=recorder.path,
+            call_counts=call_counts,
+        )
     except Exception:
-        _emit_summary(
+        summary = _finish_trace_or_failure(
+            recorder,
             _verified_preparation_internal_error_summary(
                 roles,
                 live_run.target,
                 live_run.preparation,
-            )
+                trace_path=recorder.path,
+            ),
+            call_counts=call_counts,
         )
+        _emit_summary(summary)
         return 1
+    summary = _finish_trace_or_failure(
+        recorder,
+        summary,
+        call_counts=call_counts,
+    )
+    _emit_summary(summary)
     return 0 if summary["operator_status"] == "completed" else 1
 
 
