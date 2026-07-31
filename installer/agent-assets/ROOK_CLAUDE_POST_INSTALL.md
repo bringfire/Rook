@@ -12,12 +12,12 @@ after installing it. Run these checks in order, then clean up and report.
    document objects to confirm it exists.
 4. Grasshopper (only if GH is open) — take a canvas snapshot to confirm GH control;
    skip if GH isn't open.
-5. Skills — confirm the Rook skills are available (e.g. /design-grasshopper, /chirp,
-   /design-road). If they're missing and you can run slash commands, install the
+5. Skills — confirm the Rook skills are available (e.g. /design-grasshopper and
+   /chirp). If they're missing and you can run slash commands, install the
    plugin (otherwise ask me to run these):
        /plugin marketplace add bringfire/rook-release
        /plugin install rook@rook
-   then confirm the 11 skills appear.
+   then confirm the curated Rook skills appear.
 6. Clean up — delete the test sphere you created (and any test layer) so my document
    is left exactly as it was.
 7. Report — a short PASS/FAIL for each step; for any FAIL, the most likely cause and

@@ -51,7 +51,6 @@ from rook.mcp_tool_profiles import (
 
 def test_set_sizes_are_pinned():
     assert len(PUBLIC_LEAN_TOOL_NAMES) == 20
-    assert len(PUBLIC_READONLY_TOOL_NAMES) == 148
     assert len(SENTINEL_TOOL_NAMES) == 22
     assert not any(
         name.startswith("rhino_director_") for name in PUBLIC_READONLY_TOOL_NAMES

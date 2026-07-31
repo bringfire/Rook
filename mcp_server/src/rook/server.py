@@ -3234,13 +3234,8 @@ mcp = Server(
 )
 
 
-async def _all_live_tools() -> list[Tool]:
-    """The deprecated-gated, UNPROFILED tool surface.
-
-    Source of truth for the capability index and for ``list_tools()``. Not
-    profile-filtered — callers wanting the active MCP profile must project via
-    ``list_tools()``.
-    """
+async def _all_tool_schemas() -> list[Tool]:
+    """Raw tool schemas before deprecated gates, lifecycle admission, or profiles."""
 
     all_tools = [
         Tool(
@@ -12908,8 +12903,8 @@ Returns the full profile JSON including features, surfaces, and elements.""",
             name="rook_tools_search",
             description=(
                 "Search the Rook tool catalog by keyword; returns matching tools with a one-line "
-                "summary each. Covers the full tool surface — geometry, Grasshopper, vision, "
-                "RoadCreator, BIM, scene, video, knowledge. Use this to discover a tool, then "
+                "summary each. Covers the full tool surface — geometry, Grasshopper, native "
+                "road intersections, vision, BIM, scene, video, knowledge. Use this to discover a tool, then "
                 "rook_tools_read for its schema and rook_tools_call to invoke it. "
                 "Exact hidden GH aliases resolve through this gateway, including "
                 "gh_update_script, gh_set_script_pins, gh_status, gh_create_csharp_script, "
@@ -12963,15 +12958,19 @@ Returns the full profile JSON including features, surfaces, and elements.""",
         ),
     ]
 
+    return all_tools
+
+
+async def _all_live_tools() -> list[Tool]:
+    """Deprecated-gated, lifecycle-admitted, unprofiled tool surface."""
+    all_tools = await _all_tool_schemas()
     if not _interactive_command_learning_enabled():
-        live_tools = [
-            tool for tool in all_tools
+        all_tools = [
+            tool
+            for tool in all_tools
             if tool.name not in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
         ]
-    else:
-        live_tools = all_tools
-
-    return [tool for tool in live_tools if resolve_contained_tool(tool.name) is None]
+    return [tool for tool in all_tools if resolve_contained_tool(tool.name) is None]
 
 
 @mcp.list_tools()

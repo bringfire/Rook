@@ -16,7 +16,8 @@ from rook.agent.tool_dispatcher import ToolDispatcher  # noqa: E402
 from rook.tool_lifecycle import CONTAINED_TOOLS  # noqa: E402
 
 
-CONTAINED = [entry.name for entry in CONTAINED_TOOLS]
+PINNED = [entry.name for entry in CONTAINED_TOOLS]
+DENIED = [*PINNED, "rc_future_probe"]
 
 
 class UntouchableArguments(dict):
@@ -41,7 +42,7 @@ def _assert_denial(payload: dict, name: str) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("name", CONTAINED)
+@pytest.mark.parametrize("name", DENIED)
 async def test_public_and_server_dispatch_deny_before_argument_access(name: str) -> None:
     from rook import server
 
@@ -52,7 +53,7 @@ async def test_public_and_server_dispatch_deny_before_argument_access(name: str)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("name", CONTAINED)
+@pytest.mark.parametrize("name", DENIED)
 async def test_progressive_meta_denies_target_before_target_arguments(name: str) -> None:
     from rook import server
 
@@ -69,7 +70,7 @@ async def test_progressive_meta_denies_target_before_target_arguments(name: str)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("name", CONTAINED)
+@pytest.mark.parametrize("name", DENIED)
 async def test_internal_executor_and_private_handlers_deny_without_work(name: str) -> None:
     from rook import server
 
@@ -86,7 +87,7 @@ async def test_internal_executor_and_private_handlers_deny_without_work(name: st
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("name", CONTAINED)
+@pytest.mark.parametrize("name", DENIED)
 async def test_tool_dispatcher_all_entry_seams_deny_before_params_or_handlers(name: str) -> None:
     called = False
 
@@ -111,6 +112,7 @@ async def test_tool_dispatcher_all_entry_seams_deny_before_params_or_handlers(na
 def test_tool_dispatcher_refuses_contained_local_registration() -> None:
     dispatcher = ToolDispatcher()
     dispatcher.register_local("spawn_agent", object())
+    dispatcher.register_local("rc_future_probe", object())
     dispatcher.register_locals({"gh_execute_intent": object(), "safe_tool": object()})
     assert set(dispatcher._local_tools) == {"safe_tool"}
 

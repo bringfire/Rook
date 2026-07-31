@@ -325,43 +325,6 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "road_intersection_resolve",
     ],
 
-    # --- Road design (RoadCreator urban, accessories, terrain) ---
-    "road_design": [
-        "rc_sidewalk_profile",
-        "rc_roundabout_params",
-        "rc_crossing_params",
-        "rc_guardrail_profile",
-        "rc_pole_spacing",
-        "rc_concrete_barrier_profile",
-        "rc_deltablok_profile",
-        "rc_verge_profile",
-        "rc_slope_profile",
-        "rc_widening",
-        "rc_terrain_profile",
-        "rc_contour_levels",
-        "rc_validate_profile",
-        "rc_validate_style_set",
-        # Parametric geometry (document-mutating)
-        "rc_sidewalk",
-        "rc_guardrail",
-        "rc_crossing",
-        "rc_slopes",
-        "rc_longitudinal_profile",
-        "rc_road_footprint",
-        # Network topology
-        "rc_resolve_edges",
-        "rc_apply_intersection_ownership",
-        "rc_apply_sidewalk_ownership",
-        "rc_sidewalk_corners",
-        # Profile builder
-        "rc_build_profile",
-        "rc_validate_road_profile",
-        "rc_store_road_profile",
-        "rc_project_offset_profile",
-        "rc_get_road_profile",
-        "rc_list_road_profiles",
-    ],
-
     # --- Annotation & Text ---
     "annotation": [
         "rhino_dimension", "rhino_text",

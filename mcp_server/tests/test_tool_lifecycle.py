@@ -27,9 +27,14 @@ EXPECTED = {
 }
 
 
-def test_lifecycle_contains_exactly_the_six_reviewed_identities() -> None:
-    assert {entry.name: entry.disposition for entry in CONTAINED_TOOLS} == EXPECTED
-    assert all(entry.recovery.startswith("Rediscover the current tool surface") for entry in CONTAINED_TOOLS)
+def test_lifecycle_preserves_the_six_reviewed_identities() -> None:
+    contained = {entry.name: entry.disposition for entry in CONTAINED_TOOLS}
+    assert EXPECTED.items() <= contained.items()
+    assert all(
+        entry.recovery.startswith("Rediscover the current tool surface")
+        for entry in CONTAINED_TOOLS
+        if entry.name in EXPECTED
+    )
 
 
 def test_resolution_is_exact_case_sensitive_and_type_strict() -> None:

@@ -13,10 +13,10 @@ after installing it. Run these checks in order, then clean up and report.
 4. Grasshopper (only if GH is open) — take a canvas snapshot to confirm GH control;
    skip if GH isn't open.
 5. Skills — confirm the curated Rook skills are installed (under ~/.codex/skills)
-   and that AGENTS.md guidance is present. You should have the 11 user skills:
+   and that AGENTS.md guidance is present. You should have the curated Rook user skills:
    design-grasshopper, plan-grasshopper, execute-grasshopper, chirp, chirp-cascade,
-   design-road, masterplan-roads, capture-convention, clean-layers, project-setup,
-   twisted-column. If any are missing, tell me to re-run the Rook installer with
+   capture-convention, clean-layers, project-setup, twisted-column. If any are missing,
+   tell me to re-run the Rook installer with
    Codex support.
 6. Clean up — delete the test sphere you created (and any test layer) so my document
    is left exactly as it was.

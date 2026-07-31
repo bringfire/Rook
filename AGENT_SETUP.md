@@ -24,8 +24,8 @@ experience:
 
 Other MCP-compatible clients (Cursor, Windsurf, and the older "Claude Desktop" chat
 app at claude.ai/download) get the **nearly 400 MCP tools**, but not the orchestration
-skills (`/design-grasshopper`, `/plan-grasshopper`, `/execute-grasshopper`,
-`/design-road`, etc.) or the session-start hook — those are Claude Code (marketplace
+skills (`/design-grasshopper`, `/plan-grasshopper`, `/execute-grasshopper`, etc.)
+or the session-start hook — those are Claude Code (marketplace
 plugin) and Codex (installer) features. For the guided workflows, use Claude Code or
 Codex.
 
@@ -275,7 +275,7 @@ Set these in `mcp_server/.env` or as system environment variables.
 
 ## After Setup
 
-Once verified, the default full profile advertises 422 tools. Key tools to start with:
+Once verified, the default full profile is ready. Key tools to start with:
 
 | Tool | Purpose |
 |------|---------|

@@ -1,7 +1,7 @@
 # Rook — AI Agents for Rhino & Grasshopper
 
 > An agent platform that lets AI operate directly inside Rhino 3D
-> and Grasshopper. 422 MCP tools advertised by default, or 425 with the interactive gate. Works with any LLM provider.
+> and Grasshopper. The Python MCP surface is lifecycle-admitted and profile-filtered; `test_server_tool_profiles.py` is the authoritative count contract. Works with any LLM provider.
 
 ---
 
@@ -43,7 +43,7 @@ When `correction_detected: true` appears in tool output, call `knowledge_record`
 
 ## Primary Tools
 
-There are 422 MCP tools advertised by `list_tools()` by default and 425 when deprecated interactive command learning is explicitly enabled. Two paths matter most.
+The Python MCP surface is lifecycle-admitted and profile-filtered; `test_server_tool_profiles.py` is the authoritative count contract. Two paths matter most.
 
 ### For Grasshopper: prefer the batch path — `gh_snapshot` → `gh_edit`
 

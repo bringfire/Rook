@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -47,6 +48,79 @@ BACKTICK_TOKEN_RE = re.compile(r"`([^`\r\n]+)`")
 MCP_TOOL_NAME_RE = re.compile(r"[a-z][a-z0-9_]*_[a-z0-9_]+")
 SLASH_COMMAND_RE = re.compile(r"/[a-z][a-z0-9-]*")
 ALLOWED_SLASH_COMMANDS = frozenset({"/mcp", "/chirp", "/chirp-cascade"})
+RETIRED_SKILL_ROOTS = (
+    ROOT / ".agents" / "skills" / "design-road",
+    ROOT / ".agents" / "skills" / "masterplan-roads",
+    ROOT / ".claude" / "skills" / "design-road",
+    ROOT / ".claude" / "skills" / "masterplan-roads",
+    ROOT / "installer" / "agent-assets" / "codex-skills" / "design-road",
+    ROOT / "installer" / "agent-assets" / "codex-skills" / "masterplan-roads",
+)
+RETIRED_GUIDANCE_IDENTITIES = (
+    "design-road",
+    "masterplan-roads",
+    "RoadCreator",
+    "RookRoads",
+)
+ACTIVE_RETIREMENT_GUIDANCE_FILES = (
+    ROOT / "README.md",
+    ROOT / "QUICK_START.md",
+    ROOT / "AGENT_SETUP.md",
+    ROOT / "installer" / "agent-assets" / "ROOK_CLAUDE_POST_INSTALL.md",
+    ROOT / "installer" / "agent-assets" / "ROOK_CODEX_POST_INSTALL.md",
+    ROOT / "scripts" / "session-start.sh",
+)
+RETAINED_WASP_SKILL_ROOTS = tuple(
+    ROOT / prefix / skill
+    for prefix in (
+        Path(".agents/skills"),
+        Path(".claude/skills"),
+        Path("installer/agent-assets/codex-skills"),
+    )
+    for skill in ("chirp-cascade", "design-grasshopper", "plan-grasshopper")
+)
+
+
+def test_retired_road_skill_roots_are_absent() -> None:
+    assert [str(path.relative_to(ROOT)) for path in RETIRED_SKILL_ROOTS if path.exists()] == []
+
+
+def test_scoped_active_guidance_has_no_retired_road_identity() -> None:
+    findings = []
+    for path in ACTIVE_RETIREMENT_GUIDANCE_FILES:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for identity in RETIRED_GUIDANCE_IDENTITIES:
+            if identity in text:
+                findings.append(f"{path.relative_to(ROOT)}: {identity}")
+    assert findings == []
+
+
+@pytest.mark.asyncio
+async def test_live_model_visible_catalog_has_no_retired_road_identity() -> None:
+    from rook import server
+
+    tools = await server._all_live_tools()
+    rendered = json.dumps(
+        [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.inputSchema,
+            }
+            for tool in tools
+        ],
+        sort_keys=True,
+    )
+    assert [identity for identity in RETIRED_GUIDANCE_IDENTITIES if identity in rendered] == []
+
+
+def test_retained_wasp_skill_roots_remain_outside_retired_roots() -> None:
+    for path in RETAINED_WASP_SKILL_ROOTS:
+        assert path.is_dir(), path
+        skill_file = path / "SKILL.md"
+        assert skill_file.is_file(), skill_file
+        assert "Wasp" in skill_file.read_text(encoding="utf-8", errors="replace")
+        assert all(retired not in path.parents and path != retired for retired in RETIRED_SKILL_ROOTS)
 
 
 def test_active_and_installer_shipped_guidance_has_no_contained_identity() -> None:
@@ -62,20 +136,6 @@ def test_active_and_installer_shipped_guidance_has_no_contained_identity() -> No
         if hits:
             findings.append(f"{path.relative_to(ROOT)}: {', '.join(hits)}")
     assert findings == []
-
-
-def test_current_architecture_documents_pin_live_profile_counts() -> None:
-    root_guidance = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    current = (ROOT / "docs" / "CURRENT_ARCHITECTURE.md").read_text(encoding="utf-8")
-    agent = (ROOT / "docs" / "AGENT_ARCHITECTURE.md").read_text(encoding="utf-8")
-
-    assert "422 tools advertised by `list_tools()`" in root_guidance
-    assert "422 advertised by default (`full`)" in current
-    assert "20 advertised by `lean`" in current
-    assert "148 advertised by `readonly`" in current
-    assert "With 422 MCP tools advertised by `list_tools()`" in agent
-    assert "The `lean` profile advertises 20 tools" in agent
-    assert "the `readonly` profile advertises 148 tools" in agent
 
 
 @pytest.mark.asyncio
