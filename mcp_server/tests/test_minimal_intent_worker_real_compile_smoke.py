@@ -521,6 +521,33 @@ def test_open_live_flight_recorder_creates_exclusive_local_file(
     assert recorder.path.read_bytes() == b""
 
 
+def test_open_live_flight_recorder_uses_unbuffered_exclusive_stream(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    real_open = Path.open
+    observed: list[tuple[str, int]] = []
+
+    def capture_open(
+        path: Path,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ):
+        observed.append((mode, buffering))
+        return real_open(path, mode, buffering, encoding, errors, newline)
+
+    monkeypatch.setattr(Path, "open", capture_open)
+
+    recorder = SMOKE._open_live_flight_recorder()
+
+    assert observed == [("xb", 0)]
+    recorder.close_incomplete()
+
+
 def test_open_live_flight_recorder_requires_nonblank_localappdata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -621,6 +648,50 @@ def test_flight_recorder_finish_close_failure_retains_flushed_terminal_row(
     assert row["event"] == "run_finished"
 
 
+def test_flight_recorder_failed_close_cleanup_is_one_shot(tmp_path: Path) -> None:
+    stream = _TraceStream(fail_close=True)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.finish({"operator_status": "completed"})
+    assert raised.value.reason == "close_failed"
+    retained = bytes(stream.content)
+
+    recorder.close_incomplete()
+    recorder.close_incomplete()
+
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    assert stream.close_calls == 1
+    assert bytes(stream.content) == retained
+
+
+def test_flight_recorder_failed_flush_cleanup_does_not_repeat_io(
+    tmp_path: Path,
+) -> None:
+    stream = _TraceStream(fail_flush_at=1)
+    recorder = SMOKE._JsonlFlightRecorder(
+        path=tmp_path / "flight.jsonl",
+        stream=stream,
+        clock=lambda: _TRACE_TIME,
+    )
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        recorder.record("run_started", {"intent": "fixed"})
+    assert raised.value.reason == "flush_failed"
+    retained = bytes(stream.content)
+
+    recorder.close_incomplete()
+    recorder.close_incomplete()
+
+    assert stream.write_calls == 1
+    assert stream.flush_calls == 1
+    assert stream.close_calls == 1
+    assert bytes(stream.content) == retained
+
+
 def test_flight_recorder_closes_failed_partial_trace_without_new_row(
     tmp_path: Path,
 ) -> None:
@@ -711,6 +782,27 @@ def test_flight_recorder_rejection_write_or_flush_failure_still_terminates(
         recorder.record("run_finished", {})
     assert bytes(stream.content) == retained
     assert stream.write_calls == 1
+
+
+def test_open_live_flight_recorder_bounds_path_resolution_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    real_resolve = Path.resolve
+
+    def fail_trace_resolve(path: Path, *args: Any, **kwargs: Any) -> Path:
+        if path.suffix == ".jsonl":
+            raise OSError("PATH_RESOLVE_SENTINEL")
+        return real_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", fail_trace_resolve)
+
+    with pytest.raises(SMOKE._TraceWriteFailure) as raised:
+        SMOKE._open_live_flight_recorder()
+
+    assert raised.value.reason == "trace_path_prepare_failed"
+    assert raised.value.path is None
 
 
 def _planner_payload() -> dict[str, Any]:

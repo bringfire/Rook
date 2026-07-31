@@ -171,6 +171,7 @@ class _JsonlFlightRecorder:
         self._sequence = 0
         self._failed = False
         self._closed = False
+        self._close_attempted = False
 
     @property
     def path(self) -> Path:
@@ -243,7 +244,7 @@ class _JsonlFlightRecorder:
         self._close()
 
     def close_incomplete(self) -> None:
-        if self._closed:
+        if self._close_attempted:
             return
         self._close()
 
@@ -326,6 +327,9 @@ class _JsonlFlightRecorder:
         raise _TraceWriteFailure(reason, self._path)
 
     def _close(self) -> None:
+        if self._close_attempted:
+            return
+        self._close_attempted = True
         try:
             self._stream.close()
         except Exception:
@@ -343,14 +347,17 @@ def _open_live_flight_recorder() -> _JsonlFlightRecorder:
         trace_directory.mkdir(parents=True, exist_ok=True)
     except Exception:
         raise _TraceWriteFailure("trace_directory_create_failed", None) from None
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    filename = (
-        f"minimal-intent-worker-real-compile-{stamp}-"
-        f"p{os.getpid()}-{secrets.token_hex(4)}.jsonl"
-    )
-    path = (trace_directory / filename).resolve()
     try:
-        stream = path.open("xb")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        filename = (
+            f"minimal-intent-worker-real-compile-{stamp}-"
+            f"p{os.getpid()}-{secrets.token_hex(4)}.jsonl"
+        )
+        path = (trace_directory / filename).resolve()
+    except Exception:
+        raise _TraceWriteFailure("trace_path_prepare_failed", None) from None
+    try:
+        stream = path.open("xb", buffering=0)
     except Exception:
         raise _TraceWriteFailure("exclusive_open_failed", None) from None
     return _JsonlFlightRecorder(
