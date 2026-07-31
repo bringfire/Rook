@@ -1,9 +1,9 @@
 # RoadCreator/RookRoads Surface Containment Design
 
-- **Status:** Proposed for review
+- **Status:** Approved
 - **Date:** 2026-07-31
 - **Roadmap:** [Rook release surface hardening roadmap](../../roadmaps/2026-07-31-release-surface-hardening-roadmap.md)
-- **Baseline:** `90242fa4f09abf8f3b8ec994044787b61e77b446`
+- **Implementation base:** `c7687554ceba29be8cf559cb3244cce0d56d6fd1`
 
 ## Decision
 
@@ -12,113 +12,180 @@ their user-facing and agent-facing surfaces so users and agents do not see or
 accidentally invoke them.
 
 This is a surface-containment change, not an implementation purge. Dormant RoadCreator
-and RookRoads adapter, bridge, targeting, native, compatibility, test-fixture, and
-historical code may remain when the admitted product cannot discover or dispatch it.
+and RookRoads schemas, handlers, `/rc/*` routes, adapters, bridge compatibility, and
+native code remain when the admitted product cannot discover or dispatch them.
 
-Wasp is explicitly outside this containment change. Its skills, references, knowledge,
-and Grasshopper workflows remain intact while a separate optional-integration audit is
-considered.
+The private change ships as one coherent release-surface pull request. That boundary
+does not require one commit and does not make installer or runtime operations
+transactional. It means containment, skill removal, active-guidance correction,
+migration cleanup, and their guards are reviewed and released together.
+
+Wasp is outside this containment change. The six retired road-skill directories are
+deleted in full, including two road-owned scaffold files that mention Wasp. No retained
+Wasp product asset outside those retired roots is modified or deleted.
 
 ## Goals
 
+- Pin the current 40 `rc_*` tool schemas as suspended lifecycle entries.
+- Reserve the `rc_*` namespace centrally so a future name is neither advertised nor
+  dispatchable without an explicit lifecycle decision.
+- Remove all `rc_*` memberships from active profiles, allowlists, targeting policy, and
+  model-facing tool groups.
 - Remove the `design-road` and `masterplan-roads` skills from shipped Claude and Codex
   surfaces.
-- Remove RoadCreator/RookRoads instructions and capability claims from active user and
-  agent guidance.
-- Omit all current `rc_*` tools from public MCP tool lists, profiles, progressive
-  discovery, and model-visible agent catalogs.
-- Deny direct or internally mediated `rc_*` MCP invocation before arguments are read or
-  downstream handlers are called.
-- Clean the two retired Rook-owned Codex skill directories during installer upgrade.
-- Preserve native `road_intersection_*` tools and Wasp without behavioral changes.
-- Accomplish containment through Rook's existing lifecycle mechanism and focused guards.
+- Remove the four retired identities from scoped active user and agent guidance.
+- Deny direct or internally mediated `rc_*` invocation before arguments are read or a
+  downstream handler is selected.
+- Remove the two retired Rook-owned Codex skill paths during every install and repair,
+  independently of Codex component selection.
+- Preserve native `road_intersection_*` tools and retained Wasp content without
+  behavioral changes.
+- Use Rook's existing lifecycle admission/filtering path and focused guards.
 
 ## Non-goals
 
-- Deleting RoadCreator/RookRoads adapter implementations or `/rc/*` route strings.
+- Deleting RoadCreator/RookRoads schemas, handlers, adapters, or `/rc/*` route strings.
 - Refactoring `mcp_server/src/rook/bridge.py` or its compatibility discovery records.
 - Removing RoadCreator-aware code from `src/RookNative`.
 - Changing native `road_intersection_candidates` or `road_intersection_resolve`.
 - Removing bundled road-profile knowledge or native road geometry behavior.
-- Removing or rewriting Wasp content.
+- Extracting or relocating the road-owned Wasp scaffold files from retired skills.
+- Removing, rewriting, or permanently hash-pinning retained Wasp content.
 - Cleaning historical specifications, plans, reports, probes, or postmortems.
-- Creating a feature flag, extension framework, migration service, or generalized plugin
-  support system.
+- Adding permanent unsupported notices to active guidance.
+- Creating a feature flag, extension framework, migration service, generalized
+  filesystem-cleanup framework, or generalized plugin-support system.
+- Admitting adjacent cleanup or refactoring into the containment pull request.
 
 ## Approaches considered
 
-### 1. Existing lifecycle containment plus skill removal — selected
+### 1. Existing lifecycle containment plus surface removal — selected
 
-Add the current `rc_*` names to Rook's lifecycle-containment registry, remove their
-active profile/group/targeting memberships, delete the two shipped skills, and remove
-active claims. The existing containment layer already filters public catalogs,
-progressive disclosure, agent registries, and execution seams.
+Add the exact current `rc_*` names to Rook's lifecycle registry, reserve the namespace
+through the same central admission path, remove active memberships, delete the two
+shipped skills from all three payload roots, correct active claims, and perform the
+exact-path installer migration.
 
-This is the smallest change that both hides and blocks the unsupported surface while
-leaving dormant implementation available in Git and source.
+This is the smallest change that hides and blocks the unsupported surface while leaving
+dormant implementation available in Git and source.
 
-### 2. Hide the tools only from the default profile — rejected
+### 2. Hide the tools only from profiles and catalogs — rejected
 
-Profile-only hiding would leave the tools visible through the full profile and
-progressive catalog and would not reliably block direct calls. It does not meet the
-requirement that agents cannot mistakenly invoke the surface.
+Catalog-only hiding can leave known names directly invocable and does not protect a
+future `rc_*` schema from accidental admission. It does not meet the execution-safety
+requirement.
 
 ### 3. Delete every RoadCreator-related implementation — rejected
 
-This would touch bridge discovery, native intersection delegation, compatibility
-parsers, developer tooling, and broad tests without improving the user-facing
-containment result. It creates unnecessary regression risk and violates the KISS scope.
+An implementation purge would touch bridge discovery, native delegation, compatibility
+parsers, developer tooling, and broad tests without improving the admitted release
+surface. It expands regression risk and violates the KISS boundary.
 
 ## Current exposed surface
 
-At the baseline, the active surface includes:
+At the implementation base, the active surface includes:
 
-- 40 `rc_*` tool schemas in `mcp_server/src/rook/server.py`;
-- `rc_*` memberships in full profiles, targeting policy, and agent tool groups;
-- progressive search/read/call access to those tool schemas;
+- 40 raw `rc_*` tool schemas in `mcp_server/src/rook/server.py`;
+- `rc_*` memberships in active profiles or allowlists, targeting policy, and the
+  `road_design` model-facing tool group;
+- public and progressive list/search/read/call access to those schemas;
 - internal agent dispatcher mappings;
-- `design-road` and `masterplan-roads` in `.agents/skills`, `.claude/skills`, and the
+- `design-road` and `masterplan-roads` under `.agents/skills`, `.claude/skills`, and the
   curated installer Codex payload;
-- a Claude session-start instruction that automatically selects `/design-road`;
-- RoadCreator/RookRoads claims in active README, quick-start, agent-setup, and
-  post-install guidance; and
-- public plugin skills and product-site claims that are promoted separately through the
-  `rook-release` repository.
+- a Claude session-start instruction that selects `/design-road`;
+- RoadCreator/RookRoads claims in active README, quick-start, agent-setup, post-install,
+  and shipped skill-catalog guidance; and
+- public plugin and product-site claims promoted separately through `rook-release`.
 
-The source also contains dormant adapter, bridge, native, compatibility, developer, and
-historical references. Those are not removal targets under this design.
+Dormant adapter, bridge, native, compatibility, developer, and historical references
+are not removal targets.
 
-## Containment contract
+## Runtime containment contract
 
-### MCP lifecycle
+### Pinned raw schema inventory
 
-The 40 names present at the baseline are added as exact lifecycle entries with one shared
-unsupported-integration recovery message. They use the existing `suspended` disposition:
-the implementation remains in source, but it is not admitted to the product surface.
+The raw schema source is inspected before lifecycle filtering. Its `rc_*` inventory is
+exactly these 40 names:
 
-The existing lifecycle path remains authoritative:
+```text
+rc_apply_intersection_ownership
+rc_apply_sidewalk_ownership
+rc_assemble_route
+rc_build_profile
+rc_clothoid
+rc_concrete_barrier_profile
+rc_contour_levels
+rc_cross_section
+rc_crossing
+rc_crossing_params
+rc_cubic_parabola
+rc_deltablok_profile
+rc_extract_offsets
+rc_get_road_profile
+rc_guardrail
+rc_guardrail_profile
+rc_list_road_profiles
+rc_longitudinal_profile
+rc_ping
+rc_pole_spacing
+rc_project_offset_profile
+rc_resolve_edges
+rc_road_3d
+rc_road_footprint
+rc_roads
+rc_roundabout_params
+rc_sidewalk
+rc_sidewalk_corners
+rc_sidewalk_profile
+rc_slope_profile
+rc_slopes
+rc_standards
+rc_store_road_profile
+rc_terrain_profile
+rc_validate_profile
+rc_validate_road_profile
+rc_validate_style_set
+rc_verge_profile
+rc_vertical_curve
+rc_widening
+```
 
-- `_all_live_tools` omits contained names before public `list_tools` projection;
-- capability indexes, caches, progressive search, and progressive read omit them;
-- public MCP, progressive call, server dispatch, Rook agent, Rook chat, plan graph,
-  tool dispatcher, and internal handlers deny them before argument access or downstream
-  work; and
-- containment denial remains bounded, non-retryable, and telemetry-compatible.
+Every pinned name receives an exact lifecycle entry with the existing `suspended`
+disposition and a shared unsupported-integration recovery message.
 
-No new wildcard or plugin framework is introduced. The exact tombstone list is pinned by
-tests. A guard separately prohibits any advertised or dispatchable `rc_*` name, so a
-future addition cannot silently escape containment.
+### Central namespace reservation
 
-Active `rc_*` memberships are removed from MCP profiles, targeting sets, and model-facing
-tool groups. Dormant schemas, handler cases, dispatcher mappings, `/rc/*` routing, and
-bridge discovery may remain because lifecycle denial prevents admitted execution.
+The existing lifecycle admission/filtering path remains the one authority for catalogs
+and dispatch. It gains one narrow `rc_*` namespace rule rather than scattering prefix
+checks across ingress points:
+
+- a known pinned name resolves to its normal suspended lifecycle entry;
+- an unknown `rc_*` name resolves to one bounded, non-retryable, fail-closed namespace
+  denial; and
+- a non-`rc_*` name follows existing lifecycle behavior unchanged.
+
+Because public MCP, progressive meta-tools, server dispatch, Rook agent, Rook chat, plan
+graph, tool dispatcher, and internal handlers already use that central decision, both
+known and future `rc_*` names are denied before argument access or downstream dispatch.
+Catalog projection, capability indexes, caches, progressive search, and progressive read
+use the same central decision and cannot advertise either class of name.
+
+The prefix reservation is an admission policy, not a filesystem glob and not a plugin
+framework. A raw-schema contract test forces any future `rc_*` addition, deletion, or
+rename to make an explicit lifecycle and pinned-inventory decision.
+
+All exact `rc_*` memberships are removed from every active profile, full-profile set,
+allowlist, targeting set, and model-facing group. The `road_design` group is removed if
+empty. Dormant schemas, handler cases, dispatcher route mappings, `/rc/*` routing, bridge
+discovery, compatibility records, and adapters remain.
 
 Native `road_intersection_candidates` and `road_intersection_resolve` do not use the
-`rc_*` namespace and remain admitted without contract changes.
+reserved namespace. They remain advertised, readable, and dispatchable to their normal
+routing boundary.
 
-### Skills and guidance
+## Skills, guidance, and Wasp ownership
 
-Delete the following shipped skill directories:
+Delete exactly these six shipped skill roots and all contents beneath them:
 
 - `.agents/skills/design-road`
 - `.agents/skills/masterplan-roads`
@@ -127,73 +194,133 @@ Delete the following shipped skill directories:
 - `installer/agent-assets/codex-skills/design-road`
 - `installer/agent-assets/codex-skills/masterplan-roads`
 
-Remove `/design-road`, `/masterplan-roads`, RoadCreator, and RookRoads capability claims
-from active user/agent documents, post-install guidance, and the session-start hook.
-Where active documentation still describes native road-intersection tools, it must call
-them native Rook tools and must not imply RoadCreator availability.
+Remove these four exact retired identities from scoped active user/agent guidance and
+shipped catalogs:
 
-Historical evidence remains unchanged. Public `rook-release` cleanup is a subsequent
-promotion change built from the contained private source; it does not justify delaying
-private containment.
+- `design-road`
+- `masterplan-roads`
+- `RoadCreator`
+- `RookRoads`
 
-### Upgrade cleanup
+The active scope includes `README.md`, `QUICK_START.md`, `AGENT_SETUP.md`, Claude and
+Codex post-install guidance, `scripts/session-start.sh`, and shipped skill listings,
+counts, and catalogs. Guards use the four exact identities rather than generic words
+such as `road`, so native road tooling and unrelated documentation remain valid.
 
-The Windows post-install step removes only these exact Rook-owned Codex destinations:
+Historical evidence is neither scanned nor rewritten. Active guidance does not become a
+cemetery of unsupported notices. The names may remain only in migration code and focused
+tests, this specification and its roadmap, historical documents, and the one-time public
+release note.
+
+Two Wasp-bearing road scaffold files disappear with their retired parent skills. They
+are not extracted or relocated. For the private pull request, the retained Wasp product
+path/hash inventory in skill/reference roots is derived from the pinned implementation
+base after excluding the six retired roots and compared with the candidate tree. The
+result is PR evidence, not a permanent hash contract. The governing specification and
+roadmap are control documents rather than Wasp payload. A lightweight permanent guard
+only proves that the general retained Wasp skill/reference roots still exist outside the
+retired road roots.
+
+## Installer migration
+
+Retired Codex skill cleanup is a product migration, not a Codex component installation
+action. One small migration-specific helper runs on every install and repair before
+component-specific skill copying.
+
+The helper resolves the current user's canonical `~/.codex/skills` parent once. It then
+constructs exactly two lexical child paths:
 
 - `~/.codex/skills/design-road`
 - `~/.codex/skills/masterplan-roads`
 
-It does not enumerate or recursively clean the parent skill directory, does not match
-wildcards, and does not touch sibling user skills. Cleanup failure is reported as a
-warning and does not corrupt the remaining skill installation.
+For each target, it verifies that the lexical parent is the canonical skills root and
+that the final name is the expected constant. It never resolves the target before
+classification, enumerates the parent, uses a glob or prefix match, deletes a parent, or
+touches Claude and sibling Codex skills.
 
-The installer-staged `.agents/skills` directory continues to be replaced by the existing
+Target classification uses non-following metadata such as `lstat` and the Windows
+reparse attribute:
+
+- an absent target reports `absent`;
+- an ordinary directory is removed recursively and reports `removed_directory`;
+- a symlink, junction, or other reparse point is unlinked without traversing its
+  destination and reports `unlinked_reparse_point`;
+- a regular file is unlinked and reports `removed_file`; and
+- a bounded per-target exception reports `failed`.
+
+Targets are handled independently and cleanup is idempotent. A failure is clearly
+reported in installer output and the install summary as incomplete retired-skill
+containment, while the other target and the remaining supported-skill installation
+continue. Codex selection controls what is subsequently installed; it does not preserve
+retired Rook-owned artifacts.
+
+The installer-staged `.agents/skills` directory continues to be replaced by existing
 installer cleanup, so removed skills cannot remain in the application payload.
 
 ## Verification
 
-### Automated contract tests
+### Permanent automated contracts
 
-- Every baseline `rc_*` name resolves to the lifecycle-containment registry.
-- Public tool lists for full, lean, and readonly profiles contain no `rc_*` name or
-  RoadCreator/RookRoads text.
-- Progressive search and read do not reveal `rc_*` names or schemas.
+- The raw, pre-lifecycle schema inventory equals the pinned 40-name set.
+- Every pinned name has a `suspended` lifecycle entry.
+- A synthetic `rc_future_probe` is hidden and centrally denied before argument or
+  handler access.
+- Active profiles, allowlists, targeting sets, and model-facing groups contain no
+  `rc_*` membership.
+- Public lists and progressive search/read/catalog projections expose no `rc_*` name or
+  schema.
 - Direct public, progressive, server, agent, chat, plan-graph, dispatcher, and internal
-  calls return lifecycle denial before touching arguments or handlers.
-- Profiles, targeting sets, and model-facing tool groups contain no admitted `rc_*`
-  membership.
-- Native `road_intersection_candidates` and `road_intersection_resolve` remain admitted.
-- The six shipped road-skill directories are absent.
-- Active user/agent guidance and session hooks contain no RoadCreator/RookRoads capability
-  claim.
-- Wasp skill/reference inventories are byte-identical before and after this change.
-- Installer upgrade cleanup removes only the two exact retired Codex skill directories
-  and preserves unrelated sibling skills.
-- The default advertised tool count decreases by exactly 40 relative to the pinned
-  baseline; generated counts and release assertions are updated accordingly.
+  calls deny known and synthetic `rc_*` names before touching untouchable arguments or
+  downstream dispatch.
+- `road_intersection_candidates` and `road_intersection_resolve` remain listed,
+  readable, and dispatchable to their normal mocked routing boundaries.
+- One authoritative profile-count contract records full `382`, full with the three
+  deprecated tools `385`, readonly `120`, and lean `20`. Unrelated documents do not
+  duplicate those assertions.
+- The six shipped road-skill roots are absent.
+- Scoped active guidance and shipped catalogs contain none of the four exact retired
+  identities.
+- Installer tests cover Codex selected and deselected, exact removal, sibling and Claude
+  preservation, repeated repair, ordinary files and directories, non-following link or
+  junction removal, independent failure, bounded outcomes, and incomplete-containment
+  summary reporting.
+- Lightweight Wasp guards prove the retained general skill/reference roots exist outside
+  the retired road roots.
 
-### Product checks
+### Pull-request acceptance evidence
 
-- Run the complete Python MCP test suite.
-- Run installer/release guard tests.
-- Build the Python wheel and installer payload used by local testing.
-- Inspect the staged Claude and Codex skill inventories.
-- Start the installed MCP server and verify list/search/read/call containment for one
-  representative `rc_*` name plus full-list absence.
-- Verify both native road-intersection tools remain discoverable.
-- No Rhino or RoadCreator host is required because this change does not alter or admit
-  downstream RoadCreator execution.
+- From base `c7687554ceba29be8cf559cb3244cce0d56d6fd1`, derive the retained Wasp
+  product path/hash inventory in skill/reference roots after excluding the six retired
+  roots; compare it with the candidate tree and record a clean result without adding a
+  permanent hash fixture.
+- Confirm no diff in dedicated dormant implementation files. For mixed-ownership files,
+  compare the dormant `rc_*` schema and dispatch blocks rather than requiring the entire
+  file to be unchanged; required active agent-facing description edits remain allowed.
+- Confirm no diff under `src/RookNative`, retained Wasp files, bundled road-profile
+  knowledge, bridge compatibility, adapters, or historical documents.
+- Run the complete Python MCP suite and installer/release guard tests.
+- Build the Python wheel and installer payload and inspect staged Claude and Codex skill
+  inventories.
+- Start the installed MCP server and prove representative `rc_*` list/search/read/call
+  containment and full-list absence.
+- In the installed smoke, prove both native intersection tools remain listed, readable,
+  and dispatchable to their normal routing boundary. Live Rhino geometry execution is
+  not required because native code is unchanged and mocked dispatch tests protect the
+  boundary.
 
 ## Commit and rollout boundaries
 
-Implementation should be one focused containment branch. Production changes, skill
-deletions, active guidance corrections, upgrade cleanup, and containment tests belong in
-the same reviewed pull request so no intermediate release advertises an invocable but
-unsupported surface.
+Implementation belongs in one coherent private containment pull request. Production
+changes, skill deletions, active-guidance corrections, installer migration, and focused
+guards ship together, but may use multiple reviewable commits. No claim of transactional
+runtime or installer behavior is implied.
 
-The PR must not modify `src/RookNative`, Wasp files, bundled road-profile knowledge,
-RoadCreator bridge compatibility, or historical documentation. Any claimed need to
-cross those boundaries stops the implementation for review rather than expanding scope.
+The pull request does not admit an implementation purge, adjacent refactor, native-code
+change, Wasp rewrite, bundled-profile cleanup, bridge-compatibility cleanup, or
+historical-document cleanup. Any claimed need to cross those boundaries stops for review
+instead of expanding scope.
 
-The public `rook-release` repository is updated through its normal separate promotion PR
-after private containment is accepted.
+After private containment is accepted, `rook-release` receives a separate promotion
+pull request that removes corresponding public product claims and adds a one-time
+release note explaining that the previously advertised integration and skills are no
+longer included.
