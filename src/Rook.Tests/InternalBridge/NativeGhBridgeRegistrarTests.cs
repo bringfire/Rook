@@ -179,6 +179,7 @@ namespace Rook.Tests.InternalBridge
 
         [Theory]
         [InlineData("{\"guid\":\"COMPONENT\",\"param\":\"Result\",\"outputIndex\":0}", "selector")]
+        [InlineData("{\"guid\":\"COMPONENT\",\"param\":null,\"outputIndex\":0}", "selector")]
         [InlineData("{\"guid\":\"COMPONENT\",\"param\":null}", "param")]
         [InlineData("{\"guid\":\"COMPONENT\",\"outputIndex\":null}", "outputIndex")]
         public void InspectOutputForBridge_InvalidSelectorReturnsStructured400BeforeHandler(
