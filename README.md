@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  422 MCP tools by default &bull; Explicit typed execution &bull; Self-improving knowledge graph &bull; Model-agnostic
+  Lifecycle-admitted MCP tools &bull; Explicit typed execution &bull; Self-improving knowledge graph &bull; Model-agnostic
 </p>
 
 <p align="center">
@@ -47,7 +47,7 @@ MCP Client (Claude Code, Claude Desktop, Codex CLI, Cursor, etc.)
        │
        │  MCP Protocol (stdio)
        ▼
-Rook MCP Server (Python)          ← 422 tools advertised by default, knowledge graph, chat runtime
+Rook MCP Server (Python)          ← lifecycle-admitted tools, knowledge graph, chat runtime
        │
        │  HTTP (127.0.0.1, OS-assigned port via discovery)
        ▼
@@ -65,7 +65,7 @@ Rhino 3D / Grasshopper
 |-------|------|
 | **RookNative (C++)** | The sole Rhino plugin and sole HTTP server. 263 routes across 42 handlers covering geometry, documents, scene graph, gumball, export, blocks, analysis, curves, meshes, SubD, annotations, materials, vision/media, BIM, and more. OS-assigned port discovered via `%LOCALAPPDATA%/Rook/discovery` JSON files, with legacy `%TEMP%/rook` compatibility reads. |
 | **Managed Companion (C#)** | Loaded by RookNative. Grasshopper routes pass through a P/Invoke callback bridge — no separate HTTP server. Also hosts the embedded chat panel. |
-| **MCP Server (Python)** | Defines 431 static tools in `server.py`, advertises 422 by default (425 with the interactive gate), and translates admitted MCP tool calls into HTTP requests. Houses the knowledge graph, DSPy consolidation, session recording, and chat runtime. Works with any MCP client. |
+| **MCP Server (Python)** | Defines the MCP schema source, applies lifecycle and profile admission, and translates admitted calls into HTTP requests. Houses the knowledge graph, DSPy consolidation, session recording, and chat runtime. Works with any MCP client. |
 | **Knowledge Graph** | Self-improving store of 197 Rhino commands (543 observations) and 945 Grasshopper component notes (942 GUIDs, 1,533 intents) within ~1,230 total GH notes. Powers intent-based execution and correction detection. |
 | **Scene Graph** | Real-time spatial intelligence — shadow graph of all Rhino objects with shape classification, bounding-box metrics, and 8 spatial relationship types. Background thread with lock-free immutable snapshots. |
 
@@ -127,18 +127,6 @@ Chirp components are native Grasshopper nodes with a language model embedded ins
 - **7 categories** — `planner`, `interpreter`, `critic`, `narrator`, `classifier`, `gate`, `editor`
 - **Single component** — `chirp_create` or the `/chirp` skill drops one reasoning node on the canvas
 - **Reasoning cascades** — `/chirp-cascade` builds multi-component chains that fan out shared reasoning context across disciplines, including Wasp aggregation grammars
-
-### Road Design (RoadCreator)
-
-A full road-network design pipeline — 42 `rc_*` / `road_*` tools bridging Rook's Rhino geometry with the RoadCreator plugin's computation:
-
-- **Alignment** — Centerlines, clothoids, cubic parabolas, vertical curves, widening
-- **Cross-sections & profiles** — Build, validate, and store road profiles; verges, shoulders, medians, barriers
-- **Surfaces** — 3D road surfaces, longitudinal/slope/terrain profiles, footprints
-- **Accessories** — Sidewalks, crossings, guardrails, concrete/DeltaBlok barriers, pole spacing
-- **Networks** — Intersection resolution, roundabouts, sidewalk corners, ownership assignment
-
-Drive it conversationally with the `/design-road` skill (single road) or `/masterplan-roads` (a connected network from multiple centerline curves).
 
 ### RookBIM — Revit / BIM Inspection
 
@@ -298,7 +286,7 @@ Rook/
 │   └── UI/Chat/                 # Embedded chat panel (Eto)
 │
 ├── mcp_server/src/rook/         # Python MCP server
-│   ├── server.py                # 431 static definitions; 422 advertised by default
+│   ├── server.py                # Raw schemas plus lifecycle/profile admission
 │   ├── agent/                   # Chat runtime + retained agent implementation modules
 │   └── learning/                # Knowledge stores + DSPy evolution
 │
@@ -306,13 +294,12 @@ Rook/
 │   ├── gh/                      # 945 GH components, ~1,230 notes, ~520 patterns
 │   └── commands/                # 197 Rhino commands, 543 observations
 │
-├── .claude/skills/              # 16 skills (copied to user skill dirs for Claude Code and Codex on release install)
+├── .claude/skills/              # Curated skills copied to user skill dirs for Claude Code and Codex on release install
 │   ├── design-grasshopper/      # GH cascade phase 1: Collaborative design
 │   ├── plan-grasshopper/        # GH cascade phase 2: Tactical tool call plan
 │   ├── execute-grasshopper/     # GH cascade phase 3: Batched execution
 │   ├── consolidate/             # GH cascade phase 4: Knowledge consolidation
 │   ├── chirp/ chirp-cascade/    # LLM-embedded GH components
-│   ├── design-road/ masterplan-roads/  # Road design & networks
 │   └── ...                      # capture-convention, clean-layers, twisted-column, etc.
 │
 ├── installer/                   # Inno Setup installer source

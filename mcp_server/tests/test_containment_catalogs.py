@@ -21,10 +21,61 @@ from rook.agent.tool_registry import (  # noqa: E402
     load_catalog_from_cache,
     save_catalog_to_cache,
 )
-from rook.tool_lifecycle import CONTAINED_TOOLS  # noqa: E402
+from rook.tool_lifecycle import (  # noqa: E402
+    CONTAINED_TOOLS,
+    ROADCREATOR_TOOL_NAMES,
+    ToolDisposition,
+    resolve_contained_tool,
+)
 
 
 CONTAINED = {entry.name for entry in CONTAINED_TOOLS}
+NATIVE_INTERSECTION_TOOLS = (
+    "road_intersection_candidates",
+    "road_intersection_resolve",
+)
+
+
+@pytest.mark.asyncio
+async def test_raw_schema_inventory_equals_pinned_roadcreator_names() -> None:
+    from rook import server
+
+    raw_names = {
+        tool.name
+        for tool in await server._all_tool_schemas()
+        if tool.name.startswith("rc_")
+    }
+    registered = {
+        entry.name: entry
+        for entry in CONTAINED_TOOLS
+        if entry.name.startswith("rc_")
+    }
+    assert raw_names == ROADCREATOR_TOOL_NAMES == set(registered)
+    assert len(raw_names) == 40
+    assert all(
+        entry.disposition is ToolDisposition.SUSPENDED
+        for entry in registered.values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_future_rc_namespace_is_hidden_by_central_live_filter(monkeypatch) -> None:
+    from rook import server
+
+    async def raw_tools():
+        return [
+            SimpleNamespace(name="safe_probe"),
+            SimpleNamespace(name="rc_future_probe"),
+        ]
+
+    monkeypatch.setattr(server, "_all_tool_schemas", raw_tools)
+    assert [tool.name for tool in await server._all_live_tools()] == ["safe_probe"]
+
+    entry = resolve_contained_tool("rc_future_probe")
+    assert entry is not None
+    assert entry.name == "rc_future_probe"
+    assert entry.disposition is ToolDisposition.SUSPENDED
+    assert "explicit lifecycle entry" in entry.recovery
 
 
 def _assert_no_contained_text(value: object) -> None:
@@ -88,6 +139,19 @@ async def test_progressive_tool_read_omits_contained_identities(monkeypatch) -> 
     ])
     result = await server.call_tool("rook_tools_read", {"name": "gh_session_history"})
     _assert_no_contained_text(json.loads(result[0].text))
+
+
+@pytest.mark.asyncio
+async def test_native_intersection_tools_remain_readable_and_mcp_dispatchable() -> None:
+    from rook import server
+
+    server._reset_capability_index_cache()
+    index = await server._get_capability_index()
+    for name in NATIVE_INTERSECTION_TOOLS:
+        record = index.read(name)
+        assert record is not None
+        assert record["name"] == name
+        assert record["mcp_dispatchable"] is True
 
 
 def test_catalog_ingresses_filter_mapping_and_embedded_identities(tmp_path: Path) -> None:
@@ -176,3 +240,4 @@ def test_profiles_groups_and_targeting_have_no_contained_memberships() -> None:
             if name.isupper():
                 active_strings.update(_strings(value))
         assert CONTAINED.isdisjoint(active_strings), module.__name__
+        assert not {value for value in active_strings if value.startswith("rc_")}, module.__name__

@@ -118,9 +118,7 @@ Task execution runners. Three entry points:
 
 ## Progressive Tool Disclosure
 
-With 422 MCP tools advertised by `list_tools()` by default (425 when the 3 deprecated-interactive tools are explicitly enabled), showing everything to an agent wastes context and confuses the LLM. The system uses three tiers:
-
-The `lean` profile advertises 20 tools and the `readonly` profile advertises 148 tools.
+The MCP surface is large enough that showing every admitted tool to every agent wastes context. The system uses three disclosure tiers. Full, lean, and readonly counts are pinned by `test_server_tool_profiles.py`.
 
 - Director is retired from MCP discovery, profiles, meta-tools, targeting, and internal-agent dispatch. Native `/director/*` routes and implementation modules remain temporarily preserved for disposition review; they are not a public or agent-callable capability.
 

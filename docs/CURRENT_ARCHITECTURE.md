@@ -11,7 +11,7 @@ MCP Client (Claude Code, Claude Desktop, Codex CLI, Cursor, etc.)
        │
        │  MCP Protocol (stdio)
        ▼
-Rook MCP Server (Python)          ← 422 tools advertised by list_tools(), knowledge graph, agent system
+Rook MCP Server (Python)          ← lifecycle-admitted MCP tools, knowledge graph, agent system
   │         │
   │         │ HTTP (127.0.0.1, OS-assigned port via discovery file)
   │         ▼
@@ -80,8 +80,8 @@ Managed companion domain evidence is internal. The companion writes it to its ex
 
 | Fact | Value |
 |------|-------|
-| MCP tools | 425 available definitions; 422 advertised by default (`full`) |
-| Other MCP profiles | 20 advertised by `lean`; 148 advertised by `readonly`; 3 deprecated-interactive definitions gated by default |
+| MCP tools | Lifecycle-admitted through the `full`, `lean`, and `readonly` profiles |
+| Other MCP profiles | Deprecated-interactive definitions are gated by default |
 | Entry point | `python -m rook` (stdio transport) |
 | HTTP bridge | `bridge.py` — discovers native plugin via `%LOCALAPPDATA%\Rook\discovery` by default and legacy `%TEMP%\rook` compatibility files |
 | Key subsystems | Intent runtime, Knowledge stores, Agent system, Chat service, DSPy consolidation, Chirp manager |

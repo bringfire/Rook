@@ -19,8 +19,6 @@ context="Chirp component categories are available: planner, interpreter, critic,
 
 When the user asks to BUILD, CREATE, or DESIGN a complex Grasshopper definition (4+ components), use the /design-grasshopper skill cascade. This starts a 4-phase workflow: design \u2192 plan \u2192 execute \u2192 consolidate. For simple definitions (1-3 components), inspect with gh_snapshot, resolve exact components with gh_library or gh_knowledge_query, apply one bounded gh_edit batch, and verify with a follow-up snapshot.
 
-When the user asks to create a road, 3D road, highway, alignment, or road surface, use /design-road. This orchestrates RoadCreator through a 6-phase pipeline (horizontal \u2192 vertical \u2192 3D route \u2192 surface \u2192 terrain \u2192 accessories). Requires RookRoads and RoadCreator plugins in Rhino.
-
 Other skills: /consolidate (knowledge consolidation), /twisted-column (parametric columns)."
 
 escaped=$(escape_for_json "$context")

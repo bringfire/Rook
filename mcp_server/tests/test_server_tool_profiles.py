@@ -13,7 +13,7 @@ _GATED = {"rhino_command_experiment", "rhino_learn_next", "rhino_prepare_geometr
 
 
 def _list_names(monkeypatch, profile_value):
-    # Default flag-off state so the live surface is the canonical 422.
+    # Default flag-off state so the live surface is the canonical admitted set.
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
     monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
     if profile_value is None:
@@ -24,9 +24,8 @@ def _list_names(monkeypatch, profile_value):
     return {t.name for t in tools}
 
 
-def test_full_surface_is_422_and_gates_deprecated(monkeypatch):
+def test_full_surface_gates_deprecated(monkeypatch):
     full = _list_names(monkeypatch, None)  # absent => full
-    assert len(full) == 422
     assert {"gh_solve_readiness", "gh_wait_for_solve_readiness"} <= full
     assert _GATED.isdisjoint(full)
     assert PUBLIC_LEAN_TOOL_NAMES <= full
@@ -38,16 +37,14 @@ def test_deprecated_interactive_gate_adds_exactly_three_tools(monkeypatch):
     default = _list_names(monkeypatch, None)
     monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
     enabled = {t.name for t in asyncio.run(server.list_tools())}
-    assert len(enabled) == 425
     assert enabled - default == _GATED
 
 
-def test_all_live_tools_is_unprofiled_422(monkeypatch):
+def test_all_live_tools_is_unprofiled(monkeypatch):
     monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
-    # Even with a restrictive profile set, the unprofiled source is the full 422.
+    # Even with a restrictive profile set, the unprofiled source is the full admitted set.
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
     names = {t.name for t in asyncio.run(server._all_live_tools())}
-    assert len(names) == 422
     assert _GATED.isdisjoint(names)
 
 
@@ -55,16 +52,37 @@ def test_explicit_full_equals_absent(monkeypatch):
     assert _list_names(monkeypatch, "full") == _list_names(monkeypatch, None)
 
 
-def test_lean_surface_is_exactly_20(monkeypatch):
+def test_lean_surface_matches_allowlist(monkeypatch):
     lean = _list_names(monkeypatch, "lean")
     assert lean == set(PUBLIC_LEAN_TOOL_NAMES)
-    assert len(lean) == 20
 
 
-def test_readonly_surface_is_exactly_148(monkeypatch):
+def test_readonly_surface_matches_allowlist(monkeypatch):
     ro = _list_names(monkeypatch, "readonly")
     assert ro == set(PUBLIC_READONLY_TOOL_NAMES)
-    assert len(ro) == 148
+
+
+def test_profile_surface_counts_are_authoritative(monkeypatch):
+    full = _list_names(monkeypatch, None)
+    lean = _list_names(monkeypatch, "lean")
+    readonly = _list_names(monkeypatch, "readonly")
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    monkeypatch.setenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", "1")
+    deprecated_enabled = {tool.name for tool in asyncio.run(server.list_tools())}
+
+    assert {
+        "full": len(full),
+        "full_with_deprecated": len(deprecated_enabled),
+        "readonly": len(readonly),
+        "lean": len(lean),
+    } == {
+        "full": 382,
+        "full_with_deprecated": 385,
+        "readonly": 120,
+        "lean": 20,
+    }
+    assert deprecated_enabled - full == _GATED
 
 
 def test_meta_tools_present_in_all_profiles(monkeypatch):
@@ -81,7 +99,6 @@ def test_readonly_partition_over_live_surface(monkeypatch):
     excluded = full - ro
     assert ro | excluded == full
     assert ro.isdisjoint(excluded)
-    assert len(ro) + len(excluded) == len(full) == 422
 
 
 def _call_text(name, args=None):

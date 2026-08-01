@@ -63,7 +63,6 @@ Test with:
 
 | Add-on | Purpose | Install Separately |
 |--------|---------|-------------------|
-| **RookRoads** + **RoadCreator** | 3D road design via `/design-road` skill | Separate Rhino plugins — see their repos |
 | **Chirp** | LLM-powered GH components | Included in installer if `../Chirp/` exists |
 
 ## Troubleshooting
@@ -94,4 +93,3 @@ Use Add/Remove Programs (Windows Settings → Apps).
 
 - Read [CLAUDE.md](CLAUDE.md) for usage rules and best practices
 - Try `/design-grasshopper "a parametric tower"` for the full GH design cascade
-- Try `/design-road` if you have RookRoads + RoadCreator installed

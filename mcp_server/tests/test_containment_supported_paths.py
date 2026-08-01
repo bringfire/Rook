@@ -29,7 +29,14 @@ SUPPORTED = (
     "knowledge_query",
     "rhino_knowledge_query",
     "gh_knowledge_query",
+    "road_intersection_candidates",
+    "road_intersection_resolve",
 )
+
+NATIVE_INTERSECTION_ROUTES = {
+    "road_intersection_candidates": "/road/intersection/candidates",
+    "road_intersection_resolve": "/road/intersection/resolve",
+}
 
 
 @pytest.mark.asyncio
@@ -58,3 +65,20 @@ async def test_supported_local_dispatch_is_not_intercepted() -> None:
         result = await dispatcher._dispatch_inner(name, {"marker": name}, None)
         assert result["success"] is True, name
     assert len(calls) == len(SUPPORTED)
+
+
+@pytest.mark.asyncio
+async def test_native_intersection_tools_reach_normal_routing_boundary(monkeypatch) -> None:
+    from rook import server
+
+    calls = []
+
+    async def fake_call_rhino(path, method="GET", data=None, *, port=None, **_kwargs):
+        calls.append((path, method, data, port))
+        return {"success": True, "data": {"verified": True}}
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    for name, path in NATIVE_INTERSECTION_ROUTES.items():
+        result = await server._call_tool_dispatch(name, {"marker": name, "port": 12001})
+        assert result["success"] is True
+        assert calls[-1] == (path, "POST", {"marker": name}, 12001)
