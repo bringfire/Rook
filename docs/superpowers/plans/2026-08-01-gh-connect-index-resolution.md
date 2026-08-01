@@ -45,6 +45,6 @@
 
 - [x] Run the focused managed and Python tests.
 - [x] Run the relevant managed test project and focused MCP regression file without deploying.
-- [ ] Build and deploy through the repository local-testing workflow only after hosts are closed.
-- [ ] In a disposable Grasshopper document, connect to indices 5, 6, and 7, verify the graph and response metadata, then verify disconnect parity and remove the fixture.
-- [ ] Confirm no native C++ files changed and review the final diff for scope.
+- [x] Build and deploy through the repository local-testing workflow only after hosts are closed.
+- [x] In a disposable Grasshopper document, connect to indices 5, 6, and 7, verify the graph and response metadata, then verify disconnect parity and remove the fixture.
+- [x] Confirm no native C++ files changed and review the final diff for scope.

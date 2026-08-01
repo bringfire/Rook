@@ -62,6 +62,19 @@ def _smoke_command(name: str, repo_root: Path) -> tuple[list[str], Path]:
             ],
             repo_root,
         )
+    if name == "gh-connect-indices":
+        return (
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/test_gh_connection_indices_live.py",
+                "-m",
+                "requires_rhino",
+                "-v",
+            ],
+            repo_root / "mcp_server",
+        )
     if name == "gh-python-geometry-output":
         return (
             [
@@ -208,6 +221,7 @@ def build_parser() -> argparse.ArgumentParser:
             "pytest-select",
             "rhino-operational",
             "gh-readiness",
+            "gh-connect-indices",
             "gh-python-geometry-output",
             "p2-bridge-diagnosis",
             "p3-session-mutation",
