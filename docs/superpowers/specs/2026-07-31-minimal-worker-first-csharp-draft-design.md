@@ -335,6 +335,15 @@ scaffold.compile_record.expected_template_id
 scaffold.compile_record.selected_template_id
 == gh_csharp_create_verify
 
+snapshot_scaffold
+= compile_workflow_contract(
+    load_workflow_contract_payload(
+        scaffold.contract_snapshot.normalized_contract
+    )
+  )
+
+scaffold == snapshot_scaffold
+
 node_id == create_script
 node execution_ref == gh_create_csharp_script:v1
 action_id == draft_create_body
@@ -503,9 +512,11 @@ draft
 ```
 
 It re-renders the request from the retained context, re-derives disposition,
-replays the pure applicator from the retained scaffold, and validates each
-native record through the existing current-step projection. It does not create
-an archive, proof carrier, fingerprint framework, or second receipt system.
+recompiles `_build_initial_body_contract(draft)` and requires the retained
+scaffold to equal that exact compiler output, replays the pure applicator from
+that retained scaffold, and validates each native record through the existing
+current-step projection. It does not create an archive, proof carrier,
+fingerprint framework, or second receipt system.
 
 ## 10. Planner-facing integration and ownership split
 

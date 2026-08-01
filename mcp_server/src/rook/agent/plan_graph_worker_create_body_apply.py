@@ -10,7 +10,11 @@ import json
 from typing import Any
 
 from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
-from rook.agent.plan_graph_workflow_contract import CompiledWorkflowScaffold
+from rook.agent.plan_graph_workflow_contract import (
+    CompiledWorkflowScaffold,
+    compile_workflow_contract,
+    load_workflow_contract_payload,
+)
 from rook.learning.plan_graph import PlanGraph
 
 
@@ -53,6 +57,20 @@ def _params_sha256(params: Mapping[str, Any]) -> str:
         ensure_ascii=True,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _matches_compiled_contract_snapshot(
+    scaffold: CompiledWorkflowScaffold,
+) -> bool:
+    try:
+        expected_scaffold = compile_workflow_contract(
+            load_workflow_contract_payload(
+                scaffold.contract_snapshot.normalized_contract
+            )
+        )
+        return scaffold == expected_scaffold
+    except Exception:
+        return False
 
 
 def apply_worker_create_body_to_scaffold(
@@ -113,6 +131,8 @@ def apply_worker_create_body_to_scaffold(
         or frozenset(original_param_keys) != _ORIGINAL_PARAM_KEYS
     ):
         return _reject(scaffold, node_id, "execution_params_shape_mismatch")
+    if not _matches_compiled_contract_snapshot(scaffold):
+        return _reject(scaffold, node_id, "invalid_template")
 
     try:
         new_graph = deepcopy(scaffold.graph)

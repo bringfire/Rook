@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
+import hashlib
 import json
 
 import pytest
@@ -21,6 +22,7 @@ from rook.agent.plan_graph_worker_create_body_apply import (
     apply_worker_create_body_to_scaffold,
 )
 from rook.agent.plan_graph_workflow_contract import compile_workflow_contract
+from rook.learning.plan_graph import PlanGraphEdge, PlanGraphNode
 
 
 _WORKER_BODY = "A = 42.0;"
@@ -92,7 +94,6 @@ def test_applicator_adds_only_worker_code_to_a_copied_scaffold_graph():
     assert result.applied is True
     assert result.reason is None
     assert result.node_id == "create_script"
-    assert result.params_sha256 is not None
     assert result.graph is not scaffold.graph
     assert scaffold.graph == original_graph
     assert _canonical(dict(original_params)) == original_bytes
@@ -105,6 +106,9 @@ def test_applicator_adds_only_worker_code_to_a_copied_scaffold_graph():
         for key in original_params
     } == dict(original_params)
     assert returned_params["code"] == _WORKER_BODY
+    assert result.params_sha256 == hashlib.sha256(
+        _canonical(dict(returned_params))
+    ).hexdigest()
     assert action_input == {"code": _WORKER_BODY}
 
 
@@ -113,6 +117,11 @@ def test_applicator_adds_only_worker_code_to_a_copied_scaffold_graph():
     [
         ("expected_template", "invalid_template"),
         ("selected_template", "invalid_template"),
+        ("extra_repair_topology", "invalid_template"),
+        ("changed_output_pin", "invalid_template"),
+        ("changed_initial_status", "invalid_template"),
+        ("changed_provider", "invalid_template"),
+        ("changed_rules", "invalid_template"),
         ("verifier_node", "invalid_tool_ref"),
         ("unknown_node", "unknown_node"),
         ("wrong_tool", "invalid_tool_ref"),
@@ -155,6 +164,52 @@ def test_applicator_rejects_closed_boundary_mutations(
                 selected_template_id="other_template",
             ),
         )
+    elif case == "extra_repair_topology":
+        def add_repair_topology(graph):
+            graph.nodes["repair_same_component"] = PlanGraphNode(
+                id="repair_same_component",
+                intent="Unauthorized repair",
+                execution_ref="gh_update_script:v1",
+            )
+            graph.edges.append(
+                PlanGraphEdge(
+                    source="verify_create",
+                    target="repair_same_component",
+                    kind="on_repair",
+                )
+            )
+
+        scaffold = _replace_graph(scaffold, add_repair_topology)
+    elif case == "changed_output_pin":
+        params = dict(
+            scaffold.graph.nodes["create_script"].metadata[
+                EXECUTION_PARAMS_KEY
+            ]
+        )
+        params["pins_out"] = ("B:integer",)
+        scaffold = _replace_graph(
+            scaffold,
+            lambda graph: _set_create_params(graph, params),
+        )
+    elif case == "changed_initial_status":
+        scaffold = _replace_graph(
+            scaffold,
+            lambda graph: setattr(
+                graph.nodes["create_script"],
+                "status",
+                "pending",
+            ),
+        )
+    elif case == "changed_provider":
+        scaffold = replace(
+            scaffold,
+            provider=replace(
+                scaffold.provider,
+                terminal_node_ids=frozenset(),
+            ),
+        )
+    elif case == "changed_rules":
+        scaffold = replace(scaffold, rules=())
     elif case == "verifier_node":
         node_id = "verify_create"
     elif case == "unknown_node":
@@ -255,19 +310,14 @@ def test_applicator_requires_the_exact_scaffold_carrier():
 
 def test_applicator_does_not_mutate_caller_owned_param_values_or_action_mapping():
     scaffold = _scaffold()
-    pins_in = ("X:double",)
-    pins_out = ["A:double"]
-    params = dict(
-        scaffold.graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY]
-    )
-    params["pins_in"] = pins_in
-    params["pins_out"] = pins_out
-    scaffold = _replace_graph(
-        scaffold,
-        lambda graph: _set_create_params(graph, params),
-    )
+    params = scaffold.graph.nodes["create_script"].metadata[
+        EXECUTION_PARAMS_KEY
+    ]
+    pins_in = params["pins_in"]
+    pins_out = params["pins_out"]
     action_input = {"code": _WORKER_BODY}
-    before_params = copy.deepcopy(params)
+    before_graph = copy.deepcopy(scaffold.graph)
+    before_params = _canonical(dict(params))
     before_action = copy.deepcopy(action_input)
 
     result = apply_worker_create_body_to_scaffold(
@@ -278,9 +328,10 @@ def test_applicator_does_not_mutate_caller_owned_param_values_or_action_mapping(
     )
 
     assert result.applied is True
-    assert params == before_params
-    assert pins_in == ("X:double",)
-    assert pins_out == ["A:double"]
+    assert scaffold.graph == before_graph
+    assert _canonical(dict(params)) == before_params
+    assert pins_in == ()
+    assert pins_out == ("A:double",)
     assert action_input == before_action
 
 
