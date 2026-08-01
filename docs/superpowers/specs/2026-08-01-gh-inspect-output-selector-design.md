@@ -41,7 +41,7 @@ The successful response continues to report the resolved output through the exis
 
 ## Error Behavior
 
-Selector contract failures return `Success = false`, HTTP 400 through the existing bridge mapping, and structured data containing `code: "invalid_request"`, a relevant field (`param`, `outputIndex`, or `selector`), and a bounded message. Conflict detection is based on field presence, not parsed values.
+MCP schema or Python-dispatch rejection uses the existing MCP invalid-arguments/tool-result envelope and does not make an HTTP request. A request that reaches the managed bridge returns `Success = false`, HTTP 400 through the existing bridge mapping, and structured data containing `code: "invalid_request"`, a relevant field (`param`, `outputIndex`, or `selector`), and a bounded message. Both paths reject before output inspection or output-0 fallback. Conflict detection is based on field presence, not parsed values.
 
 Existing readiness fencing, missing-component behavior, and successful output-data extraction remain unchanged.
 
