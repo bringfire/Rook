@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 import httpx
 import pytest
 
-from rook.bridge import get_rhino_host
 from rook.server import _mcp_tool_executor
 
 
@@ -86,6 +86,58 @@ async def _raw_post(base_url: str, path: str, body: dict[str, Any]) -> dict[str,
     return response.json()
 
 
+def _positive_harness_env(name: str) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        raise AssertionError(f"{name} must be set by scripts/run_rhino_runtime_harness.py")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise AssertionError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise AssertionError(f"{name} must be a positive integer")
+    return value
+
+
+def _require_owned_runtime_base_url() -> str:
+    from rook.runtime_harness import DiscoveryError, OwnedRhinoDiscovery
+
+    port = _positive_harness_env("ROOK_RHINO_PORT")
+    pid = _positive_harness_env("ROOK_RHINO_PROCESS_ID")
+    try:
+        record = OwnedRhinoDiscovery().read_owned_record(pid)
+    except DiscoveryError as exc:
+        raise AssertionError(
+            f"Could not verify owned Rhino discovery record for pid {pid}: {exc}"
+        ) from exc
+    if record.pid != pid or record.port != port:
+        raise AssertionError(
+            "ROOK_RHINO_PORT and ROOK_RHINO_PROCESS_ID do not refer to the same "
+            f"owned runtime: env port {port}, discovery port {record.port}, pid {pid}"
+        )
+    return f"http://127.0.0.1:{port}"
+
+
+async def _assert_no_preexisting_gh_documents(base_url: str) -> None:
+    result = await _raw_post(
+        base_url,
+        "/execute",
+        {
+            "code": (
+                "import Grasshopper\n"
+                "print(len(list(Grasshopper.Instances.DocumentServer)))"
+            ),
+        },
+    )
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    output = str(data.get("output", "")).strip()
+    if result.get("success") is not True or output != "0":
+        raise AssertionError(
+            "Owned Rhino must have zero preexisting Grasshopper documents before "
+            f"the disposable regression starts: {result!r}"
+        )
+
+
 async def _connections(base_url: str, guid: str) -> list[dict[str, Any]]:
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.get(f"{base_url}/gh/connections", params={"guid": guid})
@@ -115,75 +167,95 @@ async def _discard_disposable_document_changes(base_url: str) -> None:
     assert result.get("success") is True, result
 
 
-async def test_mcp_connect_and_raw_disconnect_honor_indices_five_through_seven():
-    base_url = get_rhino_host(endpoint="/gh/status")
-    assert base_url is not None, "owned RookNative endpoint was not discoverable"
-    await _prepare_blank_grasshopper_document(base_url)
-    target_guid: str | None = None
+async def _exercise_indexed_wiring(base_url: str) -> None:
+    script_result = await _mcp_tool_executor(
+        "gh_create_python_script",
+        {
+            "code": "Result = I5 + I6 + I7",
+            "pins_in": [
+                {"name": f"I{index}", "type": "float"}
+                for index in range(8)
+            ],
+            "pins_out": [{"name": "Result", "type": "float"}],
+            "name": "IndexedConnectionProbe",
+        },
+    )
+    target_guid = _guid(script_result)
 
-    try:
-        script_result = await _mcp_tool_executor(
-            "gh_create_python_script",
+    sources: dict[int, str] = {}
+    for index in (5, 6, 7):
+        panel_result = await _mcp_tool_executor(
+            "gh_create_panel",
+            {"content": str(index), "x": 100, "y": 100 + index * 40},
+        )
+        source_guid = _guid(panel_result)
+        sources[index] = source_guid
+
+        connect_result = await _mcp_tool_executor(
+            "gh_connect",
             {
-                "code": "Result = I5 + I6 + I7",
-                "pins_in": [
-                    {"name": f"I{index}", "type": "float"}
-                    for index in range(8)
-                ],
-                "pins_out": [{"name": "Result", "type": "float"}],
-                "name": "IndexedConnectionProbe",
+                "sourceGuid": source_guid,
+                "targetGuid": target_guid,
+                "targetIndex": index,
             },
         )
-        target_guid = _guid(script_result)
-
-        sources: dict[int, str] = {}
-        for index in (5, 6, 7):
-            panel_result = await _mcp_tool_executor(
-                "gh_create_panel",
-                {"content": str(index), "x": 100, "y": 100 + index * 40},
-            )
-            source_guid = _guid(panel_result)
-            sources[index] = source_guid
-
-            connect_result = await _mcp_tool_executor(
-                "gh_connect",
-                {
-                    "sourceGuid": source_guid,
-                    "targetGuid": target_guid,
-                    "targetIndex": index,
-                },
-            )
-            connected = _payload_with(connect_result, "connected")
-            assert connected["target"] == {
-                "guid": target_guid,
-                "param": f"I{index}",
-                "index": index,
-            }
-
-        connected_inputs = await _connections(base_url, target_guid)
-        observed = {
-            item.get("paramIndex"): len(item.get("sources") or [])
-            for item in connected_inputs
+        connected = _payload_with(connect_result, "connected")
+        assert connected["target"] == {
+            "guid": target_guid,
+            "param": f"I{index}",
+            "index": index,
         }
-        assert observed == {5: 1, 6: 1, 7: 1}
 
-        for index, source_guid in sources.items():
-            disconnect_result = await _raw_post(
-                base_url,
-                "/gh/disconnect",
-                {
-                    "sourceGuid": source_guid,
-                    "targetGuid": target_guid,
-                    "targetIndex": index,
-                },
-            )
-            disconnected = _payload_with(disconnect_result, "disconnected")
-            assert disconnected["target"] == {
-                "guid": target_guid,
-                "param": f"I{index}",
-                "index": index,
-            }
+    connected_inputs = await _connections(base_url, target_guid)
+    observed = {
+        item.get("paramIndex"): len(item.get("sources") or [])
+        for item in connected_inputs
+    }
+    assert observed == {5: 1, 6: 1, 7: 1}
 
-        assert await _connections(base_url, target_guid) == []
-    finally:
+    for index, source_guid in sources.items():
+        disconnect_result = await _raw_post(
+            base_url,
+            "/gh/disconnect",
+            {
+                "sourceGuid": source_guid,
+                "targetGuid": target_guid,
+                "targetIndex": index,
+            },
+        )
+        disconnected = _payload_with(disconnect_result, "disconnected")
+        assert disconnected["target"] == {
+            "guid": target_guid,
+            "param": f"I{index}",
+            "index": index,
+        }
+
+    assert await _connections(base_url, target_guid) == []
+
+
+async def test_mcp_connect_and_raw_disconnect_honor_indices_five_through_seven():
+    base_url = _require_owned_runtime_base_url()
+    await _assert_no_preexisting_gh_documents(base_url)
+
+    body_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
+    try:
+        await _prepare_blank_grasshopper_document(base_url)
+        await _exercise_indexed_wiring(base_url)
+    except BaseException as exc:
+        body_error = exc
+
+    try:
         await _discard_disposable_document_changes(base_url)
+    except BaseException as exc:
+        cleanup_error = exc
+
+    if body_error is not None and cleanup_error is not None:
+        raise BaseExceptionGroup(
+            "indexed wiring regression and owned cleanup both failed",
+            [body_error, cleanup_error],
+        )
+    if body_error is not None:
+        raise body_error.with_traceback(body_error.__traceback__)
+    if cleanup_error is not None:
+        raise cleanup_error.with_traceback(cleanup_error.__traceback__)
