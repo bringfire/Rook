@@ -1,12 +1,12 @@
 # Minimal Worker-First C# Draft Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans for Inline Execution. Keep one coder context, execute task-by-task, and stop at every independent review gate. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add one internal normal-path composition in which the existing strict Planner draft is deterministically compiled into an incomplete `create -> verify -> done` scaffold, one bounded Worker supplies only the initial C# body, and the existing runner performs one create plus deterministic receipt verification with no repair.
 
 **Architecture:** Register one narrow `gh_csharp_create_verify` topology, complete its compiler-owned `create_script` parameters through a pure scaffold applicator, and execute it through a sibling handoff compositor. Extend the existing Planner integration module with a separately owned initial-body aggregate so Planner/draft stops remain outside the handoff result. Preserve the forced repair path unchanged.
 
-**Tech Stack:** Python 3.11, frozen dataclasses, existing Rook workflow compiler and PlanGraph runners, existing local Worker adapter/harness/disposition, pytest, PowerShell, Git.
+**Tech Stack:** Python 3.12.12, frozen dataclasses, existing Rook workflow compiler and PlanGraph runners, existing local Worker adapter/harness/disposition, pytest, PowerShell, Git.
 
 ## Global Constraints
 
@@ -362,6 +362,28 @@ Stop after the commit. Request review of only Task 1. Do not begin Task 2 until 
 - Consumes: exact `CompiledWorkflowScaffold`, node ID, action ID, and closed `{code}` mapping.
 - Produces: `WorkerCreateBodyApplyResult` and `apply_worker_create_body_to_scaffold()` for Task 3.
 
+- [ ] **Step 0: Create an importable applicator skeleton**
+
+Create the module with the final function name and an intentional behavioral stop:
+
+```python
+"""Apply one Worker-authored initial body to an exact compiled scaffold."""
+
+from __future__ import annotations
+
+
+def apply_worker_create_body_to_scaffold(
+    scaffold: object,
+    node_id: str,
+    *,
+    action_id: str,
+    action_input: object,
+) -> object:
+    raise NotImplementedError("initial-body applicator not implemented")
+```
+
+The test module must import successfully before the behavioral RED is run.
+
 - [ ] **Step 1: Write the valid copy-on-write RED**
 
 Compile the Task 1 scaffold and call the missing applicator:
@@ -398,7 +420,9 @@ assert returned_params["code"] == "A = 42.0;"
   mcp_server\tests\test_plan_graph_worker_create_body_apply.py -q
 ```
 
-Expected RED: import fails specifically because the new applicator module does not exist.
+Expected RED: the test executes the real call boundary and receives the
+deliberate `NotImplementedError`. Collection or fixture failure is not a valid
+RED.
 
 - [ ] **Step 3: Implement the exact result and validation helpers**
 
@@ -528,6 +552,23 @@ Request review of scaffold binding, exact union, original-scaffold immutability,
 - Consumes: `ValidatedPlannerDraft`, `LocalWorkerTransport`, callable typed tool executor, Task 1 scaffold, Task 2 applicator.
 - Produces: `MinimalCSharpInitialBodyHandoffResult` and `run_minimal_csharp_initial_body_handoff()` for Task 4.
 
+- [ ] **Step 0: Add an importable handoff skeleton**
+
+Before writing the vertical test, add this callable to the Task 1 module:
+
+```python
+async def run_minimal_csharp_initial_body_handoff(
+    draft: object,
+    *,
+    worker_transport: object,
+    tool_executor: object,
+) -> object:
+    raise NotImplementedError("initial-body handoff not implemented")
+```
+
+This preserves the already-green Task 1 builder while making the Task 3 RED
+exercise the intended async handoff boundary.
+
 - [ ] **Step 1: Add a real-boundary success RED**
 
 Use the existing response envelope and a fake transport that asserts the rendered request before returning:
@@ -580,7 +621,9 @@ assert result.action_apply_result.graph.nodes[
   mcp_server\tests\test_minimal_csharp_initial_body_handoff.py -q
 ```
 
-Expected RED: `run_minimal_csharp_initial_body_handoff` or its result type is not yet defined. The Task 1 builder tests must remain green in the same run.
+Expected RED: the vertical executes the importable async handoff and receives
+its deliberate `NotImplementedError`. The Task 1 builder tests must remain
+green in the same run; collection failure is not a valid RED.
 
 - [ ] **Step 3: Add the exact Worker context and action**
 
@@ -755,8 +798,8 @@ refusal                               -> worker_disposition, zero tools
 clarification                         -> worker_disposition, zero tools
 observation                           -> worker_disposition, zero tools
 wrong action id                       -> adapter/disposition rejection, zero tools
-input contains mode                   -> adapter/disposition rejection, zero tools
-blank code                            -> adapter/disposition rejection, zero tools
+input contains mode                   -> action_apply / unexpected_action_input_key, zero tools
+blank code                            -> action_apply / invalid_code, zero tools
 applicator rejection                  -> action_apply, zero tools
 create executor raises                -> create, one entered tool call
 create response malformed             -> create, one tool call
@@ -823,6 +866,24 @@ Request review of request visibility, one-call Worker custody, code-authority li
 - Consumes: exact intent, exact `MinimalPlannerDraftAdapter`, existing strict loader, initial-body handoff.
 - Produces: `MinimalIntentWorkerInitialBodyIntegrationResult` and `run_minimal_intent_worker_initial_body_integration()`.
 
+- [ ] **Step 0: Add an importable integration skeleton**
+
+Add the final function name to the existing Planner integration module before
+creating its test:
+
+```python
+async def run_minimal_intent_worker_initial_body_integration(
+    intent: str,
+    *,
+    planner_adapter: MinimalPlannerDraftAdapter,
+    worker_transport: LocalWorkerTransport,
+    tool_executor: Callable[[str, dict[str, Any]], Any],
+) -> object:
+    raise NotImplementedError("initial-body integration not implemented")
+```
+
+Do not alter the existing repair-oriented runner while adding this skeleton.
+
 - [ ] **Step 1: Write the complete raw-intent vertical RED**
 
 Use a fake `MinimalPlannerTransport` that captures the one request and returns the exact four-field object with `goal` copied byte-for-byte from the test intent. Use the Task 3 fake Worker transport and causal tool executor.
@@ -858,7 +919,9 @@ assert [name for name, _ in tool_executor.calls] == [
   mcp_server\tests\test_minimal_intent_worker_initial_body_integration.py -q
 ```
 
-Expected RED: the new result/function import is missing while existing Planner adapter imports succeed.
+Expected RED: the complete fixture executes the importable integration boundary
+and receives its deliberate `NotImplementedError`. Collection failure is not a
+valid RED.
 
 - [ ] **Step 3: Add the exact Planner-owned aggregate**
 
