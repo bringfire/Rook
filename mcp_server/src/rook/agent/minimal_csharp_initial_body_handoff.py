@@ -264,7 +264,21 @@ def _build_worker_context(
                 packet_id="script_body_gotcha",
                 kind="gotcha",
                 title="C# script components use body-style code",
-                content={"body_mode": "body"},
+                content={
+                    "body_mode": "body",
+                    "instructions": [
+                        "Author only executable C# statements for the script body.",
+                        (
+                            "The component and declared output variables already "
+                            "exist; assign to them directly."
+                        ),
+                        (
+                            "Do not return a class, GH_Component, Script_Instance, "
+                            "a RunScript method, a namespace, using directives, a "
+                            "component GUID, pin registration, or markdown fences."
+                        ),
+                    ],
+                },
             ),
             WorkerKnowledgePacket(
                 packet_id="clean_compile_acceptance",

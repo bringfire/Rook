@@ -117,6 +117,39 @@ def _valid_draft(
     )
 
 
+@pytest.mark.asyncio
+async def test_worker_request_requires_body_statements_not_plugin_source() -> None:
+    worker = _WorkerTransport()
+
+    result = await run_minimal_csharp_initial_body_handoff(
+        _valid_draft(),
+        worker_transport=worker,
+        tool_executor=_CreateExecutor(),
+    )
+
+    request = json.loads(worker.calls[0]["messages"][1]["content"])
+    knowledge = {
+        packet["packet_id"]: packet["content"]
+        for packet in request["context"]["knowledge"]
+    }
+    assert knowledge["script_body_gotcha"] == {
+        "body_mode": "body",
+        "instructions": [
+            "Author only executable C# statements for the script body.",
+            (
+                "The component and declared output variables already exist; "
+                "assign to them directly."
+            ),
+            (
+                "Do not return a class, GH_Component, Script_Instance, a "
+                "RunScript method, a namespace, using directives, a component "
+                "GUID, pin registration, or markdown fences."
+            ),
+        ],
+    }
+    assert result.terminal_stage == "terminal"
+
+
 def test_builder_compiles_exact_incomplete_create_verify_scaffold():
     contract = _build_initial_body_contract(_valid_draft())
     scaffold = compile_workflow_contract(contract)
