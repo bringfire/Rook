@@ -15,6 +15,8 @@ async def test_gh_connect_is_advertised_with_direct_connection_schema():
     assert properties["targetGuid"]["type"] == "string"
     assert properties["targetParam"]["type"] == "string"
     assert properties["sourceParam"]["type"] == "string"
+    assert properties["targetIndex"] == {"type": "integer", "minimum": 0}
+    assert properties["sourceIndex"] == {"type": "integer", "minimum": 0}
 
 
 @pytest.mark.asyncio
@@ -36,7 +38,7 @@ async def test_call_tool_dispatches_gh_connect_to_knowledge_wrapper(monkeypatch)
         {
             "sourceGuid": "SOURCE-GUID",
             "targetGuid": "TARGET-GUID",
-            "targetParam": "A",
+            "targetIndex": 7,
         },
     )
 
@@ -47,7 +49,7 @@ async def test_call_tool_dispatches_gh_connect_to_knowledge_wrapper(monkeypatch)
             {
                 "sourceGuid": "SOURCE-GUID",
                 "targetGuid": "TARGET-GUID",
-                "targetParam": "A",
+                "targetIndex": 7,
             },
             None,
         )
@@ -64,7 +66,15 @@ async def test_gh_connect_knowledge_wrapper_posts_to_connect_route(
 
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
         calls.append((route, method, payload, port))
-        return {"success": True, "data": {"success": True, "connected": True}}
+        return {
+            "success": True,
+            "data": {
+                "success": True,
+                "connected": True,
+                "source": {"guid": "SOURCE-GUID", "param": "Result", "index": 1},
+                "target": {"guid": "TARGET-GUID", "param": "I6", "index": 6},
+            },
+        }
 
     monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
 
@@ -72,7 +82,8 @@ async def test_gh_connect_knowledge_wrapper_posts_to_connect_route(
         {
             "sourceGuid": "SOURCE-GUID",
             "targetGuid": "TARGET-GUID",
-            "targetParam": "A",
+            "sourceIndex": 1,
+            "targetIndex": 6,
         },
         port=64345,
     )
@@ -84,7 +95,8 @@ async def test_gh_connect_knowledge_wrapper_posts_to_connect_route(
             {
                 "sourceGuid": "SOURCE-GUID",
                 "targetGuid": "TARGET-GUID",
-                "targetParam": "A",
+                "sourceIndex": 1,
+                "targetIndex": 6,
             },
             64345,
         )
@@ -95,6 +107,45 @@ async def test_gh_connect_knowledge_wrapper_posts_to_connect_route(
     assert result["data"]["correction_detected"] is False
     assert "observation_id" in result["data"]
     assert result["data"]["_entry_id"] == 123
+    assert patch_session_recording[0]["params"] == {
+        "source": "SOURCE-GUID",
+        "target": "TARGET-GUID",
+        "sourceIndex": 1,
+        "targetIndex": 6,
+        "sourceSelector": "index:1",
+        "targetSelector": "index:6",
+        "param": "index:6",
+    }
+    assert patch_session_recording[0]["connections_made"] == [
+        ("SOURCE-GUID", "index:1", "TARGET-GUID", "index:6")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_gh_connect_indexed_failures_keep_distinct_correction_keys(
+    monkeypatch,
+    patch_gh_knowledge,
+    patch_session_recording,
+):
+    async def fake_call_rhino(_route, method="GET", payload=None, port=None):
+        return {"success": False, "data": "connection failed"}
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    for target_index in (5, 6):
+        await server._execute_gh_connect_with_knowledge(
+            {
+                "sourceGuid": "SOURCE-GUID",
+                "targetGuid": "TARGET-GUID",
+                "targetIndex": target_index,
+            },
+            port=64345,
+        )
+
+    assert set(server._recent_gh_failures) == {
+        "wire:TARGET-GUID:index:5",
+        "wire:TARGET-GUID:index:6",
+    }
 
 
 class _DummyGhKnowledgeStore:

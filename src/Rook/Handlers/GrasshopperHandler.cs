@@ -5628,7 +5628,8 @@ namespace Rook.Handlers
 
         /// <summary>
         /// POST /gh/connect - Wire two components together
-        /// Body: { sourceGuid: string, sourceParam: string|int, targetGuid: string, targetParam: string|int }
+        /// Body: { sourceGuid: string, sourceParam?: string|int, sourceIndex?: int,
+        ///         targetGuid: string, targetParam?: string|int, targetIndex?: int }
         /// </summary>
         internal ApiResponse ConnectComponents(string? body)
         {
@@ -5643,60 +5644,35 @@ namespace Rook.Handlers
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
 
-            string? sourceGuid = null, targetGuid = null;
-            string? sourceParam = null, targetParam = null;
-            int? sourceIdx = null, targetIdx = null;
+            if (!GhConnectionSelectorResolver.TryParseRequest(body!, out var request, out var parseError))
+                return new ApiResponse { Success = false, Data = parseError };
 
             try
             {
-                var args = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(body);
-                if (args != null)
-                {
-                    if (args.TryGetValue("sourceGuid", out var sg)) sourceGuid = sg.GetString();
-                    if (args.TryGetValue("targetGuid", out var tg)) targetGuid = tg.GetString();
-
-                    if (args.TryGetValue("sourceParam", out var sp))
-                    {
-                        if (sp.ValueKind == JsonValueKind.Number)
-                            sourceIdx = sp.GetInt32();
-                        else
-                            sourceParam = sp.GetString();
-                    }
-                    if (args.TryGetValue("targetParam", out var tp))
-                    {
-                        if (tp.ValueKind == JsonValueKind.Number)
-                            targetIdx = tp.GetInt32();
-                        else
-                            targetParam = tp.GetString();
-                    }
-                }
-            }
-            catch
-            {
-                return new ApiResponse { Success = false, Data = "Invalid JSON body" };
-            }
-
-            if (string.IsNullOrEmpty(sourceGuid) || string.IsNullOrEmpty(targetGuid))
-                return new ApiResponse { Success = false, Data = "sourceGuid and targetGuid are required" };
-
-            try
-            {
-                var sourceObj = FindObjectById(gh.Document!, sourceGuid);
+                var sourceObj = FindObjectById(gh.Document!, request!.SourceGuid);
                 if (sourceObj == null)
-                    return new ApiResponse { Success = false, Data = $"Source object not found: {sourceGuid}" };
-                var targetObj = FindObjectById(gh.Document!, targetGuid);
+                    return new ApiResponse { Success = false, Data = $"Source object not found: {request.SourceGuid}" };
+                var targetObj = FindObjectById(gh.Document!, request.TargetGuid);
                 if (targetObj == null)
-                    return new ApiResponse { Success = false, Data = $"Target object not found: {targetGuid}" };
+                    return new ApiResponse { Success = false, Data = $"Target object not found: {request.TargetGuid}" };
 
-                // Get output param from source
-                object? sourceOutput = GetParam(sourceObj, false, sourceIdx, sourceParam);
-                if (sourceOutput == null)
-                    return new ApiResponse { Success = false, Data = "Source output param not found" };
+                if (!GhConnectionSelectorResolver.TryResolve(
+                        sourceObj,
+                        isInput: false,
+                        request.SourceSelector,
+                        out var resolvedSource,
+                        out var sourceError))
+                    return new ApiResponse { Success = false, Data = sourceError };
+                if (!GhConnectionSelectorResolver.TryResolve(
+                        targetObj,
+                        isInput: true,
+                        request.TargetSelector,
+                        out var resolvedTarget,
+                        out var targetError))
+                    return new ApiResponse { Success = false, Data = targetError };
 
-                // Get input param from target
-                object? targetInput = GetParam(targetObj, true, targetIdx, targetParam);
-                if (targetInput == null)
-                    return new ApiResponse { Success = false, Data = "Target input param not found" };
+                var sourceOutput = resolvedSource.Value!;
+                var targetInput = resolvedTarget.Value!;
 
                 // Record wire undo BEFORE connecting
                 try
@@ -5730,13 +5706,15 @@ namespace Rook.Handlers
                         Connected = true,
                         Source = new
                         {
-                            Guid = sourceGuid,
-                            Param = sourceParam ?? sourceIdx?.ToString()
+                            Guid = request.SourceGuid,
+                            Param = resolvedSource.Name,
+                            Index = resolvedSource.Index
                         },
                         Target = new
                         {
-                            Guid = targetGuid,
-                            Param = targetParam ?? targetIdx?.ToString()
+                            Guid = request.TargetGuid,
+                            Param = resolvedTarget.Name,
+                            Index = resolvedTarget.Index
                         }
                     }
                 };
@@ -5753,7 +5731,8 @@ namespace Rook.Handlers
 
         /// <summary>
         /// POST /gh/disconnect - Remove a wire between components
-        /// Body: { sourceGuid: string, sourceParam: string|int, targetGuid: string, targetParam: string|int }
+        /// Body: { sourceGuid: string, sourceParam?: string|int, sourceIndex?: int,
+        ///         targetGuid: string, targetParam?: string|int, targetIndex?: int }
         /// </summary>
         internal ApiResponse DisconnectComponents(string? body)
         {
@@ -5768,58 +5747,35 @@ namespace Rook.Handlers
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
 
-            string? sourceGuid = null, targetGuid = null;
-            string? sourceParam = null, targetParam = null;
-            int? sourceIdx = null, targetIdx = null;
+            if (!GhConnectionSelectorResolver.TryParseRequest(body!, out var request, out var parseError))
+                return new ApiResponse { Success = false, Data = parseError };
 
             try
             {
-                var args = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(body);
-                if (args != null)
-                {
-                    if (args.TryGetValue("sourceGuid", out var sg)) sourceGuid = sg.GetString();
-                    if (args.TryGetValue("targetGuid", out var tg)) targetGuid = tg.GetString();
-
-                    if (args.TryGetValue("sourceParam", out var sp))
-                    {
-                        if (sp.ValueKind == JsonValueKind.Number)
-                            sourceIdx = sp.GetInt32();
-                        else
-                            sourceParam = sp.GetString();
-                    }
-                    if (args.TryGetValue("targetParam", out var tp))
-                    {
-                        if (tp.ValueKind == JsonValueKind.Number)
-                            targetIdx = tp.GetInt32();
-                        else
-                            targetParam = tp.GetString();
-                    }
-                }
-            }
-            catch
-            {
-                return new ApiResponse { Success = false, Data = "Invalid JSON body" };
-            }
-
-            if (string.IsNullOrEmpty(sourceGuid) || string.IsNullOrEmpty(targetGuid))
-                return new ApiResponse { Success = false, Data = "sourceGuid and targetGuid are required" };
-
-            try
-            {
-                var sourceObj = FindObjectById(gh.Document!, sourceGuid);
+                var sourceObj = FindObjectById(gh.Document!, request!.SourceGuid);
                 if (sourceObj == null)
-                    return new ApiResponse { Success = false, Data = $"Source object not found: {sourceGuid}" };
-                var targetObj = FindObjectById(gh.Document!, targetGuid);
+                    return new ApiResponse { Success = false, Data = $"Source object not found: {request.SourceGuid}" };
+                var targetObj = FindObjectById(gh.Document!, request.TargetGuid);
                 if (targetObj == null)
-                    return new ApiResponse { Success = false, Data = $"Target object not found: {targetGuid}" };
+                    return new ApiResponse { Success = false, Data = $"Target object not found: {request.TargetGuid}" };
 
-                object? sourceOutput = GetParam(sourceObj, false, sourceIdx, sourceParam);
-                if (sourceOutput == null)
-                    return new ApiResponse { Success = false, Data = "Source output param not found" };
+                if (!GhConnectionSelectorResolver.TryResolve(
+                        sourceObj,
+                        isInput: false,
+                        request.SourceSelector,
+                        out var resolvedSource,
+                        out var sourceError))
+                    return new ApiResponse { Success = false, Data = sourceError };
+                if (!GhConnectionSelectorResolver.TryResolve(
+                        targetObj,
+                        isInput: true,
+                        request.TargetSelector,
+                        out var resolvedTarget,
+                        out var targetError))
+                    return new ApiResponse { Success = false, Data = targetError };
 
-                object? targetInput = GetParam(targetObj, true, targetIdx, targetParam);
-                if (targetInput == null)
-                    return new ApiResponse { Success = false, Data = "Target input param not found" };
+                var sourceOutput = resolvedSource.Value!;
+                var targetInput = resolvedTarget.Value!;
 
                 // Record wire undo BEFORE disconnecting
                 try
@@ -5850,7 +5806,19 @@ namespace Rook.Handlers
                     Data = new
                     {
                         Disconnected = true,
-                        Result = result
+                        Result = result,
+                        Source = new
+                        {
+                            Guid = request.SourceGuid,
+                            Param = resolvedSource.Name,
+                            Index = resolvedSource.Index
+                        },
+                        Target = new
+                        {
+                            Guid = request.TargetGuid,
+                            Param = resolvedTarget.Name,
+                            Index = resolvedTarget.Index
+                        }
                     }
                 };
             }

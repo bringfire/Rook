@@ -2825,6 +2825,43 @@ async def _execute_gh_set_script_pins(arguments: dict[str, Any], port: int) -> d
 import uuid as uuid_module
 
 
+def _gh_connection_selector(arguments: dict, side: str) -> str:
+    """Return a stable, tagged identity for a submitted connection selector."""
+    index_key = f"{side}Index"
+    param_key = f"{side}Param"
+    if index_key in arguments:
+        return f"index:{arguments[index_key]}"
+
+    param = arguments.get(param_key)
+    if isinstance(param, int) and not isinstance(param, bool):
+        return f"index:{param}"
+    if isinstance(param, str) and param:
+        return f"name:{param}"
+    return "implicit:singleton"
+
+
+def _gh_resolved_connection_selector(
+    result: dict,
+    side: str,
+    fallback: str,
+) -> tuple[str, str]:
+    """Read the resolved endpoint GUID and selector returned by /gh/connect."""
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    endpoint = data.get(side) or data.get(side.capitalize())
+    if not isinstance(endpoint, dict):
+        return "", fallback
+
+    guid = endpoint.get("guid") or endpoint.get("Guid") or ""
+    index = endpoint.get("index", endpoint.get("Index"))
+    if isinstance(index, int) and not isinstance(index, bool):
+        return str(guid), f"index:{index}"
+
+    param = endpoint.get("param") or endpoint.get("Param")
+    if isinstance(param, str) and param:
+        return str(guid), f"name:{param}"
+    return str(guid), fallback
+
+
 async def _execute_gh_connect_with_knowledge(arguments: dict, port: int) -> dict:
     """Execute gh_connect with knowledge awareness.
 
@@ -2836,10 +2873,14 @@ async def _execute_gh_connect_with_knowledge(arguments: dict, port: int) -> dict
     from rook.learning.gh_knowledge import gh_query_operation, get_gh_knowledge_store
 
     observation_id = str(uuid_module.uuid4())[:8]
+    source_selector = _gh_connection_selector(arguments, "source")
+    target_selector = _gh_connection_selector(arguments, "target")
     context = {
         "source_guid": arguments.get("sourceGuid"),
         "target_guid": arguments.get("targetGuid"),
-        "param": arguments.get("targetParam"),
+        "source_selector": source_selector,
+        "target_selector": target_selector,
+        "param": target_selector,
     }
 
     # Query operation knowledge
@@ -2881,13 +2922,40 @@ async def _execute_gh_connect_with_knowledge(arguments: dict, port: int) -> dict
         result["observation_id"] = observation_id
         result["correction_detected"] = correction_detected
 
-    # Record to session history
+    # Preserve submitted selector fields while recording the route-authoritative
+    # resolved endpoints for the connection history.
+    session_params = {
+        "source": arguments.get("sourceGuid"),
+        "target": arguments.get("targetGuid"),
+    }
+    for selector_key in ("sourceParam", "sourceIndex", "targetParam", "targetIndex"):
+        if selector_key in arguments:
+            session_params[selector_key] = arguments[selector_key]
+    session_params["sourceSelector"] = source_selector
+    session_params["targetSelector"] = target_selector
+    session_params["param"] = target_selector
+
+    source_guid, resolved_source_selector = _gh_resolved_connection_selector(
+        result,
+        "source",
+        source_selector,
+    )
+    target_guid, resolved_target_selector = _gh_resolved_connection_selector(
+        result,
+        "target",
+        target_selector,
+    )
     entry_id = await _record_gh_to_session(
         action="gh_connect",
-        params={"source": arguments.get("sourceGuid"), "target": arguments.get("targetGuid"), "param": arguments.get("targetParam")},
+        params=session_params,
         result=result,
         port=port,
-        connections_made=[(arguments.get("sourceGuid", ""), "output", arguments.get("targetGuid", ""), arguments.get("targetParam", ""))] if success else None,
+        connections_made=[(
+            source_guid or arguments.get("sourceGuid", ""),
+            resolved_source_selector,
+            target_guid or arguments.get("targetGuid", ""),
+            resolved_target_selector,
+        )] if success else None,
     )
     if entry_id and isinstance(result.get("data"), dict):
         result["data"]["_entry_id"] = entry_id
@@ -8314,8 +8382,9 @@ Create entry types:
             description=(
                 "Connect a Grasshopper source component/output to a target component/input. "
                 "Uses the existing /gh/connect route and records knowledge/session telemetry. "
-                "Provide sourceGuid and targetGuid as component instance GUIDs. Use targetParam "
-                "when the target has named inputs, and sourceParam when the source has named outputs."
+                "Provide sourceGuid and targetGuid as component instance GUIDs. Select each port "
+                "by its parameter name or zero-based index. A selector may be omitted only for a "
+                "component with one parameter on that side."
             ),
             inputSchema={
                 "type": "object",
@@ -8324,6 +8393,8 @@ Create entry types:
                     "targetGuid": {"type": "string", "description": "Target component instance GUID."},
                     "targetParam": {"type": "string", "description": "Optional target input parameter name, e.g. A or B."},
                     "sourceParam": {"type": "string", "description": "Optional source output parameter name."},
+                    "targetIndex": {"type": "integer", "minimum": 0},
+                    "sourceIndex": {"type": "integer", "minimum": 0},
                 },
                 "required": ["sourceGuid", "targetGuid"],
             },
