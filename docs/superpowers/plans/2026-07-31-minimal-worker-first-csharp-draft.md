@@ -23,6 +23,8 @@
 - `draft_create_body` is the only initial context action. `draft_repair_params` remains the only repair context action.
 - Existing repair compositor, repair action, workflow, public interfaces, prompts, receipts, smoke scripts, and flight recorder remain unchanged.
 - New aggregate results are ephemeral internal transaction objects, not archives, proofs, checkpoints, retry tokens, or public evidence.
+- Aggregate `__post_init__` methods validate immediate shape and stage relationships only; they do not replay providers, compilation, graph transitions, action application, or execution.
+- Existing native records retain their existing ownership. Do not add cross-transaction splice matrices.
 - Do not implement the deferred topology-guidance hypothesis or a generic pre-execution affordance framework.
 - Use `apply_patch` for source and document edits. Do not introduce dependencies.
 
@@ -48,7 +50,7 @@
 - Create `mcp_server/tests/test_plan_graph_worker_create_body_apply.py`
   - Prove exact scaffold custody, copy-on-write union, and adversarial refusals.
 - Create `mcp_server/tests/test_minimal_csharp_initial_body_handoff.py`
-  - Prove contract construction, Worker visibility, one-turn action, native success/failure, and handoff lineage.
+  - Prove contract construction, Worker visibility, one-turn action, and native success/failure behavior.
 - Create `mcp_server/tests/test_minimal_intent_worker_initial_body_integration.py`
   - Prove exact intent-to-Planner-to-handoff ownership and complete stop matrix.
 
@@ -779,31 +781,23 @@ all earlier native prefixes
 
 Preserve the native reason with the same closed reason extraction pattern used by the repair compositor. Do not invent a compile-failure outcome.
 
-- [ ] **Step 7: Close handoff transaction lineage**
+- [ ] **Step 7: Validate only immediate result shape and stage relationships**
 
-In `MinimalCSharpInitialBodyHandoffResult.__post_init__`, validate only this module's chain:
+`MinimalCSharpInitialBodyHandoffResult` is an ephemeral aggregate, not
+self-authenticating evidence. In `__post_init__`, validate only:
 
-1. exact draft and exact scaffold type;
-2. `compile_workflow_contract(_build_initial_body_contract(draft))` equals the
-   retained scaffold through the same private type-sensitive tree comparison,
-   and its selected/expected template is `gh_csharp_create_verify`;
-3. scaffold create params have no code;
-4. `worker_request == render_local_worker_turn_request_payload(worker_context)`;
-5. Worker context workflow identity matches scaffold;
-6. adapter record is the exact retained adapter type and its loaded response is
-   the response passed to the one-shot harness; transport-bound prompt
-   equality is asserted at the fake transport boundary rather than claimed by
-   this ephemeral aggregate;
-7. loaded response disposition re-derives from retained context and response;
-8. accepted action application exactly equals replaying `apply_worker_create_body_to_scaffold()` from the retained scaffold and response;
-9. every `CurrentStepRecord` equals `project_current_step_record()` from its native nested mapping/revalidation/execution fields;
-10. graph chain is `scaffold.graph -> applied graph -> create -> verify -> final graph`;
-11. original scaffold contains no code; first graph-state occurrence is the applied graph; later occurrences are native propagation only;
-12. stage-specific optional fields, record prefixes, node statuses, verifier outcome, and reason agree.
+1. exact immediate field/container types;
+2. stage-specific presence of Worker and action records;
+3. the allowed native record ID prefix for the stage;
+4. terminal stage/reason consistency and the direct `done` ready/not-ready
+   relationship.
 
-Use existing pure functions and equality checks. Do not add carriers, hashes beyond the action parameter hash, or durable evidence.
+Do not replay the provider, compiler, request renderer, disposition,
+applicator, graph transitions, or execution. Existing native records retain
+their existing ownership. Add no cross-transaction splice matrix, comparator,
+carrier, archive, or provenance layer.
 
-- [ ] **Step 8: Add the full Worker and native stop matrix**
+- [ ] **Step 8: Add the bounded behavioral stop matrix**
 
 Add tests for:
 
@@ -816,7 +810,6 @@ observation                           -> worker_disposition, zero tools
 wrong action id                       -> adapter/disposition rejection, zero tools
 input contains mode                   -> action_apply / unexpected_action_input_key, zero tools
 blank code                            -> action_apply / invalid_code, zero tools
-applicator rejection                  -> action_apply, zero tools
 create executor raises                -> create, one entered tool call
 create response malformed             -> create, one tool call
 clean create receipt                  -> terminal, one tool call
@@ -836,7 +829,7 @@ assert [name for name, _ in tool_executor.calls] == [
 
 The fake create receipt must derive its clean/error branch from the exact received Worker body. It must reject unexpected pins, name, position, tool name, call order, second create, and all update calls.
 
-- [ ] **Step 9: Add Worker visibility and code-custody regressions**
+- [ ] **Step 9: Add Worker visibility and no-repair regressions**
 
 Recursively inspect the serialized Worker request and prove:
 
@@ -844,7 +837,9 @@ Recursively inspect the serialized Worker request and prove:
 - exactly one allowed action is `draft_create_body`;
 - `draft_repair_params`, diagnostic text, C# code, GUIDs, graph edges/rules, execution parameter mappings, update instructions, and expected Worker code are absent.
 
-Mutate the Worker body and prove the retained adapter/harness response changes, the applicator returned graph contains that exact changed value, the original scaffold remains code-free, and no parallel result field stores it.
+Prove the original scaffold remains code-free, the create call receives the
+admitted Worker body, and no parallel result field stores it. Assert that no
+update, repair action, second Worker call, retry, or fallback occurs.
 
 - [ ] **Step 10: Run Task 3 GREEN and existing repair seam**
 
@@ -867,7 +862,8 @@ git add `
 git commit -m "feat: compose one-turn Worker initial C# draft"
 ```
 
-Request review of request visibility, one-call Worker custody, code-authority lineage, pure application replay, native record chain, compile-failure stop, and absence of update/repair before Task 4.
+Request review of request visibility, one-call Worker behavior, immediate
+result shape, compile-failure stop, and absence of update/repair before Task 4.
 
 ---
 
@@ -1063,20 +1059,11 @@ assert tool_executor.calls == []
 
 Use direct string equality for goal matching; never UTF-8 encode untrusted decoded output.
 
-- [ ] **Step 6: Add aggregate valid-red substitutions**
+- [ ] **Step 6: Add immediate integration-result shape tests**
 
-Starting from a valid terminal result, use `dataclasses.replace()` to substitute:
-
-- different retained intent;
-- Planner record from another intent;
-- decoded object from another valid draft;
-- different validated draft;
-- handoff from a different transaction;
-- mismatched stage;
-- mismatched reason;
-- validated draft with `handoff_result=None`.
-
-Each must fail in `MinimalIntentWorkerInitialBodyIntegrationResult` validation. Do not replay the handoff's Worker/graph/tool internals here; its exact type owns that validation.
+Test only exact immediate field types, allowed optional-field presence, and
+direct stage/reason delegation to an existing handoff result. Do not substitute
+cross-transaction records or replay any handoff internals.
 
 - [ ] **Step 7: Run Task 4 GREEN and existing integration regression**
 

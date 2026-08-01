@@ -498,26 +498,15 @@ because no handoff result exists until after compilation, context construction,
 and the single adapter invocation. Internal compiler or context contradictions
 raise rather than inventing a terminal stage.
 
-The result validates only its own transaction lineage using existing pure
-producers and exact comparisons:
-
-```text
-draft
--> contract/scaffold
--> worker context/request
--> adapter-loaded response
--> disposition
--> pure scaffold application
--> native graph/record chain
-```
-
-It re-renders the request from the retained context, re-derives disposition,
-recompiles `_build_initial_body_contract(draft)` and requires the retained
-scaffold to equal that exact compiler output under the same private
-type-sensitive tree comparison, replays the pure applicator from that retained
-scaffold, and validates each native record through the existing current-step
-projection. It does not create an archive, proof carrier, fingerprint
-framework, or second receipt system.
+The result is an ephemeral aggregate, not self-authenticating evidence.
+Existing adapter, harness, action, graph, and current-step records retain their
+existing ownership. Its `__post_init__` validates only exact immediate field
+types, optional-field presence for the retained stage, allowed native record
+prefixes, and direct stage/reason relationships. It does not replay a provider
+call, compiler, graph transition, action application, or execution. Tests
+exercise the real transaction behavior; they do not build a cross-transaction
+splice matrix. No archive, proof carrier, fingerprint framework, or second
+receipt system is introduced.
 
 ## 10. Planner-facing integration and ownership split
 
@@ -590,9 +579,9 @@ terminal_reason == handoff_result.terminal_reason
 
 There is no returned integration state containing a validated draft without a
 handoff result. An internal compositor exception raises. The integration
-aggregate validates only its Planner-to-handoff ownership; it delegates the
-Worker, graph, tool, and receipt lineage to
-`MinimalCSharpInitialBodyHandoffResult`.
+aggregate validates only its immediate Planner/draft/handoff shape and direct
+stage relationships. It does not replay the handoff or attempt to
+self-authenticate retained records.
 
 Both results are ephemeral internal transaction aggregates. Neither is a
 durable record, authority artifact, public proof, checkpoint, or retry token.
@@ -609,7 +598,7 @@ durable record, authority artifact, public proof, checkpoint, or retry token.
 | Create mapping/dispatch/receipt stop | Handoff result, `create` | 1 | 0 or 1 | Existing native reason |
 | Compile-error receipt | Handoff result, `verify_create` | 1 | 1 | Ordinary unsuccessful result; receipt retained; no repair |
 | Clean compile receipt | Handoff result, `terminal` | 1 | 1 | `done` selected and ready |
-| Internal type, ownership, topology, or lineage contradiction | Exception | bounded prefix | bounded prefix | Programmer contract violation, not an operational outcome |
+| Internal immediate result-shape contradiction | Exception | bounded prefix | bounded prefix | Programmer contract violation, not an operational outcome |
 
 Expected operational stops return the owning ephemeral result and preserve the
 underlying native reason. The new code does not flatten native stops into a
@@ -725,11 +714,9 @@ raw exact user intent
 Assert exactly one Planner call, one Worker call, one create call, zero update
 calls, exact goal authority, and the two aggregate ownership equations.
 
-Adversarial aggregate substitutions cover intent, Planner record, admitted
-draft, handoff result, scaffold, Worker request/context, adapter response,
-action result, native record prefix, and final graph. Each test mutates the
-actual upstream source or substitutes a fully shaped sibling object; no test
-claims lineage merely by changing an already-rejected downstream field.
+Result tests cover immediate field types, optional-field presence, and direct
+stage relationships. Behavioral verticals—not aggregate replay—prove the
+Planner, Worker, create, verification, and stop paths.
 
 ### 12.6 Regression surface
 
