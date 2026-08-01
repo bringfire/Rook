@@ -355,16 +355,33 @@ parameters.
 The applicator deep-copies the scaffold graph and performs exactly:
 
 ```text
-returned_graph.create_script.execution_params
-= {code: admitted Worker string}
+original_params
+= scaffold.graph.create_script.execution_params
+
+keys(returned_graph.create_script.execution_params)
+= keys(original_params) union {code}
+
+project(
+  returned_graph.create_script.execution_params,
+  keys(original_params),
+)
+= original_params
+
+returned_graph.create_script.execution_params[code]
+= admitted Worker string
 ```
 
-All pre-existing parameter keys and values remain exactly equal. All other
-nodes, edges, metadata, statuses, and graph memory remain equal.
+The canonical serialized bytes of every original key/value projection remain
+unchanged; the sole added key is `code`. All other nodes, edges, metadata,
+statuses, and graph memory remain equal.
 
-The original incomplete scaffold and its graph remain unchanged. The Worker
-code appears only in the applicator's returned graph. Rejection returns no
-mutated graph and performs no tool call.
+The original incomplete scaffold and its graph remain unchanged and contain no
+code. The retained adapter/harness response is the sole authority for the
+Worker-authored body. The applicator is the first operation that introduces
+that body into graph state. The body may then propagate normally through the
+native graph and current-step records produced from that graph; the aggregate
+adds no manually copied parallel code field. Rejection returns no mutated graph
+and performs no tool call.
 
 `WorkerCreateBodyApplyResult` is a small sibling of the existing repair action
 result. It retains the returned graph, application verdict, node ID, fixed
@@ -618,7 +635,11 @@ Prove:
   code, subclasses, and unknown shapes reject;
 - the incomplete scaffold and its graph remain unchanged;
 - caller-owned input values are not mutated;
-- the Worker code appears only in the returned graph;
+- the original scaffold contains no code, the retained Worker response is the
+  sole code authority, and the applicator first introduces that exact value
+  into its returned graph;
+- any later code occurrence is owned by native graph/record propagation, and
+  neither ephemeral aggregate adds a parallel code field;
 - all compiler-owned graph and parameter values remain identical;
 - no tool capability is invoked by the pure applicator.
 
