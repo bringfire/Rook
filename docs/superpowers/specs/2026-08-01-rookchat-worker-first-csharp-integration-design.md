@@ -306,7 +306,7 @@ The fields are closed:
 - `compile_status`: `passed`, `failed`, or `unavailable`;
 - `error_count`: exact nonnegative integer or `null`;
 - `warning_count`: exact nonnegative integer or `null`; and
-- `component_created`: exact boolean.
+- `component_created`: exact boolean or `null`.
 
 Terminal fields pass through a small closed safe-token projector. Anything not
 admitted becomes `native_reason_unclassified`; model-authored or exception text
@@ -316,6 +316,22 @@ Receipt facts are read from the create producer's retained native receipt.
 `error_count` and `warning_count` are the receipt's exact target error and target
 warning counts. The projector does not rerun the workflow, reconstruct graph
 lineage, or trust an unowned node.
+
+Compile status is closed:
+
+```text
+passed      iff owned create receipt verification status == passed
+failed      iff owned create receipt verification status == failed
+unavailable otherwise
+```
+
+Creation state is also evidence-sensitive:
+
+```text
+true  iff an owned create receipt proves mutation status == created
+false iff native evidence proves create was not entered or did not create
+null  iff the mutation outcome cannot be proven
+```
 
 Success is exact:
 
@@ -331,11 +347,10 @@ status == success iff
 
 Every other condition yields `status == failed`.
 
-When no create receipt exists:
-
-- `compile_status = unavailable`;
-- both counts are `null`; and
-- `component_created = false`.
+When no owned create receipt exists, compile status is unavailable and both
+counts are `null`. `component_created` is false only when native evidence proves
+the create boundary was not entered or did not create; it is `null` after an
+ambiguous post-dispatch or aggregate-construction failure.
 
 ### `tool_result`
 
@@ -345,7 +360,7 @@ When no create receipt exists:
 - `name = "worker_first_csharp_v1"`;
 - the same `tool_call_id` as `tool_start`;
 - `result` equal to the compact JSON serialization of the bounded object;
-- `tool_status` exactly `succeeded` when `status == success`, otherwise
+- `tool_status` exactly `success` when `status == success`, otherwise
   `failed`; and
 - `verified` equal to the exact clean-compile success equation.
 
@@ -488,12 +503,18 @@ The causal fake create dispatcher:
 - The success witness satisfies every success equation.
 - Mutating any one equation produces `failed`.
 - Compile-error receipts retain exact counts and component-created state.
-- Missing receipts produce unavailable/null/false fields.
+- Missing receipts produce unavailable/null compile fields and an
+  evidence-sensitive false-or-null creation field.
+- Planner and Worker stops before create prove `component_created = false`.
+- An ambiguous failure after create dispatch begins but before an owned receipt
+  exists yields `component_created = null`.
+- An owned created receipt yields `component_created = true`; owned evidence
+  that create did not occur yields false.
 - Receipt selection comes from the create producer's retained record.
 - The event sequence is exactly start, result, done.
 - Start contains no parameters or intent.
 - Result JSON contains only the seven bounded keys.
-- Tool status is exactly `succeeded` or `failed`.
+- Tool status is exactly `success` or `failed`.
 - Verified equals the clean-compile equation.
 - Prompts, responses, Worker code, rationale, GUIDs, raw receipts, exception
   messages, and sentinel values never reach the stream or panel summary.
