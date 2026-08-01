@@ -15,6 +15,8 @@ async def test_gh_connect_is_advertised_with_direct_connection_schema():
     assert properties["targetGuid"]["type"] == "string"
     assert properties["targetParam"]["type"] == "string"
     assert properties["sourceParam"]["type"] == "string"
+    assert properties["targetIndex"] == {"type": "integer", "minimum": 0}
+    assert properties["sourceIndex"] == {"type": "integer", "minimum": 0}
 
 
 @pytest.mark.asyncio
@@ -36,7 +38,7 @@ async def test_call_tool_dispatches_gh_connect_to_knowledge_wrapper(monkeypatch)
         {
             "sourceGuid": "SOURCE-GUID",
             "targetGuid": "TARGET-GUID",
-            "targetParam": "A",
+            "targetIndex": 7,
         },
     )
 
@@ -47,7 +49,7 @@ async def test_call_tool_dispatches_gh_connect_to_knowledge_wrapper(monkeypatch)
             {
                 "sourceGuid": "SOURCE-GUID",
                 "targetGuid": "TARGET-GUID",
-                "targetParam": "A",
+                "targetIndex": 7,
             },
             None,
         )
@@ -72,7 +74,8 @@ async def test_gh_connect_knowledge_wrapper_posts_to_connect_route(
         {
             "sourceGuid": "SOURCE-GUID",
             "targetGuid": "TARGET-GUID",
-            "targetParam": "A",
+            "sourceIndex": 1,
+            "targetIndex": 6,
         },
         port=64345,
     )
@@ -84,7 +87,8 @@ async def test_gh_connect_knowledge_wrapper_posts_to_connect_route(
             {
                 "sourceGuid": "SOURCE-GUID",
                 "targetGuid": "TARGET-GUID",
-                "targetParam": "A",
+                "sourceIndex": 1,
+                "targetIndex": 6,
             },
             64345,
         )

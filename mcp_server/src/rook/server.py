@@ -8314,8 +8314,9 @@ Create entry types:
             description=(
                 "Connect a Grasshopper source component/output to a target component/input. "
                 "Uses the existing /gh/connect route and records knowledge/session telemetry. "
-                "Provide sourceGuid and targetGuid as component instance GUIDs. Use targetParam "
-                "when the target has named inputs, and sourceParam when the source has named outputs."
+                "Provide sourceGuid and targetGuid as component instance GUIDs. Select each port "
+                "by its parameter name or zero-based index. A selector may be omitted only for a "
+                "component with one parameter on that side."
             ),
             inputSchema={
                 "type": "object",
@@ -8324,6 +8325,8 @@ Create entry types:
                     "targetGuid": {"type": "string", "description": "Target component instance GUID."},
                     "targetParam": {"type": "string", "description": "Optional target input parameter name, e.g. A or B."},
                     "sourceParam": {"type": "string", "description": "Optional source output parameter name."},
+                    "targetIndex": {"type": "integer", "minimum": 0},
+                    "sourceIndex": {"type": "integer", "minimum": 0},
                 },
                 "required": ["sourceGuid", "targetGuid"],
             },
