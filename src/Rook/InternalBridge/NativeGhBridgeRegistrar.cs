@@ -736,14 +736,19 @@ namespace Rook.InternalBridge
                 responseJsonCapacity,
                 responseJsonLength,
                 httpStatusCode,
-                requestJson =>
-                {
-                    var args = ParseRequestArgs(requestJson);
-                    return Handler.InspectOutput(
-                        GetStringArg(args, "guid"),
-                        GetStringArg(args, "param"),
-                        GetStringArg(args, "readiness_receipt_id"));
-                });
+                InspectOutputForBridge);
+        }
+
+        internal static ApiResponse InspectOutputForBridge(string requestJson)
+        {
+            var args = ParseRequestArgs(requestJson);
+            if (!GhInspectOutputSelectorResolver.TryParse(args, out var selector, out var error))
+                return error!.ToApiResponse();
+
+            return Handler.InspectOutput(
+                GetStringArg(args, "guid"),
+                selector,
+                GetStringArg(args, "readiness_receipt_id"));
         }
 
         private static int HandleErrors(

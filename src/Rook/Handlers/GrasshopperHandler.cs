@@ -5049,11 +5049,25 @@ namespace Rook.Handlers
         }
 
         /// <summary>
-        /// GET /gh/inspect-output?guid=xxx&param=S - Inspect output data structure
+        /// GET /gh/inspect-output?guid=xxx&amp;param=S or &amp;outputIndex=0 - Inspect output data structure
         /// Returns detailed info about output data: type, structure (single/list/tree), paths, counts
         /// </summary>
         public ApiResponse InspectOutput(string? guid, string? param, string? readinessReceiptId = null)
         {
+            var selector = param is null
+                ? default
+                : new GhInspectOutputSelector(param, outputIndex: null);
+            return InspectOutput(guid, selector, readinessReceiptId);
+        }
+
+        internal ApiResponse InspectOutput(
+            string? guid,
+            GhInspectOutputSelector selector,
+            string? readinessReceiptId = null)
+        {
+            if (!GhInspectOutputSelectorResolver.TryValidate(selector, out var selectorError))
+                return selectorError!.ToApiResponse();
+
             var notReady = EnsureGrasshopperReadyForEdit("gh_inspect_output");
             if (notReady != null)
                 return notReady;
@@ -5095,43 +5109,17 @@ namespace Rook.Handlers
                 if (outputs == null || outputs.Count == 0)
                     return new ApiResponse { Success = false, Data = "No outputs available" };
 
-                // Find the requested output param
-                object? targetOutput = null;
-                int outputIndex = 0;
-
-                if (!string.IsNullOrEmpty(param))
+                if (!GhInspectOutputSelectorResolver.TryResolve(
+                        outputs,
+                        selector,
+                        out var resolvedOutput,
+                        out selectorError))
                 {
-                    // Try to parse as index first
-                    if (int.TryParse(param, out int idx) && idx >= 0 && idx < outputs.Count)
-                    {
-                        targetOutput = outputs[idx];
-                        outputIndex = idx;
-                    }
-                    else
-                    {
-                        // Find by name or nickname
-                        for (int i = 0; i < outputs.Count; i++)
-                        {
-                            var outParam = outputs[i];
-                            var name = outParam?.GetType().GetProperty("Name")?.GetValue(outParam)?.ToString() ?? "";
-                            var nickname = outParam?.GetType().GetProperty("NickName")?.GetValue(outParam)?.ToString() ?? "";
-                            if (name == param || nickname == param)
-                            {
-                                targetOutput = outParam;
-                                outputIndex = i;
-                                break;
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    // Default to first output
-                    targetOutput = outputs[0];
+                    return selectorError!.ToApiResponse();
                 }
 
-                if (targetOutput == null)
-                    return new ApiResponse { Success = false, Data = $"Output param '{param}' not found" };
+                var targetOutput = resolvedOutput.Value!;
+                var outputIndex = resolvedOutput.Index;
 
                 // Get output info
                 var outputName = targetOutput.GetType().GetProperty("Name")?.GetValue(targetOutput)?.ToString();
