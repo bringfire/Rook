@@ -254,6 +254,44 @@ def _build_gh_csharp_create_verify_repair() -> PlanGraph:
     )
 
 
+def _build_gh_csharp_create_verify() -> PlanGraph:
+    """Create one C# script and deterministically verify its receipt."""
+    return PlanGraph(
+        nodes={
+            "create_script": PlanGraphNode(
+                id="create_script",
+                intent="Create C# script component",
+                execution_ref="gh_create_csharp_script:v1",
+                verifier_ref="script_receipt_has_artifact_or_errors:v1",
+                metadata={"outcome_projection_role": "artifact_producer"},
+            ),
+            "verify_create": PlanGraphNode(
+                id="verify_create",
+                intent="Verify the created component's receipt",
+                verifier_ref="script_receipt_has_artifact_or_errors:v1",
+                metadata={"outcome_projection_role": "artifact_verifier"},
+            ),
+            "done": PlanGraphNode(
+                id="done",
+                intent="Finalize: initial artifact verified clean",
+                is_terminal=True,
+            ),
+        },
+        edges=[
+            PlanGraphEdge(
+                source="create_script",
+                target="verify_create",
+                kind="requires",
+            ),
+            PlanGraphEdge(
+                source="verify_create",
+                target="done",
+                kind="requires",
+            ),
+        ],
+    )
+
+
 def _build_gh_csharp_create_verify_repair_verify() -> PlanGraph:
     """Full linear RE-VERIFICATION CHAIN: create -> verify -> repair -> reverify -> done (LM3H).
 
@@ -329,6 +367,24 @@ DEFAULT_REGISTRY: tuple[TemplateEntry, ...] = (
             "language": "csharp",
         },
         _build_gh_csharp_create_repair,
+        bindings=(
+            BindingSpec("goal", "memory_fact", "goal"),
+            BindingSpec(
+                "component_name",
+                "node_metadata",
+                "component_name",
+                node_id="create_script",
+            ),
+        ),
+    ),
+    _make_entry(
+        "gh_csharp_create_verify",
+        {
+            "domain": "grasshopper",
+            "operation": "create_verify",
+            "language": "csharp",
+        },
+        _build_gh_csharp_create_verify,
         bindings=(
             BindingSpec("goal", "memory_fact", "goal"),
             BindingSpec(
