@@ -486,6 +486,9 @@ def main() -> int:
         "origin": "site-packages",
     }
 
+    if args.module == "rook":
+        run([str(venv_python), "-c", "import rook.server"], env=env, timeout=args.command_timeout_seconds)
+
     dspy_cache = {}
     if args.module == "rook":
         dspy_expr = (

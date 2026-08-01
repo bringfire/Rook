@@ -93,6 +93,7 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     Assert-Contains -Text $content -Expected 'requirements-bootstrap-lock.txt' -Message 'Wheelhouse builder must write a hash-locked bootstrap requirements file.'
     Assert-Contains -Text $content -Expected 'packaging_tags.sys_tags()' -Message 'Wheelhouse builder must validate wheel tags against interpreter accepted tags.'
     Assert-Contains -Text $content -Expected '{module}.__file__' -Message 'Wheelhouse builder must record module import origin evidence.'
+    Assert-Contains -Text $content -Expected 'import rook.server' -Message 'Wheelhouse builder must import rook.server from the clean packaged runtime.'
     Assert-Contains -Text $code -Expected '''--module'' , ''rook'' , ''--vision-smoke''' -Message 'Wheelhouse builder must verify the Rook install import origin.'
     Assert-Contains -Text $code -Expected '''--module'' , ''chirp'' , ''--output''' -Message 'Wheelhouse builder must verify the Chirp install import origin.'
     Assert-Contains -Text $content -Expected 'cv2' -Message 'Wheelhouse builder must run shipped vision stack import smokes.'
@@ -117,6 +118,21 @@ function Test-WheelhouseBuilderEnforcesReleaseContracts {
     Assert-NotContains -Text $content -Expected 'return ConvertTo-ForwardSlashPath -Path $targetPath' -Message 'Manifest path helper must not fall back to absolute local paths.'
 }
 
+function Test-McpDependencyIsExactlyPinned {
+    $pyproject = Join-Path $RepoRoot 'mcp_server\pyproject.toml'
+    $content = Get-Content -Path $pyproject -Raw
+
+    $defaultDepsBlock = [regex]::Match($content, 'dependencies\s*=\s*\[(?s:.*?)\]')
+    Assert-True -Condition $defaultDepsBlock.Success -Message 'pyproject must have project dependencies block.'
+    $mcpDependencyLines = @(
+        $defaultDepsBlock.Value -split "`r?`n" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -match '^"mcp[^\"]*",$' }
+    )
+    Assert-True -Condition ($mcpDependencyLines.Count -eq 1) -Message 'pyproject must declare exactly one default MCP dependency.'
+    Assert-True -Condition ($mcpDependencyLines[0] -eq '"mcp==1.28.1",') -Message 'pyproject must exactly pin MCP 1.28.1.'
+}
+
 function Test-OcrDependencyIsNotDefaultRuntimeDependency {
     $pyproject = Join-Path $RepoRoot 'mcp_server\pyproject.toml'
     $content = Get-Content -Path $pyproject -Raw
@@ -133,6 +149,7 @@ Test-PythonRuntimeStagerExistsAndNeverRunsAtInstallTime
 Test-PythonRuntimeStagerStagesRuntimeIntoTempRoots
 Test-WheelhouseBuilderExists
 Test-WheelhouseBuilderEnforcesReleaseContracts
+Test-McpDependencyIsExactlyPinned
 Test-OcrDependencyIsNotDefaultRuntimeDependency
 
 Write-Host 'Python runtime packaging guard tests passed.'

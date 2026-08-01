@@ -5,7 +5,7 @@ description = "MCP server for Claude AI to interact with Rhino 3D"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp==1.28.1",
     "httpx>=0.25.0",
     "mabwiser>=2.7.0",
     "dspy>=2.6.0",
