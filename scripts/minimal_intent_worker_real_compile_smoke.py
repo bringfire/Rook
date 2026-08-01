@@ -24,13 +24,13 @@ from rook.agent.local_worker_model_transport import (  # noqa: E402
     _local_worker_response_union_schema,
 )
 from rook.agent.minimal_intent_worker_integration import (  # noqa: E402
-    MinimalIntentWorkerIntegrationResult,
+    MinimalIntentWorkerInitialBodyIntegrationResult,
     MinimalPlannerDraftAdapter,
     build_minimal_planner_draft_response_schema,
-    run_minimal_intent_worker_integration,
+    run_minimal_intent_worker_initial_body_integration,
 )
-from rook.agent.minimal_csharp_repair_handoff import (  # noqa: E402
-    MinimalCSharpRepairHandoffResult,
+from rook.agent.minimal_csharp_initial_body_handoff import (  # noqa: E402
+    MinimalCSharpInitialBodyHandoffResult,
 )
 from rook.agent.model_profiles import get_models  # noqa: E402
 from rook.agent.tool_dispatcher import (  # noqa: E402
@@ -412,7 +412,7 @@ class _LiveCallCounts:
 
 
 def _project_planner_admission(
-    result: MinimalIntentWorkerIntegrationResult,
+    result: MinimalIntentWorkerInitialBodyIntegrationResult,
 ) -> dict[str, object]:
     draft = result.validated_draft
     if draft is None:
@@ -435,7 +435,7 @@ def _project_planner_admission(
 
 
 def _project_compiled_workflow(
-    result: MinimalCSharpRepairHandoffResult,
+    result: MinimalCSharpInitialBodyHandoffResult,
 ) -> dict[str, object]:
     scaffold = result.scaffold
     record = scaffold.compile_record
@@ -480,7 +480,7 @@ def _project_graph_state(graph: PlanGraph) -> dict[str, object]:
 
 
 def _project_native_steps(
-    result: MinimalCSharpRepairHandoffResult,
+    result: MinimalCSharpInitialBodyHandoffResult,
 ) -> tuple[dict[str, object], ...]:
     records = result.step_records
     supplies = result.supply_records
@@ -535,7 +535,7 @@ def _project_native_steps(
 
 
 def _project_final_native_result(
-    integration: MinimalIntentWorkerIntegrationResult,
+    integration: MinimalIntentWorkerInitialBodyIntegrationResult,
     call_counts: _LiveCallCounts,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
@@ -567,7 +567,7 @@ def _project_final_native_result(
 
 def _record_returned_projections(
     recorder: _JsonlFlightRecorder,
-    integration: MinimalIntentWorkerIntegrationResult,
+    integration: MinimalIntentWorkerInitialBodyIntegrationResult,
     call_counts: _LiveCallCounts,
 ) -> None:
     if integration.validated_draft is not None:
@@ -1023,13 +1023,7 @@ class _RestrictedRealToolExecutor:
             raise TypeError("restricted tool call shape differs")
         if "port" in params:
             raise ValueError("restricted tool parameters contain port")
-        expected = (
-            "gh_create_csharp_script"
-            if not self._calls
-            else "gh_update_script"
-            if self._calls == ["gh_create_csharp_script"]
-            else None
-        )
+        expected = "gh_create_csharp_script" if not self._calls else None
         if expected is None or tool_name != expected:
             raise ValueError("restricted tool sequence differs")
         common: dict[str, Any] | None = None
@@ -1066,7 +1060,7 @@ class _RestrictedRealToolExecutor:
 
 @dataclass(frozen=True, slots=True)
 class _LiveRun:
-    result: MinimalIntentWorkerIntegrationResult
+    result: MinimalIntentWorkerInitialBodyIntegrationResult
     target: _ResolvedRhinoTarget
     preparation: _PreparedDocument
     executor: _RestrictedRealToolExecutor
@@ -1164,7 +1158,7 @@ async def _run_prepared_once(
     )
     planner_adapter = MinimalPlannerDraftAdapter(planner_transport)
     try:
-        result = await run_minimal_intent_worker_integration(
+        result = await run_minimal_intent_worker_initial_body_integration(
             _FIXED_INTENT,
             planner_adapter=planner_adapter,
             worker_transport=worker_transport,
@@ -1208,15 +1202,12 @@ def _summary_from_result(
         result.terminal_stage == "terminal"
         and result.terminal_reason == "terminal_node_selected:done"
     )
-    if native_terminal and execution_prefix != (
-        "gh_create_csharp_script",
-        "gh_update_script",
-    ):
+    if native_terminal and execution_prefix != ("gh_create_csharp_script",):
         raise RuntimeError("native terminal executor prefix differs")
     completed = (
         live_run.preparation.state == "fresh_document_verified"
         and execution_prefix
-        == ("gh_create_csharp_script", "gh_update_script")
+        == ("gh_create_csharp_script",)
         and native_terminal
     )
     return {
