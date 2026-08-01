@@ -14,7 +14,7 @@
   `codex/release-surface-hardening-roadmap`, and verify its first parent is approved
   design commit `abb623363801b66be2b09fd1359b9c154c0d5198` before editing code.
 - The raw pre-lifecycle inventory is exactly 40 `rc_*` names; Task 1 defines the full set verbatim.
-- Known `rc_*` names use the existing `suspended` lifecycle envelope; an unknown `rc_*` name receives one bounded fail-closed denial through the same central admission path.
+- Known `rc_*` names use the existing `suspended` lifecycle envelope; an unknown `rc_*` name receives one fixed-field fail-closed denial through the same central admission path. Response-size hardening is deferred.
 - Remove `rc_*` from every active profile, full-profile set, allowlist, targeting set, and model-facing tool group.
 - Preserve `road_intersection_candidates`, `road_intersection_resolve`, and all other admitted native `road_*` tools.
 - Do not modify `src/RookNative`, `mcp_server/src/rook/bridge.py`, dormant `rc_*` schemas or dispatch cases, `/rc/*` routes, `mcp_server/src/rook/agent/tool_dispatcher.py` adapter mappings, `knowledge/roads/profiles`, historical documents, or retained Wasp product assets.
@@ -1021,10 +1021,10 @@ Run:
 
 ```powershell
 python -m pytest mcp_server/tests/test_python_runtime_install.py -q
-Invoke-Pester -Path scripts/tests/release-installer-guards.tests.ps1 -Output Detailed
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/release-installer-guards.tests.ps1
 ```
 
-Expected: all pytest and Pester tests PASS. Confirm the failure test leaves `final_outcome` available for the outer finalizer while `retired_codex_skill_cleanup.complete` remains `false`.
+Expected: the pytest file and guard script PASS. Confirm the failure test leaves `final_outcome` available for the outer finalizer while `retired_codex_skill_cleanup.complete` remains `false`.
 
 - [ ] **Step 9: Commit the migration unit**
 
@@ -1045,22 +1045,23 @@ git commit -m "fix: remove retired Codex road skills on upgrade"
 - Consumes: both implementation commits, the approved design, current release scripts, and the installed MCP Python runtime.
 - Produces: test/build/smoke output copied into the private PR description or check run.
 
-- [ ] **Step 1: Run the complete Python MCP suite**
+- [ ] **Step 1: Record the repository-wide suite caveat and baseline comparison**
 
-```powershell
-python -m pytest mcp_server/tests -q
-```
-
-Expected: PASS with no skipped containment contract. Record total passed/failed/skipped counts.
+Do not claim that the repository-wide suite is green and do not rerun it for this
+containment acceptance. Cite the prior identical locked-environment comparison instead:
+624 failures/errors were common and pre-existing, one baseline-only result was
+order/environment pollution, and the two candidate-only failures were stale expectations
+corrected in the containment test commit. Use the focused containment, installer, packaging,
+build, and installed-smoke gates below as the acceptance evidence.
 
 - [ ] **Step 2: Run release and installer guard suites**
 
 ```powershell
-Invoke-Pester -Path scripts/tests/release-installer-guards.tests.ps1 -Output Detailed
-Invoke-Pester -Path scripts/tests/validate-release-artifacts.tests.ps1 -Output Detailed
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/release-installer-guards.tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/validate-release-artifacts.tests.ps1
 ```
 
-Expected: both Pester suites PASS.
+Expected: both guard scripts PASS.
 
 - [ ] **Step 3: Compare retained Wasp product assets against the pinned base**
 
@@ -1221,8 +1222,7 @@ async def main():
     for name in NATIVE:
         read = await server.call_tool("rook_tools_read", {"name": name})
         payload = json.loads(read[0].text)
-        assert payload["success"] is True
-        assert payload["data"]["name"] == name
+        assert payload["name"] == name
 
     routed = []
     async def fake_call_rhino(path, method="GET", data=None, *, port=None, **_kwargs):
