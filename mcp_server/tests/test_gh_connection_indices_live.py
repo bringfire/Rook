@@ -94,71 +94,96 @@ async def _connections(base_url: str, guid: str) -> list[dict[str, Any]]:
     return (envelope.get("data") or {}).get("inputs") or []
 
 
+async def _discard_disposable_document_changes(base_url: str) -> None:
+    result = await _raw_post(
+        base_url,
+        "/execute",
+        {
+            "code": (
+                "import Grasshopper\n"
+                "server = Grasshopper.Instances.DocumentServer\n"
+                "documents = list(server)\n"
+                "canvas = Grasshopper.Instances.ActiveCanvas\n"
+                "if canvas is not None:\n"
+                "    canvas.Document = None\n"
+                "for document in documents:\n"
+                "    server.RemoveDocument(document)\n"
+                "    document.Dispose()"
+            ),
+        },
+    )
+    assert result.get("success") is True, result
+
+
 async def test_mcp_connect_and_raw_disconnect_honor_indices_five_through_seven():
     base_url = get_rhino_host(endpoint="/gh/status")
     assert base_url is not None, "owned RookNative endpoint was not discoverable"
     await _prepare_blank_grasshopper_document(base_url)
+    target_guid: str | None = None
 
-    script_result = await _mcp_tool_executor(
-        "gh_create_python_script",
-        {
-            "code": "Result = I5 + I6 + I7",
-            "pins_in": [
-                {"name": f"I{index}", "type": "float"}
-                for index in range(8)
-            ],
-            "pins_out": [{"name": "Result", "type": "float"}],
-            "name": "IndexedConnectionProbe",
-        },
-    )
-    target_guid = _guid(script_result)
-
-    sources: dict[int, str] = {}
-    for index in (5, 6, 7):
-        panel_result = await _mcp_tool_executor(
-            "gh_create_panel",
-            {"content": str(index), "x": 100, "y": 100 + index * 40},
-        )
-        source_guid = _guid(panel_result)
-        sources[index] = source_guid
-
-        connect_result = await _mcp_tool_executor(
-            "gh_connect",
+    try:
+        script_result = await _mcp_tool_executor(
+            "gh_create_python_script",
             {
-                "sourceGuid": source_guid,
-                "targetGuid": target_guid,
-                "targetIndex": index,
+                "code": "Result = I5 + I6 + I7",
+                "pins_in": [
+                    {"name": f"I{index}", "type": "float"}
+                    for index in range(8)
+                ],
+                "pins_out": [{"name": "Result", "type": "float"}],
+                "name": "IndexedConnectionProbe",
             },
         )
-        connected = _payload_with(connect_result, "connected")
-        assert connected["target"] == {
-            "guid": target_guid,
-            "param": f"I{index}",
-            "index": index,
+        target_guid = _guid(script_result)
+
+        sources: dict[int, str] = {}
+        for index in (5, 6, 7):
+            panel_result = await _mcp_tool_executor(
+                "gh_create_panel",
+                {"content": str(index), "x": 100, "y": 100 + index * 40},
+            )
+            source_guid = _guid(panel_result)
+            sources[index] = source_guid
+
+            connect_result = await _mcp_tool_executor(
+                "gh_connect",
+                {
+                    "sourceGuid": source_guid,
+                    "targetGuid": target_guid,
+                    "targetIndex": index,
+                },
+            )
+            connected = _payload_with(connect_result, "connected")
+            assert connected["target"] == {
+                "guid": target_guid,
+                "param": f"I{index}",
+                "index": index,
+            }
+
+        connected_inputs = await _connections(base_url, target_guid)
+        observed = {
+            item.get("paramIndex"): len(item.get("sources") or [])
+            for item in connected_inputs
         }
+        assert observed == {5: 1, 6: 1, 7: 1}
 
-    connected_inputs = await _connections(base_url, target_guid)
-    observed = {
-        item.get("paramIndex"): len(item.get("sources") or [])
-        for item in connected_inputs
-    }
-    assert observed == {5: 1, 6: 1, 7: 1}
+        for index, source_guid in sources.items():
+            disconnect_result = await _raw_post(
+                base_url,
+                "/gh/disconnect",
+                {
+                    "sourceGuid": source_guid,
+                    "targetGuid": target_guid,
+                    "targetIndex": index,
+                },
+            )
+            disconnected = _payload_with(disconnect_result, "disconnected")
+            assert disconnected["target"] == {
+                "guid": target_guid,
+                "param": f"I{index}",
+                "index": index,
+            }
 
-    for index, source_guid in sources.items():
-        disconnect_result = await _raw_post(
-            base_url,
-            "/gh/disconnect",
-            {
-                "sourceGuid": source_guid,
-                "targetGuid": target_guid,
-                "targetIndex": index,
-            },
-        )
-        disconnected = _payload_with(disconnect_result, "disconnected")
-        assert disconnected["target"] == {
-            "guid": target_guid,
-            "param": f"I{index}",
-            "index": index,
-        }
-
-    assert await _connections(base_url, target_guid) == []
+        assert await _connections(base_url, target_guid) == []
+    finally:
+        await _discard_disposable_document_changes(base_url)
