@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -289,3 +290,43 @@ async def test_worker_stops_before_create(
     assert result.terminal_stage == expected_stage
     assert len(worker.calls) == 1
     assert executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_action_apply_stage_rejects_an_applied_action() -> None:
+    result = await run_minimal_csharp_initial_body_handoff(
+        _valid_draft(),
+        worker_transport=_WorkerTransport(),
+        tool_executor=_CreateExecutor(),
+    )
+
+    with pytest.raises(ValueError, match="action state"):
+        replace(
+            result,
+            final_graph=result.scaffold.graph,
+            supply_records=(),
+            step_records=(),
+            terminal_stage="action_apply",
+            terminal_reason="invalid_action_stage",
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_stage_rejects_a_rejected_action() -> None:
+    result = await run_minimal_csharp_initial_body_handoff(
+        _valid_draft(),
+        worker_transport=_WorkerTransport(
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_create_body",
+                "rationale": "Blank body.",
+                "input": {"code": "   "},
+            }
+        ),
+        tool_executor=_CreateExecutor(),
+    )
+    assert result.terminal_stage == "action_apply"
+
+    with pytest.raises(ValueError, match="action state"):
+        replace(result, terminal_stage="create")

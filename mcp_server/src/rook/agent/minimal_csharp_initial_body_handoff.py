@@ -133,8 +133,7 @@ async def run_minimal_csharp_initial_body_handoff(
     tool_executor: Callable[[str, dict[str, Any]], Any],
 ) -> MinimalCSharpInitialBodyHandoffResult:
     _require_validated_draft(draft)
-    if not callable(tool_executor):
-        raise TypeError("tool_executor must be callable")
+    if not callable(tool_executor): raise TypeError("tool_executor must be callable")
 
     contract = _build_initial_body_contract(draft)
     scaffold = compile_workflow_contract(contract)
@@ -151,8 +150,7 @@ async def run_minimal_csharp_initial_body_handoff(
             "worker_adapter",
             _reason(adapter.failure_reason),
         )
-    if adapter.response is None:
-        raise RuntimeError("loaded Worker response is absent")
+    if adapter.response is None: raise RuntimeError("loaded Worker response is absent")
     response = adapter.response
 
     def one_shot(supplied: LocalWorkerTurnContext):
@@ -377,12 +375,10 @@ def _reason(value: object) -> str:
 
 def _validate_result_shape(result: MinimalCSharpInitialBodyHandoffResult) -> None:
     _require_validated_draft(result.draft)
-    immediate_types = (
-        (result.scaffold, CompiledWorkflowScaffold),
-        (result.final_graph, PlanGraph),
-        (result.worker_context, LocalWorkerTurnContext),
-        (result.adapter_record, LocalWorkerAdapterRecord),
-    )
+    immediate_types = ((result.scaffold, CompiledWorkflowScaffold),
+                       (result.final_graph, PlanGraph),
+                       (result.worker_context, LocalWorkerTurnContext),
+                       (result.adapter_record, LocalWorkerAdapterRecord))
     if any(type(value) is not expected for value, expected in immediate_types):
         raise TypeError("result contains an invalid immediate field type")
     optional_types = ((result.worker_record, LocalWorkerTurnHarnessRecord),
@@ -400,10 +396,8 @@ def _validate_result_shape(result: MinimalCSharpInitialBodyHandoffResult) -> Non
     if type(result.terminal_reason) is not str or not result.terminal_reason:
         raise TypeError("terminal_reason must be an exact nonblank string")
     allowed_prefixes = {
-        "worker_adapter": {()},
-        "worker_disposition": {()},
-        "action_apply": {()},
-        "create": {(), (_CREATE_NODE_ID,)},
+        "worker_adapter": {()}, "worker_disposition": {()},
+        "action_apply": {()}, "create": {(), (_CREATE_NODE_ID,)},
         "verify_create": {(_CREATE_NODE_ID, _VERIFY_NODE_ID)},
         "terminal": {(_CREATE_NODE_ID, _VERIFY_NODE_ID)},
     }
@@ -418,6 +412,13 @@ def _validate_result_shape(result: MinimalCSharpInitialBodyHandoffResult) -> Non
         result.terminal_stage not in action_stages
     ):
         raise ValueError("action result presence differs from terminal stage")
+    action = result.action_apply_result
+    if action is not None:
+        expected_applied = result.terminal_stage != "action_apply"
+        if action.applied is not expected_applied:
+            raise ValueError("action state differs from terminal stage")
+        if not expected_applied and result.terminal_reason != action.reason:
+            raise ValueError("action state reason differs from terminal reason")
     actual_prefix = tuple(record.accepted_node_id for record in result.step_records)
     if actual_prefix not in allowed_prefixes[result.terminal_stage]:
         raise ValueError("native record prefix differs from terminal stage")
