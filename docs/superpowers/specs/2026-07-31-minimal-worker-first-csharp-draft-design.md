@@ -342,7 +342,7 @@ snapshot_scaffold
     )
   )
 
-scaffold == snapshot_scaffold
+type_sensitive_equal(scaffold, snapshot_scaffold)
 
 node_id == create_script
 node execution_ref == gh_create_csharp_script:v1
@@ -513,10 +513,11 @@ draft
 
 It re-renders the request from the retained context, re-derives disposition,
 recompiles `_build_initial_body_contract(draft)` and requires the retained
-scaffold to equal that exact compiler output, replays the pure applicator from
-that retained scaffold, and validates each native record through the existing
-current-step projection. It does not create an archive, proof carrier,
-fingerprint framework, or second receipt system.
+scaffold to equal that exact compiler output under the same private
+type-sensitive tree comparison, replays the pure applicator from that retained
+scaffold, and validates each native record through the existing current-step
+projection. It does not create an archive, proof carrier, fingerprint
+framework, or second receipt system.
 
 ## 10. Planner-facing integration and ownership split
 

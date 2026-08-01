@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 import hashlib
 import json
 from typing import Any
@@ -68,9 +68,60 @@ def _matches_compiled_contract_snapshot(
                 scaffold.contract_snapshot.normalized_contract
             )
         )
-        return scaffold == expected_scaffold
+        return _exact_value_equal(scaffold, expected_scaffold)
     except Exception:
         return False
+
+
+def _exact_value_equal(actual: Any, expected: Any) -> bool:
+    if type(actual) is not type(expected):
+        return False
+
+    if is_dataclass(expected):
+        return all(
+            _exact_value_equal(
+                getattr(actual, field.name),
+                getattr(expected, field.name),
+            )
+            for field in fields(expected)
+        )
+
+    if isinstance(expected, Mapping):
+        unmatched = list(actual.items())
+        if len(unmatched) != len(expected):
+            return False
+        for expected_key, expected_value in expected.items():
+            for index, (actual_key, actual_value) in enumerate(unmatched):
+                if _exact_value_equal(actual_key, expected_key):
+                    if not _exact_value_equal(actual_value, expected_value):
+                        return False
+                    unmatched.pop(index)
+                    break
+            else:
+                return False
+        return not unmatched
+
+    if isinstance(expected, (list, tuple)):
+        return len(actual) == len(expected) and all(
+            _exact_value_equal(actual_item, expected_item)
+            for actual_item, expected_item in zip(actual, expected, strict=True)
+        )
+
+    if isinstance(expected, (set, frozenset)):
+        unmatched = list(actual)
+        if len(unmatched) != len(expected):
+            return False
+        for expected_item in expected:
+            for index, actual_item in enumerate(unmatched):
+                if _exact_value_equal(actual_item, expected_item):
+                    unmatched.pop(index)
+                    break
+            else:
+                return False
+        return not unmatched
+
+    comparison = actual == expected
+    return type(comparison) is bool and comparison
 
 
 def apply_worker_create_body_to_scaffold(

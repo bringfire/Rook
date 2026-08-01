@@ -36,6 +36,18 @@ class _EqualitySpoof:
         return hash("draft_create_body")
 
 
+class _StringSubclass(str):
+    pass
+
+
+class _IntegerSubclass(int):
+    pass
+
+
+class _TupleSubclass(tuple):
+    pass
+
+
 def _valid_draft() -> ValidatedPlannerDraft:
     return load_minimal_csharp_repair_draft(
         {
@@ -119,6 +131,9 @@ def test_applicator_adds_only_worker_code_to_a_copied_scaffold_graph():
         ("selected_template", "invalid_template"),
         ("extra_repair_topology", "invalid_template"),
         ("changed_output_pin", "invalid_template"),
+        ("string_subclass_param", "invalid_template"),
+        ("integer_subclass_param", "invalid_template"),
+        ("sequence_subclass_param", "invalid_template"),
         ("changed_initial_status", "invalid_template"),
         ("changed_provider", "invalid_template"),
         ("changed_rules", "invalid_template"),
@@ -187,6 +202,39 @@ def test_applicator_rejects_closed_boundary_mutations(
             ]
         )
         params["pins_out"] = ("B:integer",)
+        scaffold = _replace_graph(
+            scaffold,
+            lambda graph: _set_create_params(graph, params),
+        )
+    elif case == "string_subclass_param":
+        params = dict(
+            scaffold.graph.nodes["create_script"].metadata[
+                EXECUTION_PARAMS_KEY
+            ]
+        )
+        params["name"] = _StringSubclass(params["name"])
+        scaffold = _replace_graph(
+            scaffold,
+            lambda graph: _set_create_params(graph, params),
+        )
+    elif case == "integer_subclass_param":
+        params = dict(
+            scaffold.graph.nodes["create_script"].metadata[
+                EXECUTION_PARAMS_KEY
+            ]
+        )
+        params["x"] = _IntegerSubclass(params["x"])
+        scaffold = _replace_graph(
+            scaffold,
+            lambda graph: _set_create_params(graph, params),
+        )
+    elif case == "sequence_subclass_param":
+        params = dict(
+            scaffold.graph.nodes["create_script"].metadata[
+                EXECUTION_PARAMS_KEY
+            ]
+        )
+        params["pins_out"] = _TupleSubclass(params["pins_out"])
         scaffold = _replace_graph(
             scaffold,
             lambda graph: _set_create_params(graph, params),

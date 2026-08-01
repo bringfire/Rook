@@ -471,9 +471,11 @@ Wrong Python carrier types for the scaffold itself raise `TypeError`; product-do
 Before graph copying, reload and compile
 `scaffold.contract_snapshot.normalized_contract` through the existing pure
 workflow loader/compiler and require the complete retained scaffold to equal
-that reconstructed scaffold. This comparison closes graph topology, refs,
-provider/rules, initial statuses, and compiler-owned parameter values; any
-mismatch returns `invalid_template`.
+that reconstructed scaffold through a private recursive comparison that
+requires exact Python types as well as values. This comparison closes graph
+topology, refs, provider/rules, initial statuses, compiler-owned parameter
+values, and equality-spoof subclasses; any mismatch returns
+`invalid_template`.
 
 - [ ] **Step 4: Implement the pure union**
 
@@ -498,6 +500,7 @@ expected template changed                    -> invalid_template
 selected template changed                    -> invalid_template
 extra repair node/edge/ref                    -> invalid_template
 compiler-owned output pin changed             -> invalid_template
+string/integer/sequence value subclass         -> invalid_template
 initial graph status changed                  -> invalid_template
 provider or compiled rules changed            -> invalid_template
 node id verify_create                        -> invalid_tool_ref
@@ -781,9 +784,9 @@ Preserve the native reason with the same closed reason extraction pattern used b
 In `MinimalCSharpInitialBodyHandoffResult.__post_init__`, validate only this module's chain:
 
 1. exact draft and exact scaffold type;
-2. `compile_workflow_contract(_build_initial_body_contract(draft))` exactly
-   equals the retained scaffold, whose selected/expected template is
-   `gh_csharp_create_verify`;
+2. `compile_workflow_contract(_build_initial_body_contract(draft))` equals the
+   retained scaffold through the same private type-sensitive tree comparison,
+   and its selected/expected template is `gh_csharp_create_verify`;
 3. scaffold create params have no code;
 4. `worker_request == render_local_worker_turn_request_payload(worker_context)`;
 5. Worker context workflow identity matches scaffold;
