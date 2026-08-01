@@ -12,6 +12,7 @@ from rook.agent.minimal_csharp_repair_handoff import (
 from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY
 from rook.agent.plan_graph_workflow_contract import (
     BindStepSpec,
+    VerifierStepSpec,
     compile_workflow_contract,
 )
 
@@ -45,11 +46,13 @@ def test_builder_compiles_exact_incomplete_create_verify_scaffold():
         "done",
     )
     params = scaffold.graph.nodes["create_script"].metadata[EXECUTION_PARAMS_KEY]
-    assert set(params) == {"pins_in", "pins_out", "name", "x", "y"}
-    assert params["pins_in"] == ()
-    assert params["pins_out"] == ("A:double",)
-    assert "code" not in params
-    assert "mode" not in params
+    assert params == {
+        "pins_in": (),
+        "pins_out": ("A:double",),
+        "name": "RookMinimalInitialBodyHandoff",
+        "x": 375,
+        "y": 1080,
+    }
     assert scaffold.compile_record.expected_refs == (
         ("create_script", "gh_create_csharp_script:v1"),
     )
@@ -62,6 +65,16 @@ def test_builder_compiles_exact_incomplete_create_verify_scaffold():
         for rule in contract.rules
         for step in rule.steps_by_seen_count
     )
+    assert tuple(rule.node_id for rule in contract.rules) == (
+        "create_script",
+        "verify_create",
+    )
+    verify_steps = contract.rules[1].steps_by_seen_count
+    assert len(verify_steps) == 1
+    assert type(verify_steps[0]) is VerifierStepSpec
+    assert verify_steps[0].verifier_node_id == "verify_create"
+    assert verify_steps[0].source_node_id == "create_script"
+    assert verify_steps[0].expected_outcome == "succeeded"
 
 
 def test_different_goals_do_not_move_compiler_owned_contract_fields():

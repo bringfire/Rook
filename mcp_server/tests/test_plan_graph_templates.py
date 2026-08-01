@@ -463,29 +463,37 @@ def test_create_verify_template_has_exact_three_node_requires_topology():
 
     assert selection.selected_template_id == "gh_csharp_create_verify"
     assert selection.graph is not None
-    assert tuple(selection.graph.nodes) == (
+    graph = selection.graph
+    assert tuple(graph.nodes) == (
         "create_script",
         "verify_create",
         "done",
     )
     assert [
         (edge.source, edge.target, edge.kind)
-        for edge in selection.graph.edges
+        for edge in graph.edges
     ] == [
         ("create_script", "verify_create", "requires"),
         ("verify_create", "done", "requires"),
     ]
-    assert (
-        selection.graph.nodes["create_script"].execution_ref
-        == "gh_create_csharp_script:v1"
-    )
-    assert selection.graph.nodes["create_script"].metadata == {
+    create = graph.nodes["create_script"]
+    verify = graph.nodes["verify_create"]
+    done = graph.nodes["done"]
+    assert create.execution_ref == "gh_create_csharp_script:v1"
+    assert create.verifier_ref == "script_receipt_has_artifact_or_errors:v1"
+    assert verify.execution_ref is None
+    assert verify.verifier_ref == "script_receipt_has_artifact_or_errors:v1"
+    assert all(node.repair_policy_ref is None for node in graph.nodes.values())
+    assert done.execution_ref is None
+    assert done.verifier_ref is None
+    assert done.repair_policy_ref is None
+    assert create.metadata == {
         OUTCOME_PROJECTION_ROLE_KEY: "artifact_producer"
     }
-    assert selection.graph.nodes["verify_create"].metadata == {
+    assert verify.metadata == {
         OUTCOME_PROJECTION_ROLE_KEY: "artifact_verifier"
     }
-    assert selection.graph.nodes["done"].is_terminal is True
+    assert done.is_terminal is True
 
 
 def test_select_create_verify_repair():
