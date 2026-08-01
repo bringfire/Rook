@@ -72,7 +72,7 @@
 - Consumes: `ValidatedPlannerDraft`, `RookWorkflowContract`, `compile_workflow_contract()`.
 - Produces: private `_build_initial_body_contract(draft) -> RookWorkflowContract`; registered template ID `gh_csharp_create_verify`; exact incomplete `CompiledWorkflowScaffold` used by Tasks 2 and 3.
 
-- [ ] **Step 1: Create an importable behavioral skeleton**
+- [x] **Step 1: Create an importable behavioral skeleton**
 
 Create `minimal_csharp_initial_body_handoff.py` with imports, exact constants, and a deliberately unimplemented pure builder:
 
@@ -98,7 +98,7 @@ def _build_initial_body_contract(
 
 This skeleton makes the RED behavioral rather than a missing-module collection error.
 
-- [ ] **Step 2: Add exact topology and incomplete-scaffold tests**
+- [x] **Step 2: Add exact topology and incomplete-scaffold tests**
 
 Add a template test with these assertions:
 
@@ -176,7 +176,7 @@ expected refs, and maximum steps. The goal is carried separately into Worker
 knowledge; the contract builder must not convert it into topology or execution
 parameters.
 
-- [ ] **Step 3: Run the focused RED**
+- [x] **Step 3: Run the focused RED**
 
 Run:
 
@@ -193,7 +193,7 @@ Expected RED:
 
 Any fixture, import, or unrelated failure is not a valid RED.
 
-- [ ] **Step 4: Implement the exact registered template**
+- [x] **Step 4: Implement the exact registered template**
 
 Add this graph builder beside the existing C# templates:
 
@@ -260,7 +260,7 @@ _make_entry(
 
 Do not edit any existing template builder or descriptor.
 
-- [ ] **Step 5: Implement the pure incomplete contract builder**
+- [x] **Step 5: Implement the pure incomplete contract builder**
 
 Replace the skeleton body with an exact `RookWorkflowContract`:
 
@@ -323,7 +323,7 @@ Import and call the existing private `_require_validated_draft()` from
 the same forged-carrier defense rather than a parallel validator. Do not place
 a body-mode field or code in initial parameters.
 
-- [ ] **Step 6: Run GREEN and regression selection**
+- [x] **Step 6: Run GREEN and regression selection**
 
 Run:
 
@@ -336,7 +336,7 @@ Run:
 
 Expected: all selected tests pass. Confirm the pre-existing repair template tests still select `gh_csharp_create_verify_repair_verify`.
 
-- [ ] **Step 7: Commit Task 1**
+- [x] **Step 7: Commit Task 1**
 
 ```powershell
 git add `
@@ -347,7 +347,7 @@ git add `
 git commit -m "feat: add compiler-owned C# create verify scaffold"
 ```
 
-- [ ] **Step 8: Mandatory independent review stop**
+- [x] **Step 8: Mandatory independent review stop**
 
 Stop after the commit. Request review of only Task 1. Do not begin Task 2 until the reviewer confirms the exact topology, both `requires` edges, incomplete parameter shape, verifier ownership, descriptor non-overlap, and unchanged repair selection.
 
@@ -364,7 +364,7 @@ Stop after the commit. Request review of only Task 1. Do not begin Task 2 until 
 - Consumes: exact `CompiledWorkflowScaffold`, node ID, action ID, and closed `{code}` mapping.
 - Produces: `WorkerCreateBodyApplyResult` and `apply_worker_create_body_to_scaffold()` for Task 3.
 
-- [ ] **Step 0: Create an importable applicator skeleton**
+- [x] **Step 0: Create an importable applicator skeleton**
 
 Create the module with the final function name and an intentional behavioral stop:
 
@@ -386,7 +386,7 @@ def apply_worker_create_body_to_scaffold(
 
 The test module must import successfully before the behavioral RED is run.
 
-- [ ] **Step 1: Write the valid copy-on-write RED**
+- [x] **Step 1: Write the valid copy-on-write RED**
 
 Compile the Task 1 scaffold and call the missing applicator:
 
@@ -415,7 +415,7 @@ assert {key: returned_params[key] for key in original_params} == original_params
 assert returned_params["code"] == "A = 42.0;"
 ```
 
-- [ ] **Step 2: Run the RED**
+- [x] **Step 2: Run the RED**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -426,7 +426,7 @@ Expected RED: the test executes the real call boundary and receives the
 deliberate `NotImplementedError`. Collection or fixture failure is not a valid
 RED.
 
-- [ ] **Step 3: Implement the exact result and validation helpers**
+- [x] **Step 3: Implement the exact result and validation helpers**
 
 Create:
 
@@ -479,7 +479,7 @@ topology, refs, provider/rules, initial statuses, compiler-owned parameter
 values, and equality-spoof subclasses; any mismatch returns
 `invalid_template`.
 
-- [ ] **Step 4: Implement the pure union**
+- [x] **Step 4: Implement the pure union**
 
 The success branch must use this order:
 
@@ -493,7 +493,7 @@ new_graph.nodes[node_id].metadata[EXECUTION_PARAMS_KEY] = completed_params
 
 Compute `params_sha256` from canonical JSON of `completed_params` with `sort_keys=True`, `separators=(",", ":")`, and `ensure_ascii=True`. Do not mutate `scaffold`, `scaffold.graph`, `original_params`, or `action_input`.
 
-- [ ] **Step 5: Add the closed adversarial table**
+- [x] **Step 5: Add the closed adversarial table**
 
 Parameterize these mutations and exact expected reasons:
 
@@ -535,7 +535,7 @@ assert result.params_sha256 is None
 
 Add a caller-custody test proving tuple/list inputs and the action mapping are unchanged after success and rejection.
 
-- [ ] **Step 6: Run Task 2 GREEN and repair-action regression**
+- [x] **Step 6: Run Task 2 GREEN and repair-action regression**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -545,7 +545,7 @@ Add a caller-custody test proving tuple/list inputs and the action mapping are u
 
 Expected: all tests pass; the existing repair applicator still accepts only `draft_repair_params` with `{code, mode}` plus a receipt anchor.
 
-- [ ] **Step 7: Commit Task 2 and stop for review**
+- [x] **Step 7: Commit Task 2 and stop for review**
 
 ```powershell
 git add `
@@ -568,7 +568,7 @@ Request review of scaffold binding, exact union, original-scaffold immutability,
 - Consumes: `ValidatedPlannerDraft`, `LocalWorkerTransport`, callable typed tool executor, Task 1 scaffold, Task 2 applicator.
 - Produces: `MinimalCSharpInitialBodyHandoffResult` and `run_minimal_csharp_initial_body_handoff()` for Task 4.
 
-- [ ] **Step 0: Add an importable handoff skeleton**
+- [x] **Step 0: Add an importable handoff skeleton**
 
 Before writing the vertical test, add this callable to the Task 1 module:
 
@@ -585,7 +585,7 @@ async def run_minimal_csharp_initial_body_handoff(
 This preserves the already-green Task 1 builder while making the Task 3 RED
 exercise the intended async handoff boundary.
 
-- [ ] **Step 1: Add a real-boundary success RED**
+- [x] **Step 1: Add a real-boundary success RED**
 
 Use the existing response envelope and a fake transport that asserts the rendered request before returning:
 
@@ -630,7 +630,7 @@ assert result.action_apply_result.graph.nodes[
 ].metadata[EXECUTION_PARAMS_KEY]["code"] == "A = 42.0;"
 ```
 
-- [ ] **Step 2: Run the handoff RED**
+- [x] **Step 2: Run the handoff RED**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -641,7 +641,7 @@ Expected RED: the vertical executes the importable async handoff and receives
 its deliberate `NotImplementedError`. The Task 1 builder tests must remain
 green in the same run; collection failure is not a valid RED.
 
-- [ ] **Step 3: Add the exact Worker context and action**
+- [x] **Step 3: Add the exact Worker context and action**
 
 Define the action as:
 
@@ -695,7 +695,7 @@ allowed_actions=(_draft_create_body_action(),)
 
 Render through `render_local_worker_turn_request_payload()` and call `run_local_worker_adapter()` exactly once.
 
-- [ ] **Step 4: Implement the exact handoff result ownership**
+- [x] **Step 4: Implement the exact handoff result ownership**
 
 Add the frozen result exactly as specified:
 
@@ -734,7 +734,7 @@ verify_create      -> applied action; native prefix (create_script, verify_creat
 terminal           -> applied action; exact two-record prefix; done ready
 ```
 
-- [ ] **Step 5: Implement one-shot Worker disposition and graph completion**
+- [x] **Step 5: Implement one-shot Worker disposition and graph completion**
 
 After a loaded response, pass that exact response through the existing one-shot harness callback and disposition. For a candidate action:
 
@@ -753,7 +753,7 @@ action_apply_result = apply_worker_create_body_to_scaffold(
 
 Return `action_apply` on a rejected result. Do not construct a tool runner until application succeeds.
 
-- [ ] **Step 6: Execute the completed graph through the existing stream**
+- [x] **Step 6: Execute the completed graph through the existing stream**
 
 Create the same small private executor adapter pattern used by the repair compositor and call:
 
@@ -781,7 +781,7 @@ all earlier native prefixes
 
 Preserve the native reason with the same closed reason extraction pattern used by the repair compositor. Do not invent a compile-failure outcome.
 
-- [ ] **Step 7: Validate only immediate result shape and stage relationships**
+- [x] **Step 7: Validate only immediate result shape and stage relationships**
 
 `MinimalCSharpInitialBodyHandoffResult` is an ephemeral aggregate, not
 self-authenticating evidence. In `__post_init__`, validate only:
@@ -797,7 +797,7 @@ applicator, graph transitions, or execution. Existing native records retain
 their existing ownership. Add no cross-transaction splice matrix, comparator,
 carrier, archive, or provenance layer.
 
-- [ ] **Step 8: Add the bounded behavioral stop matrix**
+- [x] **Step 8: Add the bounded behavioral stop matrix**
 
 Add tests for:
 
@@ -829,7 +829,7 @@ assert [name for name, _ in tool_executor.calls] == [
 
 The fake create receipt must derive its clean/error branch from the exact received Worker body. It must reject unexpected pins, name, position, tool name, call order, second create, and all update calls.
 
-- [ ] **Step 9: Add Worker visibility and no-repair regressions**
+- [x] **Step 9: Add Worker visibility and no-repair regressions**
 
 Recursively inspect the serialized Worker request and prove:
 
@@ -841,7 +841,7 @@ Prove the original scaffold remains code-free, the create call receives the
 admitted Worker body, and no parallel result field stores it. Assert that no
 update, repair action, second Worker call, retry, or fallback occurs.
 
-- [ ] **Step 10: Run Task 3 GREEN and existing repair seam**
+- [x] **Step 10: Run Task 3 GREEN and existing repair seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -853,7 +853,7 @@ update, repair action, second Worker call, retry, or fallback occurs.
 
 Expected: all pass. Confirm the existing repair fake still receives one create and one update and its Worker action remains `draft_repair_params`.
 
-- [ ] **Step 11: Commit Task 3 and stop for review**
+- [x] **Step 11: Commit Task 3 and stop for review**
 
 ```powershell
 git add `
@@ -878,7 +878,7 @@ result shape, compile-failure stop, and absence of update/repair before Task 4.
 - Consumes: exact intent, exact `MinimalPlannerDraftAdapter`, existing strict loader, initial-body handoff.
 - Produces: `MinimalIntentWorkerInitialBodyIntegrationResult` and `run_minimal_intent_worker_initial_body_integration()`.
 
-- [ ] **Step 0: Add an importable integration skeleton**
+- [x] **Step 0: Add an importable integration skeleton**
 
 Add the final function name to the existing Planner integration module before
 creating its test:
@@ -896,7 +896,7 @@ async def run_minimal_intent_worker_initial_body_integration(
 
 Do not alter the existing repair-oriented runner while adding this skeleton.
 
-- [ ] **Step 1: Write the complete raw-intent vertical RED**
+- [x] **Step 1: Write the complete raw-intent vertical RED**
 
 Use a fake `MinimalPlannerTransport` that captures the one request and returns the exact four-field object with `goal` copied byte-for-byte from the test intent. Use the Task 3 fake Worker transport and causal tool executor.
 
@@ -924,7 +924,7 @@ assert [name for name, _ in tool_executor.calls] == [
 ]
 ```
 
-- [ ] **Step 2: Run the integration RED**
+- [x] **Step 2: Run the integration RED**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -935,7 +935,7 @@ Expected RED: the complete fixture executes the importable integration boundary
 and receives its deliberate `NotImplementedError`. Collection failure is not a
 valid RED.
 
-- [ ] **Step 3: Add the exact Planner-owned aggregate**
+- [x] **Step 3: Add the exact Planner-owned aggregate**
 
 In the existing Planner integration module, import the new handoff result/runner and add:
 
@@ -971,7 +971,7 @@ handoff reached:
 
 Revalidate `intent` with the existing `_require_exact_intent()` and require the retained prompt snapshot to equal `_render_prompt_snapshot(intent)`. There is no state with a retained draft and absent handoff.
 
-- [ ] **Step 4: Implement the exact integration runner**
+- [x] **Step 4: Implement the exact integration runner**
 
 Add to `__all__` and implement:
 
@@ -1031,7 +1031,7 @@ async def run_minimal_intent_worker_initial_body_integration(
 
 The two private stop helpers construct only the new result type. Do not route through or alter `MinimalIntentWorkerIntegrationResult`.
 
-- [ ] **Step 5: Add the Planner/draft zero-downstream matrix**
+- [x] **Step 5: Add the Planner/draft zero-downstream matrix**
 
 Parameterize:
 
@@ -1059,13 +1059,13 @@ assert tool_executor.calls == []
 
 Use direct string equality for goal matching; never UTF-8 encode untrusted decoded output.
 
-- [ ] **Step 6: Add immediate integration-result shape tests**
+- [x] **Step 6: Add immediate integration-result shape tests**
 
 Test only exact immediate field types, allowed optional-field presence, and
 direct stage/reason delegation to an existing handoff result. Do not substitute
 cross-transaction records or replay any handoff internals.
 
-- [ ] **Step 7: Run Task 4 GREEN and existing integration regression**
+- [x] **Step 7: Run Task 4 GREEN and existing integration regression**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1076,7 +1076,7 @@ cross-transaction records or replay any handoff internals.
 
 Expected: all pass. Confirm the pre-existing integration still delegates only to `run_minimal_csharp_repair_handoff()`.
 
-- [ ] **Step 8: Commit Task 4 and stop for review**
+- [x] **Step 8: Commit Task 4 and stop for review**
 
 ```powershell
 git add `
@@ -1099,7 +1099,7 @@ Request review of the two-result ownership split, exact Planner adapter boundary
 - Consumes: Tasks 1–4 complete merge diff.
 - Produces: review-ready branch with verified deterministic behavior and reconciled plan ledger.
 
-- [ ] **Step 1: Run the focused new seam**
+- [x] **Step 1: Run the focused new seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1111,7 +1111,7 @@ Request review of the two-result ownership split, exact Planner adapter boundary
 
 Record the exact passing count in this plan. Any failure stops the task.
 
-- [ ] **Step 2: Run the compiler/runner/Worker/repair regression seam**
+- [x] **Step 2: Run the compiler/runner/Worker/repair regression seam**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1131,7 +1131,7 @@ Record the exact passing count in this plan. Any failure stops the task.
 
 Record the exact passing count. Treat existing deprecation warnings as informational only when unchanged.
 
-- [ ] **Step 3: Run smoke and recorder regressions without live flags**
+- [x] **Step 3: Run smoke and recorder regressions without live flags**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m pytest `
@@ -1141,7 +1141,7 @@ Record the exact passing count. Treat existing deprecation warnings as informati
 
 Do not execute any operator script or `--execute-live` flag. Record the exact passing count.
 
-- [ ] **Step 4: Compile changed Python files**
+- [x] **Step 4: Compile changed Python files**
 
 ```powershell
 & C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe -m compileall `
@@ -1156,7 +1156,7 @@ Do not execute any operator script or `--execute-live` flag. Record the exact pa
 
 Expected: compilation succeeds with no syntax errors.
 
-- [ ] **Step 5: Audit the product surface and prohibited behavior**
+- [x] **Step 5: Audit the product surface and prohibited behavior**
 
 Run:
 
@@ -1177,7 +1177,7 @@ Require:
 - existing repair module source is unchanged in the merge diff;
 - the topology-guidance hypothesis remains documentation-only.
 
-- [ ] **Step 6: Inspect transaction ownership manually**
+- [x] **Step 6: Inspect transaction ownership manually**
 
 From the deterministic success and compile-failure test objects, inspect:
 
@@ -1197,7 +1197,7 @@ exact intent
 
 Confirm the original scaffold contains no code, the Worker response is the sole code authority, the applied graph is the first graph-state occurrence, and any later copy is native record propagation rather than a parallel aggregate field.
 
-- [ ] **Step 7: Verify Git scope and reconcile this plan**
+- [x] **Step 7: Verify Git scope and reconcile this plan**
 
 ```powershell
 git diff --check
@@ -1216,7 +1216,7 @@ Mark every completed checkbox in this plan. Add a final execution ledger contain
 - statement that no external contact occurred;
 - statement that results are ephemeral and no live/product surface was added.
 
-- [ ] **Step 8: Commit the docs-only reconciliation**
+- [x] **Step 8: Commit the docs-only reconciliation**
 
 ```powershell
 git add docs/superpowers/plans/2026-07-31-minimal-worker-first-csharp-draft.md
@@ -1225,25 +1225,66 @@ git commit -m "docs: reconcile Worker-first C# draft plan"
 
 If reconciliation exposes a code defect, fix it in a separate bounded code commit, rerun the affected RED/GREEN and full verification, then update the ledger.
 
-- [ ] **Step 9: Stop for final independent implementation review**
+- [x] **Step 9: Stop for final independent implementation review**
 
 Do not push, open a PR, merge, register a product surface, or perform a live test until the complete implementation diff and recorded verification are independently approved.
+
+## Final Execution Ledger
+
+- Reviewed feature HEAD entering this docs-only reconciliation:
+  `34ef5ffef5abe4f80644cdfb5643204f6cbb3479`.
+- Task 1: `6346fc6c` (template/scaffold) and `7aa974b2` (verifier-contract
+  test closure).
+- Task 2: `18b4958f` (applicator), `93465fc4` (compiler ownership), and
+  `d64f4549` (type-exact scaffold comparison).
+- Task 3 correction chain: `f3ffa176` was reverted by `ae73d5ec`; the
+  simplified contract was committed as `1c5fa443`; the lean implementation
+  is `45f31b5a`, with the direct action-stage equation in `70365228`.
+- Task 4: `34ef5ffe` (thin Planner-to-handoff integration).
+- Focused new seam: **80 passed**.
+- Compiler/runner/Worker/repair regression seam: **534 passed**.
+- Synthetic-smoke and real-smoke/flight-recorder no-contact seam:
+  **366 passed**.
+- Changed Python compilation: passed.
+- Manual deterministic inspection confirmed, for both success and compile
+  failure: one Planner call, one Worker call, one `gh_create_csharp_script`
+  call, no code in the original scaffold, Worker code in the applied graph,
+  native `create_script`/`verify_create` records, and the expected terminal or
+  `selector_halt:none_ready` stop.
+- Merge diff from `fb52d278` contains exactly:
+  `docs/superpowers/plans/2026-07-31-minimal-worker-first-csharp-draft.md`,
+  `docs/superpowers/specs/2026-07-31-minimal-worker-first-csharp-draft-design.md`,
+  `mcp_server/src/rook/agent/minimal_csharp_initial_body_handoff.py`,
+  `mcp_server/src/rook/agent/minimal_intent_worker_integration.py`,
+  `mcp_server/src/rook/agent/plan_graph_worker_create_body_apply.py`,
+  `mcp_server/src/rook/learning/plan_graph_templates.py`,
+  `mcp_server/tests/test_minimal_csharp_initial_body_handoff.py`,
+  `mcp_server/tests/test_minimal_intent_worker_initial_body_integration.py`,
+  `mcp_server/tests/test_plan_graph_templates.py`, and
+  `mcp_server/tests/test_plan_graph_worker_create_body_apply.py`.
+- The existing repair module has no merge diff. No Chat, MCP, CLI, script,
+  provider-construction, model-configuration, archive, readiness, or recorder
+  surface was added.
+- No provider, Worker box, Rhino, Grasshopper, or other external contact
+  occurred during implementation or review.
+- Both new result types remain ephemeral internal aggregates; no live or
+  user-facing product surface was added.
 
 ---
 
 ## Completion Criteria
 
-- [ ] One exact Planner draft reaches the new initial-body handoff.
-- [ ] The new template is exactly `create_script -> verify_create -> done` with two `requires` edges.
-- [ ] The compiled create node lacks only `code` and retains no body-mode parameter.
-- [ ] One Worker action supplies only `draft_create_body.input.code`.
-- [ ] The original scaffold remains unchanged; the pure returned graph is an exact parameter union.
-- [ ] The Worker response is the sole code authority; no aggregate copies code into a parallel field.
-- [ ] Worker refusal or invalid output produces zero tool calls.
-- [ ] Execution performs zero or one create call and never performs update.
-- [ ] Verification evaluates the create receipt without another tool call.
-- [ ] Clean receipt reaches `done`; compile-error receipt stops unsuccessfully without repair.
-- [ ] `MinimalCSharpInitialBodyHandoffResult` and `MinimalIntentWorkerInitialBodyIntegrationResult` enforce their separate ownership boundaries.
-- [ ] Existing repair and smoke behavior remains unchanged.
-- [ ] No external contact occurs during implementation or review.
-- [ ] The plan ledger, test counts, scope, and final HEAD are reconciled before PR work.
+- [x] One exact Planner draft reaches the new initial-body handoff.
+- [x] The new template is exactly `create_script -> verify_create -> done` with two `requires` edges.
+- [x] The compiled create node lacks only `code` and retains no body-mode parameter.
+- [x] One Worker action supplies only `draft_create_body.input.code`.
+- [x] The original scaffold remains unchanged; the pure returned graph is an exact parameter union.
+- [x] The Worker response is the sole code authority; no aggregate copies code into a parallel field.
+- [x] Worker refusal or invalid output produces zero tool calls.
+- [x] Execution performs zero or one create call and never performs update.
+- [x] Verification evaluates the create receipt without another tool call.
+- [x] Clean receipt reaches `done`; compile-error receipt stops unsuccessfully without repair.
+- [x] `MinimalCSharpInitialBodyHandoffResult` and `MinimalIntentWorkerInitialBodyIntegrationResult` enforce their separate ownership boundaries.
+- [x] Existing repair and smoke behavior remains unchanged.
+- [x] No external contact occurs during implementation or review.
+- [x] The plan ledger, test counts, scope, and final HEAD are reconciled before PR work.
