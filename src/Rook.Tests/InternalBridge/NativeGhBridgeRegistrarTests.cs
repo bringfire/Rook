@@ -172,9 +172,26 @@ namespace Rook.Tests.InternalBridge
         {
             var method = ExtractMethod(
                 ReadRegistrarSource(),
-                "private static int HandleInspectOutput");
+                "internal static ApiResponse InspectOutputForBridge");
 
             Assert.Contains("GetStringArg(args, \"readiness_receipt_id\")", method);
+        }
+
+        [Theory]
+        [InlineData("{\"guid\":\"COMPONENT\",\"param\":\"Result\",\"outputIndex\":0}", "selector")]
+        [InlineData("{\"guid\":\"COMPONENT\",\"param\":null}", "param")]
+        [InlineData("{\"guid\":\"COMPONENT\",\"outputIndex\":null}", "outputIndex")]
+        public void InspectOutputForBridge_InvalidSelectorReturnsStructured400BeforeHandler(
+            string requestJson,
+            string expectedField)
+        {
+            var response = NativeGhBridgeRegistrar.InspectOutputForBridge(requestJson);
+
+            Assert.False(response.Success);
+            Assert.Equal(400, response.HttpStatus);
+            var data = JsonSerializer.SerializeToElement(response.Data);
+            Assert.Equal("invalid_request", data.GetProperty("code").GetString());
+            Assert.Equal(expectedField, data.GetProperty("field").GetString());
         }
 
         [Fact]

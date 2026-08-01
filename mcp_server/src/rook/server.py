@@ -10401,7 +10401,13 @@ Example: Inspect sphere output:
                     },
                     "param": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Output parameter name or index (default: first output)"
+                    },
+                    "outputIndex": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Zero-based output parameter index."
                     },
                     "readiness_receipt_id": {
                         "type": "string",
@@ -19057,13 +19063,42 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
         case "gh_inspect_output":
             guid = arguments.get("guid")
-            param = arguments.get("param", "0")
+            has_param = "param" in arguments
+            has_output_index = "outputIndex" in arguments
+            selector_error = None
+            if has_param and has_output_index:
+                selector_error = "selector: specify only one of param and outputIndex"
+            elif has_param:
+                param = arguments["param"]
+                if not isinstance(param, str) or not param.strip():
+                    selector_error = "param: must be a non-empty string"
+            elif has_output_index:
+                output_index = arguments["outputIndex"]
+                if (
+                    not isinstance(output_index, int)
+                    or isinstance(output_index, bool)
+                    or output_index < 0
+                ):
+                    selector_error = "outputIndex: must be a non-negative integer"
 
             if not guid:
                 result = {"success": False, "data": "Missing required parameter: guid"}
+            elif selector_error is not None:
+                result = {
+                    "success": False,
+                    "data": {
+                        "error": "invalid_arguments",
+                        "name": "gh_inspect_output",
+                        "fields": [selector_error],
+                    },
+                }
             else:
                 # Call the C# endpoint for full data inspection
-                inspect_arguments = {"guid": guid, "param": param}
+                inspect_arguments = {"guid": guid}
+                if has_param:
+                    inspect_arguments["param"] = arguments["param"]
+                elif has_output_index:
+                    inspect_arguments["outputIndex"] = arguments["outputIndex"]
                 if "readiness_receipt_id" in arguments:
                     inspect_arguments["readiness_receipt_id"] = arguments[
                         "readiness_receipt_id"

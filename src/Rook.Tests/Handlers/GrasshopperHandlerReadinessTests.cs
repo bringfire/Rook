@@ -378,6 +378,29 @@ namespace Rook.Tests.Handlers
             Assert.Equal(1, document.ObjectsReadCount);
         }
 
+        [Theory]
+        [InlineData(5)]
+        [InlineData(6)]
+        [InlineData(7)]
+        public void InspectOutput_ExplicitIndexReturnsResolvedOutputMetadataWithoutReadingOutputZero(
+            int outputIndex)
+        {
+            var component = new FakeComponent(Guid.NewGuid(), outputCount: 8);
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document, out _);
+
+            var response = handler.InspectOutput(
+                component.InstanceGuid.ToString(),
+                new GhInspectOutputSelector(param: null, outputIndex));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(outputIndex, data.GetProperty("index").GetInt32());
+            Assert.Equal($"Output {outputIndex}", data.GetProperty("param_name").GetString());
+            Assert.Equal(0, component.Params.Output[0].VolatileDataReadCount);
+            Assert.Equal(1, component.Params.Output[outputIndex].VolatileDataReadCount);
+        }
+
         [Fact]
         public void MutationException_TerminatesReservedReceiptAsUnknown()
         {
@@ -698,26 +721,48 @@ namespace Rook.Tests.Handlers
 
         public sealed class FakeComponent
         {
-            public FakeComponent(Guid instanceGuid)
+            public FakeComponent(Guid instanceGuid, int outputCount = 1)
             {
                 InstanceGuid = instanceGuid;
+                Params = new FakeParams(outputCount);
             }
 
             public Guid InstanceGuid { get; }
-            public FakeParams Params { get; } = new();
+            public FakeParams Params { get; }
         }
 
         public sealed class FakeParams
         {
-            public IList<FakeOutput> Output { get; } = new List<FakeOutput> { new() };
+            public FakeParams(int outputCount)
+            {
+                Output = Enumerable.Range(0, outputCount)
+                    .Select(index => new FakeOutput(index))
+                    .ToList();
+            }
+
+            public IList<FakeOutput> Output { get; }
         }
 
         public sealed class FakeOutput
         {
-            public string Name { get; } = "Result";
-            public string NickName { get; } = "R";
+            public FakeOutput(int index)
+            {
+                Name = index == 0 ? "Result" : $"Output {index}";
+                NickName = index == 0 ? "R" : $"O{index}";
+            }
+
+            public string Name { get; }
+            public string NickName { get; }
             public string TypeName { get; } = "Number";
-            public object? VolatileData => null;
+            public int VolatileDataReadCount { get; private set; }
+            public object? VolatileData
+            {
+                get
+                {
+                    VolatileDataReadCount++;
+                    return null;
+                }
+            }
         }
     }
 }
