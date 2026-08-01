@@ -942,24 +942,14 @@ async def test_restricted_executor_traces_admitted_calls_around_exact_delegate(
         clock=lambda: _TRACE_TIME,
     )
     counts = SMOKE._LiveCallCounts()
-    create_params = {"code": _INITIAL_BODY}
-    update_params = {
-        "guid": _COMPONENT_GUID,
-        "code": _WORKER_BODY,
-        "mode": "body",
-        "language": "csharp",
-    }
-    create_response = {"success": False, "data": {"created": True}}
-    update_response = {"success": True, "data": {"updated": True}}
+    create_params = {"code": _WORKER_BODY}
+    create_response = {"success": True, "data": {"created": True}}
 
     async def dispatch(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
         timeline.append(f"{tool_name}_delegate")
-        if tool_name == "gh_create_csharp_script":
-            assert params is create_params
-            return create_response
-        assert tool_name == "gh_update_script"
-        assert params is update_params
-        return update_response
+        assert tool_name == "gh_create_csharp_script"
+        assert params is create_params
+        return create_response
 
     executor = SMOKE._RestrictedRealToolExecutor(
         dispatch,
@@ -968,26 +958,18 @@ async def test_restricted_executor_traces_admitted_calls_around_exact_delegate(
     )
 
     returned_create = await executor("gh_create_csharp_script", create_params)
-    returned_update = await executor("gh_update_script", update_params)
 
     assert returned_create is create_response
-    assert returned_update is update_response
-    assert executor.call_names == (
-        "gh_create_csharp_script",
-        "gh_update_script",
-    )
-    assert counts.execution == 2
+    assert executor.call_names == ("gh_create_csharp_script",)
+    assert counts.execution == 1
     assert timeline == [
         "tool_request_flush",
         "gh_create_csharp_script_delegate",
         "tool_response_flush",
-        "tool_request_flush",
-        "gh_update_script_delegate",
-        "tool_response_flush",
     ]
     rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
-    assert [row["payload"]["phase"] for row in rows] == ["execution"] * 4
-    assert [row["payload"]["call_index"] for row in rows] == [1, 1, 2, 2]
+    assert [row["payload"]["phase"] for row in rows] == ["execution"] * 2
+    assert [row["payload"]["call_index"] for row in rows] == [1, 1]
 
 
 class _BoundaryDelegateException(Exception):
@@ -1309,11 +1291,10 @@ async def test_recording_boundaries_share_one_global_sequence_and_local_indexes(
         await preparation.dispatch(name, {})
     planner.send({"messages": [{"role": "user", "content": "planner"}]})
     worker.send({"messages": [{"role": "user", "content": "worker"}]})
-    await executor("gh_create_csharp_script", {"code": _INITIAL_BODY})
-    await executor("gh_update_script", {"guid": _COMPONENT_GUID})
+    await executor("gh_create_csharp_script", {"code": _WORKER_BODY})
 
     rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
-    assert [row["sequence"] for row in rows] == list(range(1, 15))
+    assert [row["sequence"] for row in rows] == list(range(1, 13))
     preparation_rows = [
         row for row in rows if row["payload"].get("phase") == "preparation"
     ]
@@ -1331,8 +1312,6 @@ async def test_recording_boundaries_share_one_global_sequence_and_local_indexes(
     assert [row["payload"]["call_index"] for row in execution_rows] == [
         1,
         1,
-        2,
-        2,
     ]
     assert [
         row["payload"]["call_index"]
@@ -1348,7 +1327,7 @@ async def test_recording_boundaries_share_one_global_sequence_and_local_indexes(
         preparation=3,
         planner=1,
         worker=1,
-        execution=2,
+        execution=1,
     )
 
 
@@ -1386,12 +1365,7 @@ async def test_non_object_execution_response_is_traced_before_native_rejection(
     [
         ((), "gh_update_script", {"code": "x"}, "sequence differs"),
         (("gh_create_csharp_script",), "gh_create_csharp_script", {}, "sequence differs"),
-        (
-            ("gh_create_csharp_script", "gh_update_script"),
-            "gh_update_script",
-            {},
-            "sequence differs",
-        ),
+        (("gh_create_csharp_script",), "gh_update_script", {}, "sequence differs"),
         ((), "gh_status", {}, "sequence differs"),
         ((), "gh_create_csharp_script", {"port": 9878}, "contain port"),
         (
@@ -1456,9 +1430,9 @@ def _worker_payload(body: str = _WORKER_BODY) -> dict[str, Any]:
     return {
         "schema": "rook.local_worker_turn_response:v1",
         "kind": "action_request",
-        "action_id": "draft_repair_params",
-        "rationale": "Provide one bounded replacement body.",
-        "input": {"code": body, "mode": "body"},
+        "action_id": "draft_create_body",
+        "rationale": "Draft the complete initial body.",
+        "input": {"code": body},
     }
 
 
@@ -1499,26 +1473,18 @@ class _ScriptedDispatcher:
             return _status(_POST_DOCUMENT_ID)
         if index == 4 and name == "gh_create_csharp_script":
             assert captured == {
-                "code": _INITIAL_BODY,
+                "code": _WORKER_BODY,
                 "pins_in": (),
                 "pins_out": ("A:double",),
-                "name": "RookMinimalRepairHandoff",
+                "name": "RookMinimalInitialBodyHandoff",
                 "x": 375,
                 "y": 1080,
             }
-            return _created_with_errors(captured["code"])
-        if index == 5 and name == "gh_update_script":
-            assert captured == {
-                "guid": _COMPONENT_GUID,
-                "code": _WORKER_BODY,
-                "mode": "body",
-                "language": "csharp",
-            }
-            return _updated_clean(captured["guid"])
+            return _created_clean(captured["code"])
         raise AssertionError(f"unexpected scripted dispatch {index}: {name}")
 
 
-class _CreateExistenceUnconfirmedDispatcher(_ScriptedDispatcher):
+class _CompileErrorDispatcher(_ScriptedDispatcher):
     async def dispatch(self, name: str, params: dict[str, Any]) -> dict[str, Any]:
         captured = copy.deepcopy(params)
         self.calls.append((name, captured))
@@ -1530,24 +1496,8 @@ class _CreateExistenceUnconfirmedDispatcher(_ScriptedDispatcher):
         if index == 3 and name == "gh_status" and captured == {}:
             return _status(_POST_DOCUMENT_ID)
         if index == 4 and name == "gh_create_csharp_script":
-            assert captured["code"] == _INITIAL_BODY
-            return {
-                "success": False,
-                "data": {
-                    "script_receipt": {
-                        "version": 1,
-                        "operation": "create",
-                        "language": "csharp",
-                        "artifact_status": "created_with_errors",
-                        "mutation": {"status": "failed"},
-                        "verification": {
-                            "status": "failed",
-                            "target_error_count": 1,
-                        },
-                        "repair_anchor": {},
-                    }
-                },
-            }
+            assert captured["code"] == _WORKER_BODY
+            return _created_with_errors(captured["code"])
         raise AssertionError(f"unexpected stopped dispatch {index}: {name}")
 
 
@@ -1566,7 +1516,7 @@ def _status(document_id: str) -> dict[str, Any]:
 
 
 def _created_with_errors(received_body: object) -> dict[str, Any]:
-    assert received_body == _INITIAL_BODY
+    assert received_body == _WORKER_BODY
     return {
         "success": False,
         "data": {
@@ -1593,28 +1543,31 @@ def _created_with_errors(received_body: object) -> dict[str, Any]:
     }
 
 
-def _updated_clean(received_guid: object) -> dict[str, Any]:
-    assert received_guid == _COMPONENT_GUID
+def _created_clean(received_body: object) -> dict[str, Any]:
+    assert received_body == _WORKER_BODY
     return {
-        "script_receipt": {
-            "version": 1,
-            "operation": "update",
-            "language": "csharp",
-            "artifact_status": "usable",
-            "mutation": {
-                "status": "written",
-                "component_guid": _COMPONENT_GUID,
-            },
-            "verification": {
-                "status": "passed",
-                "target_error_count": 0,
-            },
-            "repair_anchor": {
-                "component_guid": _COMPONENT_GUID,
+        "success": True,
+        "data": {
+            "script_receipt": {
+                "version": 1,
+                "operation": "create",
                 "language": "csharp",
-                "target_errors": [],
-            },
-        }
+                "artifact_status": "usable",
+                "mutation": {
+                    "status": "created",
+                    "component_guid": _COMPONENT_GUID,
+                },
+                "verification": {
+                    "status": "passed",
+                    "target_error_count": 0,
+                },
+                "repair_anchor": {
+                    "component_guid": _COMPONENT_GUID,
+                    "language": "csharp",
+                    "target_errors": [],
+                },
+            }
+        },
     }
 
 
@@ -1672,10 +1625,7 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
     assert live_run.result.terminal_reason == "terminal_node_selected:done"
     assert live_run.preparation.state == "fresh_document_verified"
     assert live_run.preparation.tool_calls == 3
-    assert live_run.executor.call_names == (
-        "gh_create_csharp_script",
-        "gh_update_script",
-    )
+    assert live_run.executor.call_names == ("gh_create_csharp_script",)
     assert len(planner_transport.calls) == 1
     assert len(worker_transport.calls) == 1
     assert len(created_dispatchers) == 1
@@ -1687,21 +1637,12 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
         (
             "gh_create_csharp_script",
             {
-                "code": _INITIAL_BODY,
+                "code": _WORKER_BODY,
                 "pins_in": (),
                 "pins_out": ("A:double",),
-                "name": "RookMinimalRepairHandoff",
+                "name": "RookMinimalInitialBodyHandoff",
                 "x": 375,
                 "y": 1080,
-            },
-        ),
-        (
-            "gh_update_script",
-            {
-                "guid": _COMPONENT_GUID,
-                "code": _WORKER_BODY,
-                "mode": "body",
-                "language": "csharp",
             },
         ),
     ]
@@ -1709,7 +1650,7 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
         preparation=3,
         planner=1,
         worker=1,
-        execution=2,
+        execution=1,
     )
     rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
     assert [row["event"] for row in rows] == [
@@ -1721,8 +1662,6 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
         "tool_response",
         "planner_request",
         "planner_response",
-        "tool_request",
-        "tool_response",
         "worker_request",
         "worker_response",
         "tool_request",
@@ -1742,7 +1681,7 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
         "preparation_tool_calls": 3,
         "planner_calls": 1,
         "worker_calls": 1,
-        "execution_tool_calls": 2,
+        "execution_tool_calls": 1,
         "terminal_stage": "terminal",
         "terminal_reason": "terminal_node_selected:done",
         "planner_adapter_status": "decoded",
@@ -1750,12 +1689,12 @@ async def test_no_contact_walking_vertical_reaches_native_terminal(
     }
 
 
-def test_observed_create_stop_trace_preserves_the_native_causal_chain(
+def test_compile_error_trace_preserves_the_native_causal_chain(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    dispatcher = _CreateExistenceUnconfirmedDispatcher(port=9877, local_tools={})
+    dispatcher = _CompileErrorDispatcher(port=9877, local_tools={})
     planner_transport = _RawTransport(_planner_payload())
     worker_transport = _RawTransport(_worker_payload())
     transports = iter((planner_transport, worker_transport))
@@ -1779,13 +1718,13 @@ def test_observed_create_stop_trace_preserves_the_native_causal_chain(
 
     assert exit_code == 1
     assert summary["operator_reason"] == "native_stop"
-    assert summary["terminal_stage"] == "create"
+    assert summary["terminal_stage"] == "verify_create"
     assert summary["terminal_reason"] == "selector_halt:none_ready"
     assert summary["planner_calls"] == 1
-    assert summary["worker_calls"] == 0
+    assert summary["worker_calls"] == 1
     assert summary["execution_tool_calls"] == 1
     assert len(planner_transport.calls) == 1
-    assert worker_transport.calls == []
+    assert len(worker_transport.calls) == 1
 
     rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
     events = [row["event"] for row in rows]
@@ -1795,11 +1734,11 @@ def test_observed_create_stop_trace_preserves_the_native_causal_chain(
         if row["event"] == "tool_response"
         and row["payload"]["phase"] == "execution"
     )
-    native_step = next(
+    native_steps = [
         row["payload"]
         for row in rows
         if row["event"] == "native_step_projection"
-    )
+    ]
     final_native = next(
         row["payload"]
         for row in rows
@@ -1814,34 +1753,48 @@ def test_observed_create_stop_trace_preserves_the_native_causal_chain(
                 "operation": "create",
                 "language": "csharp",
                 "artifact_status": "created_with_errors",
-                "mutation": {"status": "failed"},
+                "mutation": {
+                    "status": "created",
+                    "component_guid": _COMPONENT_GUID,
+                },
                 "verification": {
                     "status": "failed",
                     "target_error_count": 1,
                 },
-                "repair_anchor": {},
+                "repair_anchor": {
+                    "component_guid": _COMPONENT_GUID,
+                    "language": "csharp",
+                    "target_errors": [_TARGET_DIAGNOSTIC],
+                },
             }
         },
     }
-    assert native_step["receipt"] == raw_create["data"]["script_receipt"]
-    assert native_step["producer_outcome_status"] == "blocked"
-    assert native_step["graph"]["node_statuses"] == [
-        {"node_id": "create_script", "status": "blocked"},
-        {"node_id": "done", "status": "pending"},
-        {"node_id": "repair_same_component", "status": "pending"},
-        {"node_id": "verify_create", "status": "pending"},
-        {"node_id": "verify_repair", "status": "pending"},
+    assert [step["accepted_node_id"] for step in native_steps] == [
+        "create_script",
+        "verify_create",
     ]
-    assert native_step["graph"]["ready_node_ids"] == []
+    assert all(
+        step["receipt"] == raw_create["data"]["script_receipt"]
+        for step in native_steps
+    )
+    assert native_steps[1]["verifier_outcome_status"] == "needs_repair"
+    assert native_steps[1]["graph"]["node_statuses"] == [
+        {"node_id": "create_script", "status": "succeeded"},
+        {"node_id": "done", "status": "pending"},
+        {"node_id": "verify_create", "status": "needs_repair"},
+    ]
+    assert native_steps[1]["graph"]["ready_node_ids"] == []
     assert final_native["terminal_supply"] == {
         "decision": "HALT",
         "reason": "selector_halt:none_ready",
     }
-    assert final_native["terminal_stage"] == "create"
+    assert final_native["terminal_stage"] == "verify_create"
     assert final_native["terminal_reason"] == "selector_halt:none_ready"
-    assert events[-5:] == [
+    assert _TARGET_DIAGNOSTIC not in json.dumps(summary)
+    assert events[-6:] == [
         "planner_admission",
         "compiled_workflow",
+        "native_step_projection",
         "native_step_projection",
         "final_native_result",
         "run_finished",
@@ -1878,8 +1831,6 @@ def test_completed_trace_projects_only_the_returned_native_transaction(
         "compiled_workflow",
         "native_step_projection",
         "native_step_projection",
-        "native_step_projection",
-        "native_step_projection",
         "final_native_result",
     ]
     admission = projection_rows[0]["payload"]
@@ -1888,29 +1839,21 @@ def test_completed_trace_projects_only_the_returned_native_transaction(
         "draft": _planner_payload(),
     }
     compiled = projection_rows[1]["payload"]
-    assert compiled["workflow_id"] == "minimal_csharp_repair_handoff"
-    assert compiled["selected_template_id"] == (
-        "gh_csharp_create_verify_repair_verify"
-    )
+    assert compiled["workflow_id"] == "minimal_csharp_initial_body_handoff"
+    assert compiled["selected_template_id"] == "gh_csharp_create_verify"
     assert compiled["graph_node_ids"] == [
         "create_script",
         "done",
-        "repair_same_component",
         "verify_create",
-        "verify_repair",
     ]
-    steps = [row["payload"] for row in projection_rows[2:6]]
+    steps = [row["payload"] for row in projection_rows[2:4]]
     assert [step["accepted_node_id"] for step in steps] == [
         "create_script",
         "verify_create",
-        "repair_same_component",
-        "verify_repair",
     ]
-    assert [step["step_index"] for step in steps] == [1, 2, 3, 4]
+    assert [step["step_index"] for step in steps] == [1, 2]
     assert steps[0]["receipt"]["operation"] == "create"
     assert steps[1]["receipt"]["operation"] == "create"
-    assert steps[2]["receipt"]["operation"] == "update"
-    assert steps[3]["receipt"]["operation"] == "update"
     final_native = projection_rows[-1]["payload"]
     assert final_native["terminal_stage"] == "terminal"
     assert final_native["terminal_reason"] == "terminal_node_selected:done"
@@ -1922,7 +1865,7 @@ def test_completed_trace_projects_only_the_returned_native_transaction(
         "preparation": 3,
         "planner": 1,
         "worker": 1,
-        "execution": 2,
+        "execution": 1,
     }
     assert rows[-1]["event"] == "run_finished"
 
@@ -1995,7 +1938,7 @@ def test_worker_refusal_trace_retains_only_the_legitimate_native_prefix(
             "schema": "rook.local_worker_turn_response:v1",
             "kind": "refusal",
             "category": "insufficient_context",
-            "reason": "A repair cannot be determined.",
+            "reason": "An initial body cannot be authored.",
         }
     )
     transports = iter((planner_transport, worker_transport))
@@ -2020,23 +1963,20 @@ def test_worker_refusal_trace_retains_only_the_legitimate_native_prefix(
     assert exit_code == 1
     assert summary["terminal_stage"] == "worker_disposition"
     assert summary["worker_calls"] == 1
-    assert summary["execution_tool_calls"] == 1
+    assert summary["execution_tool_calls"] == 0
     rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
     native_steps = [
         row["payload"]
         for row in rows
         if row["event"] == "native_step_projection"
     ]
-    assert [step["accepted_node_id"] for step in native_steps] == [
-        "create_script",
-        "verify_create",
-    ]
+    assert native_steps == []
     assert [
         row["payload"]["tool_name"]
         for row in rows
         if row["event"] == "tool_request"
         and row["payload"]["phase"] == "execution"
-    ] == ["gh_create_csharp_script"]
+    ] == []
     final_native = next(
         row["payload"] for row in rows if row["event"] == "final_native_result"
     )
@@ -2064,7 +2004,7 @@ def test_returned_projection_trace_failure_preserves_native_status_but_not_compl
     assert summary["preparation_tool_calls"] == 3
     assert summary["planner_calls"] == 1
     assert summary["worker_calls"] == 1
-    assert summary["execution_tool_calls"] == 2
+    assert summary["execution_tool_calls"] == 1
     rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
     events = [row["event"] for row in rows]
     assert events[-2:] == ["planner_admission", "compiled_workflow"]
@@ -2097,7 +2037,7 @@ def test_projector_exception_leaves_trace_incomplete_and_preserves_native_summar
     assert summary["preparation_tool_calls"] == 3
     assert summary["planner_calls"] == 1
     assert summary["worker_calls"] == 1
-    assert summary["execution_tool_calls"] == 2
+    assert summary["execution_tool_calls"] == 1
     assert "PROJECTOR_SENTINEL" not in json.dumps(summary)
     rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
     assert rows[-1]["event"] == "compiled_workflow"
@@ -2112,13 +2052,8 @@ async def test_verifier_receipts_are_projected_from_their_source_nodes(
     handoff = live_run.result.handoff_result
     assert handoff is not None
     verify_create_graph = handoff.step_records[1].execution.graph
-    verify_repair_graph = handoff.step_records[3].execution.graph
     assert verify_create_graph.nodes["verify_create"].evidence is not None
-    assert verify_repair_graph.nodes["verify_repair"].evidence is not None
     verify_create_graph.nodes["verify_create"].evidence.receipt = {
-        "operation": "FORGED_VERIFIER_RECEIPT"
-    }
-    verify_repair_graph.nodes["verify_repair"].evidence.receipt = {
         "operation": "FORGED_VERIFIER_RECEIPT"
     }
 
@@ -2126,8 +2061,6 @@ async def test_verifier_receipts_are_projected_from_their_source_nodes(
 
     assert steps[1]["accepted_node_id"] == "verify_create"
     assert steps[1]["receipt"]["operation"] == "create"
-    assert steps[3]["accepted_node_id"] == "verify_repair"
-    assert steps[3]["receipt"]["operation"] == "update"
     assert "FORGED_VERIFIER_RECEIPT" not in json.dumps(steps)
 
 
@@ -2420,11 +2353,9 @@ def _patch_main_recorder(
         (8, (3, 0, 0, 0), "tool_response", "fresh_document_verified"),
         (9, (3, 1, 0, 0), "planner_request", "fresh_document_verified"),
         (10, (3, 1, 0, 0), "planner_response", "fresh_document_verified"),
-        (11, (3, 1, 0, 1), "tool_request", "fresh_document_verified"),
-        (12, (3, 1, 0, 1), "tool_response", "fresh_document_verified"),
-        (13, (3, 1, 1, 1), "worker_request", "fresh_document_verified"),
-        (14, (3, 1, 1, 1), "worker_response", "fresh_document_verified"),
-        (15, (3, 1, 1, 2), "tool_request", "fresh_document_verified"),
+        (11, (3, 1, 1, 0), "worker_request", "fresh_document_verified"),
+        (12, (3, 1, 1, 0), "worker_response", "fresh_document_verified"),
+        (13, (3, 1, 1, 1), "tool_request", "fresh_document_verified"),
     ],
 )
 def test_live_trace_write_failure_stops_at_the_exact_boundary(
@@ -2511,7 +2442,7 @@ def test_live_trace_close_failure_preserves_run_finished_and_native_status(
     assert summary["document_preparation_status"] == "fresh_document_verified"
     assert summary["planner_calls"] == 1
     assert summary["worker_calls"] == 1
-    assert summary["execution_tool_calls"] == 2
+    assert summary["execution_tool_calls"] == 1
     assert summary["terminal_stage"] == "terminal"
     assert summary["terminal_reason"] == "terminal_node_selected:done"
     rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
@@ -2535,7 +2466,7 @@ def test_live_run_finished_write_failure_never_claims_trace_completion(
     assert summary["terminal_stage"] == "terminal"
     assert summary["planner_calls"] == 1
     assert summary["worker_calls"] == 1
-    assert summary["execution_tool_calls"] == 2
+    assert summary["execution_tool_calls"] == 1
     rows = [json.loads(line) for line in bytes(stream.content).splitlines()]
     assert all(row["event"] != "run_finished" for row in rows)
     assert stream.close_calls == 1
@@ -2558,7 +2489,7 @@ def test_live_run_finished_flush_failure_closes_once_without_success(
     assert summary["terminal_stage"] == "terminal"
     assert summary["planner_calls"] == 1
     assert summary["worker_calls"] == 1
-    assert summary["execution_tool_calls"] == 2
+    assert summary["execution_tool_calls"] == 1
     assert recorder.sequence == stream.flush_calls - 1
     assert stream.close_calls == 1
 
@@ -3101,7 +3032,7 @@ def test_post_preparation_exception_retains_verified_document_state(
 
         monkeypatch.setattr(
             SMOKE,
-            "run_minimal_intent_worker_integration",
+            "run_minimal_intent_worker_initial_body_integration",
             raise_integration,
         )
 
@@ -3209,16 +3140,13 @@ async def _run_scripted_worker(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prefix_length", [0, 1, 2])
+@pytest.mark.parametrize("prefix_length", [0, 1])
 async def test_restricted_executor_accepts_each_legitimate_prefix(
     prefix_length: int,
 ) -> None:
     dispatch = _RecordingDispatch()
     executor = SMOKE._RestrictedRealToolExecutor(dispatch)
-    calls = [
-        ("gh_create_csharp_script", {"create": "parameters"}),
-        ("gh_update_script", {"update": "parameters"}),
-    ]
+    calls = [("gh_create_csharp_script", {"create": "parameters"})]
 
     for name, params in calls[:prefix_length]:
         await executor(name, params)
@@ -3228,21 +3156,29 @@ async def test_restricted_executor_accepts_each_legitimate_prefix(
 
 
 @pytest.mark.asyncio
+async def test_restricted_executor_rejects_update_after_create_before_dispatch() -> None:
+    dispatch = _RecordingDispatch()
+    executor = SMOKE._RestrictedRealToolExecutor(dispatch)
+    await executor("gh_create_csharp_script", {"accepted": "create"})
+    before_calls = copy.deepcopy(dispatch.calls)
+    dispatch.fail_if_called = True
+
+    with pytest.raises(ValueError, match="restricted tool sequence differs"):
+        await executor("gh_update_script", {"code": "A = 1.0;"})
+
+    assert executor.call_names == ("gh_create_csharp_script",)
+    assert dispatch.calls == before_calls
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("prefix", "attempted_tool"),
     [
         ((), "gh_update_script"),
         (("gh_create_csharp_script",), "gh_create_csharp_script"),
-        (
-            ("gh_create_csharp_script", "gh_update_script"),
-            "gh_update_script",
-        ),
+        (("gh_create_csharp_script",), "gh_update_script"),
         ((), "gh_status"),
-        (
-            ("gh_create_csharp_script", "gh_update_script"),
-            "gh_create_csharp_script",
-        ),
-        (("gh_create_csharp_script", "gh_update_script"), "gh_status"),
+        (("gh_create_csharp_script",), "gh_status"),
     ],
 )
 async def test_restricted_executor_rejects_sequence_changes_without_mutation(
@@ -3287,7 +3223,7 @@ async def test_per_call_port_override_never_reaches_dispatcher(
 
 
 @pytest.mark.asyncio
-async def test_worker_refusal_preserves_legitimate_create_only_prefix(
+async def test_worker_refusal_stops_before_create(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     live_run = await _run_scripted_worker(
@@ -3296,22 +3232,22 @@ async def test_worker_refusal_preserves_legitimate_create_only_prefix(
             "schema": "rook.local_worker_turn_response:v1",
             "kind": "refusal",
             "category": "insufficient_context",
-            "reason": "A repair cannot be determined.",
+            "reason": "An initial body cannot be authored.",
         },
     )
 
     summary = SMOKE._summary_from_result(_roles(), live_run)
 
-    assert live_run.executor.call_names == ("gh_create_csharp_script",)
+    assert live_run.executor.call_names == ()
     assert live_run.result.terminal_stage == "worker_disposition"
     assert summary["operator_status"] == "failed"
     assert summary["operator_reason"] == "native_stop"
-    assert summary["execution_tool_calls"] == 1
+    assert summary["execution_tool_calls"] == 0
     assert summary["terminal_reason"] == "refusal_recorded"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prefix_length", [0, 1])
+@pytest.mark.parametrize("prefix_length", [0])
 async def test_native_terminal_requires_the_complete_executor_prefix(
     monkeypatch: pytest.MonkeyPatch,
     prefix_length: int,
@@ -3319,8 +3255,6 @@ async def test_native_terminal_requires_the_complete_executor_prefix(
     terminal_run = await _run_scripted_worker(monkeypatch, _worker_payload())
     dispatch = _RecordingDispatch()
     executor = SMOKE._RestrictedRealToolExecutor(dispatch)
-    if prefix_length == 1:
-        await executor("gh_create_csharp_script", {"accepted": "create"})
     mismatched_run = SMOKE._LiveRun(
         result=terminal_run.result,
         target=terminal_run.target,
@@ -3500,60 +3434,34 @@ class _SensitiveReceiptDispatcher(_ScriptedDispatcher):
             return _status(_POST_DOCUMENT_ID)
         if index == 4 and name == "gh_create_csharp_script":
             return {
-                "success": False,
+                "success": True,
                 "data": {
                     "script_receipt": {
                         "version": 1,
                         "operation": "create",
                         "language": "csharp",
-                        "artifact_status": "created_with_errors",
+                        "artifact_status": "usable",
                         "mutation": {
                             "status": "created",
                             "component_guid": "SENSITIVE_SENTINEL_GUID",
                         },
                         "verification": {
-                            "status": "failed",
-                            "target_error_count": 1,
+                            "status": "passed",
+                            "target_error_count": 0,
                         },
                         "repair_anchor": {
                             "component_guid": "SENSITIVE_SENTINEL_GUID",
                             "language": "csharp",
-                            "target_errors": [
-                                "SENSITIVE_SENTINEL: DefinitelyMissingSymbol "
-                                "was not found."
-                            ],
+                            "target_errors": [],
                         },
                     }
                 },
-            }
-        if index == 5 and name == "gh_update_script":
-            assert captured["guid"] == "SENSITIVE_SENTINEL_GUID"
-            return {
-                "script_receipt": {
-                    "version": 1,
-                    "operation": "update",
-                    "language": "csharp",
-                    "artifact_status": "usable",
-                    "mutation": {
-                        "status": "written",
-                        "component_guid": "SENSITIVE_SENTINEL_GUID",
-                    },
-                    "verification": {
-                        "status": "passed",
-                        "target_error_count": 0,
-                    },
-                    "repair_anchor": {
-                        "component_guid": "SENSITIVE_SENTINEL_GUID",
-                        "language": "csharp",
-                        "target_errors": [],
-                    },
-                }
             }
         raise AssertionError(f"unexpected sensitive dispatch {index}: {name}")
 
 
 @pytest.mark.asyncio
-async def test_receipt_diagnostic_and_guid_do_not_enter_the_summary(
+async def test_receipt_guid_does_not_enter_the_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     live_run = await _run_scripted_worker(
@@ -3591,7 +3499,7 @@ def test_final_projection_exception_returns_one_bounded_summary(
     assert summary["preparation_tool_calls"] == 3
     assert summary["planner_calls"] == 1
     assert summary["worker_calls"] == 1
-    assert summary["execution_tool_calls"] == 2
+    assert summary["execution_tool_calls"] == 1
     assert summary["terminal_stage"] is None
     assert summary["terminal_reason"] is None
     assert summary["planner_adapter_status"] is None
@@ -3604,7 +3512,7 @@ def test_final_projection_exception_returns_one_bounded_summary(
     assert rows[-1]["payload"]["preparation_tool_calls"] == 3
     assert rows[-1]["payload"]["planner_calls"] == 1
     assert rows[-1]["payload"]["worker_calls"] == 1
-    assert rows[-1]["payload"]["execution_tool_calls"] == 2
+    assert rows[-1]["payload"]["execution_tool_calls"] == 1
 
 
 @pytest.mark.asyncio
