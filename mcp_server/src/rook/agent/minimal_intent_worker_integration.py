@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
 from rook.agent.local_worker_adapter import LocalWorkerTransport
+from rook.agent.minimal_csharp_initial_body_handoff import (
+    MinimalCSharpInitialBodyHandoffResult,
+    run_minimal_csharp_initial_body_handoff,
+)
 from rook.agent.minimal_csharp_repair_handoff import (
     MinimalCSharpRepairHandoffResult,
     ValidatedPlannerDraft,
@@ -29,7 +33,9 @@ __all__ = (
     "MinimalPlannerDraftAdapter",
     "build_minimal_planner_draft_response_schema",
     "MinimalIntentWorkerIntegrationResult",
+    "MinimalIntentWorkerInitialBodyIntegrationResult",
     "run_minimal_intent_worker_integration",
+    "run_minimal_intent_worker_initial_body_integration",
 )
 
 _SYSTEM_CONTENT = (
@@ -258,6 +264,54 @@ class MinimalIntentWorkerIntegrationResult:
             raise ValueError("draft admission stop reason differs")
 
 
+@dataclass(frozen=True, slots=True)
+class MinimalIntentWorkerInitialBodyIntegrationResult:
+    intent: str
+    planner_adapter_record: MinimalPlannerDraftAdapterRecord
+    validated_draft: ValidatedPlannerDraft | None
+    handoff_result: MinimalCSharpInitialBodyHandoffResult | None
+    terminal_stage: str
+    terminal_reason: str
+
+    def __post_init__(self) -> None:
+        _require_exact_intent(self.intent)
+        if type(self.planner_adapter_record) is not MinimalPlannerDraftAdapterRecord:
+            raise TypeError("planner_adapter_record must be the exact record type")
+        if type(self.terminal_stage) is not str:
+            raise TypeError("terminal_stage must be an exact string")
+        if type(self.terminal_reason) is not str:
+            raise TypeError("terminal_reason must be an exact string")
+        if self.planner_adapter_record.status != "decoded":
+            if self.validated_draft is not None or self.handoff_result is not None:
+                raise ValueError("Planner stop cannot carry downstream results")
+            if self.terminal_stage != "planner_adapter":
+                raise ValueError("Planner stop stage differs")
+            if self.terminal_reason != self.planner_adapter_record.failure_reason:
+                raise ValueError("Planner stop reason differs")
+            return
+        if self.validated_draft is None:
+            if self.handoff_result is not None:
+                raise ValueError("draft stop cannot carry a handoff result")
+            if self.terminal_stage != "draft_admission" or self.terminal_reason not in {
+                "draft_payload_rejected",
+                "goal_mismatch",
+            }:
+                raise ValueError("draft stop stage or reason differs")
+            return
+        if type(self.validated_draft) is not ValidatedPlannerDraft:
+            raise TypeError("validated_draft must be the exact draft type")
+        if type(self.handoff_result) is not MinimalCSharpInitialBodyHandoffResult:
+            raise TypeError("handoff_result must be the exact handoff type")
+        if self.validated_draft.goal != self.intent:
+            raise ValueError("validated draft goal differs from retained intent")
+        if self.handoff_result.draft is not self.validated_draft:
+            raise ValueError("handoff does not retain the admitted draft")
+        if self.terminal_stage != self.handoff_result.terminal_stage:
+            raise ValueError("terminal stage differs from handoff")
+        if self.terminal_reason != self.handoff_result.terminal_reason:
+            raise ValueError("terminal reason differs from handoff")
+
+
 async def run_minimal_intent_worker_integration(
     intent: str,
     *,
@@ -319,6 +373,71 @@ def _draft_stop(
         validated_draft=None,
         handoff_result=None,
         terminal_stage="draft_admission",
+        terminal_reason=reason,
+    )
+
+
+async def run_minimal_intent_worker_initial_body_integration(
+    intent: str,
+    *,
+    planner_adapter: MinimalPlannerDraftAdapter,
+    worker_transport: LocalWorkerTransport,
+    tool_executor: Callable[[str, dict[str, Any]], Any],
+) -> MinimalIntentWorkerInitialBodyIntegrationResult:
+    intent = _require_exact_intent(intent)
+    if type(planner_adapter) is not MinimalPlannerDraftAdapter:
+        raise TypeError("planner_adapter must be the exact MinimalPlannerDraftAdapter")
+    if not callable(getattr(worker_transport, "send", None)):
+        raise TypeError("worker_transport must provide callable send")
+    if not callable(tool_executor):
+        raise TypeError("tool_executor must be callable")
+
+    adapter = planner_adapter.produce(intent)
+    if adapter.status != "decoded":
+        if adapter.failure_reason is None:
+            raise RuntimeError("Planner adapter stop lacks a failure reason")
+        return _initial_body_integration_stop(
+            intent, adapter, "planner_adapter", adapter.failure_reason
+        )
+    if adapter.decoded_object is None:
+        raise RuntimeError("decoded Planner record lacks an object")
+    try:
+        draft = load_minimal_csharp_repair_draft(adapter.decoded_object)
+    except (TypeError, ValueError):
+        return _initial_body_integration_stop(
+            intent, adapter, "draft_admission", "draft_payload_rejected"
+        )
+    if draft.goal != intent:
+        return _initial_body_integration_stop(
+            intent, adapter, "draft_admission", "goal_mismatch"
+        )
+    handoff = await run_minimal_csharp_initial_body_handoff(
+        draft,
+        worker_transport=worker_transport,
+        tool_executor=tool_executor,
+    )
+    return MinimalIntentWorkerInitialBodyIntegrationResult(
+        intent=intent,
+        planner_adapter_record=adapter,
+        validated_draft=draft,
+        handoff_result=handoff,
+        terminal_stage=handoff.terminal_stage,
+        terminal_reason=handoff.terminal_reason,
+    )
+
+
+def _initial_body_integration_stop(
+    intent: str,
+    adapter: MinimalPlannerDraftAdapterRecord,
+    stage: Literal["planner_adapter", "draft_admission"],
+    reason: str,
+) -> MinimalIntentWorkerInitialBodyIntegrationResult:
+    return MinimalIntentWorkerInitialBodyIntegrationResult(
+        intent=intent,
+        planner_adapter_record=adapter,
+        validated_draft=None,
+        handoff_result=None,
+        terminal_stage=stage,
         terminal_reason=reason,
     )
 
