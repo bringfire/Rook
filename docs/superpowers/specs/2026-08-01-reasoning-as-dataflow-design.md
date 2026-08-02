@@ -664,8 +664,39 @@ comparison height:
 
 **Adopt 200 SF.** It takes most of the gain and strands no buildings. 400 SF scores better
 but leaves 3 buildings with no eligible roof — converting them to false MISSING — and on a
-single 585-building AOI that optimum is plausibly overfit; validate on a second AOI before
-going further.
+single 585-building AOI that optimum is plausibly overfit.
+
+### Validated on a second AOI (2026-08-02)
+
+Second AOI chosen **adversarially**: West Village, 600 m radius, 2,489 buildings — low-rise
+historic rowhouse fabric where a minimum-area filter is most likely to fail. Median height
+47 ft (vs 57), p90 69 ft (vs 249), max 228 ft (vs 1,039), only 0.6% post-2014 (vs 7.5%).
+Median footprint 1,279 SF; median roof polygon 741 SF with p10 at 154 SF.
+
+| Threshold | Hell's Kitchen (585) | West Village (2,468) |
+|---|---|---|
+| | match / stranded | match / stranded |
+| 0 | 76.2% / 0 | 88.7% / 0 |
+| 100 SF | 76.9% / 0 | 88.9% / 0 |
+| **200 SF** | **81.9% / 0** | **93.1% / 6 (0.24%)** |
+| 400 SF | 85.9% / 3 (0.5%) | 94.8% / **71 (2.9%)** |
+| 800 SF | 79.4% / 42 | 94.1% / **652 (26%)** |
+
+**200 SF confirmed.** Same inflection, same magnitude of gain, stranding negligible in both.
+
+**The case against 400 SF is far stronger than the first AOI suggested.** It strands 0.5%
+of high-rise buildings but **2.9% of low-rise** — a six-fold worse rate, because rowhouse
+roofs are small enough that an aggressive minimum consumes real roof planes rather than
+bulkheads. Tuning on the first AOI alone would have shipped a filter silently converting
+~3% of low-rise buildings into false MISSING.
+
+Two differences between AOIs, both explainable: baseline match is much higher in the West
+Village (88.7% vs 76.2%) because it is stable historic fabric with far less real change;
+and orphans fall to 6.3% from 12.5% because continuous dense fabric has fewer AOI-edge
+effects.
+
+**`p50` delta = 0.00 ft in this AOI too, at every threshold** — a third independent
+confirmation of vertical consistency, now across two urban typologies and 3,053 buildings.
 
 The **reversal at 800 SF** is what makes the result credible: match rate *falls*, so the
 curve is tracking a real property of the data rather than rewarding more aggressive
