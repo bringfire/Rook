@@ -50,7 +50,6 @@ namespace Rook.UI.Chat
             _documentSerialNumber = documentSerialNumber;
             _client = new AgentChatClient();
             BuildModelSelector();
-            ConfigureSecondaryAction("Build C#", OnBuildCSharpMessage);
         }
 
         private void BuildModelSelector()
