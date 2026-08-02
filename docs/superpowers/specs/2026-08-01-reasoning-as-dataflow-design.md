@@ -494,6 +494,78 @@ the tight-tolerance decision: divergence really is signal.
 predicted. The remaining 8 warrant investigation — demolish-and-rebuild, footprint
 revision, or containment failure on awkward geometry.
 
+---
+
+## Solids from the DGN, and correlation during import
+
+CORRECTION 2 above ("wireframe, not solids") was itself imprecise. Diagnosed properly:
+
+### The curves are face boundaries, not wireframe
+
+Every curve is **closed and planar** — sampled near the site, 21/21 footprints, 87/87
+roofs, 547/547 facades, and every facade is a **5-vertex quad**. MicroStation Shape
+elements are semantically planar faces; Rhino's importer renders them as their boundary
+loops. This is a complete B-rep delivered as face boundaries.
+
+### Why they cannot be joined into solids
+
+Joining one building's 11 faces leaves **18 naked edges, identical at tolerance 0.001,
+0.01, 0.1, 0.5 and 1.0**. Tolerance-invariance proves faces are *absent*, not gapped: a
+13-vertex footprint (12 edges) carried only 8 facades.
+
+The cause is in the capture method. **Aerial stereo compilation records only what is
+visible from above, so party walls between attached buildings were never compiled.** In
+Manhattan row fabric this is pervasive. The model is inherently open where buildings abut
+and no tolerance will ever close it.
+
+### The reconstruction that works
+
+Do not join their faces. Use what the DGN uniquely holds — **roof outlines at true
+elevation** — and generate the rest:
+
+> for each building, extrude every roof polygon down to the base elevation, then
+> boolean-union the resulting prisms.
+
+Measured: **21 footprints → 21 closed solids, 0 failures, 0.7 s**, including 11
+multi-roof buildings (max 20 roof polygons) resolving into correct stepped massing with
+setbacks and rooftop bulkheads — articulation the attribute-extrusion path cannot produce.
+
+### Correlation: containment, not polygon pairing
+
+A tempting assumption — that the two footprint sets are identical geometry because they
+share a feature class — is **false at polygon level**. Measured in the AOI: **1,021 DGN
+footprint polygons for 614 NYC buildings**, centroid p50 3.04 ft apart, **zero pairs within
+0.5 ft**.
+
+The DGN decomposes buildings into *components* (wings, stair bulkheads, towers — the
+metadata captures structures over 10 ft on a side separately). There is no 1:1 pairing to
+find.
+
+**Use the NYC footprint polygon as a spatial key envelope.** It carries BIN and is the
+authoritative whole-building outline; every DGN component whose centroid falls inside it
+belongs to that BIN. This absorbs the 1,021→614 decomposition naturally and is measured at
+**585/614**, with 21 of the 29 misses confirmed post-2014.
+
+### The pipeline
+
+1. Fetch NYC footprints for the AOI — BIN, `height_roof`, `ground_elevation`,
+   `construction_year`.
+2. Project WGS84 → EPSG:2263 by LCC forward from the `.prj` parameters. **No dependency.**
+3. Resolve the tile via `DeliveryArea.shp`; import 39.6 MB, not 762 MB.
+4. **Assign BIN by containment** — the correlate-during-import step.
+5. **Reconstruct per BIN**, not per DGN footprint: group that BIN's roof polygons, extrude
+   down, union → one solid per building. Grouping by DGN footprint over-segments to ~1,021.
+6. Tag each solid with BIN, attributes, and provenance (2014 survey vs current extrusion).
+7. Reconcile: reconstructed max Z vs `ground_elevation + height_roof` → MATCH / STALE;
+   BINs with no DGN geometry → MISSING, validated against `construction_year`.
+
+### Enumerator gotcha
+
+Rhino's default `doc.Objects` enumerator **skips objects on hidden layers**. Hiding a layer
+silently removes its objects from iteration and from `objectCount`, which reads as data
+loss. Pass explicit `ObjectEnumeratorSettings` when layer visibility is being used for
+display.
+
 ### Generalisation beyond NYC
 
 Rook's **GIS BYOK research** (2026-04-24, "research complete, synthesis drafted", unbuilt)
