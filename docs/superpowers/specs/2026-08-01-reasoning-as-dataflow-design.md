@@ -1448,3 +1448,38 @@ between their edges with a crown, sidewalk as a constant curb-reveal offset. The
 lines are already fetched and still unused as constraints. And a TIN remains single-valued,
 so elevated decks still need modelling as separate surfaces from Transportation Structures
 (`h9sf-7bej`).
+
+### Sampling a height field is wrong for pavement — fit per surface
+
+Even on the 1 m DEM, sidewalks came out as rollercoasters. **The undulation wavelength
+matched the 10 m sampling grid**, which is the diagnosis: nodes straddle *different
+surfaces*. One lands 3 ft into the roadbed and pulls the sidewalk down, the next lands on a
+stoop and pulls it up, and interpolation between them oscillates at the grid pitch.
+
+This is the breakline problem again. A sidewalk is a **distinct surface bounded by curbs**;
+interpolating across that boundary mixes in elevations belonging to something else.
+
+**Fit each polygon instead of sampling it.** Gather DEM nodes strictly interior (4 ft inset
+so edges do not bleed), then fit robustly with median-based outlier rejection.
+
+**Conditioning is not optional.** A naive least-squares plane on a long thin ribbon is
+**ill-conditioned** — interior samples are nearly collinear, the cross-ribbon slope is
+undetermined, and coefficients explode. First attempt produced a polygon with a Z range of
+**550,168 ft**. A determinant threshold of `1e-9` is meaningless at coordinates near
+985,000; the test must be *relative*: `det > 1e-4 * Sxx * Syy`.
+
+When ill-conditioned, fall back to the **more correct model anyway**: grade along the
+principal axis, flat across — which is what a sidewalk is. Then clamp every vertex to the
+observed sample range as a safety net.
+
+| per-polygon Z range | sampled | naive plane | conditioned fit |
+|---|---|---|---|
+| p50 | 4.76 ft | 0.87 ft | **0.87 ft** |
+| p90 | 25.15 ft | 13.81 ft | **12.91 ft** |
+| max | 62.9 ft | **550,168 ft** | **38.96 ft** |
+
+209 polygons fitted, 171 fell back to constant, 3,962 vertices clamped.
+
+**Still not a surveyor.** The 894 curb lines remain unused as triangulation constraints;
+there is no road crown; and sidewalk is fitted independently rather than derived as
+roadbed + curb reveal. Those are the remaining gap between this and a civil model.
