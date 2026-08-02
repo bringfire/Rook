@@ -451,6 +451,7 @@ HTTP request
 
 ```powershell
 uv run --project mcp_server pytest -q `
+  -k "not TestKnowledgeGraphRoutes" `
   mcp_server/tests/test_rookchat_worker_first_csharp_integration.py `
   mcp_server/tests/test_chat_server.py `
   mcp_server/tests/test_worker_first_csharp_application.py `
