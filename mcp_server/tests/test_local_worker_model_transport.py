@@ -84,6 +84,7 @@ def _transport(monkeypatch, fake, **kwargs):
 
 def test_module_all_is_exact() -> None:
     assert transport_module.__all__ == (
+        "build_local_worker_response_schema",
         "LiteLLMWorkerTransport",
         "TransportCallInfo",
     )
@@ -261,6 +262,30 @@ def test_response_union_schema_contains_all_lm5_response_kinds() -> None:
             variant["properties"]["schema"]["const"]
             == LOCAL_WORKER_TURN_RESPONSE_SCHEMA
         )
+
+
+def test_public_response_schema_builder_preserves_legacy_contract() -> None:
+    assert (
+        transport_module.build_local_worker_response_schema()
+        == transport_module._local_worker_response_union_schema()
+    )
+
+
+def test_public_response_schema_builder_returns_fresh_schema() -> None:
+    first = transport_module.build_local_worker_response_schema()
+    first["oneOf"].clear()
+
+    second = transport_module.build_local_worker_response_schema()
+
+    assert [
+        variant["properties"]["kind"]["const"]
+        for variant in second["oneOf"]
+    ] == [
+        "action_request",
+        "clarification_request",
+        "refusal",
+        "observation",
+    ]
 
 
 def test_response_union_schema_accepts_lm5g_valid_payload_shapes() -> None:

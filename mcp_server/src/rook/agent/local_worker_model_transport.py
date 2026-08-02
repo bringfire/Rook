@@ -15,6 +15,7 @@ from rook.agent.local_worker_turn_response import LOCAL_WORKER_TURN_RESPONSE_SCH
 from rook.agent.model_profiles import api_base_for_model
 
 __all__ = (
+    "build_local_worker_response_schema",
     "LiteLLMWorkerTransport",
     "TransportCallInfo",
 )
@@ -48,7 +49,7 @@ def _copy_json_value(value: Any) -> Any:
     raise TypeError("structured_response_schema values must be JSON-shaped")
 
 
-def _local_worker_response_union_schema() -> dict[str, Any]:
+def build_local_worker_response_schema() -> dict[str, Any]:
     def schema_prop() -> dict[str, str]:
         return {"const": LOCAL_WORKER_TURN_RESPONSE_SCHEMA}
 
@@ -108,6 +109,11 @@ def _local_worker_response_union_schema() -> dict[str, Any]:
             },
         ]
     }
+
+
+def _local_worker_response_union_schema() -> dict[str, Any]:
+    """Compatibility alias for existing operator-only callers."""
+    return build_local_worker_response_schema()
 
 
 class LiteLLMWorkerTransport:
