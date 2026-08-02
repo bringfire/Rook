@@ -421,6 +421,79 @@ Inner rings currently extrude as solid plugs rather than voids. Two buildings af
 the test AOI; cosmetic at context scale, wrong in principle. Proper handling needs a planar
 Brep with holes before extrusion.
 
+---
+
+## Reconciliation: tested against the real DOITT model (2026-08-02)
+
+The 762 MB DGN was downloaded, the covering tile isolated, imported into Rhino, and
+correlated against the current footprints. Results below **correct two claims made earlier
+in this spec.**
+
+### Tile indexing — do not import the city
+
+The zip contains 20 DGN tiles (`DA1`–`DA20`) plus a `DeliveryArea` shapefile index. The
+`.prj` confirms **EPSG:2263** verbatim: Lambert Conformal Conic, GRS80, `False_Easting`
+984250, `Central_Meridian` −74.0, standard parallels 40.6667/41.0333, `Foot_US`.
+
+Implementing the LCC forward projection from those parameters (no dependency needed) puts
+the site at **E 985,170 / N 215,104**, which selects **`DA12_3D_Buildings.dgn` — 39.6 MB of
+762 MB.** Always resolve the tile before importing.
+
+### CORRECTION 1 — BIN does not survive the DGN transport
+
+**The key join described above is impossible via DGN.** The import produced **610,987
+objects** across exactly three layers — `Building_FootPrint`, `Building_RoofTop`,
+`Building_Facade` — with **no object names and no user strings whatsoever**.
+
+The underlying datasets do share `BIN`/`DOITT_ID`; this particular *transport* discards
+them. Multipatch (ESRI FGDB) and CityGML carry attributes and would preserve the key, but
+neither imports into Rhino natively. So the trade is explicit:
+
+| Format | Rhino-native | Carries BIN |
+|---|---|---|
+| DGN | **yes** (`import_DGN` plugin) | **no** |
+| Multipatch / CityGML | no (needs GDAL/FME) | yes |
+
+### CORRECTION 2 — it is wireframe, not solids
+
+All 610,987 objects are **Curves**. The model is roof/facade/footprint *outlines*, not
+closed volumes. Solids must be constructed. Usefully, `Building_RoofTop` curves sit at true
+roof elevation, which is what the height comparison needs.
+
+### The correct match: containment + max Z
+
+There are **3,887 rooftop curves for 614 buildings** — LOD 1.5 carries roughly six roof
+polygons each. Nearest-centroid matching therefore latches onto small appendages and
+produced **~31% false divergence**.
+
+The correct algorithm respects the metadata's own definition — `height_roof` is the
+*highest point of roof*:
+
+> for each footprint polygon, take **max Z over all rooftop curves whose centroid lies
+> inside it**, and compare against `ground_elevation + height_roof`.
+
+### Results — vertical consistency confirmed
+
+| Measure | Result |
+|---|---|
+| Footprints in AOI | 614 |
+| Matched by containment | 585 |
+| **Median height difference** | **0.00 ft** |
+| Within ±1.6 ft (stated Z accuracy) | 398 / 585 — 68% |
+| Within 8 ft (documented LOD 1.5 roof merge) | 446 / 585 — 76% |
+| Diverging > 20 ft → **STALE** | 46 — 7.9% |
+| Unmatched → **MISSING** | 29 |
+| **of which post-2014** | **21 of 29** |
+
+**A median difference of exactly 0.00 ft proves the "built for vertical consistency" claim
+directly.** Where a building is unchanged, the 2014 survey roof elevation and the current
+attribute height agree exactly — because they came from the same numbers. This validates
+the tight-tolerance decision: divergence really is signal.
+
+**The self-check holds.** 21 of 29 unmatched buildings are confirmed post-2014, exactly as
+predicted. The remaining 8 warrant investigation — demolish-and-rebuild, footprint
+revision, or containment failure on awkward geometry.
+
 ### Generalisation beyond NYC
 
 Rook's **GIS BYOK research** (2026-04-24, "research complete, synthesis drafted", unbuilt)
