@@ -805,6 +805,57 @@ Five non-post-2014 MISSING remain, cleanly split:
 - **3 with overlapping roofs at wrong elevations** — contested or offset geometry, of which
   1026915 is confirmed offset rather than contested.
 
+---
+
+## Pipeline v4 — global best-overlap matching
+
+Replaces greedy centroid-containment-then-fallback with a single global pass:
+
+- Candidates are all footprints whose **bounding box intersects** the roof's, not only those
+  containing its centroid.
+- Overlap is measured by **area sampling** — a 5×5 grid over the roof's bbox filtered to
+  points inside the roof polygon, falling back to vertices plus centroid for degenerate
+  slivers — rather than by counting vertices.
+- Each roof goes to the footprint with maximum sampled overlap, evaluated across all
+  candidates simultaneously.
+
+### Re-validated on both AOIs
+
+| | HK v3 | **HK v4** | WV v2+filter | **WV v4** |
+|---|---|---|---|---|
+| MATCH | 82.3% | **82.0%** | 93.1% | **93.0%** |
+| MISSING | 22 | **20** | 21 | **13** |
+| — dated pre-2014 | 3 | **1** | — | 5 |
+| Orphan roofs | 13.5% | **12.0%** | 6.3% | **5.2%** |
+| p75 / p90 delta | 1.47 / 14.23 | 1.54 / 14.60 | 0.87 / 3.81 | 0.87 / 3.85 |
+| p50 delta | 0.00 | **0.00** | 0.00 | **0.00** |
+
+**It did what it was designed for.** Dated-pre-2014 MISSING in AOI 1 fell from 3 to **1** —
+the two assignment failures the orphan-only pass could not contest are recovered. West
+Village MISSING fell 21 → 13.
+
+**Match rate is deliberately flat.** The rewrite fixes *assignment*, not the match
+statistic; a jump here would have been a red flag rather than a win.
+
+### The statistic that justifies it
+
+**Contested roofs** — polygons overlapping more than one footprint: **493 in AOI 1 (18%),
+1,547 in the West Village (30%)**. In dense rowhouse fabric nearly a third of roof polygons
+touch multiple footprints, so greedy first-match was guessing on a third of the data and
+happening to be right most of the time. Global matching removes the guess.
+
+### Residue
+
+One dated-pre-2014 MISSING remains in AOI 1, consistent with BIN 1026915 — the confirmed
+positional-offset case. **No assignment algorithm can recover it**, because the DGN roof
+and the NYC footprint do not spatially coincide. That is the method's floor, and it is a
+data property rather than a defect.
+
+**Caveat:** the West Village fetch omitted `feature_code`, so no population filter was
+applied there. Its 2,489 is unfiltered and its 5 dated-pre-2014 MISSING likely include
+non-building features that AOI 1's filter removes. The comparison is uneven in the West
+Village's disfavour.
+
 The **reversal at 800 SF** is what makes the result credible: match rate *falls*, so the
 curve is tracking a real property of the data rather than rewarding more aggressive
 filtering.
