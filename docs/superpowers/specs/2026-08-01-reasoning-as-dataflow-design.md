@@ -1383,3 +1383,68 @@ planned separately, after slice 1 returns evidence.
 
 Implementation plan via `superpowers:writing-plans`, once the open questions above are
 settled.
+
+---
+
+## Terrain done properly — USGS 3DEP 1 m bare-earth DEM
+
+The scattered-point approach was wrong in both data and method. Replaced.
+
+### The data
+
+**USGS 3DEP ElevationServer**, keyless, 1 m resolution:
+`https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/getSamples`
+
+- **Must POST, not GET.** 400+ points in a GET exceeds the URL limit and every batch fails
+  silently-ish; the same payload by POST returns 400 samples in 4 s.
+- Returns **metres, NAVD88**. Convert ×3.280839895 for feet.
+- Backed by the 2017 NYC topobathymetric LiDAR (Quantum Spatial / AppGeo), bare-earth DEM
+  built by TIN over classified ground returns.
+
+### Calibrated before use, not assumed
+
+Sampled 3DEP at 150 building centroids and differenced against NYC's own
+`ground_elevation`:
+
+**median 0.11 ft, mean 0.25 ft, σ 4.57 ft**
+
+Two wholly independent sources agreeing to a tenth of a foot at the median confirms unit,
+datum and service in one check.
+
+### Result
+
+13,273 nodes on a 10 m grid over a 650 m radius, 0 failed batches, 272 s.
+
+| | scattered spot elevations | 3DEP bare-earth |
+|---|---|---|
+| Samples | 871 | **13,273** |
+| Spacing | ~1 per 1,770 m² | 1 per 100 m² |
+| z max | **91.1 ft** | **52.6 ft** |
+
+**Verified at the exact failure coordinate** — the worst outlier from the lumpy-road
+diagnosis:
+
+| | |
+|---|---|
+| Old spot elevation | **72.4 ft** |
+| Old local neighbourhood median | 22.0 ft |
+| Old spike | **+50.4 ft** |
+| **3DEP bare-earth** | **24.3 ft** |
+
+The viaduct is **absent from the DEM by definition** rather than filtered out of a sample
+set. 289 surfaces rebuilt, 0 failures, **0 vertices falling outside DEM coverage**.
+
+### Method lesson
+
+A previous fix was declared successful on summary statistics and a *different* camera
+angle. That is not verification. Re-photograph the same failure, and quote the number at
+the same coordinate.
+
+### Still short of a surveyor
+
+The surfaces are draped on a smooth height field. A civil model builds pavement from
+**breaklines** — curb lines as hard triangulation constraints, roads as ruled surfaces
+between their edges with a crown, sidewalk as a constant curb-reveal offset. The 894 curb
+lines are already fetched and still unused as constraints. And a TIN remains single-valued,
+so elevated decks still need modelling as separate surfaces from Transportation Structures
+(`h9sf-7bej`).
