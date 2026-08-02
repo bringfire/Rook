@@ -745,6 +745,66 @@ Of 29 MISSING: roughly **23 genuine post-2014 absence, 3 recoverable assignment 
 3 that should never have been in the population.** The method's true residue is far smaller
 than the raw count implied.
 
+---
+
+## Pipeline v3 — filters and two-pass assignment implemented
+
+| | v2 | v3 |
+|---|---|---|
+| Population | 614 | **598** |
+| MATCH | 76.2% (81.9% with area filter) | **82.3%** |
+| STALE | 139 | **102** |
+| MISSING | 29 | **22** |
+| — post-2014 | 21 | 16 |
+| — blank year | — | 3 |
+| — dated pre-2014 | 8 | **3** |
+| p75 / p90 delta | 7.06 / 16.69 ft | **1.47 / 14.23 ft** |
+| p50 delta | 0.00 ft | 0.00 ft |
+
+Aggregate predictions held: MISSING 22 against a predicted ~23, match 82.3% against ~82%.
+
+### Population filters — one unanticipated win
+
+`feature_code` distribution in AOI 1: `2100` 602, `5110` 5, `5100` 3, `1000` 2, `1003` 1,
+`1004` 1. Twelve non-2100 features and four `height_roof = 0` excluded.
+
+**Three of the exclusions are `feature_code` 5100 — "Building Under Construction".** These
+could never appear in a 2014 survey and were silently inflating the failure count. Worth
+filtering explicitly rather than as a side effect of the 2100 rule.
+
+### Two-pass assignment — under-delivered, and why
+
+Pass 2 recovered 2 buildings but **not one of the three it was designed for.** All three
+targets remain MISSING.
+
+The flaw is in the design: pass 2 was restricted to **orphan** roofs. Those buildings'
+matching roofs had already been claimed by neighbours during pass 1, so pass 2 was
+structurally unable to contest them.
+
+**Correct fix: global best-overlap matching, not greedy-assign-then-fallback.** A roof
+should go to the footprint it overlaps most, evaluated across all candidates
+simultaneously, rather than to whichever footprint happens to contain its centroid first.
+
+### BIN 1026915 — earlier diagnosis corrected
+
+It is **not** an assignment failure. Its identical-area roof (4,632 SF at Z 49.0, exactly
+`ground + height_roof`) has **zero vertex overlap** with the footprint and sits 18.8 ft
+away. That is a **positional offset** between the DGN roof and the NYC footprint — a
+genuine data discrepancy that no assignment algorithm can recover, because the geometries
+do not coincide.
+
+A useful negative result: not every mismatch is a join defect. Some are the data
+disagreeing with itself.
+
+### Residual
+
+Five non-post-2014 MISSING remain, cleanly split:
+
+- **2 with zero overlapping roofs** — 1089379 (120 ft) and 1089382 (207 ft), both
+  blank-year, near-certainly post-2014 construction with missing attribution.
+- **3 with overlapping roofs at wrong elevations** — contested or offset geometry, of which
+  1026915 is confirmed offset rather than contested.
+
 The **reversal at 800 SF** is what makes the result credible: match rate *falls*, so the
 curve is tracking a real property of the data rather than rewarding more aggressive
 filtering.
