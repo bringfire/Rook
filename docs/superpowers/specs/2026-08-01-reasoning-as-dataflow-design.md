@@ -1574,3 +1574,84 @@ made twice in this document already.
 each patch individually more correct while the architecture guaranteed they would not agree.
 A surveyor never fits patches — they build one surface with breaklines describing where it
 is permitted to break.
+
+---
+
+## Prior art and unused data — research sweep (2026-08-02)
+
+Done before building slice G. **The main finding is that slice G is a solved problem** and
+should not be written from scratch.
+
+### 3dfier (tudelft3d) — this *is* slice G
+
+`github.com/tudelft3d/3dfier` — TU Delft, open source, Docker image published.
+
+Takes **2D GIS polygons + a LAS/LAZ point cloud** and produces a **watertight 3D city
+model**. Its architecture is, line for line, what slice G describes:
+
+- **Semantics drive the lifting** — water polygons extrude to horizontal, buildings to LOD1
+  blocks, **roads to smooth surfaces**. Exactly the "fit per surface class" conclusion.
+- **Constrained Delaunay triangulation per polygon.**
+- Lifted polygons are **"stitched" together into one DSM** — no intersecting triangles, no
+  holes. That is the coherence problem, solved structurally.
+- **Polygon ID preserved 1-to-1** input to output, so attributes survive.
+- Output: OBJ, **CityJSON**, CityGML, PostGIS, STL.
+
+Sibling project **City4CFD** (`tudelft3d/city4cfd`) reconstructs LoD2 models for urban flow
+simulation.
+
+**Implication:** the novel part of our work was never the algorithm. It is having this
+inside Rhino, driven by Rook, with NYC semantics. Three options, in order of sanity:
+1. Run 3dfier as an external process on the planimetric polygons + NYC LiDAR, import the
+   CityJSON. Fastest path to a correct ground plane.
+2. Port its architecture (semantic lift → CDT → stitch) into the Rook pipeline.
+3. Use it as a correctness oracle to check whatever we do build.
+
+Note it consumes **LAS/LAZ directly** — so it wants the raw NYC LiDAR, not my sampled grid.
+
+### ASAM OpenDRIVE — the road connectivity model I was missing
+
+`asam.net/standards/detail/opendrive/` — XML (`.xodr`), industry standard for HD road maps.
+
+- The primitive is the **road reference line**; everything attaches along it.
+- **Elevation profile is attached to the reference line** — precisely the longitudinal
+  control I identified as missing from a Laplacian solve.
+- **Superelevation** is first-class — that is the road crown/cross-slope.
+- **Junctions** formalise intersections with predecessor/successor links between roads *and
+  between lanes*.
+
+This is the data model for "a street that goes somewhere" rather than "a patch that doesn't
+disagree with its neighbour." Worth adopting as the conceptual schema even if we never emit
+`.xodr`.
+
+### Constrained Delaunay with breaklines — canonical, confirmed
+
+The surveying method, stated plainly: break lines are drawn along rivers, **edges of roads**,
+ridges, and used as **constraints when constructing the triangulation**. Implementations:
+**CGAL** `Constrained_Delaunay_triangulation_2` (usable from Python), and **Triangle**.
+"Conforming" CDT refines constrained edges until they are Delaunay.
+
+### Data types fetched but still unused
+
+| Layer | Resource | Why it matters |
+|---|---|---|
+| **Street Centerline** | `inkn-q76z` (dataset), `3mf9-qshr` (map) | Network topology, street identity, longitudinal axis |
+| Transportation Structures | `h9sf-7bej` | Elevated decks — the multi-level ground problem |
+| Median, Curb Cut, Pavement Edge | planimetric DB | More breaklines |
+| Public Plazas, Parking Lot | planimetric DB | More ground classes |
+| **1 ft DEM raster** | `dpc8-z3jc` / `7kuu-zah7` | Denser than the 10 m grid actually sampled |
+| **NYC LiDAR point cloud (LAS)** | 3DEP AWS S3, OpenTopography `NY_NewYorkCity` | 3dfier's native input; classified ground returns |
+
+### Strategic read
+
+Every refinement this session was a hand-rolled step toward an architecture that already
+exists, is published, and reconstructed the Netherlands. The lesson is not that the work was
+wasted — the failure modes found (viaduct contamination, sampling-grid aliasing,
+ill-conditioned ribbon fits, seam incoherence) are all real and would have bitten any
+implementation. But **the next move is to evaluate 3dfier before writing a solver.**
+
+Sources: [3dfier](https://github.com/tudelft3d/3dfier) ·
+[City4CFD](https://github.com/tudelft3d/city4cfd) ·
+[TU Delft 3D geoinformation code](https://3d.bk.tudelft.nl/code/) ·
+[ASAM OpenDRIVE](https://www.asam.net/standards/detail/opendrive/) ·
+[CGAL 2D Triangulations](https://doc.cgal.org/latest/Triangulation_2/index.html)
