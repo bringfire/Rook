@@ -1,3 +1,9 @@
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Rook.UI.Chat;
 using Xunit;
 
@@ -5,6 +11,66 @@ namespace Rook.Tests.UI.Chat
 {
     public class AgentChatClientParseTests
     {
+        [Fact]
+        public async Task Ordinary_send_omits_execution_mode()
+        {
+            var handler = new CapturingHandler();
+            using var client = new AgentChatClient(new HttpClient(handler));
+
+            await client.SendMessageStreamingAsync(
+                new Uri("http://localhost:8765"),
+                "conversation-1",
+                "ordinary intent",
+                41,
+                _ => { });
+
+            using var payload = JsonDocument.Parse(handler.Body!);
+            var root = payload.RootElement;
+            Assert.Equal("conversation-1", root.GetProperty("conversation_id").GetString());
+            Assert.Equal("ordinary intent", root.GetProperty("message").GetString());
+            Assert.Equal(41u, root.GetProperty("documentSerialNumber").GetUInt32());
+            Assert.False(root.TryGetProperty("execution_mode", out _));
+        }
+
+        [Fact]
+        public async Task Worker_first_send_authors_only_the_closed_execution_mode()
+        {
+            var handler = new CapturingHandler();
+            using var client = new AgentChatClient(new HttpClient(handler));
+
+            await client.SendWorkerFirstCSharpStreamingAsync(
+                new Uri("http://localhost:8765"),
+                "conversation-2",
+                "keep  interior whitespace",
+                73,
+                _ => { });
+
+            using var payload = JsonDocument.Parse(handler.Body!);
+            var root = payload.RootElement;
+            Assert.Equal("conversation-2", root.GetProperty("conversation_id").GetString());
+            Assert.Equal("keep  interior whitespace", root.GetProperty("message").GetString());
+            Assert.Equal(73u, root.GetProperty("documentSerialNumber").GetUInt32());
+            Assert.Equal("worker_first_csharp_v1", root.GetProperty("execution_mode").GetString());
+            Assert.Equal(4, CountProperties(root));
+        }
+
+        [Fact]
+        public void Message_send_methods_expose_no_execution_mode_parameter()
+        {
+            foreach (var methodName in new[]
+            {
+                nameof(AgentChatClient.SendMessageStreamingAsync),
+                nameof(AgentChatClient.SendWorkerFirstCSharpStreamingAsync),
+            })
+            {
+                var method = typeof(AgentChatClient).GetMethod(methodName);
+                Assert.NotNull(method);
+                Assert.DoesNotContain(
+                    method!.GetParameters(),
+                    parameter => parameter.Name == "executionMode");
+            }
+        }
+
         [Fact]
         public void Success_from_2xx_without_success_field()
         {
@@ -106,6 +172,32 @@ namespace Rook.Tests.UI.Chat
             Assert.False(r.Success);
             Assert.Equal("model_not_tool_capable", r.ErrorCode);
             Assert.NotNull(r.AllowedModelOverrides);
+        }
+
+        private static int CountProperties(JsonElement element)
+        {
+            var count = 0;
+            foreach (var _ in element.EnumerateObject())
+                count++;
+            return count;
+        }
+
+        private sealed class CapturingHandler : HttpMessageHandler
+        {
+            public string? Body { get; private set; }
+
+            protected override async Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                Body = request.Content == null
+                    ? null
+                    : await request.Content.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(string.Empty),
+                };
+            }
         }
     }
 }

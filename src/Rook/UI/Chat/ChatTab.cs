@@ -27,8 +27,10 @@ namespace Rook.UI.Chat
         // ─── Eto controls ─────────────────────────────────────────────
         private TextArea _inputArea = null!;
         private Button _sendButton = null!;
+        private Button? _secondaryActionButton;
         private Button _clearButton = null!;
         private Button _stopButton = null!;
+        private TableLayout _actionButtonLayout = null!;
         private Label _statusLabel = null!;
         private StackLayout _statusStack = null!;
 
@@ -38,6 +40,7 @@ namespace Rook.UI.Chat
         // ─── State ────────────────────────────────────────────────────
         private bool _isProcessing;
         private bool _tabClosed;
+        private Func<string, Task>? _secondaryAction;
 
         // ─── Public properties ────────────────────────────────────────
 
@@ -161,6 +164,12 @@ namespace Rook.UI.Chat
             };
             _statusStack.Items.Add(new StackLayoutItem(_statusLabel, HorizontalAlignment.Left));
 
+            _actionButtonLayout = new TableLayout
+            {
+                Spacing = new Size(5, 0),
+                Rows = { new TableRow(_sendButton, _stopButton, _clearButton, null) }
+            };
+
             var layout = new TableLayout
             {
                 Padding = new Padding(5),
@@ -173,11 +182,7 @@ namespace Rook.UI.Chat
 
                     new TableRow(_inputArea),
 
-                    new TableRow(new TableLayout
-                    {
-                        Spacing = new Size(5, 0),
-                        Rows = { new TableRow(_sendButton, _stopButton, _clearButton, null) }
-                    })
+                    new TableRow(_actionButtonLayout)
                 }
             };
 
@@ -348,6 +353,32 @@ namespace Rook.UI.Chat
         /// </summary>
         protected bool IsProcessing => _isProcessing;
 
+        internal static string? NormalizeSubmittedMessage(string? input)
+            => input?.Trim();
+
+        internal static bool CanSubmitMessage(string? acceptedIntent, bool isProcessing)
+            => !isProcessing && !string.IsNullOrEmpty(acceptedIntent);
+
+        internal static bool MessageActionsEnabled(bool isProcessing)
+            => !isProcessing;
+
+        protected void ConfigureSecondaryAction(string label, Func<string, Task> action)
+        {
+            if (string.IsNullOrWhiteSpace(label))
+                throw new ArgumentException("Secondary action label is required.", nameof(label));
+            _secondaryAction = action ?? throw new ArgumentNullException(nameof(action));
+            _secondaryActionButton = new Button
+            {
+                Text = label,
+                Width = 80,
+                Enabled = MessageActionsEnabled(_isProcessing),
+            };
+            _secondaryActionButton.Click += OnSecondaryActionClicked;
+            _actionButtonLayout.Rows.Clear();
+            _actionButtonLayout.Rows.Add(
+                new TableRow(_sendButton, _secondaryActionButton, _stopButton, _clearButton, null));
+        }
+
         protected void SetProcessing(bool processing)
         {
             _isProcessing = processing;
@@ -378,24 +409,36 @@ namespace Rook.UI.Chat
         // ─── Button handlers ─────────────────────────────────────────
 
         private async void OnSendClicked(object? sender, EventArgs e)
+            => await SubmitInputAsync(OnSendMessage);
+
+        private async void OnSecondaryActionClicked(object? sender, EventArgs e)
         {
-            var message = _inputArea.Text?.Trim();
-            if (string.IsNullOrEmpty(message) || _isProcessing)
+            var action = _secondaryAction;
+            if (action == null)
                 return;
+            await SubmitInputAsync(action);
+        }
+
+        private async Task SubmitInputAsync(Func<string, Task> action)
+        {
+            var message = NormalizeSubmittedMessage(_inputArea.Text);
+            if (!CanSubmitMessage(message, _isProcessing))
+                return;
+            var acceptedIntent = message!;
 
             _isProcessing = true;
             UpdateUIState();
 
             _inputArea.Text = "";
 
-            AddMessageToChat("user", message);
+            AddMessageToChat("user", acceptedIntent);
             ShowTypingIndicator(true);
 
             SetStatus("Sending...", Colors.Blue);
 
             try
             {
-                await OnSendMessage(message);
+                await action(acceptedIntent);
             }
             catch (Exception ex)
             {
@@ -438,7 +481,10 @@ namespace Rook.UI.Chat
 
         private void UpdateUIState()
         {
-            _sendButton.Enabled = !_isProcessing;
+            var messageActionsEnabled = MessageActionsEnabled(_isProcessing);
+            _sendButton.Enabled = messageActionsEnabled;
+            if (_secondaryActionButton != null)
+                _secondaryActionButton.Enabled = messageActionsEnabled;
             _stopButton.Enabled = _isProcessing;
             _inputArea.Enabled = !_isProcessing;
             OnUIStateUpdated();

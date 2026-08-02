@@ -50,6 +50,7 @@ namespace Rook.UI.Chat
             _documentSerialNumber = documentSerialNumber;
             _client = new AgentChatClient();
             BuildModelSelector();
+            ConfigureSecondaryAction("Build C#", OnBuildCSharpMessage);
         }
 
         private void BuildModelSelector()
@@ -539,7 +540,15 @@ namespace Rook.UI.Chat
             }
         }
 
-        protected override async Task OnSendMessage(string message)
+        protected override Task OnSendMessage(string message)
+            => SendMessageAsync(message, _client.SendMessageStreamingAsync);
+
+        private Task OnBuildCSharpMessage(string message)
+            => SendMessageAsync(message, _client.SendWorkerFirstCSharpStreamingAsync);
+
+        private async Task SendMessageAsync(
+            string message,
+            Func<Uri, string, string, uint, Action<ChatEvent>, CancellationToken, Task> send)
         {
             if (_conversationId == null)
             {
@@ -575,7 +584,7 @@ namespace Rook.UI.Chat
                     return;
                 }
                 var currentDocument = GetCurrentDocumentSerialNumber();
-                await _client.SendMessageStreamingAsync(
+                await send(
                     _conversationBaseUri!,
                     _conversationId,
                     message,
@@ -699,6 +708,9 @@ namespace Rook.UI.Chat
         /// </summary>
         private static string BuildToolSummary(ChatEvent evt)
         {
+            if (string.Equals(evt.Name, "worker_first_csharp_v1", StringComparison.Ordinal))
+                return BuildWorkerFirstCSharpSummary(evt.Result);
+
             if (string.IsNullOrEmpty(evt.Result))
                 return evt.ToolStatus == "failed" ? "Failed" : "Done";
 
@@ -762,6 +774,56 @@ namespace Rook.UI.Chat
                 return "Failed";
 
             return "Done";
+        }
+
+        private static string BuildWorkerFirstCSharpSummary(string? result)
+        {
+            if (string.IsNullOrEmpty(result))
+                return "Worker-first C# stopped before compile";
+
+            try
+            {
+                using var doc = JsonDocument.Parse(result);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("compile_status", out var compileStatus) ||
+                    compileStatus.ValueKind != JsonValueKind.String)
+                    return "Worker-first C# stopped before compile";
+
+                var status = compileStatus.GetString();
+                if (status == "passed" &&
+                    TryReadNonnegativeCount(root, "error_count", out var passedErrors) &&
+                    TryReadNonnegativeCount(root, "warning_count", out var passedWarnings) &&
+                    passedErrors == 0 && passedWarnings == 0)
+                {
+                    return "Compiled cleanly (0 errors, 0 warnings)";
+                }
+
+                if (status == "failed" &&
+                    TryReadNonnegativeCount(root, "error_count", out var failedErrors) &&
+                    TryReadNonnegativeCount(root, "warning_count", out var failedWarnings))
+                {
+                    var errorLabel = failedErrors == 1 ? "error" : "errors";
+                    var warningLabel = failedWarnings == 1 ? "warning" : "warnings";
+                    return $"Compile failed ({failedErrors} {errorLabel}, {failedWarnings} {warningLabel})";
+                }
+            }
+            catch (JsonException)
+            {
+            }
+
+            return "Worker-first C# stopped before compile";
+        }
+
+        private static bool TryReadNonnegativeCount(
+            JsonElement element,
+            string propertyName,
+            out int value)
+        {
+            value = 0;
+            return element.TryGetProperty(propertyName, out var property) &&
+                property.ValueKind == JsonValueKind.Number &&
+                property.TryGetInt32(out value) &&
+                value >= 0;
         }
 
         private static bool TryReadToolSummaryString(JsonElement element, string propertyName, out string value)
