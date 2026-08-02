@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import importlib.metadata
 import importlib.util
 import json
 import subprocess
@@ -261,6 +262,7 @@ async def test_internal_composition_reaches_native_terminal_with_exact_configs(
 def test_real_transport_materializes_provider_specific_schema_kwargs(
     monkeypatch,
 ) -> None:
+    assert importlib.metadata.version("litellm") == "1.89.4"
     assert (
         transport_module.litellm.supports_response_schema(
             model="anthropic/claude-opus-4-6"
