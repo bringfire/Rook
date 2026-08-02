@@ -3,6 +3,7 @@
 - **Status:** Active audit roadmap
 - **Created:** 2026-07-31
 - **Audit baseline:** `90242fa4f09abf8f3b8ec994044787b61e77b446` (`origin/main`)
+- **Last reconciled:** 2026-08-01 at `f22904c21474b616e2fe3487f686c5632bba8a37`
 - **Scope:** Installer, release metadata, installed documentation, public documentation,
   agent skills, optional integrations, managed UI/RUI packaging, upgrade behavior, and
   release validation
@@ -29,19 +30,24 @@ focused specification and implementation plan before code changes begin.
    marketing must describe the behavior that the shipped runtime actually provides.
 2. **Keep the solution small.** Prefer removal, generated validation, or one clear
    source of truth over compatibility layers and new frameworks.
-3. **Do not preserve dead product code as backup.** Git history is the backup. A
-   retired release surface should be removed from source, build, installer, registry,
-   tests, and documentation together.
-4. **Preserve historical evidence.** Existing specifications, plans, reports, and
+3. **Contain unsupported surfaces before deleting internals.** Remove or deny
+   user-facing and agent-facing discovery, invocation, guidance, and exact Rook-owned
+   installed residue first. Dormant implementation may remain when deleting it would
+   expand risk without improving the supported product. Full code removal requires an
+   explicit workstream decision; cleanup is not a license for broad purges.
+4. **Use Git history as the backup for fully retired artifacts.** When a workstream
+   explicitly chooses full retirement, do not keep alternate live copies or speculative
+   compatibility paths merely as backup.
+5. **Preserve historical evidence.** Existing specifications, plans, reports, and
    postmortems remain unchanged unless they contain an active security/privacy issue or
    a broken provenance link. Current guidance belongs in active documents.
-5. **Treat distributed contracts atomically.** A tool, skill, or UI capability is not
+6. **Treat distributed contracts atomically.** A tool, skill, or UI capability is not
    shipped unless its runtime, schema, documentation, packaging, upgrade behavior, and
    validation agree.
-6. **Do not destabilize verified runtime work.** Release hardening must not refactor the
+7. **Do not destabilize verified runtime work.** Release hardening must not refactor the
    accepted Grasshopper/Rhino.Inside.Revit lifecycle or RookBIM identity corrections
    merely to make release cleanup convenient.
-7. **Require fresh evidence before release.** Source-shape tests are useful guards but
+8. **Require fresh evidence before release.** Source-shape tests are useful guards but
    do not replace clean-install, upgrade, standalone Rhino, Grasshopper, RiR, RookBIM,
    Claude, and Codex acceptance where those surfaces are supported.
 
@@ -96,6 +102,16 @@ The release-surface program is complete when all of the following are true:
 | RS-09 | P1 | `investigating` | Upgrades merge user skill directories and can retain removed Rook-owned content; client restart/reconnect and config-preservation gaps remain. |
 | RS-10 | P1 | `ready_for_spec` | `gh_edit` is still advertised as atomic despite its accepted partial-success and verification contract. |
 | RS-11 | P0 | `ready_for_spec` | Existing release guards pass while all preceding mismatches remain present. |
+
+## Current progress snapshot
+
+| Workstream | Current status | Reconciled evidence and remaining boundary |
+|---|---|---|
+| RS-01 | `ready_for_spec` | RUI suppression remains the next focused cleanup target. No RUI production or installer change has started. |
+| RS-05 | RoadCreator/RookRoads `verified`; Wasp `investigating` | PR [#521](https://github.com/bringfire/Rook/pull/521) completed private user/agent surface containment, exact upgrade cleanup, focused tests, packaging, and installed smoke. Public promotion remains RS-07; Wasp admission remains separate. |
+| RS-08 | `confirmed` with partial remediation | PR [#521](https://github.com/bringfire/Rook/pull/521) pinned the supported MCP 1.x dependency and aligned lock/wheelhouse verification. The broader version, URL, description, and runtime-anchor audit remains open. |
+| RS-09 | `investigating` with partial remediation | PR [#521](https://github.com/bringfire/Rook/pull/521) proved exact, unconditional, link-safe cleanup for the two retired Codex skill directories while preserving siblings. General skill ownership, configuration preservation, reconnect, rollback, and uninstall behavior remain open. |
+| RS-11 | `ready_for_spec` with expanded evidence | PRs [#524](https://github.com/bringfire/Rook/pull/524) and [#526](https://github.com/bringfire/Rook/pull/526) corrected two schema/dispatch/managed-selector mismatches. A focused selector-parity release guard is still required. |
 
 ## Workstream RS-01 — Retire the legacy RUI toolbar
 
@@ -247,8 +263,8 @@ where client behavior genuinely differs; do not introduce a general templating s
 
 ## Workstream RS-05 — Decide the supported external-plugin surface
 
-**Current status:** `ready_for_spec` for RoadCreator/RookRoads surface containment;
-`investigating` for Wasp admission.
+**Current status:** `verified` for private RoadCreator/RookRoads surface containment;
+`investigating` for Wasp admission. Public promotion remains tracked by RS-07.
 
 **Approved disposition:** RoadCreator and RookRoads are unsupported and must be contained
 at Rook's user-facing and agent-facing boundaries. Their dormant adapter, bridge,
@@ -277,8 +293,10 @@ Wasp are outside the RoadCreator/RookRoads containment change.
 
 The RoadCreator/RookRoads containment boundary is specified in
 [`2026-07-31-roadcreator-rookroads-surface-containment-design.md`](../superpowers/specs/2026-07-31-roadcreator-rookroads-surface-containment-design.md).
-Wasp admission requires a separate evidence-driven specification; it is not part of the
-containment implementation.
+It was implemented and accepted in PR [#521](https://github.com/bringfire/Rook/pull/521),
+merged as `3ba27ebe97a3295a5296dd0e1809073863367376`. Wasp admission requires a
+separate evidence-driven specification; it is not part of the containment
+implementation.
 
 ### Exit criteria
 
@@ -390,6 +408,10 @@ where the release command can provide or derive the version.
   the native plugin as Claude-specific.
 - Build/reference documentation disagrees about whether net7 or net8 is the registration
   anchor; the current installer uses net8.
+- PR [#521](https://github.com/bringfire/Rook/pull/521) corrected one release-critical
+  dependency boundary by pinning `mcp==1.28.1` and verifying that the wheelhouse and
+  installed runtime cannot select MCP 2.x. The remaining metadata findings above are
+  unchanged.
 
 ### Exit criteria
 
@@ -413,6 +435,10 @@ observable and consistent.
   [`installer/post_install.py`](../../installer/post_install.py) merges children into
   `~/.codex/skills` using `dirs_exist_ok=True`; removed files and directories can survive
   an upgrade.
+- PR [#521](https://github.com/bringfire/Rook/pull/521) added exact-path migration cleanup
+  for the retired `design-road` and `masterplan-roads` Codex skill directories on every
+  install and repair. It is link-safe, idempotent, preserves sibling skills, and does not
+  generalize deletion beyond those two Rook-owned targets.
 - GitHub issues [#187](https://github.com/bringfire/Rook/issues/187) and
   [#243](https://github.com/bringfire/Rook/issues/243) record stale/reconnect behavior
   after installation or process restart.
@@ -484,6 +510,17 @@ The current installer guard suite passes even though it does not detect:
 - `gh_edit` contract contradictions; or
 - missing cleanup for removed user-profile skills.
 
+Subsequent focused fixes exposed another release-guard gap:
+
+- PR [#524](https://github.com/bringfire/Rook/pull/524) proved that indexed
+  `gh_connect` selectors were accepted at the MCP boundary but ignored by the managed
+  handler, causing a silent mutation of input 0.
+- PR [#526](https://github.com/bringfire/Rook/pull/526) proved that `outputIndex` on
+  `gh_inspect_output` was ignored and silently degraded to output 0.
+- Both fixes now preserve selector presence, reject conflicts and invalid explicit
+  values, and return resolved parameter metadata. The release audit still lacks a
+  reusable focused guard against reintroducing this boundary mismatch.
+
 ### Required guard categories
 
 1. Version and metadata agreement.
@@ -495,6 +532,9 @@ The current installer guard suite passes even though it does not detect:
 7. Public-promotion manifest and hash agreement.
 8. Upgrade fixtures for removed Rook-owned content and preserved user content.
 9. Normative contract vocabulary checks for high-risk distributed contracts.
+10. Grasshopper selector parity across MCP schema, Python dispatch, and managed
+    resolution, including proof that an explicit invalid selector cannot degrade to
+    omission or a default port.
 
 ### Exit criteria
 
@@ -509,16 +549,17 @@ The current installer guard suite passes even though it does not detect:
 
 ### Wave A — Product decisions and containment
 
-1. Review the approved RoadCreator/RookRoads containment boundary and begin the separate
-   Wasp admission audit (RS-05).
-2. Approve RUI retirement while preserving panel evaluation (RS-01/RS-02).
+1. RoadCreator/RookRoads private containment is complete. Keep the Wasp admission audit
+   separate and evidence-driven (RS-05).
+2. Specify RUI retirement while preserving independent panel evaluation (RS-01/RS-02).
 3. Approve the Codex lean-plus-gateway direction (RS-03).
 4. Freeze new public capability claims until promotion controls exist (RS-07).
 
 ### Wave B — Remove contradictions at their source
 
 1. Retire the RUI and obsolete installer/registry residue (RS-01).
-2. Contain unsupported integrations at user/agent boundaries (RS-05).
+2. Promote the completed RoadCreator/RookRoads containment through the public release
+   stage without reopening dormant internals (RS-05/RS-07).
 3. Establish the skill source/allowlist and correct Codex skills (RS-03/RS-04).
 4. Correct the Grasshopper contract vocabulary (RS-10).
 
@@ -567,12 +608,19 @@ test report, or decision record that supports it.
 |---|---|---|---|---|---|
 | 2026-07-31 | RS-01–RS-11 | — | Baseline statuses | Audit of `90242fa4f09abf8f3b8ec994044787b61e77b446` | Initial release-surface audit; no product files changed. |
 | 2026-07-31 | RS-05 | `decision_required` | `ready_for_spec` / `investigating` | [Road surface-containment design](../superpowers/specs/2026-07-31-roadcreator-rookroads-surface-containment-design.md) | RoadCreator/RookRoads classified unsupported and contained only at user/agent boundaries; Wasp retained; SA_Banana unchanged. |
+| 2026-08-01 | RS-05 | `ready_for_spec` | RoadCreator/RookRoads `verified`; Wasp `investigating` | PR [#521](https://github.com/bringfire/Rook/pull/521), merge `3ba27ebe` | Private containment, exact retired-skill migration, packaging, and installed smoke passed. Public promotion remains RS-07. |
+| 2026-08-01 | RS-08 | `confirmed` | `confirmed` with partial remediation | PR [#521](https://github.com/bringfire/Rook/pull/521), merge `3ba27ebe` | Pinned MCP 1.28.1 and verified wheelhouse/installed-runtime compatibility; broader metadata normalization remains open. |
+| 2026-08-01 | RS-09 | `investigating` | `investigating` with partial remediation | PR [#521](https://github.com/bringfire/Rook/pull/521), merge `3ba27ebe` | Exact link-safe cleanup for two retired Rook-owned Codex skills verified; general configuration and reconnect work remains open. |
+| 2026-08-01 | RS-11 | `ready_for_spec` | `ready_for_spec` with expanded evidence | PRs [#524](https://github.com/bringfire/Rook/pull/524) and [#526](https://github.com/bringfire/Rook/pull/526), merges `fabf9576` and `f22904c2` | Added selector-parity as a required release-guard category after two silent-default defects were fixed and accepted. |
 
 ## Immediate next action
 
-Review the RoadCreator/RookRoads containment specification, then approve the remaining
-Wave A decisions for RUI retirement and Codex lean-plus-gateway skills. After those
-decisions are recorded, write separate focused specifications for RS-01/RS-02,
-RS-03/RS-04, Wasp admission, and RS-09/RS-11. Documentation and public-promotion
-workstreams may then reference those approved contracts instead of guessing future
-product behavior.
+Write the focused RS-01 RUI-retirement specification. It must inventory every macro,
+confirm that the independently registered panels do not depend on RUI initialization,
+remove only the RUI source/build/installer/registry/active-guidance surface, and define
+exact upgrade cleanup plus standalone/RiR acceptance. It must not create a replacement
+toolbar or broaden into panel redesign.
+
+After RS-01 review, proceed to RS-02 panel acceptance and then the RS-03/RS-04 Codex
+skill-source work. Do not reopen the verified RoadCreator/RookRoads, Grasshopper
+selector, lifecycle, or RookBIM corrections without new runtime evidence.
