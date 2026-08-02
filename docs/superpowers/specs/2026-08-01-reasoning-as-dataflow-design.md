@@ -916,6 +916,65 @@ Genuine positional offset is real but **rare: ~3 in 2,460, or 0.12%** — an ord
 magnitude smaller than the failure mode first assumed, and only diagnosable once the
 overlap metric itself is trustworthy.
 
+---
+
+## Streetscape and ground plane — the NYC Planimetric Database
+
+This closes the "**No terrain mesh**" gap recorded earlier in this spec. The DGN carries
+buildings only, but DOITT's planimetric database — the *other* source the DCP model was
+built from — carries the whole ground surface, and it is on Socrata, keyless, spatially
+queryable with `within_circle`.
+
+### Verified in the site AOI (600 m of 502 10th Ave)
+
+| Layer | Resource | Features |
+|---|---|---|
+| Roadbed | `i36f-5ih7` | **287** polygons |
+| Sidewalk | `52n9-sdep` | **93** polygons |
+| Curbs | `5xvt-8cbk` | **894** lines |
+| Elevation Points | `9uxf-ng6q` | **1,918** in 700 m |
+
+Also available in the same database and same schema: **Median** (8 subtypes — traffic
+island, painted, curb, grass, barrier, rail, fence, other), **Curb Cut**, **Pavement Edge**,
+**Open Space (Parks)** and **(Other)**, **Public Plazas**, **Parking Lot**, **Boardwalk**,
+**Railroad Line** / **Structure**, **Transportation Structures**, **Hydrography**,
+**Shoreline**, **Swimming Pools**, **Misc Structure Poly** (billboards, sign gantries, toll
+areas).
+
+Uniform schema across all of them — `the_geom`, `feat_code`, `sub_code`, `status`,
+`shape_leng`, `shape_area` — so **one reader handles every layer.**
+
+### The 2D/3D split
+
+**The streetscape polygons carry no Z.** Terrain comes from Elevation Points, so a ground
+plane is *drape 2D planimetrics onto a surface interpolated from spot elevations*.
+
+### Elevation subtypes must be separated — this bites
+
+| feat / sub | n | min | p50 | max | Meaning |
+|---|---|---|---|---|---|
+| 3020 / 302000 | 953 | 19.0 | 94.1 | **1290.6** | **Building** elevation — roofs |
+| 3000 / 300000 | 871 | −5.0 | 25.7 | 91.1 | **Ground** spot elevation |
+| 3000 / 300020 | 94 | 10.6 | 40.0 | 103.8 | Third subtype, excluded |
+
+A first attempt fetched elevation without `sub_code` and interpolated over **all** points,
+pulling streets near towers up toward 1,290 ft rooflines. Filtering to `3000/300000`
+produced a plausible ground surface: draped Z **−4.8 / 30.5 / 88.3 ft** (min/p50/max).
+
+**Always fetch `feat_code` and `sub_code` with elevation.** The dataset name says
+"Elevation Points"; it does not say most of them are on roofs.
+
+### Demonstrated
+
+410 curves built and draped — 289 roadbed, 121 sidewalk — by inverse-distance weighting
+over the 4 nearest ground points, in EPSG:2263 alongside the reconstructed buildings.
+
+**Limitations of the demonstration:** curves not surfaces (a planar-Brep pass is trivial to
+add); IDW-4 is crude, and at 871 points over a 700 m radius the sampling is roughly one per
+1,770 m². The **1-foot DEM raster** (`dpc8-z3jc`, or the integer variant `7kuu-zah7`) is
+the better terrain source where accuracy matters — it is an `href` download rather than a
+Socrata query.
+
 The **reversal at 800 SF** is what makes the result credible: match rate *falls*, so the
 curve is tracking a real property of the data rather than rewarding more aggressive
 filtering.
