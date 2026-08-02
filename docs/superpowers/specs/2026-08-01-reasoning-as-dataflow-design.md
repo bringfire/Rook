@@ -1017,6 +1017,45 @@ over the curve layer does — would have produced 30 spurious patches lying on t
 Grouping per polygon before surfacing is what prevents it, and sidewalks are where it
 matters: 28 of the 30 holes are theirs.
 
+### Terrain contamination — the streets came out lumpy
+
+The first surfaced result had a 50 ft **hill in the middle of 10th Avenue**. IDW is a
+faithful interpolator and cannot overshoot its samples, so a peak that size means a real
+data point is up there.
+
+**74 of 871 ground-classified spot elevations deviate more than 15 ft from their local
+neighbourhood median**, the worst by **+50.4 ft**.
+
+They are not noise. This AOI — 10th Avenue in the West 30s and 40s — is wrapped in the
+**Lincoln Tunnel approach viaducts and the Port Authority bus ramps**. Those points are
+genuine surface measurements *of an elevated deck*. The data is correct; the assumption
+that **"spot elevation = street level"** was wrong. In a dense city the ground is not a
+single-valued function of (x, y).
+
+**Two fixes:**
+
+1. **Outlier rejection** against the local median (>15 ft) — 74 of 871 removed.
+2. **Add building `ground_elevation` as a second sample source** — 611 points that are
+   *semantically* guaranteed at-grade, because they are the elevation at a building's base.
+   Buildings do not sit on viaducts.
+
+| | before | after |
+|---|---|---|
+| Samples | 871 | **1,408** |
+| Sample z p50 | 25.7 | 32.0 |
+| Sample z p99 | 64.5 | **48.3** |
+| Sample z max | **91.1** | **62.7** |
+
+The second fix is the more robust of the two: it does not merely reject bad data, it adds a
+sample set whose semantics guarantee the property being interpolated. Coverage improves 62%
+and distribution improves with it, since buildings are spread across every block while spot
+elevations cluster along roadways.
+
+**Honest limitation:** this *deletes* the elevated ramps rather than modelling them. The
+correct treatment is to bring in **Transportation Structures** (`h9sf-7bej`) and build those
+decks as their own surfaces at their own elevations, leaving the at-grade street network
+beneath them. A multi-level city needs a multi-level ground model.
+
 The **reversal at 800 SF** is what makes the result credible: match rate *falls*, so the
 curve is tracking a real property of the data rather than rewarding more aggressive
 filtering.
