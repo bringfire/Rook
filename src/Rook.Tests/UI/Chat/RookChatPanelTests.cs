@@ -265,6 +265,34 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public void AgentChatTab_WorkerFirstSummary_ReportsPassedCompileWarnings()
+        {
+            var summary = InvokeBuildToolSummary(new ChatEvent
+            {
+                Type = "tool_result",
+                Name = "worker_first_csharp_v1",
+                Result = "{\"status\":\"failed\",\"terminal_stage\":\"verify_create\",\"terminal_reason\":\"selector_halt:none_ready\",\"compile_status\":\"passed\",\"error_count\":0,\"warning_count\":1,\"component_created\":true}",
+                ToolStatus = "failed",
+            });
+
+            Assert.Equal("Compile completed with warnings (0 errors, 1 warning)", summary);
+        }
+
+        [Fact]
+        public void AgentChatTab_WorkerFirstSummary_FailedToolCannotClaimCleanCompile()
+        {
+            var summary = InvokeBuildToolSummary(new ChatEvent
+            {
+                Type = "tool_result",
+                Name = "worker_first_csharp_v1",
+                Result = "{\"status\":\"success\",\"terminal_stage\":\"terminal\",\"terminal_reason\":\"terminal_node_selected:done\",\"compile_status\":\"passed\",\"error_count\":0,\"warning_count\":0,\"component_created\":true}",
+                ToolStatus = "failed",
+            });
+
+            Assert.Equal("Worker-first C# stopped before compile", summary);
+        }
+
+        [Fact]
         public void AgentChatTab_OtherToolSummary_RemainsGeneric()
         {
             var summary = InvokeBuildToolSummary(new ChatEvent

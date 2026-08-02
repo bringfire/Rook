@@ -709,7 +709,7 @@ namespace Rook.UI.Chat
         private static string BuildToolSummary(ChatEvent evt)
         {
             if (string.Equals(evt.Name, "worker_first_csharp_v1", StringComparison.Ordinal))
-                return BuildWorkerFirstCSharpSummary(evt.Result);
+                return BuildWorkerFirstCSharpSummary(evt.Result, evt.ToolStatus);
 
             if (string.IsNullOrEmpty(evt.Result))
                 return evt.ToolStatus == "failed" ? "Failed" : "Done";
@@ -776,7 +776,7 @@ namespace Rook.UI.Chat
             return "Done";
         }
 
-        private static string BuildWorkerFirstCSharpSummary(string? result)
+        private static string BuildWorkerFirstCSharpSummary(string? result, string? toolStatus)
         {
             if (string.IsNullOrEmpty(result))
                 return "Worker-first C# stopped before compile";
@@ -793,9 +793,15 @@ namespace Rook.UI.Chat
                 if (status == "passed" &&
                     TryReadNonnegativeCount(root, "error_count", out var passedErrors) &&
                     TryReadNonnegativeCount(root, "warning_count", out var passedWarnings) &&
-                    passedErrors == 0 && passedWarnings == 0)
+                    passedErrors == 0)
                 {
-                    return "Compiled cleanly (0 errors, 0 warnings)";
+                    if (passedWarnings == 0 && toolStatus == "success")
+                        return "Compiled cleanly (0 errors, 0 warnings)";
+                    if (passedWarnings > 0)
+                    {
+                        var warningLabel = passedWarnings == 1 ? "warning" : "warnings";
+                        return $"Compile completed with warnings (0 errors, {passedWarnings} {warningLabel})";
+                    }
                 }
 
                 if (status == "failed" &&
