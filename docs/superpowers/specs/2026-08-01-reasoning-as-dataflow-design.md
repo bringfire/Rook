@@ -559,12 +559,123 @@ belongs to that BIN. This absorbs the 1,021→614 decomposition naturally and is
 7. Reconcile: reconstructed max Z vs `ground_elevation + height_roof` → MATCH / STALE;
    BINs with no DGN geometry → MISSING, validated against `construction_year`.
 
-### Enumerator gotcha
+### Enumerator gotcha — and the working pattern
 
 Rhino's default `doc.Objects` enumerator **skips objects on hidden layers**. Hiding a layer
 silently removes its objects from iteration and from `objectCount`, which reads as data
-loss. Pass explicit `ObjectEnumeratorSettings` when layer visibility is being used for
-display.
+loss.
+
+Turned into the working pattern: **never delete source data, park it on a hidden layer.**
+Import, hide the source layers in the same operation, and read them back with explicit
+settings:
+
+```python
+s = Rhino.DocObjects.ObjectEnumeratorSettings()
+s.NormalObjects = True; s.HiddenObjects = True; s.LockedObjects = True
+for o in doc.Objects.GetObjectList(s): ...
+```
+
+Deleting the DGN curves mid-investigation destroyed the evidence needed to diagnose a bad
+classification and forced a re-import. Superseded reconstructions go to a hidden
+`*_v1_buggy` layer, not to the bin.
+
+---
+
+## Pipeline v2 — three defects found and fixed
+
+The first full run produced plausible-looking numbers that were substantially wrong. All
+three defects were in the harness, not the data.
+
+### Defect 1 — one-sided orientation guard (the serious one)
+
+The guard fired only when a prism hung *below* its base:
+
+```python
+if br.GetBoundingBox(True).Min.Z < base_z - 0.01:   # catches downward only
+```
+
+When `Extrusion.Create` went *upward* from a roof curve, the prism floated from `roof_z` to
+`roof_z + (roof_z − base_z)` — and `Min.Z` was then *greater* than `base_z`, so the guard
+never fired. The prism hung in mid-air above the building at double its true height.
+
+Diagnosed on BIN 1088523: reported roof 731.50 ft against an attribute value of 417.00, a
++314.50 ft delta on a building constructed in 2010. Its assigned roof polygons in fact top
+out at 431.4 ft, and `384.8 × 2 − 38 = 731.6`. Arithmetic, not change.
+
+**Fix — direction-agnostic normalisation.** The prism's *height* is correct either way;
+only its position is wrong. After extruding, translate so the top sits at `roof_z`:
+
+```python
+dz = roof_z - br.GetBoundingBox(True).Max.Z
+if abs(dz) > 1e-6: br.Translate(Vector3d(0, 0, dz))
+```
+
+Verified by asserting every solid's base against its own `ground_elevation`:
+**`base_misplaced: 0`.**
+
+### Defect 2 — first match instead of best overlap
+
+The assignment loop `break`s on the first footprint containing a roof centroid. Wrong
+spatial-join semantics wherever footprints overlap or nest. **Fix:** score every candidate
+by the fraction of the roof polygon's vertices it contains, take the maximum.
+
+### Defect 3 — mismatched AOI shapes
+
+The DGN was filtered with a **square** (±1,968 ft) while NYC footprints came from a **600 m
+circle**. The square is 27% larger by area with corners reaching 2,783 ft, so a large share
+of roof polygons had no footprint to land in. **Fix:** circular filter for both.
+
+### v2 results
+
+| | v1 | v2 |
+|---|---|---|
+| Orphan roof curves | 1,477 — 38% | **343 — 12.5%** |
+| MATCH | 401 | **446 — 76%** |
+| STALE | 183 | **138 — 24%** |
+| MISSING | 30 (21 post-2014) | 30 (21 post-2014) |
+| p50 delta | 0.00 ft | 0.00 ft |
+| **p90 delta** | **94.99 ft** | **16.31 ft** |
+| Base misplaced | unmeasured | **0** |
+| Model top | 1,245 ft | 665 ft |
+
+**MISSING held at exactly 30, with 21 post-2014, across both runs** — unmoved while
+everything around it was broken. The primary change detector is bug-independent, which is
+the property it needs.
+
+The p90 collapse from 95 ft to 16 ft measures how much of the original "31% STALE" was
+arithmetic rather than change.
+
+---
+
+## Roof-area filter for the height comparison
+
+`height_roof` is documented as the highest point of roof, but the DGN carries small
+bulkheads and stair heads as separate roof polygons that the attribute does not
+consistently count. Sweeping a minimum-area threshold for the polygons eligible to set the
+comparison height:
+
+| Threshold | MATCH % | p75 delta | within 1.6 ft | Buildings lost |
+|---|---|---|---|---|
+| 0 | 76.2% | 7.06 ft | 398 | 0 |
+| 100 SF | 76.9% | 5.73 ft | 405 | 0 |
+| **200 SF** | **81.9%** | **1.50 ft** | 442 | **0** |
+| 400 SF | 85.9% | 0.83 ft | 465 | 3 |
+| 800 SF | 79.4% ↓ | 1.97 ft | 398 | 42 |
+
+**Adopt 200 SF.** It takes most of the gain and strands no buildings. 400 SF scores better
+but leaves 3 buildings with no eligible roof — converting them to false MISSING — and on a
+single 585-building AOI that optimum is plausibly overfit; validate on a second AOI before
+going further.
+
+The **reversal at 800 SF** is what makes the result credible: match rate *falls*, so the
+curve is tracking a real property of the data rather than rewarding more aggressive
+filtering.
+
+The filter applies to the **comparison height only**. Bulkheads are real and stay in the
+geometry.
+
+**`p50` remains 0.00 ft at every threshold** — the vertical-consistency finding is
+independent of all of this.
 
 ### Generalisation beyond NYC
 
