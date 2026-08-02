@@ -865,10 +865,56 @@ area 27.2 ft away at Z 63.9 against an attribute roof of 49.0. **Position and el
 both disagree**, which is materially different from 1026915 where the elevation matched
 exactly. This is the genuine single-building residue of the method in AOI 1.
 
-**Caveat:** the West Village fetch omitted `feature_code`, so no population filter was
-applied there. Its 2,489 is unfiltered and its 5 dated-pre-2014 MISSING likely include
-non-building features that AOI 1's filter removes. The comparison is uneven in the West
-Village's disfavour.
+### West Village re-run with `feature_code` — caveat refuted
+
+The earlier caveat ("uneven in the West Village's disfavour; filtering will tighten it")
+was speculation, and re-fetching with `feature_code` **refuted it**.
+
+| | unfiltered | filtered |
+|---|---|---|
+| Population | 2,489 | 2,460 (29 excluded, all `5110`) |
+| MATCH | 93.0% | **92.9%** |
+| MISSING | 13 | **13 — unchanged** |
+| — dated pre-2014 | 5 | **5 — unchanged** |
+| p75 / p90 | 0.87 / 3.85 | 0.89 / 3.88 |
+
+The 29 `feature_code` 5110 features (16–30 ft structures — canopies, garages, sheds) were
+matching perfectly well. Not one was in the MISSING set. Every metric moved by less than a
+tenth of a point.
+
+The `feature_code` filter is still correct in principle — it removes things that are not
+buildings from a building reconciliation — but it is **not load-bearing**. In AOI 1 it
+mattered because three exclusions were `5100` *Building Under Construction*; here there
+were none.
+
+### Positional offset — now properly evidenced
+
+The five dated-pre-2014 MISSING in the West Village:
+
+| BIN | Year | Attr roof | Nearest roof Z | Distance | Area |
+|---|---|---|---|---|---|
+| 1010544 | 1910 | 53.85 | **53.9** | 14.8 ft | 1,040 SF |
+| 1084642 | 1900 | 36.58 | **36.6** | 12.7 ft | 546 SF |
+| 1076786 | 1900 | 77.62 | **77.6** | 30.9 ft | 1,992 SF |
+| 1083544 | 1911 | 50.84 | 49.7 | 9.2 ft | 919 SF |
+| 1076830 | 1899 | 48.00 | 56.6 | 44.5 ft | 311 SF |
+
+**Three have a roof at exactly the right elevation — matching within 0.05 ft — 12 to 31 ft
+away with zero sampled overlap.** An elevation agreeing to a twentieth of a foot is not
+coincidence; those are the right buildings' roofs, displaced in plan. On rowhouses 20–25 ft
+wide, that displacement puts the roof over the neighbour.
+
+**The distinguishing test, learned the hard way:**
+
+| | 1026915 (false alarm) | These three (genuine) |
+|---|---|---|
+| Elevation match | exact | exact |
+| Interior overlap, area-sampled | **86%** | **0%** |
+| Verdict | vertex-metric artifact | true positional offset |
+
+Genuine positional offset is real but **rare: ~3 in 2,460, or 0.12%** — an order of
+magnitude smaller than the failure mode first assumed, and only diagnosable once the
+overlap metric itself is trustworthy.
 
 The **reversal at 800 SF** is what makes the result credible: match rate *falls*, so the
 curve is tracking a real property of the data rather than rewarding more aggressive
