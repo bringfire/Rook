@@ -177,6 +177,11 @@ namespace Rook.UI.Chat
             _client.Timeout = TimeSpan.FromMinutes(5); // Long timeout for streaming
         }
 
+        internal AgentChatClient(HttpClient client)
+        {
+            _client = client ?? throw new ArgumentNullException(nameof(client));
+        }
+
         /// <summary>
         /// Attach the session nonce so all subsequent requests include it.
         /// Called once the chat service is started and the nonce is available.
@@ -354,6 +359,37 @@ namespace Rook.UI.Chat
                 message = message,
                 documentSerialNumber = documentSerialNumber,
             });
+            await SendMessageBodyStreamingAsync(baseUri, body, onEvent, ct);
+        }
+
+        /// <summary>
+        /// Send one explicit Worker-first C# build request and yield streaming events.
+        /// The execution mode is code-owned and cannot be selected by callers.
+        /// </summary>
+        public async Task SendWorkerFirstCSharpStreamingAsync(
+            Uri baseUri,
+            string conversationId,
+            string message,
+            uint documentSerialNumber,
+            Action<ChatEvent> onEvent,
+            CancellationToken ct = default)
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                conversation_id = conversationId,
+                message = message,
+                documentSerialNumber = documentSerialNumber,
+                execution_mode = "worker_first_csharp_v1",
+            });
+            await SendMessageBodyStreamingAsync(baseUri, body, onEvent, ct);
+        }
+
+        private async Task SendMessageBodyStreamingAsync(
+            Uri baseUri,
+            string body,
+            Action<ChatEvent> onEvent,
+            CancellationToken ct)
+        {
             var request = new HttpRequestMessage(HttpMethod.Post, new Uri(baseUri, "/agent/chat/message"))
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json")
