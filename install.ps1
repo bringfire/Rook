@@ -772,7 +772,7 @@ function Copy-CompanionRuntimePayload {
 
     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
     Copy-Item (Join-Path $sourceDir "Rook.rhp") $targetDir -Force -ErrorAction Stop
-    Copy-Item (Join-Path $sourceDir "Rook.rui") $targetDir -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $targetDir "Rook.rui") -Force -ErrorAction SilentlyContinue
     Copy-Item (Join-Path $sourceDir "*.dll") $targetDir -Force -ErrorAction SilentlyContinue
     if ($Runtime -ne 'net48') {
         Copy-Item (Join-Path $sourceDir "Rook.deps.json") $targetDir -Force -ErrorAction Stop

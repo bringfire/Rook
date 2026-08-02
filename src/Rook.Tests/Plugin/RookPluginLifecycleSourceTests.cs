@@ -69,6 +69,17 @@ namespace Rook.Tests.Plugin
         }
 
         [Fact]
+        public void LegacyRuiToolbar_HasNoActiveManagedLoader()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            Assert.DoesNotContain("_toolbarLoaded", source);
+            Assert.DoesNotContain("EnsureToolbarLoaded", source);
+            Assert.DoesNotContain("LoadToolbar", source);
+            Assert.DoesNotContain("Rook.rui", source);
+            Assert.DoesNotContain("ToolbarFiles.Open", source);
+        }
+
+        [Fact]
         public void RuntimeStatus_IsPublishedOnLoadAndStartupTransitions()
         {
             var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");

@@ -5,6 +5,8 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
 $DeployScript = Join-Path $RepoRoot 'scripts\deploy-local-testing.ps1'
 $RegisterSuiteScript = Join-Path $RepoRoot 'scripts\register-rooknative-suite.ps1'
 $RegisterCompanionScript = Join-Path $RepoRoot 'scripts\register-companion.ps1'
+$RookProject = Join-Path $RepoRoot 'src\Rook\Rook.csproj'
+$SourceInstall = Join-Path $RepoRoot 'install.ps1'
 $DeploySkill = Join-Path $RepoRoot '.agents\skills\deploy-local-testing\SKILL.md'
 $DoctorScript = Join-Path $RepoRoot 'scripts\rook-dev-doctor.ps1'
 $McpProcessScript = Join-Path $RepoRoot 'scripts\rook-mcp-processes.ps1'
@@ -425,6 +427,27 @@ function Test-DeployScriptUsesMultiRuntimeCompanionLayout {
     Assert-NotContains -Text $content -Unexpected '-CompanionRhpPath (Join-Path $PluginDir ''net7.0\Rook.rhp'')' -Message 'Full local deploy must not register the net7.0 companion anchor.'
 }
 
+function Test-LegacyRuiIsSuppressedFromSourceDeployments {
+    $project = Get-Content -Path $RookProject -Raw
+    $deploy = Get-Content -Path $DeployScript -Raw
+    $sourceInstall = Get-Content -Path $SourceInstall -Raw
+    $registration = Get-Content -Path $RegisterCompanionScript -Raw
+
+    Assert-NotContains -Text $project -Unexpected '<None Include="UI\Rook.rui"' -Message 'Build must not emit RUI.'
+    Assert-NotContains -Text $project -Unexpected '<Copy SourceFiles="$(TargetDir)$(TargetName).rui"' -Message 'MSBuild must not copy RUI.'
+    Assert-Contains -Text $project -Expected '<Delete Files="$(RhinoManagedRuntimeDir)\$(TargetName).rui" />' -Message 'MSBuild must exact-delete RUI.'
+
+    Assert-NotContains -Text $deploy -Unexpected "Copy-OptionalFile (Join-Path `$sourceDir 'Rook.rui')" -Message 'Local deploy must not copy RUI.'
+    Assert-Contains -Text $deploy -Expected "Remove-Item -LiteralPath (Join-Path `$targetDir 'Rook.rui') -Force -ErrorAction SilentlyContinue" -Message 'Local deploy must exact-delete RUI.'
+
+    Assert-NotContains -Text $sourceInstall -Unexpected 'Copy-Item (Join-Path $sourceDir "Rook.rui")' -Message 'Source installer must not copy RUI.'
+    Assert-Contains -Text $sourceInstall -Expected 'Remove-Item -LiteralPath (Join-Path $targetDir "Rook.rui") -Force -ErrorAction SilentlyContinue' -Message 'Source installer must exact-delete RUI.'
+
+    Assert-Contains -Text $registration -Expected "Remove-ItemProperty -LiteralPath `$RegBase -Name 'RuiFile' -ErrorAction SilentlyContinue" -Message 'Registration must remove RuiFile.'
+    Assert-Contains -Text $registration -Expected "Get-ItemProperty -LiteralPath `$RegBase -Name 'RuiFile' -ErrorAction SilentlyContinue" -Message 'Registration must verify RuiFile absence.'
+    Assert-Contains -Text $registration -Expected "`$Errors += 'RuiFile: expected absent'" -Message 'Retained RuiFile must fail verification.'
+}
+
 function Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion {
     $content = Get-Content -Path $RegisterSuiteScript -Raw
 
@@ -572,6 +595,7 @@ Test-DeployScriptWritesChatManifestToRuntimeChildren
 Test-DeployScriptLiveSmokeIsExplicit
 Test-DeployScriptNativeOnlyIsNarrow
 Test-DeployScriptUsesMultiRuntimeCompanionLayout
+Test-LegacyRuiIsSuppressedFromSourceDeployments
 Test-RegisterSuiteSupportsNativeOnlyPreserveCompanion
 Test-RegisterSuitePrefersNet8CompanionFallback
 Test-RegisterCompanionAcceptsNet8Runtime
