@@ -1483,3 +1483,94 @@ observed sample range as a safety net.
 **Still not a surveyor.** The 894 curb lines remain unused as triangulation constraints;
 there is no road crown; and sidewalk is fitted independently rather than derived as
 roadbed + curb reveal. Those are the remaining gap between this and a civil model.
+
+---
+
+## Slice G — the coherent ground surface
+
+**Status:** scoped, not built. This supersedes per-polygon fitting rather than extending it.
+
+### The failure it fixes
+
+Every polygon is currently fitted in isolation, so nothing forces adjacent patches to agree
+along their shared edge. Road patches float relative to one another. **No refinement of the
+per-polygon fit can fix this** — independent fits guarantee seams by construction. The
+architecture is wrong, not the parameters.
+
+### The finding that makes it cheap
+
+The planimetric database is a **proper coverage**. Measured at full floating-point
+precision, no snapping tolerance:
+
+| | |
+|---|---|
+| Distinct vertices (roadbed + sidewalk, AOI) | 23,803 |
+| **Shared by 2+ polygons** | **12,246 — 51.4%** |
+| roadbed ↔ roadbed | 1,636 |
+| **roadbed ↔ sidewalk** | **10,601** |
+| Vertex degree | 1:11,557 · 2:11,683 · 3:394 · 4:167 · 5:2 |
+
+Polygons already share exact boundary vertices, and degree-3/4/5 nodes are street corners
+and intersections. **The connectivity was always in the data; independent processing
+discarded it.**
+
+**The 10,601 roadbed↔sidewalk vertices are the curb line** — the model's one legitimate
+discontinuity, already explicitly identified by the topology. Curbs do not need to be
+inferred.
+
+### The algorithm
+
+**1. Weld.** Build one vertex graph keyed on exact coordinates. No tolerance needed.
+
+**2. Solve globally.** One elevation per welded vertex, as a single least-squares system:
+
+```
+minimise   Σ (z_v - dem_v)²           data term, pulls toward the 3DEP DEM
+       + λ Σ (z_u - z_v)²             Laplacian smoothness along graph edges
+```
+
+Shared vertices are shared *unknowns*, so C0 continuity is structural rather than fitted.
+This replaces N independent solves with one.
+
+**3. Split at curbs.** Duplicate each roadbed↔sidewalk vertex into a road-side and a
+sidewalk-side unknown, coupled by a curb-reveal constraint (~0.5 ft) instead of an equality.
+Continuity everywhere except where a known step belongs.
+
+**4. Longitudinal control from centerlines.** Welding removes seams but leaves streets
+locally smooth and globally aimless — a Laplacian has no notion that forty patches in a row
+are 10th Avenue. **NYC LION / Street Centerline (CSCL)** supplies segment→node topology,
+street identity for grouping patches into one run, and an axis for enforcing continuous
+grade between intersections. Intersection nodes become shared constraints where several
+streets must agree — which is how a survey is actually controlled.
+*(Resource ID not yet confirmed; look it up rather than assume.)*
+
+### Verification — decided in advance
+
+A **seam metric**: for every shared vertex, the maximum |Δz| between incident polygons.
+
+| | now | target |
+|---|---|---|
+| Non-curb shared vertices | unbounded | **0.0 ft exactly** |
+| Curb shared vertices | unbounded | **≈ curb reveal, ~0.5 ft** |
+
+Report p50/p90/max, and re-photograph the same viewpoint as the floating-patch screenshot.
+Summary statistics from a different camera angle are not verification — that mistake was
+made twice in this document already.
+
+### Risks
+
+- **Solver size.** ~24k unknowns per AOI. Sparse and well conditioned, but needs a sparse
+  solver or Gauss–Seidel iteration; dense normal equations will not fit.
+- **λ choice.** Too low leaves DEM noise, too high flattens genuine grade. Sweep it and
+  validate on both AOIs, as with the 200 SF threshold.
+- **Degree-1 vertices** (11,557 of them) have no neighbour constraint and will be driven
+  entirely by the data term. The AOI boundary needs explicit handling.
+- **The coverage is only clean within a layer set.** Medians, plazas and parking lots have
+  not been tested for shared topology with roadbed; verify before assuming.
+
+### Principle
+
+**Coherence is a property of the solve, not of the data.** Every earlier refinement made
+each patch individually more correct while the architecture guaranteed they would not agree.
+A surveyor never fits patches — they build one surface with breaklines describing where it
+is permitted to break.
