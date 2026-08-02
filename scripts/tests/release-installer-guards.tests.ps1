@@ -102,6 +102,40 @@ function Test-InstallerPackagesMultiRuntimeCompanionPayloads {
     Assert-Contains -Text $content -Expected '{#CompanionNet48Dir}\runtimes\*' -Message 'Installer must package net48 companion runtime assets.'
 }
 
+function Test-LegacyRuiInstallerMigrationIsExact {
+    $content = Get-Content -Path $InstallerScript -Raw
+    $installDelete = [regex]::Match($content, '(?ms)^\[InstallDelete\]\s*(.*?)(?=^\[|\z)').Groups[1].Value
+    $files = [regex]::Match($content, '(?ms)^\[Files\]\s*(.*?)(?=^\[|\z)').Groups[1].Value
+    $registry = [regex]::Match($content, '(?ms)^\[Registry\]\s*(.*?)(?=^\[|\z)').Groups[1].Value
+
+    foreach ($runtime in @('net8.0', 'net7.0', 'net48')) {
+        $line = "Type: files; Name: `"{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\$runtime\Rook.rui`""
+        Assert-Contains -Text $installDelete -Expected $line -Message "Missing exact $runtime RUI deletion."
+        Assert-True -Condition (@($installDelete -split '\r?\n' | Where-Object { $_ -eq $line }).Count -eq 1) -Message "Expected one unconditional $runtime RUI deletion."
+    }
+
+    Assert-NotContains -Text $files -Unexpected 'Rook.rui' -Message 'Installer files must not package Rook.rui.'
+    $ruiRegistryLine = 'Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: none; ValueName: "RuiFile"; Flags: deletevalue dontcreatekey'
+    $ruiRegistryLines = @($registry -split '\r?\n' | Where-Object { $_ -like '*ValueName: "RuiFile"*' })
+    Assert-True -Condition ($ruiRegistryLines.Count -eq 1 -and $ruiRegistryLines[0] -eq $ruiRegistryLine) -Message 'Installer must exact-delete only the obsolete RuiFile registry value.'
+    Assert-Contains -Text $content -Expected "RegValueExists(HKCU, BaseKey, 'RuiFile')" -Message 'Installer verification must require RuiFile absence.'
+    Assert-NotContains -Text $content -Unexpected 'RuiFile: String;' -Message 'Installer verification must not retain a RuiFile variable.'
+
+    $building = Get-Content -Path $BuildingDoc -Raw
+    Assert-NotContains -Text $building -Unexpected 'Copy-Item "src\Rook\bin\Release\net8.0\Rook.rui"' -Message 'Build guidance must not copy net8.0 RUI.'
+    Assert-NotContains -Text $building -Unexpected 'Copy-Item "src\Rook\bin\Release\net7.0\Rook.rui"' -Message 'Build guidance must not copy net7.0 RUI.'
+    Assert-NotContains -Text $building -Unexpected 'Copy-Item "src\Rook\bin\Release\net48\Rook.rui"' -Message 'Build guidance must not copy net48 RUI.'
+    foreach ($destination in @('net8Dest', 'net7Dest', 'net48Dest')) {
+        Assert-Contains -Text $building -Expected "Remove-Item -LiteralPath (Join-Path `$$destination `"Rook.rui`") -Force -ErrorAction SilentlyContinue" -Message "Build guidance must exact-delete RUI from $destination."
+    }
+
+    $agentReference = Get-Content -Path $IssSourcePaths -Raw
+    $claudeReference = Get-Content -Path $ClaudeIssSourcePaths -Raw
+    Assert-NotContains -Text $agentReference -Unexpected 'Rook.rui' -Message 'Agent source-path checklist must not require Rook.rui.'
+    Assert-NotContains -Text $claudeReference -Unexpected 'Rook.rui' -Message 'Claude source-path checklist must not require Rook.rui.'
+    Assert-True -Condition ((Get-FileHash -LiteralPath $IssSourcePaths -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $ClaudeIssSourcePaths -Algorithm SHA256).Hash) -Message 'Mirrored source-path references must remain byte-identical.'
+}
+
 function Assert-RuntimeConfigDeclaresTfm {
     param(
         [string]$RuntimeConfigPath,
@@ -387,8 +421,6 @@ function Test-InstallerWritesRhinoPluginEnumerationMetadata {
         Assert-Contains -Text $content -Expected "Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\CommandList`"; ValueType: string; ValueName: `"$command`"; ValueData: `"2;$command`"" -Message "Installer must pre-populate companion command list entry $command."
     }
 
-    Assert-Contains -Text $content -Expected 'ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rui"' -Message 'Installer must pre-populate the companion RuiFile metadata for Rhino plugin enumeration.'
-    Assert-NotContains -Text $content -Unexpected 'ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui"' -Message 'Installer must not register the net7.0 companion RUI as the standalone Rhino metadata anchor.'
     Assert-Contains -Text $content -Expected 'RequiredStringValues: TArrayOfString;' -Message 'Installer post-install verification must check required plugin metadata, not only sparse load fields.'
     Assert-Contains -Text $content -Expected 'RequiredCommandValues: TArrayOfString;' -Message 'Installer post-install verification must check required command-list entries.'
 }
@@ -760,6 +792,7 @@ Test-InstallerExplainsOfflineWheelhouseProgress
 Test-UninstallUsesRecordedPrivatePython
 Test-ChatServiceUserPythonFallbackIsDevOnly
 Test-InstallerPackagesMultiRuntimeCompanionPayloads
+Test-LegacyRuiInstallerMigrationIsExact
 Test-BuiltCompanionPayloadsExist
 Test-InstallerPackagesBundledFfmpegPayload
 Test-FfmpegValidatorRequiresReleaseSourceBundleArgument

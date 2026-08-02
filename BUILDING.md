@@ -344,21 +344,21 @@ $net48Dest = Join-Path $dest "net48"
 New-Item -ItemType Directory -Path $net8Dest,$net7Dest,$net48Dest -Force | Out-Null
 
 Copy-Item "src\Rook\bin\Release\net8.0\Rook.rhp" $net8Dest -Force
-Copy-Item "src\Rook\bin\Release\net8.0\Rook.rui" $net8Dest -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $net8Dest "Rook.rui") -Force -ErrorAction SilentlyContinue
 Copy-Item "src\Rook\bin\Release\net8.0\Rook.deps.json" $net8Dest -Force
 Copy-Item "src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json" $net8Dest -Force
 Copy-Item "src\Rook\bin\Release\net8.0\*.dll" $net8Dest -Force
 Copy-Item "src\Rook\bin\Release\net8.0\runtimes" $net8Dest -Recurse -Force
 
 Copy-Item "src\Rook\bin\Release\net7.0\Rook.rhp" $net7Dest -Force
-Copy-Item "src\Rook\bin\Release\net7.0\Rook.rui" $net7Dest -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $net7Dest "Rook.rui") -Force -ErrorAction SilentlyContinue
 Copy-Item "src\Rook\bin\Release\net7.0\Rook.deps.json" $net7Dest -Force
 Copy-Item "src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json" $net7Dest -Force
 Copy-Item "src\Rook\bin\Release\net7.0\*.dll" $net7Dest -Force
 Copy-Item "src\Rook\bin\Release\net7.0\runtimes" $net7Dest -Recurse -Force
 
 Copy-Item "src\Rook\bin\Release\net48\Rook.rhp" $net48Dest -Force
-Copy-Item "src\Rook\bin\Release\net48\Rook.rui" $net48Dest -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $net48Dest "Rook.rui") -Force -ErrorAction SilentlyContinue
 Copy-Item "src\Rook\bin\Release\net48\*.dll" $net48Dest -Force
 Copy-Item "src\Rook\bin\Release\net48\runtimes" $net48Dest -Recurse -Force
 ```
