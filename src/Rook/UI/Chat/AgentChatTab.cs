@@ -795,8 +795,12 @@ namespace Rook.UI.Chat
                     TryReadNonnegativeCount(root, "warning_count", out var passedWarnings) &&
                     passedErrors == 0)
                 {
-                    if (passedWarnings == 0 && toolStatus == "success")
-                        return "Compiled cleanly (0 errors, 0 warnings)";
+                    if (passedWarnings == 0)
+                    {
+                        return toolStatus == "success"
+                            ? "Compiled cleanly (0 errors, 0 warnings)"
+                            : "Compile passed, but build did not complete";
+                    }
                     if (passedWarnings > 0)
                     {
                         var warningLabel = passedWarnings == 1 ? "warning" : "warnings";

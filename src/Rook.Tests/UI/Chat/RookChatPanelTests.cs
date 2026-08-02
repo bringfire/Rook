@@ -285,11 +285,11 @@ namespace Rook.Tests.UI.Chat
             {
                 Type = "tool_result",
                 Name = "worker_first_csharp_v1",
-                Result = "{\"status\":\"success\",\"terminal_stage\":\"terminal\",\"terminal_reason\":\"terminal_node_selected:done\",\"compile_status\":\"passed\",\"error_count\":0,\"warning_count\":0,\"component_created\":true}",
+                Result = "{\"status\":\"failed\",\"terminal_stage\":\"terminal\",\"terminal_reason\":\"terminal_node_selected:done\",\"compile_status\":\"passed\",\"error_count\":0,\"warning_count\":0,\"component_created\":true}",
                 ToolStatus = "failed",
             });
 
-            Assert.Equal("Worker-first C# stopped before compile", summary);
+            Assert.Equal("Compile passed, but build did not complete", summary);
         }
 
         [Fact]
