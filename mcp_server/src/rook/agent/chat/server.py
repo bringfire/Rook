@@ -4,16 +4,18 @@ import json
 import logging
 import os
 import tempfile
+import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from aiohttp import web
 
 from ...bridge import rhino_request_context
 from .conversation_store import ConversationStore
 from .prompt_builder import PromptBuilder
-from .chat_runner import ChatRunner
+from .chat_runner import ChatEvent, ChatRunner
 from . import model_status
 from .runtime_health import collect_runtime_facts
 
@@ -41,6 +43,12 @@ _INCLUDE_GH_HEALTH_KEY: web.AppKey[bool] = web.AppKey("_include_gh_health", bool
 _OWNER_KEY: web.AppKey[str] = web.AppKey("_owner", str)
 _RHINO_PROCESS_ID_KEY: web.AppKey[int] = web.AppKey("_rhino_process_id", int)
 _SESSION_NONCE_KEY: web.AppKey[str] = web.AppKey("_session_nonce", str)
+_WORKER_FIRST_APPLICATION_KEY: web.AppKey[object] = web.AppKey(
+    "_worker_first_application", object
+)
+
+_WORKER_FIRST_CSHARP_MODE = "worker_first_csharp_v1"
+_MAX_WORKER_FIRST_INTENT_BYTES = 16_384
 
 # Module-level singletons (initialized on first request or at startup)
 _store: Optional[ConversationStore] = None
@@ -67,6 +75,302 @@ def _get_runner() -> ChatRunner:
     if _runner is None:
         _runner = ChatRunner()
     return _runner
+
+
+def _get_worker_first_application(
+    request: web.Request,
+) -> Callable[[str], Awaitable[Any]]:
+    injected = request.app.get(_WORKER_FIRST_APPLICATION_KEY)
+    if injected is not None:
+        if not callable(injected):
+            raise TypeError("Worker-first application must be callable")
+        return injected
+    from ..worker_first_csharp_application import run_worker_first_csharp_application
+
+    return run_worker_first_csharp_application
+
+
+def _run_worker_first_application_sync(
+    application: Callable[[str], Awaitable[Any]],
+    intent: str,
+) -> Any:
+    return asyncio.run(application(intent))
+
+
+def _worker_first_failure_projection() -> dict[str, object]:
+    return {
+        "status": "failed",
+        "terminal_stage": None,
+        "terminal_reason": None,
+        "compile_status": "unavailable",
+        "error_count": None,
+        "warning_count": None,
+        "component_created": None,
+    }
+
+
+_SAFE_NATIVE_STAGES = frozenset(
+    {
+        "planner_adapter",
+        "draft_admission",
+        "worker_adapter",
+        "worker_disposition",
+        "action_apply",
+        "create",
+        "verify_create",
+        "terminal",
+    }
+)
+_SAFE_NATIVE_REASONS = frozenset(
+    {
+        "transport_failed",
+        "response_not_string",
+        "response_not_utf8",
+        "response_duplicate_key",
+        "response_nonfinite_number",
+        "response_trailing_content",
+        "response_not_object",
+        "response_invalid_json",
+        "response_too_large",
+        "draft_payload_rejected",
+        "goal_mismatch",
+        "transport_error:declared",
+        "transport_error:unexpected",
+        "raw_output_invalid:not_text",
+        "raw_output_invalid:empty",
+        "raw_output_invalid:json_decode",
+        "raw_output_invalid:not_mapping",
+        "response_payload_invalid:unclassified",
+        "invalid_template",
+        "unknown_node",
+        "invalid_tool_ref",
+        "invalid_action_id",
+        "invalid_action_input",
+        "unexpected_action_input_key",
+        "missing_code",
+        "invalid_code",
+        "invalid_execution_params",
+        "code_already_present",
+        "execution_params_shape_mismatch",
+        "graph_copy_failed",
+        "dispatch_failed",
+        "selector_halt:none_ready",
+        "terminal_node_selected:done",
+    }
+)
+
+
+def _safe_native_token(value: object, allowed: frozenset[str]) -> str | None:
+    if value is None:
+        return None
+    if type(value) is str and value in allowed:
+        return value
+    return "native_reason_unclassified"
+
+
+def _owned_create_receipt(result: Any) -> tuple[dict[str, Any] | None, bool | None]:
+    from ..minimal_intent_worker_integration import (
+        MinimalIntentWorkerInitialBodyIntegrationResult,
+    )
+
+    if type(result) is not MinimalIntentWorkerInitialBodyIntegrationResult:
+        raise TypeError("Worker-first application returned an invalid result")
+    handoff = result.handoff_result
+    if handoff is None:
+        return None, False
+    producer_records = [
+        record
+        for record in handoff.step_records
+        if record.execution_kind == "producer"
+        and record.producer_node_id == "create_script"
+    ]
+    if not producer_records:
+        return None, False
+    if len(producer_records) != 1:
+        raise ValueError("Worker-first result has multiple create records")
+    record = producer_records[0]
+    node = record.execution.graph.nodes.get("create_script")
+    evidence = None if node is None else node.evidence
+    receipt = None if evidence is None else evidence.receipt
+    if receipt is None:
+        return None, None
+    if type(receipt) is not dict:
+        return None, None
+    return receipt, None
+
+
+def _project_worker_first_result(result: Any) -> dict[str, object]:
+    receipt, creation_without_receipt = _owned_create_receipt(result)
+    terminal_stage = _safe_native_token(result.terminal_stage, _SAFE_NATIVE_STAGES)
+    terminal_reason = _safe_native_token(result.terminal_reason, _SAFE_NATIVE_REASONS)
+    compile_status = "unavailable"
+    error_count: int | None = None
+    warning_count: int | None = None
+    component_created = creation_without_receipt
+
+    if receipt is not None:
+        mutation = receipt.get("mutation")
+        mutation_status = (
+            mutation.get("status") if type(mutation) is dict else None
+        )
+        if type(mutation_status) is str and mutation_status == "created":
+            component_created = True
+        elif type(mutation_status) is str and mutation_status in {
+            "failed",
+            "not_attempted",
+        }:
+            component_created = False
+        else:
+            component_created = None
+
+        verification = receipt.get("verification")
+        verification_status = (
+            verification.get("status") if type(verification) is dict else None
+        )
+        raw_errors = (
+            verification.get("target_error_count")
+            if type(verification) is dict
+            else None
+        )
+        raw_warnings = (
+            verification.get("target_warning_count")
+            if type(verification) is dict
+            else None
+        )
+        counts_are_exact = (
+            type(raw_errors) is int
+            and raw_errors >= 0
+            and type(raw_warnings) is int
+            and raw_warnings >= 0
+        )
+        if (
+            type(verification_status) is str
+            and verification_status in {"passed", "failed"}
+            and counts_are_exact
+        ):
+            compile_status = verification_status
+            error_count = raw_errors
+            warning_count = raw_warnings
+
+    succeeded = (
+        terminal_stage == "terminal"
+        and terminal_reason == "terminal_node_selected:done"
+        and component_created is True
+        and compile_status == "passed"
+        and error_count == 0
+        and warning_count == 0
+    )
+    return {
+        "status": "success" if succeeded else "failed",
+        "terminal_stage": terminal_stage,
+        "terminal_reason": terminal_reason,
+        "compile_status": compile_status,
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "component_created": component_created,
+    }
+
+
+async def _write_chat_event(
+    response: web.StreamResponse,
+    event: ChatEvent,
+) -> None:
+    line = json.dumps(event.to_dict(), separators=(",", ":")) + "\n"
+    await response.write(line.encode("utf-8"))
+
+
+def _complete_deferred_worker_first_run(task: asyncio.Task, conv, run_id: str) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        logger.info("Worker-first application task ended canceled")
+    except Exception:
+        logger.info("Worker-first application task ended with a bounded failure")
+    finally:
+        if conv.active_run_id == run_id:
+            conv.active_run_id = None
+            conv.touch()
+
+
+async def _handle_worker_first_message(
+    request: web.Request,
+    conv,
+    intent: str,
+) -> web.StreamResponse:
+    response = web.StreamResponse(
+        status=200,
+        reason="OK",
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-cache",
+        },
+    )
+    run_id = uuid.uuid4().hex
+    tool_call_id = f"{_WORKER_FIRST_CSHARP_MODE}:{run_id}"
+    conv.active_run_id = run_id
+    conv.abort_event.clear()
+    conv.touch()
+    deferred_cleanup = False
+    try:
+        await response.prepare(request)
+        await _write_chat_event(
+            response,
+            ChatEvent(
+                "tool_start",
+                name=_WORKER_FIRST_CSHARP_MODE,
+                tool_call_id=tool_call_id,
+            ),
+        )
+        try:
+            application = _get_worker_first_application(request)
+            with rhino_request_context(
+                process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
+                document_serial_number=conv.document_serial_number,
+            ):
+                task = asyncio.create_task(
+                    asyncio.to_thread(
+                        _run_worker_first_application_sync,
+                        application,
+                        intent,
+                    )
+                )
+            try:
+                result = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                conv.abort_event.set()
+                deferred_cleanup = True
+                task.add_done_callback(
+                    lambda completed: _complete_deferred_worker_first_run(
+                        completed,
+                        conv,
+                        run_id,
+                    )
+                )
+                return response
+            projection = _project_worker_first_result(result)
+        except Exception:
+            projection = _worker_first_failure_projection()
+        await _write_chat_event(
+            response,
+            ChatEvent(
+                "tool_result",
+                name=_WORKER_FIRST_CSHARP_MODE,
+                tool_call_id=tool_call_id,
+                result=json.dumps(projection, separators=(",", ":")),
+                tool_status=projection["status"],
+                verified=projection["status"] == "success",
+            ),
+        )
+        await _write_chat_event(response, ChatEvent("done", usage={}))
+        conv.touch()
+    finally:
+        if not deferred_cleanup and conv.active_run_id == run_id:
+            conv.active_run_id = None
+    try:
+        await response.write_eof()
+    except (ConnectionResetError, ConnectionError):
+        pass
+    return response
 
 
 # --- CORS + Session Auth Middleware ---
@@ -319,7 +623,25 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
 
     conv_id = body.get("conversation_id")
     message = body.get("message", "")
+    mode_supplied = "execution_mode" in body
+    execution_mode = body.get("execution_mode")
     raw_document_serial_number = body.get("documentSerialNumber", 0) or 0
+
+    if mode_supplied and (
+        type(execution_mode) is not str
+        or execution_mode != _WORKER_FIRST_CSHARP_MODE
+    ):
+        return web.json_response({"error": "Unsupported execution_mode"}, status=400)
+
+    if execution_mode == _WORKER_FIRST_CSHARP_MODE:
+        if type(message) is not str or not message or message != message.strip():
+            return web.json_response({"error": "Invalid Worker-first message"}, status=400)
+        try:
+            encoded_message = message.encode("utf-8")
+        except UnicodeEncodeError:
+            return web.json_response({"error": "Invalid Worker-first message"}, status=400)
+        if len(encoded_message) > _MAX_WORKER_FIRST_INTENT_BYTES:
+            return web.json_response({"error": "Invalid Worker-first message"}, status=400)
 
     if not conv_id or not message:
         return web.json_response({"error": "Missing conversation_id or message"}, status=400)
@@ -343,6 +665,9 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
 
     if document_serial_number > 0:
         conv.document_serial_number = document_serial_number
+
+    if execution_mode == _WORKER_FIRST_CSHARP_MODE:
+        return await _handle_worker_first_message(request, conv, message)
 
     builder = request.app.get(_BUILDER_KEY) or _get_builder()
     runner = request.app.get(_RUNNER_KEY) or _get_runner()
@@ -588,6 +913,7 @@ def create_chat_app(
     owner: str = "external",
     rhino_process_id: int = 0,
     session_nonce: Optional[str] = None,
+    worker_first_application: Optional[Callable[[str], Awaitable[Any]]] = None,
 ) -> web.Application:
     """Create the aiohttp application for the chat server.
 
@@ -609,6 +935,8 @@ def create_chat_app(
         app[_BUILDER_KEY] = builder
     if runner is not None:
         app[_RUNNER_KEY] = runner
+    if worker_first_application is not None:
+        app[_WORKER_FIRST_APPLICATION_KEY] = worker_first_application
     app[_PORT_STATE_KEY] = {"value": port}
     app[_INCLUDE_GH_HEALTH_KEY] = include_gh_health
     app[_OWNER_KEY] = owner

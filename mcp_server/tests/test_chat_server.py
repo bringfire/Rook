@@ -1,7 +1,12 @@
 """Tests for the agent chat HTTP server."""
+import asyncio
+import copy
 import json
 import socket
+import threading
 from pathlib import Path
+from dataclasses import replace
+from typing import Any
 
 import pytest
 import httpx
@@ -14,7 +19,150 @@ from rook.agent.chat.server import create_chat_app
 from rook.agent.chat.conversation_store import ConversationStore
 from rook.agent.chat.prompt_builder import PromptBuilder
 from rook.agent.chat.chat_runner import ChatRunner, ChatEvent
+from rook.agent.minimal_intent_worker_integration import (
+    MinimalPlannerDraftAdapter,
+    run_minimal_intent_worker_initial_body_integration,
+)
+from rook.learning.plan_graph import NodeEvidence
 from rook import bridge
+
+
+_WORKER_FIRST_INTENT = "Create one clean C# component"
+_WORKER_FIRST_BODY = "A = 42.0;"
+
+
+class _ApplicationSlot:
+    def __init__(self) -> None:
+        self.callback = self._unexpected
+
+    async def _unexpected(self, intent: str):
+        raise AssertionError(f"unexpected Worker-first application call: {intent}")
+
+    async def __call__(self, intent: str):
+        return await self.callback(intent)
+
+
+class _RoutePlannerTransport:
+    def __init__(self, *, failure: bool = False) -> None:
+        self.failure = failure
+
+    def send(self, prompt):
+        if self.failure:
+            raise RuntimeError("private Planner failure")
+        return json.dumps(
+            {
+                "goal": _WORKER_FIRST_INTENT,
+                "capability": "grasshopper_csharp_component",
+                "interface": {
+                    "inputs": [],
+                    "outputs": [{"name": "A", "type": "double"}],
+                },
+                "acceptance": "clean_compile_receipt",
+            },
+            separators=(",", ":"),
+        )
+
+
+class _RouteWorkerTransport:
+    def __init__(self, *, refuse: bool = False) -> None:
+        self.refuse = refuse
+
+    def send(self, prompt):
+        payload = (
+            {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "refusal",
+                "category": "unsupported_action",
+                "reason": "SENTINEL Worker-authored refusal",
+            }
+            if self.refuse
+            else {
+                "schema": "rook.local_worker_turn_response:v1",
+                "kind": "action_request",
+                "action_id": "draft_create_body",
+                "rationale": "Author the initial body.",
+                "input": {"code": _WORKER_FIRST_BODY},
+            }
+        )
+        return json.dumps(payload, separators=(",", ":"))
+
+
+class _RouteCreateExecutor:
+    def __init__(
+        self,
+        *,
+        errors: int = 0,
+        warnings: int = 0,
+        raise_after_entry: bool = False,
+        mutation_status: str = "created",
+    ) -> None:
+        self.errors = errors
+        self.warnings = warnings
+        self.raise_after_entry = raise_after_entry
+        self.mutation_status = mutation_status
+        self.contexts: list[dict[str, int | None]] = []
+
+    def __call__(self, tool_name: str, params: dict[str, Any]):
+        self.contexts.append(bridge.get_rhino_request_context())
+        if tool_name != "gh_create_csharp_script":
+            raise AssertionError(f"unexpected tool: {tool_name}")
+        if params.get("code") != _WORKER_FIRST_BODY:
+            raise AssertionError("unexpected Worker-authored body")
+        if self.raise_after_entry:
+            raise RuntimeError("private post-dispatch failure")
+        verification_status = "failed" if self.errors else "passed"
+        return {
+            "success": verification_status == "passed",
+            "data": {
+                "script_receipt": {
+                    "version": 1,
+                    "operation": "create",
+                    "language": "csharp",
+                    "artifact_status": (
+                        "created_with_errors" if self.errors else "usable"
+                    ),
+                    "mutation": {
+                        "status": self.mutation_status,
+                        "component_guid": "private-guid",
+                    },
+                    "verification": {
+                        "status": verification_status,
+                        "target_error_count": self.errors,
+                        "target_warning_count": self.warnings,
+                    },
+                    "repair_anchor": {
+                        "component_guid": "private-guid",
+                        "language": "csharp",
+                        "target_errors": ["private diagnostic"] * self.errors,
+                    },
+                }
+            },
+        }
+
+
+class _NativeWorkerFirstApplication:
+    def __init__(
+        self,
+        *,
+        planner_failure: bool = False,
+        worker_refusal: bool = False,
+        executor: _RouteCreateExecutor | None = None,
+    ) -> None:
+        self.planner_failure = planner_failure
+        self.worker_refusal = worker_refusal
+        self.executor = executor or _RouteCreateExecutor()
+        self.contexts: list[dict[str, int | None]] = []
+
+    async def __call__(self, intent: str):
+        self.contexts.append(bridge.get_rhino_request_context())
+        return await run_minimal_intent_worker_initial_body_integration(
+            intent,
+            planner_adapter=MinimalPlannerDraftAdapter(
+                _RoutePlannerTransport(failure=self.planner_failure)
+            ),
+            worker_transport=_RouteWorkerTransport(refuse=self.worker_refusal),
+            tool_executor=self.executor,
+        )
 
 
 class TestChatServer(AioHTTPTestCase):
@@ -23,10 +171,13 @@ class TestChatServer(AioHTTPTestCase):
         self.store = ConversationStore()
         self.builder = PromptBuilder()
         self.runner = ChatRunner()
+        self.worker_first_application = _ApplicationSlot()
         return create_chat_app(
             store=self.store,
             builder=self.builder,
             runner=self.runner,
+            worker_first_application=self.worker_first_application,
+            rhino_process_id=2468,
         )
 
     async def test_list_personas(self):
@@ -667,6 +818,637 @@ class TestChatServer(AioHTTPTestCase):
 
         assert payload == {"allowed_model_overrides": []}
         build_models_payload.assert_awaited_once_with(builder=self.builder)
+
+    async def test_worker_first_csharp_mode_uses_application_not_chat_runner(self):
+        """Removing the explicit mode branch must route this request incorrectly."""
+        application_intents: list[str] = []
+        runner_messages: list[str] = []
+
+        async def application(intent: str):
+            application_intents.append(intent)
+            raise RuntimeError("private application failure must stay bounded")
+
+        class CapturingRunner:
+            async def run_turn(
+                self,
+                conv,
+                message,
+                system_prompt,
+                model_payload_builder=None,
+            ):
+                runner_messages.append(message)
+                yield ChatEvent("done", usage={})
+
+        self.app[chat_server._RUNNER_KEY] = CapturingRunner()
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+
+        self.worker_first_application.callback = application
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        assert response.status == 200
+        events = [json.loads(line) for line in (await response.text()).splitlines()]
+        assert [event["type"] for event in events] == [
+            "tool_start",
+            "tool_result",
+            "done",
+        ]
+        assert application_intents == [_WORKER_FIRST_INTENT]
+        assert runner_messages == []
+        assert "private application failure" not in json.dumps(events)
+        assert json.loads(events[1]["result"]) == {
+            "status": "failed",
+            "terminal_stage": None,
+            "terminal_reason": None,
+            "compile_status": "unavailable",
+            "error_count": None,
+            "warning_count": None,
+            "component_created": None,
+        }
+        assert self.store.get(conv_id).messages == []
+
+    async def test_worker_first_csharp_rejects_every_nonexact_mode_before_application(self):
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+
+        for execution_mode in (
+            None,
+            1,
+            "",
+            "WORKER_FIRST_CSHARP_V1",
+            " worker_first_csharp_v1",
+            "worker_first_csharp_v1 ",
+            "unknown_mode",
+        ):
+            response = await self.client.post(
+                "/agent/chat/message",
+                json={
+                    "conversation_id": conv_id,
+                    "message": _WORKER_FIRST_INTENT,
+                    "execution_mode": execution_mode,
+                },
+            )
+            assert response.status == 400
+
+    async def test_worker_first_csharp_rejects_nonexact_intent_before_application(self):
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+
+        for message in (
+            None,
+            7,
+            "",
+            " ",
+            f" {_WORKER_FIRST_INTENT}",
+            f"{_WORKER_FIRST_INTENT} ",
+            "x" * 16_385,
+        ):
+            response = await self.client.post(
+                "/agent/chat/message",
+                json={
+                    "conversation_id": conv_id,
+                    "message": message,
+                    "execution_mode": "worker_first_csharp_v1",
+                },
+            )
+            assert response.status == 400
+
+    async def test_message_without_mode_preserves_chat_runner_path(self):
+        runner_messages: list[str] = []
+
+        class CapturingRunner:
+            async def run_turn(
+                self,
+                conv,
+                message,
+                system_prompt,
+                model_payload_builder=None,
+            ):
+                runner_messages.append(message)
+                yield ChatEvent("done", usage={})
+
+        self.app[chat_server._RUNNER_KEY] = CapturingRunner()
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={"conversation_id": conv_id, "message": "ordinary chat"},
+        )
+
+        assert response.status == 200
+        assert [
+            json.loads(line)["type"]
+            for line in (await response.text()).splitlines()
+        ] == ["done"]
+        assert runner_messages == ["ordinary chat"]
+
+    async def test_worker_first_csharp_projects_clean_native_receipt(self):
+        executor = _RouteCreateExecutor()
+        application = _NativeWorkerFirstApplication(executor=executor)
+        self.worker_first_application.callback = application
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker", "documentSerialNumber": 73},
+        )
+        conv_id = (await start.json())["conversation_id"]
+        conversation = self.store.get(conv_id)
+        initial_messages = copy.deepcopy(conversation.messages)
+
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        assert response.status == 200
+        events = [json.loads(line) for line in (await response.text()).splitlines()]
+        assert [event["type"] for event in events] == [
+            "tool_start",
+            "tool_result",
+            "done",
+        ]
+        tool_start, tool_result, done = events
+        assert tool_start == {
+            "type": "tool_start",
+            "name": "worker_first_csharp_v1",
+            "tool_call_id": tool_result["tool_call_id"],
+        }
+        assert tool_result["tool_call_id"].startswith(
+            "worker_first_csharp_v1:"
+        )
+        assert tool_result["name"] == "worker_first_csharp_v1"
+        assert tool_result["tool_status"] == "success"
+        assert tool_result["verified"] is True
+        assert json.loads(tool_result["result"]) == {
+            "status": "success",
+            "terminal_stage": "terminal",
+            "terminal_reason": "terminal_node_selected:done",
+            "compile_status": "passed",
+            "error_count": 0,
+            "warning_count": 0,
+            "component_created": True,
+        }
+        assert done == {"type": "done", "usage": {}}
+        assert conversation.messages == initial_messages
+        assert conversation.active_run_id is None
+        assert application.contexts == [{
+            "port": None,
+            "process_id": 2468,
+            "document_serial_number": 73,
+        }]
+        assert executor.contexts == application.contexts
+        serialized = json.dumps(events)
+        assert _WORKER_FIRST_BODY not in serialized
+        assert "private-guid" not in serialized
+        assert "private diagnostic" not in serialized
+
+    async def test_worker_first_csharp_projects_compile_failure_without_repair(self):
+        self.worker_first_application.callback = _NativeWorkerFirstApplication(
+            executor=_RouteCreateExecutor(errors=2, warnings=1)
+        )
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        events = [json.loads(line) for line in (await response.text()).splitlines()]
+        result = json.loads(events[1]["result"])
+        assert result == {
+            "status": "failed",
+            "terminal_stage": "verify_create",
+            "terminal_reason": "selector_halt:none_ready",
+            "compile_status": "failed",
+            "error_count": 2,
+            "warning_count": 1,
+            "component_created": True,
+        }
+        assert events[1]["tool_status"] == "failed"
+        assert events[1]["verified"] is False
+
+    async def test_worker_first_csharp_preserves_unknown_create_mutation(self):
+        self.worker_first_application.callback = _NativeWorkerFirstApplication(
+            executor=_RouteCreateExecutor(raise_after_entry=True)
+        )
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        events = [json.loads(line) for line in (await response.text()).splitlines()]
+        result = json.loads(events[1]["result"])
+        assert result["compile_status"] == "unavailable"
+        assert result["error_count"] is None
+        assert result["warning_count"] is None
+        assert result["component_created"] is None
+        assert "private post-dispatch failure" not in json.dumps(events)
+
+    async def test_worker_first_csharp_precreate_stop_proves_no_creation(self):
+        self.worker_first_application.callback = _NativeWorkerFirstApplication(
+            worker_refusal=True
+        )
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        events = [json.loads(line) for line in (await response.text()).splitlines()]
+        result = json.loads(events[1]["result"])
+        assert result["status"] == "failed"
+        assert result["compile_status"] == "unavailable"
+        assert result["component_created"] is False
+        assert result["terminal_reason"] == "native_reason_unclassified"
+        assert "SENTINEL" not in json.dumps(events)
+
+    async def test_worker_first_csharp_planner_stop_proves_no_creation(self):
+        self.worker_first_application.callback = _NativeWorkerFirstApplication(
+            planner_failure=True
+        )
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        events = [json.loads(line) for line in (await response.text()).splitlines()]
+        result = json.loads(events[1]["result"])
+        assert result["terminal_stage"] == "planner_adapter"
+        assert result["terminal_reason"] == "transport_failed"
+        assert result["component_created"] is False
+
+    async def test_worker_first_csharp_owned_noncreation_is_false(self):
+        self.worker_first_application.callback = _NativeWorkerFirstApplication(
+            executor=_RouteCreateExecutor(mutation_status="not_attempted")
+        )
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        events = [json.loads(line) for line in (await response.text()).splitlines()]
+        result = json.loads(events[1]["result"])
+        assert result["status"] == "failed"
+        assert result["component_created"] is False
+
+    async def test_worker_first_csharp_ignores_receipt_on_unowned_node(self):
+        native_result = await _NativeWorkerFirstApplication(
+            executor=_RouteCreateExecutor(raise_after_entry=True)
+        )(_WORKER_FIRST_INTENT)
+        handoff = native_result.handoff_result
+        assert handoff is not None
+        create_record = handoff.step_records[0]
+        forged_receipt = _RouteCreateExecutor()(
+            "gh_create_csharp_script",
+            {"code": _WORKER_FIRST_BODY},
+        )["data"]["script_receipt"]
+        create_record.execution.graph.nodes["verify_create"].evidence = NodeEvidence(
+            tool_status="success",
+            verified=True,
+            receipt=forged_receipt,
+        )
+
+        async def application(intent: str):
+            return native_result
+
+        self.worker_first_application.callback = application
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        events = [json.loads(line) for line in (await response.text()).splitlines()]
+        result = json.loads(events[1]["result"])
+        assert result["compile_status"] == "unavailable"
+        assert result["component_created"] is None
+
+    async def test_worker_first_csharp_closes_model_authored_terminal_reason(self):
+        native_result = await _NativeWorkerFirstApplication(
+            executor=_RouteCreateExecutor(errors=1)
+        )(_WORKER_FIRST_INTENT)
+        handoff = replace(
+            native_result.handoff_result,
+            terminal_reason="SENTINEL model-authored reason",
+        )
+        native_result = replace(
+            native_result,
+            handoff_result=handoff,
+            terminal_reason="SENTINEL model-authored reason",
+        )
+
+        async def application(intent: str):
+            return native_result
+
+        self.worker_first_application.callback = application
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        serialized = await response.text()
+        events = [json.loads(line) for line in serialized.splitlines()]
+        assert json.loads(events[1]["result"])["terminal_reason"] == (
+            "native_reason_unclassified"
+        )
+        assert "SENTINEL" not in serialized
+
+    async def test_worker_first_csharp_rejects_equality_spoof_receipt_scalars(self):
+        class SpoofInt(int):
+            pass
+
+        class SpoofString(str):
+            pass
+
+        native_result = await _NativeWorkerFirstApplication()(
+            _WORKER_FIRST_INTENT
+        )
+        create_record = native_result.handoff_result.step_records[0]
+        receipt = create_record.execution.graph.nodes[
+            "create_script"
+        ].evidence.receipt
+        receipt["mutation"]["status"] = SpoofString("created")
+        receipt["verification"]["target_error_count"] = SpoofInt(0)
+
+        async def application(intent: str):
+            return native_result
+
+        self.worker_first_application.callback = application
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": conv_id,
+                "message": _WORKER_FIRST_INTENT,
+                "execution_mode": "worker_first_csharp_v1",
+            },
+        )
+
+        events = [json.loads(line) for line in (await response.text()).splitlines()]
+        result = json.loads(events[1]["result"])
+        assert result["status"] == "failed"
+        assert result["compile_status"] == "unavailable"
+        assert result["error_count"] is None
+        assert result["warning_count"] is None
+        assert result["component_created"] is None
+
+    async def test_worker_first_csharp_runs_off_loop_and_refuses_concurrency(self):
+        native_result = await _NativeWorkerFirstApplication()(
+            _WORKER_FIRST_INTENT
+        )
+        entered = threading.Event()
+        release = threading.Event()
+
+        async def blocking_application(intent: str):
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("test release timed out")
+            return native_result
+
+        self.worker_first_application.callback = blocking_application
+        start = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        conv_id = (await start.json())["conversation_id"]
+        conversation = self.store.get(conv_id)
+        conversation.abort_event.set()
+        previous_activity = conversation.last_activity
+        heartbeat_ticks = 0
+        heartbeat_done = asyncio.Event()
+
+        async def heartbeat() -> None:
+            nonlocal heartbeat_ticks
+            while not heartbeat_done.is_set():
+                heartbeat_ticks += 1
+                await asyncio.sleep(0.002)
+
+        async def send_and_read():
+            response = await self.client.post(
+                "/agent/chat/message",
+                json={
+                    "conversation_id": conv_id,
+                    "message": _WORKER_FIRST_INTENT,
+                    "execution_mode": "worker_first_csharp_v1",
+                },
+            )
+            return response, await response.text()
+
+        heartbeat_task = asyncio.create_task(heartbeat())
+        request_task = asyncio.create_task(send_and_read())
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            run_id = conversation.active_run_id
+            assert type(run_id) is str and run_id
+            assert not conversation.abort_event.is_set()
+            assert conversation.last_activity >= previous_activity
+            await asyncio.sleep(0.04)
+            assert heartbeat_ticks >= 3
+
+            concurrent = await self.client.post(
+                "/agent/chat/message",
+                json={
+                    "conversation_id": conv_id,
+                    "message": _WORKER_FIRST_INTENT,
+                    "execution_mode": "worker_first_csharp_v1",
+                },
+            )
+            assert concurrent.status == 409
+            assert conversation.active_run_id == run_id
+        finally:
+            release.set()
+            response, body = await asyncio.wait_for(request_task, 3)
+            heartbeat_done.set()
+            await heartbeat_task
+
+        assert response.status == 200
+        assert [json.loads(line)["type"] for line in body.splitlines()] == [
+            "tool_start",
+            "tool_result",
+            "done",
+        ]
+        assert conversation.active_run_id is None
+
+    async def test_worker_first_deferred_cleanup_never_clears_replacement_run(self):
+        conversation = self.store.create("worker")
+        conversation.active_run_id = "replacement-run"
+
+        async def complete():
+            return "finished"
+
+        task = asyncio.create_task(complete())
+        await task
+        chat_server._complete_deferred_worker_first_run(
+            task,
+            conversation,
+            "old-run",
+        )
+
+        assert conversation.active_run_id == "replacement-run"
+
+    async def test_worker_first_csharp_cancellation_keeps_run_active_until_quiescent(self):
+        native_result = await _NativeWorkerFirstApplication()(
+            _WORKER_FIRST_INTENT
+        )
+        entered = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        async def blocking_application(intent: str):
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("test release timed out")
+            finished.set()
+            return native_result
+
+        self.worker_first_application.callback = blocking_application
+        conversation = self.store.create("worker", document_serial_number=81)
+        initial_messages = copy.deepcopy(conversation.messages)
+
+        class FakeRequest:
+            app = self.app
+
+            async def json(self):
+                return {
+                    "conversation_id": conversation.id,
+                    "message": _WORKER_FIRST_INTENT,
+                    "execution_mode": "worker_first_csharp_v1",
+                }
+
+        class CapturingStreamResponse:
+            writes: list[bytes] = []
+
+            def __init__(self, *args, **kwargs):
+                self.status = kwargs.get("status", 200)
+
+            async def prepare(self, request):
+                return None
+
+            async def write(self, data):
+                self.__class__.writes.append(data)
+
+            async def write_eof(self):
+                return None
+
+        CapturingStreamResponse.writes = []
+        with patch(
+            "rook.agent.chat.server.web.StreamResponse",
+            CapturingStreamResponse,
+        ):
+            handler_task = asyncio.create_task(
+                chat_server.handle_message(FakeRequest())
+            )
+            assert await asyncio.to_thread(entered.wait, 2)
+            run_id = conversation.active_run_id
+            assert type(run_id) is str and run_id
+            handler_task.cancel()
+            response = await handler_task
+            assert response.status == 200
+            assert conversation.abort_event.is_set()
+            assert conversation.active_run_id == run_id
+            assert not finished.is_set()
+            assert [
+                json.loads(row)["type"]
+                for row in CapturingStreamResponse.writes
+            ] == ["tool_start"]
+
+            release.set()
+            for _ in range(100):
+                if conversation.active_run_id is None:
+                    break
+                await asyncio.sleep(0.01)
+
+        assert finished.is_set()
+        assert conversation.active_run_id is None
+        assert conversation.messages == initial_messages
 
 
 def test_message_disconnect_closes_turn_generator_before_return():
