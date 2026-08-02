@@ -380,6 +380,47 @@ the skyline are surveyed and which are approximated. Same principle, one layer o
 Without the DOITT model, pure footprint extrusion — verified working. With it, surveyed
 detail where still valid. Nothing blocks on the download.
 
+### Verified in Rhino (2026-08-02)
+
+Built live against the selected site. Results, not projections:
+
+| Check | Result |
+|---|---|
+| EarthAnchorPoint round-trip | 1000 ft east → Δlon 0.00362° (276,250 ft/deg at this latitude); 1000 ft north → Δlat 0.00274° (364,700 ft/deg). Correct. |
+| Model coordinate range | ±1,900 ft of origin. State Plane precision problem never arises. |
+| **Lot polygon area** | **24,912.4 SF measured vs 24,959 SF PLUTO-declared — 0.19% delta** |
+| Footprints → curves | 614 features → 617 curves (3 inner rings), 0 skipped |
+| Curves → solids | 608 solids, 0 failed, 6 skipped for height ≤ 0.5 ft |
+| Ground elevations | −6 to +54 ft, seated at true grade |
+| Heights | 9 / 57 / 1,039 ft (min / median / max) |
+| Post-2014 detection | **40 of 608, of which 11 exceed 400 ft**, including the tallest |
+
+**The area check is the one to keep permanently.** Two independent sources — a transformed
+WGS84 polygon and a PLUTO attribute — agreeing to 0.19% means the projection chain is
+right, not merely plausible. It costs one call and it fails loudly.
+
+**Post-2014 detection needs no download.** The `construction_year` signal alone identifies
+what a 2014 model cannot contain, which is the MISSING class of the reconciliation. At this
+site that is essentially the entire west-side tower cluster.
+
+### Gotcha: ring winding inverts extrusion
+
+`Extrusion.Create` follows the curve plane's normal. NYC footprint ring winding produces a
+**−Z normal**, so a naive extrude builds the city downward — first attempt returned a
+massing bbox of Z [−1011, 51].
+
+This is a property of the source data, not an implementation slip. **Any footprint →
+extrusion path needs an explicit orientation guard**: test the resulting bbox against the
+base elevation and mirror about the base plane if it hangs below. This sits alongside the
+winding self-correction AS already documents for `insetPolygon`, and for the same reason —
+winding varies by data source and cannot be assumed.
+
+### Known minor gap
+
+Inner rings currently extrude as solid plugs rather than voids. Two buildings affected in
+the test AOI; cosmetic at context scale, wrong in principle. Proper handling needs a planar
+Brep with holes before extrusion.
+
 ### Generalisation beyond NYC
 
 Rook's **GIS BYOK research** (2026-04-24, "research complete, synthesis drafted", unbuilt)
