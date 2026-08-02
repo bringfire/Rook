@@ -153,6 +153,69 @@ regulatory leg is available.
 
 ---
 
+## What AS provides that becomes geometry
+
+Inventoried from the skills and their bundled data. The distribution is lopsided and
+that shapes the architecture.
+
+### Tier 1 — true coordinate geometry
+
+| Source | Payload | Becomes |
+|---|---|---|
+| `/as:zoning-analysis-nyc` → `## Envelope Data` | `lot_poly`, real polygon from MapPLUTO ArcGIS | Site boundary → surface |
+| same | `volumes[]` with `inset`, `h_bottom`, `h_top` | Offset + extrude per volume |
+| same | `setbacks` {front, rear, lateral1, lateral2} | Per-edge offsets (needs edge classification) |
+| same | `height_cap` | Horizontal plane at Z |
+| environmental / mobility / PLUTO | site lat/lon | Rhino EarthAnchorPoint → native sun |
+
+**That is the entire list, and it is NYC-only.**
+
+### Tier 2 — dimensional parameters that drive geometry
+
+| Source | Payload | Becomes |
+|---|---|---|
+| `/as:environmental-analysis` | Solar altitude at solstices/equinoxes, azimuth at sunrise/sunset | Sun vectors → shadow studies, solar envelopes, shading angles |
+| same | Elevation, slope | Ground datum and slope plane — **a number, not a DEM** |
+| `workplace-programmer/data/space-types.json` | `default_sf` + `capacity` per room type | Room footprints → test-fit packing |
+| `program.json` | RSF, five-zone splits, seat counts, room schedule | Floor-plate allocation, stacking |
+| `occupancy-calculator/data/occupancy-load-factors.json` | `load_factor_sf`, `area_type`, IBC 1004.5 refs | Occupant load from measured area; egress widths |
+| FF&E product CSV cols L–Q | `W`, `D`, `H`, `Seat H`, `Unit` (in/cm/mm) | Bounding boxes → Rhino block definitions |
+| zoning | Max FAR, Max Floor Area | Target volume to test achieved massing against |
+
+### Tier 3 — guidance that shapes geometry without being geometry
+
+Zoning district and use groups, landmark status, transit and walkability, demographics,
+neighbourhood character, EPD/GWP. These attach to geometry as attributes and decisions,
+never as shape.
+
+### Gaps
+
+- **No terrain mesh.** Environmental yields a number and prose, not a DEM.
+- **No context building footprints.** See the Context model section — that comes from
+  NYC Open Data directly, not from AS.
+- **No street or right-of-way geometry.** Mobility analysis is entirely textual.
+- **Outside NYC there is no lot boundary at all.**
+
+### The two-channel principle
+
+AS is rich in dimensional parameters and nearly barren in coordinate geometry. That
+*validates* the planner-centric architecture rather than undermining it — findings become
+parameters precisely because findings are almost never geometry.
+
+But it means there are **two channels into the definition, not one**:
+
+1. **Findings channel** — numbers and facts, through the Chirp planner, reasoned over.
+2. **Geometry channel** — coordinates, bypassing the planner entirely, landing as data.
+
+> **Never route coordinates through a language model.** Numbers *about* geometry go
+> through reasoning; geometry itself goes around it. An LLM re-emitting forty coordinate
+> pairs is wasteful, unverifiable, and a corruption risk.
+
+`Finding.value` is a `str` and must stay one. `lot_poly` does not belong in the findings
+contract and must not be forced into it.
+
+---
+
 ## The working model
 
 Practices are time-poor and interrupted. The unit of work is not a command; it is a
@@ -180,6 +243,224 @@ This is the answer to the problem that GH definitions are **amnesiac** — they 
 study, a client preference. None of that is in the file today, so six months later the
 definition gets rebuilt from scratch. A definition whose parameters carry live derivations
 is **re-reasonable**: when inputs change, it can be updated rather than discarded.
+
+---
+
+## Site setup: units, datum, georeferencing
+
+Three of these are expensive to reverse once a model and a definition exist.
+
+### Units: Feet
+
+Not a preference — a traceability requirement. NYC zoning is entirely in feet, AS's
+`Envelope Data` declares `"unit": "ft"`, and NYC building-footprint `height_roof` and
+`ground_elevation` are **also already in feet**. Every source agrees, so no conversion
+appears anywhere in the chain.
+
+The practical consequence: with document units in feet, `rhino_measure_area` returns
+**square feet natively**, so a FAR check is a direct comparison against the zoning
+`Max Floor Area` with no conversion step to get wrong.
+
+Plain **Feet**, not US Survey Feet — the site is translated to the origin (below), so the
+2 ppm distinction is immaterial at building scale.
+
+**Absolute tolerance: 0.001 ft** (~1/64"). Tight enough for massing booleans, loose
+enough that offset and extrude do not fail on near-coincident vertices.
+
+### Georeferencing: EarthAnchorPoint
+
+Source data arrives in two projections — MapPLUTO lot polygons in **WGS84**, the DOITT 3D
+model in **EPSG:2263** (NAD83 NY State Plane Long Island, US foot). State Plane places NYC
+at roughly 980,000 ft easting; modelling a building a million units from the origin
+destroys floating-point precision and produces shading artifacts, unreliable meshing, and
+booleans that fail for no visible reason.
+
+Set Rhino's **EarthAnchorPoint** to the site lat/lon. This yields three things at once:
+
+- correct georeferencing, stored durably in the `.3dm`;
+- model coordinates that stay **near the origin** — solving the State Plane problem
+  natively rather than by manual translation;
+- **Rhino's sun uses the same anchor**, so the solar altitude and azimuth findings from
+  `/as:environmental-analysis` become working shadow studies with no extra plumbing.
+
+Over a site-scale AOI the local-tangent-plane approximation is negligible.
+
+> **Not currently available.** Grep of the C# companion and the native plugin found **no
+> EarthAnchorPoint handling anywhere in Rook**. This is the right approach but it is a
+> route that must be built. See the Context model slice.
+
+### Z datum: the zoning base plane
+
+Zoning heights are measured from the base plane or curb level, not from sea level. Set
+**Z=0 to the zoning base plane** so a 120 ft cap sits at Z=120 and the model reads
+directly against the regulation. Determining the base plane is a zoning question and
+belongs in the findings, not in a modelling assumption.
+
+Context buildings carry their own `ground_elevation` and are seated at true grade relative
+to that datum, not flattened to Z=0.
+
+### Where units break
+
+- **FF&E is in inches or millimetres**, and the product schema says *"Keep manufacturer's
+  original — do not convert."* Block creation needs an explicit conversion at that
+  boundary.
+- **Grasshopper has no units of its own** and silently inherits the document's. Opening
+  the definition in a metric document produces wrong geometry with no warning. Record the
+  expected unit system in the definition.
+
+---
+
+## Context model
+
+### The two sources
+
+| | NYC Building Footprints (`5zhs-2jue`) | DOITT 3-D Building Model |
+|---|---|---|
+| Attributes | `bin`, `doitt_id`, `base_bbl`, `mappluto_bbl`, `name`, `height_roof`, `ground_elevation`, `construction_year`, `feature_code`, `geom_source`, `last_edited_date`, `shape_area` | **`BIN`, `DOITT_ID`, `SOURCE_ID`** — the entire schema |
+| Geometry | MultiPolygon, WGS84 | Solids, EPSG:2263 |
+| Detail | flat extrusion from attributes | CityGML LOD 1/1.5 hybrid, ~100 iconic at LOD 2; roof/facade/ground components differentiated |
+| Vintage | **updated daily** | 2014 survey, published 2016-04-18, **one-time capture, never updated** |
+| Accuracy | — | XY ±1.25 ft, Z ±1.6 ft at 95% |
+| Obtainable | Socrata, keyless, verified | direct zips, verified live: Multipatch 251 MB, CityGML 894 MB, DGN 744 MB |
+
+The DCP `.3dm` conversion (by Community District, enriched with lots/streets/parks/rail)
+is a *derivative* of the DOITT model. Its download page is now a redirect stub to a
+JavaScript search app and could not be scripted; the **upstream DOITT source is fully
+open** and is the dependable path.
+
+### They are the same feature class — join on BIN
+
+From the DOITT capture notes:
+
+> "3-D models are based on the **planimetrics building footprint feature class**… the
+> elevation attributes (ground elevation and roof height) from the building footprint
+> feature class were used for building base and top data collection **to ensure vertical
+> consistency**."
+
+The 3D solids were compiled *from* the footprints using the *same* `ground_elevation` and
+`height_roof` values. Both carry `BIN` and `DOITT_ID`.
+
+**This is a key join, not a spatial match.** No centroid-in-polygon, no fuzzy
+correspondence, no tolerance on identity.
+
+### Reconciliation
+
+```
+for each BIN in current footprints ∩ AOI:
+    in model?      compare (ground_elevation + height_roof) vs solid bbox max Z
+                   → MATCH within tolerance | STALE beyond
+    not in model?  → MISSING, extrude from footprint
+for each BIN in model but not in current footprints:
+                   → GHOST, demolished
+```
+
+**Tolerance must be tight, not generous.** Because the two were built for vertical
+consistency from the same numbers, divergence is *signal*, not noise — on the order of the
+stated ±1.6 ft Z accuracy plus documented LOD effects. Over-generous thresholds would
+silently trade surveyed geometry for flat extrusions, which is strictly worse.
+
+Documented legitimate divergences: LOD 2 iconic buildings have "some differences in
+elevation for the 3D roof infrastructure"; LOD 1.5 merges roofs less than 8 ft apart to
+the highest point; parapets, chimneys, spindles and antennae are excluded throughout; and
+`height_roof` is the *highest* point of roof.
+
+**Self-check:** `construction_year > 2014` should predict MISSING exactly. If the key join
+and the construction-year signal disagree, the method is broken rather than the data — a
+validation a geometry-only approach could not provide.
+
+### Provenance on context
+
+Every context object carries user text recording its verdict, source and vintage — 2014
+survey geometry versus current extrusion. The context model becomes auditable in the same
+way the spec argues parameters should be: one can look at a render and know which parts of
+the skyline are surveyed and which are approximated. Same principle, one layer out.
+
+### Degradation
+
+Without the DOITT model, pure footprint extrusion — verified working. With it, surveyed
+detail where still valid. Nothing blocks on the download.
+
+### Generalisation beyond NYC
+
+Rook's **GIS BYOK research** (2026-04-24, "research complete, synthesis drafted", unbuilt)
+already specs this pipeline: *lat/lon → AOI buffer → LIDAR DSM+DTM → nDSM → footprints →
+zonal stats → extrude to `.3dm`*, with an abstract `HeightProvider` having
+`DSMMinusDTMProvider` and `AttributeHeightProvider` implementations converging at
+extrusion.
+
+**NYC's `height_roof` is an `AttributeHeightProvider`.** The verified NYC path is an
+instance of the already-designed no-LIDAR branch, not a workaround. This is also the route
+by which the whole workflow escapes NYC — AS supplies a lot boundary only in New York;
+GIS BYOK supplies footprints, terrain and heights anywhere.
+
+---
+
+## Site selection
+
+### Method
+
+Pick the site **archetype** first, then find an instance. Deriving an address from a
+single metric optimises a proxy for "interesting."
+
+The criterion is **constraint conflict**. If all constraints agree, the planner's reasoning
+is trivial, the `critic` has nothing to catch, and no decision is worth a Correction pin.
+
+### Chosen archetype: the split-zone lot
+
+- `splitzone` is a literal PLUTO boolean, alongside `zonedist1`–`zonedist4`.
+- It is exactly where AS goes soft: *"Pro-rate FAR by estimated area in each zone if lot
+  dimensions are available, otherwise present both sets of controls."* AS either estimates
+  or punts — and synthesising two conflicting bulk regimes into one envelope is precisely
+  the planner's job.
+- **The geometry channel is unaffected**: the lot polygon comes from a separate BBL-keyed
+  MapPLUTO ArcGIS endpoint, independent of zoning complexity.
+
+### The screen
+
+PLUTO is Socrata resource `64uk-42ks`, keyless.
+
+```
+$where=splitzone=true AND lotarea>6000 AND lotarea<60000 AND builtfar<1.0
+       AND zonedist1 NOT LIKE '%PARK%' AND zonedist2 NOT LIKE '%PARK%' AND residfar>0
+```
+
+`builtfar<1.0` keeps the site under-built so "what can be built here" is live. Excluding
+PARK removes public parkland, which dominates the raw Manhattan results.
+
+Distribution of split-zone under-built lots: Queens 1,495 · Staten Island 958 ·
+Brooklyn 643 · Bronx 482 · **Manhattan 168**. Manhattan is scarcest — it is built out —
+but is correct for the showcase because the highest densities produce the sharpest
+conflicts.
+
+### Selected site
+
+**502 10th Avenue, BBL 1007360001** — Manhattan CD 104 (Clinton/Hell's Kitchen),
+lat/lon 40.7570872, −73.9966792.
+
+| Property | Value |
+|---|---|
+| Districts | **C2-8 / R8A**, C2-5 overlay |
+| Conflict | C2-8 permits 10 FAR with no contextual cap; R8A is contextual with mandatory streetwall and height cap. Plus an overlay stacking commercial use rules — one lateral conflict, one vertical |
+| Lot area | 24,959 SF |
+| `builtfar` | 0.00 — under-built, question is live |
+| `irrlotcode` | **false** — geometrically tractable |
+| Lot polygon | verified: 1 ring, 6 vertices, WGS84 |
+| Context | 614 buildings within 600 m; `height_roof` median 57 ft, p90 249 ft, max 1,039 ft; `ground_elevation` on 611/614; **45 post-2014** |
+
+Six vertices is slightly non-rectangular — it exercises real polygon handling without the
+offset self-intersection risk that would confound slice 1.
+
+**Deliberate exclusion:** keep slice 1 geometrically simple. Irregular polygons stress GH
+offset in ways unrelated to the thesis; if it broke we could not tell whether the spine or
+the offset failed. Irregular lots (225 E 23rd — C2-8A/R8B; 1711 3rd Ave — R10/R7-2) are
+reserved for a deliberate offset stress test.
+
+**Vintage trap at this site:** the tallest context building is 1,039 ft and Hudson Yards
+was built after 2014, so the DOITT model alone would delete the most visually dominant
+context. This site *requires* the reconciliation rather than merely benefiting from it.
+
+**Unverified:** PLUTO `lottype` code meanings. Several candidates are `lottype=3`, believed
+to be corner, not confirmed. It matters — a corner lot adds a second streetwall regime.
 
 ---
 
@@ -276,9 +557,45 @@ Honest accounting of what exists versus what needs building.
 ### Needs building
 
 - The AS-findings → Chirp `planner` handoff (a reader plus a parameter contract).
-- Node state machine (Live / Frozen / Stale) and its surfacing.
+- An **EarthAnchorPoint route** — set anchor from lat/lon, expose the model↔earth
+  transform. Absent from both the C# companion and native today. Small, and it unlocks
+  both georeferencing and Rhino's native sun.
+- A **footprint → extrusion path** (`AttributeHeightProvider` against `5zhs-2jue`, seated
+  at `ground_elevation`), behind a provider seam so NYC is one implementation rather than
+  the assumption.
+- The BIN-join **reconciliation** against the DOITT model.
+- Node state machine (Live / Frozen / Stale) and its surfacing — deferred, see open
+  problem 1.
 - The return brief.
 - Narrator → deck wiring.
+
+### Credentials
+
+**Architecture Studio requires none.** Its data-governance doc is explicit: it "does not
+bundle connector credentials, select providers, configure OAuth, or create connector
+manifests," and `/as:studio init` writes an empty `mcpServers` object as a reserved
+boundary. All seven NYC skills state "No API key required"; NYC Open Data (Socrata) and
+the MapPLUTO ArcGIS endpoint are open, as verified by direct query.
+
+| Need | For | Required? |
+|---|---|---|
+| EC3 / Building Transparency | `/as:epd-research` | **Optional** — degrades to UL, NSF, Environdec, IBU, SCS, ASTM, manufacturer pages |
+| Pillow | `/as:resize-images`, product images | On demand |
+| rembg + onnxruntime | Background removal (+~170 MB u2net on first run) | On demand |
+| PyMuPDF | EPD and product PDF parsing | On demand |
+| curl, python3 | Image download, disclaimer hook | Baseline |
+| `ANTHROPIC_API_KEY` or LiteLLM provider | **Chirp reasoning nodes** | Required for the spine |
+| Gemini key | `rhino_render_view`, `rhino_enhance_prompt` | Required for generation |
+| — | `rhino_capture_depth` | **None** — entirely local |
+| fal.ai key | 2D→3D reconstruction | That path only |
+
+The credential burden sits on the Rook side, not the AS side. **Slice 1 needs no AS
+credentials at all.** Note also that `WebSearch` is US-only, which matters for non-US
+practice.
+
+Caveat: the Gemini rows reflect current tool descriptions; a generation-provider framework
+and multi-provider plan exist in `docs/rook_docs/`, so the provider set may already be
+broader. Confirm before writing it into anything user-facing.
 
 ### Known gap
 
@@ -340,12 +657,16 @@ Recorded so they are not re-proposed.
 
 1. **Showcase shape.** One project carried across several returns — truer to how practice
    works, harder to stage — or a single return moment rendered in depth, which is what an
-   audience can actually watch?
-2. **First vertical.** The regulatory leg is NYC-only today. Does the first build lean on
-   it, or on a geographically neutral leg (program, environment, materials)?
+   audience can actually watch? **Still open.**
+2. ~~First vertical~~ — **answered.** NYC zoning, split-zone archetype, 502 10th Avenue.
+   See Site selection.
 3. ~~Chirp cache semantics~~ — **answered.** Cache keys on
    `(signature, inputs, schema, model)`, on by default, returns a `cached` flag.
    See open problem 1.
+4. **PLUTO `lottype` codes** — unverified. Determines whether the selected site carries a
+   second streetwall regime.
+5. **DOITT model vertical datum** — must be established before any height comparison is
+   meaningful.
 
 ---
 
@@ -354,13 +675,17 @@ Recorded so they are not re-proposed.
 This spec is larger than one plan. It decomposes into slices, each producing something
 demonstrable on its own:
 
-| Slice | Deliverable |
-|---|---|
-| **1 — the spine link** | Findings contract + AS reader + a `planner` node driving a real definition to geometry. Proves the thesis in miniature. |
-| 2 — the human loop | Correction pin → `editor` node round trip; correction persists across solves. |
-| 3 — the return brief | What the architect sees on returning. |
-| 4 — analysis + imagery | Spatial analysis geometry; RookVision diagram/render of current state. |
-| 5 — narrative + deck | `narrator` → AS deck. |
+| Slice | Deliverable | Depends on |
+|---|---|---|
+| **1 — the spine link** | Findings contract + AS reader + a `planner` node driving a real definition to geometry. Proves the thesis in miniature. | nothing |
+| **C — site + context** | EarthAnchorPoint route; footprint→extrusion behind a provider seam; BIN-join reconciliation against the DOITT model; provenance user text. | nothing — **runs in parallel with 1** |
+| 2 — the human loop | Correction pin → `editor` round trip; correction persists across solves. | 1 |
+| 3 — the return brief | What the architect sees on returning. | 2 |
+| 4 — analysis + imagery | Spatial analysis geometry; RookVision diagram/render of current state. | 1, C |
+| 5 — narrative + deck | `narrator` → AS deck. | 4 |
+
+Slice C is deliberately independent: it is geometry-channel work and touches none of the
+reasoning spine, so it neither blocks slice 1 nor is blocked by it.
 
 Slice 1 is planned in
 `docs/superpowers/plans/2026-08-01-findings-to-parameters-spine.md`. Later slices are
