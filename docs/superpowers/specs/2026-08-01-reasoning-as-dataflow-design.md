@@ -785,16 +785,23 @@ structurally unable to contest them.
 should go to the footprint it overlaps most, evaluated across all candidates
 simultaneously, rather than to whichever footprint happens to contain its centroid first.
 
-### BIN 1026915 — earlier diagnosis corrected
+### BIN 1026915 — diagnosis corrected, then corrected again
 
-It is **not** an assignment failure. Its identical-area roof (4,632 SF at Z 49.0, exactly
-`ground + height_roof`) has **zero vertex overlap** with the footprint and sits 18.8 ft
-away. That is a **positional offset** between the DGN roof and the NYC footprint — a
-genuine data discrepancy that no assignment algorithm can recover, because the geometries
-do not coincide.
+**v3 reading (WRONG, retained as a cautionary record):** measured with vertex-counting
+overlap, its identical-area roof showed *zero* overlap with the footprint at 18.8 ft
+distance, and this was written up as a positional offset — "a genuine data discrepancy that
+no assignment algorithm can recover."
 
-A useful negative result: not every mismatch is a join defect. Some are the data
-disagreeing with itself.
+**v4 reading (verified):** the roof overlaps the footprint by **86%**. Area sampling
+assigns it correctly — area 4,632.10 SF against a 4,632 SF footprint, Z 48.99 against an
+attribute of 49.00, **delta 0.0 ft, MATCH**.
+
+There was never a data discrepancy. **The vertex-count overlap proxy was the defect**: the
+roof's vertices fell outside the footprint while its interior overlapped substantially. A
+measurement artifact was attributed to the source data.
+
+The real lesson is the inverse of the one first recorded: before concluding that data
+disagrees with itself, verify the instrument.
 
 ### Residual
 
@@ -844,12 +851,19 @@ statistic; a jump here would have been a red flag rather than a win.
 touch multiple footprints, so greedy first-match was guessing on a third of the data and
 happening to be right most of the time. Global matching removes the guess.
 
-### Residue
+### Residue — verified, and it is not the BIN predicted
 
-One dated-pre-2014 MISSING remains in AOI 1, consistent with BIN 1026915 — the confirmed
-positional-offset case. **No assignment algorithm can recover it**, because the DGN roof
-and the NYC footprint do not spatially coincide. That is the method's floor, and it is a
-data property rather than a defect.
+One dated-pre-2014 MISSING remains in AOI 1. It was **predicted to be 1026915 and is not** —
+it is **BIN 1024961**.
+
+1026915 was recovered correctly by area-sampled overlap (86% overlap, delta 0.0 ft, MATCH).
+The prediction was an inference from a diagnosis that itself turned out to be a measurement
+artifact; verifying it cost one call and overturned two claims.
+
+**BIN 1024961** — a 1939 playground restroom, 578 SF footprint, with a roof of *identical*
+area 27.2 ft away at Z 63.9 against an attribute roof of 49.0. **Position and elevation
+both disagree**, which is materially different from 1026915 where the elevation matched
+exactly. This is the genuine single-building residue of the method in AOI 1.
 
 **Caveat:** the West Village fetch omitted `feature_code`, so no population filter was
 applied there. Its 2,489 is unfiltered and its 5 dated-pre-2014 MISSING likely include
