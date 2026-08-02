@@ -969,11 +969,53 @@ produced a plausible ground surface: draped Z **−4.8 / 30.5 / 88.3 ft** (min/p
 410 curves built and draped — 289 roadbed, 121 sidewalk — by inverse-distance weighting
 over the 4 nearest ground points, in EPSG:2263 alongside the reconstructed buildings.
 
-**Limitations of the demonstration:** curves not surfaces (a planar-Brep pass is trivial to
-add); IDW-4 is crude, and at 871 points over a 700 m radius the sampling is roughly one per
-1,770 m². The **1-foot DEM raster** (`dpc8-z3jc`, or the integer variant `7kuu-zah7`) is
-the better terrain source where accuracy matters — it is an `href` download rather than a
-Socrata query.
+**Limitations of the demonstration:** IDW-4 is crude, and at 871 points over a 700 m radius
+the sampling is roughly one per 1,770 m². The **1-foot DEM raster** (`dpc8-z3jc`, or the
+integer variant `7kuu-zah7`) is the better terrain source where accuracy matters — it is an
+`href` download rather than a Socrata query.
+
+### Surfacing the streetscape — order of operations is the whole problem
+
+Draping vertices individually destroys planarity. Measured on the curve version:
+**1 of 289 roadbed curves and 2 of 121 sidewalk curves were planar** at 0.001. So
+`Brep.CreatePlanarBreps` applied to draped curves fails on ~99% of them. Surfacing must
+happen *before* deformation, not after.
+
+Three SDK facts drive the design:
+
+- `Brep.CreatePlanarBreps` accepts an **`IEnumerable<Curve>` of loops** — pass a polygon's
+  outer and inner rings *together* and holes are trimmed correctly.
+- `Mesh.CreateFromBrep(brep, MeshingParameters)` with **`MaximumEdgeLength`** controls
+  subdivision, and **`SimplePlanes` must be `False`** — otherwise a planar face meshes to
+  two triangles and draping moves only its corners, leaving the interior flat.
+- Meshes deform by moving vertices; Breps do not. The draped result must be mesh.
+
+**Correct sequence:**
+
+```
+group rings per polygon  ->  build flat at Z=0  ->  Brep.CreatePlanarBreps (holes trimmed)
+  ->  Mesh.CreateFromBrep at 20 ft max edge  ->  drape vertices to terrain
+```
+
+Topology is established while everything is planar; deformation happens last.
+
+**Ring grouping must come from source.** It is lost the moment each ring becomes an
+independent curve, so the surfacing pass re-reads the GeoJSON rather than consuming the
+curve layer.
+
+### Result
+
+| Layer | Surfaces | Failed | Inner rings | Mesh vertices |
+|---|---|---|---|---|
+| Roadbed | 230 | **0** | 2 | 93,994 |
+| Sidewalk | 59 | **0** | **28** | 53,197 |
+
+6.6 s total, IDW accelerated by a 250 ft grid index (243 cells).
+
+**The 30 inner rings are the proof.** Surfacing ring-by-ring — which is what a naive pass
+over the curve layer does — would have produced 30 spurious patches lying on top of holes.
+Grouping per polygon before surfacing is what prevents it, and sidewalks are where it
+matters: 28 of the 30 holes are theirs.
 
 The **reversal at 800 SF** is what makes the result credible: match rate *falls*, so the
 curve is tracking a real property of the data rather than rewarding more aggressive
