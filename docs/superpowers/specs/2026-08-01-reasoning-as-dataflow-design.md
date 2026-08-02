@@ -106,6 +106,53 @@ truth, which is precisely what fails in conventional practice.
 
 ---
 
+## How Architecture Studio factors in
+
+AS does three distinct kinds of work here, and they are **not** equally load-bearing.
+Naming which is which prevents treating the whole suite as one undifferentiated
+dependency.
+
+### 1. Research — essential
+
+Site, environmental, mobility, demographics, history, zoning, occupancy, programming,
+and later materials and EPD data. This produces the **findings** that the Chirp `planner`
+converts into parameters.
+
+This leg is not substitutable. Without it, "parameters reasoned from researched data"
+degrades to "parameters invented by a language model." The entire trustworthiness claim
+rests on findings that carry a real source.
+
+### 2. Project record — the underrated spine
+
+`PROJECT.md`, `decisions/`, `/as:project record-decision`, meeting minutes, site visit
+reports. Every AS skill reads `PROJECT.md` on entry and offers updates on exit.
+
+This matters more than it first appears, because the workflow is **asynchronous and spans
+returns**. Something must hold state between sessions. The division is clean:
+
+| Layer | Holds | Mechanism |
+|---|---|---|
+| Parameter-level *why* | Why this value | Chirp Reasoning pin |
+| Project-level *why* | Why this decision, and what it superseded | AS `decisions/` + `PROJECT.md` |
+
+Neither covers the whole surface alone. Together they do.
+
+### 3. Delivery — valuable, substitutable
+
+`/as:slide-deck-generator`, `as:brand-manager`, `/as:color-palette-generator`,
+`/as:resize-images`. Real polish on a genuine design system, and the deck leg is
+well-specified — but a deck could be produced by other means. Treat as high-value
+convenience, not as foundation.
+
+### Constraint
+
+AS's zoning and due-diligence skills are **NYC-only**. The research legs that are not
+geographically bound — environmental, mobility, demographics, programming, occupancy,
+materials, sustainability — work anywhere. The first build should not assume the
+regulatory leg is available.
+
+---
+
 ## The working model
 
 Practices are time-poor and interrupted. The unit of work is not a command; it is a
@@ -140,7 +187,11 @@ is **re-reasonable**: when inputs change, it can be updated rather than discarde
 
 These are the three things a plan must actually solve rather than gesture at.
 
-### 1. Chirp determinism semantics
+### 1. Chirp determinism semantics — DEFERRED (2026-08-01)
+
+**Status: acknowledged, deliberately out of scope for now.** A full node state machine is
+an entire subsystem and does not need to be carried yet. Recorded here so it is not
+rediscovered later as a surprise.
 
 **Problem.** A GH definition is supposed to be a pure function of its inputs. Chirp nodes
 are not. Typed pins constrain the *shape* of an output, not its *value*. If a planner
@@ -151,22 +202,21 @@ quietly drifts is worse than no model.
 This is a live concern in the ecosystem already: the CanvasDirector design explicitly
 fences off "global nondeterminism analysis of arbitrary upstream GH components."
 
-**Proposed resolution — propose, then freeze.** Three node states:
+**Why deferral is safe — verified in the implementation.** `ChirpAdapter.call()` keys its
+cache on `(signature, inputs, schema, model)` and returns a `cached` flag on every call;
+caching is on by default (`CHIRP_CACHE`, default `true`). So repeated solves with
+unchanged inputs do **not** re-call the LLM — the practical behaviour is already
+freeze-by-default. `chirp_create` additionally exposes `deterministic_only`, which runs
+post-processing C# with no LLM call at all.
 
-| State | Behaviour | When |
-|---|---|---|
-| **Live** | Re-evaluates on input change | Exploration |
-| **Frozen** | Output pinned to a recorded evaluation + trace id; reasoning still displayed; no LLM call | Development, presentation |
-| **Stale** | Was frozen; an upstream input has since changed | Flagged visibly — never silently re-run |
+What is missing is only the *surfacing* — a visible signal when an upstream input has
+changed such that a cached reasoning result no longer applies. That is the Stale problem,
+and it is the piece being deferred.
 
-The failure mode is not nondeterminism as such, it is **undetected change**. The Stale
-state makes drift visible and leaves re-evaluation to the human.
-
-Chirp already provides the substrate: caching in the call pipeline and JSONL tracing that
-records cache hits. What is missing is the semantics and its surfacing.
-
-**Unverified:** whether Chirp's cache keys on an input hash, and how invalidation is
-currently exposed. Must be confirmed before planning.
+**Eventual resolution sketch (not now).** Three node states: **Live** (re-evaluates),
+**Frozen** (pinned to a recorded evaluation + trace id), **Stale** (was frozen, upstream
+changed — flagged visibly, never silently re-run). The failure mode is not nondeterminism
+as such, it is **undetected change**.
 
 ### 2. What the return-to-engage moment renders
 
@@ -293,7 +343,28 @@ Recorded so they are not re-proposed.
    audience can actually watch?
 2. **First vertical.** The regulatory leg is NYC-only today. Does the first build lean on
    it, or on a geographically neutral leg (program, environment, materials)?
-3. **Chirp cache semantics** — must be read from the implementation before planning.
+3. ~~Chirp cache semantics~~ — **answered.** Cache keys on
+   `(signature, inputs, schema, model)`, on by default, returns a `cached` flag.
+   See open problem 1.
+
+---
+
+## Implementation sequence
+
+This spec is larger than one plan. It decomposes into slices, each producing something
+demonstrable on its own:
+
+| Slice | Deliverable |
+|---|---|
+| **1 — the spine link** | Findings contract + AS reader + a `planner` node driving a real definition to geometry. Proves the thesis in miniature. |
+| 2 — the human loop | Correction pin → `editor` node round trip; correction persists across solves. |
+| 3 — the return brief | What the architect sees on returning. |
+| 4 — analysis + imagery | Spatial analysis geometry; RookVision diagram/render of current state. |
+| 5 — narrative + deck | `narrator` → AS deck. |
+
+Slice 1 is planned in
+`docs/superpowers/plans/2026-08-01-findings-to-parameters-spine.md`. Later slices are
+planned separately, after slice 1 returns evidence.
 
 ---
 
