@@ -167,8 +167,11 @@ For the exact mode, the HTTP handler owns only:
 - `abort_event.clear()` before the transaction;
 - `conversation.touch()` at lifecycle boundaries;
 - the Rhino request context;
+- one off-event-loop execution boundary around the complete application
+  transaction;
 - streaming the three existing Chat events;
-- clearing the matching run ID in `finally`; and
+- clearing the matching run ID only after the off-loop transaction is
+  quiescent; and
 - connection/cancellation cleanup.
 
 The exact-mode path does **not** append either the user request or a synthetic
@@ -217,6 +220,34 @@ general schema framework is added.
 Tests replace the transport and dispatcher constructors beneath this real
 application root. They do not replace the root or the proven integration.
 
+### One worker-thread boundary owns synchronous model execution
+
+`LiteLLMWorkerTransport.send()` and both existing model adapters are
+synchronous. The aiohttp handler therefore does not invoke the application
+coroutine directly on its event loop.
+
+The handler enters the existing Rhino request context and starts the complete
+application transaction through one `asyncio.to_thread` boundary. A small
+thread entry function owns a private `asyncio.run()` for the application
+coroutine. Profile resolution, both transport constructions and calls,
+deterministic compilation, Worker execution, and the create-only tool call all
+occur inside that one off-loop transaction.
+
+`asyncio.to_thread` copies the current `contextvars` context. The existing
+Rhino request context must therefore be visible at dispatcher entry in the
+worker thread. This is constructively tested; the implementation does not add
+an alternate port argument or reconstruct the context from request fields.
+
+The handler retains a task representing the off-loop transaction. Its matching
+`active_run_id` remains installed until that task is genuinely done. If the
+client disconnects or cancels the handler while the worker task is still
+running, the handler sets `abort_event`, stops streaming, and defers run-ID
+cleanup until the task completes. It does not cancel, detach as available work,
+or replace the underlying provider transaction.
+
+This is one execution-context boundary, not an async transport refactor,
+dedicated scheduler, retry system, or generalized background-job framework.
+
 ### The create-only executor owns capability restriction
 
 The executor accepts exactly `gh_create_csharp_script` and delegates it once to
@@ -238,12 +269,13 @@ validate request, mode, conversation, and concurrency
 -> prepare NDJSON response
 -> emit tool_start
 -> enter existing Rhino request context
--> build and run application root
+-> start complete application root in one worker-thread event loop
+-> await its task without blocking aiohttp
 -> project returned native aggregate
 -> emit tool_result
 -> emit done
 -> touch conversation
--> clear matching run ID in finally
+-> clear matching run ID after worker task quiescence
 ```
 
 The tool-call identity is code-owned and unique per run:
@@ -255,9 +287,10 @@ worker_first_csharp_v1:<run_id>
 The exact same ID appears in `tool_start` and `tool_result`.
 
 The handler maintains `abort_event`, observes connection cancellation, and
-always clears its matching run ID. It does not guarantee cancellation of a
-Planner or Worker provider call that has already been entered. This slice adds
-no thread, task, transport, or provider cancellation framework.
+clears its matching run ID only after the off-loop task is done. It does not
+guarantee cancellation of a Planner or Worker provider call that has already
+been entered. This slice adds no transport refactor, scheduler, retry, or
+provider cancellation framework.
 
 ## Existing Chat event representation
 
@@ -404,8 +437,9 @@ Expected product stops return the same card shape:
 Unknown modes use the pre-stream HTTP refusal and do not produce a tool card.
 
 Client disconnect or cancellation may end the stream before `tool_result` or
-`done`. Cleanup still sets the abort event and clears the matching run ID. No
-completed card is claimed when it was not delivered.
+`done`. Cleanup sets the abort event immediately but clears the matching run ID
+only after the off-loop transaction is quiescent. No completed card is claimed
+when it was not delivered.
 
 ## Managed panel mechanics
 
@@ -479,10 +513,17 @@ The causal fake create dispatcher:
 - Padded or blank exact-mode messages refuse rather than being normalized again.
 - Conversation concurrency returns the existing 409 behavior.
 - Exact mode assigns one real run ID, clears abort, touches the conversation,
-  keeps Rhino context active, and clears the run ID in `finally`.
+  propagates Rhino context into the off-loop transaction, and clears the run ID
+  only after that transaction is quiescent.
 - `conversation.messages` remains unchanged on success, native stops,
   operational exceptions, and cancellation.
-- Connection cancellation sets abort and cannot leave a stale run ID.
+- A blocking-fake application leaves the aiohttp event loop responsive: a
+  heartbeat advances and a concurrent request receives `409`.
+- Connection cancellation sets abort but cannot clear the run ID while the
+  off-loop application is still running. The matching ID clears after the
+  worker task finishes.
+- Dispatcher entry in the worker thread observes the exact Rhino request
+  context selected by the handler.
 
 ### Application root and capability construction
 
@@ -541,7 +582,7 @@ It does not prove:
 - broad intent or interface coverage;
 - repeatability;
 - cross-mode conversation memory;
-- immediate cancellation of synchronous provider calls; or
+- cancellation of synchronous provider calls already entered; or
 - a generalized user-intent routing architecture.
 
 After review, implementation, merge, and a green fake-backed vertical, one

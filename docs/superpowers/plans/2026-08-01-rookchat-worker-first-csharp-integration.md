@@ -1,6 +1,6 @@
 # RookChat Worker-First C# Integration Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task with the review stops below. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add one explicit **Build C#** action to RookChat that sends a normalized intent through the proven Worker-first C# composition and renders one bounded native result card, while leaving ordinary Chat unchanged.
 
@@ -19,6 +19,8 @@
 - The application root is under `mcp_server/src/rook/agent`; it is not owned by `ChatRunner`.
 - The mode route does not append user or result entries to `conversation.messages`.
 - The handler emits exactly `tool_start -> tool_result -> done` for a completed stream and uses one code-owned call ID: `worker_first_csharp_v1:<run_id>`.
+- The complete application transaction runs through one `asyncio.to_thread` boundary; synchronous Planner and Worker calls never run on aiohttp's event loop.
+- The selected Rhino `ContextVar` context propagates through that boundary, and the matching run ID remains active until the worker task is genuinely done.
 - The real local surface is constructed exactly as `ToolDispatcher(local_tools=build_local_tools())`, then narrowed before dispatcher entry to one create call.
 - Planner/Worker roles are the exact existing `hybrid` identities. Generation settings are temperature `0`, `max_tokens=1024`, `max_retries=0`, and timeout `120.0` seconds.
 - Planner structured output uses LiteLLM `response_format`; Worker structured output uses the existing structured schema path.
@@ -32,6 +34,7 @@
 trimmed panel input
 -> exact HTTP message + explicit mode
 -> Chat mode branch and run lifecycle
+-> one context-preserving worker-thread boundary
 -> application-owned composition root
 -> exact Planner draft adapter
 -> strict existing draft loader
@@ -210,12 +213,16 @@ Stop for independent review before Chat routing. Confirm role construction, sche
 uv run --project mcp_server pytest -q mcp_server/tests/test_chat_server.py -k "worker_first_csharp"
 ```
 
-### Step 2: Add lifecycle and ownership tests
+### Step 2: Add lifecycle, responsiveness, and ownership tests
 
 - [ ] Inject a fake application root through `create_chat_app()` so HTTP tests never construct live capabilities.
-- [ ] Prove the exact branch rejects concurrent work, assigns one real run ID, clears `abort_event`, touches the conversation, keeps Rhino request context active, and clears only the matching run ID in `finally`.
-- [ ] Prove `conversation.messages` is unchanged on success, native stop, application exception, and disconnect.
-- [ ] Prove an exception cannot leave the conversation active and the branch never calls `PromptBuilder` or `ChatRunner`.
+- [ ] Prove the exact branch rejects concurrent work, assigns one real run ID, clears `abort_event`, touches the conversation, and never calls `PromptBuilder` or `ChatRunner`.
+- [ ] Use a blocking fake application controlled by `threading.Event` objects. While it is blocked, prove an asyncio heartbeat advances and a second request for the same conversation receives `409`.
+- [ ] At fake dispatcher entry inside the worker thread, prove `get_rhino_request_context()` contains the exact process/document identity selected by the handler.
+- [ ] Cancel the request task while the fake remains blocked. Prove `abort_event` is set, `active_run_id` remains unchanged, no completed result is streamed, and the application task is not canceled.
+- [ ] Release the fake, wait for genuine quiescence, and prove the matching run ID then clears. A different replacement run ID must never be cleared by the old completion callback.
+- [ ] Prove `conversation.messages` is unchanged on success, native stop, application exception, disconnect, and deferred cancellation cleanup.
+- [ ] Prove an ordinary worker-task exception is retrieved and cannot produce an unhandled-task warning or leave the conversation active.
 
 ### Step 3: Add projection fixtures from owned native records
 
@@ -255,14 +262,24 @@ component_created
 - [ ] Prove no prompts, responses, code, rationale, diagnostics, GUIDs, receipts, provider metadata, or exception text leaks.
 - [ ] Prove `done` remains the existing shape.
 
-### Step 5: Implement the branch without refactoring normal Chat
+### Step 5: Implement one off-loop branch without refactoring normal Chat
 
 - [ ] Add an optional application factory to `create_chat_app()` under one private app key.
 - [ ] Distinguish missing mode from supplied mode. Missing follows existing Chat; non-exact supplied values refuse closed.
 - [ ] Preserve the existing no-mode handler structurally; extract only a tiny shared response helper if compilation requires it.
-- [ ] For the exact mode, create the stream, install run ID, clear/touch, enter Rhino context, emit start, await application, project owned result, emit result/done, and clean up in `finally`.
+- [ ] Add one private synchronous thread entry that runs the complete async application callable in a private event loop:
+
+```python
+def _run_worker_first_application_sync(application, intent):
+    return asyncio.run(application(intent))
+```
+
+- [ ] Inside the existing Rhino request context, create exactly one task around `asyncio.to_thread(_run_worker_first_application_sync, application, message)`. Construct and invoke the application root only inside that worker-thread transaction.
+- [ ] Await the task through `asyncio.shield()` so cancellation of the aiohttp handler never marks the underlying worker task canceled.
+- [ ] On normal completion, project the owned result, emit result/done, touch the conversation, retrieve the task result/exception, and clear the matching run ID.
+- [ ] On connection loss or cancellation while work continues, set abort, stop streaming, attach one code-owned done callback that retrieves the eventual result/exception and clears only the matching run ID, and return without claiming provider cancellation.
 - [ ] Catch ordinary application exceptions (never `BaseException`) at this boundary and emit the same bounded failed card with native fields unavailable, counts `null`, and `component_created=null`; never export exception type/text.
-- [ ] On cancellation, set abort and clear run ID. Do not claim an already-entered provider call is canceled.
+- [ ] Do not add an executor, scheduler, retry, transport wrapper, or generalized background-job abstraction beyond this one `to_thread` task.
 - [ ] Never append to `conversation.messages`.
 
 ### Step 6: Verify and commit Task 2
@@ -423,7 +440,7 @@ HTTP request
 | clean compile | 1 | 1 | 1 | success/passed/true |
 
 - [ ] Require stable start/result/done for each completed mode stream.
-- [ ] Require cleanup on disconnect/cancellation without claiming provider-call cancellation.
+- [ ] Require the run ID to remain active while the off-loop task is blocked, then clear after quiescence; do not claim provider-call cancellation.
 - [ ] Prove malformed native evidence fails safely and never becomes clean success.
 
 ### Step 4: Run the complete focused seams
@@ -500,9 +517,9 @@ Stop before push, PR, merge, deployment, or live panel run. Live Planner/Worker/
 
 ---
 
-## Execution Options
+## Execution Strategy
 
-The plan supports either `superpowers:subagent-driven-development` or Inline Execution with `superpowers:executing-plans`. Lock the choice after independent plan review. In either mode, preserve the transaction lineage across tasks and retain the mandatory independent review stops after Tasks 1–4.
+Use **Inline Execution** with `superpowers:executing-plans`. The application root, event-loop boundary, route lifecycle, managed action, event projection, and vertical witness are one coupled cross-language transaction. Preserve its lineage and retain the mandatory independent review stops after Tasks 1–4.
 
 ## Completion Criterion
 
@@ -511,6 +528,7 @@ The slice is complete only when the fake-backed real RookChat HTTP surface prove
 ```text
 normalized explicit Build C# intent
 -> application-owned one-Planner composition
+-> context-preserving off-loop execution
 -> deterministic Worker-first workflow
 -> one create-only typed-tool call
 -> owned clean compile receipt
