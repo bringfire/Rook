@@ -1450,6 +1450,83 @@ class TestChatServer(AioHTTPTestCase):
         assert conversation.active_run_id is None
         assert conversation.messages == initial_messages
 
+    async def _exercise_worker_first_stream_write_failure(
+        self,
+        failed_event_type: str,
+    ) -> tuple[object, list[str], list[str]]:
+        native_result = await _NativeWorkerFirstApplication()(
+            _WORKER_FIRST_INTENT
+        )
+        application_calls: list[str] = []
+
+        async def application(intent: str):
+            application_calls.append(intent)
+            return native_result
+
+        self.worker_first_application.callback = application
+        conversation = self.store.create("worker", document_serial_number=82)
+
+        class FakeRequest:
+            app = self.app
+
+            async def json(self):
+                return {
+                    "conversation_id": conversation.id,
+                    "message": _WORKER_FIRST_INTENT,
+                    "execution_mode": "worker_first_csharp_v1",
+                }
+
+        class FailingStreamResponse:
+            events: list[str] = []
+
+            def __init__(self, *args, **kwargs):
+                self.status = kwargs.get("status", 200)
+
+            async def prepare(self, request):
+                return None
+
+            async def write(self, data):
+                event_type = json.loads(data)["type"]
+                if event_type == failed_event_type:
+                    raise ConnectionResetError("private disconnect sentinel")
+                self.__class__.events.append(event_type)
+
+            async def write_eof(self):
+                return None
+
+        FailingStreamResponse.events = []
+        with patch(
+            "rook.agent.chat.server.web.StreamResponse",
+            FailingStreamResponse,
+        ):
+            try:
+                response = await chat_server.handle_message(FakeRequest())
+            except ConnectionResetError:
+                pytest.fail("stream disconnect escaped the Worker-first handler")
+
+        assert conversation.abort_event.is_set()
+        assert conversation.active_run_id is None
+        assert conversation.messages == []
+        return response, FailingStreamResponse.events, application_calls
+
+    async def test_worker_first_tool_start_disconnect_stops_before_application(self):
+        response, events, application_calls = (
+            await self._exercise_worker_first_stream_write_failure("tool_start")
+        )
+
+        assert response.status == 200
+        assert events == []
+        assert application_calls == []
+
+    async def test_worker_first_tool_result_disconnect_emits_no_replacement_result(self):
+        response, events, application_calls = (
+            await self._exercise_worker_first_stream_write_failure("tool_result")
+        )
+
+        assert response.status == 200
+        assert events == ["tool_start"]
+        assert application_calls == [_WORKER_FIRST_INTENT]
+
 
 def test_message_disconnect_closes_turn_generator_before_return():
     """Write failure must synchronously close run_turn and repair history."""

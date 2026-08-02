@@ -311,6 +311,7 @@ async def _handle_worker_first_message(
     conv.abort_event.clear()
     conv.touch()
     deferred_cleanup = False
+    application_task: asyncio.Task | None = None
     try:
         await response.prepare(request)
         await _write_chat_event(
@@ -327,7 +328,7 @@ async def _handle_worker_first_message(
                 process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
                 document_serial_number=conv.document_serial_number,
             ):
-                task = asyncio.create_task(
+                application_task = asyncio.create_task(
                     asyncio.to_thread(
                         _run_worker_first_application_sync,
                         application,
@@ -335,11 +336,11 @@ async def _handle_worker_first_message(
                     )
                 )
             try:
-                result = await asyncio.shield(task)
+                result = await asyncio.shield(application_task)
             except asyncio.CancelledError:
                 conv.abort_event.set()
                 deferred_cleanup = True
-                task.add_done_callback(
+                application_task.add_done_callback(
                     lambda completed: _complete_deferred_worker_first_run(
                         completed,
                         conv,
@@ -363,6 +364,22 @@ async def _handle_worker_first_message(
         )
         await _write_chat_event(response, ChatEvent("done", usage={}))
         conv.touch()
+    except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
+        conv.abort_event.set()
+        if (
+            application_task is not None
+            and not application_task.done()
+            and not deferred_cleanup
+        ):
+            deferred_cleanup = True
+            application_task.add_done_callback(
+                lambda completed: _complete_deferred_worker_first_run(
+                    completed,
+                    conv,
+                    run_id,
+                )
+            )
+        return response
     finally:
         if not deferred_cleanup and conv.active_run_id == run_id:
             conv.active_run_id = None
