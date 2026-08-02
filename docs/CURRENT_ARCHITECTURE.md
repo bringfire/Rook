@@ -1,8 +1,10 @@
 # Current Architecture
 
-Updated: 2026-06-05
+Updated: 2026-08-02
 
 This file is the short canonical description of the live runtime architecture.
+
+Active program sequencing is indexed in [Active Roadmaps](roadmaps/README.md).
 
 ## System Diagram
 
@@ -92,7 +94,7 @@ Future scene preview, timeline, rendering, and finalized-video export belongs in
 
 ### Agent System (`agent/`)
 
-The agent package retains Planner, Worker, Guardian, and Conductor internals, but autonomous MCP creation entry points are lifecycle-contained. RookChat remains the active model-driven path and selects supported explicit tools. See `AGENT_ARCHITECTURE.md` for details.
+The agent package retains Planner, Worker, Guardian, and Conductor internals, but autonomous MCP creation entry points are lifecycle-contained. Ordinary RookChat remains the active general model-driven path and selects supported explicit tools. See `AGENT_ARCHITECTURE.md` for details.
 
 | Component | Purpose |
 |-----------|---------|
@@ -102,6 +104,18 @@ The agent package retains Planner, Worker, Guardian, and Conductor internals, bu
 | Conductor | Fleet coordinator for parallel swarms (systemic issue detection) |
 | ChatRunner | Interactive chat service for Rook panel (aiohttp, execution policy) |
 | IntentOrchestrator | Layered intent pipeline: plan → route → execute → reflect |
+
+#### Internal Worker-first specimen
+
+An internal Worker-first C# path has proved one frontier Planner call, one local
+Worker call, one real Grasshopper create, and authentic clean-compile verification.
+Its semantic contract is intentionally fixed to no inputs and one `A:double` output.
+It is retained as regression evidence and an internal composition seam, not as a
+general intent harness. The shipped RookChat UI has no **Build C#** action.
+
+The active direction is a compositional semantic design graph compiled into the
+existing execution and receipt machinery. See the
+[Compositional Agent Harness Roadmap](roadmaps/2026-08-02-compositional-agent-harness-roadmap.md).
 
 **Key principle:** Agents call RookNative HTTP endpoints directly via `bridge.py` — they never go through MCP. Port is resolved via discovery files in the shared discovery root.
 

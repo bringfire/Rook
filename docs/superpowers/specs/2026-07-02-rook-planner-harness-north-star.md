@@ -1,5 +1,12 @@
 # Rook Planner Harness North-Star — The Three-Box Internal Agent Topology
 
+> **Historical status (2026-08-02):** This document remains evidence for the
+> durable Planner → deterministic Runner → bounded Worker allocation. Its staged LM
+> sequencing and experiment-specific authoring ladder are superseded for active
+> product work by the
+> [Compositional Agent Harness Roadmap](../../roadmaps/2026-08-02-compositional-agent-harness-roadmap.md).
+> Do not use this document by itself to authorize implementation.
+
 - **Date:** 2026-07-02
 - **Status:** Brainstorm synthesis / design draft for review. **Not approved for implementation.** This document is "another voice in the room" for the in-flux DAG-coordination architecture discussion; slices derived from it require their own specs and approval.
 - **Revision:** 2026-07-02 r2 — patched for LM5I (PR #394); senior-review round 1 folded in (adapter consumes the request envelope; softened near-term claims; external affordance vs internal harness separation; capability-authority rule; mutation-verification lint categories; replan-frontier as runner-interpreted marker; `subworkflow` pushed to LM7 horizon; published-state vocabulary; planner-envelope symmetry labeled a pattern).
