@@ -698,6 +698,53 @@ effects.
 **`p50` delta = 0.00 ft in this AOI too, at every threshold** — a third independent
 confirmation of vertical consistency, now across two urban typologies and 3,053 buildings.
 
+---
+
+## The unexplained MISSING buildings — resolved
+
+Of 29 MISSING in AOI 1, 21 were confirmed post-2014 and 8 were unexplained residue. All 8
+now have a specific cause; **none is genuinely unexplained.**
+
+| BIN | Year | Cause | Evidence |
+|---|---|---|---|
+| 1026915 | 1960 | Assignment failure | Nearest roof 18.8 ft away, area **4,632 SF — identical to footprint** — at Z 49.0, exactly `ground+height_roof`; 5 roofs overlap |
+| 1024961 | 1939 | Assignment failure | Nearest roof **578 SF — identical** to footprint, 27.2 ft away |
+| 1089690 | blank | Assignment failure | 4 roof polygons overlap, none with centroid inside |
+| 1026441 | 1937 | `height_roof` = 0 | Nothing to model |
+| 1080374 | 2000 | Below capture threshold | 175 SF, 9 ft, `feature_code` 1000 |
+| 1090933 | blank | Below capture threshold | 298 SF, 10 ft, `feature_code` 1000 |
+| 1089382 | blank | Probably post-2014 | 207 ft tall, zero overlapping DGN roofs |
+| 1089379 | blank | Probably post-2014 | 120 ft, 20,501 SF, zero overlapping DGN roofs |
+
+### Fix 1 — two-pass assignment
+
+Centroid containment has a **systematic blind spot**: roofs that exist and match perfectly
+(identical polygon area, identical elevation) but whose centroid falls just outside the
+footprint, on concave outlines or where the roof is offset from its footprint.
+
+**Add a second pass.** For any footprint left with no assigned roofs, search for roof
+polygons that *overlap* it and take the best by overlap fraction. Overlap counts confirm
+this recovers all three cases.
+
+### Fix 2 — blank `construction_year` pollutes the self-check
+
+Four of the eight carry no year at all, two of them large and tall with no 2014 geometry —
+almost certainly new construction. The "21 of 29 explained by post-2014" figure therefore
+**understates**; the true count is likely 23. The self-check is sound, its denominator is
+not. Treat blank year as *unknown*, never as *not-post-2014*.
+
+### Fix 3 — filter on `feature_code`
+
+Buildings are `2100`. Both sub-300 SF strays are `1000`. Non-2100 features should be
+excluded from the reconciliation population rather than counted as failures. Likewise
+exclude `height_roof = 0` upfront — there is nothing to compare.
+
+### Revised accounting
+
+Of 29 MISSING: roughly **23 genuine post-2014 absence, 3 recoverable assignment failures,
+3 that should never have been in the population.** The method's true residue is far smaller
+than the raw count implied.
+
 The **reversal at 800 SF** is what makes the result credible: match rate *falls*, so the
 curve is tracking a real property of the data rather than rewarding more aggressive
 filtering.
