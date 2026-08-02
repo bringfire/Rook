@@ -1,6 +1,6 @@
 # RookChat Worker-First C# Integration Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task with the review stops below. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task with the review stops below. Steps use checkbox syntax for tracking.
 
 **Goal:** Add one explicit **Build C#** action to RookChat that sends a normalized intent through the proven Worker-first C# composition and renders one bounded native result card, while leaving ordinary Chat unchanged.
 
@@ -84,7 +84,7 @@ No other production file is in scope without a failing test that demonstrates a 
 
 ### Step 0: Reconfirm the clean implementation lane and baseline
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 git status --short
@@ -98,58 +98,58 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj `
   --filter "FullyQualifiedName~AgentChatClientParseTests|FullyQualifiedName~RookChatPanelTests"
 ```
 
-- [ ] Require an empty status before edits and record exact baseline counts. Stop on an unrelated failure rather than changing its code in this slice.
+- [x] Require an empty status before edits and record exact baseline counts. Stop on an unrelated failure rather than changing its code in this slice.
 
 ### Step 1: Promote the existing Worker schema builder without changing its value
 
-- [ ] Add a test proving `build_local_worker_response_schema()` returns a fresh mapping exactly equal to the current private `_local_worker_response_union_schema()` result.
-- [ ] Add a mutation test proving mutation of one returned schema does not affect a subsequent call.
-- [ ] Run the test and confirm a behavioral RED because the public function is absent:
+- [x] Add a test proving `build_local_worker_response_schema()` returns a fresh mapping exactly equal to the current private `_local_worker_response_union_schema()` result.
+- [x] Add a mutation test proving mutation of one returned schema does not affect a subsequent call.
+- [x] Run the test and confirm a behavioral RED because the public function is absent:
 
 ```powershell
 uv run --project mcp_server pytest -q mcp_server/tests/test_local_worker_model_transport.py -k "response_schema"
 ```
 
-- [ ] Make `build_local_worker_response_schema()` the public code-owned builder and retain `_local_worker_response_union_schema()` as a thin compatibility alias for existing scripts/tests. Do not change those historical callers, schema bytes, vocabulary, or response loader.
-- [ ] Rerun the focused test and confirm GREEN.
+- [x] Make `build_local_worker_response_schema()` the public code-owned builder and retain `_local_worker_response_union_schema()` as a thin compatibility alias for existing scripts/tests. Do not change those historical callers, schema bytes, vocabulary, or response loader.
+- [x] Rerun the focused test and confirm GREEN.
 
 ### Step 2: Establish an importable application skeleton and behavioral RED
 
-- [ ] Create the application module with `run_worker_first_csharp_application(intent: str) -> MinimalIntentWorkerInitialBodyIntegrationResult`, but make it raise `NotImplementedError`.
-- [ ] Keep the production function closed to the exact intent. Tests monkeypatch structural transport, profile, local-tool, and dispatcher constructors beneath the real root; the root accepts no factories and no arbitrary Planner-result producer.
-- [ ] Add tests that call the real application function and fail on missing behavior rather than during collection.
+- [x] Create the application module with `run_worker_first_csharp_application(intent: str) -> MinimalIntentWorkerInitialBodyIntegrationResult`, but make it raise `NotImplementedError`.
+- [x] Keep the production function closed to the exact intent. Tests monkeypatch structural transport, profile, local-tool, and dispatcher constructors beneath the real root; the root accepts no factories and no arbitrary Planner-result producer.
+- [x] Add tests that call the real application function and fail on missing behavior rather than during collection.
 
 The root returns the existing integration result unchanged. It introduces no wrapper result, duplicate graph fields, or receipt copy.
 
 ### Step 3: Write valid-red role and construction tests
 
-- [ ] Prove `hybrid` is resolved before either transport or tool construction.
-- [ ] Prove exact built-in strings and exact role equality:
+- [x] Prove `hybrid` is resolved before either transport or tool construction.
+- [x] Prove exact built-in strings and exact role equality:
 
 ```text
 Planner = anthropic/claude-opus-4-6
 Worker  = ollama_chat/qwen3-coder:30b-a3b-q8_0
 ```
 
-- [ ] Prove profile failure, role mismatch, or equality-spoof values cause an ordinary pre-contact refusal and zero constructors.
-- [ ] Prove Planner kwargs contain `response_format` built from `build_minimal_planner_draft_response_schema()` and no `format`.
-- [ ] Prove Worker kwargs contain a fresh `build_local_worker_response_schema()` through `structured_response_schema`, without duplicated `response_format`.
-- [ ] Prove both transports receive exact model identity, temperature `0`, `max_tokens=1024`, `max_retries=0`, and timeout `120.0`.
+- [x] Prove profile failure, role mismatch, or equality-spoof values cause an ordinary pre-contact refusal and zero constructors.
+- [x] Prove Planner kwargs contain `response_format` built from `build_minimal_planner_draft_response_schema()` and no `format`.
+- [x] Prove Worker kwargs contain a fresh `build_local_worker_response_schema()` through `structured_response_schema`, without duplicated `response_format`.
+- [x] Prove both transports receive exact model identity, temperature `0`, `max_tokens=1024`, `max_retries=0`, and timeout `120.0`.
 
 ### Step 4: Write valid-red create-only capability tests
 
-- [ ] Patch `build_local_tools()` and `ToolDispatcher` at construction and prove the root builds `ToolDispatcher(local_tools=build_local_tools())`.
-- [ ] Prove the wrapper delegates one exact `gh_create_csharp_script` request and returns the dispatcher value unchanged.
-- [ ] Prove every other name, especially `gh_update_script`, refuses before dispatcher entry.
-- [ ] Prove repeated create and equality-spoof names refuse before any second/invalid entry.
+- [x] Patch `build_local_tools()` and `ToolDispatcher` at construction and prove the root builds `ToolDispatcher(local_tools=build_local_tools())`.
+- [x] Prove the wrapper delegates one exact `gh_create_csharp_script` request and returns the dispatcher value unchanged.
+- [x] Prove every other name, especially `gh_update_script`, refuses before dispatcher entry.
+- [x] Prove repeated create and equality-spoof names refuse before any second/invalid entry.
 
 ### Step 5: Implement the smallest root
 
-- [ ] Add code-owned constants for mode/profile/model/generation values.
-- [ ] Resolve and exact-type-check both roles before constructing either capability.
-- [ ] Construct both `LiteLLMWorkerTransport` instances with their role-specific schema paths.
-- [ ] Construct the real local dispatcher and private create-only async wrapper.
-- [ ] Construct the exact concrete `MinimalPlannerDraftAdapter` and call:
+- [x] Add code-owned constants for mode/profile/model/generation values.
+- [x] Resolve and exact-type-check both roles before constructing either capability.
+- [x] Construct both `LiteLLMWorkerTransport` instances with their role-specific schema paths.
+- [x] Construct the real local dispatcher and private create-only async wrapper.
+- [x] Construct the exact concrete `MinimalPlannerDraftAdapter` and call:
 
 ```python
 await run_minimal_intent_worker_initial_body_integration(
@@ -160,11 +160,11 @@ await run_minimal_intent_worker_initial_body_integration(
 )
 ```
 
-- [ ] Return the exact `MinimalIntentWorkerInitialBodyIntegrationResult` without replaying or wrapping its lineage.
+- [x] Return the exact `MinimalIntentWorkerInitialBodyIntegrationResult` without replaying or wrapping its lineage.
 
 ### Step 6: Verify and commit Task 1
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 uv run --project mcp_server pytest -q `
@@ -177,8 +177,8 @@ uv run --project mcp_server python -m py_compile `
 git diff --check
 ```
 
-- [ ] Confirm no external contact occurred.
-- [ ] Commit Task 1 files:
+- [x] Confirm no external contact occurred.
+- [x] Commit Task 1 files:
 
 ```powershell
 git add mcp_server/src/rook/agent/worker_first_csharp_application.py `
@@ -203,11 +203,11 @@ Stop for independent review before Chat routing. Confirm role construction, sche
 
 ### Step 1: Add mode-routing valid-red tests
 
-- [ ] Prove a request without `execution_mode` still calls existing `ChatRunner.run_turn()` and never constructs the Worker-first application.
-- [ ] Add an invalid-mode table covering non-string values, blank strings, case changes, whitespace padding, and unknown strings. Every row refuses before application/model/tool construction.
-- [ ] Add one valid request using exact mode `worker_first_csharp_v1`.
-- [ ] Prove blank, whitespace-padded, non-string, and oversized exact-mode messages refuse rather than being trimmed again; the application receives only an exact built-in bounded string.
-- [ ] Run and confirm RED at the missing route branch:
+- [x] Prove a request without `execution_mode` still calls existing `ChatRunner.run_turn()` and never constructs the Worker-first application.
+- [x] Add an invalid-mode table covering non-string values, blank strings, case changes, whitespace padding, and unknown strings. Every row refuses before application/model/tool construction.
+- [x] Add one valid request using exact mode `worker_first_csharp_v1`.
+- [x] Prove blank, whitespace-padded, non-string, and oversized exact-mode messages refuse rather than being trimmed again; the application receives only an exact built-in bounded string.
+- [x] Run and confirm RED at the missing route branch:
 
 ```powershell
 uv run --project mcp_server pytest -q mcp_server/tests/test_chat_server.py -k "worker_first_csharp"
@@ -215,18 +215,18 @@ uv run --project mcp_server pytest -q mcp_server/tests/test_chat_server.py -k "w
 
 ### Step 2: Add lifecycle, responsiveness, and ownership tests
 
-- [ ] Inject a fake application root through `create_chat_app()` so HTTP tests never construct live capabilities.
-- [ ] Prove the exact branch rejects concurrent work, assigns one real run ID, clears `abort_event`, touches the conversation, and never calls `PromptBuilder` or `ChatRunner`.
-- [ ] Use a blocking fake application controlled by `threading.Event` objects. While it is blocked, prove an asyncio heartbeat advances and a second request for the same conversation receives `409`.
-- [ ] At fake dispatcher entry inside the worker thread, prove `get_rhino_request_context()` contains the exact process/document identity selected by the handler.
-- [ ] Cancel the request task while the fake remains blocked. Prove `abort_event` is set, `active_run_id` remains unchanged, no completed result is streamed, and the application task is not canceled.
-- [ ] Release the fake, wait for genuine quiescence, and prove the matching run ID then clears. A different replacement run ID must never be cleared by the old completion callback.
-- [ ] Prove `conversation.messages` is unchanged on success, native stop, application exception, disconnect, and deferred cancellation cleanup.
-- [ ] Prove an ordinary worker-task exception is retrieved and cannot produce an unhandled-task warning or leave the conversation active.
+- [x] Inject a fake application root through `create_chat_app()` so HTTP tests never construct live capabilities.
+- [x] Prove the exact branch rejects concurrent work, assigns one real run ID, clears `abort_event`, touches the conversation, and never calls `PromptBuilder` or `ChatRunner`.
+- [x] Use a blocking fake application controlled by `threading.Event` objects. While it is blocked, prove an asyncio heartbeat advances and a second request for the same conversation receives `409`.
+- [x] At fake dispatcher entry inside the worker thread, prove `get_rhino_request_context()` contains the exact process/document identity selected by the handler.
+- [x] Cancel the request task while the fake remains blocked. Prove `abort_event` is set, `active_run_id` remains unchanged, no completed result is streamed, and the application task is not canceled.
+- [x] Release the fake, wait for genuine quiescence, and prove the matching run ID then clears. A different replacement run ID must never be cleared by the old completion callback.
+- [x] Prove `conversation.messages` is unchanged on success, native stop, application exception, disconnect, and deferred cancellation cleanup.
+- [x] Prove an ordinary worker-task exception is retrieved and cannot produce an unhandled-task warning or leave the conversation active.
 
 ### Step 3: Add projection fixtures from owned native records
 
-- [ ] Build real result fixtures for these ownership cases:
+- [x] Build real result fixtures for these ownership cases:
 
 | Case | Expected bounded facts |
 |---|---|
@@ -237,17 +237,17 @@ uv run --project mcp_server pytest -q mcp_server/tests/test_chat_server.py -k "w
 | owned evidence proving no creation | failed, unavailable, `component_created=false` |
 | ordinary application exception with no provable create boundary | failed, unavailable, null counts, `component_created=null` |
 
-- [ ] Select receipt only from the retained create producer record. Do not replay compilers, applicators, dispatchers, or graph transitions.
-- [ ] Require compile status exactly `passed` for owned passed verification, `failed` for owned failed verification, and `unavailable` otherwise.
-- [ ] Require exact built-in scalar types before interpreting receipt values.
-- [ ] Project terminal stage/reason through closed code-owned token sets. Unknown or model-authored values become fixed unclassified tokens and can never reach the stream verbatim.
-- [ ] Require the complete success equation; every missing or contradictory term yields failed.
+- [x] Select receipt only from the retained create producer record. Do not replay compilers, applicators, dispatchers, or graph transitions.
+- [x] Require compile status exactly `passed` for owned passed verification, `failed` for owned failed verification, and `unavailable` otherwise.
+- [x] Require exact built-in scalar types before interpreting receipt values.
+- [x] Project terminal stage/reason through closed code-owned token sets. Unknown or model-authored values become fixed unclassified tokens and can never reach the stream verbatim.
+- [x] Require the complete success equation; every missing or contradictory term yields failed.
 
 ### Step 4: Add exact event-contract tests
 
-- [ ] Prove completed stream order is exactly `tool_start`, `tool_result`, `done`.
-- [ ] Prove `tool_start` has no intent/parameters and uses `worker_first_csharp_v1:<run_id>`.
-- [ ] Prove `tool_result` reuses that ID, uses `tool_status=success|failed`, sets `verified` from the clean equation, and serializes exactly:
+- [x] Prove completed stream order is exactly `tool_start`, `tool_result`, `done`.
+- [x] Prove `tool_start` has no intent/parameters and uses `worker_first_csharp_v1:<run_id>`.
+- [x] Prove `tool_result` reuses that ID, uses `tool_status=success|failed`, sets `verified` from the clean equation, and serializes exactly:
 
 ```text
 status
@@ -259,32 +259,32 @@ warning_count
 component_created
 ```
 
-- [ ] Prove no prompts, responses, code, rationale, diagnostics, GUIDs, receipts, provider metadata, or exception text leaks.
-- [ ] Prove `done` remains the existing shape.
+- [x] Prove no prompts, responses, code, rationale, diagnostics, GUIDs, receipts, provider metadata, or exception text leaks.
+- [x] Prove `done` remains the existing shape.
 
 ### Step 5: Implement one off-loop branch without refactoring normal Chat
 
-- [ ] Add an optional application factory to `create_chat_app()` under one private app key.
-- [ ] Distinguish missing mode from supplied mode. Missing follows existing Chat; non-exact supplied values refuse closed.
-- [ ] Preserve the existing no-mode handler structurally; extract only a tiny shared response helper if compilation requires it.
-- [ ] Add one private synchronous thread entry that runs the complete async application callable in a private event loop:
+- [x] Add an optional application factory to `create_chat_app()` under one private app key.
+- [x] Distinguish missing mode from supplied mode. Missing follows existing Chat; non-exact supplied values refuse closed.
+- [x] Preserve the existing no-mode handler structurally; extract only a tiny shared response helper if compilation requires it.
+- [x] Add one private synchronous thread entry that runs the complete async application callable in a private event loop:
 
 ```python
 def _run_worker_first_application_sync(application, intent):
     return asyncio.run(application(intent))
 ```
 
-- [ ] Inside the existing Rhino request context, create exactly one task around `asyncio.to_thread(_run_worker_first_application_sync, application, message)`. Construct and invoke the application root only inside that worker-thread transaction.
-- [ ] Await the task through `asyncio.shield()` so cancellation of the aiohttp handler never marks the underlying worker task canceled.
-- [ ] On normal completion, project the owned result, emit result/done, touch the conversation, retrieve the task result/exception, and clear the matching run ID.
-- [ ] On connection loss or cancellation while work continues, set abort, stop streaming, attach one code-owned done callback that retrieves the eventual result/exception and clears only the matching run ID, and return without claiming provider cancellation.
-- [ ] Catch ordinary application exceptions (never `BaseException`) at this boundary and emit the same bounded failed card with native fields unavailable, counts `null`, and `component_created=null`; never export exception type/text.
-- [ ] Do not add an executor, scheduler, retry, transport wrapper, or generalized background-job abstraction beyond this one `to_thread` task.
-- [ ] Never append to `conversation.messages`.
+- [x] Inside the existing Rhino request context, create exactly one task around `asyncio.to_thread(_run_worker_first_application_sync, application, message)`. Construct and invoke the application root only inside that worker-thread transaction.
+- [x] Await the task through `asyncio.shield()` so cancellation of the aiohttp handler never marks the underlying worker task canceled.
+- [x] On normal completion, project the owned result, emit result/done, touch the conversation, retrieve the task result/exception, and clear the matching run ID.
+- [x] On connection loss or cancellation while work continues, set abort, stop streaming, attach one code-owned done callback that retrieves the eventual result/exception and clears only the matching run ID, and return without claiming provider cancellation.
+- [x] Catch ordinary application exceptions (never `BaseException`) at this boundary and emit the same bounded failed card with native fields unavailable, counts `null`, and `component_created=null`; never export exception type/text.
+- [x] Do not add an executor, scheduler, retry, transport wrapper, or generalized background-job abstraction beyond this one `to_thread` task.
+- [x] Never append to `conversation.messages`.
 
 ### Step 6: Verify and commit Task 2
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 uv run --project mcp_server pytest -q `
@@ -295,7 +295,7 @@ uv run --project mcp_server python -m py_compile mcp_server/src/rook/agent/chat/
 git diff --check
 ```
 
-- [ ] Commit route files:
+- [x] Commit route files:
 
 ```powershell
 git add mcp_server/src/rook/agent/chat/server.py mcp_server/tests/test_chat_server.py
@@ -320,10 +320,10 @@ Stop for independent review. Verify nullable mutation truth, receipt ownership, 
 
 ### Step 1: Pin managed request JSON with behavioral REDs
 
-- [ ] Prove ordinary `SendMessageStreamingAsync()` still omits `execution_mode`.
-- [ ] Prove a dedicated Build C# client call sends the normalized message and exact `execution_mode="worker_first_csharp_v1"` with existing conversation/document fields.
-- [ ] Prove no generic mode/model/intent override surface is added.
-- [ ] Run and confirm RED because the dedicated method is absent:
+- [x] Prove ordinary `SendMessageStreamingAsync()` still omits `execution_mode`.
+- [x] Prove a dedicated Build C# client call sends the normalized message and exact `execution_mode="worker_first_csharp_v1"` with existing conversation/document fields.
+- [x] Prove no generic mode/model/intent override surface is added.
+- [x] Run and confirm RED because the dedicated method is absent:
 
 ```powershell
 dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~AgentChatClientParseTests"
@@ -331,36 +331,36 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --filter "FullyQualifiedName~AgentC
 
 ### Step 2: Implement the smallest client seam
 
-- [ ] Keep ordinary send unchanged.
-- [ ] Add `SendWorkerFirstCSharpStreamingAsync()` that shares private HTTP/event parsing but authors the closed mode itself.
-- [ ] Do not add a mode argument to ordinary send.
-- [ ] Rerun client tests to GREEN.
+- [x] Keep ordinary send unchanged.
+- [x] Add `SendWorkerFirstCSharpStreamingAsync()` that shares private HTTP/event parsing but authors the closed mode itself.
+- [x] Do not add a mode argument to ordinary send.
+- [x] Rerun client tests to GREEN.
 
 ### Step 3: Add panel-action valid-red tests
 
-- [ ] Add only the smallest test-visible action seam needed by the existing UI tests.
-- [ ] Prove Send and Enter trim through existing behavior, invoke ordinary send, and omit mode.
-- [ ] Prove Build C# uses exactly `input.Trim()`, refuses empty, preserves interior whitespace, invokes only the dedicated client method, and is non-sticky.
-- [ ] Prove both actions share concurrent-run guards and both disable during processing.
-- [ ] Prove double submission across the two actions is impossible.
+- [x] Add only the smallest test-visible action seam needed by the existing UI tests.
+- [x] Prove Send and Enter trim through existing behavior, invoke ordinary send, and omit mode.
+- [x] Prove Build C# uses exactly `input.Trim()`, refuses empty, preserves interior whitespace, invokes only the dedicated client method, and is non-sticky.
+- [x] Prove both actions share concurrent-run guards and both disable during processing.
+- [x] Prove double submission across the two actions is impossible.
 
 ### Step 4: Implement the one-button extension
 
-- [ ] Add the smallest secondary-action callback/label seam to `ChatTab` without changing non-agent tabs.
-- [ ] Add **Build C#** beside existing actions and share blank/concurrency/processing behavior.
-- [ ] Keep keyboard submission bound only to Send.
-- [ ] In `AgentChatTab`, call the dedicated client method and reuse the existing event/card lifecycle.
+- [x] Add the smallest secondary-action callback/label seam to `ChatTab` without changing non-agent tabs.
+- [x] Add **Build C#** beside existing actions and share blank/concurrency/processing behavior.
+- [x] Keep keyboard submission bound only to Send.
+- [x] In `AgentChatTab`, call the dedicated client method and reuse the existing event/card lifecycle.
 
 ### Step 5: Add the tiny name-specific summary
 
-- [ ] Test `BuildToolSummary()` for clean success, compile failure counts, unavailable/null creation, and malformed bounded JSON.
-- [ ] Show only bounded compile state/counts/creation certainty; never show diagnostics, code, GUIDs, prompts, model content, or raw JSON.
-- [ ] Keep every other tool name on the existing generic summary.
-- [ ] Implement one exact-name branch; no renderer registry or generic framework.
+- [x] Test `BuildToolSummary()` for clean success, compile failure counts, unavailable/null creation, and malformed bounded JSON.
+- [x] Show only bounded compile state/counts/creation certainty; never show diagnostics, code, GUIDs, prompts, model content, or raw JSON.
+- [x] Keep every other tool name on the existing generic summary.
+- [x] Implement one exact-name branch; no renderer registry or generic framework.
 
 ### Step 6: Verify and commit Task 3
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 dotnet test src/Rook.Tests/Rook.Tests.csproj `
@@ -369,8 +369,8 @@ dotnet build src/Rook/Rook.csproj --configuration Debug
 git diff --check
 ```
 
-- [ ] Confirm no external contact occurred.
-- [ ] Commit managed files:
+- [x] Confirm no external contact occurred.
+- [x] Commit managed files:
 
 ```powershell
 git add src/Rook/UI/Chat/ChatTab.cs `
@@ -397,16 +397,18 @@ Stop for independent review. Verify ordinary Send/Enter is unchanged, Build C# i
 
 ### Step 1: Build a valid-red HTTP vertical using real product seams
 
-- [ ] Start a real aiohttp test app through `create_chat_app()` and use the real mode route plus real application root.
-- [ ] Inject only structural fakes at approved boundaries: one-call Planner transport, one-call Worker transport through the real adapter/harness, and patched local dispatcher execution.
-- [ ] Make the fake Planner inspect the actual prompt and return the exact four-field payload with `goal` equal to normalized intent.
-- [ ] Make the fake Worker inspect actual context before returning one `draft_create_body` response.
-- [ ] Make fake create derive its receipt from actual tool name, pins, Worker body, call order, and request. Unexpected input fails closed.
-- [ ] Confirm initial failure is at the missing vertical behavior, not imports/fixtures.
+- [x] Start a real aiohttp test app through `create_chat_app()` and use the real mode route plus real application root.
+- [x] Inject only structural fakes at approved boundaries: one-call Planner transport, one-call Worker transport through the real adapter/harness, and patched local dispatcher execution.
+- [x] Make the fake Planner inspect the actual prompt and return the exact four-field payload with `goal` equal to normalized intent.
+- [x] Make the fake Worker inspect actual context before returning one `draft_create_body` response.
+- [x] Make fake create derive its receipt from actual tool name, pins, Worker body, call order, and request. Unexpected input fails closed.
+- [x] Confirmed the new vertical was behaviorally green against the completed
+  Task 1–3 seams. No production omission was found, so no artificial RED or
+  product change was introduced.
 
 ### Step 2: Prove exact success
 
-- [ ] Assert:
+- [x] Assert:
 
 ```text
 HTTP request
@@ -420,14 +422,14 @@ HTTP request
 -> done
 ```
 
-- [ ] Prove zero update, repair, retry, fallback, ChatRunner, or prose calls.
-- [ ] Prove code equals admitted Worker code while pins/name/position/tool/topology remain compiler-owned.
-- [ ] Prove clean seven-field result and no excluded payload leakage.
-- [ ] Prove Rhino context at dispatcher entry, unchanged conversation history, and cleared run ID.
+- [x] Prove zero update, repair, retry, fallback, ChatRunner, or prose calls.
+- [x] Prove code equals admitted Worker code while pins/name/position/tool/topology remain compiler-owned.
+- [x] Prove clean seven-field result and no excluded payload leakage.
+- [x] Prove Rhino context at dispatcher entry, unchanged conversation history, and cleared run ID.
 
 ### Step 3: Prove the closed stop-prefix matrix
 
-- [ ] Parameterize:
+- [x] Parameterize:
 
 | Stop | Planner | Worker | Create | Projection |
 |---|---:|---:|---:|---|
@@ -439,13 +441,13 @@ HTTP request
 | ambiguous create dispatch | 1 | 1 | 1 | failed/unavailable/null |
 | clean compile | 1 | 1 | 1 | success/passed/true |
 
-- [ ] Require stable start/result/done for each completed mode stream.
-- [ ] Require the run ID to remain active while the off-loop task is blocked, then clear after quiescence; do not claim provider-call cancellation.
-- [ ] Prove malformed native evidence fails safely and never becomes clean success.
+- [x] Require stable start/result/done for each completed mode stream.
+- [x] Require the run ID to remain active while the off-loop task is blocked, then clear after quiescence; do not claim provider-call cancellation.
+- [x] Prove malformed native evidence fails safely and never becomes clean success.
 
 ### Step 4: Run the complete focused seams
 
-- [ ] Run Python:
+- [x] Run Python:
 
 ```powershell
 uv run --project mcp_server pytest -q `
@@ -459,7 +461,7 @@ uv run --project mcp_server pytest -q `
   mcp_server/tests/test_plan_graph_current_step_runner.py
 ```
 
-- [ ] Run managed:
+- [x] Run managed:
 
 ```powershell
 dotnet test src/Rook.Tests/Rook.Tests.csproj `
@@ -467,11 +469,11 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj `
 dotnet build src/Rook/Rook.csproj --configuration Debug
 ```
 
-- [ ] Record exact counts/results in the ledger.
+- [x] Record exact counts/results in the ledger.
 
 ### Step 5: Run final static verification
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 uv run --project mcp_server python -m py_compile `
@@ -485,12 +487,12 @@ git diff --check
 git status --short
 ```
 
-- [ ] Require zero forbidden-path matches in the new application/mode branch.
-- [ ] Review branch-base diff for exact planned scope and confirm no external contact.
+- [x] Require zero forbidden-path matches in the new application/mode branch.
+- [x] Review branch-base diff for exact planned scope and confirm no external contact.
 
 ### Step 6: Reconcile the plan ledger and commit
 
-- [ ] Mark completed checkboxes and record:
+- [x] Mark completed checkboxes and record:
 
 ```text
 implementation HEAD:
@@ -502,14 +504,42 @@ worktree status:
 external contact: none
 ```
 
-- [ ] Record final non-claims: no broad intent coverage, runtime-output proof, repeatability, arbitrary interfaces, provider cancellation guarantee, durable evidence, or cross-mode memory.
-- [ ] Commit vertical test and ledger:
+- [x] Record final non-claims: no broad intent coverage, runtime-output proof, repeatability, arbitrary interfaces, provider cancellation guarantee, durable evidence, or cross-mode memory.
+- [x] Commit vertical test and ledger:
 
 ```powershell
 git add mcp_server/tests/test_rookchat_worker_first_csharp_integration.py `
         docs/superpowers/plans/2026-08-01-rookchat-worker-first-csharp-integration.md
 git commit -m "test: verify RookChat Worker-first C# vertical"
 ```
+
+### Final verification ledger
+
+```text
+implementation HEAD through reviewed Task 3: c4501f57bbb2464b0e9c951acd04d5611c274ab8
+Task 4 vertical witness: included with this ledger commit
+focused Python: 172 passed, 13 unrelated knowledge-route tests deselected
+managed Chat/parser: 43 passed
+managed build: passed, 0 errors, 264 existing warnings
+Python compilation: passed
+forbidden-path scan: zero matches
+git diff --check: passed
+external contact: none
+```
+
+The broad `test_chat_server.py` baseline reproduced exactly its two known,
+unrelated knowledge failures and no others:
+
+```text
+TestKnowledgeGraphRoutes::test_knowledge_graph_returns_valid_payload
+  meta.source was UnifiedStore+CommandKnowledgeStore, expected UnifiedStore
+TestKnowledgeGraphRoutes::test_knowledge_note_found
+  command-knowledge note response was 500 because ModeKnowledge is not JSON serializable
+```
+
+Final non-claims: this slice does not establish broad intent coverage,
+runtime-output correctness, repeatability, arbitrary interfaces, cancellation
+of an already-entered provider call, durable evidence, or cross-mode memory.
 
 ### Mandatory final implementation review stop
 
