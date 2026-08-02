@@ -219,12 +219,13 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
-        public void AgentChatTab_BuildAction_UsesDedicatedNonStickyClientPath()
+        public void AgentChatTab_BuildAction_IsHiddenWhileInternalPathRemains()
         {
             var chatTab = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
             var agentTab = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
 
-            Assert.Contains("ConfigureSecondaryAction(\"Build C#\", OnBuildCSharpMessage)", agentTab);
+            Assert.DoesNotContain("ConfigureSecondaryAction(\"Build C#\", OnBuildCSharpMessage)", agentTab);
+            Assert.Contains("private Task OnBuildCSharpMessage", agentTab);
             Assert.Contains("_client.SendWorkerFirstCSharpStreamingAsync", agentTab);
             Assert.Contains("_client.SendMessageStreamingAsync", agentTab);
             Assert.Contains("SubmitInputAsync(OnSendMessage)", chatTab);
