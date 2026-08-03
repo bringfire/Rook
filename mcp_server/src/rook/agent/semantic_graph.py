@@ -18,6 +18,9 @@ _MIN_SLIDER_VALUE = -1_000_000
 _MAX_SLIDER_VALUE = 1_000_000
 _MIN_INTEGER_INPUT_INITIAL = 1
 _MAX_INTEGER_INPUT_INITIAL = 100
+_CSHARP_SCRIPT_PRIMITIVE = "csharp_script"
+_MAX_CSHARP_GOAL_CHARACTERS = 4_096
+_MAX_CSHARP_GOAL_UTF8_BYTES = 16_384
 _NODE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,47}(?![\s\S])")
 
 
@@ -49,6 +52,37 @@ class SemanticGraphLoadResult:
     graph: SemanticGraph | None
     failure: str | None
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticCSharpOutput:
+    name: str
+    type: str
+
+    def __post_init__(self) -> None:
+        if type(self.name) is not str or self.name != "A":
+            raise TypeError("C# output name must be exact A")
+        if type(self.type) is not str or self.type != "double":
+            raise TypeError("C# output type must be exact double")
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticCSharpInterface:
+    inputs: tuple[object, ...]
+    outputs: tuple[SemanticCSharpOutput, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.inputs) is not tuple:
+            raise TypeError("C# inputs must be an exact tuple")
+        if self.inputs:
+            raise ValueError("C# inputs must be empty")
+        if type(self.outputs) is not tuple:
+            raise TypeError("C# outputs must be an exact tuple")
+        if (
+            len(self.outputs) != 1
+            or type(self.outputs[0]) is not SemanticCSharpOutput
+        ):
+            raise TypeError("C# outputs must contain exact A:double")
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,6 +371,8 @@ def _load_graph_object(decoded: dict[str, Any]) -> SemanticGraph:
             raise _AdmissionError("node", "duplicate_node_id")
         node_ids.add(node.id)
         nodes.append(node)
+    if sum(node.primitive == _CSHARP_SCRIPT_PRIMITIVE for node in nodes) > 1:
+        raise _AdmissionError("graph", "multiple_worker_leaves")
 
     edges: list[SemanticGraphEdge] = []
     edge_values: set[tuple[str, str, str, str]] = set()
@@ -361,6 +397,12 @@ def _load_node(value: object) -> SemanticGraphNode:
     if type(node_id) is not str or _NODE_ID_PATTERN.fullmatch(node_id) is None:
         raise _AdmissionError("node", "invalid_node_id")
     primitive_name = value["primitive"]
+    if primitive_name == _CSHARP_SCRIPT_PRIMITIVE:
+        return SemanticGraphNode(
+            id=node_id,
+            primitive=_CSHARP_SCRIPT_PRIMITIVE,
+            parameters=_load_csharp_parameters(value["parameters"]),
+        )
     primitive = _find_primitive(primitive_name)
     parameters = _load_parameters(primitive, value["parameters"])
     return SemanticGraphNode(
@@ -415,6 +457,47 @@ def _load_parameters(
     return tuple(sorted(value.items()))
 
 
+def _load_csharp_parameters(value: object) -> tuple[tuple[str, object], ...]:
+    if type(value) is not dict or set(value) != {"goal", "interface"}:
+        raise _AdmissionError("parameters", "invalid_csharp_parameters")
+    goal = value["goal"]
+    if type(goal) is not str or not goal.strip():
+        raise _AdmissionError("parameters", "invalid_csharp_goal")
+    if len(goal) > _MAX_CSHARP_GOAL_CHARACTERS:
+        raise _AdmissionError("parameters", "invalid_csharp_goal")
+    try:
+        goal_bytes = goal.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise _AdmissionError("parameters", "invalid_csharp_goal") from exc
+    if len(goal_bytes) > _MAX_CSHARP_GOAL_UTF8_BYTES:
+        raise _AdmissionError("parameters", "invalid_csharp_goal")
+
+    raw_interface = value["interface"]
+    if (
+        type(raw_interface) is not dict
+        or set(raw_interface) != {"inputs", "outputs"}
+    ):
+        raise _AdmissionError("parameters", "invalid_csharp_interface")
+    raw_inputs = raw_interface["inputs"]
+    raw_outputs = raw_interface["outputs"]
+    if type(raw_inputs) is not list or raw_inputs:
+        raise _AdmissionError("parameters", "invalid_csharp_interface")
+    if type(raw_outputs) is not list or len(raw_outputs) != 1:
+        raise _AdmissionError("parameters", "invalid_csharp_interface")
+    raw_output = raw_outputs[0]
+    if type(raw_output) is not dict or set(raw_output) != {"name", "type"}:
+        raise _AdmissionError("parameters", "invalid_csharp_interface")
+    try:
+        output = SemanticCSharpOutput(
+            name=raw_output["name"],
+            type=raw_output["type"],
+        )
+        interface = SemanticCSharpInterface(inputs=(), outputs=(output,))
+    except (TypeError, ValueError) as exc:
+        raise _AdmissionError("parameters", "invalid_csharp_interface") from exc
+    return (("goal", goal), ("interface", interface))
+
+
 def _load_edge(value: object) -> SemanticGraphEdge:
     expected = {"from_node", "from_pin", "to_node", "to_pin"}
     if type(value) is not dict or set(value) != expected:
@@ -463,6 +546,60 @@ def build_semantic_graph_response_schema() -> dict[str, object]:
                         "from_pin": {"type": "string"},
                         "to_node": {"type": "string"},
                         "to_pin": {"type": "string"},
+                    },
+                },
+            },
+        },
+    }
+
+
+def build_worker_leaf_semantic_graph_response_schema() -> dict[str, object]:
+    schema = build_semantic_graph_response_schema()
+    alternatives = schema["properties"]["nodes"]["items"]["anyOf"]
+    alternatives.append(_csharp_node_schema())
+    return schema
+
+
+def _csharp_node_schema() -> dict[str, object]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["id", "primitive", "parameters"],
+        "properties": {
+            "id": {"type": "string"},
+            "primitive": {"const": _CSHARP_SCRIPT_PRIMITIVE},
+            "parameters": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["goal", "interface"],
+                "properties": {
+                    "goal": {"type": "string"},
+                    "interface": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["inputs", "outputs"],
+                        "properties": {
+                            "inputs": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {},
+                                },
+                            },
+                            "outputs": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["name", "type"],
+                                    "properties": {
+                                        "name": {"const": "A"},
+                                        "type": {"const": "double"},
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
             },
@@ -529,6 +666,34 @@ def semantic_primitive_prompt_projection() -> tuple[dict[str, object], ...]:
             }
         projection.append(entry)
     return tuple(projection)
+
+
+def semantic_worker_leaf_prompt_projection() -> tuple[dict[str, object], ...]:
+    return (
+        *semantic_primitive_prompt_projection(),
+        {
+            "primitive": _CSHARP_SCRIPT_PRIMITIVE,
+            "inputs": (),
+            "outputs": ({"name": "A", "element_type": "Number"},),
+            "parameters": (
+                {"name": "goal", "value_kind": "string", "required": True},
+                {
+                    "name": "interface",
+                    "required": True,
+                    "exact": {
+                        "inputs": [],
+                        "outputs": [{"name": "A", "type": "double"}],
+                    },
+                },
+            ),
+            "connection_rules": {
+                "incoming": 0,
+                "outgoing": 1,
+                "source_pin": "A",
+                "target_element_type": "Number",
+            },
+        },
+    )
 
 
 def _parameter_prompt_projection(

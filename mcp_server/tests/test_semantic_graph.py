@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
 import inspect
 import json
 import math
@@ -216,6 +217,29 @@ def _component_node(
     return {"id": node_id, "primitive": primitive, "parameters": {}}
 
 
+def _csharp_node(
+    node_id: str = "generated_value",
+    *,
+    goal: object = "Produce one numeric value.",
+    interface: object | None = None,
+) -> dict[str, object]:
+    return {
+        "id": node_id,
+        "primitive": "csharp_script",
+        "parameters": {
+            "goal": goal,
+            "interface": (
+                {
+                    "inputs": [],
+                    "outputs": [{"name": "A", "type": "double"}],
+                }
+                if interface is None
+                else interface
+            ),
+        },
+    }
+
+
 def _edge(
     *,
     from_node: object = "slider",
@@ -254,6 +278,140 @@ def _assert_refused(raw_response: object, reason: str) -> None:
     assert result.graph is None
     assert result.failure is not None
     assert result.reason == reason
+
+
+def _walk_schema(value: object):
+    yield value
+    if type(value) is dict:
+        for child in value.values():
+            yield from _walk_schema(child)
+    elif type(value) is list:
+        for child in value:
+            yield from _walk_schema(child)
+
+
+def test_loader_materializes_owned_immutable_csharp_interface() -> None:
+    payload = _payload(nodes=[_csharp_node()], edges=[])
+    source_interface = payload["nodes"][0]["parameters"]["interface"]
+
+    graph = semantic_graph._load_graph_object(payload)
+    node = graph.nodes[0]
+    parameters = dict(node.parameters)
+    interface = parameters["interface"]
+
+    assert type(interface) is semantic_graph.SemanticCSharpInterface
+    assert interface.inputs == ()
+    assert type(interface.outputs) is tuple
+    assert interface.outputs == (
+        semantic_graph.SemanticCSharpOutput(name="A", type="double"),
+    )
+    source_interface["outputs"][0]["name"] = "B"
+    source_interface["outputs"].append({"name": "B", "type": "integer"})
+    assert interface.outputs[0].name == "A"
+    assert len(interface.outputs) == 1
+
+
+def test_csharp_interface_rejects_mutable_or_wrong_nested_carriers() -> None:
+    output = semantic_graph.SemanticCSharpOutput(name="A", type="double")
+    with pytest.raises(TypeError):
+        semantic_graph.SemanticCSharpInterface(inputs=[], outputs=(output,))
+    with pytest.raises(TypeError):
+        semantic_graph.SemanticCSharpInterface(
+            inputs=(),
+            outputs=({"name": "A", "type": "double"},),
+        )
+
+    interface = semantic_graph.SemanticCSharpInterface(
+        inputs=(),
+        outputs=(output,),
+    )
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        interface.outputs = ()
+
+
+@pytest.mark.parametrize(
+    ("parameters", "reason"),
+    [
+        ({"interface": {"inputs": [], "outputs": [{"name": "A", "type": "double"}]}}, "invalid_csharp_parameters"),
+        ({"goal": "Value", "interface": {"inputs": [], "outputs": [{"name": "A", "type": "double"}]}, "extra": True}, "invalid_csharp_parameters"),
+        ({"goal": 1, "interface": {"inputs": [], "outputs": [{"name": "A", "type": "double"}] }}, "invalid_csharp_goal"),
+        ({"goal": "   ", "interface": {"inputs": [], "outputs": [{"name": "A", "type": "double"}] }}, "invalid_csharp_goal"),
+        ({"goal": "a" * 4_097, "interface": {"inputs": [], "outputs": [{"name": "A", "type": "double"}] }}, "invalid_csharp_goal"),
+        ({"goal": "😀" * 4_097, "interface": {"inputs": [], "outputs": [{"name": "A", "type": "double"}] }}, "invalid_csharp_goal"),
+        ({"goal": "Value", "interface": {"outputs": [{"name": "A", "type": "double"}]}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": [], "outputs": [{"name": "A", "type": "double"}], "extra": True}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": {}, "outputs": [{"name": "A", "type": "double"}]}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": [{}], "outputs": [{"name": "A", "type": "double"}]}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": [], "outputs": {}}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": [], "outputs": []}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": [], "outputs": [{"name": "A", "type": "double"}, {"name": "B", "type": "double"}]}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": [], "outputs": [{"name": "A"}]}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": [], "outputs": [{"name": "A", "type": "double", "extra": True}]}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": [], "outputs": [{"name": "B", "type": "double"}]}}, "invalid_csharp_interface"),
+        ({"goal": "Value", "interface": {"inputs": [], "outputs": [{"name": "A", "type": "integer"}]}}, "invalid_csharp_interface"),
+    ],
+)
+def test_loader_rejects_invalid_csharp_parameters(
+    parameters: dict[str, object],
+    reason: str,
+) -> None:
+    node = _csharp_node()
+    node["parameters"] = parameters
+    _assert_refused(_raw(_payload(nodes=[node])), reason)
+
+
+def test_loader_rejects_more_than_one_csharp_script() -> None:
+    _assert_refused(
+        _raw(
+            _payload(
+                nodes=[
+                    _csharp_node("first"),
+                    _csharp_node("second"),
+                ]
+            )
+        ),
+        "multiple_worker_leaves",
+    )
+
+
+def test_loader_rejects_escaped_lone_surrogate_csharp_goal() -> None:
+    raw_response = json.dumps(
+        _payload(nodes=[_csharp_node(goal=chr(0xD800))]),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    _assert_refused(raw_response, "invalid_csharp_goal")
+
+
+def test_worker_leaf_schema_uses_provider_qualified_anyof_only() -> None:
+    schema = semantic_graph.build_worker_leaf_semantic_graph_response_schema()
+    Draft202012Validator.check_schema(schema)
+    walked = tuple(_walk_schema(schema))
+    assert not any(type(value) is dict and "oneOf" in value for value in walked)
+    alternatives = schema["properties"]["nodes"]["items"]["anyOf"]
+    assert any(
+        item["properties"]["primitive"] == {"const": "csharp_script"}
+        for item in alternatives
+    )
+    serialized = json.dumps(schema, sort_keys=True)
+    assert "maxItems" not in serialized
+    assert "minItems" not in serialized
+    assert "maxLength" not in serialized
+
+
+def test_worker_leaf_schema_and_projection_are_fresh_without_mutating_slice1() -> None:
+    original_schema = semantic_graph.build_semantic_graph_response_schema()
+    original_projection = semantic_graph.semantic_primitive_prompt_projection()
+
+    worker_schema = semantic_graph.build_worker_leaf_semantic_graph_response_schema()
+    worker_projection = semantic_graph.semantic_worker_leaf_prompt_projection()
+    worker_schema["required"].append("forged")
+    worker_projection[-1]["primitive"] = "forged"
+
+    assert semantic_graph.build_semantic_graph_response_schema() == original_schema
+    assert semantic_graph.semantic_primitive_prompt_projection() == original_projection
+    assert "forged" not in semantic_graph.build_worker_leaf_semantic_graph_response_schema()["required"]
+    assert semantic_graph.semantic_worker_leaf_prompt_projection()[-1]["primitive"] == "csharp_script"
 
 
 def test_loader_admits_smallest_graph_and_canonicalizes_parameter_order() -> None:
