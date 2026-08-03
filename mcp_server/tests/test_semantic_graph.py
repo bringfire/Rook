@@ -627,18 +627,20 @@ def test_response_schema_is_fresh_closed_and_execution_identity_free() -> None:
     assert "forged" not in second["required"]
 
 
+@pytest.mark.parametrize("invalid_identifier", ["!!slider!!", "slider\n"])
 @pytest.mark.parametrize("field", ["node_id", "from_node", "to_node"])
 def test_response_schema_rejects_node_identifiers_with_extra_characters(
     field: str,
+    invalid_identifier: str,
 ) -> None:
     payload = _payload(
         nodes=[_slider_node(), _component_node()],
         edges=[_edge()],
     )
     if field == "node_id":
-        payload["nodes"][0]["id"] = "!!slider!!"
+        payload["nodes"][0]["id"] = invalid_identifier
     else:
-        payload["edges"][0][field] = "!!slider!!"
+        payload["edges"][0][field] = invalid_identifier
 
     assert not Draft202012Validator(
         semantic_graph.build_semantic_graph_response_schema()

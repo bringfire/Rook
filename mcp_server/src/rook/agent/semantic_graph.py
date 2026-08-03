@@ -18,7 +18,7 @@ _MIN_SLIDER_VALUE = -1_000_000
 _MAX_SLIDER_VALUE = 1_000_000
 _MIN_INTEGER_INPUT_INITIAL = 1
 _MAX_INTEGER_INPUT_INITIAL = 100
-_NODE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
+_NODE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,47}(?![\s\S])")
 
 
 @dataclass(frozen=True, slots=True)
