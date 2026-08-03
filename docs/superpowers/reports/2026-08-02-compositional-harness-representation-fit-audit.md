@@ -497,7 +497,7 @@ A minimum future evaluation row should retain:
 - native receipt outcome; and
 - a separate semantic-fidelity assessment.
 
-Those fields belong in the existing lightweight trace/evaluation path. They do not belong inside the semantic graph, and they do not justify a new archive or evidence system. Compile success alone is not a valid DSPy metric: it establishes mechanical admissibility, not that the graph faithfully implements the user's intent.
+Those fields belong in an ordinary lightweight trace/evaluation record, reusing the existing flight-recorder pattern where applicable. They do not belong inside the semantic graph, and they do not justify a new archive or evidence system. Compile success alone is not a valid DSPy metric: it establishes mechanical admissibility, not that the graph faithfully implements the user's intent.
 
 DSPy optimization remains ineligible until the prospective graph contract is stable and a representative corpus has explicit train, development, and held-out partitions. Slice 1 adds no DSPy optimizer, corpus migration, recursive knowledge runtime, learned-program registry, new evidence system, or other knowledge-system implementation. Its boundary and representation recommendation remain unchanged.
 
