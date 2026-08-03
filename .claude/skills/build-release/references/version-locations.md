@@ -1,91 +1,96 @@
 # Version Locations
 
-Every release requires updating these 7 files. The OLD version must be replaced
-with the NEW version in each location. Use the Edit tool for each.
+Every release requires 14 edits across these 10 files. Replace the old version with
+the new semantic version (`X.Y.Z`) in every location.
 
-## 1. mcp_server/pyproject.toml (line ~3)
+## 1. `mcp_server/pyproject.toml` — 1 edit
 
-```
-version = "OLD"  -->  version = "NEW"
-```
-
-## 2. installer/RookSetup.iss (line ~15)
-
-```
-#define MyAppVersion "OLD"  -->  #define MyAppVersion "NEW"
+```toml
+version = "OLD"  # -> "NEW"
 ```
 
-## 3. src/Rook/Rook.csproj (line ~13)
+## 2. `mcp_server/uv.lock` — 1 local-project edit
 
-```
-<Version>OLD</Version>  -->  <Version>NEW</Version>
-```
+Do not edit the lock manually. After changing `pyproject.toml`, run `uv lock` and
+require the resulting diff to change only the local `rook-mcp` project version. Stop
+if a third-party package, version, source, or hash changes.
 
-## 4. src/RookBim/RookBim.csproj (line ~10)
+## 3. `installer/RookSetup.iss` — 1 edit
 
-```
-<Version>OLD</Version>  -->  <Version>NEW</Version>
-```
-
-## 5. src/RookNative/RookNative.rc (4 edits in one file)
-
-Binary version numbers use commas. For version A.B.C:
-
-```
-FILEVERSION A,B,C,0       (line ~17)
-PRODUCTVERSION A,B,C,0    (line ~18)
-VALUE "FileVersion", "A.B.C.0"      (line ~35)
-VALUE "ProductVersion", "A.B.C.0"   (line ~40)
+```text
+#define MyAppVersion "OLD"  ->  #define MyAppVersion "NEW"
 ```
 
-## 6. src/RookNative/RookNativePlugin.cpp (line ~252)
+## 4. `src/Rook/Rook.csproj` — 1 edit
 
-```
-: m_plugin_version(L"OLD")  -->  : m_plugin_version(L"NEW")
+```xml
+<Version>OLD</Version>  <!-- -> NEW -->
 ```
 
-## 7. src/RookNative/RookServer.cpp (line ~1438)
+## 5. `src/RookBim/RookBim.csproj` — 1 edit
 
+```xml
+<Version>OLD</Version>  <!-- -> NEW -->
 ```
-info["pluginVersion"] = "OLD";  -->  info["pluginVersion"] = "NEW";
+
+## 6. `src/RookNative/RookNative.rc` — 4 edits
+
+For version `A.B.C`:
+
+```text
+FILEVERSION A,B,C,0
+PRODUCTVERSION A,B,C,0
+VALUE "FileVersion", "A.B.C.0"
+VALUE "ProductVersion", "A.B.C.0"
 ```
+
+## 7. `src/RookNative/RookNativePlugin.cpp` — 1 edit
+
+```cpp
+: m_plugin_version(L"OLD")  // -> NEW
+```
+
+## 8. `src/RookNative/RookServer.cpp` — 1 edit
+
+```cpp
+kRookNativePluginVersion = "OLD";  // -> NEW
+```
+
+## 9. `.claude-plugin/plugin.json` — 1 edit
+
+```json
+"version": "NEW"
+```
+
+## 10. `.claude-plugin/marketplace.json` — 2 edits
+
+Update both `metadata.version` and `plugins[0].version` to `NEW`.
 
 ## Verification
 
-After all edits, run:
+Run `uv lock` after the source version change, inspect its bounded diff, and then run:
 
 ```powershell
-$newVersion = "NEW_VERSION"
-Select-String -Path `
-  mcp_server\pyproject.toml, `
-  installer\RookSetup.iss, `
-  src\Rook\Rook.csproj, `
-  src\RookBim\RookBim.csproj, `
-  src\RookNative\RookNative.rc, `
-  src\RookNative\RookNativePlugin.cpp, `
-  src\RookNative\RookServer.cpp `
-  -Pattern ([regex]::Escape($newVersion))
+$newVersion = 'NEW_VERSION'
+$versionPaths = @(
+  'mcp_server/pyproject.toml',
+  'mcp_server/uv.lock',
+  'installer/RookSetup.iss',
+  'src/Rook/Rook.csproj',
+  'src/RookBim/RookBim.csproj',
+  'src/RookNative/RookNative.rc',
+  'src/RookNative/RookNativePlugin.cpp',
+  'src/RookNative/RookServer.cpp',
+  '.claude-plugin/plugin.json',
+  '.claude-plugin/marketplace.json'
+)
+
+Select-String -Path $versionPaths -Pattern ([regex]::Escape($newVersion))
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/release-surface-hygiene.tests.ps1 -Area Metadata
+claude plugin validate --strict .
 ```
 
-Expected: 8 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`,
-`RookBim.csproj`, the two string-value lines in `RookNative.rc`,
-`RookNativePlugin.cpp`, `RookServer.cpp`). The binary `FILEVERSION` /
-`PRODUCTVERSION` lines in the
-`.rc` file must be checked separately because they use comma-delimited values.
-
-More reliable: scan for the old version — should return 0 matches:
-
-```powershell
-$oldVersion = "OLD_VERSION"
-Select-String -Path `
-  mcp_server\pyproject.toml, `
-  installer\RookSetup.iss, `
-  src\Rook\Rook.csproj, `
-  src\RookBim\RookBim.csproj, `
-  src\RookNative\RookNative.rc, `
-  src\RookNative\RookNativePlugin.cpp, `
-  src\RookNative\RookServer.cpp `
-  -Pattern ([regex]::Escape($oldVersion))
-```
-
-This must return nothing. If it does, you missed a location.
+Expect 12 dotted-version matches: one in each ordinary version surface, two resource
+string values, and two marketplace values. Verify the two comma-delimited resource
+version lines separately. Finally scan these same ten files for the old version; it
+must not remain.

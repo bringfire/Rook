@@ -26,7 +26,7 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 | Step | Action | Abort if |
 |------|--------|----------|
 | 0 | Pre-flight checks | Any check fails |
-| 1 | Release branch version bump (7 files / 10 edits) | Verification fails |
+| 1 | Release branch version bump (10 files / 14 edits) | Verification fails |
 | 2 | Merge the release PR and check out the exact main SHA to tag | Main HEAD is not the intended release commit |
 | 3A | Build **and validate** bundled private Python runtime and offline wheelhouse | Build or wheelhouse validation fails |
 | 3 | Build and validate bundled FFmpeg payload/source bundle | Validation fails |
@@ -35,7 +35,7 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 | 6 | Verify all .iss source paths | Any required file missing or stale |
 | 7 | Run ISCC compiler | Exit code != 0 or output missing |
 | 8 | Installer live smoke + release artifact validation manifest | Smoke or validation fails |
-| 9 | Create GitHub release with all required assets | gh command fails |
+| 9 | Public promotion PR and release with all required assets | Promotion or gh command fails |
 
 **HARD RULE: Abort the entire pipeline on any step failure. No partial releases.**
 
@@ -66,6 +66,16 @@ $requiredPaths = @(
 foreach ($path in $requiredPaths) {
   if (-not (Test-Path $path)) { throw "Missing required release path: $path" }
 }
+
+# 5. Release contracts and package metadata are internally consistent
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\release-surface-hygiene.tests.ps1
+if ($LASTEXITCODE -ne 0) { throw "Release-surface hygiene guard failed" }
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\release-installer-guards.tests.ps1 -SkipBuiltPayloadCheck
+if ($LASTEXITCODE -ne 0) { throw "Release-installer guard failed" }
+claude plugin validate --strict .
+if ($LASTEXITCODE -ne 0) { throw "Claude plugin validation failed" }
+uv lock --check --directory mcp_server
+if ($LASTEXITCODE -ne 0) { throw "Python lock metadata is stale" }
 ```
 
 If Rhino is running, tell the user to close it — DLL locks will cause build failures.
@@ -110,32 +120,49 @@ git pull --ff-only origin main
 git switch -c release/vX.Y.Z
 ```
 
-Update all 7 files using the Edit tool. The .rc file requires 4 separate edits
-(FILEVERSION binary, PRODUCTVERSION binary, FileVersion string, ProductVersion string).
+Update all 10 files using the Edit tool. The `.rc` file requires 4 separate edits
+(FILEVERSION binary, PRODUCTVERSION binary, FileVersion string, ProductVersion string),
+and the marketplace manifest requires 2. After changing `pyproject.toml`, regenerate
+the lock with `uv lock`; its diff may change only the local `rook-mcp` project version.
 
 After all edits, verify with:
 
 ```powershell
 Select-String -Path `
   mcp_server\pyproject.toml, `
+  mcp_server\uv.lock, `
   installer\RookSetup.iss, `
   src\Rook\Rook.csproj, `
   src\RookBim\RookBim.csproj, `
   src\RookNative\RookNative.rc, `
   src\RookNative\RookNativePlugin.cpp, `
-  src\RookNative\RookServer.cpp `
+  src\RookNative\RookServer.cpp, `
+  .claude-plugin\plugin.json, `
+  .claude-plugin\marketplace.json `
   -Pattern "X.Y.Z"
 ```
 
-Expect 8 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`,
+Expect 12 string matches (`pyproject.toml`, the local `rook-mcp` block in `uv.lock`,
+`RookSetup.iss`, `Rook.csproj`,
 `RookBim.csproj`, the two string values in `RookNative.rc`,
-`RookNativePlugin.cpp`, and `RookServer.cpp`). Then verify the binary version
-lines in `RookNative.rc` separately.
+`RookNativePlugin.cpp`, `RookServer.cpp`, `plugin.json`, and both version fields in
+`marketplace.json`). Then verify the binary version lines in `RookNative.rc`
+separately. Run the strict Claude and release-surface validations again before commit.
+
+```powershell
+uv lock --directory mcp_server
+git diff -- mcp_server\uv.lock
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\release-surface-hygiene.tests.ps1 -Area Metadata
+claude plugin validate --strict .
+```
+
+Stop if the lock diff changes any third-party package or any field outside the local
+`rook-mcp` project version.
 
 Commit and push only the version-bumped files on the release branch:
 
 ```powershell
-git add mcp_server\pyproject.toml installer\RookSetup.iss src\Rook\Rook.csproj src\RookBim\RookBim.csproj src\RookNative\RookNative.rc src\RookNative\RookNativePlugin.cpp src\RookNative\RookServer.cpp
+git add mcp_server\pyproject.toml mcp_server\uv.lock installer\RookSetup.iss src\Rook\Rook.csproj src\RookBim\RookBim.csproj src\RookNative\RookNative.rc src\RookNative\RookNativePlugin.cpp src\RookNative\RookServer.cpp .claude-plugin\plugin.json .claude-plugin\marketplace.json
 git commit -m "release: bump versions to X.Y.Z"
 git push -u origin release/vX.Y.Z
 ```
@@ -167,7 +194,7 @@ Run this stage from the exact checked-out release SHA, after recording
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\stage-rook-python-runtime.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\build-rook-python-wheelhouse.ps1 -Version X.Y.Z
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\build-rook-python-wheelhouse.ps1 -Version $Version
 ```
 
 This stages CPython 3.11.9 from the pinned official Python NuGet package, builds
@@ -185,7 +212,7 @@ tree `PYTHONPATH` entries to satisfy MCP or Chirp release installation.
 **Then validate the staged wheelhouse before going further (fail closed):**
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-python-wheelhouse.ps1 -Version X.Y.Z
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-python-wheelhouse.ps1 -Version $Version
 ```
 
 The wheelhouse is a gitignored local build artifact, so nothing in version
@@ -287,6 +314,14 @@ Read references/iss-source-paths.md
 
 Every required file listed there must exist. Additionally, verify build outputs
 are **newer than the version bump** (not stale from a previous build).
+
+Now run the complete installer guard without the source-only switch so the built
+companion payloads are required:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\release-installer-guards.tests.ps1
+if ($LASTEXITCODE -ne 0) { throw "Release-installer payload guard failed" }
+```
 
 ## Step 7: Run Inno Setup Compiler
 
@@ -446,28 +481,101 @@ The release manifest must include `git_sha`, `installer_sha256`,
 `ffmpeg_source_bundle_sha256`, and smoke evidence. Do not create the GitHub
 release if validation fails.
 
-## Step 9: GitHub Release
+## Step 9: Public Promotion PR and Release
 
-Attach the installer, FFmpeg source bundle zip, FFmpeg source-bundle manifest,
-smoke manifest, and release manifest:
+Record the accepted private source and artifact identities before copying anything:
 
 ```powershell
+$privateReleaseSha = (git rev-parse HEAD).Trim()
+if ($privateReleaseSha -ne $gitSha) { throw "Private release SHA changed after acceptance" }
+$installerSha256 = (Get-FileHash -LiteralPath "installer/output/Rook-Setup-$Version.exe" -Algorithm SHA256).Hash
+$releaseManifestSha256 = (Get-FileHash -LiteralPath "installer/output/release-manifest-$Version.json" -Algorithm SHA256).Hash
+$smokeManifestSha256 = (Get-FileHash -LiteralPath "installer/output/release-smoke-$Version.json" -Algorithm SHA256).Hash
+```
+
+Create a detached private checkout at exactly `$privateReleaseSha`. Promotion bytes
+must come only from that checkout—not from a mutable branch or working directory.
+Create the public branch from the then-current `bringfire/rook-release` `origin/main`;
+stop if either checkout is dirty or the public checkout is not based on that fetched
+commit.
+
+The byte-promoted inventory is exactly nine skill roots plus five singleton files:
+
+```powershell
+$publicSkillNames = @(
+  'capture-convention',
+  'chirp',
+  'chirp-cascade',
+  'clean-layers',
+  'design-grasshopper',
+  'execute-grasshopper',
+  'plan-grasshopper',
+  'project-setup',
+  'twisted-column'
+)
+$singletonPaths = @(
+  '.claude-plugin/plugin.json',
+  '.claude-plugin/marketplace.json',
+  'hooks/hooks.json',
+  'scripts/session-start.sh',
+  'LICENSE'
+)
+
+$promotionRoot = Join-Path $env:TEMP "rook-public-promotion-$Version"
+$privateSource = Join-Path $promotionRoot 'private-source'
+$publicRoot = Join-Path $promotionRoot 'rook-release'
+git worktree add --detach $privateSource $privateReleaseSha
+gh repo clone bringfire/rook-release $publicRoot
+git -C $publicRoot fetch origin
+$publicBaseSha = (git -C $publicRoot rev-parse origin/main).Trim()
+git -C $publicRoot switch -c "release/v$Version" origin/main
+if (git -C $privateSource status --porcelain) { throw 'Detached private source is dirty' }
+if (git -C $publicRoot status --porcelain) { throw 'Public checkout is dirty before promotion' }
+if ((git -C $publicRoot merge-base HEAD origin/main).Trim() -ne $publicBaseSha) {
+  throw 'Public promotion branch is not based on current public main'
+}
+```
+
+For each listed skill, exact-replace only `.claude/skills/<name>` in the public
+checkout from the detached private source. Copy the five singleton files to their
+same relative paths. Exact-delete only the retired public skill roots
+`.claude/skills/design-road` and `.claude/skills/masterplan-roads`; do not enumerate or
+delete other public directories. `hooks/hooks.json` must resolve to the promoted
+`scripts/session-start.sh`, and both manifests' `SEE LICENSE IN LICENSE` value must
+resolve to the promoted `LICENSE`. Public-only README, site, and release-note edits are
+separate reviewed changes in the public PR—not private-byte copies.
+
+Generate source and candidate inventories for the promoted files containing relative
+path, byte length, and SHA-256. Require the path sets, lengths, and hashes to match
+exactly before committing or opening the public PR. The public PR must record:
+
+- private release SHA and public base SHA;
+- public promotion commit SHA;
+- installer, FFmpeg source-bundle, smoke-manifest, and release-manifest hashes; and
+- the complete promotion inventory.
+
+After that PR is reviewed and merged, create the release in the public repository and
+target the reviewed public promotion commit:
+
+```powershell
+$publicPromotionSha = '<reviewed rook-release merge SHA>'
 $sourceBundleManifestPath = "artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json"
 $sourceBundleZip = (Get-Content $sourceBundleManifestPath -Raw | ConvertFrom-Json).bundle_path
 if ((Split-Path -Leaf $sourceBundleZip) -ne "rook-ffmpeg-8.1.1-source-bundle.zip") { throw "Unexpected FFmpeg source bundle path: $sourceBundleZip" }
 
-gh release create vX.Y.Z `
-  "installer/output/Rook-Setup-X.Y.Z.exe" `
+gh -R bringfire/rook-release release create "v$Version" `
+  "installer/output/Rook-Setup-$Version.exe" `
   $sourceBundleZip `
   $sourceBundleManifestPath `
-  "installer/output/release-smoke-X.Y.Z.json" `
-  "installer/output/release-manifest-X.Y.Z.json" `
-  --target $gitSha `
-  --title "Rook vX.Y.Z" `
+  "installer/output/release-smoke-$Version.json" `
+  "installer/output/release-manifest-$Version.json" `
+  --target $publicPromotionSha `
+  --title "Rook v$Version" `
   --generate-notes
 ```
 
-Report the release URL to the user when done.
+Never create the customer release in the private repository. Report the public PR and
+release URLs to the user.
 
 ## Cleanup
 

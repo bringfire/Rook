@@ -59,6 +59,18 @@ function Get-RookLockVersion {
     return $versionMatch.Groups[1].Value
 }
 
+function Get-LiteralPowerShellArray {
+    param([string]$Text, [string]$VariableName)
+    $pattern = '(?ms)\$' + [regex]::Escape($VariableName) + '\s*=\s*@\((?<body>.*?)\)'
+    $arrayMatch = [regex]::Match($Text, $pattern)
+    Assert-True -Condition $arrayMatch.Success -Message "Release workflow must declare `$${VariableName}."
+    $body = $arrayMatch.Groups['body'].Value
+    $itemMatches = [regex]::Matches($body, "'([^']+)'")
+    $remainder = [regex]::Replace($body, "'[^']+'", '') -replace '[,\s]', ''
+    Assert-True -Condition ($remainder.Length -eq 0) -Message "`$${VariableName} must contain only literal strings."
+    return @($itemMatches | ForEach-Object { $_.Groups[1].Value })
+}
+
 function Test-Metadata {
     $expectedVersion = Get-SingleRegexGroup 'mcp_server/pyproject.toml' '(?m)^version = "([^"]+)"$'
     Assert-True -Condition ($expectedVersion -match '^[0-9]+\.[0-9]+\.[0-9]+$') -Message "pyproject version '$expectedVersion' is not SemVer X.Y.Z."
@@ -209,6 +221,7 @@ function Test-Workflow {
         'uv lock',
         'claude plugin validate --strict .',
         'scripts/tests/release-surface-hygiene.tests.ps1',
+        'release-installer-guards.tests.ps1 -SkipBuiltPayloadCheck',
         'git worktree add --detach',
         'bringfire/rook-release',
         'Get-FileHash',
@@ -221,12 +234,16 @@ function Test-Workflow {
         Assert-Contains -Text $workflow -Expected $requiredContract -Message "Release workflow omits $requiredContract."
     }
 
-    foreach ($skillName in @('capture-convention', 'chirp', 'chirp-cascade', 'clean-layers', 'design-grasshopper', 'execute-grasshopper', 'plan-grasshopper', 'project-setup', 'twisted-column')) {
-        Assert-Contains -Text $workflow -Expected "'$skillName'" -Message "Public promotion inventory omits $skillName."
-    }
+    $expectedSkills = @('capture-convention', 'chirp', 'chirp-cascade', 'clean-layers', 'design-grasshopper', 'execute-grasshopper', 'plan-grasshopper', 'project-setup', 'twisted-column')
+    $expectedSingletons = @('.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', 'hooks/hooks.json', 'scripts/session-start.sh', 'LICENSE')
+    $actualSkills = @(Get-LiteralPowerShellArray -Text $workflow -VariableName 'publicSkillNames')
+    $actualSingletons = @(Get-LiteralPowerShellArray -Text $workflow -VariableName 'singletonPaths')
+    Assert-True -Condition (($actualSkills -join "`n") -eq ($expectedSkills -join "`n")) -Message 'Public skill promotion inventory must equal the nine approved roots in order.'
+    Assert-True -Condition (($actualSingletons -join "`n") -eq ($expectedSingletons -join "`n")) -Message 'Public singleton promotion inventory must equal the five self-contained paths in order.'
 
     Assert-Contains -Text $workflow -Expected 'gh -R bringfire/rook-release release create' -Message 'Release must be created explicitly in rook-release.'
     Assert-NotContains -Text $workflow -Unexpected "gh release create v`$Version" -Message 'Workflow must not create a release in the private repository.'
+    Assert-Contains -Text $workflow -Expected 'Release-installer payload guard failed' -Message 'Release workflow must run the full installer guard after builds.'
 
     $hooks = Get-Text 'hooks/hooks.json' | ConvertFrom-Json
     $hookCommand = $hooks.hooks.SessionStart[0].hooks[0].command
