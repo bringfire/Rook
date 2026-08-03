@@ -149,6 +149,31 @@ The Planner authors `goal` and `interface`. The compiler does not inject or
 rewrite either field. Capability selection, clean-compile acceptance, body mode,
 tool selection, and all non-code execution parameters remain code-owned.
 
+### Owned immutable interface
+
+The strict loader must not retain the decoded `interface` dictionary, its
+`inputs` list, its `outputs` list, or the decoded output dictionary. It
+immediately materializes them into exact, frozen, slots-based typed values:
+
+```text
+SemanticCSharpInterface
+  inputs: exact empty tuple
+  outputs: tuple[SemanticCSharpOutput]
+
+SemanticCSharpOutput
+  name: exact built-in str "A"
+  type: exact built-in str "double"
+```
+
+The admitted `SemanticGraphNode` owns that recursively immutable interface. The
+compiler copies the typed value into the unresolved-leaf specification; no
+mutable mapping or list survives into the admitted graph or immutable partition.
+
+Tests must prove that mutating the decoded source containers after conversion
+cannot change the admitted graph, attempts to mutate the admitted nested values
+fail, and mutable mapping/list substitutions cannot inhabit the typed interface
+or unresolved-leaf fields.
+
 ## Graph admission
 
 The shared semantic language remains compatible with Slice 1:
@@ -331,6 +356,11 @@ A failed, malformed, or identity-mismatched returned `gh_connect` response is
 operational evidence. It is retained and produces `completed=False`; it does not
 raise. Only contradictions among already code-owned/compiler-owned objects raise.
 
+If the tool executor raises while dispatching `gh_connect`, the result retains
+the exact `connect_request`, sets `connect_response=None`, and returns
+`completed=False`. It performs no cleanup or later call. The exception type,
+message, and traceback are not copied into the aggregate.
+
 ## Thin ephemeral result
 
 The compositor returns one bounded prefix aggregate:
@@ -388,6 +418,18 @@ The adapter makes one transport call. Its raw response reaches the existing stri
 loader unchanged. There is no parsing repair, retry, fallback, or deterministic
 graph patching.
 
+The provider-facing schema must preserve the subset qualified during Slice 1:
+
+- node alternatives use `anyOf`, never `oneOf`;
+- the schema shapes the JSON object but does not encode semantic graph limits
+  through provider-unsupported constraints;
+- the strict local loader remains the sole owner of node counts, edge counts,
+  lexical bounds, interface equality, leaf cardinality, and relational admission.
+
+A structural regression must walk the generated schema, require the expected
+`anyOf` node union including the exact `csharp_script` variant, and prove that
+`oneOf` does not occur anywhere in the serialized schema.
+
 ## Deterministic test strategy
 
 The primary fake-backed witness exists only in tests:
@@ -428,6 +470,11 @@ Focused tests prove:
 - Slice 2 zero-leaf refusal and multi-leaf refusal;
 - strict goal bounds, UTF-8 refusal, interface closure, and exact case-sensitive
   `A`;
+- immediate conversion of decoded interface containers into the recursively
+  immutable typed representation, with mutation and mutable-substitution
+  regressions;
+- provider-schema use of `anyOf`, absence of `oneOf`, and continued ownership of
+  semantic limits by the strict loader;
 - no incoming leaf edge, exactly one outgoing edge, Number-only target, cycle
   refusal, and full-graph connection multiplicity;
 - no deterministic edge may occupy the cross-edge target;
@@ -437,6 +484,8 @@ Focused tests prove:
 - compile failure causes zero deterministic-region mutation;
 - exact call prefixes for snapshot, edit, and connect failures;
 - malformed or mismatched connect evidence returns `completed=False`;
+- a connect-dispatch exception retains the request, leaves the response absent,
+  returns `completed=False`, and retains no exception text;
 - no update, retry, repair, fallback, replan, cleanup, or second Worker call is
   reachable;
 - neither production prompt nor production behavior depends on the witness.
