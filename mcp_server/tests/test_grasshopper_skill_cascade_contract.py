@@ -63,3 +63,23 @@ def test_design_has_one_compact_wasp_admission_reference() -> None:
     admission = (root / "references" / "wasp-admission.md").read_text(encoding="utf-8")
     for required in ("gh_library", "gh_batch_component_info", "zero mutation", "non-executable"):
         assert required in admission
+
+
+def test_plan_is_optional_read_only_and_has_durable_baseline() -> None:
+    root = MIRROR_ROOTS[0] / "plan-grasshopper"
+    skill = (root / "SKILL.md").read_text(encoding="utf-8")
+    frontmatter = skill.split("---", 2)[1]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.md"))
+    assert "Use when Grasshopper work is large, destructive, cross-session" in frontmatter
+    assert "This stage is read-only" in skill
+    assert "structural baseline" in skill
+    assert "document identity" in skill
+    assert "ownership" in skill
+    assert "preservation" in skill
+    assert "does not store an epoch" in skill
+    assert "design-grasshopper" not in frontmatter
+    assert "execute-grasshopper" not in frontmatter
+    for forbidden in ("Skill(", "Read(", "gh_query(", "gh_delete(", "gh_set_value(", "gh_canvas_cleanup("):
+        assert forbidden not in combined
+    assert not (root / "references" / "wasp").exists()
+    assert "../design-grasshopper/references/wasp-admission.md" in skill

@@ -1,159 +1,56 @@
-# Tool Call Patterns Reference
+# Grasshopper Plan Serialization Patterns
 
-Common MCP tool call sequences for Grasshopper definition construction.
+These examples describe future `gh_edit` payloads. They are written into a plan and are not executed during planning.
 
-## Pattern: Slider-Controlled Component
+## Resolve live identity first
 
-The most common pattern — a number slider feeding into a component parameter.
+For every unfamiliar component:
+
+1. Use `gh_library` to resolve an exact installed component identity.
+2. Use `gh_batch_component_info` to confirm the exact GUID and input/output indices.
+3. If either tool is hidden, discover, read, and invoke it through `rook_tools_search`, `rook_tools_read`, and `rook_tools_call`.
+4. Stop when identity or ports are missing or ambiguous. Stored knowledge is not a GUID fallback.
+
+## Serialize an ordered creation batch
 
 ```python
-snap = gh_snapshot()
 gh_edit(
-    epoch=snap["epoch"],
+    epoch="<fresh execution-time epoch>",
     create=[
         {"temp_id": "T1", "type": "slider", "nick": "Radius", "min": 0.1, "max": 50.0, "value": 5.0, "pos": [100, 100]},
-        {"temp_id": "T2", "guid": "$SPHERE_TYPE_GUID", "pos": [400, 100]},
-    ],
-    connect=["T1.O0>T2.I0"],
-)
-# Record committed IDs from edit_summary.temp_id_map.
-```
-
-**Gotcha:** Define the slider value/range in the create entry before wiring.
-Resolve `$SPHERE_TYPE_GUID` with `gh_library` or `gh_knowledge_query`.
-
-## Pattern: Multi-Input Component
-
-Component with several inputs from different sources.
-
-```python
-snap = gh_snapshot()
-gh_edit(
-    epoch=snap["epoch"],
-    create=[
-        {"temp_id": "T1", "guid": "$POINT_PARAM_GUID", "pos": [100, 100]},
-        {"temp_id": "T2", "type": "slider", "nick": "Radius", "min": 0.1, "max": 50.0, "value": 5.0, "pos": [100, 200]},
-        {"temp_id": "T3", "type": "slider", "nick": "Height", "min": 1.0, "max": 100.0, "value": 10.0, "pos": [100, 300]},
-        {"temp_id": "T4", "guid": "$CYLINDER_GUID", "pos": [400, 200]},
-    ],
-    connect=["T1.O0>T4.I0", "T2.O0>T4.I1", "T3.O0>T4.I2"],
-)
-```
-
-## Pattern: Component Chain
-
-Sequential processing: output of one feeds input of next.
-
-```python
-snap = gh_snapshot()
-gh_edit(
-    epoch=snap["epoch"],
-    create=[
-        {"temp_id": "T1", "guid": "$CIRCLE_GUID", "pos": [100, 100]},
-        {"temp_id": "T2", "guid": "$EXTRUDE_GUID", "pos": [400, 100]},
-        {"temp_id": "T3", "guid": "$CAP_HOLES_GUID", "pos": [700, 100]},
-    ],
-    connect=["T1.O0>T2.I0", "T2.O0>T3.I0"],
-)
-
-# Checkpoint after chain
-# The preceding gh_edit scheduled the solution. Bounded-poll gh_status until
-# ready_for_edit is true, solverEnabled is true, and solutionState is PostProcess.
-gh_errors()
-```
-
-## Pattern: Data Tree Manipulation
-
-When components produce trees but downstream expects flat lists.
-
-```python
-snap = gh_snapshot()
-gh_edit(
-    epoch=snap["epoch"],
-    create=[
-        {"temp_id": "T1", "guid": "$DIVIDE_CURVE_GUID", "pos": [400, 100]},
-        {"temp_id": "T2", "guid": "$FLATTEN_GUID", "pos": [600, 100]},
-    ],
-    connect=["T1.O0>T2.I0", "T2.O0>$DOWNSTREAM.I0"],
-)
-```
-
-**Gotcha:** Many components silently produce tree output. If downstream complains about "path mismatch", insert Flatten/Graft between them.
-
-## Pattern: Boolean Toggle Control
-
-For enabling/disabling parts of the definition.
-
-```python
-snap = gh_snapshot()
-gh_edit(
-    epoch=snap["epoch"],
-    create=[
-        {"temp_id": "T1", "type": "toggle", "value": True, "pos": [100, 400]},
-        {"temp_id": "T2", "guid": "$STREAM_FILTER_GUID", "pos": [400, 400]},
+        {"temp_id": "T2", "guid": "<live exact GUID>", "pos": [400, 100]},
     ],
     connect=["T1.O0>T2.I0"],
 )
 ```
 
-## Pattern: Python Script Component
+The plan must identify the expected committed IDs from `edit_summary.temp_id_map` and the connection evidence to verify after solving.
 
-For custom logic that doesn't have a native component.
+## Serialize values, rewiring, grouping, and removal
+
+Use the same ordered batch contract with only the required arrays:
 
 ```python
-script_result = gh_create_script(
-    language="python",
-    code="import Rhino.Geometry as rg\n\nA = x * 2\n",
-    pins_in=[{"name": "x", "type": "double"}],
-    pins_out=[{"name": "A", "type": "double"}],
-    name="DoubleValue",
-    x=400,
-    y=300,
+gh_edit(
+    epoch="<fresh execution-time epoch>",
+    set_values=[{"id": "<owned id>", "value": 12.5}],
+    disconnect=["<owned id>.O0><authorized target>.I0"],
+    connect=["<owned id>.O0><authorized target>.I1"],
+    groups=[{"name": "<group>", "ids": ["<owned id>"]}],
+    delete=["<owned id>"],
 )
-$SCRIPT = script_result["component_guid"]
-
-# Wire inputs
-snap = gh_snapshot()
-gh_edit(epoch=snap["epoch"], connect=["$INPUT.O0>$SCRIPT.I0"])
 ```
 
-## Checkpoint Protocol
+Only serialize disconnect, grouping, movement, or deletion of execution-owned state unless the plan identifies specific pre-existing state whose modification the user authorized.
 
-After every 3-5 component creations:
+## Partial-success handling
 
-```python
-# 1. The preceding mutation scheduled the solution. Bounded-poll status.
-status = gh_status()
-# Continue only when ready_for_edit is true, solverEnabled is true,
-# and solutionState is PostProcess; stop on timeout or disabled/unknown state.
+Operations are ordered. A response may report `partial_success` after earlier operations have committed. The plan must require execution to:
 
-# 2. Check for errors
-gh_errors()
-```
+1. record committed temporary-ID mappings and per-operation results;
+2. refresh the live snapshot and epoch;
+3. omit operations already satisfied or already committed;
+4. retry only failed or unapplied operations when live evidence supports the same semantics and topology; and
+5. stop for approval when preservation, ownership, semantics, or topology changed.
 
-**Interpreting errors:**
-- `"Null"` on an input — missing upstream connection
-- `"Data conversion failed"` — wrong parameter type, check wiring
-- `"1. Solution exception"` — component internal error, check parameter values
-- Warnings (yellow) — usually acceptable, verify visually
-
-**If errors found:**
-1. Check if error matches a known gotcha from the plan
-2. If yes: apply the documented fix
-3. If no: inspect the failing component with `gh_batch_component_info(names=[<component_name>])`
-4. If still failing after one fix attempt: stop and report to user
-
-## Canvas Position Arithmetic
-
-```
-Input Column    Processing 1    Processing 2    Output
-x=100           x=400           x=700           x=1000
-
-y=100 ─── Slider ──── Component ──── Component ──── Output
-y=250 ─── Slider ──── Component ──── Component
-y=400 ─── Toggle ──── Gate
-```
-
-- **Horizontal spacing:** 300px between connected components
-- **Vertical spacing:** 150px between parallel items
-- **Group gap:** 100px between logical groups
+Every batch ends with bounded solve readiness, error inspection, and the relevant output or connection checks. An unresolved dependency stops the sequence.
