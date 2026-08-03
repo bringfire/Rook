@@ -89,7 +89,7 @@ No existing Worker-first, PlanGraph, tool-dispatcher, native, managed, Chat, kno
   - `semantic_worker_leaf_prompt_projection() -> tuple[dict[str, object], ...]`
   - admitted `SemanticGraphNode(parameters=(("goal", str), ("interface", SemanticCSharpInterface)))` for `primitive == "csharp_script"`
 
-- [ ] **Step 1: Add behavioral RED tests through the existing module import**
+- [x] **Step 1: Add behavioral RED tests through the existing module import**
 
 Add helpers to `test_semantic_graph.py` without importing not-yet-existing names directly:
 
@@ -208,7 +208,7 @@ def test_worker_leaf_schema_uses_provider_qualified_anyof_only() -> None:
 
 Also prove the existing Slice 1 schema and primitive projection remain byte-for-byte equal before and after mutating fresh Slice 2 return values.
 
-- [ ] **Step 2: Run Task 1 RED tests**
+- [x] **Step 2: Run Task 1 RED tests**
 
 Run:
 
@@ -219,7 +219,7 @@ cd mcp_server
 
 Expected: behavioral failures because `csharp_script`, `SemanticCSharpInterface`, `SemanticCSharpOutput`, and the Slice 2 schema/projection builders do not yet exist. Existing Slice 1 tests still pass up to those assertions.
 
-- [ ] **Step 3: Implement the exact frozen interface and strict loader branch**
+- [x] **Step 3: Implement the exact frozen interface and strict loader branch**
 
 Add constants and types in `semantic_graph.py`:
 
@@ -313,7 +313,7 @@ def _load_csharp_parameters(value: object) -> tuple[tuple[str, object], ...]:
 
 Count `csharp_script` nodes after node loading and refuse more than one with `multiple_worker_leaves`.
 
-- [ ] **Step 4: Add the Slice 2-only schema and prompt projection**
+- [x] **Step 4: Add the Slice 2-only schema and prompt projection**
 
 Keep `build_semantic_graph_response_schema()` and `semantic_primitive_prompt_projection()` behavior unchanged. Add fresh Slice 2 builders:
 
@@ -405,7 +405,7 @@ def semantic_worker_leaf_prompt_projection() -> tuple[dict[str, object], ...]:
 
 The schema contains no `minItems`, `maxItems`, `maxLength`, GUID, index, layout, `T*`, body, action, or witness topology. The strict loader owns those semantic limits.
 
-- [ ] **Step 5: Run Task 1 tests and the Slice 1 compatibility tests**
+- [x] **Step 5: Run Task 1 tests and the Slice 1 compatibility tests**
 
 Run:
 
@@ -419,7 +419,7 @@ cd mcp_server
 
 Expected: all pass. Existing Slice 1 schema and Planner prompt assertions remain unchanged.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```powershell
 git add -- `
@@ -430,6 +430,15 @@ git commit -m "feat: admit one semantic csharp worker leaf"
 ```
 
 Record the exact commit and test count in this plan ledger. Do not begin Task 2 with a dirty worktree.
+
+Observed Task 1 evidence:
+
+```text
+RED: 23 failed, 85 passed (missing Worker-leaf admission surface)
+loader/schema GREEN: 108 passed
+Slice 1 compatibility seam: 216 passed
+commit: 57e7c253975e144f4d0e66acafdd9bbe08b1e242
+```
 
 ---
 
@@ -450,7 +459,7 @@ Record the exact commit and test count in this plan ledger. Do not begin Task 2 
   - `SemanticGraphWorkerLeafPartitionCompileResult`
   - `compile_semantic_graph_worker_leaf_partition(graph)` accepting zero or one Worker leaf
 
-- [ ] **Step 1: Add behavioral RED tests through the existing compiler module**
+- [x] **Step 1: Add behavioral RED tests through the existing compiler module**
 
 Import the module, not absent names:
 
@@ -532,7 +541,7 @@ For the occupied-target case, use a slider-to-`construct_point.x` deterministic 
 
 Add a source scan asserting `construct_point.x`, witness intent, `gh_connect`, and generated code do not appear in `semantic_graph_compiler.py`.
 
-- [ ] **Step 2: Run Task 2 RED tests**
+- [x] **Step 2: Run Task 2 RED tests**
 
 Run:
 
@@ -545,7 +554,7 @@ cd mcp_server
 
 Expected: behavioral failures because the partition result and compiler function are absent. Existing deterministic compiler tests still pass.
 
-- [ ] **Step 3: Add the exact immutable partition types**
+- [x] **Step 3: Add the exact immutable partition types**
 
 Add:
 
@@ -584,7 +593,7 @@ class SemanticGraphWorkerLeafPartitionCompileResult:
 
 Validate immediate field types and paired leaf/cross-edge presence in these dataclasses only. Do not compare or replay the deterministic plan.
 
-- [ ] **Step 4: Implement the compiler-owned partition**
+- [x] **Step 4: Implement the compiler-owned partition**
 
 Implement `compile_semantic_graph_worker_leaf_partition()` as a sibling of the existing compiler:
 
@@ -681,7 +690,7 @@ def compile_semantic_graph_worker_leaf_partition(
 
 Use identity from the selected `cross` object only inside this function; do not accept a separately supplied graph, leaf, or edge. Keep refusal helpers local and reason-bearing. Unknown code-owned primitive/lowering contradictions continue to raise through the existing compiler.
 
-- [ ] **Step 5: Run the complete loader/compiler seam**
+- [x] **Step 5: Run the complete loader/compiler seam**
 
 Run:
 
@@ -695,7 +704,7 @@ cd mcp_server
 
 Expected: all pass. Confirm canonical deterministic plans are still invariant to declaration order and that existing Slice 1 witnesses remain green.
 
-- [ ] **Step 6: Compile and inspect the exact Task 1–2 surface**
+- [x] **Step 6: Compile and inspect the exact Task 1–2 surface**
 
 Run:
 
@@ -726,7 +735,7 @@ mcp_server/tests/test_semantic_graph_compiler.py
 
 No compositor or new runner module may exist yet.
 
-- [ ] **Step 7: Commit Task 2**
+- [x] **Step 7: Commit Task 2**
 
 ```powershell
 git add -- `
@@ -737,6 +746,22 @@ git commit -m "feat: partition one semantic worker leaf"
 ```
 
 Record the exact commit and test count in this plan ledger.
+
+Observed Task 2 evidence:
+
+```text
+RED: 14 failed, 40 deselected (missing partition compiler surface)
+partition GREEN: 14 passed, 40 deselected
+complete loader/compiler/runner seam: 230 passed
+commit: ae3cb1fb003d52d94bcc1272a76fca45d4014ef8
+production additions through Task 2:
+  semantic_graph.py: 165
+  semantic_graph_compiler.py: 207
+  total: 372
+compileall: passed
+git diff --check: passed
+new compositor/runner module: absent
+```
 
 ### Mandatory independent review gate after Task 2
 
