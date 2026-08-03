@@ -218,6 +218,34 @@ class TestDispatcherVerification:
         assert "verified" not in result
 
     @pytest.mark.asyncio
+    async def test_gh_connect_uses_shared_bridge_route_and_frozen_port(self):
+        dispatcher = ToolDispatcher(port=9950)
+        params = {
+            "sourceGuid": "source-guid",
+            "sourceIndex": 0,
+            "targetGuid": "target-guid",
+            "targetIndex": 1,
+        }
+        response = {
+            "success": True,
+            "data": {
+                "connected": True,
+                "source": {"guid": "source-guid", "index": 0},
+                "target": {"guid": "target-guid", "index": 1},
+            },
+        }
+
+        with patch(
+            "rook.agent.tool_dispatcher.call_rhino",
+            new_callable=AsyncMock,
+            return_value=response,
+        ) as mock_rhino:
+            result = await dispatcher.dispatch("gh_connect", params)
+
+        mock_rhino.assert_awaited_once_with("/gh/connect", "POST", params, 9950)
+        assert result is response
+
+    @pytest.mark.asyncio
     async def test_gh_status_normalizes_managed_camel_case(self, dispatcher):
         mock_result = {
             "success": True,
