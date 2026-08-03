@@ -1598,6 +1598,66 @@ shapefile carries them, but coordinate identity works exactly, so LION is not ne
 the CSCL data dictionary before filtering on it — 97 segments of one non-street class in a
 900 m radius is consistent with tunnel ramps, but the code meanings are unverified.
 
+### The polygons do not carry level, and association only gets 74% (2026-08-03)
+
+The solve runs on **polygons**, not centerlines, so the level codes above are only useful if
+level can be transferred to the roadbed polygons. Tested directly. **It does not transfer
+cleanly.**
+
+**1. There is no level attribute.** Roadbed `i36f-5ih7` carries exactly `feat_code`
+(3500 for all 287 polygons in the AOI), `sub_code`, `source_id`, `status`, `shape_area`,
+`shape_leng`, `the_geom`. Sidewalk `52n9-sdep` is the same shape. Nothing vertical.
+
+**2. `sub_code` is not a level proxy.** Roadbed splits 350000 ×225 / 350010 ×55 / 350020 ×7,
+which looks promising until you cross it against centerline level:
+
+| centerline level | n | `350000` | `350010` |
+|---|---|---|---|
+| 13 (grade) | 372 | 77% | 23% |
+| 17 (above) | 149 | **97%** | 3% |
+| 9 (below) | 115 | 96% | 3% |
+
+If `sub_code` encoded elevation, level-17 samples would concentrate in a distinct code. They
+concentrate in the *common* one, harder than at-grade samples do. It encodes something else.
+
+**3. The layer is not a planar coverage — elevated decks are stacked in plan.**
+**72 genuine polygon-pair overlaps** in the AOI. So the deck geometry *is* present; it is
+simply unlabelled and superimposed on the roadway beneath.
+
+**4. Spatial association resolves 74%.** Sampling every centerline at 25/50/75% and
+collecting the levels seen inside each polygon:
+
+| | |
+|---|---|
+| Roadbed polygons touched by a centerline | 168 of 287 |
+| Assignable — single level observed | 124 |
+| **Ambiguous — two or more levels observed** | **44 (26%)** |
+| Polygons exclusively level 17 / level 21 | **1 each** |
+
+122 of 554 samples fall inside **two** polygons at once. Levels 17 and 21 essentially never
+own a polygon — an elevated centerline is nearly always co-located with roadway at grade,
+which is the whole difficulty stated numerically.
+
+**Instrument check — this determined the answer.** The first pass broke on the first
+containing polygon and reported 37 ambiguous, and would have concluded the elevated roads
+were absent from the layer. The second pass counted every hit but classified containment by
+ray casting alone; in a coverage that shares boundary vertices *exactly*, a shared vertex
+lies **on** the neighbour's edge, where ray casting is undefined. Adding a guard requiring a
+point to be ≥ 1e-6° (~11 cm) clear of every edge cut raw overlaps **498 → 72**, so 86% of the
+overlap signal was shared-boundary artifact. The centerline double-hits barely moved
+(125 → 122), so those were real. Three passes, three different numbers, only the third
+trustworthy.
+
+**Correction to the entry below.** Transportation Structures is **not** superseded — the
+level codes solve level for centerlines, not for the polygons the solver consumes, and 26% of
+polygons need an independent disambiguator. Two further findings about it: `h9sf-7bej` is a
+**map visualisation, not a queryable dataset** (`assetType: map`, empty column list — the
+same dataset-vs-map trap as `inkn-q76z`/`3mf9-qshr`), so the tabular resource ID still has to
+be found; and its displayed fields are the same uniform planimetric schema plus `name`, so
+**it carries no level attribute either**. Its value is geometric — a roadbed polygon
+coinciding with a transportation-structure footprint is a deck — not an attribute lookup.
+That has not been tested against the 44 ambiguous polygons.
+
 ### Verification — decided in advance
 
 A **seam metric**: for every shared vertex, the maximum |Δz| between incident polygons.
@@ -1690,7 +1750,7 @@ ridges, and used as **constraints when constructing the triangulation**. Impleme
 | Layer | Resource | Why it matters |
 |---|---|---|
 | ~~Street Centerline~~ | `inkn-q76z` | **Source verified 2026-08-03** — see slice G. Still unused, but no longer unknown. |
-| Transportation Structures | `h9sf-7bej` | Elevated decks — **largely superseded** by CSCL level codes, which carry level per segment |
+| Transportation Structures | `h9sf-7bej` is a **map, not a dataset** — tabular ID still needed | Elevated decks. **Still required**: CSCL level codes label centerlines, not the polygons the solver consumes, and 26% of polygons stay ambiguous |
 | Median, Curb Cut, Pavement Edge | planimetric DB | More breaklines |
 | Public Plazas, Parking Lot | planimetric DB | More ground classes |
 | **1 ft DEM raster** | `dpc8-z3jc` / `7kuu-zah7` | Denser than the 10 m grid actually sampled |

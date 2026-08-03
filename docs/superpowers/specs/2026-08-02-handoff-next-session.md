@@ -70,10 +70,15 @@ of the way toward it before finding it.
    Still unanswered; it shapes everything downstream.
 2. **Slice 1 (findings → Chirp planner → parameters) is unbuilt.** That is the actual thesis;
    the NYC context work is slice C, which ran in parallel.
-3. ~~Multi-level ground~~ — **largely answered 2026-08-03.** CSCL carries
-   `from_level_code`/`to_level_code` per segment (13 = grade, 9 below, 17/21 above; mixed
-   pairs are the transition ramps). Solve per level set. Transportation Structures
-   `h9sf-7bej` is now a cross-check rather than the primary source.
+3. **Multi-level ground — half answered, and the hard half is open.** CSCL carries
+   `from_level_code`/`to_level_code` *per centerline segment* (13 grade, 9 below, 17/21
+   above; mixed pairs are transition ramps). But the solver consumes **polygons**, and
+   roadbed `i36f-5ih7` has **no level attribute**, `sub_code` is **not** a level proxy
+   (measured), and transferring level by spatial association leaves **44 of 168 polygons
+   (26%) ambiguous**. The layer stacks decks in plan — 72 genuine overlaps — so the geometry
+   is there but unlabelled. Transportation Structures is still needed as the geometric
+   disambiguator, but `h9sf-7bej` is a **map visualisation, not a queryable dataset**; find
+   the tabular ID first. It carries no level attribute either.
 4. Street Centerline `inkn-q76z` — **source verified 2026-08-03, still unbuilt.** Fields,
    level-code distribution and the exact-coincidence node graph (389 nodes from 1,206
    endpoint refs, no tolerance) are in the spec under slice G. It is 2D: Z comes from 3DEP
