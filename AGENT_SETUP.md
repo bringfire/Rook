@@ -24,7 +24,7 @@ experience:
   `AGENTS.md` guidance.
 
 Other MCP-compatible clients (Cursor, Windsurf, and the older "Claude Desktop" chat
-app at claude.ai/download) get the **nearly 400 MCP tools**, but not the orchestration
+app at claude.ai/download) get the tools admitted by their configured profile, but not the orchestration
 skills (`/design-grasshopper`, `/plan-grasshopper`, `/execute-grasshopper`, etc.)
 or the session-start hook — those are Claude Code (marketplace
 plugin) and Codex (installer) features. For the guided workflows, use Claude Code or
@@ -40,7 +40,7 @@ execution owns mutation and verification.
 ## What Is Rook
 
 Rook is an MCP server that gives AI agents direct control over Rhino 3D and
-Grasshopper. It exposes nearly 400 tools for geometry creation, parametric modeling,
+Grasshopper. It exposes a lifecycle-admitted, profile-filtered catalog for geometry creation, parametric modeling,
 scene analysis, and more. The agent communicates with Rook via the Model Context
 Protocol (stdio). Rook communicates with Rhino via HTTP on localhost.
 
@@ -50,9 +50,8 @@ Before starting, verify the user has:
 
 | Requirement | How to Check | Required |
 |-------------|-------------|----------|
-| **Claude Code** | CLI: `claude --version`, Desktop: app installed, VS Code: extension installed | Yes |
 | **Rhino 8** (Windows) | `where rhinoceros` or ask the user | Yes |
-| **Python 3.10+** | `python --version` or `python3 --version` or `py -3 --version` | Yes (installer) |
+| **Compatible MCP client** | Confirm the client can register a stdio MCP server | Yes |
 
 > **Don't have a CLI agent installed yet?** Use its official native installer (Windows):
 >
@@ -120,7 +119,7 @@ on current `main` and record:
 2. Run the installer. It handles everything automatically:
    - Deploys Rhino plugins to `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\`
    - Creates a managed Python venv at `%LOCALAPPDATA%\Rook\venv`
-   - Installs the MCP server (`pip install -e`) into that venv
+   - Installs the locked MCP server wheels into that venv from the bundled wheelhouse
    - Writes MCP configuration for Claude Code, Claude Desktop, and Codex CLI
    - Copies knowledge stores and Codex skills
 
@@ -194,7 +193,7 @@ In the AI client, run:
 ```
 /mcp
 ```
-Look for `rook` in the list. It should show nearly 400 tools.
+Look for `rook` in the list. The admitted tool catalog depends on the configured client profile.
 
 ### Step 2: Ping Rhino
 
@@ -219,7 +218,7 @@ AI Client (you)
     |
     | stdio (MCP protocol)
     v
-Python MCP Server (rook-mcp)     nearly 400 tools
+Python MCP Server (rook-mcp)     lifecycle-admitted, profile-filtered tools
     |
     | HTTP localhost (OS-assigned port, discovered via %TEMP%/rook/)
     v
@@ -241,8 +240,9 @@ Key points:
 
 ## Python Dependencies
 
-The MCP server (`rook-mcp`) requires Python 3.10+ and these packages (installed
-automatically via `pip install -e`):
+Source development of the MCP server (`rook-mcp`) requires Python 3.10+ and these
+packages (installed automatically via `pip install -e`). Release installs use the
+bundled CPython 3.11.9 runtime:
 
 | Package | Purpose |
 |---------|---------|
@@ -291,7 +291,7 @@ Once verified, the default full profile is ready. Key tools to start with:
 | `rhino_create` | Create supported Rhino primitives through a typed route |
 | `rhino_transform` | Move, rotate, or scale explicit object IDs |
 | `gh_snapshot` | Read the current Grasshopper canvas state |
-| `gh_edit` | Modify the Grasshopper canvas atomically |
+| `gh_edit` | One request, ordered non-transactional mutations, at most one post-mutation solve request—not an all-or-nothing transaction. Inspect `success`, `partial_success`, `edit_summary`, and scheduling fields; then verify with a fresh `gh_snapshot` and `gh_errors`. |
 | `gh_library` | Resolve exact Grasshopper component names and GUIDs |
 | `rhino_objects` | List objects in the Rhino document |
 | `knowledge_query` | Query the knowledge graph for commands/patterns |

@@ -5,14 +5,12 @@ Get AI controlling Rhino 3D in 5 minutes.
 ## Prerequisites
 
 - **Rhino 8** (Windows)
-- **Python 3.10+** (the installer detects `python`, `python3`, or `py -3` automatically)
-- **[Claude Code](https://code.claude.com)** (recommended) — CLI, [Desktop app](https://code.claude.com/docs/en/desktop), or [VS Code extension](https://code.claude.com/docs/en/vs-code). All three support Rook's full feature set including hooks, plugins, and skills.
+- A compatible MCP client, such as **[Claude Code](https://code.claude.com)** or **[Codex](https://developers.openai.com/codex/cli)**
 
-> **Note:** The older "Claude Desktop" chat app (claude.ai/download) only supports
-> MCP tools — it does not support hooks, plugins, or skills. For the full Rook
-> experience, use [Claude Code Desktop](https://code.claude.com/docs/en/desktop-quickstart) instead.
-
-Other MCP clients ([Codex CLI](https://developers.openai.com/codex/cli), Cursor, Windsurf) work for basic tool access but do not support Rook's Claude Code plugin features.
+The Windows installer includes the MCP server's CPython 3.11.9 runtime. Claude Code
+can add Rook's skills and session hook from the public marketplace plugin; the
+installer supplies curated Codex skills. Other compatible clients can use the MCP
+tools their configured profile admits.
 
 ## Installation
 
@@ -23,7 +21,7 @@ Other MCP clients ([Codex CLI](https://developers.openai.com/codex/cli), Cursor,
    - **Chirp** — LLM-powered Grasshopper components (optional)
    - **Claude** — Auto-configure Claude Code & Claude Desktop
    - **Codex** — Auto-configure OpenAI Codex CLI (optional)
-3. The installer requires Python 3.10+ on your system.
+3. No system Python installation is required.
 4. Restart Rhino.
 
 ## Verify Installation
@@ -32,14 +30,11 @@ Other MCP clients ([Codex CLI](https://developers.openai.com/codex/cli), Cursor,
 - RookNative starts automatically and binds to an OS-assigned port (check command line for "Rook HTTP server started")
 - Run `ShowRookChat` to verify the plugin is loaded
 
-### In Claude Code
-```bash
-claude
-```
+### In your MCP client
 
-Rook is available globally — no need to be in the Rook directory.
-
-Type `/mcp` — you should see `rook` with nearly 400 tools.
+Inspect the client's MCP server list and confirm that `rook` is connected. The tool
+catalog varies by client profile; Codex uses progressive discovery for tools outside
+its lean catalog.
 
 Test with:
 - "Ping Rhino"
@@ -67,9 +62,9 @@ Test with:
 
 ## Troubleshooting
 
-### "rook" not found in Claude Code
+### "rook" not found in the MCP client
 - Re-run the installer to regenerate MCP config
-- Or restart Claude Code
+- Restart the MCP client
 
 ### "Connection refused" or timeout errors
 - Make sure Rhino 8 is running
@@ -81,17 +76,14 @@ Test with:
 - Check `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\` for files
 - Run `_PlugInManager` and look for RookNative
 
-### Installer says "Python not found"
-- Install Python 3.10+ from [python.org](https://www.python.org/downloads/)
-- Make sure "Add to PATH" is checked during Python installation
-
 ## Uninstall
 
 Use Add/Remove Programs (Windows Settings → Apps).
 
 ## Next Steps
 
-- Read [CLAUDE.md](CLAUDE.md) for usage rules and best practices
+- Read [AGENT_SETUP.md](AGENT_SETUP.md) for usage rules and verification guidance.
+- For Claude Code skills and the session hook, run `/plugin marketplace add bringfire/rook-release`, then `/plugin install rook@rook`.
 - For a clear, bounded build, use `/execute-grasshopper` directly; it performs a fresh live-state preflight before mutation.
 - For an ambiguous or open-ended brief, use `/design-grasshopper` to resolve intent and success criteria without mutation.
 - For large, destructive, cross-session, or high-risk work, use the optional `/plan-grasshopper` stage to create a durable review artifact before execution.

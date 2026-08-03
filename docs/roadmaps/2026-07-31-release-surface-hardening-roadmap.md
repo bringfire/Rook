@@ -567,12 +567,15 @@ test report, or decision record that supports it.
 |---|---|---|---|---|---|
 | 2026-07-31 | RS-01–RS-11 | — | Baseline statuses | Audit of `90242fa4f09abf8f3b8ec994044787b61e77b446` | Initial release-surface audit; no product files changed. |
 | 2026-07-31 | RS-05 | `decision_required` | `ready_for_spec` / `investigating` | [Road surface-containment design](../superpowers/specs/2026-07-31-roadcreator-rookroads-surface-containment-design.md) | RoadCreator/RookRoads classified unsupported and contained only at user/agent boundaries; Wasp retained; SA_Banana unchanged. |
+| 2026-07-31 | RS-05 / RS-09 | `ready_for_spec` / `investigating` | `verified` for RoadCreator/RookRoads containment; Wasp and broader upgrade hardening remain open | PR `#521`, merge `3ba27ebe` | User/agent surfaces and exact retired-skill migration were verified; Wasp remained a separate supported-candidate audit. |
+| 2026-08-02 | RS-01 | `ready_for_spec` | `verified` | PR `#531`, merge `2428dca8` | Legacy RUI loading, packaging, deployment, and registry residue were suppressed without absorbing RS-02 panel repair. |
+| 2026-08-03 | RS-03 / RS-04 | `ready_for_spec` / `confirmed` | `in_progress` | PR `#538`, merge `6eacc2e1`; runtime acceptance `ccdd2807`; final reviewed contracts `0ff3c080` | The routed Grasshopper design/plan/execute cascade and its mirrors were corrected; the remaining shipped-skill inventory still requires its own audit. |
+| 2026-08-03 | RS-06 / RS-07 / RS-08 / RS-10 / RS-11 | prior statuses | `in_progress` | [Release 1.5.17 hygiene design](../superpowers/specs/2026-08-03-release-1-5-17-hygiene-design.md) | Active guidance, metadata, release guards, and hash-verified public promotion are one bounded hygiene track; no release or public promotion is complete yet. |
 
 ## Immediate next action
 
-Review the RoadCreator/RookRoads containment specification, then approve the remaining
-Wave A decisions for RUI retirement and Codex lean-plus-gateway skills. After those
-decisions are recorded, write separate focused specifications for RS-01/RS-02,
-RS-03/RS-04, Wasp admission, and RS-09/RS-11. Documentation and public-promotion
-workstreams may then reference those approved contracts instead of guessing future
-product behavior.
+Finish and merge the private release-hygiene PR, then create the separate ten-file
+`1.5.17` version-bump PR. Only after that release head merges should the suite be built,
+accepted, and promoted from the exact private release SHA to `rook-release`. Keep the
+remaining Wasp admission, panel behavior (RS-02), full shipped-skill inventory, and
+broader configuration/upgrade work as separate evidence-driven tracks.
