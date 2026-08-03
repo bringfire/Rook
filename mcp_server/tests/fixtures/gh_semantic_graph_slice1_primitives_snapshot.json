@@ -1,0 +1,293 @@
+{
+  "request": {
+    "include_data": false,
+    "max_preview_items": 0
+  },
+  "snapshot_body": {
+    "version": "1.0.0",
+    "document": {
+      "name": "unnamed",
+      "path": ""
+    },
+    "epoch": 3,
+    "components": [
+      {
+        "id": "C1",
+        "type": "NumberSlider",
+        "nick": "",
+        "pos": [
+          99.8,
+          119.9
+        ],
+        "is_param": true,
+        "value": {
+          "type": "slider",
+          "val": 0,
+          "min": 0,
+          "max": 10
+        }
+      },
+      {
+        "id": "C2",
+        "type": "Component_Series",
+        "name": "Series",
+        "componentGuid": "e64c5fb1-845c-4ab1-8911-5f338516ba67",
+        "category": "Sets",
+        "subCategory": "Sequence",
+        "description": "Create a series of numbers.",
+        "pos": [
+          379,
+          151
+        ],
+        "inputs": [
+          {
+            "idx": 0,
+            "name": "Start",
+            "nick": "S",
+            "type": "Number",
+            "access": "item",
+            "optional": false,
+            "description": "First number in the series",
+            "sources": 0
+          },
+          {
+            "idx": 1,
+            "name": "Step",
+            "nick": "N",
+            "type": "Number",
+            "access": "item",
+            "optional": false,
+            "description": "Step size for each successive number",
+            "sources": 0
+          },
+          {
+            "idx": 2,
+            "name": "Count",
+            "nick": "C",
+            "type": "Integer",
+            "access": "item",
+            "optional": false,
+            "description": "Number of values in the series",
+            "sources": 0
+          }
+        ],
+        "outputs": [
+          {
+            "idx": 0,
+            "name": "Series",
+            "nick": "S",
+            "type": "Number",
+            "access": "list",
+            "optional": false,
+            "description": "Series of numbers",
+            "recipients": 0
+          }
+        ]
+      },
+      {
+        "id": "C3",
+        "type": "Component_ConstructPoint",
+        "name": "Construct Point",
+        "nick": "Pt",
+        "componentGuid": "3581f42a-9592-4549-bd6b-1c0fc39d067b",
+        "category": "Vector",
+        "subCategory": "Point",
+        "description": "Construct a point from {xyz} coordinates.",
+        "pos": [
+          563,
+          151
+        ],
+        "inputs": [
+          {
+            "idx": 0,
+            "name": "X coordinate",
+            "nick": "X",
+            "type": "Number",
+            "access": "item",
+            "optional": false,
+            "description": "{x} coordinate",
+            "sources": 0
+          },
+          {
+            "idx": 1,
+            "name": "Y coordinate",
+            "nick": "Y",
+            "type": "Number",
+            "access": "item",
+            "optional": false,
+            "description": "{y} coordinate",
+            "sources": 0
+          },
+          {
+            "idx": 2,
+            "name": "Z coordinate",
+            "nick": "Z",
+            "type": "Number",
+            "access": "item",
+            "optional": false,
+            "description": "{z} coordinate",
+            "sources": 0
+          }
+        ],
+        "outputs": [
+          {
+            "idx": 0,
+            "name": "Point",
+            "nick": "Pt",
+            "type": "Point",
+            "access": "item",
+            "optional": false,
+            "description": "Point coordinate",
+            "hidden": false,
+            "recipients": 0
+          }
+        ]
+      },
+      {
+        "id": "C4",
+        "type": "Component_Polyline",
+        "name": "PolyLine",
+        "nick": "PLine",
+        "componentGuid": "71b5b089-500a-4ea6-81c5-2f960441a0e8",
+        "category": "Curve",
+        "subCategory": "Spline",
+        "description": "Create a polyline connecting a number of points.",
+        "pos": [
+          697,
+          159
+        ],
+        "inputs": [
+          {
+            "idx": 0,
+            "name": "Vertices",
+            "nick": "V",
+            "type": "Point",
+            "access": "list",
+            "optional": false,
+            "description": "Polyline vertex points",
+            "hidden": false,
+            "sources": 0
+          },
+          {
+            "idx": 1,
+            "name": "Closed",
+            "nick": "C",
+            "type": "Boolean",
+            "access": "item",
+            "optional": false,
+            "description": "Close polyline",
+            "sources": 0
+          }
+        ],
+        "outputs": [
+          {
+            "idx": 0,
+            "name": "Polyline",
+            "nick": "Pl",
+            "type": "Curve",
+            "access": "item",
+            "optional": false,
+            "description": "Resulting polyline",
+            "hidden": false,
+            "recipients": 0
+          }
+        ],
+        "warnings": [
+          "Input parameter V failed to collect data"
+        ]
+      },
+      {
+        "id": "C5",
+        "type": "Component_SquareGrid",
+        "name": "Square",
+        "nick": "SqGrid",
+        "componentGuid": "717a1e25-a075-4530-bc80-d43ecc2500d9",
+        "category": "Vector",
+        "subCategory": "Grid",
+        "description": "2D grid with square cells",
+        "pos": [
+          816,
+          168
+        ],
+        "inputs": [
+          {
+            "idx": 0,
+            "name": "Plane",
+            "nick": "P",
+            "type": "Plane",
+            "access": "item",
+            "optional": false,
+            "description": "Base plane for grid",
+            "hidden": false,
+            "sources": 0
+          },
+          {
+            "idx": 1,
+            "name": "Size",
+            "nick": "S",
+            "type": "Number",
+            "access": "item",
+            "optional": false,
+            "description": "Size of grid cells",
+            "sources": 0
+          },
+          {
+            "idx": 2,
+            "name": "Extent X",
+            "nick": "Ex",
+            "type": "Integer",
+            "access": "item",
+            "optional": false,
+            "description": "Number of grid cells in base plane x direction",
+            "sources": 0
+          },
+          {
+            "idx": 3,
+            "name": "Extent Y",
+            "nick": "Ey",
+            "type": "Integer",
+            "access": "item",
+            "optional": false,
+            "description": "Number of grid cells in base plane y direction",
+            "sources": 0
+          }
+        ],
+        "outputs": [
+          {
+            "idx": 0,
+            "name": "Cells",
+            "nick": "C",
+            "type": "Rectangle",
+            "access": "item",
+            "optional": false,
+            "description": "Grid cell outlines",
+            "hidden": false,
+            "recipients": 0
+          },
+          {
+            "idx": 1,
+            "name": "Points",
+            "nick": "P",
+            "type": "Point",
+            "access": "tree",
+            "optional": false,
+            "description": "Points at grid corners",
+            "hidden": true,
+            "recipients": 0
+          }
+        ]
+      }
+    ],
+    "flows": [],
+    "diagnostics": {
+      "total": 5,
+      "errors": 0,
+      "warnings": 1,
+      "error_ids": null,
+      "warning_ids": [
+        "C4"
+      ]
+    },
+    "knowledge_hint": "Large canvases may return many components. Use filters (type, name) to narrow results."
+  }
+}
