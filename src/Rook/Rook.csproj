@@ -78,11 +78,6 @@
     <EmbeddedResource Include="Services\Reconstruction\Fal\fal-model-catalog.json" />
   </ItemGroup>
 
-  <!-- RUI toolbar file - copied to output for programmatic loading -->
-  <ItemGroup>
-    <None Include="UI\Rook.rui" CopyToOutputDirectory="PreserveNewest" Link="Rook.rui" />
-  </ItemGroup>
-
   <!-- Deploy companion plugin to Rhino's plugin directory after build.
        Mirrors the installer multi-runtime layout for local development. -->
   <PropertyGroup>
@@ -99,10 +94,8 @@
       <RookRuntimeAssetFiles Include="$(TargetDir)runtimes\**\*" />
     </ItemGroup>
     <MakeDir Directories="$(RhinoManagedRuntimeDir)" />
+    <Delete Files="$(RhinoManagedRuntimeDir)\$(TargetName).rui" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RhinoManagedRuntimeDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(TargetDir)$(TargetName).rui"
-          DestinationFolder="$(RhinoManagedRuntimeDir)" SkipUnchangedFiles="true"
-          Condition="Exists('$(TargetDir)$(TargetName).rui')" />
     <Copy SourceFiles="$(TargetDir)$(TargetName).deps.json"
           DestinationFolder="$(RhinoManagedRuntimeDir)" SkipUnchangedFiles="true"
           Condition="Exists('$(TargetDir)$(TargetName).deps.json')" />

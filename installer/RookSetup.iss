@@ -113,6 +113,9 @@ Type: files; Name: "{app}\BUILDING.md"
 Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\RookChatService.json"
 Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\RookChatService.json"
 Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\RookChatService.json"
+Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rui"
+Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\Rook.rui"
+Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\Rook.rui"
 
 ; ---------------------------------------------------------------------------
 ; Files
@@ -145,21 +148,18 @@ Source: "{#OcctRuntimeRoot}\TKShHealing.dll"; DestDir: "{userappdata}\McNeel\Rhi
 ; install smoke validation. Release is blocked until Rhino proves which physical
 ; Rook.rhp path it loads for standalone and Rhino.Inside hosts.
 Source: "{#CompanionNet8Dir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
-Source: "{#CompanionNet8Dir}\Rook.rui"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet8Dir}\Rook.deps.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet8Dir}\Rook.runtimeconfig.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet8Dir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet8Dir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
 
 Source: "{#CompanionNet7Dir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
-Source: "{#CompanionNet7Dir}\Rook.rui"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet7Dir}\Rook.deps.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet7Dir}\Rook.runtimeconfig.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet7Dir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet7Dir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
 
 Source: "{#CompanionNet48Dir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48"; Components: plugins; Flags: ignoreversion
-Source: "{#CompanionNet48Dir}\Rook.rui"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet48Dir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionNet48Dir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net48\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -263,7 +263,7 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "UpdateURL"; ValueData: "https://github.com/bringfire/rook-release/releases"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Fax"; ValueData: ""; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Description"; ValueData: "Rook for Rhino 3D - HTTP server enabling AI-powered CAD operations"; Components: plugins
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "RuiFile"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rui"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: none; ValueName: "RuiFile"; Flags: deletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "RegPath"; ValueData: "\\HKEY_CURRENT_USER\Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\PlugIn"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rhp"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "Type"; ValueData: "16"; Components: plugins
@@ -724,7 +724,6 @@ var
   PluginName: String;
   Description: String;
   RegPath: String;
-  RuiFile: String;
   RequiredStringValues: TArrayOfString;
   RequiredCommandValues: TArrayOfString;
   I: Integer;
@@ -749,7 +748,6 @@ begin
   begin
     PluginName := 'Rook';
     Description := 'Rook for Rhino 3D - HTTP server enabling AI-powered CAD operations';
-    RuiFile := ExpandConstant('{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\Rook.rui');
     SetArrayLength(RequiredCommandValues, 5);
     RequiredCommandValues[0] := 'RestartRookChatService';
     RequiredCommandValues[1] := 'ShowRookChat';
@@ -789,8 +787,11 @@ begin
       Exit;
   end;
 
-  if (IsDotNet = 1) and (not VerifyRegistryStringValue(BaseKey, 'RuiFile', RuiFile)) then
+  if (IsDotNet = 1) and RegValueExists(HKCU, BaseKey, 'RuiFile') then
+  begin
+    Log('Rhino plugin verification failed: obsolete RuiFile value remains at ' + BaseKey);
     Exit;
+  end;
 
   if not VerifyRegistryDWordValue(BaseKey, 'Type', 16) then
     Exit;

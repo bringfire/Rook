@@ -13,19 +13,16 @@ Unless marked as a build-machine prerequisite, paths are relative to the repo ro
 | `src/RookNative/bin/Release/x64/RookNative.rhp` | C++ build output |
 | `src/RookNative/bin/Release/x64/RookNative.pdb` | Optional C++ debug symbols; installer uses `skipifsourcedoesntexist` |
 | `src/Rook/bin/Release/net8.0/Rook.rhp` | C# .NET 8 build output |
-| `src/Rook/bin/Release/net8.0/Rook.rui` | Rhino toolbar file |
 | `src/Rook/bin/Release/net8.0/Rook.deps.json` | C# .NET 8 dependency manifest |
 | `src/Rook/bin/Release/net8.0/Rook.runtimeconfig.json` | C# runtime metadata; must declare net8.0 |
 | `src/Rook/bin/Release/net8.0/*.dll` | C# .NET 8 dependency DLLs |
 | `src/Rook/bin/Release/net8.0/runtimes/` | C# .NET 8 runtime assets |
 | `src/Rook/bin/Release/net7.0/Rook.rhp` | C# .NET Core build output |
-| `src/Rook/bin/Release/net7.0/Rook.rui` | Rhino toolbar file |
 | `src/Rook/bin/Release/net7.0/Rook.deps.json` | C# .NET Core dependency manifest |
 | `src/Rook/bin/Release/net7.0/Rook.runtimeconfig.json` | C# runtime metadata; must declare net7.0 |
 | `src/Rook/bin/Release/net7.0/*.dll` | C# .NET Core dependency DLLs |
 | `src/Rook/bin/Release/net7.0/runtimes/` | C# .NET Core runtime assets |
 | `src/Rook/bin/Release/net48/Rook.rhp` | C# .NET Framework build output for Rhino.Inside.Revit hosts |
-| `src/Rook/bin/Release/net48/Rook.rui` | Rhino toolbar file |
 | `src/Rook/bin/Release/net48/RookBim.dll` | RookBIM Rhino.Inside/Revit module; produced by `src/RookBim/RookBim.csproj` post-build copy |
 | `src/Rook/bin/Release/net48/*.dll` | C# .NET Framework dependency DLLs |
 | `src/Rook/bin/Release/net48/runtimes/` | C# .NET Framework runtime assets, including WebView2 native loader |
@@ -201,15 +198,12 @@ $missing = New-Object System.Collections.Generic.List[string]
 $files = @(
   "src\RookNative\bin\Release\x64\RookNative.rhp",
   "src\Rook\bin\Release\net8.0\Rook.rhp",
-  "src\Rook\bin\Release\net8.0\Rook.rui",
   "src\Rook\bin\Release\net8.0\Rook.deps.json",
   "src\Rook\bin\Release\net8.0\Rook.runtimeconfig.json",
   "src\Rook\bin\Release\net7.0\Rook.rhp",
-  "src\Rook\bin\Release\net7.0\Rook.rui",
   "src\Rook\bin\Release\net7.0\Rook.deps.json",
   "src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json",
   "src\Rook\bin\Release\net48\Rook.rhp",
-  "src\Rook\bin\Release\net48\Rook.rui",
   "src\Rook\bin\Release\net48\RookBim.dll",
   "mcp_server\pyproject.toml",
   "..\Chirp\pyproject.toml",

@@ -173,6 +173,7 @@ Write-Host "Registering companion: $RhpPath"
 if (-not (Test-Path $RegBase)) {
     New-Item -Path $RegBase -Force | Out-Null
 }
+Remove-ItemProperty -LiteralPath $RegBase -Name 'RuiFile' -ErrorAction SilentlyContinue
 
 # String values
 Set-ItemProperty -Path $RegBase -Name 'Name'         -Value 'Rook'         -Type String
@@ -210,6 +211,9 @@ if (-not (Test-Path $CmdKey)) {
 # ---- Verify ---------------------------------------------------------------
 
 $Errors = @()
+
+$verifyRuiFile = Get-ItemProperty -LiteralPath $RegBase -Name 'RuiFile' -ErrorAction SilentlyContinue
+if ($verifyRuiFile) { $Errors += 'RuiFile: expected absent' }
 
 # Check PlugIn\FileName
 $verifyFile = Get-ItemProperty -Path "$RegBase\PlugIn" -Name 'FileName' -ErrorAction SilentlyContinue

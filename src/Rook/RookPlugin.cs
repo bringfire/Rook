@@ -25,7 +25,6 @@ namespace Rook
         private readonly CompanionStartupGate _startupGate =
             new(requiredStableIdleTicks: 2);
         private bool _serverStarted = false;
-        private bool _toolbarLoaded = false;
         private bool _isRhinoInside = false;
         private int _startupRunInProgress = 0;
         private int _bridgeRetryCount = 0;
@@ -391,10 +390,6 @@ namespace Rook
                     // session recording, and scene graph.  The C# companion must NOT
                     // start its own HTTP server or SessionRecorder.
                     _serverStarted = true;
-                    if (!_isRhinoInside)
-                    {
-                        EnsureToolbarLoaded();
-                    }
                     TraceStartup("Companion UI/runtime startup complete; HTTP server delegated to RookNative");
                 }
 
@@ -519,56 +514,6 @@ namespace Rook
         // NOTE: EnsureSessionInitialized() removed — C++ CSessionRecorder owns
         // command tracking.  The C# SessionRecorder must NOT be initialized in
         // companion mode to avoid duplicate Command.BeginCommand/EndCommand handlers.
-
-        private void EnsureToolbarLoaded()
-        {
-            if (_toolbarLoaded)
-            {
-                return;
-            }
-
-            LoadToolbar();
-            _toolbarLoaded = true;
-        }
-
-        /// <summary>
-        /// Loads the Rook.rui toolbar file if not already open.
-        /// </summary>
-        private void LoadToolbar()
-        {
-            try
-            {
-                // RUI file is copied alongside the .rhp by the build
-                var pluginDir = Path.GetDirectoryName(typeof(RookPlugin).Assembly.Location);
-                if (string.IsNullOrEmpty(pluginDir)) return;
-
-                var ruiPath = Path.Combine(pluginDir, "Rook.rui");
-                if (!File.Exists(ruiPath))
-                {
-                    RhinoApp.WriteLine("Rook: Toolbar file not found at " + ruiPath);
-                    return;
-                }
-
-                // Check if already loaded (avoid duplicates on reload)
-                var toolbarFiles = RhinoApp.ToolbarFiles;
-                for (int i = 0; i < toolbarFiles.Count; i++)
-                {
-                    var existing = toolbarFiles[i];
-                    if (existing != null && existing.Name != null &&
-                        existing.Name.Equals("Rook", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return; // Already loaded
-                    }
-                }
-
-                toolbarFiles.Open(ruiPath);
-                RhinoApp.WriteLine("Rook: Toolbar loaded.");
-            }
-            catch (Exception ex)
-            {
-                RhinoApp.WriteLine("Rook: Failed to load toolbar - " + ex.Message);
-            }
-        }
 
         /// <summary>
         /// Called when the plugin is unloaded.

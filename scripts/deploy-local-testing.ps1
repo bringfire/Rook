@@ -520,7 +520,7 @@ function Deploy-CompanionRuntimePayload {
     $targetDir = Join-Path $PluginDir $Runtime
 
     Copy-RequiredFile (Join-Path $sourceDir 'Rook.rhp') (Join-Path $targetDir 'Rook.rhp')
-    Copy-OptionalFile (Join-Path $sourceDir 'Rook.rui') (Join-Path $targetDir 'Rook.rui')
+    Remove-Item -LiteralPath (Join-Path $targetDir 'Rook.rui') -Force -ErrorAction SilentlyContinue
     if ($Runtime -ne 'net48') {
         Copy-RequiredFile (Join-Path $sourceDir 'Rook.deps.json') (Join-Path $targetDir 'Rook.deps.json')
         Copy-RequiredFile (Join-Path $sourceDir 'Rook.runtimeconfig.json') (Join-Path $targetDir 'Rook.runtimeconfig.json')
