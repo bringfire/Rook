@@ -103,22 +103,17 @@ Build and manipulate parametric definitions entirely through AI:
 - **Recipes & patterns** — Save, replay, and learn reusable definitions from real `.gh` files
 - **Session recording** — Track every GH operation with success/failure for learning
 
-### Grasshopper Design Cascade (Claude Code Plugin)
+### Routed Grasshopper Workflow Skills
 
-A 4-skill workflow for building complex Grasshopper definitions:
+Choose the smallest stage that matches the work. A clear, bounded build goes directly to execution. An ambiguous or open-ended brief starts with read-only design. A durable plan is optional for large, destructive, cross-session, or review-sensitive work.
 
-```
-/design-grasshopper "parametric facade with attractor points"
-```
+| Route | Skill | Boundary |
+|-------|-------|----------|
+| **Clarify** | `/design-grasshopper` | Read-only alternatives, constraints, preservation boundaries, and acceptance criteria |
+| **Plan when useful** | `/plan-grasshopper` | Optional read-only structural baseline and bounded technical batches for review |
+| **Build or modify** | `/execute-grasshopper` | Fresh live-state admission, execution-owned mutation, and result verification |
 
-| Phase | Skill | What happens |
-|-------|-------|-------------|
-| **Design** | `/design-grasshopper` | Explores knowledge store + scene, asks clarifying questions, produces a validated design doc |
-| **Plan** | `/plan-grasshopper` | Converts design to exact MCP tool call batches with GUID lookups and canvas positions |
-| **Execute** | `/execute-grasshopper` | Runs tool calls with `gh_status` + `gh_errors` checkpoints every 3-5 components |
-| **Learn** | `/consolidate` | Updates the knowledge graph with patterns discovered during construction |
-
-Each phase auto-cascades into the next. The design doc is the boundary object — it survives context windows and makes commitment explicit before any tool touches the canvas.
+Skills return control to the user at each boundary; they do not automatically invoke the next stage.
 
 ### Chirp — LLM-Powered Grasshopper Components
 
@@ -295,10 +290,9 @@ Rook/
 │   └── commands/                # 197 Rhino commands, 543 observations
 │
 ├── .claude/skills/              # Curated skills copied to user skill dirs for Claude Code and Codex on release install
-│   ├── design-grasshopper/      # GH cascade phase 1: Collaborative design
-│   ├── plan-grasshopper/        # GH cascade phase 2: Tactical tool call plan
-│   ├── execute-grasshopper/     # GH cascade phase 3: Batched execution
-│   ├── consolidate/             # GH cascade phase 4: Knowledge consolidation
+│   ├── design-grasshopper/      # Optional read-only clarification and design
+│   ├── plan-grasshopper/        # Optional read-only technical plan
+│   ├── execute-grasshopper/     # Owned mutation and verification
 │   ├── chirp/ chirp-cascade/    # LLM-embedded GH components
 │   └── ...                      # capture-convention, clean-layers, twisted-column, etc.
 │

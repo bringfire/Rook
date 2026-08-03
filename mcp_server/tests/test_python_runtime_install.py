@@ -1220,6 +1220,44 @@ def test_chirp_install_uses_separate_guard_window(
     assert labels == ["Chirp"]
 
 
+def test_retired_skill_migration_replaces_selected_rook_skill_root_exactly(
+    tmp_path: Path, monkeypatch
+) -> None:
+    post_install = load_post_install()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    install_dir = tmp_path / "install"
+    packaged = install_dir / ".agents" / "skills" / "design-grasshopper"
+    installed = tmp_path / ".codex" / "skills" / "design-grasshopper"
+    sibling = tmp_path / ".codex" / "skills" / "user-sibling"
+
+    (packaged / "references").mkdir(parents=True)
+    (packaged / "SKILL.md").write_text("current", encoding="utf-8")
+    (packaged / "references" / "wasp-admission.md").write_text(
+        "admitted", encoding="utf-8"
+    )
+    (installed / "references").mkdir(parents=True)
+    (installed / "SKILL.md").write_text("old", encoding="utf-8")
+    (installed / "references" / "wasp-rhino-scaffold.md").write_text(
+        "obsolete", encoding="utf-8"
+    )
+    sibling.mkdir()
+    (sibling / "SKILL.md").write_text("user-owned", encoding="utf-8")
+
+    assert post_install.install_user_assets(
+        install_dir, install_claude=False, install_codex=True
+    )
+
+    def inventory(root: Path) -> dict[str, bytes]:
+        return {
+            item.relative_to(root).as_posix(): item.read_bytes()
+            for item in root.rglob("*")
+            if item.is_file()
+        }
+
+    assert inventory(installed) == inventory(packaged)
+    assert (sibling / "SKILL.md").read_text(encoding="utf-8") == "user-owned"
+
+
 def test_retired_codex_skill_cleanup_removes_only_exact_targets(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1231,12 +1269,17 @@ def test_retired_codex_skill_cleanup_removes_only_exact_targets(
     sibling = skills / "design-grasshopper"
     retired_dir = skills / "design-road"
     retired_file = skills / "masterplan-roads"
+    retired_consolidate = skills / "consolidate"
 
     (retired_dir / "nested").mkdir(parents=True)
     (retired_dir / "nested" / "payload.txt").write_text(
         "retired", encoding="utf-8"
     )
     retired_file.write_text("retired-file", encoding="utf-8")
+    (retired_consolidate / "nested").mkdir(parents=True)
+    (retired_consolidate / "nested" / "payload.txt").write_text(
+        "retired", encoding="utf-8"
+    )
     sibling.mkdir()
     (sibling / "SKILL.md").write_text("supported", encoding="utf-8")
     claude.mkdir(parents=True)
@@ -1248,10 +1291,12 @@ def test_retired_codex_skill_cleanup_removes_only_exact_targets(
     assert [item["outcome"] for item in first] == [
         "removed_directory",
         "removed_file",
+        "removed_directory",
     ]
-    assert [item["outcome"] for item in second] == ["absent", "absent"]
+    assert [item["outcome"] for item in second] == ["absent", "absent", "absent"]
     assert not retired_dir.exists()
     assert not retired_file.exists()
+    assert not retired_consolidate.exists()
     assert (sibling / "SKILL.md").read_text(encoding="utf-8") == "supported"
     assert (claude / "SKILL.md").read_text(encoding="utf-8") == "claude-owned"
 
@@ -1268,7 +1313,7 @@ def test_retired_codex_skill_cleanup_unlinks_link_without_following_target(
     external.mkdir()
     sentinel = external / "keep.txt"
     sentinel.write_text("keep", encoding="utf-8")
-    target = skills / "design-road"
+    target = skills / "consolidate"
 
     if sys.platform == "win32":
         subprocess.run(
@@ -1282,7 +1327,7 @@ def test_retired_codex_skill_cleanup_unlinks_link_without_following_target(
 
     outcomes = post_install.cleanup_retired_codex_skills(runtime_root)
 
-    assert outcomes[0]["outcome"] == "unlinked_reparse_point"
+    assert outcomes[2]["outcome"] == "unlinked_reparse_point"
     assert not target.exists()
     assert sentinel.read_text(encoding="utf-8") == "keep"
 
@@ -1327,8 +1372,10 @@ def test_retired_cleanup_failure_is_nonfatal_and_records_incomplete_summary(
     skills = tmp_path / ".codex" / "skills"
     design = skills / "design-road"
     masterplan = skills / "masterplan-roads"
+    consolidate = skills / "consolidate"
     design.mkdir(parents=True)
     masterplan.write_text("remove me", encoding="utf-8")
+    consolidate.mkdir()
     post_install._update_install_summary(
         runtime_root,
         phase_reached="finalizer-started",
@@ -1337,12 +1384,12 @@ def test_retired_cleanup_failure_is_nonfatal_and_records_incomplete_summary(
 
     real_rmtree = post_install.shutil.rmtree
 
-    def fail_design(path):
-        if Path(path) == design:
-            raise PermissionError("blocked design-road")
+    def fail_consolidate(path):
+        if Path(path) == consolidate:
+            raise PermissionError("blocked consolidate")
         return real_rmtree(path)
 
-    monkeypatch.setattr(post_install.shutil, "rmtree", fail_design)
+    monkeypatch.setattr(post_install.shutil, "rmtree", fail_consolidate)
     outcomes = post_install.cleanup_retired_codex_skills(runtime_root)
     summary = json.loads(
         (runtime_root / "logs" / "post_install_summary.json").read_text(
@@ -1350,9 +1397,14 @@ def test_retired_cleanup_failure_is_nonfatal_and_records_incomplete_summary(
         )
     )
 
-    assert [item["outcome"] for item in outcomes] == ["failed", "removed_file"]
-    assert design.exists()
+    assert [item["outcome"] for item in outcomes] == [
+        "removed_directory",
+        "removed_file",
+        "failed",
+    ]
+    assert not design.exists()
     assert not masterplan.exists()
+    assert consolidate.exists()
     assert summary["retired_codex_skill_cleanup"]["complete"] is False
     assert summary["retired_codex_skill_cleanup"]["targets"] == outcomes
     assert summary["final_outcome"] == "running"
@@ -1437,7 +1489,11 @@ def test_cleanup_failure_does_not_block_selected_codex_skill_copy(
         tmp_path,
         monkeypatch,
         codex_selected=True,
-        cleanup_outcomes=[{"name": "design-road", "outcome": "failed"}],
+        cleanup_outcomes=[
+            {"name": "design-road", "outcome": "removed_directory"},
+            {"name": "masterplan-roads", "outcome": "removed_file"},
+            {"name": "consolidate", "outcome": "failed"},
+        ],
     )
     assert cleanup_calls == [tmp_path / "runtime"]
     assert asset_calls == [True]

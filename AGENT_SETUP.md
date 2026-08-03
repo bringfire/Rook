@@ -14,12 +14,13 @@ experience:
 - **[Claude Code](https://code.claude.com/docs/en/overview)** (CLI,
   [Desktop app](https://code.claude.com/docs/en/desktop), or
   [VS Code extension](https://code.claude.com/docs/en/vs-code)) — recommended for the
-  complete experience: the MCP tools plus the Rook **skills + session hook**, installed
+  complete experience: the full default MCP catalog plus the Rook **skills + session hook**, installed
   from the marketplace plugin (`/plugin marketplace add bringfire/rook-release` →
   `/plugin install rook@rook`). All three variants share the same engine and support
   hooks, plugins, skills, and MCP servers.
-- **Codex CLI** — first-class: the MCP tools **plus** a curated set of the same Rook
-  skills, installed for you by the Rook installer (to `~/.codex/skills`), alongside
+- **Codex CLI** — first-class: the lean MCP catalog plus progressive discovery through
+  `rook_tools_search`, `rook_tools_read`, and `rook_tools_call`, together with a curated
+  set of Rook skills installed by the Rook installer (to `~/.codex/skills`) and
   `AGENTS.md` guidance.
 
 Other MCP-compatible clients (Cursor, Windsurf, and the older "Claude Desktop" chat
@@ -28,6 +29,13 @@ skills (`/design-grasshopper`, `/plan-grasshopper`, `/execute-grasshopper`, etc.
 or the session-start hook — those are Claude Code (marketplace
 plugin) and Codex (installer) features. For the guided workflows, use Claude Code or
 Codex.
+
+The routed Grasshopper workflow has three user skills. Use
+`/execute-grasshopper` directly for a clear, bounded build; use
+`/design-grasshopper` for an ambiguous or open-ended brief; and use the optional
+`/plan-grasshopper` stage when large, destructive, cross-session, or high-risk work
+benefits from a durable review artifact. Design and planning are read-only;
+execution owns mutation and verification.
 
 ## What Is Rook
 

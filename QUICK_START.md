@@ -92,4 +92,6 @@ Use Add/Remove Programs (Windows Settings → Apps).
 ## Next Steps
 
 - Read [CLAUDE.md](CLAUDE.md) for usage rules and best practices
-- Try `/design-grasshopper "a parametric tower"` for the full GH design cascade
+- For a clear, bounded build, use `/execute-grasshopper` directly; it performs a fresh live-state preflight before mutation.
+- For an ambiguous or open-ended brief, use `/design-grasshopper` to resolve intent and success criteria without mutation.
+- For large, destructive, cross-session, or high-risk work, use the optional `/plan-grasshopper` stage to create a durable review artifact before execution.

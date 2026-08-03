@@ -912,15 +912,22 @@ def _copy_children(source_root: Path, target_root: Path, label: str) -> bool:
     target_root.mkdir(parents=True, exist_ok=True)
     for child in source_root.iterdir():
         destination = target_root / child.name
+        removal = _remove_retired_codex_skill(destination)
+        if removal["outcome"] == "failed":
+            print(
+                f"Could not replace {label} child {destination}: "
+                f"{removal.get('error', 'unknown removal failure')}"
+            )
+            return False
         if child.is_dir():
-            shutil.copytree(child, destination, dirs_exist_ok=True)
+            shutil.copytree(child, destination)
         else:
             shutil.copy2(child, destination)
     print(f"Installed {label} to {target_root}")
     return True
 
 
-RETIRED_CODEX_SKILL_NAMES = ("design-road", "masterplan-roads")
+RETIRED_CODEX_SKILL_NAMES = ("design-road", "masterplan-roads", "consolidate")
 _REPARSE_POINT_ATTRIBUTE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 
 

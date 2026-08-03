@@ -1,10 +1,9 @@
 You're helping me finish setting up Rook (the Rhino + Grasshopper plugin) right
 after installing it. Run these checks in order, then clean up and report.
 
-1. MCP connection — list your MCP servers or inspect your available MCP tools (if
-   your client can't list servers, just try rhino_ping). Confirm "rook" is present
-   with a large tool set (nearly 400). If missing, tell me (the installer registers
-   it; I may need to restart you).
+1. MCP connection — list your MCP servers or inspect your available MCP tools. Confirm
+   "rook" is present with the full default catalog. If missing, tell me (the installer
+   registers it; I may need to restart you).
 2. Rhino — make sure Rhino 8 is running, then call rhino_ping; expect "pong". If it
    fails, remind me to start Rhino and that the RookNative plugin must be loaded
    (I can run ShowRookChat in Rhino to check).
@@ -12,8 +11,11 @@ after installing it. Run these checks in order, then clean up and report.
    document objects to confirm it exists.
 4. Grasshopper (only if GH is open) — take a canvas snapshot to confirm GH control;
    skip if GH isn't open.
-5. Skills — confirm the Rook skills are available (e.g. /design-grasshopper and
-   /chirp). If they're missing and you can run slash commands, install the
+5. Skills — confirm the routed Grasshopper skills are available:
+   /design-grasshopper, /plan-grasshopper, and /execute-grasshopper. Route a clear
+   bounded build directly to execute, an ambiguous brief to read-only design, and large
+   or high-risk work through the optional read-only plan stage. Also confirm /chirp is
+   available. If the skills are missing and you can run slash commands, install the
    plugin (otherwise ask me to run these):
        /plugin marketplace add bringfire/rook-release
        /plugin install rook@rook

@@ -121,3 +121,52 @@ async def test_execute_owns_mutation_and_gh_edit_description_is_truthful() -> No
     for name in ("gh_snapshot", "gh_edit"):
         assert "atomically" not in tools[name].description.lower()
     assert "partial" in tools["gh_edit"].description.lower()
+
+
+ACTIVE_CASCADE_GUIDANCE = (
+    ROOT / "README.md",
+    ROOT / "QUICK_START.md",
+    ROOT / "AGENT_SETUP.md",
+    ROOT / "scripts" / "session-start.sh",
+    ROOT / "installer" / "agent-assets" / "ROOK_CODEX_POST_INSTALL.md",
+    ROOT / "installer" / "agent-assets" / "ROOK_CLAUDE_POST_INSTALL.md",
+)
+
+
+def test_consolidate_skill_is_retired_but_developer_capability_remains() -> None:
+    for root in MIRROR_ROOTS:
+        assert not (root / "consolidate").exists()
+    for root in (ROOT / ".agents" / "skills", ROOT / ".claude" / "skills"):
+        assert not (root / "consolidate").exists()
+    for path in ACTIVE_CASCADE_GUIDANCE:
+        text = path.read_text(encoding="utf-8")
+        for retired in (
+            "/consolidate",
+            "Skill(skill=\"consolidate\"",
+            "cascade phase 4",
+            "→ consolidate",
+            "Handoff to Consolidate",
+            "skills/consolidate",
+            "consolidate/",
+            "4-phase",
+            "4-skill",
+            "Each phase auto-cascades",
+        ):
+            assert retired not in text
+    server = (ROOT / "mcp_server" / "src" / "rook" / "server.py").read_text(encoding="utf-8")
+    assert 'name="gh_consolidate"' in server
+    assert 'case "gh_consolidate"' in server
+    assert (ROOT / "mcp_server" / "src" / "rook" / "learning" / "gh_consolidator.py").is_file()
+
+
+def test_active_guidance_describes_routed_three_skill_model() -> None:
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in ACTIVE_CASCADE_GUIDANCE)
+    for required in (
+        "design-grasshopper",
+        "plan-grasshopper",
+        "execute-grasshopper",
+        "clear",
+        "ambiguous",
+        "optional",
+    ):
+        assert required in combined
