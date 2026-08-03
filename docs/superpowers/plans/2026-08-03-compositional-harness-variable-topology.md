@@ -34,7 +34,8 @@
 ### Qualification fixture
 
 - Create `mcp_server/tests/fixtures/gh_semantic_graph_slice1_primitives_snapshot.json`
-  - Exact snapshot body returned by the one authorized `gh_snapshot` call.
+  - Exact request plus exact snapshot body from the one authorized `gh_snapshot` call;
+    no outer tool envelope.
 
 ### Production
 
@@ -126,9 +127,21 @@ Invoke the existing `gh_snapshot` tool once with the exact request:
 ```
 
 Make no other Rhino or Grasshopper call. Require the outer tool invocation to
-succeed, then preserve the exact returned snapshot body directly as the fixture. Do
-not add the request or an invented inner success field to that body. The fixed
-request above remains code-owned Task 0 procedure, while the future runner's existing
+succeed, then preserve the exact request and exact returned snapshot body in this
+minimal capture shape:
+
+```json
+{
+  "request": {
+    "include_data": false,
+    "max_preview_items": 0
+  },
+  "snapshot_body": {}
+}
+```
+
+Replace the empty object with the structurally faithful returned JSON body. Do not
+add `success` or the outer transport envelope. The future runner's existing
 `ToolDispatcher` envelope handling remains separate and unchanged.
 
 Write the fixture using `apply_patch`; do not generate it from candidate constants, a knowledge record, or a helper script.
@@ -288,7 +301,10 @@ Primitive/pin entries remain frozen inert data. Do not add callbacks, inheritanc
 
 - [ ] **Step 2: Write the fixture-to-tuple RED**
 
-In `test_semantic_graph.py`, load the static fixture directly with standard JSON, project only its existing component/pin fields, and compare those fixture-owned facts with the production `_PRIMITIVES` tuple. The test must prove:
+In `test_semantic_graph.py`, load the static fixture directly with standard JSON,
+require its exact request, project component/pin fields only from `snapshot_body`, and
+compare those fixture-owned facts with the production `_PRIMITIVES` tuple. The test
+must prove:
 
 - regular `componentGuid` values match after one code-owned lowercase normalization;
 - regular pins match by component GUID plus direction/index, then exact

@@ -347,12 +347,23 @@ mcp_server/tests/fixtures/gh_semantic_graph_slice1_primitives_snapshot.json
 
 An operator manually prepares a disposable Grasshopper canvas containing exactly one
 instance of each of the five primitives and no wires. The qualification makes one
-`gh_snapshot` call and no mutation call. The fixture is the exact returned snapshot
-body. The fixed qualification request remains in the Task 0 procedure; it is not
-duplicated inside the fixture. Tool-call success belongs to the outer invocation
-envelope and is checked before accepting the body, not invented as an inner snapshot
-field. The future runner continues to consume its existing `ToolDispatcher` envelope
-separately and unchanged.
+`gh_snapshot` call and no mutation call. The fixture retains the exact request and
+the exact returned snapshot body in this minimal capture shape:
+
+```json
+{
+  "request": {
+    "include_data": false,
+    "max_preview_items": 0
+  },
+  "snapshot_body": {}
+}
+```
+
+`snapshot_body` remains structurally faithful to the returned JSON body. Tool-call
+success belongs to the outer invocation envelope and is checked before capture, not
+invented inside `snapshot_body`. The future runner continues to consume its existing
+`ToolDispatcher` envelope separately and unchanged.
 
 The fixture must independently expose enough existing snapshot evidence to review:
 
@@ -371,12 +382,13 @@ Polyline may legitimately report a missing required input. Qualification rejects
 placeholder or `BROKEN` component entry, not ordinary runtime diagnostics.
 
 The fixture is captured from Grasshopper, never generated from the candidate table.
-A focused test projects the fixture through its existing contracted fields and
-requires exact agreement with the private tuple for the fixture-owned facts above,
-including physical `optional: false` metadata. The test independently checks the
-code-owned `connection_required` policy and slider output convention without
-mislabeling either as snapshot evidence. Production code never reads the fixture.
-Runtime admission never performs component discovery.
+A focused test requires the exact retained request, then projects `snapshot_body`
+through its existing contracted fields and requires exact agreement with the private
+tuple for the fixture-owned facts above, including physical `optional: false`
+metadata. The test independently checks the code-owned `connection_required` policy
+and slider output convention without mislabeling either as snapshot evidence.
+Production code never reads the fixture. Runtime admission never performs component
+discovery.
 
 If the snapshot omits a required regular-component fact, disagrees with a candidate
 regular GUID/index/type/access/physical-optional value, or fails to expose the slider
