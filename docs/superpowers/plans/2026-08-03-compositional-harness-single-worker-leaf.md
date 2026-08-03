@@ -1220,7 +1220,7 @@ growth note: the 32-line delta above the approximate gate is the reviewed
   context guard and immediate predecessor equations; no scope expansion
 compileall: passed
 git diff --check: passed
-renewed independent Task 3 approval: pending
+renewed independent Task 3 approval: approved (449 passed)
 ```
 
 ---
@@ -1237,7 +1237,7 @@ renewed independent Task 3 approval: pending
 - Consumes: completed Task 3 compositor and its thin prefix result.
 - Produces: deterministic evidence that every expected stop preserves exact call counts and no forbidden continuation.
 
-- [ ] **Step 1: Add Planner/load/compiler stop tests**
+- [x] **Step 1: Add Planner/load/compiler stop tests**
 
 Add tests proving:
 
@@ -1265,7 +1265,7 @@ compiler refusal, including occupied cross-edge target:
 
 Do not add an aggregate stop reason.
 
-- [ ] **Step 2: Add Worker and C# compile stop tests**
+- [x] **Step 2: Add Worker and C# compile stop tests**
 
 Parameterize the existing response semantics:
 
@@ -1292,7 +1292,7 @@ gh_connect 0
 
 Retain the failed handoff result and `completed=False`.
 
-- [ ] **Step 3: Add snapshot, edit, and connect prefix tests**
+- [x] **Step 3: Add snapshot, edit, and connect prefix tests**
 
 Use the causal executor with one controlled fault at a time:
 
@@ -1336,7 +1336,7 @@ its ordinary C# create/compile stop. The two connect cases prove drift takes
 precedence over both a retained failed response and an exception-based
 incomplete result.
 
-- [ ] **Step 4: Add direct result-shape tests without replay**
+- [x] **Step 4: Add direct result-shape tests without replay**
 
 Use `dataclasses.replace()` only for immediate prefix inversions:
 
@@ -1349,7 +1349,7 @@ later field present after an earlier absent field
 
 Do not build a cross-transaction splice matrix. Do not replace nested graphs, records, receipts, prompts, or mappings. Existing owner results validate themselves.
 
-- [ ] **Step 5: Prove prompt, code, and call isolation**
+- [x] **Step 5: Prove prompt, code, and call isolation**
 
 Assert:
 
@@ -1360,7 +1360,7 @@ Assert:
 - Target GUID originates only in Slice 1 structural correlation.
 - `gh_update_script`, `draft_repair_params`, and a second Worker dispatch are unreachable.
 
-- [ ] **Step 6: Run the complete Task 4 seam**
+- [x] **Step 6: Run the complete Task 4 seam**
 
 Run:
 
@@ -1381,7 +1381,7 @@ cd mcp_server
 
 Expected: all pass with no external contact.
 
-- [ ] **Step 7: Commit Task 4**
+- [x] **Step 7: Commit Task 4**
 
 If Task 4 changes tests only:
 
@@ -1392,6 +1392,23 @@ git commit -m "test: close single worker leaf stop paths"
 ```
 
 If a test exposes a concrete local defect, stop with the valid-red evidence and proposed smallest correction before editing production. Do not patch autonomously or expand the architecture.
+
+Observed Task 4 evidence:
+
+```text
+pre-contact Planner/load/compiler matrix: 5 passed
+Worker/compile receipt stops: 6 passed
+snapshot/edit/connect prefixes: 10 passed
+post-contact context precedence: 6 passed
+immediate result shape: 1 passed
+prompt/code/identity isolation: 1 passed
+complete worker-leaf test file: 41 passed
+complete prescribed Task 4 seam: 478 passed
+commit: b04b572ec34266021547a69dd3ed93011c6b117e
+production changes: none
+external contact: none
+git diff --check: passed
+```
 
 ---
 
