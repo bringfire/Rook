@@ -44,6 +44,12 @@ The private release source has ten version-bearing files:
 This hygiene pull request makes all ten agree on the current version `1.5.16`.
 The later version-bump pull request must update all ten to `1.5.17`.
 
+The permanent guard derives the expected version from
+`mcp_server/pyproject.toml`, requires that value to be SemVer `X.Y.Z`, and requires
+every other declared version field to match it. The explicit `1.5.16` assertion is
+acceptance evidence for this hygiene pull request only; it is not embedded in the
+permanent guard.
+
 After changing `mcp_server/pyproject.toml`, the version-bump procedure regenerates
 `mcp_server/uv.lock` and requires its diff to change only the local `rook-mcp`
 project version. Any third-party package or hash movement stops the bump for review.
@@ -155,6 +161,11 @@ The workflow performs these bounded stages:
    promotion commit and attaching the validated artifacts.
 
 The private repository is source provenance; it is not the public release target.
+The byte-promoted singleton inventory includes `.claude-plugin/plugin.json`,
+`.claude-plugin/marketplace.json`, `hooks/hooks.json`,
+`scripts/session-start.sh`, and `LICENSE`, plus the separately declared public
+Claude-skill roots. This keeps the executable hook target and the license named by
+the manifests inside the same source/hash boundary.
 
 ## 5. Permanent focused guard
 

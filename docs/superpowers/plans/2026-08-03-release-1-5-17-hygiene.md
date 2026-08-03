@@ -40,6 +40,7 @@
 $ErrorActionPreference = 'Stop'
 $approvedTag = 'plan/release-1-5-17-hygiene-2026-08-03-approved'
 $approvedSpec = '3c213689'
+$approvedPlanBase = '5d400b413db230bdc4635dc350e555b972778653'
 $baselineMain = '6eacc2e1fc2a77c73dda0f54b5dd6558a0cd9465'
 
 git cat-file -e "$approvedTag^{tag}"
@@ -51,7 +52,9 @@ $parent = (git rev-parse HEAD^).Trim()
 $mergeBase = (git merge-base HEAD origin/main).Trim()
 
 if ($head -ne $approvedPlan) { throw "HEAD $head is not approved plan $approvedPlan" }
-if ($parent -ne (git rev-parse $approvedSpec).Trim()) { throw "Plan parent is not approved spec $approvedSpec" }
+if ($parent -ne $approvedPlanBase) { throw "Approved amendment parent is not plan $approvedPlanBase" }
+git merge-base --is-ancestor $approvedSpec HEAD
+if ($LASTEXITCODE -ne 0) { throw "Approved spec $approvedSpec is not an ancestor" }
 if ($mergeBase -ne $baselineMain) { throw "Unexpected private-main merge base $mergeBase" }
 if (git status --porcelain) { git status --short; throw 'Worktree is dirty' }
 ```
@@ -140,13 +143,13 @@ param(
   [string]$Area = 'All'
 )
 
-$expectedVersion = '1.5.16'
+$expectedVersion = Get-SingleRegexGroup 'mcp_server/pyproject.toml' '(?m)^version = "([^"]+)"$'
+Assert-True ($expectedVersion -match '^[0-9]+\.[0-9]+\.[0-9]+$') "pyproject version '$expectedVersion' is not SemVer X.Y.Z"
 $expectedPublicRepo = 'https://github.com/bringfire/rook-release'
 $expectedPublicReleases = "$expectedPublicRepo/releases"
 
 # The returned keys are fixed contract names, not a repository-wide version scan.
 $versions = [ordered]@{
-  pyproject = Get-SingleRegexGroup 'mcp_server/pyproject.toml' '(?m)^version = "([^"]+)"$'
   uv_lock = Get-RookLockVersion 'mcp_server/uv.lock' 'rook-mcp'
   installer = Get-SingleRegexGroup 'installer/RookSetup.iss' '(?m)^#define MyAppVersion "([^"]+)"$'
   companion = Get-SingleRegexGroup 'src/Rook/Rook.csproj' '<Version>([^<]+)</Version>'
@@ -164,7 +167,11 @@ foreach ($entry in $versions.GetEnumerator()) {
 }
 ```
 
-`Get-NativeResourceVersion` must require all four resource values to encode `1.5.16`; `Get-RookLockVersion` must read only the `[[package]]` block whose `name = "rook-mcp"`. The same area must require:
+`Get-NativeResourceVersion` must require all four resource values to encode the
+derived `$expectedVersion`; `Get-RookLockVersion` must read only the `[[package]]`
+block whose `name = "rook-mcp"`. A Task 1 acceptance assertion separately requires
+that the derived version is `1.5.16` for this hygiene PR; that assertion is not part
+of the permanent test file. The same area must require:
 
 - plugin `skills == './.claude/skills/'` and `hooks == './hooks/hooks.json'`;
 - both plugin repositories equal `$expectedPublicRepo`;
@@ -225,6 +232,12 @@ Do not change native behavior, registry ownership, or unrelated descriptions.
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/release-surface-hygiene.tests.ps1 -Area Metadata
 if ($LASTEXITCODE -ne 0) { throw 'Metadata guard failed' }
+
+$currentVersion = [regex]::Match(
+  (Get-Content mcp_server/pyproject.toml -Raw),
+  '(?m)^version = "([^"]+)"$'
+).Groups[1].Value
+if ($currentVersion -ne '1.5.16') { throw "Hygiene PR must retain 1.5.16; found $currentVersion" }
 
 claude plugin validate --strict .
 if ($LASTEXITCODE -ne 0) { throw 'Strict Claude plugin validation failed' }
@@ -400,11 +413,22 @@ $publicSkillNames = @(
 $singletonPaths = @(
   '.claude-plugin/plugin.json',
   '.claude-plugin/marketplace.json',
-  'hooks/hooks.json'
+  'hooks/hooks.json',
+  'scripts/session-start.sh',
+  'LICENSE'
 )
 ```
 
-Copy every file beneath those nine private `.claude/skills/<name>` roots plus the three singleton paths. Exact-delete the two retired public skill roots `design-road` and `masterplan-roads`; do not enumerate or delete other public directories. Public-only README/site/release-note edits remain explicit reviewed changes in the public PR, not private-byte copies.
+Copy every file beneath those nine private `.claude/skills/<name>` roots plus the
+five singleton paths. Exact-delete the two retired public skill roots `design-road`
+and `masterplan-roads`; do not enumerate or delete other public directories.
+Public-only README/site/release-note edits remain explicit reviewed changes in the
+public PR, not private-byte copies.
+
+The Workflow guard must require all five singleton paths, require the hook command
+to resolve to `scripts/session-start.sh`, and require both manifest license fields
+to resolve to the promoted `LICENSE`. It must fail if any of those paths is omitted
+from the release skill's copy/hash inventory.
 
 10. Generate source and candidate inventories with relative path, byte length, and SHA-256; require exact equality before opening the public PR.
 11. Record private SHA, public base SHA, public promotion SHA, installer/source-bundle/smoke/release-manifest hashes, and the promotion inventory in the public PR.
