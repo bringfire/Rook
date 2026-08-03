@@ -13,22 +13,23 @@ Decision: **PASS for the deterministic private acceptance boundary.** The unatte
 - Planning implementation: `3553ea11`
 - Execution implementation: `2814bacd`
 - Consolidation retirement and installer migration: `ccdd280704b2db675917435615decb150ba13c27`
-- Accepted product head: `ccdd280704b2db675917435615decb150ba13c27`
+- Installer and installed-runtime acceptance head: `ccdd280704b2db675917435615decb150ba13c27`
+- Final reviewed skill-contract head: `cbbee98f535217d1414ce5ae8439f0d045a3a519`
 - Chirp release provenance: `2eedab6c9aaa19e458cbd939889e980f781445f3`
 
-The evidence-only documentation commit follows the accepted product head. It does not alter the reviewed skill, installer, MCP, or guidance bytes.
+The installer hash, four installation cycles, installed-runtime checks, and installed mirror evidence were captured at `ccdd2807`. Commit `cbbee98f` subsequently corrected 10 skill-mirror and focused-test paths without changing runtime or installer code. Static mirror equality and the fresh 75-pass focused cascade gate cover `cbbee98f`; no rebuild, reinstall, or live-host rerun was required for that contract-only correction.
 
 ## Deterministic skill and test gates
 
-- Integrated focused cascade gate: **75 passed, 1 deselected**, with 11 warnings.
+- Integrated focused cascade gate at `cbbee98f`: **75 passed, 1 deselected**, with 11 warnings.
 - The one deselected test is `test_gh_replay_recipe_strict_partial_failure_is_recorded_as_partial`. Its handler is lifecycle-contained at all reachable ingresses; the stale unreachable-handler test remains separate pre-existing debt.
 - Lifecycle/containment proof: **195 passed**.
-- Focused installer migration gate: **8 passed, 36 deselected**.
+- Focused installer migration gate at `ccdd2807`: **8 passed, 36 deselected**.
 - `uv lock --check`: passed.
 - `git diff --check`: passed at the implementation checkpoint.
 - Repository-wide suite: not run, as required by the approved plan and prior baseline comparison.
 
-The retained `.agents`, `.claude`, and installer skill mirrors have identical recursive relative-file inventories and byte-identical contents for `design-grasshopper`, `plan-grasshopper`, and `execute-grasshopper`. The retired `consolidate` skill is absent from active user-facing roots while `gh_consolidate`, DSPy implementation, and developer maintenance capability remain unchanged.
+At `cbbee98f`, the retained `.agents`, `.claude`, and installer skill mirrors have identical recursive relative-file inventories and byte-identical contents for `design-grasshopper`, `plan-grasshopper`, and `execute-grasshopper`. The installed mirror evidence applies to `ccdd2807`. The retired `consolidate` skill is absent from active user-facing roots while `gh_consolidate`, DSPy implementation, and developer maintenance capability remain unchanged.
 
 ## Immutable scenario replay
 
@@ -188,6 +189,6 @@ A docs/superpowers/reports/2026-08-03-grasshopper-skill-cascade-routing-acceptan
 
 ## Final disposition
 
-The deterministic private acceptance boundary is complete. The routed three-skill model, compact Wasp admission, strict execution ownership, consolidation-skill retirement, exact stale-skill migration, sibling preservation, packaged mirrors, and release payload are accepted at `ccdd280704b2db675917435615decb150ba13c27`.
+The deterministic private acceptance boundary is complete. Installer, installed-runtime, migration, sibling-preservation, and installed-mirror evidence is accepted at `ccdd280704b2db675917435615decb150ba13c27`. The final routed three-skill contract and byte-identical repository mirrors are accepted at `cbbee98f535217d1414ce5ae8439f0d045a3a519` through the fresh focused cascade gate.
 
 Public `rook-release` promotion remains a separate, non-blocking Gate 2 based on the accepted private SHA as provenance. No public promotion work has started.
