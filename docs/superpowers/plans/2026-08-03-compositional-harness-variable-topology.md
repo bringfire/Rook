@@ -274,7 +274,7 @@ semantic_primitive_prompt_projection() -> tuple[dict[str, object], ...]
 
 The loader owns raw JSON decoding. The fixture is read only by tests; production never reads it.
 
-- [ ] **Step 1: Create an importable behavioral skeleton**
+- [x] **Step 1: Create an importable behavioral skeleton**
 
 Create `semantic_graph.py` with the module constants, frozen dataclass declarations, an empty private tuple, and the three exact functions above raising `NotImplementedError`. Use these graph records:
 
@@ -308,7 +308,7 @@ class SemanticGraphLoadResult:
 
 Primitive/pin entries remain frozen inert data. Do not add callbacks, inheritance, registry lookup, or per-primitive classes.
 
-- [ ] **Step 2: Write the fixture-to-tuple RED**
+- [x] **Step 2: Write the fixture-to-tuple RED**
 
 In `test_semantic_graph.py`, load the static fixture directly with standard JSON,
 require its exact request, project component/pin fields only from `snapshot_body`, and
@@ -336,7 +336,7 @@ uv run --project mcp_server pytest -q `
 
 Expected RED: the private primitive tuple is empty or unimplemented, not a collection failure.
 
-- [ ] **Step 3: Add table-driven raw JSON loader REDs**
+- [x] **Step 3: Add table-driven raw JSON loader REDs**
 
 Add a smallest valid graph and compact parameterized cases for:
 
@@ -355,7 +355,7 @@ Add a smallest valid graph and compact parameterized cases for:
 
 Assert every expected refusal is a typed `SemanticGraphLoadResult(admitted=False, graph=None, ...)`; no parser error escapes.
 
-- [ ] **Step 4: Add schema and semantic prompt projection REDs**
+- [x] **Step 4: Add schema and semantic prompt projection REDs**
 
 Require a fresh JSON schema mapping on every call with:
 
@@ -366,7 +366,7 @@ Require a fresh JSON schema mapping on every call with:
 
 Require `semantic_primitive_prompt_projection()` to contain only Planner-facing primitive names, semantic pins, required/unconnected meaning, closed slider fields, and element compatibility guidance. It must not expose GUIDs, indices, layout, or lowering kinds.
 
-- [ ] **Step 5: Run the complete Task 1 RED**
+- [x] **Step 5: Run the complete Task 1 RED**
 
 ```powershell
 uv run --project mcp_server pytest -q mcp_server/tests/test_semantic_graph.py
@@ -374,7 +374,7 @@ uv run --project mcp_server pytest -q mcp_server/tests/test_semantic_graph.py
 
 Expected RED: the skeleton functions are unimplemented.
 
-- [ ] **Step 6: Implement the private tuple and strict loader**
+- [x] **Step 6: Implement the private tuple and strict loader**
 
 Implement exactly five qualified entries. Parse with `json.JSONDecoder` using:
 
@@ -386,11 +386,11 @@ Implement exactly five qualified entries. Parse with `json.JSONDecoder` using:
 
 Perform closed-key/type/bound validation before constructing frozen nodes and edges. Store parameters as name-sorted tuples so downstream code never depends on source mapping order. Do not trim, coerce, repair, extract markdown, or accept aliases.
 
-- [ ] **Step 7: Implement fresh Planner-facing projections**
+- [x] **Step 7: Implement fresh Planner-facing projections**
 
 Build the response schema and semantic prompt tuple afresh from the code-owned primitive data, while explicitly omitting execution-owned fields. Do not cache a mutable mapping.
 
-- [ ] **Step 8: Run Task 1 GREEN and adjacent parser regression**
+- [x] **Step 8: Run Task 1 GREEN and adjacent parser regression**
 
 ```powershell
 uv run --project mcp_server pytest -q `
@@ -402,7 +402,7 @@ uv run --project mcp_server python -m compileall -q `
 git diff --check
 ```
 
-- [ ] **Step 9: Commit Task 1**
+- [x] **Step 9: Commit Task 1**
 
 ```powershell
 git add `
@@ -412,7 +412,7 @@ git commit -m "feat(agent): admit bounded semantic gh graphs"
 git status --short
 ```
 
-- [ ] **Step 10: Review gate**
+- [x] **Step 10: Review gate**
 
 Require review of the raw-string ownership, fixture equality, closed vocabulary, and absence of execution identities in the Planner projection before Task 2.
 
@@ -435,7 +435,7 @@ materialize_gh_edit_request(plan: EpochFreeEditPlan, epoch: int) -> dict[str, ob
 
 `SemanticGraphCompileResult` is either an admitted canonical plan or one expected `graph_admission` refusal. Once admitted, lowering is total; an impossible code-owned lowering kind raises.
 
-- [ ] **Step 1: Create an importable behavioral skeleton**
+- [x] **Step 1: Create an importable behavioral skeleton**
 
 Declare frozen records for:
 
@@ -446,7 +446,7 @@ Declare frozen records for:
 
 Leave `compile_semantic_graph()` and `materialize_gh_edit_request()` as behavioral `NotImplementedError` skeletons.
 
-- [ ] **Step 2: Write relational admission REDs**
+- [x] **Step 2: Write relational admission REDs**
 
 Load real JSON strings through `load_semantic_graph()`, then compile them. Parameterize:
 
@@ -465,7 +465,7 @@ Load real JSON strings through `load_semantic_graph()`, then compile them. Param
 
 Do not require source/target access equality. Add positive tests for `series.values (Number/list) -> construct_point.x (Number/item)` and `square_grid.points (Point/tree) -> polyline.vertices (Point/list)` to prove Grasshopper-native data matching remains runtime-owned.
 
-- [ ] **Step 3: Write canonicalization and lowering REDs**
+- [x] **Step 3: Write canonicalization and lowering REDs**
 
 Create two JSON graphs that differ only in node, edge, and parameter source order. Require exact equality of:
 
@@ -494,7 +494,7 @@ Require exact existing flow syntax such as `T1.O0>T2.I1` and exact existing crea
 
 The epoch-free plan must contain no `epoch`, `C*` ID, instance GUID, delete, disconnect, update, set-values, group, or witness metadata.
 
-- [ ] **Step 4: Add compositional non-witness REDs**
+- [x] **Step 4: Add compositional non-witness REDs**
 
 Require both legal graphs to compile without production special cases:
 
@@ -505,11 +505,11 @@ number_slider.value -> square_grid.cell_size
 
 Add an AST/string guard proving production contains no witness intent, `point_row`, expected witness node count, or hard-coded witness topology.
 
-- [ ] **Step 5: Add internal-contradiction RED**
+- [x] **Step 5: Add internal-contradiction RED**
 
 In one focused test, substitute an internal primitive entry with an unknown code-owned lowering kind and assert `compile_semantic_graph()` raises `RuntimeError`. Do not express `lowering_kind` in Planner JSON or the public schema, and do not map the contradiction to graph admission.
 
-- [ ] **Step 6: Run Task 2 RED**
+- [x] **Step 6: Run Task 2 RED**
 
 ```powershell
 uv run --project mcp_server pytest -q `
@@ -517,13 +517,13 @@ uv run --project mcp_server pytest -q `
   mcp_server/tests/test_semantic_graph_compiler.py
 ```
 
-- [ ] **Step 7: Implement relational validation and canonical lowering**
+- [x] **Step 7: Implement relational validation and canonical lowering**
 
 Implement with direct dictionaries/sets and one deterministic topological sort. Do not add a generic graph framework or general list/tree inference. Compute depth during cycle analysis and use node ID only as the within-depth tie-break.
 
 Return ordinary graph-admission refusals for Planner-controlled invalidity. Raise only when qualified internal tuple data cannot lower through `slider` or `component_guid`.
 
-- [ ] **Step 8: Materialize a fresh final edit request only after epoch admission**
+- [x] **Step 8: Materialize a fresh final edit request only after epoch admission**
 
 `materialize_gh_edit_request()` must require an exact positive built-in integer epoch and return a fresh mutable mapping:
 
@@ -537,7 +537,7 @@ Return ordinary graph-admission refusals for Planner-controlled invalidity. Rais
 
 The function must not mutate the epoch-free plan or retain caller-owned mutable containers.
 
-- [ ] **Step 9: Run Task 2 GREEN**
+- [x] **Step 9: Run Task 2 GREEN**
 
 ```powershell
 uv run --project mcp_server pytest -q `
@@ -551,7 +551,7 @@ uv run --project mcp_server python -m compileall -q `
 git diff --check
 ```
 
-- [ ] **Step 10: Commit Task 2**
+- [x] **Step 10: Commit Task 2**
 
 ```powershell
 git add `
@@ -561,7 +561,7 @@ git commit -m "feat(agent): lower semantic gh graphs deterministically"
 git status --short
 ```
 
-- [ ] **Step 11: Review gate**
+- [x] **Step 11: Review gate**
 
 Review must confirm arbitrary valid composition over the five primitives, no witness templates, no new ID family, exact `T*` reuse, total post-admission lowering, and no epoch before materialization.
 
@@ -595,7 +595,7 @@ async def run_semantic_graph_transaction(
 
 Task 3 implements the adapter, result/stage types, and fixed graph builder. Snapshot/edit behavior remains a behavioral skeleton until Task 4.
 
-- [ ] **Step 1: Create the runner skeleton**
+- [x] **Step 1: Create the runner skeleton**
 
 Declare:
 
@@ -609,7 +609,7 @@ Declare:
 
 Aggregate validation is immediate shape/stage presence only. It does not replay Planner, loader, compiler, tool, graph, or mapping lineage.
 
-- [ ] **Step 2: Write Planner request and one-call REDs**
+- [x] **Step 2: Write Planner request and one-call REDs**
 
 Using a fake transport through the exact adapter, prove:
 
@@ -622,7 +622,7 @@ Using a fake transport through the exact adapter, prove:
 - ordinary transport exceptions produce `planner` with zero tool calls;
 - the exact raw returned string is retained without decode, repair, coercion, or markdown extraction.
 
-- [ ] **Step 3: Write raw-response ownership and graph-admission REDs**
+- [x] **Step 3: Write raw-response ownership and graph-admission REDs**
 
 Call `run_semantic_graph_transaction()` with raw duplicate-key, trailing-content, non-object, unknown-primitive, cyclic, and invalid-edge responses. Require:
 
@@ -634,7 +634,7 @@ Call `run_semantic_graph_transaction()` with raw duplicate-key, trailing-content
 
 Add one valid raw graph and expect the `_execute_compiled_plan()` behavioral skeleton to raise `NotImplementedError`; this proves Planner/load/compiler code was actually crossed before Task 4.
 
-- [ ] **Step 4: Write exact fixed PlanGraph RED**
+- [x] **Step 4: Write exact fixed PlanGraph RED**
 
 Require `_build_execution_graph()` to produce only:
 
@@ -651,24 +651,24 @@ Pin:
 - both edges are exact `requires` edges;
 - the original request is copied rather than mutated.
 
-- [ ] **Step 5: Run Task 3 RED**
+- [x] **Step 5: Run Task 3 RED**
 
 ```powershell
 uv run --project mcp_server pytest -q `
   mcp_server/tests/test_semantic_graph_runner.py -k "planner or graph_admission or execution_graph"
 ```
 
-- [ ] **Step 6: Implement the Planner adapter and pre-execution root**
+- [x] **Step 6: Implement the Planner adapter and pre-execution root**
 
 Mirror only the proven one-call shape from `MinimalPlannerDraftAdapter`: validate intent, render immutable canonical prompt content, materialize a fresh request, call once, capture exact raw response, and catch ordinary transport exceptions. Do not reuse its four-field prompt, decoded-object contract, Worker semantics, or result types.
 
 Pass `record.raw_response` directly to `load_semantic_graph()`, then compile the admitted graph. Never decode in the adapter.
 
-- [ ] **Step 7: Implement the fixed graph builder**
+- [x] **Step 7: Implement the fixed graph builder**
 
 Use existing `PlanGraphNode`, `PlanGraphEdge`, `PlanGraph`, and `initialize_graph()`. Do not add a `RookWorkflowContract` template or one execution node per semantic component.
 
-- [ ] **Step 8: Run Task 3 GREEN excluding the intentional execution skeleton**
+- [x] **Step 8: Run Task 3 GREEN excluding the intentional execution skeleton**
 
 ```powershell
 uv run --project mcp_server pytest -q `
@@ -681,7 +681,7 @@ uv run --project mcp_server python -m compileall -q `
 git diff --check
 ```
 
-- [ ] **Step 9: Commit Task 3**
+- [x] **Step 9: Commit Task 3**
 
 ```powershell
 git add `
@@ -691,7 +691,7 @@ git commit -m "feat(agent): add semantic graph planner boundary"
 git status --short
 ```
 
-- [ ] **Step 10: Review gate**
+- [x] **Step 10: Review gate**
 
 Confirm one raw Planner response reaches one strict loader, no execution identity appears in the prompt, and all invalid graphs stop before any GH tool call.
 
@@ -711,7 +711,7 @@ Confirm one raw Planner response reaches one strict loader, no execution identit
 
 **Execution discipline:** Reuse the existing contracted tool results directly. Do not route `gh_edit` through the script-receipt verifier and do not create a new receipt taxonomy. Apply one local structural `NodeOutcome` to `verify_edit`, then retain existing PlanGraph/step/supply record types.
 
-- [ ] **Step 1: Add a causal fake snapshot/edit executor**
+- [x] **Step 1: Add a causal fake snapshot/edit executor**
 
 In the runner test only, build a fake that:
 
@@ -722,7 +722,7 @@ In the runner test only, build a fake that:
 - records the current `get_rhino_request_context()` value at each call;
 - refuses unexpected tools, order, repeated calls, or request mutation.
 
-- [ ] **Step 2: Write snapshot-budget REDs**
+- [x] **Step 2: Write snapshot-budget REDs**
 
 Require the exact structural snapshot request:
 
@@ -740,7 +740,7 @@ Cover:
 
 Every case must return stage `snapshot`, retain the exact request/observed response when available, make one snapshot call, and make zero edit calls.
 
-- [ ] **Step 3: Write context and edit materialization REDs**
+- [x] **Step 3: Write context and edit materialization REDs**
 
 Within one `rhino_request_context(port=..., process_id=..., document_serial_number=...)`, require:
 
@@ -753,7 +753,7 @@ Within one `rhino_request_context(port=..., process_id=..., document_serial_numb
 
 If the bound context changes between calls, raise as an internal transaction contradiction before edit rather than silently retargeting.
 
-- [ ] **Step 4: Write edit-stage REDs**
+- [x] **Step 4: Write edit-stage REDs**
 
 Using already contracted fake results, cover:
 
@@ -766,7 +766,7 @@ Using already contracted fake results, cover:
 
 Require stage `edit`, one snapshot, one edit, no verification success, no retry/resnapshot/cleanup, and truthful retention of returned mutation evidence.
 
-- [ ] **Step 5: Write mapping and identity verification REDs**
+- [x] **Step 5: Write mapping and identity verification REDs**
 
 Starting from a contracted edit success with empty errors, mutate one field at a time:
 
@@ -788,7 +788,7 @@ snapshot component whose qualified primitive identity is checked.
 
 Each must reach stage `verification`, not `edit`, because the existing edit contract succeeded but the reconstructed requested structure disagrees.
 
-- [ ] **Step 6: Write exact incident-wiring REDs**
+- [x] **Step 6: Write exact incident-wiring REDs**
 
 Translate every requested T-flow using `temp_id_map`. Define actual wires as every returned flow whose source **or** target is in the newly mapped C set. Cover:
 
@@ -801,7 +801,7 @@ Translate every requested T-flow using `temp_id_map`. Define actual wires as eve
 
 Require exact set equality, not subset containment.
 
-- [ ] **Step 7: Write PlanGraph/native-record REDs**
+- [x] **Step 7: Write PlanGraph/native-record REDs**
 
 Require the returned native execution chain:
 
@@ -825,7 +825,7 @@ Do not invoke `apply_verifier_step()`: it is intentionally the script-receipt ve
 
 Require complete ordered records for `create_edit`, `verify_edit`, then terminal halt. Verification makes no tool call.
 
-- [ ] **Step 8: Write result-stage presence REDs**
+- [x] **Step 8: Write result-stage presence REDs**
 
 Directly construct each allowed stage and enforce only immediate ownership:
 
@@ -840,13 +840,13 @@ terminal         -> exact correlation + final graph + full records
 
 Do not add replay, self-authentication, cross-transaction substitution matrices, hashes, or source binding.
 
-- [ ] **Step 9: Run the complete Task 4 RED**
+- [x] **Step 9: Run the complete Task 4 RED**
 
 ```powershell
 uv run --project mcp_server pytest -q mcp_server/tests/test_semantic_graph_runner.py
 ```
 
-- [ ] **Step 10: Implement the fixed transaction**
+- [x] **Step 10: Implement the fixed transaction**
 
 Implementation order inside `_execute_compiled_plan()`:
 
@@ -870,7 +870,7 @@ return terminal result
 
 Normalize sync-or-async tool executors only with `inspect.isawaitable`; delegate each admitted call exactly once and return/retain the original mapping unchanged.
 
-- [ ] **Step 11: Run Task 4 GREEN and adjacent native seams**
+- [x] **Step 11: Run Task 4 GREEN and adjacent native seams**
 
 ```powershell
 uv run --project mcp_server pytest -q `
@@ -891,7 +891,7 @@ uv run --project mcp_server python -m compileall -q `
 git diff --check
 ```
 
-- [ ] **Step 12: Commit Task 4**
+- [x] **Step 12: Commit Task 4**
 
 ```powershell
 git add `
@@ -901,7 +901,7 @@ git commit -m "feat(agent): execute semantic gh edit graphs"
 git status --short
 ```
 
-- [ ] **Step 13: Mandatory execution-boundary review stop**
+- [x] **Step 13: Mandatory execution-boundary review stop**
 
 Review exact call counts, context continuity, existing edit-contract consumption, native record construction, mapping bijection, incident-wire equality, and stage truth before witness tests/final reconciliation.
 
@@ -915,7 +915,7 @@ Review exact call counts, context continuity, existing edit-contract consumption
 - Modify: this plan ledger
 - Production changes: none unless an existing focused test demonstrates a concrete behavioral defect
 
-- [ ] **Step 1: Add witness 1 as raw Planner JSON**
+- [x] **Step 1: Add witness 1 as raw Planner JSON**
 
 Test only:
 
@@ -930,7 +930,7 @@ Use arbitrary valid local node IDs and an intent stored only in the test. Assert
 
 Drive it through the causal fake executor and require one Planner, one snapshot, one edit, exact structural correlation, and terminal `done`.
 
-- [ ] **Step 2: Add witness 2 as raw Planner JSON**
+- [x] **Step 2: Add witness 2 as raw Planner JSON**
 
 Test only:
 
@@ -943,7 +943,7 @@ y-extent slider
 
 Require materially different topology, the same production compiler path, integral initial admission for the two extent connections, one Planner/snapshot/edit, and exact terminal materialization.
 
-- [ ] **Step 3: Re-run the two non-witness recombinations through the full runner**
+- [x] **Step 3: Re-run the two non-witness recombinations through the full runner**
 
 Require full transaction success for:
 
@@ -954,7 +954,7 @@ slider -> square_grid.cell_size
 
 This is the explicit guard that production is a bounded graph language rather than two hidden templates.
 
-- [ ] **Step 4: Add unsuccessful witness-shaped variants**
+- [x] **Step 4: Add unsuccessful witness-shaped variants**
 
 Keep failures causal and minimal:
 
@@ -964,7 +964,7 @@ Keep failures causal and minimal:
 - clean edit response with an extra new/pre-existing wire -> `verification`;
 - no failed path performs cleanup or a second call of either tool.
 
-- [ ] **Step 5: Run the final focused seam**
+- [x] **Step 5: Run the final focused seam**
 
 ```powershell
 uv run --project mcp_server pytest -q `
@@ -985,7 +985,7 @@ uv run --project mcp_server pytest -q `
 
 Record the exact passing count. No test in this command may contact a provider, Worker, Rhino, or Grasshopper.
 
-- [ ] **Step 6: Run compilation and source-surface audit**
+- [x] **Step 6: Run compilation and source-surface audit**
 
 ```powershell
 uv run --project mcp_server python -m compileall -q `
@@ -1010,7 +1010,7 @@ git diff --name-only 65108bcbd00f572dc65203d39ecb8890dbd5c98f...HEAD
 
 The first scan may find only explanatory non-claims; inspect every match. The witness/template scan must have zero production matches. The merge diff must contain only the one fixture, three production modules, three tests, approved specification, and this plan.
 
-- [ ] **Step 7: Reconcile this durable plan**
+- [x] **Step 7: Reconcile this durable plan**
 
 Mark every completed checkbox, and record:
 
@@ -1024,7 +1024,48 @@ Mark every completed checkbox, and record:
 - explicit statement that the result is bounded ephemeral telemetry, not a metric/evaluation/archive system;
 - explicit statement that no live witness was run after Task 0.
 
-- [ ] **Step 8: Commit test/ledger reconciliation only**
+**Final reconciliation evidence (2026-08-03):**
+
+- Task 0 fixture commit `39e21195adea59b115ac40cd8e261338b4218cd3`
+  was independently approved with fixture SHA-256
+  `dff642ae114fe222fc2825e306551f530994d2b80e6c6116edb867adca044d22`.
+- Task 1 is retained by `48119e0b656497ba752978bb4380761cd6c76ecf`,
+  `5b5f701289d9a9cc4e96242b25267fe9b4e8fd70`, and
+  `59d46311baae201912140d46286e2693cb67e221`; its independently reviewed
+  focused seam passed 166 tests.
+- Task 2 commit `bf8b820f6c4b58c239d3e2483d0fd563e5071882` was independently
+  approved after 168 focused tests passed.
+- Task 3 commit `f94370d50427f2f200306e95750e2f293934ec82` was independently
+  approved after 144 focused tests passed.
+- Task 4 commits `cafe3b7ba1db861c5e3d87f910c3a333e2a2221d` and
+  `c366049d6c6e2d223623211a55b1aea2d8af7ffe` were independently
+  approved after the complete adjacent seam passed 338 tests.
+- Task 5's eight focused cases passed: both witnesses, both non-witness
+  recombinations, and the four planned unsuccessful variants. All four
+  successful graphs reached `terminal_node_selected:done`.
+- Across the four successful graphs, exact entered-call totals were four Planner,
+  four snapshot, and four edit calls. Across the four unsuccessful variants,
+  exact entered-call totals were four Planner, three snapshot, and two edit calls:
+  cycle `1/0/0`, snapshot failure `1/1/0`, partial edit `1/1/1`, and extra
+  new/pre-existing wire `1/1/1`.
+- The final prescribed command over the 13 listed test files passed **396 tests**
+  with 41 pre-existing deprecation warnings and no failures.
+- Python compilation of the three production modules and three focused test files
+  passed. Both production source-surface scans returned zero matches.
+  `git diff --check` passed.
+- The exact Slice 1 file scope relative to audit head `65108bcb` is:
+  the approved specification and this plan; one qualification fixture; the three
+  semantic-graph production modules; and the three semantic-graph test modules.
+- Verified implementation HEAD before this reconciliation commit is
+  `c366049d6c6e2d223623211a55b1aea2d8af7ffe`. Task 5 changed no production
+  code; only the runner tests and this ledger are part of its reconciliation
+  commit.
+- The retained result is a bounded ephemeral transaction aggregate and diagnostic
+  telemetry, not a metric, evaluation, archive, publication, or evidence system.
+- No live witness, provider, Worker, Rhino, or Grasshopper call occurred after the
+  single authorized Task 0 snapshot qualification.
+
+- [x] **Step 8: Commit test/ledger reconciliation only**
 
 ```powershell
 git add `
@@ -1035,7 +1076,7 @@ git status --short
 git show --check --stat --oneline HEAD
 ```
 
-- [ ] **Step 9: Final independent implementation review stop**
+- [x] **Step 9: Final independent implementation review stop**
 
 Do not push, open a PR, merge, construct a real Planner transport, or run either live witness until an independent reviewer approves the complete implementation and confirms the Slice 0 audit dependency is already merged.
 

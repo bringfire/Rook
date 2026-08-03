@@ -20,15 +20,22 @@ from rook.learning.plan_graph import PlanGraphEdge
 _INTENT = "Create a small parametric Grasshopper definition."
 
 
-def _slider(node_id: str = "control") -> dict[str, object]:
+def _slider(
+    node_id: str = "control",
+    *,
+    label: str = "Value",
+    minimum: int | float = 0,
+    maximum: int | float = 10,
+    initial: int | float = 5,
+) -> dict[str, object]:
     return {
         "id": node_id,
         "primitive": "number_slider",
         "parameters": {
-            "label": "Value",
-            "minimum": 0,
-            "maximum": 10,
-            "initial": 5,
+            "label": label,
+            "minimum": minimum,
+            "maximum": maximum,
+            "initial": initial,
         },
     }
 
@@ -390,6 +397,65 @@ def _valid_raw_graph() -> str:
     return _raw_graph(
         nodes=[_slider(), _node("point", "construct_point")],
         edges=[_edge("control", "value", "point", "x")],
+    )
+
+
+def _point_row_raw_graph() -> str:
+    return _raw_graph(
+        nodes=[
+            _slider("start_control", label="Start", minimum=-10, initial=0),
+            _slider("step_control", label="Step", minimum=-10, initial=1),
+            _slider("count_control", label="Count", maximum=20, initial=8),
+            _node("series_values", "series"),
+            _node("points", "construct_point"),
+            _node("path", "polyline"),
+        ],
+        edges=[
+            _edge("start_control", "value", "series_values", "start"),
+            _edge("step_control", "value", "series_values", "step"),
+            _edge("count_control", "value", "series_values", "count"),
+            _edge("series_values", "values", "points", "x"),
+            _edge("points", "point", "path", "vertices"),
+        ],
+    )
+
+
+def _square_grid_raw_graph() -> str:
+    return _raw_graph(
+        nodes=[
+            _slider("cell_size", label="Cell Size", minimum=1, initial=5),
+            _slider("x_extent", label="X Extent", minimum=1, maximum=20, initial=8),
+            _slider("y_extent", label="Y Extent", minimum=1, maximum=20, initial=6),
+            _node("grid", "square_grid"),
+        ],
+        edges=[
+            _edge("cell_size", "value", "grid", "cell_size"),
+            _edge("x_extent", "value", "grid", "extent_x"),
+            _edge("y_extent", "value", "grid", "extent_y"),
+        ],
+    )
+
+
+def _cyclic_point_row_raw_graph() -> str:
+    return _raw_graph(
+        nodes=[
+            _slider("start_control", label="Start", minimum=-10, initial=0),
+            _slider("step_control", label="Step", minimum=-10, initial=1),
+            _slider("count_control", label="Count", maximum=20, initial=8),
+            _node("series_values", "series"),
+            _node("series_loop", "series"),
+            _node("points", "construct_point"),
+            _node("path", "polyline"),
+        ],
+        edges=[
+            _edge("start_control", "value", "series_loop", "step"),
+            _edge("step_control", "value", "series_values", "step"),
+            _edge("count_control", "value", "series_values", "count"),
+            _edge("series_values", "values", "series_loop", "start"),
+            _edge("series_loop", "values", "series_values", "start"),
+            _edge("series_values", "values", "points", "x"),
+            _edge("points", "point", "path", "vertices"),
+        ],
     )
 
 
@@ -886,3 +952,281 @@ async def test_result_stage_presence_is_immediate_not_replayed() -> None:
         replace(verification_result, edit_response=None)
     with pytest.raises(ValueError):
         replace(terminal_result, structural_correlation=None)
+
+
+@pytest.mark.asyncio
+async def test_point_row_witness_runs_complete_existing_transaction() -> None:
+    raw = _point_row_raw_graph()
+    transport = _RecordingTransport(raw)
+    executor = _CausalSnapshotEditExecutor()
+
+    result = await runner.run_semantic_graph_transaction(
+        "Build a point row from three numeric controls.",
+        planner_adapter=runner.SemanticGraphPlannerAdapter(transport),
+        tool_executor=executor,
+    )
+
+    assert len(transport.calls) == 1
+    assert [name for name, _ in executor.calls] == ["gh_snapshot", "gh_edit"]
+    assert result.terminal_stage == "terminal"
+    assert result.terminal_reason == "terminal_node_selected:done"
+    assert result.planner_record.raw_response is raw
+    assert result.edit_plan is not None
+    assert result.edit_plan.semantic_node_to_temp_id == (
+        ("count_control", "T1"),
+        ("path", "T2"),
+        ("points", "T3"),
+        ("series_values", "T4"),
+        ("start_control", "T5"),
+        ("step_control", "T6"),
+    )
+    assert result.edit_plan.connect == (
+        "T1.O0>T4.I2",
+        "T3.O0>T2.I0",
+        "T4.O0>T3.I0",
+        "T5.O0>T4.I0",
+        "T6.O0>T4.I1",
+    )
+    assert result.canonical_graph is not None
+    canonical_nodes = {node.id: node for node in result.canonical_graph.nodes}
+    assert tuple(canonical_nodes) == (
+        "count_control",
+        "path",
+        "points",
+        "series_values",
+        "start_control",
+        "step_control",
+    )
+    assert tuple(
+        (node.id, node.primitive, dict(node.parameters))
+        for node in result.canonical_graph.nodes
+    ) == (
+        (
+            "count_control",
+            "number_slider",
+            {"initial": 8, "label": "Count", "maximum": 20, "minimum": 0},
+        ),
+        ("path", "polyline", {}),
+        ("points", "construct_point", {}),
+        ("series_values", "series", {}),
+        (
+            "start_control",
+            "number_slider",
+            {"initial": 0, "label": "Start", "maximum": 10, "minimum": -10},
+        ),
+        (
+            "step_control",
+            "number_slider",
+            {"initial": 1, "label": "Step", "maximum": 10, "minimum": -10},
+        ),
+    )
+    assert tuple(
+        (edge.from_node, edge.from_pin, edge.to_node, edge.to_pin)
+        for edge in result.canonical_graph.edges
+    ) == (
+        ("count_control", "value", "series_values", "count"),
+        ("points", "point", "path", "vertices"),
+        ("series_values", "values", "points", "x"),
+        ("start_control", "value", "series_values", "start"),
+        ("step_control", "value", "series_values", "step"),
+    )
+    assert "guid" not in raw and "temp_id" not in raw and "pos" not in raw
+    assert result.edit_request is not None
+    create = result.edit_request["create"]
+    assert type(create) is list
+    assert all(type(entry) is dict for entry in create)
+    assert [entry["temp_id"] for entry in create] == [
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+    ]
+    assert [entry.get("type", entry.get("guid")) for entry in create] == [
+        "slider",
+        "71b5b089-500a-4ea6-81c5-2f960441a0e8",
+        "3581f42a-9592-4549-bd6b-1c0fc39d067b",
+        "e64c5fb1-845c-4ab1-8911-5f338516ba67",
+        "slider",
+        "slider",
+    ]
+    assert all("pos" in entry for entry in create)
+    assert result.structural_correlation == (
+        ("count_control", "C1", "00000000-0000-0000-0000-000000000001"),
+        ("path", "C2", "00000000-0000-0000-0000-000000000002"),
+        ("points", "C3", "00000000-0000-0000-0000-000000000003"),
+        ("series_values", "C4", "00000000-0000-0000-0000-000000000004"),
+        ("start_control", "C5", "00000000-0000-0000-0000-000000000005"),
+        ("step_control", "C6", "00000000-0000-0000-0000-000000000006"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_square_grid_witness_runs_complete_existing_transaction() -> None:
+    raw = _square_grid_raw_graph()
+    transport = _RecordingTransport(raw)
+    executor = _CausalSnapshotEditExecutor()
+
+    result = await runner.run_semantic_graph_transaction(
+        "Build a square grid from size and extent controls.",
+        planner_adapter=runner.SemanticGraphPlannerAdapter(transport),
+        tool_executor=executor,
+    )
+
+    assert len(transport.calls) == 1
+    assert [name for name, _ in executor.calls] == ["gh_snapshot", "gh_edit"]
+    assert result.terminal_stage == "terminal"
+    assert result.terminal_reason == "terminal_node_selected:done"
+    assert result.edit_plan is not None
+    assert result.edit_plan.semantic_node_to_temp_id == (
+        ("cell_size", "T1"),
+        ("grid", "T2"),
+        ("x_extent", "T3"),
+        ("y_extent", "T4"),
+    )
+    assert result.edit_plan.connect == (
+        "T1.O0>T2.I1",
+        "T3.O0>T2.I2",
+        "T4.O0>T2.I3",
+    )
+    assert result.canonical_graph is not None
+    assert tuple(
+        (node.id, node.primitive, dict(node.parameters))
+        for node in result.canonical_graph.nodes
+    ) == (
+        (
+            "cell_size",
+            "number_slider",
+            {"initial": 5, "label": "Cell Size", "maximum": 10, "minimum": 1},
+        ),
+        ("grid", "square_grid", {}),
+        (
+            "x_extent",
+            "number_slider",
+            {"initial": 8, "label": "X Extent", "maximum": 20, "minimum": 1},
+        ),
+        (
+            "y_extent",
+            "number_slider",
+            {"initial": 6, "label": "Y Extent", "maximum": 20, "minimum": 1},
+        ),
+    )
+    assert tuple(
+        (edge.from_node, edge.from_pin, edge.to_node, edge.to_pin)
+        for edge in result.canonical_graph.edges
+    ) == (
+        ("cell_size", "value", "grid", "cell_size"),
+        ("x_extent", "value", "grid", "extent_x"),
+        ("y_extent", "value", "grid", "extent_y"),
+    )
+    assert result.edit_request is not None
+    create = result.edit_request["create"]
+    assert type(create) is list
+    assert [entry.get("type", entry.get("guid")) for entry in create] == [
+        "slider",
+        "717a1e25-a075-4530-bc80-d43ecc2500d9",
+        "slider",
+        "slider",
+    ]
+    assert result.structural_correlation == (
+        ("cell_size", "C1", "00000000-0000-0000-0000-000000000001"),
+        ("grid", "C2", "00000000-0000-0000-0000-000000000002"),
+        ("x_extent", "C3", "00000000-0000-0000-0000-000000000003"),
+        ("y_extent", "C4", "00000000-0000-0000-0000-000000000004"),
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        _valid_raw_graph(),
+        _raw_graph(
+            nodes=[_slider("size"), _node("grid", "square_grid")],
+            edges=[_edge("size", "value", "grid", "cell_size")],
+        ),
+    ),
+    ids=("slider_to_construct_point_x", "slider_to_square_grid_cell_size"),
+)
+@pytest.mark.asyncio
+async def test_non_witness_recombination_runs_full_transaction(raw: str) -> None:
+    transport = _RecordingTransport(raw)
+    executor = _CausalSnapshotEditExecutor()
+
+    result = await runner.run_semantic_graph_transaction(
+        "Compose a small legal graph.",
+        planner_adapter=runner.SemanticGraphPlannerAdapter(transport),
+        tool_executor=executor,
+    )
+
+    assert len(transport.calls) == 1
+    assert [name for name, _ in executor.calls] == ["gh_snapshot", "gh_edit"]
+    assert result.terminal_stage == "terminal"
+    assert result.terminal_reason == "terminal_node_selected:done"
+
+
+@pytest.mark.asyncio
+async def test_cyclic_point_row_stops_at_graph_admission_without_gh_calls() -> None:
+    transport = _RecordingTransport(_cyclic_point_row_raw_graph())
+    executor = _CausalSnapshotEditExecutor()
+
+    result = await runner.run_semantic_graph_transaction(
+        "Build a point row with an invalid cyclic dependency.",
+        planner_adapter=runner.SemanticGraphPlannerAdapter(transport),
+        tool_executor=executor,
+    )
+
+    assert len(transport.calls) == 1
+    assert executor.calls == []
+    assert result.terminal_stage == "graph_admission"
+    assert result.terminal_reason == "cycle_detected"
+
+
+@pytest.mark.asyncio
+async def test_square_grid_snapshot_failure_stops_before_edit() -> None:
+    transport = _RecordingTransport(_square_grid_raw_graph())
+    executor = _CausalSnapshotEditExecutor(
+        snapshot_response={"success": False, "data": {"epoch": 11}}
+    )
+
+    result = await runner.run_semantic_graph_transaction(
+        "Build a square grid from size and extent controls.",
+        planner_adapter=runner.SemanticGraphPlannerAdapter(transport),
+        tool_executor=executor,
+    )
+
+    assert len(transport.calls) == 1
+    assert [name for name, _ in executor.calls] == ["gh_snapshot"]
+    assert result.terminal_stage == "snapshot"
+
+
+@pytest.mark.asyncio
+async def test_point_row_partial_edit_stops_without_another_call() -> None:
+    transport = _RecordingTransport(_point_row_raw_graph())
+    executor = _CausalSnapshotEditExecutor(edit_mutation="top_partial")
+
+    result = await runner.run_semantic_graph_transaction(
+        "Build a point row from three numeric controls.",
+        planner_adapter=runner.SemanticGraphPlannerAdapter(transport),
+        tool_executor=executor,
+    )
+
+    assert len(transport.calls) == 1
+    assert [name for name, _ in executor.calls] == ["gh_snapshot", "gh_edit"]
+    assert result.terminal_stage == "edit"
+
+
+@pytest.mark.asyncio
+async def test_square_grid_extra_new_to_preexisting_wire_stops_verification() -> None:
+    transport = _RecordingTransport(_square_grid_raw_graph())
+    executor = _CausalSnapshotEditExecutor(edit_mutation="new_to_preexisting")
+
+    result = await runner.run_semantic_graph_transaction(
+        "Build a square grid from size and extent controls.",
+        planner_adapter=runner.SemanticGraphPlannerAdapter(transport),
+        tool_executor=executor,
+    )
+
+    assert len(transport.calls) == 1
+    assert [name for name, _ in executor.calls] == ["gh_snapshot", "gh_edit"]
+    assert result.terminal_stage == "verification"
