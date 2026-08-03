@@ -547,9 +547,6 @@ def _mutate_edit_result(result: dict[str, object], mutation: str | None) -> None
         data["partial_success"] = True
     elif mutation == "edit_errors":
         summary["errors"] = ["sentinel edit error"]
-        result["success"] = False
-        result["partial_success"] = True
-        data["partial_success"] = True
     elif mutation == "shortfall_with_errors":
         summary["created"] = 0
         summary["errors"] = ["create shortfall"]
@@ -590,6 +587,10 @@ def _mutate_edit_result(result: dict[str, object], mutation: str | None) -> None
         flows.append("C1.O0>C90.I0")
     elif mutation == "malformed_incident_wire":
         flows.append("C1.not-a-flow")
+    elif mutation == "malformed_target_endpoint":
+        flows.append("C90.O0>C1")
+    elif mutation == "malformed_source_endpoint":
+        flows.append("C1>C90.I0")
     elif mutation == "unrelated_wire":
         flows.append("C90.O0>C91.I0")
     else:
@@ -711,7 +712,6 @@ async def test_context_drift_raises_before_edit(
         "stale_epoch",
         "top_partial",
         "nested_partial",
-        "edit_errors",
         "shortfall_with_errors",
     ),
 )
@@ -728,6 +728,17 @@ async def test_edit_contract_stops_without_retry_or_verification(mutation: str) 
     assert tuple(record.accepted_node_id for record in result.step_records) == (
         "create_edit",
     )
+
+
+@pytest.mark.asyncio
+async def test_nonempty_edit_errors_stop_even_when_edit_reports_success() -> None:
+    executor = _CausalSnapshotEditExecutor(edit_mutation="edit_errors")
+
+    result = await _run_task4(executor)
+
+    assert [name for name, _ in executor.calls] == ["gh_snapshot", "gh_edit"]
+    assert result.terminal_stage == "edit"
+    assert result.structural_correlation is None
 
 
 @pytest.mark.asyncio
@@ -791,6 +802,20 @@ async def test_mapping_or_identity_disagreement_is_verification_stop(
 async def test_exact_incident_wiring_disagreement_is_verification_stop(
     mutation: str,
 ) -> None:
+    result = await _run_task4(
+        _CausalSnapshotEditExecutor(edit_mutation=mutation)
+    )
+
+    assert result.terminal_stage == "verification"
+    assert result.structural_correlation is None
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("malformed_target_endpoint", "malformed_source_endpoint"),
+)
+@pytest.mark.asyncio
+async def test_malformed_returned_flow_is_verification_stop(mutation: str) -> None:
     result = await _run_task4(
         _CausalSnapshotEditExecutor(edit_mutation=mutation)
     )

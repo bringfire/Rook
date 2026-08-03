@@ -36,6 +36,7 @@ from rook.agent.semantic_graph_compiler import (
     materialize_gh_edit_request,
 )
 from rook.bridge import get_rhino_request_context
+from rook.gh_edit_contract import extract_edit_errors
 from rook.learning.plan_graph import (
     NodeOutcome,
     PlanGraph,
@@ -580,6 +581,8 @@ def _edit_contract_failure(response: object) -> str | None:
         type(data) is dict and data.get("partial_success") is True
     ):
         return "edit_partial_success"
+    if extract_edit_errors(response):
+        return "edit_errors"
     return None
 
 
@@ -721,9 +724,7 @@ def _verify_structural_materialization(
             return None, "returned_flow_invalid"
         match = _FLOW_RE.fullmatch(flow)
         if match is None:
-            if any(f"{component_id}." in flow for component_id in new_components):
-                return None, "incident_flow_malformed"
-            continue
+            return None, "incident_flow_malformed"
         if (
             match.group("source") in new_components
             or match.group("target") in new_components
