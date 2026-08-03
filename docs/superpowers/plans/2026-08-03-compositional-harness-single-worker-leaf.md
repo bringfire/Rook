@@ -1424,7 +1424,7 @@ git diff --check: passed
 - Consumes: reviewed Tasks 1–4.
 - Produces: reproducible verification ledger and clean implementation-review HEAD.
 
-- [ ] **Step 1: Run the focused Slice 2 seam**
+- [x] **Step 1: Run the focused Slice 2 seam**
 
 ```powershell
 cd mcp_server
@@ -1439,7 +1439,7 @@ cd mcp_server
 
 Record the exact passed count and warnings.
 
-- [ ] **Step 2: Run the broader shared execution seam**
+- [x] **Step 2: Run the broader shared execution seam**
 
 ```powershell
 cd mcp_server
@@ -1463,7 +1463,7 @@ cd mcp_server
 
 Record the exact passed count and warnings. Any new failure blocks completion.
 
-- [ ] **Step 3: Compile and run source-surface checks**
+- [x] **Step 3: Compile and run source-surface checks**
 
 ```powershell
 cd mcp_server
@@ -1497,7 +1497,7 @@ Expected:
 - diff check passes;
 - status contains only the plan-ledger reconciliation before its commit.
 
-- [ ] **Step 4: Audit exact scope and production growth**
+- [x] **Step 4: Audit exact scope and production growth**
 
 ```powershell
 git diff --name-only 8a2216d9...HEAD
@@ -1526,7 +1526,7 @@ if ($totalProductionAdditions -gt 650) {
 
 Require exactly the planned production/test files plus this specification and plan. Report both the total production additions and the new compositor's production line count. Stop for scope review if total additions exceed roughly 650 lines, the compositor exceeds roughly 350 lines, or any unplanned product surface appears. Deletions do not offset either additions gate.
 
-- [ ] **Step 5: Reconcile this ledger with observed evidence**
+- [x] **Step 5: Reconcile this ledger with observed evidence**
 
 Mark only actually completed checkboxes. Record:
 
@@ -1545,7 +1545,7 @@ new compositor production line count
 
 Do not claim provider, Worker-box, Rhino, Grasshopper, or live semantic execution.
 
-- [ ] **Step 6: Commit documentation-only reconciliation**
+- [x] **Step 6: Commit documentation-only reconciliation**
 
 ```powershell
 git add -- docs/superpowers/plans/2026-08-03-compositional-harness-single-worker-leaf.md
@@ -1556,6 +1556,52 @@ git status --short --branch
 ```
 
 Expected: clean worktree. Stop for final independent implementation review. Do not push, open a PR, merge, or perform live qualification without separate authorization.
+
+Observed final verification and scope:
+
+```text
+Task 1:
+  commit: 57e7c253975e144f4d0e66acafdd9bbe08b1e242
+  Slice 1 compatibility seam: 216 passed
+Task 2:
+  commit: ae3cb1fb003d52d94bcc1272a76fca45d4014ef8
+  loader/compiler/runner seam: 230 passed
+  independent review: approved
+Task 3:
+  happy-path commit: 75eaaf30abc5a37280b3d6b47b1c1635e10c387f
+  safety repair commit: a3d2fb3893a571f21870dbd418166591302e6989
+  complete adjacent seam: 449 passed
+  independent review: approved
+Task 4:
+  commit: b04b572ec34266021547a69dd3ed93011c6b117e
+  Worker-leaf test file: 41 passed
+  complete prescribed seam: 478 passed
+  independent review: approved
+focused final seam: 312 passed, 0 warnings
+broader final seam: 638 passed, 0 warnings
+final implementation HEAD: b04b572ec34266021547a69dd3ed93011c6b117e
+changed files from 48dc2f200348c4f34454ad9c6d0bdb819c097ddc:
+  docs/superpowers/plans/2026-08-03-compositional-harness-single-worker-leaf.md
+  docs/superpowers/specs/2026-08-03-compositional-harness-single-worker-leaf-design.md
+  mcp_server/src/rook/agent/semantic_graph.py
+  mcp_server/src/rook/agent/semantic_graph_compiler.py
+  mcp_server/src/rook/agent/semantic_graph_runner.py
+  mcp_server/src/rook/agent/semantic_graph_worker_leaf_runner.py
+  mcp_server/tests/test_semantic_graph.py
+  mcp_server/tests/test_semantic_graph_compiler.py
+  mcp_server/tests/test_semantic_graph_runner.py
+  mcp_server/tests/test_semantic_graph_worker_leaf_runner.py
+production additions from 8a2216d9: 681
+new compositor lines/additions: 275
+growth note: the independently approved Task 3 context guard and direct
+  predecessor equations account for the 32-line exception above the
+  approximate original gate; Task 4 and Task 5 changed no production code
+compileall: passed
+repair/update production scan: zero matches
+witness-specific production scan: zero matches
+git diff --check: passed
+external contact: none
+```
 
 ---
 
