@@ -8266,7 +8266,7 @@ Response includes:
 - diagnostics: Error/warning summary with component IDs
 - epoch: Version number for short ID mappings (required for gh_edit)
 
-Use gh_snapshot to understand the canvas, then gh_edit to modify it atomically.""",
+Use gh_snapshot to understand the canvas, then gh_edit to apply ordered batch mutations and inspect partial-success results.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -8284,7 +8284,7 @@ Use gh_snapshot to understand the canvas, then gh_edit to modify it atomically."
         ),
         Tool(
             name="gh_edit",
-            description="""Apply batch mutations to the Grasshopper canvas atomically in a SINGLE call.
+            description="""Apply batch mutations to the Grasshopper canvas as one ordered batch in a single call. Earlier operations may commit before a later operation fails; inspect partial_success and per-operation results.
 
 Execution order: create → disconnect → delete → set_values → connect → groups.
 Returns the updated canvas snapshot with new short ID mappings.

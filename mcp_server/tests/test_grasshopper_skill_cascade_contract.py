@@ -83,3 +83,41 @@ def test_plan_is_optional_read_only_and_has_durable_baseline() -> None:
         assert forbidden not in combined
     assert not (root / "references" / "wasp").exists()
     assert "../design-grasshopper/references/wasp-admission.md" in skill
+
+
+@pytest.mark.asyncio
+async def test_execute_owns_mutation_and_gh_edit_description_is_truthful() -> None:
+    from rook import server
+
+    root = MIRROR_ROOTS[0] / "execute-grasshopper"
+    skill = (root / "SKILL.md").read_text(encoding="utf-8")
+    frontmatter = skill.split("---", 2)[1]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.md"))
+    normalized_frontmatter = " ".join(frontmatter.split())
+    assert "Use when the user asks to build or modify a Grasshopper definition through Rook" in normalized_frontmatter
+    for required in (
+        "fresh gh_snapshot",
+        "fresh epoch",
+        "execution-owned",
+        "partial_success",
+        "already committed",
+        "already satisfied",
+        "topology",
+        "preservation",
+    ):
+        assert required in combined
+    for forbidden in (
+        "Skill(",
+        "Read(",
+        "gh_delete(",
+        "gh_set_value(",
+        "gh_canvas_cleanup(",
+        "consolidate",
+    ):
+        assert forbidden not in combined
+    assert "../design-grasshopper/references/wasp-admission.md" in skill
+
+    tools = {tool.name: tool for tool in await server._all_live_tools()}
+    for name in ("gh_snapshot", "gh_edit"):
+        assert "atomically" not in tools[name].description.lower()
+    assert "partial" in tools["gh_edit"].description.lower()
