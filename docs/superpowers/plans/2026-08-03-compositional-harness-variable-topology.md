@@ -34,7 +34,7 @@
 ### Qualification fixture
 
 - Create `mcp_server/tests/fixtures/gh_semantic_graph_slice1_primitives_snapshot.json`
-  - Exact contracted request and response from the one authorized `gh_snapshot` call.
+  - Exact snapshot body returned by the one authorized `gh_snapshot` call.
 
 ### Production
 
@@ -125,17 +125,11 @@ Invoke the existing `gh_snapshot` tool once with the exact request:
 }
 ```
 
-Make no other Rhino or Grasshopper call. Preserve the returned contracted value exactly in:
-
-```json
-{
-  "request": {
-    "include_data": false,
-    "max_preview_items": 0
-  },
-  "response": <exact returned contracted response>
-}
-```
+Make no other Rhino or Grasshopper call. Require the outer tool invocation to
+succeed, then preserve the exact returned snapshot body directly as the fixture. Do
+not add the request or an invented inner success field to that body. The fixed
+request above remains code-owned Task 0 procedure, while the future runner's existing
+`ToolDispatcher` envelope handling remains separate and unchanged.
 
 Write the fixture using `apply_patch`; do not generate it from candidate constants, a knowledge record, or a helper script.
 
@@ -143,8 +137,8 @@ Write the fixture using `apply_patch`; do not generate it from candidate constan
 
 Using read-only JSON inspection, require all of the following:
 
-- response success is exact `true`;
-- response data has an exact positive integer epoch;
+- the outer tool invocation succeeded before body interpretation;
+- the snapshot body has an exact positive integer epoch;
 - exactly five components are present and `flows` is exactly empty;
 - the four regular components expose the exact candidate `componentGuid` values;
 - every regular input/output exposes exact direction/index, `type`, `access`, and
@@ -164,28 +158,30 @@ Using read-only JSON inspection, require all of the following:
 Compare the four regular components against this exact direction/index projection:
 
 ```text
-series:         I0 start Number item optional
-                I1 step Number item optional
-                I2 count Integer item optional
-                O0 values Number list
-construct_point:I0 x Number item optional
-                I1 y Number item optional
-                I2 z Number item optional
-                O0 point Point item
-polyline:       I0 vertices Point list required
-                I1 closed Boolean item optional
-                O0 curve Curve item
-square_grid:    I0 plane Plane item optional
-                I1 cell_size Number item optional
-                I2 extent_x Integer item optional
-                I3 extent_y Integer item optional
-                O0 cells Rectangle list
-                O1 points Point list
+series:         I0 start Number item gh_optional=false connection_required=false
+                I1 step Number item gh_optional=false connection_required=false
+                I2 count Integer item gh_optional=false connection_required=false
+                O0 values Number list gh_optional=false
+construct_point:I0 x Number item gh_optional=false connection_required=false
+                I1 y Number item gh_optional=false connection_required=false
+                I2 z Number item gh_optional=false connection_required=false
+                O0 point Point item gh_optional=false
+polyline:       I0 vertices Point list gh_optional=false connection_required=true
+                I1 closed Boolean item gh_optional=false connection_required=false
+                O0 curve Curve item gh_optional=false
+square_grid:    I0 plane Plane item gh_optional=false connection_required=false
+                I1 cell_size Number item gh_optional=false connection_required=false
+                I2 extent_x Integer item gh_optional=false connection_required=false
+                I3 extent_y Integer item gh_optional=false connection_required=false
+                O0 cells Rectangle item gh_optional=false
+                O1 points Point tree gh_optional=false
 ```
 
 The semantic names shown above are exact code-owned aliases; qualification locates
 each snapshot pin through component GUID plus direction/index and does not require a
-snapshot name match. Separately record:
+snapshot name match. Physical `gh_optional` metadata is fixture-owned;
+`connection_required` is a separate code-owned language policy and is not inferred
+from it. Separately record:
 
 ```text
 number_slider snapshot qualification: NumberSlider identity + slider range/value shape
@@ -223,8 +219,10 @@ The reviewer must independently inspect the exact fixture fields against specifi
 
 - one snapshot, no mutation evidence;
 - exact five-component/no-wire scope;
-- all four regular GUIDs and every regular pin direction/index/type/access/optionality
-  row;
+- all four regular GUIDs and every regular pin
+  direction/index/type/access/physical-optional row;
+- the separate code-owned `connection_required` policy requires only
+  `polyline.vertices` and is not attributed to snapshot evidence;
 - slider `NumberSlider` identity and finite range/value shape;
 - code-owned slider `value -> O0 / Number / item` convention clearly separated from
   snapshot evidence;
@@ -293,12 +291,15 @@ Primitive/pin entries remain frozen inert data. Do not add callbacks, inheritanc
 In `test_semantic_graph.py`, load the static fixture directly with standard JSON, project only its existing component/pin fields, and compare those fixture-owned facts with the production `_PRIMITIVES` tuple. The test must prove:
 
 - regular `componentGuid` values match after one code-owned lowercase normalization;
-- regular pins match by component GUID plus direction/index, then exact type/access/optionality;
+- regular pins match by component GUID plus direction/index, then exact
+  type/access/physical `optional: false` metadata;
 - semantic aliases are not compared with snapshot `name` or `nick` strings;
 - slider identity is `NumberSlider`, its range/value payload has the contracted
   finite numeric shape, and lowering kind is `slider`;
 - the separate code-owned slider `value -> O0 / Number / item` convention is exact;
 - every input has `max_connections == 1`;
+- only `polyline.vertices` has code-owned `connection_required == true`, independently
+  of the physical optionality comparison;
 - no production fixture read occurs (AST/import assertion: `semantic_graph.py` does not reference `tests`, `fixtures`, `Path`, or file I/O).
 
 Run:
@@ -437,7 +438,7 @@ Load real JSON strings through `load_semantic_graph()`, then compile them. Param
   `series.count`; the narrow Number-to-Integer exception belongs only to
   `number_slider`.
 
-Do not require source/target access equality. Add positive tests for `series.values (Number/list) -> construct_point.x (Number/item)` and `square_grid.points (Point/list) -> polyline.vertices (Point/list)` to prove Grasshopper-native data matching remains runtime-owned.
+Do not require source/target access equality. Add positive tests for `series.values (Number/list) -> construct_point.x (Number/item)` and `square_grid.points (Point/tree) -> polyline.vertices (Point/list)` to prove Grasshopper-native data matching remains runtime-owned.
 
 - [ ] **Step 3: Write canonicalization and lowering REDs**
 

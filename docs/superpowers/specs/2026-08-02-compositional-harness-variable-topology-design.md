@@ -224,8 +224,10 @@ Each entry records only:
 - lowering kind (`slider` or `component_guid`);
 - fixed Grasshopper component GUID where applicable;
 - exact semantic input/output pin names;
-- fixed Grasshopper pin index, element type, and access metadata;
-- input `max_connections` and whether it may be unconnected; and
+- fixed Grasshopper pin index, element type, access, and observed `gh_optional`
+  metadata;
+- input `max_connections` and the separate code-owned `connection_required` policy;
+  and
 - closed parameter fields and necessary bounds.
 
 The candidate regular-component identities to qualify are:
@@ -260,33 +262,37 @@ The semantic pins are:
 
 The candidate compiler pin projection is:
 
-| Primitive | Semantic pin | GH direction/index | Element type | Access | May be unconnected |
-|---|---|---|---|---|---|
-| `number_slider` | `value` | output 0 | Number | item | n/a |
-| `series` | `start` | input 0 | Number | item | yes |
-| `series` | `step` | input 1 | Number | item | yes |
-| `series` | `count` | input 2 | Integer | item | yes |
-| `series` | `values` | output 0 | Number | list | n/a |
-| `construct_point` | `x` | input 0 | Number | item | yes |
-| `construct_point` | `y` | input 1 | Number | item | yes |
-| `construct_point` | `z` | input 2 | Number | item | yes |
-| `construct_point` | `point` | output 0 | Point | item | n/a |
-| `polyline` | `vertices` | input 0 | Point | list | no |
-| `polyline` | `closed` | input 1 | Boolean | item | yes |
-| `polyline` | `curve` | output 0 | Curve | item | n/a |
-| `square_grid` | `plane` | input 0 | Plane | item | yes |
-| `square_grid` | `cell_size` | input 1 | Number | item | yes |
-| `square_grid` | `extent_x` | input 2 | Integer | item | yes |
-| `square_grid` | `extent_y` | input 3 | Integer | item | yes |
-| `square_grid` | `cells` | output 0 | Rectangle | list | n/a |
-| `square_grid` | `points` | output 1 | Point | list | n/a |
+| Primitive | Semantic pin | GH direction/index | Element type | Access | Observed `gh_optional` | `connection_required` |
+|---|---|---|---|---|---|---|
+| `number_slider` | `value` | output 0 | Number | item | not exposed | n/a |
+| `series` | `start` | input 0 | Number | item | `false` | `false` |
+| `series` | `step` | input 1 | Number | item | `false` | `false` |
+| `series` | `count` | input 2 | Integer | item | `false` | `false` |
+| `series` | `values` | output 0 | Number | list | `false` | n/a |
+| `construct_point` | `x` | input 0 | Number | item | `false` | `false` |
+| `construct_point` | `y` | input 1 | Number | item | `false` | `false` |
+| `construct_point` | `z` | input 2 | Number | item | `false` | `false` |
+| `construct_point` | `point` | output 0 | Point | item | `false` | n/a |
+| `polyline` | `vertices` | input 0 | Point | list | `false` | `true` |
+| `polyline` | `closed` | input 1 | Boolean | item | `false` | `false` |
+| `polyline` | `curve` | output 0 | Curve | item | `false` | n/a |
+| `square_grid` | `plane` | input 0 | Plane | item | `false` | `false` |
+| `square_grid` | `cell_size` | input 1 | Number | item | `false` | `false` |
+| `square_grid` | `extent_x` | input 2 | Integer | item | `false` | `false` |
+| `square_grid` | `extent_y` | input 3 | Integer | item | `false` | `false` |
+| `square_grid` | `cells` | output 0 | Rectangle | item | `false` | n/a |
+| `square_grid` | `points` | output 1 | Point | tree | `false` | n/a |
 
 The semantic names in this table are the prospective graph's exact, case-sensitive
 compiler aliases. They are not required to equal Grasshopper's snapshot `name` or
 `nick` strings. Qualification matches each regular-component pin by its qualified
 component GUID plus direction and index, then checks the returned element type,
-access, and optionality. This avoids a second alias map and keeps semantic names out
-of runtime discovery.
+access, and physical `optional` metadata. Grasshopper's `Optional` property does not
+define whether the prospective language requires a connection: the separate
+code-owned `connection_required` policy requires only `polyline.vertices`, while all
+other current inputs may remain unconnected and use Grasshopper-owned defaults or
+persistent data. This avoids a second alias map and keeps semantic names out of
+runtime discovery.
 
 The four regular-component GUID and pin rows become reviewed code-owned constants
 only after the one-time qualification in section 6.1 succeeds. The slider's special
@@ -341,14 +347,18 @@ mcp_server/tests/fixtures/gh_semantic_graph_slice1_primitives_snapshot.json
 
 An operator manually prepares a disposable Grasshopper canvas containing exactly one
 instance of each of the five primitives and no wires. The qualification makes one
-`gh_snapshot` call and no mutation call. It retains the exact contracted snapshot
-request and response in the fixture.
+`gh_snapshot` call and no mutation call. The fixture is the exact returned snapshot
+body. The fixed qualification request remains in the Task 0 procedure; it is not
+duplicated inside the fixture. Tool-call success belongs to the outer invocation
+envelope and is checked before accepting the body, not invented as an inner snapshot
+field. The future runner continues to consume its existing `ToolDispatcher` envelope
+separately and unchanged.
 
 The fixture must independently expose enough existing snapshot evidence to review:
 
 - each regular component GUID;
 - every regular-component input and output direction/index, element type, access,
-  and optionality;
+  and exact observed `optional: false` metadata;
 - the absence of unexpected variable pins on those four regular components;
 - the slider's existing `NumberSlider` special identity; and
 - the slider value payload's `type: "slider"` plus finite numeric `val`, `min`, and
@@ -362,13 +372,14 @@ placeholder or `BROKEN` component entry, not ordinary runtime diagnostics.
 
 The fixture is captured from Grasshopper, never generated from the candidate table.
 A focused test projects the fixture through its existing contracted fields and
-requires exact agreement with the private tuple for the fixture-owned facts above.
-The test separately requires the code-owned slider output convention without
-mislabeling it as snapshot evidence. Production code never reads the fixture.
+requires exact agreement with the private tuple for the fixture-owned facts above,
+including physical `optional: false` metadata. The test independently checks the
+code-owned `connection_required` policy and slider output convention without
+mislabeling either as snapshot evidence. Production code never reads the fixture.
 Runtime admission never performs component discovery.
 
 If the snapshot omits a required regular-component fact, disagrees with a candidate
-regular GUID/index/type/access/optionality value, or fails to expose the slider
+regular GUID/index/type/access/physical-optional value, or fails to expose the slider
 identity/range/value shape, qualification stops. The specification and witness choice
 must be reviewed rather than guessing, weakening the comparison, or updating the
 tuple automatically.
@@ -747,8 +758,10 @@ The focused test surface must prove:
 ### Loading and admission
 
 - the one-time static snapshot fixture independently projects every regular-component
-  GUID and direction/index/type/access/optionality fact, plus the slider identity and
-  range/value shape;
+  GUID and direction/index/type/access/physical-optional fact, plus the slider
+  identity and range/value shape;
+- the separate code-owned `connection_required` policy requires only
+  `polyline.vertices` and is not represented as snapshot-derived evidence;
 - the slider `value -> O0 / Number / item` convention is tested as code-owned rather
   than represented as snapshot-derived evidence;
 - actual JSON duplicate-key and non-finite refusal;
