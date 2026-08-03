@@ -11,6 +11,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 import rook.agent.semantic_graph as semantic_graph
+from rook.agent.semantic_graph_compiler import compile_semantic_graph
 
 
 _FIXTURE_PATH = (
@@ -573,7 +574,7 @@ def test_loader_rejects_non_string_edge_fields(
     )
 
 
-def test_response_schema_is_fresh_closed_and_execution_identity_free() -> None:
+def test_response_schema_is_fresh_closed_provider_compatible_and_identity_free() -> None:
     first = semantic_graph.build_semantic_graph_response_schema()
     second = semantic_graph.build_semantic_graph_response_schema()
 
@@ -586,17 +587,24 @@ def test_response_schema_is_fresh_closed_and_execution_identity_free() -> None:
         "const": "rook.gh_semantic_graph:v1"
     }
     nodes = first["properties"]["nodes"]
-    assert nodes["type"] == "array"
-    assert nodes["minItems"] == 1
-    assert nodes["maxItems"] == 16
-    assert len(nodes["items"]["oneOf"]) == 5
-    for node_shape in nodes["items"]["oneOf"]:
+    assert nodes == {
+        "type": "array",
+        "items": nodes["items"],
+    }
+    assert len(nodes["items"]["anyOf"]) == 5
+    for node_shape in nodes["items"]["anyOf"]:
         assert node_shape["additionalProperties"] is False
         assert node_shape["required"] == ["id", "primitive", "parameters"]
+        assert node_shape["properties"]["id"] == {"type": "string"}
+        for parameter_shape in node_shape["properties"]["parameters"][
+            "properties"
+        ].values():
+            assert parameter_shape in ({"type": "string"}, {"type": "number"})
     edges = first["properties"]["edges"]
-    assert edges["type"] == "array"
-    assert edges["minItems"] == 0
-    assert edges["maxItems"] == 24
+    assert edges == {
+        "type": "array",
+        "items": edges["items"],
+    }
     assert edges["items"]["additionalProperties"] is False
     assert edges["items"]["required"] == [
         "from_node",
@@ -604,8 +612,14 @@ def test_response_schema_is_fresh_closed_and_execution_identity_free() -> None:
         "to_node",
         "to_pin",
     ]
+    assert all(
+        field_schema == {"type": "string"}
+        for field_schema in edges["items"]["properties"].values()
+    )
 
     serialized = json.dumps(first, sort_keys=True)
+    for unsupported in ('"oneOf"', '"pattern"', '"minLength"', '"maxLength"'):
+        assert unsupported not in serialized
     for forbidden in (
         "guid",
         "index",
@@ -629,7 +643,7 @@ def test_response_schema_is_fresh_closed_and_execution_identity_free() -> None:
 
 @pytest.mark.parametrize("invalid_identifier", ["!!slider!!", "slider\n"])
 @pytest.mark.parametrize("field", ["node_id", "from_node", "to_node"])
-def test_response_schema_rejects_node_identifiers_with_extra_characters(
+def test_local_admission_still_rejects_ids_omitted_from_provider_schema(
     field: str,
     invalid_identifier: str,
 ) -> None:
@@ -642,9 +656,21 @@ def test_response_schema_rejects_node_identifiers_with_extra_characters(
     else:
         payload["edges"][0][field] = invalid_identifier
 
-    assert not Draft202012Validator(
+    assert Draft202012Validator(
         semantic_graph.build_semantic_graph_response_schema()
     ).is_valid(payload)
+    loaded = semantic_graph.load_semantic_graph(_raw(payload))
+    if field == "node_id":
+        assert loaded.admitted is False
+        assert loaded.reason == "invalid_node_id"
+        return
+    assert loaded.admitted is True
+    assert loaded.graph is not None
+    compiled = compile_semantic_graph(loaded.graph)
+    assert compiled.admitted is False
+    assert compiled.reason == (
+        "unknown_source_node" if field == "from_node" else "unknown_target_node"
+    )
 
 
 def test_slider_parameter_admission_follows_lowering_kind(
