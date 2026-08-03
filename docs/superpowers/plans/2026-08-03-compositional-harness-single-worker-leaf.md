@@ -1201,6 +1201,28 @@ compileall: passed
 git diff --check: passed
 ```
 
+Task 3 review repair evidence:
+
+```text
+RED: 2 failed
+  Worker context drift entered gh_create_csharp_script before refusal
+  impossible connect-only prefix was accepted
+focused repair GREEN: 2 passed
+complete adjacent seam: 449 passed
+repair commit: a3d2fb3893a571f21870dbd418166591302e6989
+production additions since 8a2216d9:
+  semantic_graph.py: 165
+  semantic_graph_compiler.py: 207
+  semantic_graph_runner.py: 34
+  semantic_graph_worker_leaf_runner.py: 275
+  total: 681
+growth note: the 32-line delta above the approximate gate is the reviewed
+  context guard and immediate predecessor equations; no scope expansion
+compileall: passed
+git diff --check: passed
+renewed independent Task 3 approval: pending
+```
+
 ---
 
 ## Task 4: Close the Bounded Prefix and Failure Matrix
