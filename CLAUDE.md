@@ -60,8 +60,8 @@ gh_edit(epoch=snap["epoch"], create=[...], connect=["T1.O0>C2.I1"], set_values=[
 ```
 
 One request, ordered non-transactional mutations, at most one post-mutation solve request—not an all-or-nothing transaction.
-Inspect `success`, `partial_success`, every operation outcome, `edit_summary`, and
-the solve-scheduling fields. `gh_edit` does not return solved output previews inline;
+Inspect `success`, `partial_success`, the `edit_summary` mutation counts, reported
+errors and resolved IDs, and the solve-scheduling status. `gh_edit` does not return solved output previews inline;
 after the solve has settled, verify the live canvas with a fresh `gh_snapshot` and
 `gh_errors`. If a batch partially succeeds, reconcile the observed canvas and retry
 only missing or failed operations—never blindly replay the entire batch.

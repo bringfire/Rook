@@ -160,7 +160,8 @@ function Test-Guidance {
         '113 tools',
         'ONE atomic call',
         'one atomic write',
-        'Modify the Grasshopper canvas atomically'
+        'Modify the Grasshopper canvas atomically',
+        'every operation outcome'
     )) {
         Assert-NotContains -Text $combined -Unexpected $stalePhrase -Message "Active guidance retains stale phrase: $stalePhrase"
     }
