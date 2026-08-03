@@ -229,6 +229,7 @@ The architecture is **directionally complete but transitionally incomplete**.
 | Compiled IR authorization | Not yet designed to product completeness or implemented. |
 | Recipe-to-runtime product vertical | Not present. |
 | Multi-file work allocation/fan-in | North-Star-defined but beyond the current single-file semantic harness. |
+| LM program evaluation and optimization | DSPy dependencies and historical wrappers exist, but no measured, compiled, versioned program pipeline is established. |
 
 The most mature LM9 code today is scientific evidence infrastructure. It is a
 trustworthy instrument, not yet the product machine being measured.
@@ -420,7 +421,64 @@ eligibility is assigned from measured success, cost, and failure taxonomy.
 **Falsifier:** A local model requires whole-task semantics, broad mutation
 authority, or unbounded conversational repair to succeed.
 
-### 7.9 Surprise, replanning, and product convergence
+### 7.9 Provisional DSPy-guided program optimization
+
+**Status:** Strong provisional hypothesis. This section records a future
+empirical direction, not an implementation commitment or approval of the
+current Rook or Chirp DSPy code as an architectural template.
+
+**Hypothesis:** Once a Planner or worker role has a stable contract, an
+authoritative deterministic evaluation boundary, and a representative corpus,
+DSPy can convert frontier-model demonstrations and LM9 diagnostic evidence into
+a versioned program that materially improves a cheaper or local model on
+held-out tasks without changing semantic authority, advancement, or execution
+rules.
+
+DSPy belongs to the probabilistic program layer:
+
+```text
+frontier and local model traces
++ deterministic LM9 diagnostics
++ semantic fidelity evidence
++ compiler/runtime outcomes when applicable
+-> explicit DSPy metric and textual feedback
+-> optimizer run
+-> fingerprinted compiled LM program
+-> unchanged LM9 validation and execution harness
+```
+
+DSPy may optimize instructions, demonstrations, predictor composition, or
+model weights. It may not establish user facts, policy, capability,
+compile-readiness, execution authority, or runtime success. A hard deterministic
+invalidity is non-compensable: no aggregate metric or model judgment may reward
+it away.
+
+**Proof:** Freeze the DSPy/runtime version, program and adapter identities,
+model profiles, train/development/held-out partitions, metric, optimizer,
+compiled artifact, and budget. Compare three controlled arms through the same
+harness:
+
+1. unoptimized frontier model;
+2. unoptimized local model; and
+3. DSPy-optimized local model.
+
+The optimized local arm must improve held-out contract success while preserving
+honest blocked outcomes, deterministic gate results, semantic fidelity, and
+downstream verification. Cost, latency, VRAM, escalation, and failure taxonomy
+are measured alongside quality.
+
+**Falsifier:** Improvement exists only on copied fixtures, depends on
+answer-leaking demonstrations or changed authority, converts honest blocked
+cases into invented values, fails on an unrelated task family, or disappears
+on a held-out set under the unchanged harness.
+
+**Eligibility:** Planner-program optimization becomes eligible only after the
+LM9A semantic contribution and a representative Planner corpus exist. Worker
+program optimization becomes eligible only after stable worker-slot contracts
+and role-specific metrics exist. Optimized prompts and demonstrations are
+explicit model-visible interventions and always create a new program identity.
+
+### 7.10 Surprise, replanning, and product convergence
 
 **Hypothesis:** Clarification, runtime failure, and changed authority can use the
 same pattern: runner halt, typed evidence, Planner re-entry, immutable
@@ -455,6 +513,13 @@ The next work should proceed in this order:
 9. Implement receipt-driven semantic/runtime replan and converge product entry
    points on the same artifact path.
 10. Extend the proven single-file system to macro Work Units and fan-in.
+
+The DSPy hypothesis adds eligibility gates, not a competing implementation
+sequence. A Planner-level fitness experiment may begin only after step 4 has
+provided authoritative semantic outcomes and enough representative examples.
+A worker-level transfer experiment may begin only after step 8 has provided a
+stable bounded slot. Neither experiment may alter the active contract, gate, or
+authority source it is intended to measure.
 
 The optional compiler continuation in step 3 is a scientific observation only.
 No additional representation or execution work should proceed before step 4,

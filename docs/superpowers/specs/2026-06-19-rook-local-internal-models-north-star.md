@@ -948,6 +948,43 @@ managed solve-readiness receipt equivalent to the `gh_set_value` fence proven
 by LM8K/LM8M. That is a named live-execution prerequisite, not a reason to
 perform a broad cleanup of every historical timing loop now.
 
+### 12.3 Addendum: provisional DSPy optimization hypothesis (2026-07-23)
+
+The scaffold evidence creates a new, still-unproven opportunity. DSPy may be
+the pre-inference learning layer that transfers some frontier-model competence
+into a cheaper or local worker after the worker's contract and deterministic
+evaluation boundary are stable. It is not a replacement for the scaffold and
+never becomes runtime authority.
+
+The controlled hypothesis is:
+
+```text
+stable bounded worker contract
++ frontier demonstrations
++ deterministic gate and verifier feedback
++ representative train/development/held-out cases
+-> DSPy-optimized, fingerprinted local-worker program
+-> unchanged worker harness
+-> higher held-out success at lower cost
+```
+
+The first qualifying experiment compares an unoptimized frontier model, an
+unoptimized local model, and an optimized local model on the same held-out slot
+contract. It records contract validity, verified outcome, escalation, latency,
+cost, and VRAM. Optimizer, metric, datasets, DSPy/runtime version, adapter,
+model, demonstrations, and compiled program are all explicit identities.
+
+Hard contract or authority failure cannot be traded for a higher aggregate
+score. Optimization must preserve honest refusal and escalation. A gain that
+depends on copied task answers, changed contracts, or fixture-specific guidance
+does not support local-worker transfer.
+
+This is a strong provisional hypothesis, not a blessing of the current Rook or
+Chirp DSPy implementations. Those paths are historical evidence to audit. The
+experiment becomes eligible only after stable worker slots and role-specific
+metrics exist. The complete authority and falsification statement lives in
+`2026-07-23-rook-semantic-harness-architecture-accounting.md` section 7.9.
+
 ---
 
 ## 13. First recommended implementation sequence
@@ -1015,6 +1052,9 @@ Recommendation: they may propose nodes or repairs, but Rook validates and applie
 - Hard dependency edges come from contracts/preconditions/effects/verifiers. Observed successor statistics are soft until promoted.
 - Workflow tools are execution-profile-aware generic contract macros, not baked task recipes.
 - Deterministic contract/transcript tests precede live model optimization.
+- DSPy-guided local-worker optimization is a provisional post-contract
+  hypothesis; compiled programs are fingerprinted interventions and run behind
+  the unchanged deterministic worker harness.
 - The local worker scaffold is the executable bottom tier of the topology north-star.
 - LM8 closes scalar-family harness qualification; additional scalar arithmetic
   is model-selection evidence unless it introduces a separately named contract
