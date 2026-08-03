@@ -37,7 +37,10 @@ def test_design_is_read_only_and_uses_trigger_only_frontmatter() -> None:
         for path in root.rglob("*.md")
     )
     assert "Use when a Grasshopper request is ambiguous or open-ended" in frontmatter
-    assert "This stage is read-only" in skill
+    assert "Rhino, Grasshopper, and knowledge read-only" in skill
+    assert "authorized design artifact" in skill
+    assert "`docs/plans/`" in skill
+    assert "does not alter Rhino, Grasshopper, project files" not in skill
     assert "plan-grasshopper" not in frontmatter
     assert "execute-grasshopper" not in frontmatter
     for forbidden in (
@@ -71,7 +74,10 @@ def test_plan_is_optional_read_only_and_has_durable_baseline() -> None:
     frontmatter = skill.split("---", 2)[1]
     combined = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.md"))
     assert "Use when Grasshopper work is large, destructive, cross-session" in frontmatter
-    assert "This stage is read-only" in skill
+    assert "Rhino, Grasshopper, and knowledge read-only" in skill
+    assert "authorized plan artifact" in skill
+    assert "`docs/plans/`" in skill
+    assert "does not mutate Rhino, Grasshopper, project files" not in skill
     assert "structural baseline" in skill
     assert "document identity" in skill
     assert "ownership" in skill
@@ -83,6 +89,15 @@ def test_plan_is_optional_read_only_and_has_durable_baseline() -> None:
         assert forbidden not in combined
     assert not (root / "references" / "wasp").exists()
     assert "../design-grasshopper/references/wasp-admission.md" in skill
+
+    patterns = (root / "references" / "tool-call-patterns.md").read_text(encoding="utf-8")
+    for required in (
+        '"action": "create"',
+        '"nick": "<group>"',
+        '"members": ["<owned id>"]',
+    ):
+        assert required in patterns
+    assert 'groups=[{"name": "<group>", "ids": ["<owned id>"]}]' not in patterns
 
 
 @pytest.mark.asyncio

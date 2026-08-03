@@ -9,7 +9,7 @@ description: >
 
 ## Purpose
 
-Turn an ambiguous Grasshopper brief into a clear, reviewable design decision. This stage is read-only. It may inspect current state and discuss alternatives, but it does not alter Rhino, Grasshopper, project files, or the knowledge store.
+Turn an ambiguous Grasshopper brief into a clear, reviewable design decision. This stage is Rhino, Grasshopper, and knowledge read-only. It may inspect current state and discuss alternatives, but it does not mutate either host or write to the knowledge store. When durability adds value, it may write only the authorized design artifact under `docs/plans/`.
 
 Use this stage only when material design choices remain unresolved. A clear, bounded build request can proceed directly to execution. Planning is optional and adds value when work is large, destructive, cross-session, preservation-sensitive, or otherwise high risk.
 
@@ -40,7 +40,7 @@ When alternatives are useful, present two or three viable approaches with concre
 
 ## Record the Design
 
-Write a durable design record containing:
+When durability adds value, write the authorized design artifact under `docs/plans/`. Otherwise, return the record in the current task. In either form, include:
 
 - user intent and success criteria;
 - inputs, outputs, and conceptual data flow;

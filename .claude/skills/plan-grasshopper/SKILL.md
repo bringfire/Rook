@@ -9,7 +9,7 @@ description: >
 
 ## Purpose
 
-Convert an approved design, clear specification, or equivalent artifact into a durable technical plan. This stage is read-only. It inspects current evidence and serializes future work; it does not mutate Rhino, Grasshopper, project files, or knowledge.
+Convert an approved design, clear specification, or equivalent artifact into a durable technical plan. This stage is Rhino, Grasshopper, and knowledge read-only. It inspects current evidence and serializes future work; it may write only the authorized plan artifact under `docs/plans/` and does not mutate either host or the knowledge store.
 
 Planning is optional. Use it when size, destructive potential, cross-session handoff, existing-canvas preservation, or review risk justifies a durable artifact. Skipping the durable plan is valid when execution can perform the same bounded preflight in the current task.
 
@@ -61,4 +61,4 @@ See [tool-call patterns](references/tool-call-patterns.md) for non-executed plan
 
 ## Complete the Stage
 
-Return the plan for review. Identify any approval still required before mutation and offer execution after that approval. Do not invoke execution automatically; the user controls the next stage.
+Write the authorized plan artifact under `docs/plans/` and return its path for review. Identify any approval still required before mutation and offer execution after that approval. Do not invoke execution automatically; the user controls the next stage.

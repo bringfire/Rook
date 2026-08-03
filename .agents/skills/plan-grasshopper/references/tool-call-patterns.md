@@ -36,7 +36,13 @@ gh_edit(
     set_values=[{"id": "<owned id>", "value": 12.5}],
     disconnect=["<owned id>.O0><authorized target>.I0"],
     connect=["<owned id>.O0><authorized target>.I1"],
-    groups=[{"name": "<group>", "ids": ["<owned id>"]}],
+    groups=[
+        {
+            "action": "create",
+            "nick": "<group>",
+            "members": ["<owned id>"],
+        }
+    ],
     delete=["<owned id>"],
 )
 ```
