@@ -765,7 +765,7 @@ new compositor/runner module: absent
 
 ### Mandatory independent review gate after Task 2
 
-- [ ] **Stop before creating or modifying compositor code**
+- [x] **Stop before creating or modifying compositor code**
 
 Report for independent review:
 
@@ -814,7 +814,7 @@ Do not proceed to Task 3 until an independent reviewer explicitly approves this 
   - `SemanticGraphSingleWorkerLeafResult`
   - `run_semantic_graph_single_worker_leaf_transaction()`
 
-- [ ] **Step 1: Create an importable compositor skeleton before the RED test**
+- [x] **Step 1: Create an importable compositor skeleton before the RED test**
 
 Create `semantic_graph_worker_leaf_runner.py` with the exact public surface and no behavior:
 
@@ -852,7 +852,7 @@ async def run_semantic_graph_single_worker_leaf_transaction(*args, **kwargs):
 
 Do not commit the skeleton separately.
 
-- [ ] **Step 2: Add the behavioral walking RED through all existing seams**
+- [x] **Step 2: Add the behavioral walking RED through all existing seams**
 
 In `test_semantic_graph_worker_leaf_runner.py`, use:
 
@@ -954,7 +954,7 @@ Each case must raise before `produce_worker_leaf()` and prove zero Planner,
 Worker, and tool calls. Caller validation must not be deferred to the existing
 handoff or deterministic runner.
 
-- [ ] **Step 3: Run the walking test and verify behavioral RED**
+- [x] **Step 3: Run the walking test and verify behavioral RED**
 
 Run:
 
@@ -969,7 +969,7 @@ missing behavior after fixtures and imports complete successfully. The
 capability-order cases must not pass merely because the skeleton raises an
 unrelated exception type.
 
-- [ ] **Step 4: Add the code-owned Slice 2 Planner call**
+- [x] **Step 4: Add the code-owned Slice 2 Planner call**
 
 In `semantic_graph_runner.py`, preserve `produce()` and factor only the common send/record operation:
 
@@ -1015,7 +1015,7 @@ Add `_render_worker_leaf_prompt_snapshot()` using only `build_worker_leaf_semant
 - mutating the materialized transport request does not alter the retained prompt snapshot;
 - existing `produce()` prompt remains unchanged.
 
-- [ ] **Step 5: Implement the thin prefix result and fixed compositor**
+- [x] **Step 5: Implement the thin prefix result and fixed compositor**
 
 Replace the skeleton with an exact signature:
 
@@ -1148,7 +1148,7 @@ def _connect_matches(response: object, request: dict[str, object]) -> bool:
 
 `SemanticGraphSingleWorkerLeafResult.__post_init__()` checks only exact immediate types, ordered optional-field presence, and the direct completed equation. It must not re-run loaders/compilers, walk nested histories, or reconstruct receipt lineage.
 
-- [ ] **Step 6: Run the walking vertical and adjacent Planner tests**
+- [x] **Step 6: Run the walking vertical and adjacent Planner tests**
 
 Run:
 
@@ -1162,7 +1162,7 @@ cd mcp_server
 
 Expected: all pass. The walking test reports exactly one Planner, one Worker, one create, one snapshot, one edit, and one connect.
 
-- [ ] **Step 7: Commit Task 3**
+- [x] **Step 7: Commit Task 3**
 
 ```powershell
 git add -- `
@@ -1179,6 +1179,27 @@ Report both the new compositor's production additions and cumulative production
 additions across all four planned modules, counted without subtracting
 deletions. Stop if the compositor exceeds roughly 350 additions or the
 cumulative total exceeds roughly 650 additions.
+
+Observed Task 3 evidence:
+
+```text
+walking/capability RED: 10 failed (NotImplementedError skeleton)
+Planner-path RED: 1 failed (produce_worker_leaf absent)
+prescribed walking/adjacent seam: 81 passed
+complete Task 3 files plus adjacent seam: 90 passed
+successful call budget:
+  Planner 1, Worker 1, gh_create_csharp_script 1,
+  gh_snapshot 1, gh_edit 1, gh_connect 1
+commit: 75eaaf30abc5a37280b3d6b47b1c1635e10c387f
+production additions since 8a2216d9:
+  semantic_graph.py: 165
+  semantic_graph_compiler.py: 207
+  semantic_graph_runner.py: 34
+  semantic_graph_worker_leaf_runner.py: 243
+  total: 649
+compileall: passed
+git diff --check: passed
+```
 
 ---
 
