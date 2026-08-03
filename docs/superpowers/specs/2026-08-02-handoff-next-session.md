@@ -70,10 +70,14 @@ of the way toward it before finding it.
    Still unanswered; it shapes everything downstream.
 2. **Slice 1 (findings → Chirp planner → parameters) is unbuilt.** That is the actual thesis;
    the NYC context work is slice C, which ran in parallel.
-3. Multi-level ground (Transportation Structures `h9sf-7bej`) — a TIN is single-valued and
-   Manhattan has roads over roads.
-4. Street Centerline `inkn-q76z` unused — needed for longitudinal grade. See ASAM OpenDRIVE
-   in the spec for the conceptual schema.
+3. ~~Multi-level ground~~ — **largely answered 2026-08-03.** CSCL carries
+   `from_level_code`/`to_level_code` per segment (13 = grade, 9 below, 17/21 above; mixed
+   pairs are the transition ramps). Solve per level set. Transportation Structures
+   `h9sf-7bej` is now a cross-check rather than the primary source.
+4. Street Centerline `inkn-q76z` — **source verified 2026-08-03, still unbuilt.** Fields,
+   level-code distribution and the exact-coincidence node graph (389 nodes from 1,206
+   endpoint refs, no tolerance) are in the spec under slice G. It is 2D: Z comes from 3DEP
+   sampled along the line. See ASAM OpenDRIVE in the spec for the conceptual schema.
 
 ## Tone note
 

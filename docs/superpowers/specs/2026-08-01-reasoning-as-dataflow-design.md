@@ -1538,11 +1538,65 @@ Continuity everywhere except where a known step belongs.
 
 **4. Longitudinal control from centerlines.** Welding removes seams but leaves streets
 locally smooth and globally aimless — a Laplacian has no notion that forty patches in a row
-are 10th Avenue. **NYC LION / Street Centerline (CSCL)** supplies segment→node topology,
-street identity for grouping patches into one run, and an axis for enforcing continuous
-grade between intersections. Intersection nodes become shared constraints where several
-streets must agree — which is how a survey is actually controlled.
-*(Resource ID not yet confirmed; look it up rather than assume.)*
+are 10th Avenue. **NYC Street Centerline (CSCL)** supplies segment→node topology, street
+identity for grouping patches into one run, and an axis for enforcing continuous grade
+between intersections. Intersection nodes become shared constraints where several streets
+must agree — which is how a survey is actually controlled. Source verified below.
+
+### Street centerlines — source verified (2026-08-03)
+
+**`inkn-q76z`**, NYC Open Data, dataset name "Centerline", 122,245 segments citywide.
+Socrata SODA, GeoJSON `MultiLineString` in WGS84 — project with the same EPSG:2263 forward
+implementation already written for the tile index. Query by
+`$where=within_circle(the_geom,lat,lon,metres)`.
+
+Fields that matter, confirmed against a live row:
+
+| Field | Example | Use |
+|---|---|---|
+| `the_geom` | MultiLineString, WGS84 | the reference line |
+| `from_level_code` / `to_level_code` | `13`, `9`, `17`, `21` | **vertical level** — see below |
+| `streetwidth` | `34` (ft) | cross-section half-width |
+| `number_travel_lanes`, `number_park_lanes`, `number_total_lanes` | `2`, `2`, `4` | lane geometry |
+| `trafdir` | `FT` | direction of travel |
+| `segmentlength` | `260.14` (ft) | station length |
+| `physicalid` | `46810` | stable segment key |
+| `rw_type` | `1` | roadway class — **codes not yet verified** |
+
+**The graph is free.** In the 900 m AOI around the site: 539 segments, 1,206 endpoint
+references collapsing to **389 distinct coordinates at full floating-point precision** — no
+snapping tolerance, exactly as with the planimetric polygon coverage. Node degree
+1:14 · 2:126 · 3:81 · 4:149 · 5:14 · 6:4 · 7:1. The degree-1 nodes are the AOI clip edge;
+degree 3 and 4 are T- and four-way intersections. Segments at different levels correctly do
+*not* share a node where they cross.
+
+**Level codes resolve the multi-level ground problem**, and better than Transportation
+Structures (`h9sf-7bej`) does, because the level is carried per segment and is already
+attached to the topology rather than needing a spatial join. Distribution in the AOI:
+
+| `(from, to)` | count | reading |
+|---|---|---|
+| `(13, 13)` | 399 | at grade |
+| `(9, 9)` | 56 | below grade |
+| `(17, 17)` | 44 | above grade |
+| `(21, 21)` | 4 | higher still |
+| mixed pairs — `(17,13)`, `(13,9)`, `(13,17)`, `(9,13)`, `(21,17)` | 35 | **the ramps that transition between levels** |
+
+This AOI contains the Lincoln Tunnel helix and the Dyer Avenue approaches, which is exactly
+the roads-over-roads case that breaks a single-valued TIN. Segments should be solved per
+level, with the mixed-pair ramps as the stitching elements between level sets.
+
+**What CSCL does not give.** No elevation — it is strictly 2D. Z comes from 3DEP sampled
+along each centerline and smoothed longitudinally, which is the OpenDRIVE structure exactly:
+reference line from CSCL, elevation profile attached to it, cross-section from `streetwidth`
+and lane counts, with the planimetric roadbed polygon as the lateral constraint. No curb
+geometry either — that is already identified as the 10,601 roadbed↔sidewalk shared vertices.
+
+**Two caveats.** The Socrata publication **drops `NODEIDFROM`/`NODEIDTO`**; DCP's LION
+shapefile carries them, but coordinate identity works exactly, so LION is not needed. And
+`rw_type` (1 ×320, 9 ×97, 6 ×38, 2 ×28, 3 ×27, 4 ×24, 13 ×5 in the AOI) must be read against
+the CSCL data dictionary before filtering on it — 97 segments of one non-street class in a
+900 m radius is consistent with tunnel ramps, but the code meanings are unverified.
 
 ### Verification — decided in advance
 
@@ -1635,8 +1689,8 @@ ridges, and used as **constraints when constructing the triangulation**. Impleme
 
 | Layer | Resource | Why it matters |
 |---|---|---|
-| **Street Centerline** | `inkn-q76z` (dataset), `3mf9-qshr` (map) | Network topology, street identity, longitudinal axis |
-| Transportation Structures | `h9sf-7bej` | Elevated decks — the multi-level ground problem |
+| ~~Street Centerline~~ | `inkn-q76z` | **Source verified 2026-08-03** — see slice G. Still unused, but no longer unknown. |
+| Transportation Structures | `h9sf-7bej` | Elevated decks — **largely superseded** by CSCL level codes, which carry level per segment |
 | Median, Curb Cut, Pavement Edge | planimetric DB | More breaklines |
 | Public Plazas, Parking Lot | planimetric DB | More ground classes |
 | **1 ft DEM raster** | `dpc8-z3jc` / `7kuu-zah7` | Denser than the 10 m grid actually sampled |
