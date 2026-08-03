@@ -377,6 +377,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "gh_status":                ("/gh/status", "GET"),
     "gh_snapshot":              ("/gh/snapshot", "POST"),
     "gh_edit":                  ("/gh/edit", "POST"),
+    "gh_connect":               ("/gh/connect", "POST"),
     "gh_undo":                  ("/gh/undo", "POST"),
     "gh_selection":             ("/gh/selection", "GET"),
     "gh_categories":            ("/gh/categories", "GET"),
