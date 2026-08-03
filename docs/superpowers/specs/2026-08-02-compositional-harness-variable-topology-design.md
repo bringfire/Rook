@@ -228,7 +228,7 @@ Each entry records only:
 - input `max_connections` and whether it may be unconnected; and
 - closed parameter fields and necessary bounds.
 
-The fixed regular-component identities are:
+The candidate regular-component identities to qualify are:
 
 | Semantic primitive | Grasshopper identity |
 |---|---|
@@ -251,7 +251,7 @@ The semantic pins are:
 | `polyline` | `vertices`, `closed` | `curve` |
 | `square_grid` | `plane`, `cell_size`, `extent_x`, `extent_y` | `cells`, `points` |
 
-The reviewed pin projection is fixed as follows:
+The candidate pin projection to qualify is:
 
 | Primitive | Semantic pin | GH direction/index | Element type | Access | May be unconnected |
 |---|---|---|---|---|---|
@@ -274,8 +274,10 @@ The reviewed pin projection is fixed as follows:
 | `square_grid` | `cells` | output 0 | Rectangle | list | n/a |
 | `square_grid` | `points` | output 1 | Point | list | n/a |
 
-These values become reviewed code-owned constants. Knowledge data is supporting
-evidence, not a runtime source. The Planner never sees or authors the indices.
+These values become reviewed code-owned constants only after the one-time
+qualification in section 6.1 succeeds. Knowledge data is supporting evidence, not a
+qualification source or runtime authority. The Planner never sees or authors the
+indices.
 
 Every admitted input in Slice 1 has `max_connections = 1`. Pin access metadata is
 retained exactly, but access is not edge cardinality. The compiler does not require
@@ -306,11 +308,49 @@ bounded initial-execution admission rule, not a persistent integer guarantee. Sl
 
 Knowledge records and historical recipes may support review and tests, but neither
 is read at runtime and neither can modify the tuple. A later separately authorized
-live qualification may detect component drift. Drift must fail visibly; it must
-never update the tuple automatically.
+live witness run may expose component drift. Drift must fail visibly; it must never
+update the tuple automatically or trigger another qualification path.
 
 There is no registry API, catalog loader, fingerprint, migration system, generic
 component introspection, or plugin extension point.
+
+### 6.1 One-time primitive qualification prerequisite
+
+Production implementation must not begin until one separately authorized,
+read-only qualification has produced this ordinary static test fixture:
+
+```text
+mcp_server/tests/fixtures/gh_semantic_graph_slice1_primitives_snapshot.json
+```
+
+An operator manually prepares a disposable Grasshopper canvas containing exactly one
+instance of each of the five primitives and no wires. The qualification makes one
+`gh_snapshot` call and no mutation call. It retains the exact contracted snapshot
+request and response in the fixture.
+
+The fixture must independently expose enough existing snapshot evidence to review:
+
+- each regular component GUID and the slider's existing special identity;
+- every input and output index and name;
+- element type;
+- access;
+- optionality; and
+- the absence of unexpected variable pins for this closed use.
+
+The fixture is captured from Grasshopper, never generated from the candidate table.
+A focused test projects the fixture through its existing contracted fields and
+requires exact agreement with the private tuple. Production code never reads the
+fixture. Runtime admission never performs component discovery.
+
+If the snapshot omits a required fact or disagrees with any candidate GUID, pin,
+access, or optionality value, qualification stops. The specification and witness
+choice must be reviewed rather than guessing, weakening the comparison, or updating
+the tuple automatically.
+
+This is one static regression fixture, not a registry, manifest, archive, runtime
+probe, recurring qualification system, or authority framework. Capturing it requires
+separate explicit authorization and is prohibited during specification, planning,
+or review.
 
 ## 7. Planner boundary
 
@@ -324,9 +364,14 @@ The adapter:
 2. renders one immutable prompt snapshot;
 3. materializes a fresh mutable transport request;
 4. calls the transport exactly once;
-5. captures the bounded raw response or ordinary transport failure;
-6. strictly decodes one JSON object; and
-7. passes the decoded object to the graph loader unchanged.
+5. captures the raw returned value or ordinary transport failure; and
+6. passes that returned value unchanged to the single strict graph loader.
+
+The graph loader first requires an exact built-in string, measures the complete raw
+UTF-8 response bound, and then owns all decoding, duplicate-key detection, JSON
+parsing, structural validation, and semantic admission. No decoded mapping crosses
+from the adapter into the loader. A transport exception stops at `planner`; any
+returned value rejected by the loader stops at `graph_admission`.
 
 There is no retry, fallback, prompt repair, prose classifier, graph patch, or second
 Planner call.
@@ -367,10 +412,12 @@ After strict loading, graph admission performs:
 7. per-input connection-count checks;
 8. closed element-type compatibility checks;
 9. cycle detection across all nodes and edges; and
-10. complete lowerability checks for every node and edge.
+10. complete graph-input lowerability checks for every node and edge.
 
 Every self-edge and every cycle refuses. Unknown primitives, pins, parameters,
-lowering kinds, or incompatible connections refuse before any GH call.
+or incompatible connections refuse before any GH call. A code-owned tuple entry with
+an unknown lowering kind cannot be authored by the Planner; encountering one is an
+internal compiler contradiction and raises.
 
 Canonical form is:
 
@@ -517,15 +564,22 @@ Each mapped component must have the existing snapshot primitive identity expecte
 the code-owned tuple: fixed component GUID for regular components and the existing
 slider special type for `number_slider`.
 
-Unrelated pre-existing canvas objects and wires are ignored. Among the newly created
-mapped components, verification requires the exact induced wiring:
+Let `new_C` be the exact set of returned `C*` values in `temp_id_map`. The wiring
+sets are:
 
 ```text
-actual incident wires == requested mapped wires
+requested_mapped_wires = every requested T-flow translated through temp_id_map
+
+actual_new_incident_wires = every returned wire where
+                            source C is in new_C
+                            or target C is in new_C
+
+actual_new_incident_wires == requested_mapped_wires
 ```
 
-Missing requested wires and unexpected extra wires between newly created components
-both fail verification.
+Only returned wires whose two endpoints are both pre-existing are ignored. Missing
+requested wires, extra wires between new components, and unexpected wires between a
+new and pre-existing component all fail verification.
 
 Verification also requires:
 
@@ -659,9 +713,11 @@ The focused test surface must prove:
 
 ### Loading and admission
 
+- the one-time static snapshot fixture independently projects every tuple GUID, pin,
+  type, access, and optionality fact;
 - actual JSON duplicate-key and non-finite refusal;
 - exact node, edge, identifier, response, label, and numeric bounds;
-- unknown field, primitive, parameter, pin, or lowering-kind refusal;
+- unknown field, primitive, parameter, or pin refusal;
 - type-exact slider parameters and `minimum <= initial <= maximum`;
 - direct integer-input admission requires a finite integral slider initial value;
 - duplicate edge, multiplicity, incompatible element type, self-edge, and cycle
@@ -677,6 +733,8 @@ The focused test surface must prove:
 - semantic pin names lower to fixed GH indices;
 - lowered flows use existing `T*.O*>T*.I*` syntax;
 - the compiler emits no epoch or `C*` references;
+- an impossible code-owned lowering-kind contradiction raises rather than becoming
+  graph admission;
 - both witnesses produce materially different plans; and
 - both non-witness recombinations compile.
 
@@ -689,8 +747,9 @@ The focused test surface must prove:
   their specified stages without retry;
 - missing, duplicate, inconsistent, non-bijective, or extra mapping identities fail;
 - component identity mismatch fails;
-- missing requested and unexpected induced wires fail;
-- unrelated pre-existing objects and wires do not fail;
+- missing requested wires, unexpected new-to-new wires, and unexpected
+  new-to-existing wires fail;
+- wires whose two endpoints are both pre-existing are ignored;
 - exact materialization reaches `done` through existing PlanGraph records; and
 - no second snapshot, edit, cleanup, Worker, or other tool call occurs.
 
@@ -698,14 +757,14 @@ Tests should be compact and table-driven over raw JSON or causal response mutati
 They must not recreate the historical source-provenance, carrier-authenticity,
 archive, or exhaustive splice machinery.
 
-## 15. Qualification and trace handling
+## 15. Live witness runs and trace handling
 
 Implementation, planning, and review make no provider, Rhino, Grasshopper, or Worker
 contact.
 
-After merge, each witness may receive one separately authorized qualification on a
+After merge, each witness may receive one separately authorized run on a
 manually prepared disposable Grasshopper canvas. Provider/model construction remains
-outside the semantic graph modules. Each qualification permits:
+outside the semantic graph modules. Each run permits:
 
 ```text
 one Planner call
@@ -715,7 +774,7 @@ zero Worker calls
 zero retries
 ```
 
-The qualification command retains the bounded ephemeral result. If an already
+The live command retains the bounded ephemeral result. If an already
 reusable ordinary recorder fits without modification, it may record the transaction.
 Slice 1 does not build a recorder, trace API, dataset manager, archive, publication
 lifecycle, or training-record system.
