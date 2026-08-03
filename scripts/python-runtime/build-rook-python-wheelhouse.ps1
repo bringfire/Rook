@@ -1,5 +1,7 @@
 param(
-    [string]$Version = '1.5.10',
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')]
+    [string]$Version,
     [string]$RepoRoot = '',
     [string]$ChirpRoot = '',
     [string]$RuntimeRoot = '',

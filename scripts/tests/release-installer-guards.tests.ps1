@@ -1,3 +1,7 @@
+param(
+    [switch]$SkipBuiltPayloadCheck
+)
+
 $ErrorActionPreference = 'Stop'
 
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -608,13 +612,17 @@ function Test-BuildReleaseVersionBumpIncludesRookBim {
         Get-Content -Path $ClaudeVersionLocations -Raw
     ) -join "`n"
 
-    Assert-Contains -Text $combined -Expected 'Release branch version bump (7 files / 10 edits)' -Message 'Release workflow must count RookBIM in the version bump surface.'
-    Assert-NotContains -Text $combined -Unexpected 'Release branch version bump (6 files / 8 edits)' -Message 'Release workflow must not retain the stale pre-RookBIM version bump count.'
-    Assert-Contains -Text $combined -Expected 'Every release requires updating these 7 files.' -Message 'Version-location docs must include RookBIM in the release file count.'
+    Assert-Contains -Text $combined -Expected 'Release branch version bump (10 files / 14 edits)' -Message 'Release workflow must own the complete version bump surface.'
+    Assert-NotContains -Text $combined -Unexpected 'Release branch version bump (7 files / 10 edits)' -Message 'Release workflow must not retain the stale seven-file version bump count.'
+    Assert-Contains -Text $combined -Expected '14 edits across these 10 files' -Message 'Version-location docs must declare the complete release surface.'
     Assert-Contains -Text $combined -Expected 'src/RookBim/RookBim.csproj' -Message 'Version-location docs must list the RookBIM project version.'
     Assert-Contains -Text $combined -Expected 'src\RookBim\RookBim.csproj, `' -Message 'Step 1 version verification must scan RookBIM.'
-    Assert-Contains -Text $combined -Expected 'Expect 8 string matches' -Message 'Step 1 version verification must expect the additional RookBIM string match.'
-    Assert-Contains -Text $combined -Expected 'git add mcp_server\pyproject.toml installer\RookSetup.iss src\Rook\Rook.csproj src\RookBim\RookBim.csproj' -Message 'Release commit command must stage the RookBIM version bump.'
+    Assert-Contains -Text $combined -Expected 'Expect 12 string matches' -Message 'Step 1 version verification must count all dotted version values.'
+    Assert-Contains -Text $combined -Expected 'mcp_server/uv.lock' -Message 'Version-location docs must include local-project lock metadata.'
+    Assert-Contains -Text $combined -Expected '.claude-plugin/plugin.json' -Message 'Version-location docs must include the Claude plugin manifest.'
+    Assert-Contains -Text $combined -Expected 'metadata.version' -Message 'Version-location docs must name the marketplace metadata version.'
+    Assert-Contains -Text $combined -Expected 'plugins[0].version' -Message 'Version-location docs must name the marketplace plugin version.'
+    Assert-Contains -Text $combined -Expected 'git add mcp_server\pyproject.toml mcp_server\uv.lock installer\RookSetup.iss src\Rook\Rook.csproj src\RookBim\RookBim.csproj' -Message 'Release commit command must stage the full managed and lock version surface.'
 }
 
 function Test-BuildReleaseWorkflowUsesReleaseBranchAndExactArtifacts {
@@ -793,7 +801,11 @@ Test-UninstallUsesRecordedPrivatePython
 Test-ChatServiceUserPythonFallbackIsDevOnly
 Test-InstallerPackagesMultiRuntimeCompanionPayloads
 Test-LegacyRuiInstallerMigrationIsExact
-Test-BuiltCompanionPayloadsExist
+if (-not $SkipBuiltPayloadCheck) {
+    Test-BuiltCompanionPayloadsExist
+} else {
+    Write-Host 'Skipping built companion payload presence checks (source-only preflight).'
+}
 Test-InstallerPackagesBundledFfmpegPayload
 Test-FfmpegValidatorRequiresReleaseSourceBundleArgument
 Test-FfmpegBuildScriptUsesAgentlessSignatureVerification

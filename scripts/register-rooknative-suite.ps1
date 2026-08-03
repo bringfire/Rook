@@ -69,8 +69,8 @@ function Write-NativeRegistration {
     Set-ItemProperty -Path $NativeRegBase -Name 'Country'      -Value '' -Type String
     Set-ItemProperty -Path $NativeRegBase -Name 'Phone'        -Value '' -Type String
     Set-ItemProperty -Path $NativeRegBase -Name 'EMail'        -Value '' -Type String
-    Set-ItemProperty -Path $NativeRegBase -Name 'WebSite'      -Value 'https://github.com/bringfire/Rhino_AI' -Type String
-    Set-ItemProperty -Path $NativeRegBase -Name 'UpdateURL'    -Value 'https://github.com/bringfire/Rhino_AI/releases' -Type String
+    Set-ItemProperty -Path $NativeRegBase -Name 'WebSite'      -Value 'https://github.com/bringfire/rook-release' -Type String
+    Set-ItemProperty -Path $NativeRegBase -Name 'UpdateURL'    -Value 'https://github.com/bringfire/rook-release/releases' -Type String
     Set-ItemProperty -Path $NativeRegBase -Name 'Fax'          -Value '' -Type String
     Set-ItemProperty -Path $NativeRegBase -Name 'Description'  -Value 'RookNative - High-performance Rhino bridge for Claude Code' -Type String
     Set-ItemProperty -Path $NativeRegBase -Name 'RegPath'      -Value "\\HKEY_CURRENT_USER\Software\McNeel\Rhinoceros\8.0\Plug-Ins\$NativeGuid" -Type String

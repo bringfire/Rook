@@ -48,8 +48,8 @@ RHINO_PLUG_IN_DEVELOPER_COUNTRY(L"")
 RHINO_PLUG_IN_DEVELOPER_PHONE(L"")
 RHINO_PLUG_IN_DEVELOPER_FAX(L"")
 RHINO_PLUG_IN_DEVELOPER_EMAIL(L"")
-RHINO_PLUG_IN_DEVELOPER_WEBSITE(L"https://github.com/bringfire/Rhino_AI")
-RHINO_PLUG_IN_UPDATE_URL(L"https://github.com/bringfire/Rhino_AI/releases")
+RHINO_PLUG_IN_DEVELOPER_WEBSITE(L"https://github.com/bringfire/rook-release")
+RHINO_PLUG_IN_UPDATE_URL(L"https://github.com/bringfire/rook-release/releases")
 
 // --- Plugin Identity ---
 

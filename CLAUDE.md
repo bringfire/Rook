@@ -51,7 +51,7 @@ The Python MCP surface is lifecycle-admitted and profile-filtered; `test_server_
 
 1. `gh_snapshot` — read the entire canvas in ONE call (components, wires, groups,
    errors, data previews) and get back an `epoch`.
-2. `gh_edit` — apply every change in ONE atomic call, passing that `epoch`:
+2. `gh_edit` — apply one bounded, logically related batch, passing that `epoch`:
    create → disconnect → delete → set_values → connect → groups.
 
 ```python
@@ -59,10 +59,12 @@ snap = gh_snapshot()                       # batch read; returns epoch + short I
 gh_edit(epoch=snap["epoch"], create=[...], connect=["T1.O0>C2.I1"], set_values=[...])
 ```
 
-One read, one atomic write — deterministic, minimal round trips, no GUID guessing.
-`gh_edit` returns committed topology and an `edit_summary`; it does not return
-solved output previews inline. Fetch solved data with a follow-up `gh_snapshot`
-after the solve has settled.
+One request, ordered non-transactional mutations, at most one post-mutation solve request—not an all-or-nothing transaction.
+Inspect `success`, `partial_success`, the `edit_summary` mutation counts, reported
+errors and resolved IDs, and the solve-scheduling status. `gh_edit` does not return solved output previews inline;
+after the solve has settled, verify the live canvas with a fresh `gh_snapshot` and
+`gh_errors`. If a batch partially succeeds, reconcile the observed canvas and retry
+only missing or failed operations—never blindly replay the entire batch.
 Use this by default for creating, wiring, and editing definitions. `gh_undo`
 reverses the last edit.
 
@@ -253,7 +255,7 @@ GUID with `gh_knowledge_query` or `gh_library`, pass it to `gh_edit`, and verify
 the solved graph with a follow-up `gh_snapshot`.
 
 ### Still stuck?
-File an issue at https://github.com/bringfire/Rook/issues
+File an issue at https://github.com/bringfire/rook-release/issues
 
 ---
 

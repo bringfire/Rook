@@ -293,7 +293,6 @@ registry registration to one runtime profile:
 
 ```powershell
 dotnet build src\Rook\Rook.csproj -f net48 -c Release
-dotnet build ..\RookRoads\RookRoads.csproj -f net48 -c Release
 dotnet build ..\SA_Banana\src\SA_Banana\SA_Banana.csproj -f net48 -c Release
 
 powershell -ExecutionPolicy Bypass -File scripts\register-managed-runtime-profile.ps1 -Runtime NetFramework -Deploy

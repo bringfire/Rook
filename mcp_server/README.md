@@ -1,10 +1,10 @@
 # Rook MCP Server
 
-MCP server that enables Claude to interact with Rhino 3D via the Rook HTTP bridge.
+MCP server that enables compatible MCP clients to interact with Rhino 3D via the Rook HTTP bridge.
 
 > Current architecture: this MCP server talks to the public native `RookNative` plugin. Do not assume a public C# Rhino plugin on `localhost:9876`; the managed companion is now internal.
 
-## Installation
+## Source installation
 
 ```bash
 cd mcp_server
@@ -19,7 +19,8 @@ python -m rook
 
 ## Configuration
 
-Add to your Claude Code MCP settings (`.mcp.json`):
+Register the command with your MCP client. For clients that accept an `.mcp.json`
+entry, the shape is:
 
 ```json
 {
@@ -32,17 +33,23 @@ Add to your Claude Code MCP settings (`.mcp.json`):
 }
 ```
 
-## DSPy Learning System Setup
+Release installs use Rook's bundled CPython runtime and do not require this source
+installation step.
 
-The learning system uses DSPy for intelligent reasoning and hypothesis generation. This requires an Anthropic API key.
+## Optional model-provider setup
 
-### 1. Get an API Key
+The core Rhino/Grasshopper tool bridge does not require a model-provider API key.
+Optional DSPy learning and agent features use LiteLLM and require credentials for the
+provider you select. Without provider credentials, Rook falls back to the supported
+non-model lookup path where available.
+
+### Example: Anthropic
 
 1. Go to [Anthropic Console](https://console.anthropic.com/settings/keys)
 2. Create a new API key
 3. Copy the key (starts with `sk-ant-...`)
 
-### 2. Set the Environment Variable
+Set the provider's environment variable when you choose that provider:
 
 **Option A: Environment variable (recommended)**
 
@@ -67,7 +74,7 @@ cp .env.example .env
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 3. Verify Setup
+Verify optional DSPy setup:
 
 ```python
 from rook.learning import configure_dspy, is_configured
@@ -79,7 +86,11 @@ print("DSPy configured successfully!")
 
 ## Features
 
-### Core MCP Tools (113 tools)
+### Core MCP tools
+
+Tool discovery is lifecycle-admitted and profile-filtered. Do not rely on one global
+count: clients may receive the full, readonly, or lean catalog, with progressive
+discovery available where configured.
 - Geometry creation, transformation, measurement
 - Boolean operations, lofting, sweeping
 - Layer/material management
@@ -100,7 +111,7 @@ print("DSPy configured successfully!")
 ## Architecture
 
 ```
-Claude Code (CLI)
+MCP Client
        |
        | MCP Protocol (stdio)
        v

@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/bringfire/Rook/releases"><strong>Download Latest Release</strong></a>
+  <a href="https://github.com/bringfire/rook-release/releases"><strong>Download Latest Release</strong></a>
 </p>
 
 ---
@@ -21,9 +21,9 @@
 > **AI Agent?** If you are an AI agent helping a user set up Rook, read
 > **[AGENT_SETUP.md](AGENT_SETUP.md)** — it has machine-readable instructions,
 > dependency lists, config templates, and verification steps designed for you.
-> **Rook requires [Claude Code](https://code.claude.com)** (CLI, Desktop app, or
-> VS Code extension) — not the older Claude Desktop chat app which lacks hooks,
-> plugins, and skills support.
+> Rook works with compatible MCP clients. The installer supplies curated Codex
+> skills; Claude Code skills and hooks are distributed through the public Rook
+> marketplace plugin.
 
 Rook connects any MCP-compatible AI client to Rhino 3D and Grasshopper, enabling conversational CAD workflows. Create geometry, build parametric Grasshopper definitions, design road networks, inspect BIM models, generate images and video, run analysis, capture viewports, and manage documents — all through natural language.
 
@@ -189,28 +189,25 @@ Real-time spatial intelligence that gives AI agents a structured understanding o
 | **Rhino** | 8.x | Windows only (macOS planned) |
 | **An MCP client** | Latest | Claude Code, Claude Desktop, Codex CLI, Cursor, Windsurf, etc. |
 
-**Python 3.10+ required for the Windows installer.** The installer detects existing Python (`python`, `python3`, or `py -3`) and uses it to set up a managed MCP server environment. If you don't have Python, install it from [python.org](https://www.python.org/downloads/) first and make sure "Add to PATH" is checked. (If you prefer a zero-Python-prerequisite path, the source script installer `install.ps1` uses [uv](https://docs.astral.sh/uv/) to bootstrap Python automatically — see "Bootstrap from Source" below.)
+The Windows installer includes a sealed, bundled CPython 3.11.9 runtime for the MCP server. A system Python installation is not required for a release install.
 
 ### Install from Release
 
-1. Download the latest release from [**GitHub Releases**](https://github.com/bringfire/Rook/releases)
+1. Download the latest release from [**GitHub Releases**](https://github.com/bringfire/rook-release/releases)
 2. Run the Windows installer (`Rook-Setup-<version>.exe`)
 
 The installer automatically:
-- Creates a managed Python venv under `%LOCALAPPDATA%\Rook\venv` using your system Python
+- Creates the managed MCP environment under `%LOCALAPPDATA%\Rook\venv` using the bundled runtime
 - Copies the Rhino plugins to the correct location
 - Writes user-scope MCP configuration for:
   - Claude Code: `~/.claude.json`
   - Claude Desktop: `%APPDATA%\Claude\claude_desktop_config.json`
   - Codex CLI: `~/.codex/config.toml`
-- Copies skills to:
-  - Claude Code: `~/.claude/skills/`
-  - Codex: `~/.codex/skills/`
-- Copies Claude agents to:
-  - Claude Code: `~/.claude/agents/`
+- Copies curated Codex skills to `~/.codex/skills/`
+- Leaves Claude Code skills and hooks to the public marketplace plugin
 
 3. **Restart Rhino** and your MCP client
-5. In your MCP client, type `/mcp` — you should see `rook` with ~390 tools
+4. In your MCP client, inspect its MCP server list — `rook` should be connected. The admitted catalog depends on the configured client profile.
 
 ### Bootstrap from Source
 
@@ -234,11 +231,10 @@ effects. `-RequireNative` fails hard if C++ toolchain is missing. See
 
 ### Install Design Cascade Skills
 
-The Grasshopper design cascade uses documented skill locations:
-- Release installs copy Claude skills to `~/.claude/skills/`, Codex skills to `~/.codex/skills/`, and Claude agents to `~/.claude/agents/`
-- Source checkouts expose Claude skills from `.claude/skills`, Codex skills from `.agents/skills`, and Claude agents from `.claude/agents`
-
-The old plugin marketplace path is optional and is no longer required for core install correctness.
+The Grasshopper workflow uses client-specific distribution:
+- Release installs copy curated Codex skills to `~/.codex/skills/`.
+- Claude Code installs the Rook skills and session hook from the public marketplace plugin.
+- Source checkouts retain `.agents/skills` and `.claude/skills` as development mirrors.
 
 ### Building from Source
 
@@ -289,7 +285,7 @@ Rook/
 │   ├── gh/                      # 945 GH components, ~1,230 notes, ~520 patterns
 │   └── commands/                # 197 Rhino commands, 543 observations
 │
-├── .claude/skills/              # Curated skills copied to user skill dirs for Claude Code and Codex on release install
+├── .claude/skills/              # Claude marketplace skill payload mirrored from the authoritative agent skills
 │   ├── design-grasshopper/      # Optional read-only clarification and design
 │   ├── plan-grasshopper/        # Optional read-only technical plan
 │   ├── execute-grasshopper/     # Owned mutation and verification
@@ -308,7 +304,7 @@ Rook is proprietary software and its source is not open for outside contribution
 but your bug reports, questions, and feature ideas are very welcome. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for how to reach us.
 
-- **Bugs & feature requests** — [GitHub Issues](https://github.com/bringfire/Rook/issues)
+- **Bugs & feature requests** — [GitHub Issues](https://github.com/bringfire/rook-release/issues)
 - **Security** — [SECURITY.md](SECURITY.md) (please don't file public issues for vulnerabilities)
 - **Email** — bringfiregames@gmail.com
 

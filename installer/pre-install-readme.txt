@@ -7,14 +7,13 @@ with any MCP-capable assistant (Claude Code, Codex, Cursor, Windsurf, and others
 What gets installed:
   - RookNative.rhp   C++ plugin (high-performance Rhino bridge)
   - Rook.rhp         C# companion (Grasshopper support)
-  - MCP server       Python service your assistant connects to
+  - MCP server       Python service with bundled CPython 3.11.9
   - Knowledge stores Component and command libraries
   - Curated skills for Codex (~/.codex/skills). Claude Code installs skills from
     the Rook marketplace plugin after setup.
 
 Requirements:
   - Rhino 8 (must be installed before running this installer)
-  - Python 3.10+ (required for the MCP server component)
   - An MCP-capable AI assistant (Claude Code, Codex, ...)
 
 Important:
