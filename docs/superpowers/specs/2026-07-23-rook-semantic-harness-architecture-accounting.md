@@ -1,5 +1,13 @@
 # Rook Semantic Harness Architecture Accounting And Theory Reconciliation
 
+> **Historical status (2026-08-02):** This document truthfully records the LM9
+> hypothesis ladder and governed-resolution reasoning at its historical boundary.
+> That ladder is no longer Rook's active product sequence. Current work is governed
+> by the
+> [Compositional Agent Harness Roadmap](../../roadmaps/2026-08-02-compositional-agent-harness-roadmap.md),
+> which reuses proven mechanisms while leaving the scientific archive machinery
+> behind.
+
 - **Date:** 2026-07-23
 - **Status:** Architecture accounting and hypothesis reconciliation
 - **Baseline:** `8a5013bd61b4954b92e4cb654da9cd99e61b551e`

@@ -1,8 +1,11 @@
 # Agent Architecture
 
-Updated: 2026-06-05
+Updated: 2026-08-02
 
 This document describes the agent system as it exists today.
+
+Current sequencing is governed by the
+[Compositional Agent Harness Roadmap](roadmaps/2026-08-02-compositional-agent-harness-roadmap.md).
 
 ---
 
@@ -28,6 +31,27 @@ MCP Client (Claude Code)          Chat Panel (Rook C# UI)
                         │
                   bridge.py → HTTP → RookNative C++ → Rhino
 ```
+
+### Current Semantic-Harness Status
+
+Rook also retains an internal Worker-first C# specimen. It proves the complete
+Planner → local Worker → real Grasshopper create → compile-receipt path for one fixed
+interface: no inputs and one `A:double` output. Its former product button is removed,
+and ordinary RookChat continues through `ChatRunner`.
+
+The specimen is not a general planner. In particular, arbitrary intent text does not
+yet author variable components, pins, flows, or mixed Rhino/Grasshopper operations.
+
+The next architecture separates two graph roles:
+
+| Graph | Ownership | Meaning |
+|---|---|---|
+| Semantic design graph | Frontier Planner within admitted primitive contracts | What to build: operations, parameters, connections, acceptance, and unresolved leaves |
+| Execution `PlanGraph` | Deterministic compiler and runner | How admitted work advances: readiness, execution, verification, receipts, failure, and terminal state |
+
+The v2 Grasshopper recipe graph and `recipe_to_edit()` are candidates for the design
+representation. The existing `PlanGraph` remains the execution-state substrate. No
+active decision yet promotes either into a universal cross-domain IR.
 
 ---
 
@@ -349,6 +373,8 @@ Known constraints of the current flat orchestration model:
 2. **No sibling awareness** — Parallel workers cannot see what their siblings have created on the canvas during execution.
 3. **No escalation** — Workers have no `ask()` primitive to request human input mid-task.
 4. **No mid-task validation** — Composition errors (wrong wiring, missing intermediaries) cascade until the task completes.
+5. **No general semantic design graph** — The internal Worker-first specimen compiles a fixed C# interface regardless of broader intent.
+6. **No receipt-driven semantic replan** — Existing receipts can stop and verify execution, but they do not yet drive one bounded Planner-authored topology revision.
 
 ---
 
