@@ -4,9 +4,11 @@ import ast
 import inspect
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 import rook.agent.semantic_graph as semantic_graph
 
@@ -623,6 +625,77 @@ def test_response_schema_is_fresh_closed_and_execution_identity_free() -> None:
 
     first["required"].append("forged")
     assert "forged" not in second["required"]
+
+
+@pytest.mark.parametrize("field", ["node_id", "from_node", "to_node"])
+def test_response_schema_rejects_node_identifiers_with_extra_characters(
+    field: str,
+) -> None:
+    payload = _payload(
+        nodes=[_slider_node(), _component_node()],
+        edges=[_edge()],
+    )
+    if field == "node_id":
+        payload["nodes"][0]["id"] = "!!slider!!"
+    else:
+        payload["edges"][0][field] = "!!slider!!"
+
+    assert not Draft202012Validator(
+        semantic_graph.build_semantic_graph_response_schema()
+    ).is_valid(payload)
+
+
+def test_slider_parameter_admission_follows_lowering_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slider = next(
+        primitive
+        for primitive in semantic_graph._PRIMITIVES
+        if primitive.lowering_kind == "slider"
+    )
+    renamed = replace(slider, name="numeric_control")
+    monkeypatch.setattr(
+        semantic_graph,
+        "_PRIMITIVES",
+        tuple(
+            renamed if primitive is slider else primitive
+            for primitive in semantic_graph._PRIMITIVES
+        ),
+    )
+
+    result = semantic_graph.load_semantic_graph(
+        _raw(_payload(nodes=[_slider_node(primitive="numeric_control")]))
+    )
+
+    assert result.admitted is True
+    assert result.graph is not None
+    assert dict(result.graph.nodes[0].parameters) == {
+        "initial": 5,
+        "label": "Value",
+        "maximum": 10,
+        "minimum": 0,
+    }
+
+
+def test_slider_prompt_guidance_follows_lowering_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slider = next(
+        primitive
+        for primitive in semantic_graph._PRIMITIVES
+        if primitive.lowering_kind == "slider"
+    )
+    renamed = replace(slider, name="numeric_control")
+    monkeypatch.setattr(semantic_graph, "_PRIMITIVES", (renamed,))
+
+    projection = semantic_graph.semantic_primitive_prompt_projection()
+
+    assert projection[0]["primitive"] == "numeric_control"
+    assert projection[0]["integer_input_compatibility"] == {
+        "initial_must_be_integral": True,
+        "minimum_initial": 1,
+        "maximum_initial": 100,
+    }
 
 
 def test_semantic_prompt_projection_is_fresh_and_planner_facing_only() -> None:

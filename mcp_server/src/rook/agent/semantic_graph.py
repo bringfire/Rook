@@ -16,7 +16,9 @@ _MAX_SLIDER_LABEL_CHARACTERS = 64
 _MAX_SLIDER_LABEL_UTF8_BYTES = 256
 _MIN_SLIDER_VALUE = -1_000_000
 _MAX_SLIDER_VALUE = 1_000_000
-_NODE_ID_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,47}")
+_MIN_INTEGER_INPUT_INITIAL = 1
+_MAX_INTEGER_INPUT_INITIAL = 100
+_NODE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,7 +387,7 @@ def _load_parameters(
     expected_names = {parameter.name for parameter in primitive.parameters}
     if set(value) != expected_names:
         raise _AdmissionError("parameters", "invalid_parameters")
-    if primitive.name != "number_slider":
+    if primitive.lowering_kind != "slider":
         return ()
 
     label = value["label"]
@@ -536,11 +538,11 @@ def semantic_primitive_prompt_projection() -> tuple[dict[str, object], ...]:
                 for parameter in primitive.parameters
             ),
         }
-        if primitive.name == "number_slider":
+        if primitive.lowering_kind == "slider":
             entry["integer_input_compatibility"] = {
                 "initial_must_be_integral": True,
-                "minimum_initial": 1,
-                "maximum_initial": 100,
+                "minimum_initial": _MIN_INTEGER_INPUT_INITIAL,
+                "maximum_initial": _MAX_INTEGER_INPUT_INITIAL,
             }
         projection.append(entry)
     return tuple(projection)
