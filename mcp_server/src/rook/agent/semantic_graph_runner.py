@@ -26,8 +26,10 @@ from rook.agent.plan_graph_sequence_runner import ProducerStep, VerifierStep
 from rook.agent.plan_graph_step_executor import StepExecutionResult
 from rook.agent.semantic_graph import (
     build_semantic_graph_response_schema,
+    build_worker_leaf_semantic_graph_response_schema,
     load_semantic_graph,
     semantic_primitive_prompt_projection,
+    semantic_worker_leaf_prompt_projection,
 )
 from rook.agent.semantic_graph_compiler import (
     CanonicalSemanticGraph,
@@ -124,7 +126,16 @@ class SemanticGraphPlannerAdapter:
 
     def produce(self, intent: str) -> SemanticGraphPlannerRecord:
         _require_exact_intent(intent)
-        prompt_snapshot = _render_prompt_snapshot(intent)
+        return self._produce_snapshot(_render_prompt_snapshot(intent))
+
+    def produce_worker_leaf(self, intent: str) -> SemanticGraphPlannerRecord:
+        _require_exact_intent(intent)
+        return self._produce_snapshot(_render_worker_leaf_prompt_snapshot(intent))
+
+    def _produce_snapshot(
+        self,
+        prompt_snapshot: SemanticGraphPromptSnapshot,
+    ) -> SemanticGraphPlannerRecord:
         try:
             raw_response = self._transport.send(prompt_snapshot.materialize())
         except Exception as exc:
@@ -749,14 +760,34 @@ def _require_exact_intent(intent: str) -> None:
 
 
 def _render_prompt_snapshot(intent: str) -> SemanticGraphPromptSnapshot:
-    schema_json = json.dumps(
+    return _render_prompt(
+        intent,
         build_semantic_graph_response_schema(),
+        semantic_primitive_prompt_projection(),
+    )
+
+
+def _render_worker_leaf_prompt_snapshot(intent: str) -> SemanticGraphPromptSnapshot:
+    return _render_prompt(
+        intent,
+        build_worker_leaf_semantic_graph_response_schema(),
+        semantic_worker_leaf_prompt_projection(),
+    )
+
+
+def _render_prompt(
+    intent: str,
+    schema: dict[str, object],
+    primitives: tuple[dict[str, object], ...],
+) -> SemanticGraphPromptSnapshot:
+    schema_json = json.dumps(
+        schema,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
     )
     primitives_json = json.dumps(
-        semantic_primitive_prompt_projection(),
+        primitives,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
