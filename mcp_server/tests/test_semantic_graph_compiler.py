@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import json
 from dataclasses import replace
@@ -32,6 +33,24 @@ def _slider(
 
 def _node(node_id: str, primitive: str) -> dict[str, object]:
     return {"id": node_id, "primitive": primitive, "parameters": {}}
+
+
+def _csharp_node(
+    node_id: str = "generated_value",
+    *,
+    goal: str = "Produce one numeric value.",
+) -> dict[str, object]:
+    return {
+        "id": node_id,
+        "primitive": "csharp_script",
+        "parameters": {
+            "goal": goal,
+            "interface": {
+                "inputs": [],
+                "outputs": [{"name": "A", "type": "double"}],
+            },
+        },
+    }
 
 
 def _edge(
@@ -85,6 +104,192 @@ def _assert_refused(
         failure="graph_admission",
         reason=reason,
     )
+
+
+def _partition(
+    nodes: list[dict[str, object]],
+    edges: list[dict[str, str]],
+):
+    return compiler.compile_semantic_graph_worker_leaf_partition(
+        _load(nodes, edges)
+    )
+
+
+def test_partition_compiler_separates_one_worker_leaf_and_cross_edge() -> None:
+    result = _partition(
+        [_csharp_node(), _node("point", "construct_point")],
+        [_edge("generated_value", "A", "point", "x")],
+    )
+
+    assert result.admitted is True
+    partition = result.partition
+    assert partition is not None
+    assert partition.unresolved_leaf.node_id == "generated_value"
+    assert partition.unresolved_leaf.goal == "Produce one numeric value."
+    assert partition.unresolved_leaf.interface.outputs[0].name == "A"
+    assert partition.cross_edge == compiler.WorkerLeafCrossEdge(
+        source_node_id="generated_value",
+        source_pin="A",
+        source_output_index=0,
+        target_node_id="point",
+        target_pin="x",
+        target_input_index=0,
+    )
+    assert partition.deterministic_plan.semantic_node_to_temp_id == (
+        ("point", "T1"),
+    )
+    assert partition.deterministic_plan.connect == ()
+    assert all(
+        dict(instruction.fields).get("guid") != "csharp_script"
+        for instruction in partition.deterministic_plan.create_instructions
+    )
+
+
+def test_partition_compiler_preserves_zero_leaf_slice1_plan() -> None:
+    graph = _load([_node("point", "construct_point")], [])
+    existing = compiler.compile_semantic_graph(graph)
+    partitioned = compiler.compile_semantic_graph_worker_leaf_partition(graph)
+
+    assert existing.admitted is True
+    assert partitioned.admitted is True
+    assert partitioned.partition is not None
+    assert partitioned.partition.deterministic_plan == existing.plan
+    assert partitioned.partition.unresolved_leaf is None
+    assert partitioned.partition.cross_edge is None
+
+
+def test_partition_types_are_exact_frozen_and_require_paired_leaf_edge() -> None:
+    graph = _load([_csharp_node()], [])
+    interface = dict(graph.nodes[0].parameters)["interface"]
+    leaf = compiler.UnresolvedCSharpLeaf(
+        node_id="generated_value",
+        goal="Produce one numeric value.",
+        interface=interface,
+    )
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        leaf.goal = "changed"
+    with pytest.raises(TypeError):
+        compiler.UnresolvedCSharpLeaf(
+            node_id="generated_value",
+            goal="Produce one numeric value.",
+            interface={"inputs": [], "outputs": []},
+        )
+
+    deterministic = compiler.compile_semantic_graph(
+        _load([_node("point", "construct_point")], [])
+    )
+    assert deterministic.plan is not None
+    with pytest.raises(TypeError):
+        compiler.SemanticGraphWorkerLeafPartition(
+            deterministic_plan=deterministic.plan,
+            unresolved_leaf=leaf,
+            cross_edge=None,
+        )
+
+
+def test_partition_compiler_defensively_refuses_two_typed_worker_leaves() -> None:
+    first = _load([_csharp_node("first")], []).nodes[0]
+    second = _load([_csharp_node("second")], []).nodes[0]
+    target = _load([_node("point", "construct_point")], []).nodes[0]
+    graph = semantic_graph.SemanticGraph(
+        schema=semantic_graph.SEMANTIC_GRAPH_SCHEMA,
+        nodes=(first, second, target),
+        edges=(
+            semantic_graph.SemanticGraphEdge("first", "A", "point", "x"),
+        ),
+    )
+
+    result = compiler.compile_semantic_graph_worker_leaf_partition(graph)
+
+    assert result.admitted is False
+    assert result.partition is None
+    assert result.reason == "multiple_worker_leaves"
+
+
+@pytest.mark.parametrize(
+    ("nodes", "edges", "reason"),
+    [
+        (
+            [_slider("slider"), _csharp_node()],
+            [_edge("slider", "value", "generated_value", "A")],
+            "worker_leaf_has_incoming_edge",
+        ),
+        (
+            [_csharp_node(), _node("point", "construct_point")],
+            [],
+            "worker_leaf_requires_one_outgoing_edge",
+        ),
+        (
+            [_csharp_node(), _node("point", "construct_point")],
+            [
+                _edge("generated_value", "A", "point", "x"),
+                _edge("generated_value", "A", "point", "y"),
+            ],
+            "worker_leaf_requires_one_outgoing_edge",
+        ),
+        (
+            [_csharp_node(), _node("point", "construct_point")],
+            [_edge("generated_value", "B", "point", "x")],
+            "worker_leaf_source_pin_invalid",
+        ),
+        (
+            [_csharp_node(), _node("point", "construct_point")],
+            [_edge("generated_value", "A", "missing", "x")],
+            "worker_leaf_target_invalid",
+        ),
+        (
+            [_csharp_node(), _node("point", "construct_point")],
+            [_edge("generated_value", "A", "point", "missing")],
+            "worker_leaf_target_pin_invalid",
+        ),
+        (
+            [_csharp_node(), _node("line", "polyline")],
+            [_edge("generated_value", "A", "line", "vertices")],
+            "worker_leaf_target_type_invalid",
+        ),
+        (
+            [_csharp_node()],
+            [_edge("generated_value", "A", "generated_value", "A")],
+            "worker_leaf_has_incoming_edge",
+        ),
+        (
+            [
+                _csharp_node(),
+                _node("a", "series"),
+                _node("b", "series"),
+            ],
+            [
+                _edge("generated_value", "A", "a", "start"),
+                _edge("a", "values", "b", "start"),
+                _edge("b", "values", "a", "step"),
+            ],
+            "cycle_detected",
+        ),
+        (
+            [
+                _csharp_node(),
+                _slider("slider"),
+                _node("point", "construct_point"),
+            ],
+            [
+                _edge("generated_value", "A", "point", "x"),
+                _edge("slider", "value", "point", "x"),
+            ],
+            "too_many_input_connections",
+        ),
+    ],
+)
+def test_partition_compiler_refuses_invalid_worker_leaf_graphs(
+    nodes: list[dict[str, object]],
+    edges: list[dict[str, str]],
+    reason: str,
+) -> None:
+    result = _partition(nodes, edges)
+
+    assert result.admitted is False
+    assert result.partition is None
+    assert result.failure == "graph_admission"
+    assert result.reason == reason
 
 
 @pytest.mark.parametrize(
@@ -377,6 +582,10 @@ def test_compiler_source_contains_no_witness_specific_program() -> None:
         "point_row",
         "square_grid_witness",
         "expected_witness_node_count",
+        "construct_point.x",
+        "Produce one numeric value",
+        "gh_connect",
+        "A = 7.0",
     ):
         assert forbidden not in source
 

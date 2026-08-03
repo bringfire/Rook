@@ -11,7 +11,9 @@ import rook.agent.semantic_graph_runner as runner
 from rook.agent.semantic_graph import (
     SEMANTIC_GRAPH_SCHEMA,
     build_semantic_graph_response_schema,
+    build_worker_leaf_semantic_graph_response_schema,
     semantic_primitive_prompt_projection,
+    semantic_worker_leaf_prompt_projection,
 )
 from rook.bridge import get_rhino_request_context, rhino_request_context
 from rook.learning.plan_graph import PlanGraphEdge
@@ -188,6 +190,65 @@ def test_planner_prompt_is_fresh_semantic_only_and_called_once() -> None:
     assert rematerialized == transport.observed[0]
     assert rematerialized is not transport.calls[0]
     assert rematerialized["messages"] is not transport.calls[0]["messages"]
+
+
+def test_worker_leaf_planner_prompt_is_fresh_semantic_only_and_called_once() -> None:
+    raw = _raw_graph(
+        nodes=[
+            {
+                "id": "generated_value",
+                "primitive": "csharp_script",
+                "parameters": {
+                    "goal": "Produce one numeric value.",
+                    "interface": {
+                        "inputs": [],
+                        "outputs": [{"name": "A", "type": "double"}],
+                    },
+                },
+            },
+            _node("point", "construct_point"),
+        ],
+        edges=[_edge("generated_value", "A", "point", "x")],
+    )
+    transport = _RecordingTransport(raw, mutate_request=True)
+
+    record = runner.SemanticGraphPlannerAdapter(transport).produce_worker_leaf(_INTENT)
+
+    assert len(transport.calls) == 1
+    assert record.status == "response_received"
+    assert record.raw_response is raw
+    assert json.dumps(
+        build_worker_leaf_semantic_graph_response_schema(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ) in record.prompt_snapshot.system_content
+    assert json.dumps(
+        semantic_worker_leaf_prompt_projection(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ) in record.prompt_snapshot.system_content
+    serialized = json.dumps(transport.observed[0], sort_keys=True)
+    assert "csharp_script" in serialized
+    assert "construct_point" in serialized
+    for forbidden in (
+        "3581f42a-9592-4549-bd6b-1c0fc39d067b",
+        "component_guid",
+        "gh_optional",
+        "lowering_kind",
+        "pin_index",
+        "layout",
+        "epoch",
+        '"T1"',
+        '"C1"',
+        "draft_create_body",
+        "A = 7.0;",
+        "script_receipt",
+        "construct_point.x",
+    ):
+        assert forbidden not in serialized
+    assert record.prompt_snapshot.materialize() == transport.observed[0]
 
 
 def test_planner_retains_exact_raw_response_without_decoding() -> None:
