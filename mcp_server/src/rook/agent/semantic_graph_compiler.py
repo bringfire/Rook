@@ -47,6 +47,86 @@ class SemanticGraphCompileResult:
     reason: str
 
 
+@dataclass(frozen=True, slots=True)
+class UnresolvedCSharpLeaf:
+    node_id: str
+    goal: str
+    interface: _semantic_graph.SemanticCSharpInterface
+
+    def __post_init__(self) -> None:
+        if type(self.node_id) is not str or not self.node_id:
+            raise TypeError("Worker leaf node_id must be an exact nonblank string")
+        if type(self.goal) is not str or not self.goal:
+            raise TypeError("Worker leaf goal must be an exact nonblank string")
+        if type(self.interface) is not _semantic_graph.SemanticCSharpInterface:
+            raise TypeError("Worker leaf interface must be the exact interface type")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerLeafCrossEdge:
+    source_node_id: str
+    source_pin: str
+    source_output_index: int
+    target_node_id: str
+    target_pin: str
+    target_input_index: int
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.source_node_id,
+            self.source_pin,
+            self.target_node_id,
+            self.target_pin,
+        ):
+            if type(value) is not str or not value:
+                raise TypeError("Worker cross-edge names must be exact strings")
+        if type(self.source_output_index) is not int or self.source_output_index < 0:
+            raise TypeError("Worker source index must be an exact nonnegative integer")
+        if type(self.target_input_index) is not int or self.target_input_index < 0:
+            raise TypeError("Worker target index must be an exact nonnegative integer")
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticGraphWorkerLeafPartition:
+    deterministic_plan: EpochFreeEditPlan
+    unresolved_leaf: UnresolvedCSharpLeaf | None
+    cross_edge: WorkerLeafCrossEdge | None
+
+    def __post_init__(self) -> None:
+        if type(self.deterministic_plan) is not EpochFreeEditPlan:
+            raise TypeError("deterministic_plan must be the exact plan type")
+        if self.unresolved_leaf is not None and type(self.unresolved_leaf) is not UnresolvedCSharpLeaf:
+            raise TypeError("unresolved_leaf must be the exact leaf type")
+        if self.cross_edge is not None and type(self.cross_edge) is not WorkerLeafCrossEdge:
+            raise TypeError("cross_edge must be the exact edge type")
+        if (self.unresolved_leaf is None) != (self.cross_edge is None):
+            raise TypeError("Worker leaf and cross-edge must be present together")
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticGraphWorkerLeafPartitionCompileResult:
+    admitted: bool
+    partition: SemanticGraphWorkerLeafPartition | None
+    failure: str | None
+    reason: str
+
+    def __post_init__(self) -> None:
+        if type(self.admitted) is not bool:
+            raise TypeError("admitted must be an exact boolean")
+        if type(self.reason) is not str or not self.reason:
+            raise TypeError("reason must be an exact nonblank string")
+        if self.admitted:
+            if type(self.partition) is not SemanticGraphWorkerLeafPartition:
+                raise TypeError("admitted result requires an exact partition")
+            if self.failure is not None or self.reason != "admitted":
+                raise ValueError("admitted partition result fields disagree")
+            return
+        if self.partition is not None:
+            raise ValueError("refused partition result cannot retain a partition")
+        if type(self.failure) is not str or not self.failure:
+            raise TypeError("refused partition result requires a failure")
+
+
 def compile_semantic_graph(graph: SemanticGraph) -> SemanticGraphCompileResult:
     primitives = {primitive.name: primitive for primitive in _semantic_graph._PRIMITIVES}
     nodes = {node.id: node for node in graph.nodes}
@@ -128,6 +208,8 @@ def compile_semantic_graph(graph: SemanticGraph) -> SemanticGraphCompileResult:
         edges=canonical_edges,
         json_bytes=_canonical_graph_json(canonical_nodes, canonical_edges),
     )
+
+
     node_to_temp_id = tuple(
         (node.id, f"T{index}")
         for index, node in enumerate(canonical_nodes, start=1)
@@ -193,6 +275,131 @@ def _refused(reason: str) -> SemanticGraphCompileResult:
         plan=None,
         failure="graph_admission",
         reason=reason,
+    )
+
+
+def _partition_refused(
+    reason: str,
+) -> SemanticGraphWorkerLeafPartitionCompileResult:
+    return SemanticGraphWorkerLeafPartitionCompileResult(
+        admitted=False,
+        partition=None,
+        failure="graph_admission",
+        reason=reason,
+    )
+
+
+def _admitted_partition(
+    plan: EpochFreeEditPlan,
+    leaf: UnresolvedCSharpLeaf | None,
+    cross_edge: WorkerLeafCrossEdge | None,
+) -> SemanticGraphWorkerLeafPartitionCompileResult:
+    return SemanticGraphWorkerLeafPartitionCompileResult(
+        admitted=True,
+        partition=SemanticGraphWorkerLeafPartition(
+            deterministic_plan=plan,
+            unresolved_leaf=leaf,
+            cross_edge=cross_edge,
+        ),
+        failure=None,
+        reason="admitted",
+    )
+
+
+def compile_semantic_graph_worker_leaf_partition(
+    graph: SemanticGraph,
+) -> SemanticGraphWorkerLeafPartitionCompileResult:
+    worker_nodes = tuple(
+        node for node in graph.nodes if node.primitive == "csharp_script"
+    )
+    if len(worker_nodes) > 1:
+        return _partition_refused("multiple_worker_leaves")
+    if not worker_nodes:
+        deterministic = compile_semantic_graph(graph)
+        if not deterministic.admitted:
+            return _partition_refused(deterministic.reason)
+        if deterministic.plan is None:
+            raise RuntimeError("admitted deterministic compilation lacks a plan")
+        return _admitted_partition(deterministic.plan, None, None)
+
+    worker_node = worker_nodes[0]
+    incoming = tuple(
+        edge for edge in graph.edges if edge.to_node == worker_node.id
+    )
+    outgoing = tuple(
+        edge for edge in graph.edges if edge.from_node == worker_node.id
+    )
+    if incoming:
+        return _partition_refused("worker_leaf_has_incoming_edge")
+    if len(outgoing) != 1:
+        return _partition_refused("worker_leaf_requires_one_outgoing_edge")
+    cross = outgoing[0]
+    if cross.from_pin != "A":
+        return _partition_refused("worker_leaf_source_pin_invalid")
+
+    deterministic_nodes = tuple(
+        node for node in graph.nodes if node.id != worker_node.id
+    )
+    target_node = next(
+        (node for node in deterministic_nodes if node.id == cross.to_node),
+        None,
+    )
+    if target_node is None:
+        return _partition_refused("worker_leaf_target_invalid")
+    primitives = {
+        primitive.name: primitive for primitive in _semantic_graph._PRIMITIVES
+    }
+    target_primitive = primitives.get(target_node.primitive)
+    if target_primitive is None:
+        return _partition_refused("worker_leaf_target_invalid")
+    target_pin = _pin_by_name(target_primitive.inputs, cross.to_pin)
+    if target_pin is None:
+        return _partition_refused("worker_leaf_target_pin_invalid")
+    if target_pin.element_type != "Number":
+        return _partition_refused("worker_leaf_target_type_invalid")
+
+    occupancy = sum(
+        1
+        for edge in graph.edges
+        if edge.to_node == cross.to_node and edge.to_pin == cross.to_pin
+    )
+    if (
+        target_pin.max_connections is not None
+        and occupancy > target_pin.max_connections
+    ):
+        return _partition_refused("too_many_input_connections")
+
+    deterministic_edges = tuple(edge for edge in graph.edges if edge is not cross)
+    deterministic_graph = SemanticGraph(
+        schema=graph.schema,
+        nodes=deterministic_nodes,
+        edges=deterministic_edges,
+    )
+    deterministic = compile_semantic_graph(deterministic_graph)
+    if not deterministic.admitted:
+        return _partition_refused(deterministic.reason)
+    if deterministic.plan is None:
+        raise RuntimeError("admitted deterministic compilation lacks a plan")
+
+    parameters = dict(worker_node.parameters)
+    interface = parameters["interface"]
+    if type(interface) is not _semantic_graph.SemanticCSharpInterface:
+        raise RuntimeError("admitted Worker interface changed type")
+    return _admitted_partition(
+        deterministic.plan,
+        UnresolvedCSharpLeaf(
+            node_id=worker_node.id,
+            goal=parameters["goal"],
+            interface=interface,
+        ),
+        WorkerLeafCrossEdge(
+            source_node_id=worker_node.id,
+            source_pin="A",
+            source_output_index=0,
+            target_node_id=cross.to_node,
+            target_pin=cross.to_pin,
+            target_input_index=target_pin.index,
+        ),
     )
 
 
