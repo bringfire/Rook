@@ -87,11 +87,22 @@ async def run_semantic_graph_single_worker_leaf_transaction(
         "acceptance": "clean_compile_receipt",
     })
     frozen_context = copy.deepcopy(get_rhino_request_context())
+
+    async def guarded_executor(name: str, params: dict[str, object]) -> object:
+        _require_context(frozen_context)
+        try:
+            response = await _invoke_tool(tool_executor, name, params)
+        except Exception:
+            _require_context(frozen_context)
+            raise
+        _require_context(frozen_context)
+        return response
+
     try:
         handoff = await run_minimal_csharp_initial_body_handoff(
             draft,
             worker_transport=worker_transport,
-            tool_executor=tool_executor,
+            tool_executor=guarded_executor,
         )
     except Exception:
         _require_context(frozen_context)
@@ -224,11 +235,32 @@ def _validate_result(result: SemanticGraphSingleWorkerLeafResult) -> None:
     )
     if any(value is not None and type(value) is not kind for value, kind in typed):
         raise TypeError("result contains an invalid optional field")
-    present = tuple(value is not None for value, _ in typed)
-    if present != tuple(sorted(present, reverse=True)):
-        raise ValueError("result prefix contains a gap")
+    loaded = result.graph_load_result
+    compiled = result.partition_compile_result
+    handoff = result.worker_handoff_result
+    deterministic = result.deterministic_execution_result
+    if loaded is not None and result.planner_record.status != "response_received":
+        raise ValueError("graph load requires a Planner response")
+    if compiled is not None and (loaded is None or not loaded.admitted):
+        raise ValueError("partition compilation requires an admitted graph")
+    if handoff is not None and (
+        compiled is None
+        or not compiled.admitted
+        or compiled.partition is None
+        or compiled.partition.unresolved_leaf is None
+        or compiled.partition.cross_edge is None
+    ):
+        raise ValueError("Worker handoff requires an admitted leaf partition")
+    if deterministic is not None and (
+        handoff is None or not _clean_terminal(handoff)
+    ):
+        raise ValueError("deterministic execution requires a clean Worker terminal")
     if result.connect_request is not None and type(result.connect_request) is not dict:
         raise TypeError("connect_request must be an exact dict")
+    if result.connect_request is not None and (
+        deterministic is None or not _clean_terminal(deterministic)
+    ):
+        raise ValueError("connect request requires clean deterministic terminal")
     if result.connect_response is not None and result.connect_request is None:
         raise ValueError("connect response requires its request")
     direct = (

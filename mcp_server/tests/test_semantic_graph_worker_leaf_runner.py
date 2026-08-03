@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -248,6 +249,62 @@ async def test_one_worker_leaf_composes_with_one_deterministic_region() -> None:
     )
     assert result.connect_request == executor.calls[-1][1]
     assert result.connect_response["data"]["connected"] is True
+
+
+@pytest.mark.asyncio
+async def test_worker_context_drift_stops_before_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = {"port": 1111}
+    planner = _PlannerTransport(_connected_raw_graph())
+    executor = _CausalExecutor()
+
+    class _DriftingWorker(_WorkerTransport):
+        def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+            context["port"] = 2222
+            return super().send(prompt_artifact)
+
+    worker = _DriftingWorker()
+    monkeypatch.setattr(
+        worker_leaf_runner,
+        "get_rhino_request_context",
+        lambda: copy.deepcopy(context),
+    )
+
+    with pytest.raises(RuntimeError, match="Rhino context changed"):
+        await worker_leaf_runner.run_semantic_graph_single_worker_leaf_transaction(
+            _INTENT,
+            planner_adapter=semantic_runner.SemanticGraphPlannerAdapter(planner),
+            worker_transport=worker,
+            tool_executor=executor,
+        )
+
+    assert len(planner.calls) == 1
+    assert len(worker.calls) == 1
+    assert executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_connect_request_requires_complete_execution_prefix() -> None:
+    result = await worker_leaf_runner.run_semantic_graph_single_worker_leaf_transaction(
+        _INTENT,
+        planner_adapter=semantic_runner.SemanticGraphPlannerAdapter(
+            _PlannerTransport(_connected_raw_graph())
+        ),
+        worker_transport=_WorkerTransport(),
+        tool_executor=_CausalExecutor(),
+    )
+
+    with pytest.raises(ValueError, match="connect request requires clean deterministic"):
+        replace(
+            result,
+            graph_load_result=None,
+            partition_compile_result=None,
+            worker_handoff_result=None,
+            deterministic_execution_result=None,
+            connect_response=None,
+            completed=False,
+        )
 
 
 class _AdapterSubclass(semantic_runner.SemanticGraphPlannerAdapter):
