@@ -79,7 +79,7 @@ No other file is in scope unless a focused failing test reveals a direct contrad
 
 **Hard gate:** Do not create any production module or production test until the captured fixture passes the exact review below and an independent reviewer approves Task 0.
 
-- [ ] **Step 1: Verify stack and lane before contact**
+- [x] **Step 1: Verify stack and lane before contact**
 
 Run from the Slice 1 worktree:
 
@@ -101,7 +101,7 @@ Expected before execution:
 
 If the audit is not merged, `origin/main` has unexpected conflicting drift, or the worktree is dirty, stop without contact.
 
-- [ ] **Step 2: Obtain separate authorization and inspect the operator-prepared canvas**
+- [x] **Step 2: Obtain separate authorization and inspect the operator-prepared canvas**
 
 Require the operator to state that a disposable Grasshopper document is active and contains exactly these five unwired objects:
 
@@ -115,7 +115,7 @@ one Square Grid
 
 Do not create, wire, move, rename, or inspect components through any mutation or discovery tool. The operator owns preparation. Obtain explicit authorization for exactly one `gh_snapshot` call.
 
-- [ ] **Step 3: Capture exactly one existing contracted snapshot**
+- [x] **Step 3: Capture exactly one existing contracted snapshot**
 
 Invoke the existing `gh_snapshot` tool once with the exact request:
 
@@ -146,7 +146,7 @@ add `success` or the outer transport envelope. The future runner's existing
 
 Write the fixture using `apply_patch`; do not generate it from candidate constants, a knowledge record, or a helper script.
 
-- [ ] **Step 4: Review the physical snapshot before accepting the fixture**
+- [x] **Step 4: Review the physical snapshot before accepting the fixture**
 
 Using read-only JSON inspection, require all of the following:
 
@@ -207,7 +207,7 @@ weaken the comparison, query knowledge, call another tool, modify snapshot
 production, or begin implementation. Report the exact missing/disagreeing field for
 design review.
 
-- [ ] **Step 5: Run fixture-only checks**
+- [x] **Step 5: Run fixture-only checks**
 
 ```powershell
 uv run --project mcp_server python -c `
@@ -218,7 +218,7 @@ git status --short
 
 Confirm the only uncommitted file is the fixture.
 
-- [ ] **Step 6: Commit the qualification fixture only**
+- [x] **Step 6: Commit the qualification fixture only**
 
 ```powershell
 git add mcp_server/tests/fixtures/gh_semantic_graph_slice1_primitives_snapshot.json
@@ -226,7 +226,7 @@ git commit -m "test(agent): qualify slice1 grasshopper primitives"
 git status --short
 ```
 
-- [ ] **Step 7: Mandatory independent qualification review stop**
+- [x] **Step 7: Mandatory independent qualification review stop**
 
 The reviewer must independently inspect the exact fixture fields against specification section 6 and confirm:
 
@@ -244,6 +244,15 @@ The reviewer must independently inspect the exact fixture fields against specifi
 - fixture independence from the prospective tuple.
 
 Record the approved fixture commit in this plan. **Do not start Task 1 before approval.**
+
+**Task 0 approved evidence (2026-08-03):** fixture commit
+`39e21195adea59b115ac40cd8e261338b4218cd3`; fixture SHA-256
+`dff642ae114fe222fc2825e306551f530994d2b80e6c6116edb867adca044d22`.
+Independent review confirmed the exact request, duplicate-key-free JSON, positive
+epoch `3`, five components, zero flows, complete GUID/pin/physical-optional tuples,
+Square Grid `Rectangle/item` and `Point/tree` outputs, valid slider identity/range,
+the expected sole Polyline warning, fixture-only commit scope, clean diff, and clean
+worktree. Task 1 was authorized only after this approval.
 
 ---
 
