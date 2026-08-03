@@ -241,6 +241,13 @@ The candidate regular-component identities to qualify are:
 creator. Returned verification uses the existing snapshot special identity for a
 slider; Slice 1 does not invent a parallel identity.
 
+The slider's `value -> output 0 / Number / item` row is an explicit code-owned
+special-lowering convention. The current `gh_snapshot` simple-parameter shape
+exposes `NumberSlider` identity and slider range/value data, but deliberately does
+not expose input/output port records. Slice 1 therefore does not claim that the
+slider port row was snapshot-qualified and does not change `gh_snapshot` to make it
+so.
+
 The semantic pins are:
 
 | Primitive | Inputs | Outputs |
@@ -251,7 +258,7 @@ The semantic pins are:
 | `polyline` | `vertices`, `closed` | `curve` |
 | `square_grid` | `plane`, `cell_size`, `extent_x`, `extent_y` | `cells`, `points` |
 
-The candidate pin projection to qualify is:
+The candidate compiler pin projection is:
 
 | Primitive | Semantic pin | GH direction/index | Element type | Access | May be unconnected |
 |---|---|---|---|---|---|
@@ -274,10 +281,19 @@ The candidate pin projection to qualify is:
 | `square_grid` | `cells` | output 0 | Rectangle | list | n/a |
 | `square_grid` | `points` | output 1 | Point | list | n/a |
 
-These values become reviewed code-owned constants only after the one-time
-qualification in section 6.1 succeeds. Knowledge data is supporting evidence, not a
-qualification source or runtime authority. The Planner never sees or authors the
-indices.
+The semantic names in this table are the prospective graph's exact, case-sensitive
+compiler aliases. They are not required to equal Grasshopper's snapshot `name` or
+`nick` strings. Qualification matches each regular-component pin by its qualified
+component GUID plus direction and index, then checks the returned element type,
+access, and optionality. This avoids a second alias map and keeps semantic names out
+of runtime discovery.
+
+The four regular-component GUID and pin rows become reviewed code-owned constants
+only after the one-time qualification in section 6.1 succeeds. The slider's special
+identity and range/value shape are independently qualified there; its output row
+remains the explicit compiler convention above. Knowledge data is supporting
+evidence, not a qualification source or runtime authority. The Planner never sees or
+authors the indices.
 
 Every admitted input in Slice 1 has `max_connections = 1`. Pin access metadata is
 retained exactly, but access is not edge cardinality. The compiler does not require
@@ -330,22 +346,37 @@ request and response in the fixture.
 
 The fixture must independently expose enough existing snapshot evidence to review:
 
-- each regular component GUID and the slider's existing special identity;
-- every input and output index and name;
-- element type;
-- access;
-- optionality; and
-- the absence of unexpected variable pins for this closed use.
+- each regular component GUID;
+- every regular-component input and output direction/index, element type, access,
+  and optionality;
+- the absence of unexpected variable pins on those four regular components;
+- the slider's existing `NumberSlider` special identity; and
+- the slider value payload's `type: "slider"` plus finite numeric `val`, `min`, and
+  `max` shape satisfying `min <= val <= max`.
+
+Snapshot `name` and `nick` values are retained as captured diagnostics but are not
+compared with the semantic aliases. Component runtime warnings and errors are also
+retained but ignored for metadata qualification: an unwired component such as
+Polyline may legitimately report a missing required input. Qualification rejects a
+placeholder or `BROKEN` component entry, not ordinary runtime diagnostics.
 
 The fixture is captured from Grasshopper, never generated from the candidate table.
 A focused test projects the fixture through its existing contracted fields and
-requires exact agreement with the private tuple. Production code never reads the
-fixture. Runtime admission never performs component discovery.
+requires exact agreement with the private tuple for the fixture-owned facts above.
+The test separately requires the code-owned slider output convention without
+mislabeling it as snapshot evidence. Production code never reads the fixture.
+Runtime admission never performs component discovery.
 
-If the snapshot omits a required fact or disagrees with any candidate GUID, pin,
-access, or optionality value, qualification stops. The specification and witness
-choice must be reviewed rather than guessing, weakening the comparison, or updating
-the tuple automatically.
+If the snapshot omits a required regular-component fact, disagrees with a candidate
+regular GUID/index/type/access/optionality value, or fails to expose the slider
+identity/range/value shape, qualification stops. The specification and witness choice
+must be reviewed rather than guessing, weakening the comparison, or updating the
+tuple automatically.
+
+General simple-parameter port parity in `gh_snapshot` is a legitimate product
+observability improvement, but it is deferred. It should be handled as one additive,
+general-purpose slice across supported simple-parameter families rather than as a
+Number Slider exception shaped around this witness.
 
 This is one static regression fixture, not a registry, manifest, archive, runtime
 probe, recurring qualification system, or authority framework. Capturing it requires
@@ -410,9 +441,11 @@ After strict loading, graph admission performs:
 5. duplicate-edge refusal;
 6. self-edge refusal;
 7. per-input connection-count checks;
-8. closed element-type compatibility checks;
-9. cycle detection across all nodes and edges; and
-10. complete graph-input lowerability checks for every node and edge.
+8. required-input connection checks;
+9. closed element-type compatibility checks, with the Number-to-Integer initial-value
+   exception available only to `number_slider` sources;
+10. cycle detection across all nodes and edges; and
+11. complete graph-input lowerability checks for every node and edge.
 
 Every self-edge and every cycle refuses. Unknown primitives, pins, parameters,
 or incompatible connections refuse before any GH call. A code-owned tuple entry with
@@ -713,13 +746,18 @@ The focused test surface must prove:
 
 ### Loading and admission
 
-- the one-time static snapshot fixture independently projects every tuple GUID, pin,
-  type, access, and optionality fact;
+- the one-time static snapshot fixture independently projects every regular-component
+  GUID and direction/index/type/access/optionality fact, plus the slider identity and
+  range/value shape;
+- the slider `value -> O0 / Number / item` convention is tested as code-owned rather
+  than represented as snapshot-derived evidence;
 - actual JSON duplicate-key and non-finite refusal;
 - exact node, edge, identifier, response, label, and numeric bounds;
 - unknown field, primitive, parameter, or pin refusal;
 - type-exact slider parameters and `minimum <= initial <= maximum`;
-- direct integer-input admission requires a finite integral slider initial value;
+- direct integer-input admission requires a finite integral `number_slider` initial
+  value, while every non-slider Number source refuses at an Integer input;
+- every required input, including `polyline.vertices`, must be connected;
 - duplicate edge, multiplicity, incompatible element type, self-edge, and cycle
   refusal; and
 - every invalid graph causes zero GH calls.

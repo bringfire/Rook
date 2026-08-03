@@ -4,7 +4,7 @@
 
 **Goal:** Admit one bounded Planner-authored Grasshopper semantic graph, deterministically lower its complete topology into one existing `gh_edit` batch, execute exactly one snapshot and at most one edit, and prove exact structural materialization through existing Grasshopper identities and PlanGraph state.
 
-**Architecture:** Add three private agent-layer modules: a strict raw-JSON semantic graph contract with one five-entry compiler tuple, a deterministic epoch-free compiler, and a fixed `create_edit -> verify_edit -> done` runner. The runner reuses the existing `T*`, `C*`, instance-GUID, `gh_snapshot`, `gh_edit`, PlanGraph reducer, selector/mapping, and native record boundaries. A separately authorized static snapshot qualification is a hard prerequisite; no production implementation begins until that fixture independently agrees with every candidate primitive identity and pin contract.
+**Architecture:** Add three private agent-layer modules: a strict raw-JSON semantic graph contract with one five-entry compiler tuple, a deterministic epoch-free compiler, and a fixed `create_edit -> verify_edit -> done` runner. The runner reuses the existing `T*`, `C*`, instance-GUID, `gh_snapshot`, `gh_edit`, PlanGraph reducer, selector/mapping, and native record boundaries. A separately authorized static snapshot qualification is a hard prerequisite; no production implementation begins until that fixture independently agrees with every regular-component identity/port contract and the slider identity/range/value shape. The slider output port remains an explicit code-owned special-lowering convention because the existing simple-parameter snapshot shape does not expose ports.
 
 **Tech Stack:** Python 3.12, frozen dataclasses, standard-library strict JSON decoding and canonical serialization, existing Rook `PlanGraph` reducers/selectors/records, existing `ToolDispatcher` callable shape, existing `gh_snapshot` and `gh_edit` contracts, pytest, PowerShell, Git.
 
@@ -147,16 +147,23 @@ Using read-only JSON inspection, require all of the following:
 - response data has an exact positive integer epoch;
 - exactly five components are present and `flows` is exactly empty;
 - the four regular components expose the exact candidate `componentGuid` values;
-- the slider exposes the existing snapshot special identity `NumberSlider`;
-- every regular input/output exposes exact `idx`, `name`, `type`, `access`, and `optional` evidence;
-- each component has exactly the fixed input/output count from the specification;
-- no placeholder, relay, annotation, broken entry, unexpected variable pin, error, or warning appears;
-- every candidate pin row in specification section 6 can be derived from returned fields without knowledge lookup or inference.
+- every regular input/output exposes exact direction/index, `type`, `access`, and
+  `optional` evidence;
+- each regular component has exactly the fixed input/output count from the
+  specification and no unexpected variable pin;
+- snapshot `name`/`nick` strings are retained but are not equated with semantic pin
+  aliases;
+- the slider exposes the existing snapshot special identity `NumberSlider` and a
+  value payload with exact `type: "slider"` plus finite numeric `val`, `min`, and
+  `max` fields satisfying `min <= val <= max`;
+- no placeholder or `BROKEN` entry appears; and
+- ordinary component runtime warnings/errors are retained but ignored for metadata
+  qualification, including a legitimate missing-input diagnostic on an unwired
+  Polyline.
 
-Compare against this exact candidate projection:
+Compare the four regular components against this exact direction/index projection:
 
 ```text
-number_slider: output value O0 Number item
 series:         I0 start Number item optional
                 I1 step Number item optional
                 I2 count Integer item optional
@@ -176,7 +183,20 @@ square_grid:    I0 plane Plane item optional
                 O1 points Point list
 ```
 
-If any field is missing or disagrees—including a snapshot representation that cannot expose the slider output contract—stop here. Do not weaken the comparison, query knowledge, call another tool, modify snapshot production, or begin implementation. Report the exact missing/disagreeing field for design review.
+The semantic names shown above are exact code-owned aliases; qualification locates
+each snapshot pin through component GUID plus direction/index and does not require a
+snapshot name match. Separately record:
+
+```text
+number_slider snapshot qualification: NumberSlider identity + slider range/value shape
+number_slider compiler convention:     value -> O0 / Number / item
+```
+
+The second row is not snapshot-derived. If a regular-component field is missing or
+disagrees, or the slider identity/range/value shape is absent, stop here. Do not
+weaken the comparison, query knowledge, call another tool, modify snapshot
+production, or begin implementation. Report the exact missing/disagreeing field for
+design review.
 
 - [ ] **Step 5: Run fixture-only checks**
 
@@ -203,9 +223,13 @@ The reviewer must independently inspect the exact fixture fields against specifi
 
 - one snapshot, no mutation evidence;
 - exact five-component/no-wire scope;
-- all four GUIDs and slider identity;
-- every pin index/name/type/access/optionality row;
-- no missing or unexpected pins;
+- all four regular GUIDs and every regular pin direction/index/type/access/optionality
+  row;
+- slider `NumberSlider` identity and finite range/value shape;
+- code-owned slider `value -> O0 / Number / item` convention clearly separated from
+  snapshot evidence;
+- no missing or unexpected regular-component pins;
+- runtime diagnostics ignored while placeholder/`BROKEN` entries refuse;
 - fixture independence from the prospective tuple.
 
 Record the approved fixture commit in this plan. **Do not start Task 1 before approval.**
@@ -266,11 +290,14 @@ Primitive/pin entries remain frozen inert data. Do not add callbacks, inheritanc
 
 - [ ] **Step 2: Write the fixture-to-tuple RED**
 
-In `test_semantic_graph.py`, load the static fixture directly with standard JSON, project only its existing component/pin fields, and exact-compare that projection with the production `_PRIMITIVES` tuple. The test must prove:
+In `test_semantic_graph.py`, load the static fixture directly with standard JSON, project only its existing component/pin fields, and compare those fixture-owned facts with the production `_PRIMITIVES` tuple. The test must prove:
 
 - regular `componentGuid` values match after one code-owned lowercase normalization;
-- slider identity is `NumberSlider` and lowering kind is `slider`;
-- all semantic pin names map to exact direction/index/type/access/optionality;
+- regular pins match by component GUID plus direction/index, then exact type/access/optionality;
+- semantic aliases are not compared with snapshot `name` or `nick` strings;
+- slider identity is `NumberSlider`, its range/value payload has the contracted
+  finite numeric shape, and lowering kind is `slider`;
+- the separate code-owned slider `value -> O0 / Number / item` convention is exact;
 - every input has `max_connections == 1`;
 - no production fixture read occurs (AST/import assertion: `semantic_graph.py` does not reference `tests`, `fixtures`, `Path`, or file I/O).
 
@@ -402,9 +429,13 @@ Load real JSON strings through `load_semantic_graph()`, then compile them. Param
 - edge direction reversed by selecting input as source or output as target;
 - incompatible element types;
 - second connection into any input;
+- an unconnected required input, including `polyline.vertices`;
 - every self-edge;
 - two-node and longer cycles;
 - slider connected to `series.count` or square-grid extents with nonintegral, below-1, or above-100 initial value.
+- a non-slider Number source such as `series.values` connected to another
+  `series.count`; the narrow Number-to-Integer exception belongs only to
+  `number_slider`.
 
 Do not require source/target access equality. Add positive tests for `series.values (Number/list) -> construct_point.x (Number/item)` and `square_grid.points (Point/list) -> polyline.vertices (Point/list)` to prove Grasshopper-native data matching remains runtime-owned.
 
@@ -948,7 +979,7 @@ rg -n "phyllotaxis|point_row|square_grid_witness|expected_witness|TEMPLATE" `
   mcp_server/src/rook/agent/semantic_graph_runner.py
 git diff --check
 git status --short
-git diff --name-only 8351dc3667320e2f9af5ca8c36eb0ce6f0b11c22...HEAD
+git diff --name-only 65108bcbd00f572dc65203d39ecb8890dbd5c98f...HEAD
 ```
 
 The first scan may find only explanatory non-claims; inspect every match. The witness/template scan must have zero production matches. The merge diff must contain only the one fixture, three production modules, three tests, approved specification, and this plan.
@@ -1000,4 +1031,5 @@ Still deferred:
 - output-value, geometry, visual, or semantic-fidelity evaluation;
 - repeatability claims;
 - runtime primitive discovery or automatic tuple updates;
+- additive `gh_snapshot` port parity across the supported simple-parameter families;
 - recorder, archive, verifier, registry, or evidence-system work.
