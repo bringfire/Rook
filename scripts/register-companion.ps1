@@ -183,8 +183,8 @@ Set-ItemProperty -Path $RegBase -Name 'Address'      -Value ''             -Type
 Set-ItemProperty -Path $RegBase -Name 'Country'      -Value ''             -Type String
 Set-ItemProperty -Path $RegBase -Name 'Phone'        -Value ''             -Type String
 Set-ItemProperty -Path $RegBase -Name 'EMail'        -Value ''             -Type String
-Set-ItemProperty -Path $RegBase -Name 'WebSite'      -Value 'https://github.com/bringfire/Rhino_AI'          -Type String
-Set-ItemProperty -Path $RegBase -Name 'UpdateURL'    -Value 'https://github.com/bringfire/Rhino_AI/releases' -Type String
+Set-ItemProperty -Path $RegBase -Name 'WebSite'      -Value 'https://github.com/bringfire/rook-release'          -Type String
+Set-ItemProperty -Path $RegBase -Name 'UpdateURL'    -Value 'https://github.com/bringfire/rook-release/releases' -Type String
 Set-ItemProperty -Path $RegBase -Name 'Fax'          -Value ''             -Type String
 Set-ItemProperty -Path $RegBase -Name 'RegPath'      -Value "\\HKEY_CURRENT_USER\Software\McNeel\Rhinoceros\8.0\Plug-Ins\$CompanionGuid" -Type String
 
