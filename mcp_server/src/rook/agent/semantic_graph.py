@@ -439,6 +439,7 @@ def _refused(failure: str, reason: str) -> SemanticGraphLoadResult:
 
 
 def build_semantic_graph_response_schema() -> dict[str, object]:
+    # Provider constraints shape JSON only; load_semantic_graph owns full admission.
     return {
         "type": "object",
         "additionalProperties": False,
@@ -447,31 +448,21 @@ def build_semantic_graph_response_schema() -> dict[str, object]:
             "schema": {"const": SEMANTIC_GRAPH_SCHEMA},
             "nodes": {
                 "type": "array",
-                "minItems": 1,
-                "maxItems": _MAX_NODES,
                 "items": {
-                    "oneOf": [_node_schema(primitive) for primitive in _PRIMITIVES]
+                    "anyOf": [_node_schema(primitive) for primitive in _PRIMITIVES]
                 },
             },
             "edges": {
                 "type": "array",
-                "minItems": 0,
-                "maxItems": _MAX_EDGES,
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
                     "required": ["from_node", "from_pin", "to_node", "to_pin"],
                     "properties": {
-                        "from_node": {
-                            "type": "string",
-                            "pattern": _NODE_ID_PATTERN.pattern,
-                        },
-                        "from_pin": {"type": "string", "minLength": 1},
-                        "to_node": {
-                            "type": "string",
-                            "pattern": _NODE_ID_PATTERN.pattern,
-                        },
-                        "to_pin": {"type": "string", "minLength": 1},
+                        "from_node": {"type": "string"},
+                        "from_pin": {"type": "string"},
+                        "to_node": {"type": "string"},
+                        "to_pin": {"type": "string"},
                     },
                 },
             },
@@ -485,7 +476,7 @@ def _node_schema(primitive: _Primitive) -> dict[str, object]:
         "additionalProperties": False,
         "required": ["id", "primitive", "parameters"],
         "properties": {
-            "id": {"type": "string", "pattern": _NODE_ID_PATTERN.pattern},
+            "id": {"type": "string"},
             "primitive": {"const": primitive.name},
             "parameters": _parameter_schema(primitive),
         },
@@ -496,17 +487,9 @@ def _parameter_schema(primitive: _Primitive) -> dict[str, object]:
     properties: dict[str, object] = {}
     for parameter in primitive.parameters:
         if parameter.value_kind == "string":
-            properties[parameter.name] = {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": parameter.max_characters,
-            }
+            properties[parameter.name] = {"type": "string"}
         else:
-            properties[parameter.name] = {
-                "type": "number",
-                "minimum": parameter.minimum,
-                "maximum": parameter.maximum,
-            }
+            properties[parameter.name] = {"type": "number"}
     return {
         "type": "object",
         "additionalProperties": False,
