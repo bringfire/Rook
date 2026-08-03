@@ -464,6 +464,43 @@ Required boundary:
 
 The implementation plan may choose the two Slice 1 witnesses after this decision is independently reviewed. This report deliberately does not select them.
 
+## Downstream knowledge and DSPy implications
+
+This representation decision should make later learning possible without making learning part of Slice 1. Commit `59f074e5` records the governing provisional DSPy hypothesis in three places:
+
+- `docs/superpowers/specs/2026-07-23-rook-semantic-harness-architecture-accounting.md` section 7.9 requires a stable role contract, deterministic evaluation boundary, representative corpus, explicit metric and feedback, and train/development/held-out comparison before DSPy-guided optimization is eligible.
+- `docs/superpowers/specs/2026-07-02-rook-planner-harness-north-star.md` section 9.1 places an optimizable Planner program behind the unchanged Planner input/output and deterministic validation boundary; it does not allow model score to override invalid programs or absent authority.
+- `docs/superpowers/specs/2026-06-19-rook-local-internal-models-north-star.md` section 12.3 applies the same rule to a bounded local-Worker slot: optimization may follow stable contracts and role-specific metrics, but never replace the scaffold or become runtime authority.
+
+The earlier RLM/Chirp cross-pollination note, `docs/rook_docs/2026-04-26-rlm-statecharts-chirp-cross-pollination.md`, supplies a compatible but still provisional knowledge hypothesis. Sections 3.5 and 5.3 describe the knowledge store as a graph to operate on compositionally and recursively rather than as a flat lookup table. Sections 3.8 and 5.5 suggest that recurring patterns may eventually become compiled sub-programs instead of remaining wiring stencils. These are future hypotheses, not authorization to turn stored recipes into executable or training authority now.
+
+The compatible future loop is:
+
+```text
+knowledge store retrieves recipes, primitives, patterns, and observations
+-> Planner emits prospective canonical semantic graph
+-> compiler returns admission or diagnostics
+-> tools execute
+-> receipts establish mechanical outcome
+-> semantic evaluation establishes intent fidelity
+-> ordinary evaluation row becomes DSPy optimization material
+```
+
+Existing v2 recipes remain retrieval evidence, topology precedents, weak or partially labelled examples, and possible future import candidates after enrichment and validation. They are not authoritative target programs. Validated prospective semantic graphs, paired with their outcomes, should become the higher-quality learning corpus going forward.
+
+A minimum future evaluation row should retain:
+
+- exact intent;
+- retrieved knowledge item IDs;
+- canonical semantic graph;
+- compiler diagnostics;
+- native receipt outcome; and
+- a separate semantic-fidelity assessment.
+
+Those fields belong in the existing lightweight trace/evaluation path. They do not belong inside the semantic graph, and they do not justify a new archive or evidence system. Compile success alone is not a valid DSPy metric: it establishes mechanical admissibility, not that the graph faithfully implements the user's intent.
+
+DSPy optimization remains ineligible until the prospective graph contract is stable and a representative corpus has explicit train, development, and held-out partitions. Slice 1 adds no DSPy optimizer, corpus migration, recursive knowledge runtime, learned-program registry, new evidence system, or other knowledge-system implementation. Its boundary and representation recommendation remain unchanged.
+
 ## Test coverage and important gaps
 
 An offline focused selection covering recipe extraction, `gh_edit` result handling, script receipts, PlanGraph reduction/templates/runners, workflow compilation, Worker body application, and the initial-body handoff passed **291 tests**.
