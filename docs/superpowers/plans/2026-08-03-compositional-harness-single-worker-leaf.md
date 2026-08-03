@@ -31,7 +31,7 @@
 - Provider-facing schema alternatives use `anyOf`, never `oneOf`. Unsupported semantic limits remain enforced by the strict loader/compiler.
 - Add no scheduler, suspension/resumption system, registry, job language, generalized interface system, new Worker response, PlanGraph concept, tool endpoint, UI, knowledge/DSPy path, archive, recorder, proof carrier, or evidence framework.
 - Use `apply_patch` for edits. Add no dependency.
-- If production work exceeds the four planned files, the new compositor exceeds roughly 350 production lines, or a PlanGraph/tool-contract change appears necessary, stop for scope review.
+- If production work exceeds the four planned files, total production additions across those files exceed roughly 650 lines, the new compositor exceeds roughly 350 production lines, or a PlanGraph/tool-contract change appears necessary, stop for scope review. Count additions directly; deletions do not offset the growth gate.
 
 ---
 
@@ -753,6 +753,8 @@ Report for independent review:
 - proof that provider schema uses `anyOf` and contains no `oneOf`;
 - proof that cross-edge occupancy is validated before partitioning;
 - proof that `csharp_script` never enters deterministic create instructions;
+- cumulative production additions in `semantic_graph.py` and
+  `semantic_graph_compiler.py`, counted without subtracting deletions;
 - confirmation that no new runner/compositor, Worker protocol, PlanGraph concept,
   tool contract, registry, or framework exists.
 
@@ -781,7 +783,7 @@ Do not proceed to Task 3 until an independent reviewer explicitly approves this 
   - `load_minimal_csharp_repair_draft()`
   - `run_minimal_csharp_initial_body_handoff()`
   - existing private `_execute_compiled_plan()` and `_invoke_tool()`
-  - existing `get_rhino_request_context()`
+  - existing `_require_exact_intent()` and `get_rhino_request_context()`
 - Produces:
   - `SemanticGraphPlannerAdapter.produce_worker_leaf(intent)`
   - `SemanticGraphSingleWorkerLeafResult`
@@ -914,6 +916,19 @@ async def test_one_worker_leaf_composes_with_one_deterministic_region() -> None:
     assert result.connect_response["data"]["connected"] is True
 ```
 
+Add one compact parameterized capability-order regression covering:
+
+```text
+non-exact, blank, or invalid UTF-8 intent
+SemanticGraphPlannerAdapter subclass or substitute
+Worker transport without callable send
+non-callable tool executor
+```
+
+Each case must raise before `produce_worker_leaf()` and prove zero Planner,
+Worker, and tool calls. Caller validation must not be deferred to the existing
+handoff or deterministic runner.
+
 - [ ] **Step 3: Run the walking test and verify behavioral RED**
 
 Run:
@@ -921,10 +936,13 @@ Run:
 ```powershell
 cd mcp_server
 .\.venv\Scripts\python.exe -m pytest -q `
-  tests/test_semantic_graph_worker_leaf_runner.py::test_one_worker_leaf_composes_with_one_deterministic_region
+  tests/test_semantic_graph_worker_leaf_runner.py
 ```
 
-Expected: FAIL with the skeleton's `NotImplementedError`, after test fixtures and imports complete successfully.
+Expected: the walking and capability-order tests fail against the skeleton's
+missing behavior after fixtures and imports complete successfully. The
+capability-order cases must not pass merely because the skeleton raises an
+unrelated exception type.
 
 - [ ] **Step 4: Add the code-owned Slice 2 Planner call**
 
@@ -986,7 +1004,19 @@ async def run_semantic_graph_single_worker_leaf_transaction(
 ) -> SemanticGraphSingleWorkerLeafResult:
 ```
 
-Use the fixed sequence:
+Validate all caller-owned capabilities before the first Planner call:
+
+```python
+_require_exact_intent(intent)
+if type(planner_adapter) is not SemanticGraphPlannerAdapter:
+    raise TypeError("planner_adapter must be the exact SemanticGraphPlannerAdapter")
+if not callable(getattr(worker_transport, "send", None)):
+    raise TypeError("worker_transport must provide callable send")
+if not callable(tool_executor):
+    raise TypeError("tool_executor must be callable")
+```
+
+Then use the fixed sequence:
 
 ```python
 planner_record = planner_adapter.produce_worker_leaf(intent)
@@ -1040,7 +1070,7 @@ draft = load_minimal_csharp_repair_draft(
 )
 ```
 
-If this code-owned projection refuses, raise an internal contradiction. Run `run_minimal_csharp_initial_body_handoff()` once. If its direct terminal fields are not the clean terminal equation, return the prefix without snapshot/edit/connect.
+If this code-owned projection refuses, raise an internal contradiction. Run `run_minimal_csharp_initial_body_handoff()` once. Immediately after every return, compare the current Rhino context with the frozen context **before** inspecting terminal fields or returning an incomplete prefix. This includes Worker refusal, invalid response, create failure, and compile failure. If the handoff raises an ordinary exception, compare in the exception path before re-raising; context drift takes precedence. Only after the comparison may a non-clean handoff return the prefix without snapshot/edit/connect.
 
 Extract the source GUID directly from the existing `create_script` receipt owned by the handoff's final graph:
 
@@ -1051,7 +1081,7 @@ final_graph.nodes["create_script"].evidence.receipt
 
 Require one exact nonblank string. Missing or malformed GUID after a clean terminal is an internal contradiction. Do not parse or replay Worker records.
 
-Compare the current Rhino context with the frozen context, call existing `_execute_compiled_plan()` with `partition.deterministic_plan`, then compare context again. If the deterministic result is not its direct terminal equation, return the prefix without connect.
+Call existing `_execute_compiled_plan()` with `partition.deterministic_plan`, then compare context again before inspecting or returning its result. If deterministic execution raises, compare in the exception path before re-raising; context drift takes precedence. If the deterministic result is not its direct terminal equation, return the prefix without connect only after that comparison.
 
 Resolve the target GUID from the existing `structural_correlation` tuple by exact semantic target node ID. Require exactly one match. Build:
 
@@ -1064,7 +1094,7 @@ connect_request = {
 }
 ```
 
-Compare context again, then invoke `gh_connect` once through existing `_invoke_tool()`. Catch ordinary `Exception` only; on exception retain the request, leave response absent, and return `completed=False` without error text.
+Compare context again, then invoke `gh_connect` once through existing `_invoke_tool()`. After a returned response, compare context before interpreting the response. Catch ordinary `Exception` only; in the exception path compare context before producing the incomplete result. Context drift takes precedence over either a returned failure or a dispatch exception. When context is unchanged, a dispatch exception retains the request, leaves response absent, and returns `completed=False` without error text.
 
 Implement direct completion:
 
@@ -1119,7 +1149,11 @@ git diff --cached --check
 git commit -m "feat: compose one semantic worker leaf"
 ```
 
-Stop for independent Task 3 review before expanding the unsuccessful matrix. Report production line growth for the new compositor; stop if it exceeds roughly 350 lines.
+Stop for independent Task 3 review before expanding the unsuccessful matrix.
+Report both the new compositor's production additions and cumulative production
+additions across all four planned modules, counted without subtracting
+deletions. Stop if the compositor exceeds roughly 350 additions or the
+cumulative total exceeds roughly 650 additions.
 
 ---
 
@@ -1216,7 +1250,23 @@ connect exception:
   exception type/message absent from result representation
 ```
 
-For context drift after leaf creation or after deterministic execution, assert `RuntimeError`, no later call, and no cleanup.
+Add direct context-precedence regressions for every post-contact exit:
+
+```text
+failed Worker handoff return after C# contact
+raised Worker handoff exception after C# contact
+failed deterministic execution return
+raised deterministic execution exception
+returned gh_connect failure
+raised gh_connect exception
+```
+
+Each case changes the current Rhino context during that phase and asserts
+`RuntimeError("Rhino context changed...")`, no later call, and no cleanup. The
+failed handoff case specifically proves the comparison occurs before returning
+its ordinary C# create/compile stop. The two connect cases prove drift takes
+precedence over both a retained failed response and an exception-based
+incomplete result.
 
 - [ ] **Step 4: Add direct result-shape tests without replay**
 
@@ -1372,9 +1422,24 @@ git diff --numstat 8a2216d9...HEAD -- `
   mcp_server/src/rook/agent/semantic_graph_compiler.py `
   mcp_server/src/rook/agent/semantic_graph_runner.py `
   mcp_server/src/rook/agent/semantic_graph_worker_leaf_runner.py
+
+$productionFiles = @(
+  'mcp_server/src/rook/agent/semantic_graph.py',
+  'mcp_server/src/rook/agent/semantic_graph_compiler.py',
+  'mcp_server/src/rook/agent/semantic_graph_runner.py',
+  'mcp_server/src/rook/agent/semantic_graph_worker_leaf_runner.py'
+)
+$totalProductionAdditions = 0
+git diff --numstat 8a2216d9...HEAD -- $productionFiles | ForEach-Object {
+  $totalProductionAdditions += [int](($_ -split "`t")[0])
+}
+"TOTAL_PRODUCTION_ADDITIONS=$totalProductionAdditions"
+if ($totalProductionAdditions -gt 650) {
+  throw 'Single Worker leaf production growth exceeded the scope gate'
+}
 ```
 
-Require exactly the planned production/test files plus this specification and plan. Report the new compositor's production line count. If it exceeds roughly 350 lines or any unplanned product surface appears, stop for scope review.
+Require exactly the planned production/test files plus this specification and plan. Report both the total production additions and the new compositor's production line count. Stop for scope review if total additions exceed roughly 650 lines, the compositor exceeds roughly 350 lines, or any unplanned product surface appears. Deletions do not offset either additions gate.
 
 - [ ] **Step 5: Reconcile this ledger with observed evidence**
 
@@ -1389,6 +1454,7 @@ focused final count and warnings
 broader final count and warnings
 final implementation HEAD
 exact changed-file list
+total production additions across all four planned modules
 new compositor production line count
 ```
 
