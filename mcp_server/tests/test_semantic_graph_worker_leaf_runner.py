@@ -132,7 +132,7 @@ class _CausalExecutor:
             return self.edit_response
         assert params == {
             "sourceGuid": _LEAF_GUID,
-            "sourceIndex": 0,
+            "sourceIndex": 1,
             "targetGuid": _TARGET_GUID,
             "targetIndex": 0,
         }
@@ -172,12 +172,18 @@ class _FaultExecutor(_CausalExecutor):
 def _connect_response(
     source_guid: str = _LEAF_GUID,
     target_guid: str = _TARGET_GUID,
+    source_param: str = "A",
+    source_index: int = 1,
 ) -> dict[str, object]:
     return {
         "success": True,
         "data": {
             "connected": True,
-            "source": {"guid": source_guid, "param": "A", "index": 0},
+            "source": {
+                "guid": source_guid,
+                "param": source_param,
+                "index": source_index,
+            },
             "target": {"guid": target_guid, "param": "X", "index": 0},
         },
     }
@@ -240,7 +246,7 @@ def _snapshot_response() -> dict[str, object]:
         "data": {
             "version": "1.0.0",
             "epoch": 11,
-            "components": [{"id": "C1", "type": "CSharpScript"}],
+            "components": [_csharp_component_snapshot()],
             "flows": [],
             "diagnostics": {"total": 1, "errors": 0, "warnings": 0},
         },
@@ -266,7 +272,7 @@ def _derive_edit_response(params: dict[str, object]) -> dict[str, object]:
             "version": "1.0.0",
             "epoch": 12,
             "components": [
-                {"id": "C1", "type": "CSharpScript"},
+                _csharp_component_snapshot(),
                 {
                     "id": "C2",
                     "type": "Component_ConstructPoint",
@@ -287,6 +293,17 @@ def _derive_edit_response(params: dict[str, object]) -> dict[str, object]:
                 "instance_guids": {"T1": _TARGET_GUID},
             },
         },
+    }
+
+
+def _csharp_component_snapshot() -> dict[str, object]:
+    return {
+        "id": "C1",
+        "type": "CSharpScript",
+        "outputs": [
+            {"idx": 0, "name": "out"},
+            {"idx": 1, "name": "A"},
+        ],
     }
 
 
@@ -318,7 +335,22 @@ async def test_one_worker_leaf_composes_with_one_deterministic_region() -> None:
         == "terminal_node_selected:done"
     )
     assert result.connect_request == executor.calls[-1][1]
-    assert result.connect_response["data"]["connected"] is True
+    assert result.connect_request["sourceIndex"] == 1
+    assert result.connect_response["data"]["source"] == {
+        "guid": _LEAF_GUID,
+        "param": "A",
+        "index": 1,
+    }
+    snapshot_components = (
+        result.deterministic_execution_result.snapshot_response["data"]["components"]
+    )
+    assert [
+        (output["name"], output["idx"])
+        for output in snapshot_components[0]["outputs"]
+    ] == [
+        ("out", 0),
+        ("A", 1),
+    ]
 
 
 @pytest.mark.asyncio
@@ -801,8 +833,15 @@ async def test_edit_stop_retains_both_owner_results_without_connect(
         "malformed",
         _connect_response(source_guid="33333333-3333-3333-3333-333333333333"),
         _connect_response(target_guid="44444444-4444-4444-4444-444444444444"),
+        _connect_response(source_param="out", source_index=0),
     ],
-    ids=("failed", "malformed", "source_mismatch", "target_mismatch"),
+    ids=(
+        "failed",
+        "malformed",
+        "source_mismatch",
+        "target_mismatch",
+        "declared_output_mismatch",
+    ),
 )
 async def test_connect_failure_retains_exact_request_and_response(
     response: object,

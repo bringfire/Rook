@@ -130,7 +130,7 @@ def test_partition_compiler_separates_one_worker_leaf_and_cross_edge() -> None:
     assert partition.cross_edge == compiler.WorkerLeafCrossEdge(
         source_node_id="generated_value",
         source_pin="A",
-        source_output_index=0,
+        source_output_index=1,
         target_node_id="point",
         target_pin="x",
         target_input_index=0,

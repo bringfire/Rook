@@ -13,6 +13,7 @@ _LAYOUT_ORIGIN_Y = 100
 _LAYOUT_HORIZONTAL_SPACING = 240
 _LAYOUT_VERTICAL_SPACING = 120
 _LOWERING_KINDS = frozenset({"component_guid", "slider"})
+_CSHARP_DECLARED_OUTPUT_BASE_INDEX = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,7 +396,7 @@ def compile_semantic_graph_worker_leaf_partition(
         WorkerLeafCrossEdge(
             source_node_id=worker_node.id,
             source_pin="A",
-            source_output_index=0,
+            source_output_index=_CSHARP_DECLARED_OUTPUT_BASE_INDEX,
             target_node_id=cross.to_node,
             target_pin=cross.to_pin,
             target_input_index=target_pin.index,
