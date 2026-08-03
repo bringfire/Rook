@@ -1519,12 +1519,23 @@ git diff --numstat 8a2216d9...HEAD -- $productionFiles | ForEach-Object {
   $totalProductionAdditions += [int](($_ -split "`t")[0])
 }
 "TOTAL_PRODUCTION_ADDITIONS=$totalProductionAdditions"
-if ($totalProductionAdditions -gt 650) {
-  throw 'Single Worker leaf production growth exceeded the scope gate'
+$originalProductionGate = 650
+$reviewedSafetyCeiling = 681
+if ($totalProductionAdditions -gt $reviewedSafetyCeiling) {
+  throw 'Single Worker leaf production growth exceeded the reviewed safety ceiling'
+}
+if ($totalProductionAdditions -gt $originalProductionGate) {
+  "REVIEWED_SAFETY_EXCEPTION=$totalProductionAdditions/$reviewedSafetyCeiling"
 }
 ```
 
-Require exactly the planned production/test files plus this specification and plan. Report both the total production additions and the new compositor's production line count. Stop for scope review if total additions exceed roughly 650 lines, the compositor exceeds roughly 350 lines, or any unplanned product surface appears. Deletions do not offset either additions gate.
+Require exactly the planned production/test files plus this specification and plan. Report both the total production additions and the new compositor's production line count. The original 650-line threshold requires scope review; this branch's completed review permits exactly 681 additions. Stop again if total additions exceed 681, the compositor exceeds roughly 350 lines, or any unplanned product surface appears. Deletions do not offset either additions gate.
+
+The original pre-review production gate remains 650 additions. Independent
+Task 3 review authorized the 32-line context-guard and predecessor-equation
+safety repair, raising the reproducible final reviewed ceiling to exactly 681.
+Any production addition beyond 681 still requires renewed scope review; the
+compositor ceiling remains unchanged at roughly 350 lines.
 
 - [x] **Step 5: Reconcile this ledger with observed evidence**
 
