@@ -4,12 +4,14 @@ import copy
 import importlib.util
 import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import pytest
 import tiktoken
 
-from rook.agent import semantic_graph, semantic_graph_compiler
+from rook.agent import semantic_graph, semantic_graph_compiler, semantic_graph_runner
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -487,3 +489,310 @@ def test_transport_kwargs_refuse_unscored_models() -> None:
         CAMPAIGN._planner_transport_kwargs("ollama_chat/reserve", worker_leaf=False)
     with pytest.raises(ValueError, match="worker_model_not_scored"):
         CAMPAIGN._worker_transport_kwargs("ollama_chat/reserve")
+
+
+class _StaticTransport:
+    def __init__(self, response: str) -> None:
+        self.response = response
+
+    def send(self, prompt_artifact: Mapping[str, Any]) -> str:
+        return self.response
+
+
+def _raw_reference(case_id: str) -> str:
+    return json.dumps(
+        _reference_payloads()[case_id],
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_one_deterministic_screening_row_uses_exact_native_call_budget() -> None:
+    row = CAMPAIGN._FIXED_ROWS["stage_a.medium_deterministic"]
+    tools = CAMPAIGN._CausalFakeTools()
+
+    capture = await CAMPAIGN._run_row_once(
+        row,
+        planner_transport=_StaticTransport(_raw_reference(row.case_id)),
+        worker_transport=None,
+        tool_executor=tools,
+    )
+
+    assert capture["native_result"].terminal_stage == "terminal"
+    assert capture["native_result"].terminal_reason == "terminal_node_selected:done"
+    assert capture["structural_tier_attained"] is True
+    assert capture["call_counts"] == {
+        "planner_transport": 1,
+        "planner_model": 0,
+        "worker_transport": 0,
+        "worker_model": 0,
+        "gh_create_csharp_script": 0,
+        "gh_snapshot": 1,
+        "gh_edit": 1,
+        "gh_connect": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_one_worker_leaf_screening_row_uses_fake_worker_and_causal_tools() -> None:
+    row = CAMPAIGN._Row(
+        "test.stage_b.maximum_worker_leaf",
+        "B",
+        "maximum_worker_leaf",
+        "ollama_chat/qwen3.6:35b",
+        None,
+        "fake",
+        "fake",
+    )
+    tools = CAMPAIGN._CausalFakeTools()
+
+    capture = await CAMPAIGN._run_row_once(
+        row,
+        planner_transport=_StaticTransport(_raw_reference(row.case_id)),
+        worker_transport=CAMPAIGN._FakeWorkerTransport(),
+        tool_executor=tools,
+    )
+
+    assert capture["native_result"].completed is True
+    assert capture["structural_tier_attained"] is True
+    assert capture["call_counts"] == {
+        "planner_transport": 1,
+        "planner_model": 0,
+        "worker_transport": 1,
+        "worker_model": 0,
+        "gh_create_csharp_script": 1,
+        "gh_snapshot": 1,
+        "gh_edit": 1,
+        "gh_connect": 1,
+    }
+    create_request = tools.calls[0][1]
+    assert create_request["code"] == CAMPAIGN._FROZEN_FAKE_WORKER_CODE
+    assert "gh_update_script" not in [name for name, _ in tools.calls]
+
+
+@pytest.mark.asyncio
+async def test_malformed_worker_output_stops_before_every_tool_call() -> None:
+    row = CAMPAIGN._FIXED_ROWS["stage_b.qwen36.medium_worker_leaf"]
+    tools = CAMPAIGN._CausalFakeTools()
+
+    capture = await CAMPAIGN._run_row_once(
+        row,
+        planner_transport=_StaticTransport(_raw_reference(row.case_id)),
+        worker_transport=_StaticTransport("not-json"),
+        tool_executor=tools,
+    )
+
+    assert capture["native_result"].completed is False
+    assert capture["call_counts"]["worker_transport"] == 1
+    assert capture["call_counts"]["worker_model"] == 0
+    assert tools.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("case_id", "failure", "expected_prefix"),
+    [
+        ("medium_deterministic", "gh_snapshot", ["gh_snapshot"]),
+        ("medium_deterministic", "gh_edit", ["gh_snapshot", "gh_edit"]),
+        ("medium_worker_leaf", "gh_create_csharp_script", ["gh_create_csharp_script"]),
+        ("medium_worker_leaf", "gh_snapshot", ["gh_create_csharp_script", "gh_snapshot"]),
+        ("medium_worker_leaf", "gh_edit", ["gh_create_csharp_script", "gh_snapshot", "gh_edit"]),
+        ("medium_worker_leaf", "gh_connect", ["gh_create_csharp_script", "gh_snapshot", "gh_edit", "gh_connect"]),
+    ],
+)
+async def test_causal_fake_can_stop_at_each_ordinary_tool_boundary(
+    case_id: str,
+    failure: str,
+    expected_prefix: list[str],
+) -> None:
+    case = CAMPAIGN._CASES[case_id]
+    row = CAMPAIGN._Row("test.failure", "test", case_id, None, None,
+                        "fake" if case.worker_leaf else "none", "fake")
+    tools = CAMPAIGN._CausalFakeTools(fail_at=failure)
+
+    capture = await CAMPAIGN._run_row_once(
+        row,
+        planner_transport=_StaticTransport(_raw_reference(case_id)),
+        worker_transport=CAMPAIGN._FakeWorkerTransport() if case.worker_leaf else None,
+        tool_executor=tools,
+    )
+
+    assert [name for name, _ in tools.calls] == expected_prefix
+    native = capture["native_result"]
+    assert getattr(native, "completed", False) is False
+
+
+_RESULT_KEYS = {
+    "schema", "campaign_sha", "row_id", "repetition", "stage", "case_id",
+    "tool_mode", "intent", "planner_model", "worker_model",
+    "generation_settings", "provider_materialization", "planner",
+    "worker_graph_load", "worker_partition_compile", "worker_handoff",
+    "deterministic_execution", "connect", "completed", "call_counts",
+    "structural_tier_attained", "transport_telemetry", "tool_records",
+    "raised_exception_type",
+}
+
+
+@pytest.mark.asyncio
+async def test_deterministic_projection_uses_native_graph_without_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    counts = {"load": 0, "compile": 0}
+    original_load = semantic_graph_runner.load_semantic_graph
+    original_compile = semantic_graph_runner.compile_semantic_graph
+
+    def counted_load(raw: object):
+        counts["load"] += 1
+        return original_load(raw)
+
+    def counted_compile(graph: object):
+        counts["compile"] += 1
+        return original_compile(graph)
+
+    monkeypatch.setattr(semantic_graph_runner, "load_semantic_graph", counted_load)
+    monkeypatch.setattr(semantic_graph_runner, "compile_semantic_graph", counted_compile)
+    monkeypatch.setattr(CAMPAIGN, "_campaign_sha", lambda: "a" * 40)
+    row = CAMPAIGN._FIXED_ROWS["stage_a.medium_deterministic"]
+    capture = await CAMPAIGN._run_row_once(
+        row,
+        planner_transport=_StaticTransport(_raw_reference(row.case_id)),
+        worker_transport=None,
+        tool_executor=CAMPAIGN._CausalFakeTools(),
+    )
+
+    projected = CAMPAIGN._project_run_result(capture)
+
+    assert set(projected) == _RESULT_KEYS
+    assert counts == {"load": 1, "compile": 1}
+    assert projected["campaign_sha"] == "a" * 40
+    assert projected["worker_graph_load"] is None
+    assert projected["worker_partition_compile"] is None
+    assert projected["worker_handoff"] is None
+    assert projected["deterministic_execution"]["canonical_graph"]["nodes"]
+    assert projected["deterministic_execution"]["edit_plan"]["create"]
+    assert projected["planner"]["prompt"] == capture["planner_transport"].calls[0]
+    assert projected["planner"]["raw_response"] == _raw_reference(row.case_id)
+
+
+@pytest.mark.asyncio
+async def test_worker_projection_uses_retained_admission_and_partition_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(CAMPAIGN, "_campaign_sha", lambda: "b" * 40)
+    row = CAMPAIGN._FIXED_ROWS["stage_b.qwen36.medium_worker_leaf"]
+    capture = await CAMPAIGN._run_row_once(
+        row,
+        planner_transport=_StaticTransport(_raw_reference(row.case_id)),
+        worker_transport=CAMPAIGN._FakeWorkerTransport(),
+        tool_executor=CAMPAIGN._CausalFakeTools(),
+    )
+
+    projected = CAMPAIGN._project_run_result(capture)
+
+    assert projected["worker_graph_load"]["admitted"] is True
+    assert projected["worker_partition_compile"]["admitted"] is True
+    assert projected["worker_handoff"]["terminal_stage"] == "terminal"
+    assert projected["worker_handoff"]["raw_response"]
+    assert projected["deterministic_execution"]["terminal_reason"] == (
+        "terminal_node_selected:done"
+    )
+    assert projected["connect"]["request"]["sourceIndex"] == 1
+    assert projected["completed"] is True
+
+
+def test_bounded_summary_excludes_sensitive_local_content(tmp_path: Path) -> None:
+    payload = {
+        "row_id": "row",
+        "stage": "A",
+        "case_id": "case",
+        "planner": {"raw_response": "SENSITIVE_PLANNER"},
+        "worker_handoff": {"raw_response": "SENSITIVE_WORKER"},
+        "tool_records": [{"response": "SENSITIVE_TOOL"}],
+        "deterministic_execution": {
+            "terminal_stage": "terminal",
+            "terminal_reason": "terminal_node_selected:done",
+        },
+        "completed": True,
+        "structural_tier_attained": True,
+        "call_counts": {"planner_model": 1},
+    }
+
+    summary = CAMPAIGN._bounded_summary(payload, tmp_path / "result.json")
+    encoded = json.dumps(summary)
+
+    assert set(summary) == {
+        "row_id", "stage", "case_id", "operator_status",
+        "native_terminal_stage", "native_terminal_reason", "completed",
+        "structural_tier_attained", "call_counts", "result_path",
+    }
+    assert "SENSITIVE" not in encoded
+
+
+def test_result_writer_is_exclusive_bounded_and_round_trips(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(CAMPAIGN, "_result_filename", lambda: "fixed.json")
+    payload = {"schema": "test", "finite": 1.5}
+
+    path = CAMPAIGN._write_local_result(payload)
+
+    assert path.is_absolute()
+    assert json.loads(path.read_text(encoding="utf-8")) == payload
+    original = path.read_bytes()
+    with pytest.raises(FileExistsError):
+        CAMPAIGN._write_local_result({"replacement": True})
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("payload", [
+    {"value": float("nan")},
+    {"value": "x" * (4 * 1024 * 1024)},
+])
+def test_result_writer_rejects_serialization_and_overflow_before_open(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    payload: dict[str, object],
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    with pytest.raises(ValueError):
+        CAMPAIGN._write_local_result(payload)
+    assert not list(tmp_path.rglob("*.json"))
+
+
+class _FaultStream:
+    def __init__(self, fault: str) -> None:
+        self.fault = fault
+        self.closed = False
+
+    def write(self, data: bytes) -> int:
+        if self.fault == "write":
+            raise OSError("sentinel write")
+        return len(data) - 1 if self.fault == "short" else len(data)
+
+    def flush(self) -> None:
+        if self.fault == "flush":
+            raise OSError("sentinel flush")
+
+    def close(self) -> None:
+        self.closed = True
+        if self.fault == "close":
+            raise OSError("sentinel close")
+
+
+@pytest.mark.parametrize("fault", ["write", "short", "flush", "close"])
+def test_result_writer_rejects_incomplete_io(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    stream = _FaultStream(fault)
+    monkeypatch.setattr("builtins.open", lambda *args, **kwargs: stream)
+    expected = RuntimeError if fault == "short" else OSError
+
+    with pytest.raises(expected):
+        CAMPAIGN._write_local_result({"schema": "test"})
