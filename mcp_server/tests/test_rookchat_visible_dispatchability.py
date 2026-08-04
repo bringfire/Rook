@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from rook.agent.capability_inventory import INTERCEPTED_META_TOOLS
 from rook.agent.chat.chat_runner import (
     _CHAT_MODEL_TOOL_SCHEMAS,
     _build_fallback_catalog,
@@ -19,17 +20,12 @@ from rook.agent.tool_dispatcher import (
     build_local_tools,
 )
 from rook.agent.tool_groups import AGENT_TIER_0, READONLY_TIER_0, TOOL_GROUPS
-from rook.agent.tool_registry import ToolRegistry
+from rook.agent.tool_registry import ToolRegistry, mcp_tool_to_litellm
+from rook.mcp_capability_gateway_contract import build_mcp_capability_gateway_tools
 
 
 CHAT_MODEL_TIER0 = frozenset({"list_chat_models", "set_chat_model"})
-CHATRUNNER_INTERCEPTED = frozenset({
-    "request_tools",
-    "search_tools",
-    "ui_block",
-    "list_chat_models",
-    "set_chat_model",
-})
+CHATRUNNER_INTERCEPTED = INTERCEPTED_META_TOOLS
 GH_CANVAS_SENTINELS = frozenset({
     "gh_create_script",
     "gh_create_csharp_script",
@@ -151,6 +147,17 @@ def test_dispatchability_audit_reports_malformed_duplicate_missing_and_no_arg_dr
         f.code == "strict_no_arg_schema_drift" and f.tool == "strict_zero"
         for f in findings
     )
+
+
+def test_canonical_gateway_schemas_are_visible_chatrunner_intercepts():
+    schemas = [
+        mcp_tool_to_litellm(tool)
+        for tool in build_mcp_capability_gateway_tools()
+    ]
+
+    findings = audit_visible_tool_dispatchability(schemas, _dispatch_context())
+
+    assert findings == []
 
 
 def test_default_local_initial_visible_tools_are_dispatchable_with_fallback_catalog():
