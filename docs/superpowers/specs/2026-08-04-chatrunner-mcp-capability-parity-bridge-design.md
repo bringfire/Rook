@@ -124,9 +124,13 @@ The required equations are:
 
 ```text
 ChatRunner readonly + MCP full     -> readonly
+ChatRunner readonly + MCP lean     -> readonly
 ChatRunner full     + MCP readonly -> readonly
+ChatRunner full     + MCP lean     -> lean
 ChatRunner full     + MCP full     -> full
 ```
+
+An invalid active MCP profile remains an existing fail-closed configuration error. It refuses before capability discovery or target dispatch; the bridge does not substitute `full`, `lean`, or `readonly`.
 
 The executor passes this explicit effective profile into the existing canonical meta-tool policy path. ChatRunner does not copy `PUBLIC_READONLY_TOOL_NAMES`, `tool_blocked()`, the capability index, or target validation.
 
@@ -185,8 +189,9 @@ Through the ChatRunner-visible gateway and the real capability index:
 - `rook_tools_search` discovers `gh_library` and `gh_batch_component_info`;
 - `rook_tools_read` returns each existing target schema;
 - `rook_tools_call` accepts valid arguments for each target;
-- exact decoded target arguments reach the canonical target owner unchanged;
-- the canonical MCP-to-agent result conversion reaches ChatRunner unchanged; and
+- exact decoded gateway arguments reach the canonical executor ingress unchanged;
+- target dispatch receives the existing canonical targeting transformations, including any admitted Rhino port and document context enrichment;
+- the output of the existing canonical MCP-to-agent result conversion enters ChatRunner's ordinary result handling without a second gateway-specific conversion; and
 - each delegate is entered exactly once.
 
 The target dispatch is patched at the canonical no-contact boundary. No Rhino, Grasshopper, model, or Worker call occurs.
@@ -197,7 +202,9 @@ Table-driven tests prove:
 
 ```text
 ChatRunner readonly + MCP full     -> readonly discovery and call refusal
+ChatRunner readonly + MCP lean     -> readonly discovery and call refusal
 ChatRunner full     + MCP readonly -> readonly discovery and call refusal
+ChatRunner full     + MCP lean     -> lean discovery and admitted calls
 ChatRunner full     + MCP full     -> full discovery and admitted call
 ```
 
@@ -208,7 +215,8 @@ Additional regressions prove that existing behavior remains active for:
 - contained-tool refusal;
 - unknown or non-dispatchable targets;
 - non-object target arguments;
-- target-schema validation failures; and
+- target-schema validation failures;
+- invalid MCP profile configuration before target dispatch; and
 - profile refusal before target dispatch.
 
 Refusal tests assert zero target dispatch.
@@ -233,7 +241,7 @@ The focused ChatRunner, ToolRegistry, visible-dispatchability, MCP profile, targ
 - Invalid construction scope refuses before a runner is exposed.
 - A missing canonical executor means the four tools are absent, not present-but-failing.
 - Canonical policy refusals are returned through the existing MCP-to-agent conversion.
-- Canonical executor exceptions retain the existing bounded agent-executor behavior.
+- Canonical executor exceptions preserve the existing agent-executor behavior, including its current exception stringification. This slice makes no bounded-content or exception-display hardening claim.
 - ChatRunner does not retry, fall back to direct dispatch, or substitute a target.
 - Failure of a gateway target does not cause ChatRunner to load or invoke a similarly named direct tool.
 
