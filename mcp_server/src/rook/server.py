@@ -27,6 +27,10 @@ from mcp import types as mcp_types
 from mcp.types import Tool, TextContent
 
 from .gh_edit_contract import apply_gh_edit_contract
+from .mcp_capability_gateway_contract import (
+    MCP_CAPABILITY_GATEWAY_NAMES,
+    build_mcp_capability_gateway_tools,
+)
 from .gh_csharp_preflight import (
     is_recognized_csharp_full_source,
     preflight_csharp_script,
@@ -824,7 +828,57 @@ _AGENT_MANAGEMENT_TOOLS = frozenset({
 })
 
 
-async def _mcp_tool_executor(tool_name: str, params: dict) -> dict:
+def _mcp_contents_to_agent_result(result: Any) -> Any:
+    """Convert completed MCP content through the existing agent result boundary."""
+    if isinstance(result, list) and result:
+        content = result[0]
+        text = getattr(content, "text", str(content))
+        if text.startswith("Error: "):
+            remainder = text[len("Error: "):]
+            try:
+                parsed = json.loads(remainder)
+            except (json.JSONDecodeError, TypeError):
+                return {"success": False, "data": remainder}
+            return {"success": False, "data": parsed}
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return {"success": True, "data": text}
+    return {"success": True, "data": str(result)}
+
+
+def _effective_mcp_gateway_profile(tool_access: str, active: Profile) -> Profile:
+    """Intersect a fixed ChatRunner ceiling with the active MCP profile."""
+    if tool_access not in {"full", "readonly"}:
+        raise ValueError("tool_access must be 'full' or 'readonly'")
+    if tool_access == "readonly" or active is Profile.READONLY:
+        return Profile.READONLY
+    return active
+
+
+def build_mcp_capability_gateway_executor(tool_access: str):
+    """Build one scope-bound client of the canonical MCP gateway handler."""
+    if tool_access not in {"full", "readonly"}:
+        raise ValueError("tool_access must be 'full' or 'readonly'")
+    fixed_access = tool_access
+
+    async def execute(tool_name: str, arguments: dict[str, Any]) -> Any:
+        try:
+            if tool_name not in MCP_CAPABILITY_GATEWAY_NAMES:
+                raise ValueError(
+                    f"Unsupported MCP capability gateway tool: {tool_name}"
+                )
+            active = resolve_profile(os.environ)
+            effective = _effective_mcp_gateway_profile(fixed_access, active)
+            contents = await _handle_meta_tool(tool_name, arguments, effective)
+            return _mcp_contents_to_agent_result(contents)
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    return execute
+
+
+async def _mcp_tool_executor(tool_name: str, params: dict) -> Any:
     """Route tool calls through MCP call_tool for agent use.
 
     This is the canonical tool executor shared by spawn_agent and
@@ -844,21 +898,7 @@ async def _mcp_tool_executor(tool_name: str, params: dict) -> dict:
         return {"success": False, "data": denial}
     try:
         result = await call_tool(tool_name, params)
-        if isinstance(result, list) and result:
-            content = result[0]
-            text = getattr(content, "text", str(content))
-            if text.startswith("Error: "):
-                remainder = text[len("Error: "):]
-                try:
-                    parsed = json.loads(remainder)
-                except (json.JSONDecodeError, TypeError):
-                    return {"success": False, "data": remainder}
-                return {"success": False, "data": parsed}
-            try:
-                return json.loads(text)
-            except (json.JSONDecodeError, TypeError):
-                return {"success": True, "data": text}
-        return {"success": True, "data": str(result)}
+        return _mcp_contents_to_agent_result(result)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -12959,80 +12999,7 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "required": [],
             },
         ),
-        Tool(
-            name="rook_tools_ls",
-            description=(
-                "Browse the Rook tool catalog like a filesystem. Lists tool entries and child paths "
-                "under a domain/group path (e.g. '/', '/rhino', '/gh', '/video'). Returns compact "
-                "entries only (no input schemas) — use rook_tools_read for a tool's full schema. "
-                "Pair with rook_tools_search to find tools, then rook_tools_call to invoke them."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Catalog path to list, e.g. '/' or '/rhino'. Default '/'."},
-                    "depth": {"type": "integer", "description": "How many path segments deep to expand. Default 1."},
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="rook_tools_search",
-            description=(
-                "Search the Rook tool catalog by keyword; returns matching tools with a one-line "
-                "summary each. Covers the full tool surface — geometry, Grasshopper, native "
-                "road intersections, vision, BIM, scene, video, knowledge. Use this to discover a tool, then "
-                "rook_tools_read for its schema and rook_tools_call to invoke it. "
-                "Exact hidden GH aliases resolve through this gateway, including "
-                "gh_update_script, gh_set_script_pins, gh_status, gh_create_csharp_script, "
-                "and gh_snapshot."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Keywords to search for, e.g. 'camera preview' or 'boolean union'."},
-                    "domain": {"type": "string", "description": "Optional domain filter, e.g. 'rhino', 'gh', 'video', 'bim'."},
-                    "readonly_safe": {"type": "boolean", "description": "If true, only return read-only-safe tools."},
-                    "limit": {"type": "integer", "description": "Maximum results to return. Default 10."},
-                },
-                "required": ["query"],
-            },
-        ),
-        Tool(
-            name="rook_tools_read",
-            description=(
-                "Read one Rook tool's full record: description, domain/groups, and input JSON schema. "
-                "Call this after rook_tools_search to learn a tool's arguments before rook_tools_call. "
-                "Use this after searching exact hidden GH names such as gh_update_script, "
-                "gh_set_script_pins, gh_status, gh_create_csharp_script, and gh_snapshot."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Exact tool name, e.g. 'rhino_video_models'."},
-                },
-                "required": ["name"],
-            },
-        ),
-        Tool(
-            name="rook_tools_call",
-            description=(
-                "Invoke any dispatchable Rook tool by name with its arguments, through the normal "
-                "policy path (the readonly profile wall still applies to the target). Use "
-                "rook_tools_read first to get the target's input schema. "
-                "For hidden GH tools discovered by name, this invokes targets such as "
-                "gh_update_script, gh_set_script_pins, gh_status, gh_create_csharp_script, "
-                "and gh_snapshot through the normal policy path."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Exact tool name to invoke."},
-                    "arguments": {"type": "object", "description": "Arguments object matching the target tool's input schema."},
-                },
-                "required": ["name"],
-            },
-        ),
+        *build_mcp_capability_gateway_tools(),
     ]
 
     return all_tools
@@ -20626,7 +20593,7 @@ def _with_rhino_launch_canonical_tool(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-META_TOOL_NAMES = frozenset({"rook_tools_ls", "rook_tools_search", "rook_tools_read", "rook_tools_call"})
+META_TOOL_NAMES = MCP_CAPABILITY_GATEWAY_NAMES
 _CAPABILITY_INDEX = None
 
 

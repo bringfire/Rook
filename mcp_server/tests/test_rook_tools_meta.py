@@ -1,4 +1,8 @@
 import asyncio
+from unittest.mock import AsyncMock
+
+import pytest
+
 from rook import server
 
 
@@ -197,3 +201,416 @@ def test_rook_tools_read_exact_dg009_gh_names_return_schemas(monkeypatch):
         assert record["mcp_dispatchable"] is True
         assert isinstance(record["input_schema"], dict)
         assert record["input_schema"].get("type") == "object"
+
+
+EXPECTED_GATEWAY_SCHEMA_SHAPES = {
+    "rook_tools_ls": {
+        "properties": {"path", "depth"},
+        "required": [],
+    },
+    "rook_tools_search": {
+        "properties": {"query", "domain", "readonly_safe", "limit"},
+        "required": ["query"],
+    },
+    "rook_tools_read": {
+        "properties": {"name"},
+        "required": ["name"],
+    },
+    "rook_tools_call": {
+        "properties": {"name", "arguments"},
+        "required": ["name"],
+    },
+}
+
+
+def _gateway_tool_projection(tool):
+    return {
+        "description": tool.description,
+        "input_schema": tool.inputSchema,
+    }
+
+
+def test_gateway_contract_owns_exact_existing_schema_shapes():
+    from rook.mcp_capability_gateway_contract import (
+        MCP_CAPABILITY_GATEWAY_NAMES,
+        build_mcp_capability_gateway_tools,
+    )
+
+    tools = build_mcp_capability_gateway_tools()
+
+    assert MCP_CAPABILITY_GATEWAY_NAMES == frozenset(
+        EXPECTED_GATEWAY_SCHEMA_SHAPES
+    )
+    assert tuple(tool.name for tool in tools) == tuple(
+        EXPECTED_GATEWAY_SCHEMA_SHAPES
+    )
+    for tool in tools:
+        expected = EXPECTED_GATEWAY_SCHEMA_SHAPES[tool.name]
+        assert isinstance(tool.description, str) and tool.description.strip()
+        assert tool.inputSchema["type"] == "object"
+        assert set(tool.inputSchema["properties"]) == expected["properties"]
+        assert tool.inputSchema["required"] == expected["required"]
+
+
+def test_live_mcp_surface_uses_shared_gateway_contract():
+    from rook.mcp_capability_gateway_contract import (
+        build_mcp_capability_gateway_tools,
+    )
+
+    expected = {
+        tool.name: _gateway_tool_projection(tool)
+        for tool in build_mcp_capability_gateway_tools()
+    }
+    live = {
+        tool.name: _gateway_tool_projection(tool)
+        for tool in asyncio.run(server._all_live_tools())
+        if tool.name in EXPECTED_GATEWAY_SCHEMA_SHAPES
+    }
+
+    assert live == expected
+
+
+def test_gateway_contract_returns_fresh_schema_objects():
+    from rook.mcp_capability_gateway_contract import (
+        build_mcp_capability_gateway_tools,
+    )
+
+    first = build_mcp_capability_gateway_tools()
+    first[0].inputSchema["properties"]["path"]["type"] = "integer"
+    second = build_mcp_capability_gateway_tools()
+
+    assert second[0].inputSchema["properties"]["path"]["type"] == "string"
+
+
+@pytest.mark.parametrize(
+    ("tool_access", "mcp_profile", "effective"),
+    [
+        ("readonly", "full", server.Profile.READONLY),
+        ("readonly", "lean", server.Profile.READONLY),
+        ("readonly", "readonly", server.Profile.READONLY),
+        ("full", "full", server.Profile.FULL),
+        ("full", "lean", server.Profile.LEAN),
+        ("full", "readonly", server.Profile.READONLY),
+    ],
+)
+def test_scope_bound_executor_intersects_authority(
+    monkeypatch, tool_access, mcp_profile, effective
+):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", mcp_profile)
+    seen = []
+
+    async def retained_handler(name, arguments, profile):
+        seen.append((name, arguments, profile))
+        return server._format_tool_result(
+            {"success": True, "data": {"effective": profile.value}}
+        )
+
+    monkeypatch.setattr(server, "_handle_meta_tool", retained_handler)
+    executor = server.build_mcp_capability_gateway_executor(tool_access)
+    arguments = {"query": "component", "limit": 7}
+    result = asyncio.run(executor("rook_tools_search", arguments))
+
+    assert seen == [("rook_tools_search", arguments, effective)]
+    assert seen[0][1] is arguments
+    assert result == {"effective": effective.value}
+
+
+def test_invalid_mcp_profile_fails_before_handler_or_dispatch(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "invalid-profile")
+    handler = AsyncMock()
+    dispatch = AsyncMock()
+    monkeypatch.setattr(server, "_handle_meta_tool", handler)
+    monkeypatch.setattr(server, "_call_tool_dispatch", dispatch)
+
+    executor = server.build_mcp_capability_gateway_executor("full")
+    result = asyncio.run(executor("rook_tools_search", {"query": "grid"}))
+
+    assert result["success"] is False
+    assert "Invalid ROOK_MCP_TOOL_PROFILE" in result["error"]
+    assert handler.await_count == 0
+    assert dispatch.await_count == 0
+
+
+def test_invalid_chatrunner_scope_refuses_at_factory():
+    with pytest.raises(ValueError, match="tool_access"):
+        server.build_mcp_capability_gateway_executor("lean")
+
+
+def test_scope_bound_executor_refuses_non_gateway_before_handler(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    handler = AsyncMock()
+    monkeypatch.setattr(server, "_handle_meta_tool", handler)
+
+    executor = server.build_mcp_capability_gateway_executor("full")
+    result = asyncio.run(executor("gh_library", {}))
+
+    assert result["success"] is False
+    assert "Unsupported MCP capability gateway tool" in result["error"]
+    assert handler.await_count == 0
+
+
+@pytest.mark.parametrize(
+    ("wire_text", "expected"),
+    [
+        ('{"value":3}', {"value": 3}),
+        ('["a",2]', ["a", 2]),
+        ("7", 7),
+        ("plain text", {"success": True, "data": "plain text"}),
+        (
+            'Error: {"code":"blocked"}',
+            {"success": False, "data": {"code": "blocked"}},
+        ),
+        ("Error: plain failure", {"success": False, "data": "plain failure"}),
+    ],
+)
+def test_agent_conversion_is_shared_by_internal_and_gateway_executors(
+    monkeypatch, wire_text, expected
+):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    contents = [server.TextContent(type="text", text=wire_text)]
+
+    async def retained_call_tool(_name, _arguments):
+        return contents
+
+    async def retained_handler(_name, _arguments, _profile):
+        return contents
+
+    monkeypatch.setattr(server, "call_tool", retained_call_tool)
+    monkeypatch.setattr(server, "_handle_meta_tool", retained_handler)
+
+    direct = server._mcp_contents_to_agent_result(contents)
+    internal = asyncio.run(server._mcp_tool_executor("rhino_ping", {}))
+    gateway = asyncio.run(
+        server.build_mcp_capability_gateway_executor("full")(
+            "rook_tools_read", {"name": "gh_library"}
+        )
+    )
+
+    assert direct == expected
+    assert internal == expected
+    assert gateway == expected
+
+
+def test_scope_bound_gateway_discovers_reads_and_dispatches_required_gh_tools(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    server._reset_capability_index_cache()
+    monkeypatch.setattr(
+        server.targeting,
+        "policy_for_tool",
+        lambda _name: SimpleNamespace(requires_rhino=False),
+    )
+    dispatched = []
+
+    async def retained_dispatch(name, arguments):
+        dispatched.append((name, arguments))
+        return {"success": True, "data": {"name": name, "arguments": arguments}}
+
+    monkeypatch.setattr(server, "_call_tool_dispatch", retained_dispatch)
+    executor = server.build_mcp_capability_gateway_executor("full")
+
+    for target, target_arguments in (
+        ("gh_library", {"search": "Series", "limit": 3}),
+        ("gh_batch_component_info", {"names": ["Series", "Range"]}),
+    ):
+        found = asyncio.run(
+            executor("rook_tools_search", {"query": target, "limit": 10})
+        )
+        assert any(entry["name"] == target for entry in found)
+        schema = asyncio.run(executor("rook_tools_read", {"name": target}))
+        assert schema["name"] == target
+        assert schema["input_schema"]["type"] == "object"
+
+        call_arguments = {"name": target, "arguments": target_arguments}
+        result = asyncio.run(executor("rook_tools_call", call_arguments))
+        assert result == {"name": target, "arguments": target_arguments}
+
+    assert dispatched == [
+        ("gh_library", {"search": "Series", "limit": 3}),
+        ("gh_batch_component_info", {"names": ["Series", "Range"]}),
+    ]
+
+
+def test_scope_bound_gateway_retains_canonical_targeting_transformations(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from rook import bridge
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    server._reset_capability_index_cache()
+    monkeypatch.setattr(
+        server.targeting,
+        "policy_for_tool",
+        lambda _name: SimpleNamespace(requires_rhino=True),
+    )
+    monkeypatch.setattr(
+        server.targeting,
+        "resolve_tool_route",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            success=True,
+            target=SimpleNamespace(port=9950, process_id=7101),
+            document_serial_number=42,
+        ),
+    )
+    monkeypatch.setattr(
+        server.targeting,
+        "apply_locked_document_context",
+        lambda arguments: {**arguments, "documentSerialNumber": 42},
+    )
+    monkeypatch.setattr(
+        server.targeting,
+        "attach_route_metadata",
+        lambda result, _route: result,
+    )
+    seen = []
+
+    async def retained_dispatch(name, arguments):
+        seen.append((name, arguments, bridge.get_rhino_request_context()))
+        return {"success": True, "data": {"targeted": True}}
+
+    monkeypatch.setattr(server, "_call_tool_dispatch", retained_dispatch)
+    executor = server.build_mcp_capability_gateway_executor("full")
+
+    result = asyncio.run(
+        executor(
+            "rook_tools_call",
+            {"name": "gh_library", "arguments": {"search": "Point"}},
+        )
+    )
+
+    assert result == {"targeted": True}
+    assert seen == [
+        (
+            "gh_library",
+            {"search": "Point", "documentSerialNumber": 42},
+            {"port": 9950, "process_id": 7101, "document_serial_number": 42},
+        )
+    ]
+
+
+def test_scope_bound_gateway_records_real_no_contact_target_once(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    server._reset_capability_index_cache()
+    recorded = []
+    monkeypatch.setattr(
+        server,
+        "_record_observation",
+        lambda name, *_args, **_kwargs: recorded.append(
+            (name, server._dispatch_origin.get())
+        ),
+    )
+    executor = server.build_mcp_capability_gateway_executor("full")
+
+    asyncio.run(
+        executor(
+            "rook_tools_call",
+            {"name": "rhino_instances", "arguments": {}},
+        )
+    )
+
+    assert recorded == [("rhino_instances", "meta")]
+
+
+@pytest.mark.parametrize(
+    ("tool_access", "mcp_profile"),
+    [
+        ("readonly", "full"),
+        ("readonly", "lean"),
+        ("readonly", "readonly"),
+        ("full", "readonly"),
+    ],
+)
+def test_scope_bound_readonly_discovery_and_call_keep_canonical_wall(
+    monkeypatch, tool_access, mcp_profile
+):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", mcp_profile)
+    server._reset_capability_index_cache()
+    dispatch = AsyncMock()
+    monkeypatch.setattr(server, "_call_tool_dispatch", dispatch)
+    executor = server.build_mcp_capability_gateway_executor(tool_access)
+
+    found = asyncio.run(
+        executor("rook_tools_search", {"query": "rhino_create", "limit": 10})
+    )
+    refused = asyncio.run(
+        executor(
+            "rook_tools_call",
+            {"name": "rhino_create", "arguments": {"bogus": True}},
+        )
+    )
+
+    assert not any(entry["name"] == "rhino_create" for entry in found)
+    assert refused["success"] is False
+    assert refused["data"]["code"] == "tool_profile_blocked"
+    assert dispatch.await_count == 0
+
+
+@pytest.mark.parametrize(
+    ("arguments", "error_field", "error_code"),
+    [
+        ({"name": "rook_tools_ls"}, "error", "meta_recursion_forbidden"),
+        ({"name": "spawn_agent"}, "code", "legacy_semantic_tool_contained"),
+        ({"name": "definitely_not_a_tool"}, "error", "not_mcp_dispatchable"),
+        (
+            {"name": "rhino_instances", "arguments": "not-an-object"},
+            "error",
+            "invalid_arguments",
+        ),
+        (
+            {"name": "gh_batch_component_info", "arguments": {}},
+            "error",
+            "invalid_arguments",
+        ),
+    ],
+)
+def test_scope_bound_gateway_preserves_canonical_refusals(
+    monkeypatch, arguments, error_field, error_code
+):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    server._reset_capability_index_cache()
+    dispatch = AsyncMock()
+    monkeypatch.setattr(server, "_call_tool_dispatch", dispatch)
+    executor = server.build_mcp_capability_gateway_executor("full")
+
+    result = asyncio.run(executor("rook_tools_call", arguments))
+
+    assert result["success"] is False
+    assert result["data"][error_field] == error_code
+    assert dispatch.await_count == 0
+
+
+def test_scope_bound_full_with_lean_keeps_advertisement_only_call_behavior(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "lean")
+    server._reset_capability_index_cache()
+    monkeypatch.setattr(
+        server.targeting,
+        "policy_for_tool",
+        lambda _name: SimpleNamespace(requires_rhino=False),
+    )
+    dispatched = []
+
+    async def retained_dispatch(name, arguments):
+        dispatched.append((name, arguments))
+        return {"success": True, "data": {"called": name}}
+
+    monkeypatch.setattr(server, "_call_tool_dispatch", retained_dispatch)
+    executor = server.build_mcp_capability_gateway_executor("full")
+
+    result = asyncio.run(
+        executor(
+            "rook_tools_call",
+            {"name": "gh_library", "arguments": {"search": "Point"}},
+        )
+    )
+
+    assert result == {"called": "gh_library"}
+    assert dispatched == [("gh_library", {"search": "Point"})]
