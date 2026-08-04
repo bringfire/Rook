@@ -96,7 +96,7 @@ Fresh plan self-review of that broad selection at the documentation-only branch 
 - Preserves: `_mcp_tool_executor(tool_name: str, params: dict) -> dict` and its current runtime result shapes
 - Reuses: `_handle_meta_tool(name, arguments, profile)` and `call_tool(name, arguments)`
 
-- [ ] **Step 1: Add valid-red tests for one canonical schema source**
+- [x] **Step 1: Add valid-red tests for one canonical schema source**
 
 Append tests that import the not-yet-created contract and compare it to the real MCP surface:
 
@@ -148,7 +148,7 @@ def test_live_mcp_surface_uses_shared_gateway_contract():
     assert live == expected
 ```
 
-- [ ] **Step 2: Run the schema tests and verify behavioral RED**
+- [x] **Step 2: Run the schema tests and verify behavioral RED**
 
 Run from the repository root:
 
@@ -160,7 +160,7 @@ Run from the repository root:
 
 Expected: collection fails because `rook.mcp_capability_gateway_contract` does not exist.
 
-- [ ] **Step 3: Create the single schema source and consume it from the MCP surface**
+- [x] **Step 3: Create the single schema source and consume it from the MCP surface**
 
 Create the contract module with this exact responsibility and shape:
 
@@ -290,7 +290,7 @@ In `server.py`, import the builder and replace the four inline `Tool(...)` entri
 
 Import `MCP_CAPABILITY_GATEWAY_NAMES` and define the existing `META_TOOL_NAMES` as that exact object or a direct alias. Do not retain a second four-name literal.
 
-- [ ] **Step 4: Run the schema tests and the current meta-tool suite**
+- [x] **Step 4: Run the schema tests and the current meta-tool suite**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -302,7 +302,7 @@ Import `MCP_CAPABILITY_GATEWAY_NAMES` and define the existing `META_TOOL_NAMES` 
 
 Expected: all selected tests pass; no network or host call occurs.
 
-- [ ] **Step 5: Add valid-red tests for fixed scope, all profile intersections, ingress custody, and conversion**
+- [x] **Step 5: Add valid-red tests for fixed scope, all profile intersections, ingress custody, and conversion**
 
 Add table-driven tests around the not-yet-created executor:
 
@@ -362,7 +362,7 @@ def test_invalid_chatrunner_scope_refuses_at_factory():
 
 Add a conversion regression that feeds the same `TextContent` success and failure values through the factored conversion used by `_mcp_tool_executor` and by the new executor. Assert equal plain agent values, not MCP object identity.
 
-- [ ] **Step 6: Run the executor tests and verify behavioral RED**
+- [x] **Step 6: Run the executor tests and verify behavioral RED**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -372,7 +372,7 @@ Add a conversion regression that feeds the same `TextContent` success and failur
 
 Expected: tests fail because `build_mcp_capability_gateway_executor` and the shared conversion seam do not exist.
 
-- [ ] **Step 7: Factor the existing conversion and implement the executor without copying policy**
+- [x] **Step 7: Factor the existing conversion and implement the executor without copying policy**
 
 In `server.py`, extract the body that converts a completed MCP content list into the current JSON-decoded agent value under this exact name and behavior. Success data may decode to an object, array, scalar, or string; do not force a uniform envelope. Have `_mcp_tool_executor` call it:
 
@@ -427,7 +427,7 @@ def build_mcp_capability_gateway_executor(tool_access: str):
 
 The executor must pass `arguments` directly to `_handle_meta_tool`; do not copy, enrich, validate, or inspect target arguments in this factory. `_handle_meta_tool` and the target `call_tool()` remain authoritative.
 
-- [ ] **Step 8: Add the policy-path regressions required at the ownership gate**
+- [x] **Step 8: Add the policy-path regressions required at the ownership gate**
 
 Use the real `_handle_meta_tool` with patched no-contact target dispatch to prove:
 
@@ -440,7 +440,7 @@ Use the real `_handle_meta_tool` with patched no-contact target dispatch to prov
 
 Do not mock `_handle_meta_tool` in these policy tests. Patch only `_call_tool_dispatch`, routing, or the host-call boundary needed to guarantee zero external contact.
 
-- [ ] **Step 9: Run Task 1's complete seam**
+- [x] **Step 9: Run Task 1's complete seam**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -457,7 +457,7 @@ Do not mock `_handle_meta_tool` in these policy tests. Patch only `_call_tool_di
 
 Expected: all selected tests pass with no external contact.
 
-- [ ] **Step 10: Commit Task 1**
+- [x] **Step 10: Commit Task 1**
 
 ```powershell
 git add -- `
@@ -468,7 +468,7 @@ git diff --cached --check
 git commit -m "feat: expose scope-bound MCP capability gateway"
 ```
 
-- [ ] **Step 11: Mandatory independent ownership review — stop here**
+- [x] **Step 11: Mandatory independent ownership review — stop here**
 
 Report exact production/test line growth, Task 1 test count, commit SHA, scope, and clean status. The reviewer must confirm before Task 2:
 
@@ -499,7 +499,7 @@ Do not begin Task 2 without explicit approval.
 - Produces: `ChatRunner(..., mcp_capability_executor=None)` conditional surface
 - Preserves: the existing direct `tool_executor`, registry meta-tools, event vocabulary, conversation messages, and model loop
 
-- [ ] **Step 1: Add valid-red conditional-exposure tests**
+- [x] **Step 1: Add valid-red conditional-exposure tests**
 
 Create focused tests using the existing minimal `ToolRegistry` pattern:
 
@@ -582,7 +582,7 @@ def test_chatrunner_rejects_unknown_tool_access_before_surface_construction(mini
 
 Include a custom injected registry that already marks one `rook_tools_*` schema active. With no executor, it must still be removed. With an executor, the canonical shared schema must replace it, producing exactly one visible schema per gateway name.
 
-- [ ] **Step 2: Run the exposure tests and verify behavioral RED**
+- [x] **Step 2: Run the exposure tests and verify behavioral RED**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -592,7 +592,7 @@ Include a custom injected registry that already marks one `rook_tools_*` schema 
 
 Expected: tests fail because the constructor argument and `_get_active_tool_schemas()` do not exist.
 
-- [ ] **Step 3: Implement conditional schema projection without changing ToolRegistry**
+- [x] **Step 3: Implement conditional schema projection without changing ToolRegistry**
 
 Add the optional constructor argument and retain it:
 
@@ -631,7 +631,7 @@ def _get_active_tool_schemas(self) -> list[dict[str, Any]]:
 
 Use this method in the model request, dynamic tool section, and final `active_tools` usage count. Do not mutate the caller-owned registry.
 
-- [ ] **Step 4: Add valid-red dispatch-loop tests**
+- [x] **Step 4: Add valid-red dispatch-loop tests**
 
 Use the existing fake LiteLLM streaming helpers to issue one gateway call followed by a final text response:
 
@@ -718,7 +718,7 @@ Add regressions proving:
 - no retry or alternate dispatch occurs; and
 - the tool result is appended exactly once to conversation history.
 
-- [ ] **Step 5: Run the dispatch tests and verify behavioral RED**
+- [x] **Step 5: Run the dispatch tests and verify behavioral RED**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -728,7 +728,7 @@ Add regressions proving:
 
 Expected: tests fail because ChatRunner does not intercept the canonical names.
 
-- [ ] **Step 6: Implement the narrow ChatRunner intercept**
+- [x] **Step 6: Implement the narrow ChatRunner intercept**
 
 In the existing dispatch loop, keep `request_tools` / `search_tools` on `_handle_meta_tool`. For the canonical names, select the injected executor before the direct executor:
 
@@ -760,7 +760,7 @@ rook_tools_search
 rook_tools_read
 ```
 
-- [ ] **Step 7: Reconcile visible-dispatchability accounting from the shared names**
+- [x] **Step 7: Reconcile visible-dispatchability accounting from the shared names**
 
 In `capability_inventory.py`, form the existing intercept set without another four-name literal:
 
@@ -776,7 +776,7 @@ INTERCEPTED_META_TOOLS = frozenset({
 
 Update the visible-dispatchability test context to consume the production intercepted set or union the imported shared names. Do not classify the four tools as local, transformed, bridge-routed, or excluded.
 
-- [ ] **Step 8: Run Task 2's complete seam**
+- [x] **Step 8: Run Task 2's complete seam**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -790,7 +790,7 @@ Update the visible-dispatchability test context to consume the production interc
 
 Expected: all selected tests pass; LiteLLM is fully mocked and no external contact occurs.
 
-- [ ] **Step 9: Commit Task 2 and stop for review**
+- [x] **Step 9: Commit Task 2 and stop for review**
 
 ```powershell
 git add -- `
@@ -819,7 +819,7 @@ Report the active-schema delta, direct-tool invariance, exact test count, source
 - Produces: default production Chat service runner with the canonical gateway enabled
 - Preserves: injected runners passed to `create_chat_app()` and bare ChatRunner behavior
 
-- [ ] **Step 1: Add a valid-red production-composition test**
+- [x] **Step 1: Add a valid-red production-composition test**
 
 Test the default runner factory while avoiding service startup and all external calls:
 
@@ -839,7 +839,7 @@ def test_default_chat_service_runner_receives_real_scope_bound_gateway(monkeypat
 
 Patch the exact lazy import seam selected in implementation; do not import `rook.server` from `chat_runner.py`.
 
-- [ ] **Step 2: Run the composition test and verify behavioral RED**
+- [x] **Step 2: Run the composition test and verify behavioral RED**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -849,7 +849,7 @@ Patch the exact lazy import seam selected in implementation; do not import `rook
 
 Expected: the default runner has no canonical executor.
 
-- [ ] **Step 3: Wire the executor only in the Chat service composition root**
+- [x] **Step 3: Wire the executor only in the Chat service composition root**
 
 Keep the import lazy and outside ChatRunner core:
 
@@ -871,7 +871,7 @@ def _get_runner() -> ChatRunner:
 
 Do not change `create_chat_app(runner=...)`; injected test or alternate runners remain caller-owned.
 
-- [ ] **Step 4: Add a causal full-loop gateway vertical with only approved external boundaries faked**
+- [x] **Step 4: Add a causal full-loop gateway vertical with only approved external boundaries faked**
 
 Drive the real ChatRunner through this sequence:
 
@@ -913,7 +913,7 @@ assert final_event.type == "done"
 
 Define `expected_agent_results` from the six exact causal fake responses before running the turn. The assertions must inspect exact message roles, tool-call IDs, and decoded results; they must not infer success from the final prose.
 
-- [ ] **Step 5: Add targeting and refusal verticals**
+- [x] **Step 5: Add targeting and refusal verticals**
 
 Add no-contact tests proving:
 
@@ -928,7 +928,7 @@ Add no-contact tests proving:
 
 Use existing targeting result types and context managers. Do not invent a target fixture format or response wrapper.
 
-- [ ] **Step 6: Run Task 3's complete seam**
+- [x] **Step 6: Run Task 3's complete seam**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -943,7 +943,7 @@ Use existing targeting result types and context managers. Do not invent a target
 
 Expected: all selected non-knowledge tests pass. No model, host, or Worker contact occurs.
 
-- [ ] **Step 7: Commit Task 3 and stop for review**
+- [x] **Step 7: Commit Task 3 and stop for review**
 
 ```powershell
 git add -- `
@@ -968,7 +968,7 @@ If `test_chat_server.py` was unchanged, omit it from `git add`. Report exact ing
 - Consumes: all three reviewed implementation commits
 - Produces: reproducible verification ledger and final reviewed branch
 
-- [ ] **Step 1: Run the focused ownership and ChatRunner seam**
+- [x] **Step 1: Run the focused ownership and ChatRunner seam**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -983,7 +983,7 @@ If `test_chat_server.py` was unchanged, omit it from `git add`. Report exact ing
 
 Record the exact passing count and warnings.
 
-- [ ] **Step 2: Run the broader policy, containment, targeting, and Chat service seam**
+- [x] **Step 2: Run the broader policy, containment, targeting, and Chat service seam**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m pytest `
@@ -1000,7 +1000,7 @@ Record the exact passing count and warnings.
 
 Record the exact passing and deselected counts and warnings.
 
-- [ ] **Step 3: Reproduce the known broad baseline conditions**
+- [x] **Step 3: Reproduce the known broad baseline conditions**
 
 Run this exact broad selected command, including both known failures and excluding only the unrelated knowledge-route class:
 
@@ -1034,7 +1034,7 @@ AssertionError: assert 'text_delta' in ['done']
 
 No new failure is permitted. If either ID or signature changes, stop and report rather than touching unrelated schema-golden or stale integration-mock behavior.
 
-- [ ] **Step 4: Compile the touched Python modules**
+- [x] **Step 4: Compile the touched Python modules**
 
 ```powershell
 & '.\mcp_server\.venv\Scripts\python.exe' -m py_compile `
@@ -1047,7 +1047,7 @@ No new failure is permitted. If either ID or signature changes, stop and report 
 
 Expected: exit `0` with no output.
 
-- [ ] **Step 5: Run source-surface and scope checks**
+- [x] **Step 5: Run source-surface and scope checks**
 
 ```powershell
 rg -n "from .*server import|import rook\.server" `
@@ -1068,7 +1068,7 @@ Expected:
 - diff check is clean; and
 - worktree is clean before ledger editing.
 
-- [ ] **Step 6: Reconcile this ledger with exact evidence**
+- [x] **Step 6: Reconcile this ledger with exact evidence**
 
 Mark completed checkboxes and append:
 
@@ -1083,7 +1083,7 @@ Mark completed checkboxes and append:
 - confirmation that target arguments were canonical at ingress and canonically enriched at dispatch; and
 - confirmation that no direct route, fallback, capability index, or result conversion was added.
 
-- [ ] **Step 7: Commit only the reconciled plan**
+- [x] **Step 7: Commit only the reconciled plan**
 
 ```powershell
 git add -- docs/superpowers/plans/2026-08-04-chatrunner-mcp-capability-parity-bridge.md
@@ -1093,6 +1093,36 @@ git status --short --branch
 ```
 
 Expected: clean worktree. Stop for independent final implementation review. Do not resume qualification, push, merge, deploy, or contact any external runtime.
+
+## Verification Ledger
+
+### Reviewed implementation commits
+
+- Task 1: `4229571604aa59e6e43ec7c907cc3ed72428e964` (`feat: expose scope-bound MCP capability gateway`) — independently approved after **454 passed** with 11 pre-existing warnings.
+- Task 2: `337f25f78a77cc0327fe6d013a8cb7b324141d3e` (`feat: expose canonical MCP gateway in ChatRunner`) plus bounded construction repair `bd520165918aeb42c34cdf92cc397d8b21b95cd1` (`fix: reject non-callable MCP gateway executors`) — independently approved after **105 passed** with 11 pre-existing warnings.
+- Task 3: `b286d11ddbf0978b8fd391dcfe7e8ee8fa54a76e` (`feat: compose MCP gateway into RookChat`) — independently approved after **252 passed, 13 deselected**, with 18 existing warnings.
+
+### Final verification evidence
+
+- Focused ownership and ChatRunner seam: **166 passed**, 11 pre-existing DSPy warnings.
+- Broader policy, containment, targeting, and Chat service seam: **456 passed, 1 known failure, 13 deselected**, with 18 existing warnings. The sole failure was the documented stale non-streaming Chat integration mock.
+- Exact broad baseline: **596 passed, 2 known failures, 13 deselected**, with 18 existing warnings. The failures and signatures remained exactly:
+  - `mcp_server/tests/test_rookchat_tool_schema_golden.py::test_local_catalog_rhino_execute_intent_schema_is_actionable` — `KeyError: 'rhino_execute_intent'`.
+  - `mcp_server/tests/test_chat_integration.py::TestChatIntegration::test_full_conversation_flow` — `AssertionError: assert 'text_delta' in ['done']`.
+- Touched-module compilation completed with exit `0` and no output.
+- Complete branch diff check passed. ChatRunner core has zero `rook.server` imports and owns no capability index or target dispatch table.
+
+### Final scope and ownership
+
+- Documentation: this plan and `docs/superpowers/specs/2026-08-04-chatrunner-mcp-capability-parity-bridge-design.md` only.
+- Production: `mcp_server/src/rook/mcp_capability_gateway_contract.py`, `mcp_server/src/rook/server.py`, `mcp_server/src/rook/agent/chat/chat_runner.py`, `mcp_server/src/rook/agent/chat/server.py`, and `mcp_server/src/rook/agent/capability_inventory.py` only.
+- Tests: `mcp_server/tests/test_chatrunner_mcp_capability_gateway.py`, `mcp_server/tests/test_rook_tools_meta.py`, `mcp_server/tests/test_capability_inventory.py`, and `mcp_server/tests/test_rookchat_visible_dispatchability.py` only.
+- `ToolDispatcher`, tool groups, direct routes, existing `request_tools` / `search_tools`, public MCP result wires, and exception stringification remain unchanged.
+- The four gateway schemas are visible only when a callable canonical executor is supplied. Invalid executor construction refuses before schema construction.
+- All six fixed ChatRunner/MCP profile intersections passed, including `lean`; invalid MCP profiles refused before capability-index or target-dispatch entry.
+- Model-decoded gateway arguments reached canonical-executor ingress exactly. Existing canonical targeting then enriched target dispatch with the frozen Rhino port, process, and document context.
+- Gateway calls did not fall back to direct dispatch. No duplicate capability catalog, policy allowlist, target dispatcher, direct route, result conversion, receipt system, or generalized client framework was added.
+- Development and review made zero provider, Ollama, Worker, Rhino, Grasshopper, readiness, or mutation contact.
 
 ## Anti-Quagmire Stop
 
