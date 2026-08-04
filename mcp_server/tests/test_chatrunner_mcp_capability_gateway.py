@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,6 +8,7 @@ import pytest
 
 from rook.agent.chat.chat_runner import ChatRunner
 from rook.agent.chat import chat_runner as chat_runner_module
+from rook.agent.chat import server as chat_server
 from rook.agent.chat.conversation_store import Conversation
 from rook.agent.tool_registry import ToolRegistry, build_catalog_from_mcp_tools
 from rook.mcp_capability_gateway_contract import (
@@ -47,6 +49,34 @@ def _schema_map(runner: ChatRunner) -> dict[str, dict]:
         schema["function"]["name"]: schema
         for schema in runner._get_active_tool_schemas()
     }
+
+
+def _decode_retained_tool_content(content: str):
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return ast.literal_eval(content)
+
+
+def test_default_chat_service_runner_receives_real_scope_bound_gateway(
+    monkeypatch,
+):
+    from rook import server as rook_server
+
+    executor = AsyncMock()
+    factory = MagicMock(return_value=executor)
+    monkeypatch.setattr(chat_server, "_runner", None)
+    monkeypatch.setattr(
+        rook_server,
+        "build_mcp_capability_gateway_executor",
+        factory,
+    )
+
+    runner = chat_server._get_runner()
+
+    factory.assert_called_once_with("full")
+    assert runner._mcp_capability_executor is executor
+    assert MCP_CAPABILITY_GATEWAY_NAMES <= set(_schema_map(runner))
 
 
 def test_bare_runner_does_not_advertise_canonical_gateway(minimal_registry):
@@ -194,6 +224,39 @@ def _runtime_facts_patch():
             }
         ),
     )
+
+
+async def _run_one_gateway_turn(
+    conversation: Conversation,
+    runner: ChatRunner,
+    tool_name: str,
+    arguments: dict,
+):
+    responses = iter(
+        [
+            _tool_response(tool_name, arguments, "one_gateway_call"),
+            _text_response("Finished"),
+        ]
+    )
+
+    async def fake_acompletion(**_kwargs):
+        return next(responses)
+
+    with patch(
+        "rook.agent.chat.chat_runner.litellm.acompletion",
+        side_effect=fake_acompletion,
+    ), _runtime_facts_patch():
+        events = [
+            event
+            async for event in runner.run_turn(
+                conversation,
+                "Use the reviewed gateway",
+                "Reviewed skill body",
+            )
+        ]
+
+    result_event = next(event for event in events if event.type == "tool_result")
+    return events, _decode_retained_tool_content(result_event.result)
 
 
 @pytest.mark.asyncio
@@ -432,3 +495,374 @@ async def test_gateway_exception_is_retained_once_without_retry_or_fallback(
     ]
     assert len(retained) == 1
     assert retained[0]["content"] == result_event.result
+
+
+@pytest.mark.asyncio
+async def test_real_gateway_runs_complete_discovery_and_call_loop_without_contact(
+    monkeypatch, conversation
+):
+    from types import SimpleNamespace
+
+    from rook import server as rook_server
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    rook_server._reset_capability_index_cache()
+    monkeypatch.setattr(
+        rook_server.targeting,
+        "policy_for_tool",
+        lambda _name: SimpleNamespace(requires_rhino=False),
+    )
+    target_calls = []
+
+    async def no_contact_target(name, arguments):
+        target_calls.append((name, arguments))
+        return {
+            "success": True,
+            "data": {"target": name, "arguments": arguments},
+        }
+
+    monkeypatch.setattr(
+        rook_server,
+        "_call_tool_dispatch",
+        no_contact_target,
+    )
+    index = await rook_server._get_capability_index()
+    library_search = {"query": "gh_library", "limit": 10}
+    library_arguments = {"search": "series", "limit": 5}
+    batch_search = {"query": "gh_batch_component_info", "limit": 10}
+    batch_arguments = {"names": ["Series"]}
+    expected_agent_results = [
+        index.search("gh_library", limit=10),
+        index.read("gh_library"),
+        {"target": "gh_library", "arguments": library_arguments},
+        index.search("gh_batch_component_info", limit=10),
+        index.read("gh_batch_component_info"),
+        {
+            "target": "gh_batch_component_info",
+            "arguments": batch_arguments,
+        },
+    ]
+    direct_tool_executor = AsyncMock()
+    runner = ChatRunner(
+        tool_executor=direct_tool_executor,
+        mcp_capability_executor=(
+            rook_server.build_mcp_capability_gateway_executor("full")
+        ),
+    )
+    responses = iter(
+        [
+            _tool_response("rook_tools_search", library_search, "search_library"),
+            _tool_response(
+                "rook_tools_read",
+                {"name": "gh_library"},
+                "read_library",
+            ),
+            _tool_response(
+                "rook_tools_call",
+                {"name": "gh_library", "arguments": library_arguments},
+                "call_library",
+            ),
+            _tool_response(
+                "rook_tools_search",
+                batch_search,
+                "search_batch_info",
+            ),
+            _tool_response(
+                "rook_tools_read",
+                {"name": "gh_batch_component_info"},
+                "read_batch_info",
+            ),
+            _tool_response(
+                "rook_tools_call",
+                {
+                    "name": "gh_batch_component_info",
+                    "arguments": batch_arguments,
+                },
+                "call_batch_info",
+            ),
+            _text_response("Finished"),
+        ]
+    )
+
+    async def fake_acompletion(**_kwargs):
+        return next(responses)
+
+    with patch(
+        "rook.agent.chat.chat_runner.litellm.acompletion",
+        side_effect=fake_acompletion,
+    ), _runtime_facts_patch():
+        events = [
+            event
+            async for event in runner.run_turn(
+                conversation,
+                "Build with reviewed Grasshopper capabilities",
+                "Reviewed skill body",
+            )
+        ]
+
+    assert target_calls == [
+        ("gh_library", library_arguments),
+        ("gh_batch_component_info", batch_arguments),
+    ]
+    direct_tool_executor.assert_not_awaited()
+    tool_messages = [
+        message
+        for message in conversation.messages
+        if message.get("role") == "tool"
+    ]
+    assert [message["tool_call_id"] for message in tool_messages] == [
+        "search_library",
+        "read_library",
+        "call_library",
+        "search_batch_info",
+        "read_batch_info",
+        "call_batch_info",
+    ]
+    assert [
+        _decode_retained_tool_content(message["content"])
+        for message in tool_messages
+    ] == expected_agent_results
+    assert events[-1].type == "done"
+
+
+@pytest.mark.asyncio
+async def test_real_gateway_preserves_ingress_and_canonical_rhino_targeting(
+    monkeypatch, conversation
+):
+    from rook import bridge
+    from rook import server as rook_server
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    rook_server._reset_capability_index_cache()
+    monkeypatch.setattr(
+        rook_server.targeting,
+        "_PANEL_TARGET_LOCK",
+        rook_server.targeting.PanelTargetLock(
+            mode="panel_locked",
+            process_id=7101,
+            document_serial_number=42,
+        ),
+    )
+    monkeypatch.setattr(
+        rook_server.targeting,
+        "_PANEL_TARGET_CONFIG_ERROR",
+        None,
+    )
+    monkeypatch.setattr(
+        rook_server.targeting,
+        "discover_instances",
+        lambda: [
+            {
+                "host": "127.0.0.1",
+                "port": 9950,
+                "processId": 7101,
+                "pluginType": "native",
+                "documentName": "Gateway.3dm",
+            }
+        ],
+    )
+    target_dispatch = []
+
+    async def no_contact_target(name, arguments):
+        target_dispatch.append(
+            (name, arguments, bridge.get_rhino_request_context())
+        )
+        return {"success": True, "data": {"targeted": True}}
+
+    monkeypatch.setattr(
+        rook_server,
+        "_call_tool_dispatch",
+        no_contact_target,
+    )
+    canonical = rook_server.build_mcp_capability_gateway_executor("full")
+    ingress = []
+
+    async def capturing_executor(name, arguments):
+        ingress.append((name, arguments))
+        return await canonical(name, arguments)
+
+    direct = AsyncMock()
+    runner = ChatRunner(
+        tool_executor=direct,
+        mcp_capability_executor=capturing_executor,
+    )
+    model_arguments = {
+        "name": "gh_library",
+        "arguments": {"search": "Point"},
+        "tool_access": "readonly",
+        "profile": "readonly",
+        "mcp_capability_executor": "alternate",
+    }
+
+    events, result = await _run_one_gateway_turn(
+        conversation,
+        runner,
+        "rook_tools_call",
+        model_arguments,
+    )
+
+    assert ingress == [("rook_tools_call", model_arguments)]
+    assert target_dispatch == [
+        (
+            "gh_library",
+            {"search": "Point", "documentSerialNumber": 42},
+            {
+                "port": 9950,
+                "process_id": 7101,
+                "document_serial_number": 42,
+            },
+        )
+    ]
+    assert result == {"targeted": True}
+    assert events[-1].type == "done"
+    direct.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_access", "mcp_profile"),
+    [
+        ("readonly", "full"),
+        ("readonly", "lean"),
+        ("full", "readonly"),
+    ],
+)
+async def test_real_gateway_profile_intersection_blocks_write_before_dispatch(
+    monkeypatch, conversation, tool_access, mcp_profile
+):
+    from rook import server as rook_server
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", mcp_profile)
+    rook_server._reset_capability_index_cache()
+    target_dispatch = AsyncMock()
+    monkeypatch.setattr(
+        rook_server,
+        "_call_tool_dispatch",
+        target_dispatch,
+    )
+    direct = AsyncMock()
+    runner = ChatRunner(
+        tool_executor=direct,
+        tool_access=tool_access,
+        mcp_capability_executor=(
+            rook_server.build_mcp_capability_gateway_executor(tool_access)
+        ),
+    )
+
+    _events, result = await _run_one_gateway_turn(
+        conversation,
+        runner,
+        "rook_tools_call",
+        {"name": "rhino_create", "arguments": {"bogus": True}},
+    )
+
+    assert result["success"] is False
+    assert result["data"]["code"] == "tool_profile_blocked"
+    target_dispatch.assert_not_awaited()
+    direct.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_real_gateway_invalid_profile_refuses_before_index_or_dispatch(
+    monkeypatch, conversation
+):
+    from rook import server as rook_server
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "invalid-profile")
+    capability_index = AsyncMock()
+    target_dispatch = AsyncMock()
+    monkeypatch.setattr(
+        rook_server,
+        "_get_capability_index",
+        capability_index,
+    )
+    monkeypatch.setattr(
+        rook_server,
+        "_call_tool_dispatch",
+        target_dispatch,
+    )
+    direct = AsyncMock()
+    runner = ChatRunner(
+        tool_executor=direct,
+        mcp_capability_executor=(
+            rook_server.build_mcp_capability_gateway_executor("full")
+        ),
+    )
+
+    _events, result = await _run_one_gateway_turn(
+        conversation,
+        runner,
+        "rook_tools_search",
+        {"query": "grid"},
+    )
+
+    assert result["success"] is False
+    assert "Invalid ROOK_MCP_TOOL_PROFILE" in result["error"]
+    capability_index.assert_not_awaited()
+    target_dispatch.assert_not_awaited()
+    direct.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "error_field", "error_code"),
+    [
+        (
+            {"name": "rook_tools_ls"},
+            "error",
+            "meta_recursion_forbidden",
+        ),
+        (
+            {"name": "spawn_agent"},
+            "code",
+            "legacy_semantic_tool_contained",
+        ),
+        (
+            {"name": "definitely_not_a_tool"},
+            "error",
+            "not_mcp_dispatchable",
+        ),
+        (
+            {"name": "rhino_instances", "arguments": "not-an-object"},
+            "error",
+            "invalid_arguments",
+        ),
+        (
+            {"name": "gh_batch_component_info", "arguments": {}},
+            "error",
+            "invalid_arguments",
+        ),
+    ],
+)
+async def test_real_gateway_refusals_never_dispatch_or_fall_back(
+    monkeypatch, conversation, arguments, error_field, error_code
+):
+    from rook import server as rook_server
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    rook_server._reset_capability_index_cache()
+    target_dispatch = AsyncMock()
+    monkeypatch.setattr(
+        rook_server,
+        "_call_tool_dispatch",
+        target_dispatch,
+    )
+    direct = AsyncMock()
+    runner = ChatRunner(
+        tool_executor=direct,
+        mcp_capability_executor=(
+            rook_server.build_mcp_capability_gateway_executor("full")
+        ),
+    )
+
+    _events, result = await _run_one_gateway_turn(
+        conversation,
+        runner,
+        "rook_tools_call",
+        arguments,
+    )
+
+    assert result["success"] is False
+    assert result["data"][error_field] == error_code
+    target_dispatch.assert_not_awaited()
+    direct.assert_not_awaited()
