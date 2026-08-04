@@ -241,6 +241,45 @@ function Test-DeployScriptCopiesAllInstallerPythonModules {
     Assert-Contains -Text $content -Expected 'process_rebuild_guard.py' -Message 'Local deploy guard must cover rebuild guard module copying.'
 }
 
+function Test-DeployScriptSyncsSealedReleasePythonPayload {
+    $content = Get-Content -Path $DeployScript -Raw
+    $syncBody = Get-FunctionBodyText -Text $content -FunctionName 'Sync-ReleasePythonPayload'
+
+    Assert-Contains -Text $syncBody -Expected "Join-Path `$RepoRoot 'installer\runtime'" -Message 'Release payload sync must source the staged installer runtime.'
+    Assert-Contains -Text $syncBody -Expected "Join-Path `$sourceRuntime 'python-wheelhouse'" -Message 'Release payload sync must use the staged wheelhouse directory.'
+    Assert-Contains -Text $syncBody -Expected 'Test-Path -LiteralPath $sourceWheelhouse -PathType Container' -Message 'Release payload sync must require the staged wheelhouse directory.'
+    Assert-Contains -Text $syncBody -Expected "Get-ChildItem -LiteralPath `$sourceWheelhouse -Filter '*.whl' -File" -Message 'Release payload sync must inspect staged wheel files.'
+    Assert-Contains -Text $syncBody -Expected 'if ($wheelFiles.Count -eq 0)' -Message 'Release payload sync must reject an empty staged wheelhouse before mirroring.'
+
+    foreach ($file in @(
+        'requirements-bootstrap-lock.txt',
+        'requirements-rook-lock.txt',
+        'requirements-chirp-lock.txt',
+        'python-runtime-manifest.json'
+    )) {
+        Assert-Contains -Text $syncBody -Expected "'$file'" -Message "Release payload sync must require $file."
+    }
+
+    Assert-Contains -Text $syncBody -Expected 'Test-Path -LiteralPath $source -PathType Leaf' -Message 'Release payload sync must preflight every control file.'
+    Assert-Before -Text $syncBody -First 'Test-Path -LiteralPath $source -PathType Leaf' -Second 'Sync-Directory $sourceWheelhouse' -Message 'All control files must be validated before the installed wheelhouse is mirrored.'
+    Assert-Contains -Text $syncBody -Expected "Sync-Directory `$sourceWheelhouse (Join-Path `$InstallRoot 'python-wheelhouse')" -Message 'Release payload sync must exactly mirror the wheelhouse so stale wheels are removed.'
+    Assert-Contains -Text $syncBody -Expected 'Copy-RequiredFile $source (Join-Path $InstallRoot $file)' -Message 'Release payload sync must copy each control file as required.'
+    Assert-NotContains -Text $syncBody -Unexpected 'Copy-OptionalFile' -Message 'Sealed release control files must never be optional.'
+
+    $modeFlow = Get-TextBeforeNextMarker `
+        -Text $content `
+        -StartMarker 'if ($RuntimeContract.IsDev) {' `
+        -EndMarker 'Write-Step "Verify effective runtime"'
+    $elseIndex = $modeFlow.IndexOf('} else {', [System.StringComparison]::Ordinal)
+    Assert-True -Condition ($elseIndex -ge 0) -Message 'Runtime mode flow must contain an explicit release branch.'
+    $devBranch = $modeFlow.Substring(0, $elseIndex)
+    $releaseBranch = $modeFlow.Substring($elseIndex)
+
+    Assert-NotContains -Text $devBranch -Unexpected 'Sync-ReleasePythonPayload' -Message 'Explicit dev runtime mode must not reach or inspect the sealed release payload.'
+    Assert-Contains -Text $releaseBranch -Expected 'Sync-ReleasePythonPayload' -Message 'Release runtime mode must synchronize the sealed Python payload.'
+    Assert-Before -Text $releaseBranch -First 'Sync-ReleasePythonPayload' -Second 'Invoke-PostInstallConfig' -Message 'Release payload synchronization must complete before post_install.py runs.'
+}
+
 function Test-DeployScriptHasExplicitDevRuntimeContract {
     $content = Get-Content -Path $DeployScript -Raw
 
@@ -587,6 +626,7 @@ Test-DeployScriptParsesMcpConfigs
 Test-DeployScriptVerifiesChatManifest
 Test-DeployScriptSeedsChatEnvWithoutOverwriting
 Test-DeployScriptCopiesAllInstallerPythonModules
+Test-DeployScriptSyncsSealedReleasePythonPayload
 Test-DeployScriptHasExplicitDevRuntimeContract
 Test-DeployScriptAllowsDevLiveSmoke
 Test-DeployScriptCopiesOcctRuntimeClosure

@@ -593,6 +593,39 @@ function Sync-AppPayload {
     Copy-OptionalFile (Join-Path $RepoRoot 'installer\AGENTS.md') (Join-Path $InstallRoot 'AGENTS.md')
 }
 
+function Sync-ReleasePythonPayload {
+    $sourceRuntime = Join-Path $RepoRoot 'installer\runtime'
+    $sourceWheelhouse = Join-Path $sourceRuntime 'python-wheelhouse'
+
+    if (-not (Test-Path -LiteralPath $sourceWheelhouse -PathType Container)) {
+        throw "Staged release wheelhouse not found: $sourceWheelhouse"
+    }
+
+    $wheelFiles = @(Get-ChildItem -LiteralPath $sourceWheelhouse -Filter '*.whl' -File)
+    if ($wheelFiles.Count -eq 0) {
+        throw "Staged release wheelhouse contains no .whl files: $sourceWheelhouse"
+    }
+
+    $controlFiles = @(
+        'requirements-bootstrap-lock.txt',
+        'requirements-rook-lock.txt',
+        'requirements-chirp-lock.txt',
+        'python-runtime-manifest.json'
+    )
+    foreach ($file in $controlFiles) {
+        $source = Join-Path $sourceRuntime $file
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "Required staged release control file not found: $source"
+        }
+    }
+
+    Sync-Directory $sourceWheelhouse (Join-Path $InstallRoot 'python-wheelhouse')
+    foreach ($file in $controlFiles) {
+        $source = Join-Path $sourceRuntime $file
+        Copy-RequiredFile $source (Join-Path $InstallRoot $file)
+    }
+}
+
 function Sync-ChirpPayload {
     if (-not (Test-Path (Join-Path $ChirpSourceRoot 'pyproject.toml'))) {
         throw "Chirp sibling repo not found or incomplete: $ChirpSourceRoot"
@@ -632,11 +665,10 @@ function Invoke-PostInstallConfig {
 
 function Install-ReleaseSourceIntoVenv {
     # Local-deploy coherence: make the release venv's importable `rook` match the
-    # just-synced source. Invoke-PostInstallConfig installs an older rook wheel
-    # from the bundled wheelhouse, and the local deploy never rebuilds it, so
-    # site-packages can lag the synced source (e.g. miss the rhino_2d_to_3d_*
-    # tools). The real release MCP config runs with empty PYTHONPATH and imports
-    # from site-packages, so site-packages must hold the current source.
+    # just-synced source. Invoke-PostInstallConfig installs the current sealed rook
+    # wheel, while local source edits may be newer than that staged release payload.
+    # The real release MCP config runs with empty PYTHONPATH and imports from
+    # site-packages, so site-packages must hold the current local source.
     #
     # We MIRROR the package directory rather than pip-building from source:
     # mcp_server declares the hatchling build backend, which the release venv
@@ -1313,6 +1345,8 @@ if ($RuntimeContract.IsDev) {
     Write-Host "Skipping release post_install.py because an explicit dev runtime was selected."
     Write-ChatServiceManifests -Contract $RuntimeContract
 } else {
+    Write-Step "Sync sealed Python release payload"
+    Sync-ReleasePythonPayload
     Write-Step "Refresh MCP, Chirp, and config installs"
     Invoke-PostInstallConfig
     Write-Step "Mirror current source into release venv site-packages"
