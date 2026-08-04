@@ -73,7 +73,15 @@ def _get_builder() -> PromptBuilder:
 def _get_runner() -> ChatRunner:
     global _runner
     if _runner is None:
-        _runner = ChatRunner()
+        from ...server import build_mcp_capability_gateway_executor
+
+        tool_access = "full"
+        _runner = ChatRunner(
+            tool_access=tool_access,
+            mcp_capability_executor=(
+                build_mcp_capability_gateway_executor(tool_access)
+            ),
+        )
     return _runner
 
 

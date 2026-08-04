@@ -44,10 +44,15 @@ from ..tool_groups import AGENT_TIER_0, READONLY_TIER_0, TOOL_GROUP_TRIGGERS
 from ..tool_registry import (
     ToolRegistry,
     load_catalog_from_cache,
+    mcp_tool_to_litellm,
 )
 from ..generation_params import sanitize_generation_params_for_model
 from ...tool_lifecycle import resolve_contained_tool
 from ...tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
+from ...mcp_capability_gateway_contract import (
+    MCP_CAPABILITY_GATEWAY_NAMES,
+    build_mcp_capability_gateway_tools,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -783,6 +788,7 @@ class ChatRunner:
         tool_executor: Optional[Any] = None,
         tool_access: str = "full",
         registry: Optional[ToolRegistry] = None,
+        mcp_capability_executor: Optional[Any] = None,
     ):
         """Initialize the ChatRunner.
 
@@ -792,7 +798,21 @@ class ChatRunner:
             tool_access: "full" or "readonly" — controls which Tier 0 set is used.
             registry: Pre-built ToolRegistry. If None, builds one from
                 cached catalog or fallback descriptions.
+            mcp_capability_executor: Optional canonical MCP gateway executor.
         """
+        if tool_access not in {"full", "readonly"}:
+            raise ValueError("tool_access must be 'full' or 'readonly'")
+        if mcp_capability_executor is not None and not callable(
+            mcp_capability_executor
+        ):
+            raise TypeError("mcp_capability_executor must be callable")
+
+        self._mcp_capability_executor = mcp_capability_executor
+        self._mcp_capability_schemas = tuple(
+            mcp_tool_to_litellm(tool)
+            for tool in build_mcp_capability_gateway_tools()
+        )
+
         # Set up tool execution
         if tool_executor:
             self._tool_executor = tool_executor
@@ -814,6 +834,18 @@ class ChatRunner:
         # Tool section cache — invalidated when active tool set changes
         self._tool_section_cache: Optional[str] = None
         self._tool_section_key: Optional[frozenset] = None
+
+    def _get_active_tool_schemas(self) -> List[dict]:
+        """Project the active model surface without mutating the registry."""
+        schemas = [
+            schema
+            for schema in self._registry.get_active_schemas()
+            if schema.get("function", {}).get("name")
+            not in MCP_CAPABILITY_GATEWAY_NAMES
+        ]
+        if self._mcp_capability_executor is not None:
+            schemas.extend(self._mcp_capability_schemas)
+        return schemas
 
     def _build_registry(self, tool_access: str) -> ToolRegistry:
         """Build a ToolRegistry, preferring cached catalog with full schemas."""
@@ -859,7 +891,7 @@ class ChatRunner:
 
         Cached between rounds — only rebuilt when the active tool set changes.
         """
-        schemas = self._registry.get_active_schemas()
+        schemas = self._get_active_tool_schemas()
         cache_key = frozenset(
             s.get("function", {}).get("name", "") for s in schemas
         )
@@ -1030,7 +1062,7 @@ class ChatRunner:
                     return
 
                 # Get current active tool schemas (changes as groups are loaded)
-                tools = self._registry.get_active_schemas()
+                tools = self._get_active_tool_schemas()
 
                 # Build system prompt with verified runtime facts and dynamic tool
                 # section (updates as tools load).
@@ -1239,6 +1271,29 @@ class ChatRunner:
                     if self._registry.is_meta_tool(tool_name):
                         result = self._handle_meta_tool(tool_name, params)
                         result_str = json.dumps(result)
+                    elif tool_name in MCP_CAPABILITY_GATEWAY_NAMES:
+                        if tool_name == "rook_tools_call":
+                            meta_only_round = False
+                        try:
+                            if self._mcp_capability_executor is None:
+                                result = {
+                                    "success": False,
+                                    "error": (
+                                        "Canonical MCP capability gateway is unavailable."
+                                    ),
+                                }
+                            else:
+                                result = await self._mcp_capability_executor(
+                                    tool_name, params
+                                )
+                            result_str = (
+                                json.dumps(result)
+                                if isinstance(result, dict)
+                                else str(result)
+                            )
+                        except Exception as e:
+                            result = {"success": False, "error": str(e)}
+                            result_str = json.dumps(result)
                     else:
                         meta_only_round = False
                         result = None
@@ -1337,7 +1392,7 @@ class ChatRunner:
                 "input_tokens": total_input,
                 "output_tokens": total_output,
                 "wall_time_s": round(wall_time, 2),
-                "active_tools": self._registry.get_active_count(),
+                "active_tools": len(self._get_active_tool_schemas()),
             }
             if substrate_observations:
                 done_usage["substrate_summary"] = summarize_substrate_observations(substrate_observations)

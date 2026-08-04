@@ -94,6 +94,8 @@ def test_build_inventory_records_cover_full_universe_sorted():
         "request_tools", "search_tools", "ui_block", "list_chat_models",
         "set_chat_model", "gh_snapshot", "gh_move", "rhino_objects",
         "rhino_create", "gh_edit", "gh_knowledge_query", "dual_tool",
+        "rook_tools_ls", "rook_tools_search", "rook_tools_read",
+        "rook_tools_call",
     }
 
 
@@ -101,7 +103,7 @@ def test_intercepted_meta_tools_are_not_dispatch_unknown():
     inv = build_inventory(_static_sources(), _static_catalog())
     by_name = {r.name: r for r in inv.records}
 
-    for meta in ("request_tools", "search_tools", "ui_block", "list_chat_models", "set_chat_model"):
+    for meta in INTERCEPTED_META_TOOLS:
         assert by_name[meta].dispatch_path == "chatrunner_intercepted"
     assert not any(
         f.code == "dispatch_unknown" and f.tool in INTERCEPTED_META_TOOLS
@@ -152,7 +154,7 @@ def test_format_report_is_pure_and_stable():
     first = format_report(inv)
     second = format_report(inv)
     assert first == second
-    assert first.startswith("Capability inventory: 12 records, 4 findings")
+    assert first.startswith("Capability inventory: 16 records, 4 findings")
 
 
 def test_build_inventory_does_not_read_live_catalog_cache(monkeypatch):
