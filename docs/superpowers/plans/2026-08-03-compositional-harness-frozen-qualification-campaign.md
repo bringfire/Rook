@@ -27,14 +27,22 @@
 - Planner and Worker finalist eligibility and priority are mechanical and frozen before contact.
 - A failed Stage D repetition blocks Stage E; no substitute pair is promoted.
 - Stage E is limited to one maximum deterministic row and one maximum Worker-leaf row, each separately authorized after merge.
-- The complete campaign ceiling is 23 scored rows. Identical prior rows count once.
+- The complete campaign ceiling is 23 scored rows. Identical prior rows count
+  once. Reviewed operator authorization plus the explicit retained-result list
+  own global accounting; the stateless one-row command does not claim to
+  discover or prevent every prior fixed/live invocation.
 - The exact ceiling reconciliation is Stage A `6`, Stage B `6`, Stage C `3`,
   Stage D at most `6`, and Stage E `2`.
 - No retry, fallback, repair, update, cleanup, resnapshot, alternate model, output patching, benchmark scheduler, registry, manifest, archive, dataset manager, or product UI is added.
 - Raw local result files are sensitive disposable diagnostic data and remain outside the repository.
 - Use Inline Execution for implementation. These case, promotion, execution, and projection rules form one coupled script; do not dispatch subagents.
 - Mandatory independent review stops follow Tasks 1, 2, and 3.
-- Hard growth stop: if the new operator script exceeds 800 nonblank source lines, stop and report the concrete existing API constraint before adding more code. Do not introduce another module to evade the limit.
+- Cumulative growth review: report the operator script's nonblank source lines
+  at every mandatory review. At 600 or more lines, implementation cannot proceed
+  without renewed explicit scope approval at that review.
+- Hard growth stop: if the new operator script exceeds 800 nonblank source lines,
+  stop and report the concrete existing API constraint before adding more code.
+  Do not introduce another module to evade either gate.
 
 ## File Structure
 
@@ -160,7 +168,7 @@ class _Row:
     worker_mode: Literal["none", "fake", "model"]
     tool_mode: Literal["fake", "live"]
 
-def _structural_tier_attained(case: _Case, canonical_graph: object) -> bool:
+def _structural_tier_attained(case: _Case, owned_graph: object) -> bool:
     raise NotImplementedError
 
 def _planner_transport_kwargs(model: str, *, worker_leaf: bool) -> dict[str, Any]:
@@ -535,9 +543,11 @@ def _weak_component_count(graph: SemanticGraph) -> int:
     return components
 ```
 
-`_structural_tier_attained()` compares exact counts, sorted primitive counts,
+`_structural_tier_attained()` accepts only an exact `SemanticGraph` or
+`CanonicalSemanticGraph`, compares exact counts, sorted primitive counts,
 maximum depth, Worker-leaf count, one cross-edge for leaf cases, and the optional
-weak-component requirement. It never compares the exact edge set.
+weak-component requirement. It never compares the exact edge set and never
+invokes a loader or compiler.
 
 - [ ] **Step 7: Add transport-materialization RED tests**
 
@@ -630,6 +640,7 @@ $script = '../scripts/compositional_harness_qualification_campaign.py'
 $nonblank = (Get-Content -LiteralPath $script | Where-Object { $_.Trim() }).Count
 "TASK1_NONBLANK_SCRIPT_LINES=$nonblank"
 if ($nonblank -gt 800) { throw 'operator script exceeded reviewed hard stop' }
+if ($nonblank -ge 600) { Write-Output 'RENEWED_SCOPE_REVIEW_REQUIRED=true' }
 git add -- ../scripts/compositional_harness_qualification_campaign.py tests/test_compositional_harness_qualification_campaign.py
 git commit -m "test: freeze compositional qualification cases"
 ```
@@ -637,8 +648,10 @@ git commit -m "test: freeze compositional qualification cases"
 Expected: one script/test commit, beneath the hard stop.
 
 **Mandatory independent review stop:** Review exact cases, schemas, model roster,
-structural observation, alternative-topology acceptance, and absence of external
-contact before Task 2.
+structural observation, alternative-topology acceptance, cumulative line count,
+and absence of external contact before Task 2. If the recorded script count is
+600 or more, the review must explicitly renew scope approval before execution
+resumes.
 
 ---
 
@@ -760,12 +773,14 @@ Behavior:
    `run_semantic_graph_transaction()`.
 4. For Worker-leaf cases, require a transport with callable `send` and invoke
    `run_semantic_graph_single_worker_leaf_transaction()`.
-5. Read the admitted complete semantic graph from the existing load result:
-   - deterministic result: load the retained raw Planner response through the
-     existing strict loader for observation only;
-   - Worker-leaf result: use its retained `graph_load_result.graph` when present.
-6. Compute `structural_tier_attained` only when the existing load result owns an
-   admitted graph; otherwise use `False`.
+5. Read structural evidence only from the returned native owner:
+   - deterministic result: use its retained `canonical_graph` directly when
+     present;
+   - Worker-leaf result: use its retained admitted
+     `graph_load_result.graph` when present.
+6. Compute `structural_tier_attained` only from that owned graph; otherwise use
+   `False`. Do not call `load_semantic_graph()`, `compile_semantic_graph()`, or
+   `compile_semantic_graph_worker_leaf_partition()` after the runner returns.
 7. Return a private dictionary containing the exact row/case, native result,
    recording transports, call counts, structural observation, and tool records.
 
@@ -816,8 +831,8 @@ worker_model
 generation_settings
 provider_materialization
 planner
-graph_load
-graph_compile
+worker_graph_load
+worker_partition_compile
 worker_handoff
 deterministic_execution
 connect
@@ -831,15 +846,18 @@ raised_exception_type
 
 `campaign_sha` is `git rev-parse HEAD` for the executing checkout, not the
 planning baseline. `planner` retains status, failure reason, transport error
-type, exact prompt, and raw response. `graph_load` and `graph_compile` are null
-when not reached; otherwise they retain the existing admitted/failure/reason
-fields. `graph_load` also retains the canonical nodes and edges when admitted.
-`worker_handoff` and `deterministic_execution` are null when not reached and
-otherwise retain their existing terminal stage/reason plus their immediate
-native record projection. `connect` is null until reached; otherwise it retains
-the exact request and response without renaming response keys. Optional absent
-values are JSON null rather than omitted keys. The strict prior-result loader in
-Task 3 requires this closed top-level shape.
+type, exact prompt, and raw response. `worker_graph_load` and
+`worker_partition_compile` are null for every deterministic row and whenever the
+Worker-leaf owner did not reach that boundary; otherwise they project only the
+genuinely retained admitted/failure/reason fields and admitted graph/partition.
+`deterministic_execution` retains its native terminal stage/reason plus
+`canonical_graph` and `edit_plan` when that result owns them. `worker_handoff`
+is null when not reached and otherwise retains its immediate native record
+projection. `connect` is null until reached; otherwise it retains the exact
+request and response without renaming response keys. Optional absent values are
+JSON null rather than omitted keys. The strict prior-result loader in Task 3
+requires this closed top-level shape. No projection reruns a loader or compiler
+to fill a null field.
 
 Do not add a campaign-wide pass/fail token or semantic-fidelity score.
 
@@ -872,6 +890,15 @@ lineage or replay the compiler. Implement four explicit private helpers named
 `_project_deterministic()`, and `_project_worker_leaf()`. Each helper must return
 only JSON-shaped copies of fields owned by its input record; it must not call a
 loader, compiler, runner, or tool.
+
+Add a deterministic regression that wraps the existing runner-owned loader and
+compiler with counters, executes one deterministic row, and asserts each is
+entered exactly once by the product runner. Projection and tier observation must
+not cause a second entry. Assert the deterministic result has
+`worker_graph_load is None`, `worker_partition_compile is None`, and projects
+its canonical graph only from `SemanticGraphExecutionResult.canonical_graph`.
+For a Worker-leaf row, assert those two Worker-owned projections are present
+only when their corresponding native records exist.
 
 For canonical graph serialization, project each admitted node's exact ID,
 primitive, and recursively JSON-shaped parameters, plus each canonical edge's
@@ -920,16 +947,23 @@ Expected: all selected tests pass with fake transports/tools only.
 
 - [ ] **Step 10: Record growth and commit Task 2**
 
-Run the same nonblank-line hard stop, then:
+Run the cumulative review gate and hard stop:
 
 ```powershell
+$script = '../scripts/compositional_harness_qualification_campaign.py'
+$nonblank = (Get-Content -LiteralPath $script | Where-Object { $_.Trim() }).Count
+"TASK2_NONBLANK_SCRIPT_LINES=$nonblank"
+if ($nonblank -gt 800) { throw 'operator script exceeded reviewed hard stop' }
+if ($nonblank -ge 600) { Write-Output 'RENEWED_SCOPE_REVIEW_REQUIRED=true' }
 git add -- ../scripts/compositional_harness_qualification_campaign.py tests/test_compositional_harness_qualification_campaign.py
 git commit -m "feat: run one frozen qualification row"
 ```
 
 **Mandatory independent review stop:** Review causal fake derivation, exact call
-budgets, no Worker model call in Stage B, ordinary result ownership, sensitive
-stdout exclusion, and script growth before Task 3.
+budgets, no Worker model call in Stage B, ordinary result ownership including
+zero deterministic replay, sensitive stdout exclusion, and cumulative script
+growth before Task 3. If the recorded count is 600 or more, the review must
+explicitly renew scope approval before execution resumes.
 
 ---
 
@@ -1010,17 +1044,35 @@ row identities, repetition outside the exact allowed range, foreign
 cases/models, more than 23 supplied results, or a future Stage E result. Do not
 search a directory or infer missing files.
 
+The 23-file input bound protects this invocation only. It does not claim global
+duplicate prevention: fixed Stage A–C rows can be invoked again without a
+supplied history, and Stage E results are deliberately not promotion inputs.
+Reviewed operator authorization and the retained campaign result list own the
+global 23-run ceiling. Do not add a manifest, registry, database, or trace
+directory scan to make the command stateful.
+
 - [ ] **Step 3: Implement mechanical Planner and Worker eligibility**
 
 Use exact pure predicates:
 
 ```python
 def _planner_row_passed(row: Mapping[str, object]) -> bool:
+    if (
+        row["planner"]["status"] != "response_received"
+        or row["structural_tier_attained"] is not True
+    ):
+        return False
+    case = _CASES[row["case_id"]]
+    if case.worker_leaf:
+        return (
+            row["worker_graph_load"]["admitted"] is True
+            and row["worker_partition_compile"]["admitted"] is True
+        )
     return (
-        row["planner"]["status"] == "response_received"
-        and row["graph_load"]["admitted"] is True
-        and row["graph_compile"]["admitted"] is True
-        and row["structural_tier_attained"] is True
+        row["worker_graph_load"] is None
+        and row["worker_partition_compile"] is None
+        and row["deterministic_execution"]["canonical_graph"] is not None
+        and row["deterministic_execution"]["edit_plan"] is not None
     )
 
 def _worker_row_passed(row: Mapping[str, object]) -> bool:
@@ -1034,9 +1086,10 @@ def _worker_row_passed(row: Mapping[str, object]) -> bool:
     )
 ```
 
-For `graph_compile`, project the deterministic compiler or Worker-partition
-compiler into the same `{admitted, failure, reason}` JSON shape. For
-`connect`, compare the retained exact normalized response keys used by
+For deterministic rows, native `canonical_graph` plus `edit_plan` are the
+admission evidence; do not manufacture loader/compiler records. For Worker-leaf
+rows, use only the retained load and partition-compile records. For `connect`,
+compare the retained exact normalized response keys used by
 `SemanticGraphSingleWorkerLeafResult`; do not invent renamed aliases.
 
 The Stage C and Stage D Worker equation additionally requires the exact retained
@@ -1230,6 +1283,7 @@ $script = '../scripts/compositional_harness_qualification_campaign.py'
 $nonblank = (Get-Content -LiteralPath $script | Where-Object { $_.Trim() }).Count
 "FINAL_NONBLANK_SCRIPT_LINES=$nonblank"
 if ($nonblank -gt 800) { throw 'operator script exceeded reviewed hard stop' }
+if ($nonblank -ge 600) { Write-Output 'RENEWED_SCOPE_REVIEW_REQUIRED=true' }
 
 rg -n "get_models|ROOK_MODEL_PROFILE|ROOK_PLANNER_MODEL|ROOK_WORKER_MODEL|retry|fallback|gh_update_script|gh_document_new|gh_status" `
   ../scripts/compositional_harness_qualification_campaign.py
@@ -1249,8 +1303,9 @@ git commit -m "feat: gate frozen qualification promotion"
 
 **Mandatory independent review stop:** Review all five required promotion tests,
 pre-contact ordering, one-row CLI behavior, prior-result strictness, live target
-binding, result safety, final growth, and absence of product changes before final
-reconciliation.
+binding, result safety, final cumulative growth, and absence of product changes
+before final reconciliation. If the recorded count is 600 or more, the review
+must explicitly renew scope approval before execution resumes.
 
 ---
 

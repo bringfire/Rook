@@ -566,10 +566,18 @@ Planner priority is:
 A Planner is eligible only when both of its medium Planner rows have:
 
 - a returned Planner response;
-- strict graph admission;
-- admitted deterministic compilation or Worker-leaf partition compilation, as
-  appropriate;
+- for a deterministic row, native admitted execution fields
+  (`canonical_graph` and `edit_plan`) retained by
+  `SemanticGraphExecutionResult`;
+- for a Worker-leaf row, the genuinely retained admitted
+  `SemanticGraphLoadResult` and
+  `SemanticGraphWorkerLeafPartitionCompileResult`;
 - `structural_tier_attained = true`.
+
+The campaign does not rerun the strict loader or either compiler to manufacture
+uniform admission records. Deterministic structural observation reads the
+retained canonical graph directly. Worker-leaf structural observation reads the
+complete admitted graph retained by its native load result.
 
 The Opus control is evaluated from the two identical medium rows already scored
 in Stage A. The other three Planners are evaluated from Stage B. No control row
@@ -652,8 +660,14 @@ Stage E:       2
 maximum total: 23
 ```
 
-The hard ceiling is 23 scored runs. Prior identical rows count once. There are
-no unscheduled reruns, reserve attempts, or replacement rows.
+The hard ceiling is 23 scored runs. Prior identical rows count once. The
+reviewed operator authorization and the explicit retained result list own
+duplicate prevention and global campaign accounting. The private one-row command
+is intentionally stateless and cannot independently know every prior fixed or
+live invocation. It validates only the prior result files explicitly supplied
+for promotion and repetition gates. No manifest, registry, campaign database,
+or hidden directory scan is added. There are no authorized unscheduled reruns,
+reserve attempts, or replacement rows.
 
 ## Call budgets
 
@@ -700,9 +714,9 @@ parallel outcome system.
 | Boundary | Authoritative existing fields |
 |---|---|
 | Planner transport | `SemanticGraphPlannerRecord.status`, `failure_reason`, `transport_error_type`, and raw response |
-| Graph loading | `SemanticGraphLoadResult.admitted`, `failure`, and `reason` |
-| Deterministic compilation | `SemanticGraphCompileResult.admitted`, `failure`, and `reason` |
-| Worker partition | `SemanticGraphWorkerLeafPartitionCompileResult.admitted`, `failure`, and `reason` |
+| Deterministic admission | `SemanticGraphExecutionResult.canonical_graph` and `edit_plan` when admitted; exact native `terminal_stage` and `terminal_reason` on refusal |
+| Worker-leaf graph loading | Retained `SemanticGraphLoadResult.admitted`, `failure`, and `reason` |
+| Worker-leaf partition | Retained `SemanticGraphWorkerLeafPartitionCompileResult.admitted`, `failure`, and `reason` |
 | Worker turn/application | Existing adapter record, disposition, action result, handoff `terminal_stage`, and `terminal_reason` |
 | C# creation | Existing create receipt and handoff native records |
 | Deterministic execution | `SemanticGraphExecutionResult.terminal_stage` and exact `terminal_reason` |
@@ -788,8 +802,11 @@ projection sufficient for review:
 - exact Planner and Worker identities when invoked;
 - frozen generation settings and provider materialization names;
 - raw Planner and Worker responses and their existing records;
-- canonical graph and canonical edge set when admitted;
-- native compile, handoff, deterministic, and connect results when reached;
+- retained canonical graph and canonical edge set when owned by the native
+  deterministic result;
+- retained Worker-leaf load and partition results when owned by the native
+  Worker-leaf aggregate;
+- native handoff, deterministic, and connect results when reached;
 - exact call counts;
 - `structural_tier_attained`;
 - best-effort token, latency, and cost telemetry;
@@ -813,7 +830,8 @@ requires:
 - more than one operator script plus focused tests;
 - a benchmark scheduler or automatic matrix loop;
 - a new result hierarchy, trace framework, archive, or dataset manager;
-- more than 23 scored rows;
+- operator authorization or a supplied retained-result list that would exceed
+  23 scored rows;
 - more than two live Grasshopper rows;
 - a retry, fallback, repair, cleanup, or replacement-row mechanism;
 - knowledge retrieval, DSPy optimization, product UI, or model routing.
