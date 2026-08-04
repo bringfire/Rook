@@ -59,6 +59,7 @@ Before the first scored model call, freeze:
 - native receipt interpretation;
 - case intents and structural tier definitions;
 - the scored model roster and row order;
+- finalist eligibility and model-priority order;
 - local result projection.
 
 Do not patch prompts, schemas, compiler behavior, generation settings, fake
@@ -458,7 +459,12 @@ It checks exactly:
 - maximum topological depth;
 - primitive multiplicities;
 - Worker-leaf count;
-- the required single cross-edge when the case is a Worker-leaf case.
+- the required single cross-edge when the case is a Worker-leaf case;
+- exactly one weakly connected component for either medium case.
+
+Weak connectivity is computed over the canonical node IDs and canonical edges
+after treating every directed edge as undirected. It is checked only for the two
+medium tiers because only those frozen intents request one connected graph.
 
 It does not require the canonical edge set to equal the legal reference graph.
 Alternative wiring is permitted when it satisfies the same structural facts and
@@ -519,6 +525,12 @@ For Planner comparison, score the Planner response, strict loading, compilation,
 canonical graph, and structural-tier observation. Downstream causal fake behavior
 does not change Planner scoring.
 
+The deterministic row makes zero Worker transport or Worker model calls. The
+Worker-leaf row uses exactly one frozen fake Worker transport response through
+the existing Worker adapter and makes zero Worker model calls. The fake response
+supplies the existing valid `draft_create_body` action; it does not vary by
+Planner identity.
+
 New scored runs: **6**.
 
 ### Stage C: Worker identity
@@ -536,10 +548,59 @@ Only the Worker identity changes.
 
 New scored runs: **3**.
 
+### Frozen finalist selection
+
+Finalist promotion is mechanical and is frozen before the first scored call.
+Cost, latency, token usage, generated topology preferences, and subjective
+quality judgments do not affect it.
+
+Planner priority is:
+
+```text
+1. ollama_chat/qwen3.6:35b
+2. ollama_chat/gpt-oss:20b
+3. ollama_chat/qwen3:14b
+4. anthropic/claude-opus-4-6 control
+```
+
+A Planner is eligible only when both of its medium Planner rows have:
+
+- a returned Planner response;
+- strict graph admission;
+- admitted deterministic compilation or Worker-leaf partition compilation, as
+  appropriate;
+- `structural_tier_attained = true`.
+
+The Opus control is evaluated from the two identical medium rows already scored
+in Stage A. The other three Planners are evaluated from Stage B. No control row
+is rerun for promotion.
+
+Worker priority is:
+
+```text
+1. ollama_chat/north-mini-code-1.0:q4_K_M
+2. ollama_chat/gemma4:12b-it-qat
+3. ollama_chat/qwen3-coder:30b-a3b-q4_K_M control
+```
+
+A Worker is eligible only when its Stage C row returns one clean existing
+Worker-leaf transaction:
+
+- one admitted Worker action;
+- a clean Worker handoff terminal;
+- a clean deterministic terminal;
+- an exact successful connect response;
+- `completed = true`;
+- no retry, repair, update, fallback, or second Worker call.
+
+The Stage D pair is the first eligible Planner and first eligible Worker in those
+independent priority lists. If either list has no eligible model, Stages D and E
+do not run. No operator judgment or alternate pairing is permitted.
+
 ### Stage D: repeatability
 
-Select one Planner/Worker pair after Stages A–C without changing any harness
-setting. Run:
+Use only the mechanically selected pair without changing any harness setting.
+Run:
 
 - the medium Worker-leaf case three total times;
 - the maximum Worker-leaf case three total times.
@@ -547,6 +608,21 @@ setting. Run:
 A prior row counts as repetition one only when its exact intent, Planner model,
 Worker model, schemas, generation settings, and fake/live tool mode are identical.
 Do not rerun an identical scored row merely because it appears in this stage.
+
+The selected pair passes Stage D only when all three total medium Worker-leaf
+repetitions and all three total maximum Worker-leaf repetitions satisfy:
+
+- graph and partition admission;
+- `structural_tier_attained = true`;
+- clean Worker handoff terminal;
+- clean deterministic terminal;
+- exact connect evidence;
+- `completed = true`;
+- the frozen call budget with no retry, repair, update, or fallback.
+
+If any scheduled repetition does not satisfy that direct equation, Stage D
+records the existing result and Stage E does not run. No replacement pair is
+promoted.
 
 New scored runs: **up to 6**.
 
@@ -557,9 +633,11 @@ Run exactly two separately authorized live Grasshopper rows:
 1. one maximum legal deterministic case;
 2. one maximum legal Worker-leaf case.
 
-Each uses a prepared disposable canvas and the selected finalist identity or
-identity pair. Earlier Slice 1 and Slice 2 milestones already establish the
-minimum physical path; no minimum or medium live repetition is added here.
+Stage E is eligible only after the selected pair passes Stage D. Each live row
+uses a prepared disposable canvas and the mechanically selected finalist
+identity or identity pair. Earlier Slice 1 and Slice 2 milestones already
+establish the minimum physical path; no minimum or medium live repetition is
+added here.
 
 New scored runs: **2**.
 
