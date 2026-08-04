@@ -73,11 +73,20 @@ class TestFallbackModels(unittest.TestCase):
                     f"Profile '{name}' missing role '{role}'"
                 )
 
-    def test_default_sonnet_roles_use_sonnet_5(self):
-        """Sonnet-backed default roles use Sonnet 5; Opus planner stays Opus."""
-        assert FALLBACK_MODELS["planner"] == "anthropic/claude-opus-4-6"
-        for role in ("worker", "specialist", "guardian", "dspy"):
-            assert FALLBACK_MODELS[role] == "anthropic/claude-sonnet-5"
+    def test_cloud_fallback_uses_current_anthropic_model_ladder(self):
+        """No-profile startup uses the shipped Anthropic role defaults."""
+        assert FALLBACK_MODELS == {
+            "planner": "anthropic/claude-opus-5",
+            "worker": "anthropic/claude-sonnet-5",
+            "specialist": "anthropic/claude-sonnet-5",
+            "guardian": "anthropic/claude-haiku-4-5-20251001",
+            "dspy": "anthropic/claude-sonnet-5",
+        }
+
+        assert PlannerConfig().planner_model == FALLBACK_MODELS["planner"]
+        assert PlannerConfig().worker_model == FALLBACK_MODELS["worker"]
+        assert AgentConfig().model == FALLBACK_MODELS["worker"]
+        assert AgentConfig().guardian_llm_model == FALLBACK_MODELS["guardian"]
 
     def test_checked_in_profile_seed_matches_generated_defaults(self):
         """Packaged seed profiles must match first-run generated defaults."""

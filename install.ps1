@@ -977,10 +977,10 @@ function Step-WriteConfig {
             "# Optional overrides (uncomment to customize):"
             "# ROOK_LOG_LEVEL=INFO"
             "# ROOK_BRIDGE_URL=http://localhost:9876"
-            "# ROOK_PLANNER_MODEL=claude-sonnet-4-20250514"
-            "# ROOK_WORKER_MODEL=claude-haiku-4-5-20251001"
+            "# ROOK_PLANNER_MODEL=anthropic/claude-opus-5"
+            "# ROOK_WORKER_MODEL=anthropic/claude-sonnet-5"
             "# ROOK_MODEL_PROFILE=default"
-            "# DSPY_MODEL=anthropic/claude-haiku-4-5-20251001"
+            "# DSPY_MODEL=anthropic/claude-sonnet-5"
         ) -join "`n"
         $envContent | Set-Content $envExample -Encoding UTF8 -NoNewline
         Write-Host "      [OK] Created .env.example" -ForegroundColor Green

@@ -22,7 +22,7 @@ import rook.agent.worker_first_csharp_application as application
 
 _INTENT = "Create one clean C# component"
 _BODY = "A = 37.5;"
-_PLANNER_MODEL = "anthropic/claude-opus-4-6"
+_PLANNER_MODEL = "anthropic/claude-opus-5"
 _WORKER_MODEL = "ollama_chat/qwen3-coder:30b-a3b-q8_0"
 _API_BASE = "http://worker.invalid/v1"
 

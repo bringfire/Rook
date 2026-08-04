@@ -10,7 +10,7 @@ from rook.agent.model_profiles import ModelSet
 
 
 _INTENT = "Create one C# component."
-_PLANNER_MODEL = "anthropic/claude-opus-4-6"
+_PLANNER_MODEL = "anthropic/claude-opus-5"
 _WORKER_MODEL = "ollama_chat/qwen3-coder:30b-a3b-q8_0"
 _API_BASE = "http://profile.invalid/v1"
 

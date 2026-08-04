@@ -284,6 +284,69 @@ class TestViewportReadonlyGroup(unittest.TestCase):
 class TestSpawnReadonlyIntegration(unittest.TestCase):
     """run_task creates restricted registry for readonly personas."""
 
+    def test_profile_failure_uses_sonnet_5_worker_default(self):
+        from rook.agent.spawn import run_task
+
+        with patch(
+            "rook.agent.model_profiles.get_models",
+            side_effect=RuntimeError("profile unavailable"),
+        ):
+            with patch("rook.agent.base_agent.RookAgent") as mock_agent:
+                instance = MagicMock()
+                instance.prompt = AsyncMock()
+                instance.wait_for_idle = AsyncMock()
+                instance.messages = []
+                instance._total_input_tokens = 0
+                instance._total_output_tokens = 0
+                instance._total_cost = 0.0
+                instance._turn_count = 0
+                instance.config = MagicMock()
+                instance.config.model = "anthropic/claude-sonnet-5"
+                instance.config.guardian_enabled = False
+                mock_agent.return_value = instance
+
+                asyncio.run(
+                    run_task(
+                        "test task",
+                        catalog={},
+                        guardian_enabled=False,
+                        tool_executor=AsyncMock(),
+                    )
+                )
+
+        assert mock_agent.call_args.kwargs["config"].model == (
+            "anthropic/claude-sonnet-5"
+        )
+
+    def test_swarm_profile_failure_uses_sonnet_5_worker_default(self):
+        from rook.agent.spawn import SpawnResult, run_swarm
+
+        with patch(
+            "rook.agent.model_profiles.get_models",
+            side_effect=RuntimeError("profile unavailable"),
+        ):
+            with patch(
+                "rook.agent.spawn.run_task",
+                new_callable=AsyncMock,
+                return_value=SpawnResult(
+                    task_id="worker-1",
+                    status="success",
+                    task="test task",
+                ),
+            ) as mock_run_task:
+                asyncio.run(
+                    run_swarm(
+                        [{"task": "test task", "task_id": "worker-1"}],
+                        guardian_enabled=False,
+                        catalog={},
+                        tool_executor=AsyncMock(),
+                    )
+                )
+
+        assert mock_run_task.call_args.kwargs["model"] == (
+            "anthropic/claude-sonnet-5"
+        )
+
     def _run_with_agent_type(self, agent_type):
         """Run run_task with given agent_type, capture registry kwargs."""
         from rook.agent.spawn import run_task

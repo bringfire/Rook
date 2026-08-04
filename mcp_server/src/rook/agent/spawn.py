@@ -207,7 +207,7 @@ async def run_task(
 
     Args:
         task: Natural-language instruction for the agent.
-        model: LiteLLM model identifier (defaults to Haiku).
+        model: LiteLLM model identifier (defaults to the profile worker model).
         max_turns: Max agent turns before stopping.
         max_input_tokens: Token budget for the task.
         preload_groups: Tool groups to activate before prompting.
@@ -240,7 +240,7 @@ async def run_task(
                 api_base = _ms.api_base
         except Exception:
             if not model:
-                model = "anthropic/claude-haiku-4-5-20251001"
+                model = "anthropic/claude-sonnet-5"
 
     # Auto-build ToolDispatcher when no tool_executor provided.
     # This gives agents direct bridge access, bypassing MCP overhead.
@@ -548,7 +548,7 @@ async def run_swarm(
                 api_base = _ms.api_base
         except Exception:
             if not model:
-                model = "anthropic/claude-haiku-4-5-20251001"
+                model = "anthropic/claude-sonnet-5"
 
     _validate_asset_exclusivity(tasks)
 

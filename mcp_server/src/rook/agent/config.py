@@ -27,7 +27,7 @@ class AgentConfig:
     """
 
     # --- LLM ---
-    model: str = "anthropic/claude-haiku-4-5-20251001"
+    model: str = "anthropic/claude-sonnet-5"
     fallback_model: Optional[str] = None
     api_base: Optional[str] = None            # For local models (LM Studio, vLLM, etc.)
     max_tokens: int = 8192
@@ -121,8 +121,8 @@ class AgentConfig:
 class PlannerConfig:
     """Configuration for the Planner orchestrator.
 
-    The planner uses a stronger model (Sonnet) for task decomposition
-    and spawns workers with a cheaper model (Haiku) for execution.
+    The planner uses Opus for task decomposition and spawns workers with
+    Sonnet for execution.
 
     Model resolution priority (highest wins):
         1. Explicit ROOK_*_MODEL env vars
@@ -132,7 +132,7 @@ class PlannerConfig:
     """
 
     # --- Models (defaults match FALLBACK_MODELS in model_profiles.py) ---
-    planner_model: str = "anthropic/claude-opus-4-6"
+    planner_model: str = "anthropic/claude-opus-5"
     worker_model: str = "anthropic/claude-sonnet-5"
     api_base: Optional[str] = None         # For local providers (LM Studio, vLLM, Ollama)
 

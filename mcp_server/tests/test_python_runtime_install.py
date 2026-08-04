@@ -1220,6 +1220,19 @@ def test_chirp_install_uses_separate_guard_window(
     assert labels == ["Chirp"]
 
 
+def test_env_examples_advertise_current_chirp_default(tmp_path: Path) -> None:
+    post_install = load_post_install()
+    install_dir = tmp_path / "app"
+    chirp_dir = install_dir / "chirp"
+    (install_dir / "mcp_server").mkdir(parents=True)
+    chirp_dir.mkdir()
+
+    post_install.create_env_examples(install_dir, chirp_dir)
+
+    chirp_example = (chirp_dir / ".env.example").read_text(encoding="utf-8")
+    assert "# CHIRP_MODEL=anthropic/claude-opus-5" in chirp_example
+
+
 def test_retired_skill_migration_replaces_selected_rook_skill_root_exactly(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -35,10 +35,10 @@ _cached_mtime: float = 0.0
 
 # ── Hardcoded fallbacks (match current PlannerConfig defaults exactly) ────
 FALLBACK_MODELS: Dict[str, str] = {
-    "planner": "anthropic/claude-opus-4-6",
+    "planner": "anthropic/claude-opus-5",
     "worker": "anthropic/claude-sonnet-5",
     "specialist": "anthropic/claude-sonnet-5",
-    "guardian": "anthropic/claude-sonnet-5",
+    "guardian": "anthropic/claude-haiku-4-5-20251001",
     "dspy": "anthropic/claude-sonnet-5",
 }
 
@@ -108,7 +108,7 @@ def api_base_for_model(model: str, profile_api_base: Optional[str]) -> Optional[
     api_base.
 
     Args:
-        model: LiteLLM model identifier (e.g., "anthropic/claude-opus-4-6",
+        model: LiteLLM model identifier (e.g., "anthropic/claude-opus-5",
                "ollama_chat/qwen3:30b", "openai/lmstudio-model").
         profile_api_base: The api_base from the active model profile.
 

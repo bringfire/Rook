@@ -4,15 +4,15 @@
   "profiles": {
     "cloud": {
       "description": "Full Anthropic API (highest quality, costs money)",
-      "planner": "anthropic/claude-opus-4-6",
+      "planner": "anthropic/claude-opus-5",
       "worker": "anthropic/claude-sonnet-5",
       "specialist": "anthropic/claude-sonnet-5",
-      "guardian": "anthropic/claude-sonnet-5",
+      "guardian": "anthropic/claude-haiku-4-5-20251001",
       "dspy": "anthropic/claude-sonnet-5"
     },
     "hybrid": {
       "description": "Cloud planner + local workers (best balance)",
-      "planner": "anthropic/claude-opus-4-6",
+      "planner": "anthropic/claude-opus-5",
       "worker": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
       "specialist": "anthropic/claude-sonnet-5",
       "guardian": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
@@ -20,7 +20,7 @@
     },
     "lmstudio": {
       "description": "Cloud planner + LM Studio local workers",
-      "planner": "anthropic/claude-opus-4-6",
+      "planner": "anthropic/claude-opus-5",
       "worker": "openai/lmstudio-model",
       "specialist": "anthropic/claude-sonnet-5",
       "guardian": "openai/lmstudio-model",
@@ -37,7 +37,7 @@
     },
     "finetuned": {
       "description": "Cloud planner + fine-tuned local workers",
-      "planner": "anthropic/claude-opus-4-6",
+      "planner": "anthropic/claude-opus-5",
       "worker": "ollama_chat/rook-worker",
       "specialist": "anthropic/claude-sonnet-5",
       "guardian": "ollama_chat/rook-worker",

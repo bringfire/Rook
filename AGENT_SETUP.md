@@ -264,9 +264,9 @@ bundled CPython 3.11.9 runtime:
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` | Powers DSPy intent resolution and agent system | None (falls back to simpler lookup) |
 | `ROOK_LOG_LEVEL` | Logging verbosity | INFO |
-| `DSPY_MODEL` | Model for DSPy operations | `anthropic/claude-haiku-4-5-20251001` |
-| `ROOK_PLANNER_MODEL` | Model for agent planner | `claude-sonnet-4-20250514` |
-| `ROOK_WORKER_MODEL` | Model for agent workers | `claude-haiku-4-5-20251001` |
+| `DSPY_MODEL` | Model for DSPy operations | `anthropic/claude-sonnet-5` |
+| `ROOK_PLANNER_MODEL` | Model for agent planner | `anthropic/claude-opus-5` |
+| `ROOK_WORKER_MODEL` | Model for agent workers | `anthropic/claude-sonnet-5` |
 
 Set these in `mcp_server/.env` or as system environment variables.
 

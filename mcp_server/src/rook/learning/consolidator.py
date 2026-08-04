@@ -321,7 +321,7 @@ class IntelligentConsolidator(dspy.Module):
         from rook.learning.consolidator import IntelligentConsolidator
 
         # Configure DSPy with Claude backend
-        configure_dspy(model="claude-sonnet-4-20250514")
+        configure_dspy(model="anthropic/claude-sonnet-5")
 
         # Create consolidator
         consolidator = IntelligentConsolidator()

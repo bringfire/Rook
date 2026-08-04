@@ -895,7 +895,7 @@ def create_env_examples(install_dir: Path, chirp_dir: Path | None = None) -> Non
                 "ANTHROPIC_API_KEY=your-key-here\n"
                 "\n"
                 "# Optional overrides\n"
-                "# CHIRP_MODEL=anthropic/claude-sonnet-4-20250514\n"
+                "# CHIRP_MODEL=anthropic/claude-opus-5\n"
                 "# CHIRP_PORT=0\n"
                 "# CHIRP_TRACE_DIR=./traces\n",
                 encoding="utf-8",
