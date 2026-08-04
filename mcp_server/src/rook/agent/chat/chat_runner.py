@@ -802,6 +802,10 @@ class ChatRunner:
         """
         if tool_access not in {"full", "readonly"}:
             raise ValueError("tool_access must be 'full' or 'readonly'")
+        if mcp_capability_executor is not None and not callable(
+            mcp_capability_executor
+        ):
+            raise TypeError("mcp_capability_executor must be callable")
 
         self._mcp_capability_executor = mcp_capability_executor
         self._mcp_capability_schemas = tuple(

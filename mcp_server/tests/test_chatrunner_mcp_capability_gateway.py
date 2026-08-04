@@ -103,6 +103,21 @@ def test_chatrunner_rejects_unknown_tool_access_before_surface_construction(
         )
 
 
+@pytest.mark.parametrize("invalid_executor", [object(), False, 0])
+def test_chatrunner_rejects_noncallable_gateway_before_surface_construction(
+    minimal_registry, invalid_executor
+):
+    with pytest.raises(
+        TypeError,
+        match="mcp_capability_executor must be callable",
+    ):
+        ChatRunner(
+            tool_executor=AsyncMock(),
+            registry=minimal_registry,
+            mcp_capability_executor=invalid_executor,
+        )
+
+
 def test_registry_gateway_copy_is_hidden_or_replaced_by_canonical_schema():
     rogue_schema = {
         "type": "function",
