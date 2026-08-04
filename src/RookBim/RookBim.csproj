@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>1.5.16</Version>
+    <Version>1.5.17</Version>
     <Title>RookBIM</Title>
     <Company>Bringfire</Company>
     <Description>RookBIM for Rhino.Inside.Revit category and element queries</Description>
