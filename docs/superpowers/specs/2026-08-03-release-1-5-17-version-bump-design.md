@@ -22,7 +22,7 @@ The bump contains 14 version edits across exactly these ten files:
 | File | Required edit |
 |---|---|
 | `mcp_server/pyproject.toml` | Package version |
-| `mcp_server/uv.lock` | Local `rook-mcp` package version only |
+| `mcp_server/uv.lock` | Generated local `rook-mcp` version plus the accepted `uv 0.11.3` marker normalization |
 | `installer/RookSetup.iss` | `MyAppVersion` |
 | `src/Rook/Rook.csproj` | Project version |
 | `src/RookBim/RookBim.csproj` | Project version |
@@ -32,8 +32,9 @@ The bump contains 14 version edits across exactly these ten files:
 | `.claude-plugin/plugin.json` | Plug-in manifest version |
 | `.claude-plugin/marketplace.json` | Marketplace metadata version and plug-in version |
 
-No other file or field changes. Avoid incidental whitespace, ordering, or formatting
-movement. Commit the complete bump atomically as one commit.
+No other file or field changes. Outside the generated lock normalization, avoid
+incidental whitespace, ordering, or formatting movement. Commit the complete bump
+atomically as one commit.
 
 ## Version and lock flow
 
@@ -42,11 +43,21 @@ from that commit. Change `mcp_server/pyproject.toml` to `1.5.17`; this is the ca
 version from which verification derives the expected value. Update every other
 declared version field to match.
 
-Never edit `mcp_server/uv.lock` manually. Run `uv lock` normally after changing
-`pyproject.toml`. The lock diff must change only the version in the single
-`[[package]]` block whose name is `rook-mcp`, from `1.5.16` to `1.5.17`. Any change
-to a third-party package, dependency, source, resolution, wheel, or hash stops the
-work for review.
+Never edit `mcp_server/uv.lock` manually. Use the installed official generator at
+`C:\Users\aryan\.local\bin\uv.exe`, record its path, version, and SHA-256, and
+require version `uv 0.11.3`. Run that binary normally after changing
+`pyproject.toml`.
+
+The accepted generated lock diff is exactly `60` deletions and `60` additions:
+
+- one local `rook-mcp` version replacement from `1.5.16` to `1.5.17`; and
+- 59 dependency-edge marker-normalization replacements.
+
+For every marker replacement, removing only the `marker` attribute from the old and
+new dependency edge must leave byte-identical package name, package version, source,
+and dependency target text. No third-party package version, dependency target,
+source, resolution, wheel, or hash may change. Any different generated movement
+stops the work for review.
 
 ## Verification contract
 
@@ -56,11 +67,22 @@ Before committing and again at the reviewed head:
    version field to match, including all four native resource values and both
    marketplace fields.
 2. Require the changed-path set to equal the ten-file inventory above.
-3. Inspect the lock structurally and require its sole semantic change to be the local
-   `rook-mcp` version.
-4. Check only the declared version fields for remaining `1.5.16`. Historical text and
+3. Use `git diff --numstat` against the recorded bump base and require this exact
+   diff shape: each of the seven ordinary non-lock files reports `1` deletion and
+   `1` addition; `src/RookNative/RookNative.rc` reports `4` deletions and `4`
+   additions; `.claude-plugin/marketplace.json` reports `2` deletions and `2`
+   additions; and `mcp_server/uv.lock` reports `60` deletions and `60` additions.
+   The totals must be exactly `73` deletions and `73` additions.
+4. Inspect every hunk in the normal Git diff. Outside `uv.lock`, every removed
+   version token must be `1.5.16`, every added version token must be `1.5.17`, and
+   no other content may change. In `uv.lock`, require exactly the one project-version
+   pair and 59 marker-only pairs defined above. This is a review step, not a new
+   script or versioning framework.
+5. Inspect the lock structurally and require its sole semantic change to be the local
+   `rook-mcp` version; the 59 additional pairs are serializer normalization only.
+6. Check only the declared version fields for remaining `1.5.16`. Historical text and
    unrelated dependency versions are not searched or rewritten.
-5. Run:
+7. Run:
    - `scripts/tests/release-surface-hygiene.tests.ps1`
    - `claude plugin validate --strict .`
    - `uv lock --check --directory mcp_server`
