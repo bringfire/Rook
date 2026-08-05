@@ -581,6 +581,57 @@ def test_python_smoke_evidence_seed_preserves_explicit_release_env(
     assert os.environ["ROOK_INSTALL_ROOT"] == str(rook_root / "app")
 
 
+def test_installed_live_environment_overrides_source_chirp_home(monkeypatch, tmp_path: Path):
+    local_appdata = tmp_path / "AppData" / "Local"
+    rook_root = local_appdata / "Rook"
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    chirp_home = rook_root / "app" / "chirp"
+    (chirp_home / "src" / "chirp").mkdir(parents=True)
+    (chirp_home / ".venv" / "Scripts").mkdir(parents=True)
+    (chirp_home / ".venv" / "Scripts" / "python.exe").write_text("fake", encoding="utf-8")
+    installed_module = rook_root / "venv" / "Lib" / "site-packages" / "rook" / "local_testing_proof.py"
+    installed_module.parent.mkdir(parents=True)
+    installed_module.write_text("# installed", encoding="utf-8")
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("fake", encoding="utf-8")
+
+    monkeypatch.setattr(proof.sys, "executable", str(venv_python))
+    monkeypatch.setattr(proof, "__file__", str(installed_module))
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+    monkeypatch.setenv("CHIRP_HOME", str(tmp_path / "source" / "Chirp"))
+    monkeypatch.setenv("ROOK_INSTALL_ROOT", str(tmp_path / "source" / "Rook"))
+    monkeypatch.setenv("ROOK_MODE", "dev")
+
+    details = proof._require_installed_live_environment()
+
+    assert details["chirp_home"] == str(chirp_home)
+    assert os.environ["CHIRP_HOME"] == str(chirp_home)
+    assert os.environ["ROOK_INSTALL_ROOT"] == str(rook_root / "app")
+    assert os.environ["ROOK_DATA_DIR"] == str(rook_root / "data")
+    assert os.environ["ROOK_MODE"] == "release"
+
+
+def test_installed_live_environment_rejects_source_shadowing(monkeypatch, tmp_path: Path):
+    local_appdata = tmp_path / "AppData" / "Local"
+    rook_root = local_appdata / "Rook"
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    chirp_home = rook_root / "app" / "chirp"
+    (chirp_home / "src" / "chirp").mkdir(parents=True)
+    (chirp_home / ".venv" / "Scripts").mkdir(parents=True)
+    (chirp_home / ".venv" / "Scripts" / "python.exe").write_text("fake", encoding="utf-8")
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("fake", encoding="utf-8")
+
+    monkeypatch.setattr(proof.sys, "executable", str(venv_python))
+    monkeypatch.setattr(proof, "__file__", str(tmp_path / "source" / "rook" / "local_testing_proof.py"))
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        proof._require_installed_live_environment()
+
+    assert exc.value.failure_label == "rook_import_leakage"
+
+
 def test_verify_command_knowledge_runtime_requires_grasshopper_preflight(monkeypatch):
     class FakeStore:
         def layering_diagnostics(self):
@@ -838,10 +889,12 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
                     },
                 }
             providers = json.loads(os.environ["CHIRP_PROVIDERS"])
-            provider = providers["openai/rook-timeout-acceptance"]
+            model_key = os.environ["CHIRP_MODEL"]
+            assert model_key.startswith("openai/rook-timeout-acceptance-")
+            provider = providers[model_key]
             payload = _post_json(
                 provider["api_base"] + "/chat/completions",
-                {"model": "rook-timeout-acceptance", "messages": []},
+                {"model": model_key.split("/", 1)[1], "messages": []},
             )
             assert "slow-ok" in payload["choices"][0]["message"]["content"]
             return {
@@ -868,11 +921,17 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
         return inventories.pop(0)
 
     monkeypatch.setenv("CHIRP_MODEL", "prior-model")
+    monkeypatch.delenv("CHIRP_CACHE", raising=False)
     monkeypatch.delenv("CHIRP_PROVIDERS", raising=False)
     monkeypatch.delenv("CHIRP_TIMEOUT_ACCEPTANCE_API_KEY", raising=False)
     monkeypatch.delenv("CHIRP_INFERENCE_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(proof, "_call_tool_dispatch", dispatch)
     monkeypatch.setattr(proof, "call_rhino", call_rhino)
+    monkeypatch.setattr(
+        proof,
+        "_stop_owned_chirp_sidecar",
+        lambda: {"attempted": True, "success": True, "pid": 1234, "forced": False},
+    )
 
     async def progressive(_args):
         return {"target": "gh_status", "target_hidden": True}
@@ -883,12 +942,12 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
         port=9001,
         process_id=42,
         artifact_dir=tmp_path,
-        slow_provider_delay_seconds=0.02,
+        slow_provider_delay_seconds=0.05,
     )
     evidence = result["slow_inference"]
 
     assert evidence["output"] == "slow-ok"
-    assert evidence["elapsed_seconds"] >= 0.02
+    assert evidence["elapsed_seconds"] >= 0.05
     assert evidence["provider"]["request_count"] == 1
     assert evidence["cleanup"]["component_removed"] is True
     assert evidence["sidecar_cleanup"]["success"] is True
@@ -896,6 +955,8 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
     assert "CHIRP_PROVIDERS" not in os.environ
     assert "CHIRP_TIMEOUT_ACCEPTANCE_API_KEY" not in os.environ
     assert "CHIRP_INFERENCE_TIMEOUT_SECONDS" not in os.environ
+    assert "CHIRP_CACHE" not in os.environ
+    assert evidence["sidecar_cleanup"]["attempted"] is True
     assert [name for name, _ in calls].count("gh_inspect_output") == 1
     create_args = [args for name, args in calls if name == "chirp_create"][1]
     assert "deterministic_code" not in create_args
@@ -2459,6 +2520,32 @@ def test_write_json_writes_gate_envelope(tmp_path: Path):
     assert payload["failure_label"] is None
 
 
+def test_live_smoke_gate_requires_installed_environment(monkeypatch, tmp_path: Path):
+    calls = []
+
+    def require_installed_environment():
+        calls.append("installed")
+        return {"chirp_home": "C:/installed/Rook/app/chirp"}
+
+    def run_coroutine(coroutine):
+        coroutine.close()
+        return {"slow_inference": {}}
+
+    monkeypatch.setattr(proof, "_require_installed_live_environment", require_installed_environment)
+    monkeypatch.setattr(proof.asyncio, "run", run_coroutine)
+    monkeypatch.setenv("ROOK_HARNESS_ARTIFACT_DIR", str(tmp_path))
+
+    result = proof.live_smoke_gate(
+        ["python", "-m", "rook.local_testing_proof", "live-smoke"],
+        port=9876,
+        process_id=1234,
+    )
+
+    assert result.success is True
+    assert calls == ["installed"]
+    assert result.details["installed_environment"]["chirp_home"].endswith("app/chirp")
+
+
 def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tmp_path: Path):
     calls = {}
     live_envelope = {
@@ -2495,9 +2582,15 @@ def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tm
             }
 
     def fake_run_harness(**kwargs):
+        assert os.environ["CHIRP_HOME"] == "C:/installed/Rook/app/chirp"
         calls.update(kwargs)
         return FakeHarnessResult()
 
+    def require_installed_environment():
+        monkeypatch.setenv("CHIRP_HOME", "C:/installed/Rook/app/chirp")
+        return {"chirp_home": "C:/installed/Rook/app/chirp"}
+
+    monkeypatch.setattr(proof, "_require_installed_live_environment", require_installed_environment)
     monkeypatch.setattr(proof, "run_rhino_runtime_harness", fake_run_harness)
 
     result = proof.owned_release_readiness_gate(
@@ -2531,6 +2624,7 @@ def test_owned_release_readiness_requires_progressive_evidence_on_success(
         def to_manifest_dict(self):
             return {"success": True, "smoke": {"stdout": self.smoke.stdout}}
 
+    monkeypatch.setattr(proof, "_require_installed_live_environment", lambda: {})
     monkeypatch.setattr(
         proof, "run_rhino_runtime_harness", lambda **_: FakeHarnessResult()
     )
@@ -2568,6 +2662,7 @@ def test_owned_release_readiness_preserves_live_smoke_failure_label(monkeypatch,
         def to_manifest_dict(self):
             return {"success": False, "smoke": {"stdout": self.smoke.stdout}}
 
+    monkeypatch.setattr(proof, "_require_installed_live_environment", lambda: {})
     monkeypatch.setattr(proof, "run_rhino_runtime_harness", lambda **_: FakeHarnessResult())
 
     result = proof.owned_release_readiness_gate(

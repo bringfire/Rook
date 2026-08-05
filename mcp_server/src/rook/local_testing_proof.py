@@ -877,6 +877,77 @@ def seed_release_env_from_installed_venv() -> bool:
     return True
 
 
+def _require_installed_live_environment() -> dict[str, str]:
+    """Force live acceptance onto the installed release and Chirp payload."""
+
+    if not seed_release_env_from_installed_venv():
+        raise ProofFailure(
+            "installed_runtime_path_mismatch",
+            "live acceptance must run from the installed Rook virtual environment",
+            {"python": str(Path(sys.executable).resolve())},
+        )
+
+    runtime_root = Path(sys.executable).resolve().parent.parent.parent
+    expected_rook_root = runtime_root / "venv" / "Lib" / "site-packages" / "rook"
+    assert_path_under(
+        Path(__file__).resolve(),
+        expected_rook_root,
+        "rook_import_leakage",
+    )
+    install_root = runtime_root / "app"
+    data_root = runtime_root / "data"
+    chirp_home = install_root / "chirp"
+    chirp_package = chirp_home / "src" / "chirp"
+    chirp_python = chirp_home / ".venv" / "Scripts" / "python.exe"
+    missing = [
+        str(path)
+        for path in (chirp_package, chirp_python)
+        if not path.exists()
+    ]
+    if missing:
+        raise ProofFailure(
+            "installed_runtime_path_mismatch",
+            "installed Chirp payload is incomplete",
+            {"missing": missing},
+        )
+
+    os.environ.update(
+        {
+            "ROOK_INSTALL_ROOT": str(install_root),
+            "ROOK_DATA_DIR": str(data_root),
+            "ROOK_MODE": "release",
+            "CHIRP_HOME": str(chirp_home),
+            "DSPY_CACHEDIR": str(data_root / "dspy-cache"),
+            "ROOK_DSPY_RESTRICT_PICKLE": "1",
+            "PYTHONPATH": "",
+            "PYTHONHOME": "",
+        }
+    )
+    runtime_paths_module._cached_runtime_paths = None
+    paths = resolve_runtime_paths()
+    if (
+        paths.mode != "release"
+        or _norm(paths.install_root) != _norm(install_root)
+        or _norm(paths.data_root) != _norm(data_root)
+    ):
+        raise ProofFailure(
+            "installed_runtime_path_mismatch",
+            "live acceptance did not resolve to the installed release roots",
+            {
+                "mode": paths.mode,
+                "install_root": str(paths.install_root),
+                "data_root": str(paths.data_root),
+            },
+        )
+    return {
+        "runtime_root": str(runtime_root),
+        "install_root": str(install_root),
+        "data_root": str(data_root),
+        "chirp_home": str(chirp_home),
+        "chirp_python": str(chirp_python),
+    }
+
+
 def verify_installed_runtime(command: list[str]) -> GateResult:
     started = time.monotonic()
     try:
@@ -2063,12 +2134,17 @@ async def run_live_smoke(
             else nullcontext(None)
         )
         with provider_context as provider:
+            acceptance_model = (
+                f"openai/rook-timeout-acceptance-{provider.port}"
+                if provider is not None
+                else None
+            )
             environment = (
                 {
-                    "CHIRP_MODEL": "openai/rook-timeout-acceptance",
+                    "CHIRP_MODEL": acceptance_model,
                     "CHIRP_PROVIDERS": json.dumps(
                         {
-                            "openai/rook-timeout-acceptance": {
+                            acceptance_model: {
                                 "api_base": f"http://{provider.host}:{provider.port}/v1",
                                 "api_key_env": "CHIRP_TIMEOUT_ACCEPTANCE_API_KEY",
                             }
@@ -2077,6 +2153,7 @@ async def run_live_smoke(
                     ),
                     "CHIRP_TIMEOUT_ACCEPTANCE_API_KEY": "loopback-only",
                     "CHIRP_INFERENCE_TIMEOUT_SECONDS": "300",
+                    "CHIRP_CACHE": "false",
                 }
                 if provider is not None
                 else {}
@@ -2155,6 +2232,12 @@ async def run_live_smoke(
             if result is None:
                 raise ProofFailure("installed_runtime_failed", "live smoke produced no result")
             if sidecar_cleanup is not None:
+                if sidecar_cleanup.get("attempted") is not True:
+                    raise ProofFailure(
+                        "chirp_sidecar_ownership_missing",
+                        "slow inference acceptance did not own the Chirp sidecar",
+                        {"sidecar_cleanup": sidecar_cleanup},
+                    )
                 result["slow_inference"]["sidecar_cleanup"] = sidecar_cleanup
             return result
     finally:
@@ -2172,6 +2255,7 @@ def live_smoke_gate(
 ) -> GateResult:
     started = time.monotonic()
     try:
+        installed_environment = _require_installed_live_environment()
         raw_artifact_dir = os.environ.get("ROOK_HARNESS_ARTIFACT_DIR")
         if not raw_artifact_dir:
             raise ProofFailure(
@@ -2186,6 +2270,7 @@ def live_smoke_gate(
                 artifact_dir=Path(raw_artifact_dir),
             )
         )
+        details["installed_environment"] = installed_environment
         return GateResult.passed(
             gate="live_smoke",
             command=command,
@@ -2277,6 +2362,17 @@ def owned_release_readiness_gate(
     cleanup_timeout_seconds: float,
 ) -> GateResult:
     started = time.monotonic()
+    try:
+        installed_environment = _require_installed_live_environment()
+    except ProofFailure as exc:
+        return GateResult.failure(
+            gate="owned_release_readiness",
+            failure_label=exc.failure_label,
+            command=command,
+            started_at=started,
+            ended_at=time.monotonic(),
+            details=exc.details,
+        )
     harness = run_rhino_runtime_harness(
         rhino_exe=rhino_exe,
         artifact_root=artifact_root,
@@ -2290,6 +2386,7 @@ def owned_release_readiness_gate(
     )
     cleanup = _cleanup_payload(harness.cleanup_status.value)
     details = harness.to_manifest_dict()
+    details["installed_environment"] = installed_environment
     smoke = getattr(harness, "smoke", None)
     envelope = _live_smoke_envelope(getattr(smoke, "stdout", "") or "")
     envelope_details = envelope.get("details") if isinstance(envelope, dict) else None

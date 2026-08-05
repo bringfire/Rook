@@ -15474,7 +15474,13 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     except Exception as e:
                         result = {"success": False, "data": f"chirp_create failed: {str(e)}"}
 
-            if not terminal_timeout_configuration:
+            result_data = result.get("data") if isinstance(result, dict) else None
+            deferred_inference_creation = (
+                not deterministic_only
+                and isinstance(result_data, dict)
+                and result_data.get("verification_deferred") is True
+            )
+            if not terminal_timeout_configuration and not deferred_inference_creation:
                 await _record_gh_to_session(
                     action="chirp_create",
                     params=arguments,

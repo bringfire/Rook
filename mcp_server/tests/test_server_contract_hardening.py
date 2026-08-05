@@ -1379,7 +1379,7 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
         routes.append(route)
         if route == "/gh/document":
-            return {"success": True, "data": {"name": "TestDoc"}}
+            raise AssertionError("deferred inference must not inspect /gh/document")
         if route == "/gh/create-component":
             return {"success": True, "data": {"guid": "chirp-guid"}}
         if route == "/gh/script-params":
@@ -1443,6 +1443,7 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
         },
     )
     payload = _decode_response(response)
+    assert "/gh/document" not in routes
 
     assert payload["success"] is True
     assert payload["data"]["pins_in"] == [{
