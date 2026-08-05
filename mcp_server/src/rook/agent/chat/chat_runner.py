@@ -1152,6 +1152,13 @@ class ChatRunner:
                 full_text = "".join(text_parts)
                 tool_calls_list = tool_calls_acc
 
+                if not full_text and not tool_calls_list:
+                    yield ChatEvent(
+                        "error",
+                        content="Model returned no text or tool calls.",
+                    )
+                    break
+
                 assistant_msg: Dict[str, Any] = {"role": "assistant"}
                 if full_text:
                     assistant_msg["content"] = full_text

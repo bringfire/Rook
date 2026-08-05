@@ -72,6 +72,19 @@ def _make_text_response(text, prompt_tokens=10, completion_tokens=5):
     return _gen()
 
 
+def _make_empty_response(prompt_tokens=10, completion_tokens=0):
+    async def _gen():
+        final = MagicMock()
+        final.choices = []
+        final.usage = MagicMock(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+        yield final
+
+    return _gen()
+
+
 def _make_tool_response(tool_name, tool_args, tool_call_id="call_123",
                         text=None, prompt_tokens=10, completion_tokens=5):
     """Helper: return an async streaming generator that requests a tool call."""
@@ -201,6 +214,33 @@ async def test_run_turn_appends_user_message(runner, conversation):
     types = [e.type for e in events]
     assert "text_delta" in types
     assert "done" in types
+
+
+@pytest.mark.asyncio
+async def test_run_turn_empty_completion_emits_error_without_assistant_history(
+    runner, conversation
+):
+    completion = AsyncMock(return_value=_make_empty_response())
+    events = []
+    with patch(
+        "rook.agent.chat.chat_runner.litellm.acompletion",
+        completion,
+    ), _runtime_facts_patch():
+        async for event in runner.run_turn(
+            conversation,
+            "Retain this user request",
+            system_prompt="test",
+        ):
+            events.append(event)
+
+    assert [event.type for event in events] == ["error", "done"]
+    assert events[0].content == "Model returned no text or tool calls."
+    assert conversation.messages == [
+        {"role": "user", "content": "Retain this user request"}
+    ]
+    completion.assert_awaited_once()
+    runner._tool_executor.assert_not_awaited()
+    assert conversation.active_run_id is None
 
 
 @pytest.mark.asyncio
