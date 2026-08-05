@@ -948,9 +948,9 @@ qualification without later explicit authorization.
 - [x] Task 1 valid RED recorded.
 - [x] Task 1 commit, growth, and independent approval recorded.
 - [x] Task 2 begins only after Task 1 approval.
-- [ ] Task 2 valid RED and writer/input results recorded.
-- [ ] Task 2 commit, operator line count, growth, and independent approval recorded.
-- [ ] Task 3 begins only after Task 2 approval.
+- [x] Task 2 valid RED and writer/input results recorded.
+- [x] Task 2 commit, operator line count, growth, and independent approval recorded.
+- [x] Task 3 begins only after Task 2 approval.
 - [ ] Task 3 causal vertical, targeting, failure, and snapshot results recorded.
 - [ ] Task 3 commit, operator line count, growth, and independent approval recorded.
 - [ ] Final focused and adjacent seams recorded.
@@ -970,3 +970,15 @@ qualification without later explicit authorization.
 - Growth: ChatRunner `+7/-0`; focused tests `+40/-0`; recorder script absent.
 - Independent approval: 2026-08-05; adjacent seam `3 passed`; no findings.
 - External contact: none.
+
+### Task 2 evidence
+
+- Valid RED: 55 focused cases reached the importable skeleton and failed on
+  missing loader/writer behavior rather than collection.
+- Main commit: `4ffb070db89a8d22684dc7bb522511245d143bb2`.
+- UTF-8 repair commit: `967466aab9d7aac7e66c6b38630c668f6903a0ec`.
+- Verification: `57 passed` focused and `338 passed` with the existing flight
+  recorder seam; compilation and `git diff --check` passed.
+- Growth: operator `+300/-0`, 260 nonblank lines; ChatRunner remains `+7/-0`.
+- Independent approval: 2026-08-05; focused seam `57 passed`; no findings.
+- External contact: none; capability composition remains absent.
