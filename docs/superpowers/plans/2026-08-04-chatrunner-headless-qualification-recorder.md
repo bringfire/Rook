@@ -923,15 +923,20 @@ git diff --numstat fa45d4e6 -- `
 git diff --name-only fa45d4e6...HEAD
 ```
 
-The complete implementation range must contain exactly:
+The complete branch range must contain exactly:
 
 ```text
+docs/superpowers/specs/2026-08-04-chatrunner-headless-qualification-recorder-design.md
 mcp_server/src/rook/agent/chat/chat_runner.py
 mcp_server/tests/test_chat_runner.py
 scripts/chatrunner_headless_qualification.py
 mcp_server/tests/test_chatrunner_headless_qualification.py
 docs/superpowers/plans/2026-08-04-chatrunner-headless-qualification-recorder.md
 ```
+
+The specification is present because approved ownership correction commit
+`c45cb64b` followed the original `fa45d4e6` scope baseline; it is not an
+implementation expansion.
 
 - [ ] **Step 5: Reconcile the ledger with exact evidence**
 
@@ -964,12 +969,12 @@ qualification without later explicit authorization.
 - [x] Task 3 begins only after Task 2 approval.
 - [x] Original 350-line estimate fired at 260 before Task 3; reviewed 450-line
   hard stop recorded.
-- [ ] Task 3 causal vertical, targeting, failure, and snapshot results recorded.
-- [ ] Task 3 commit, operator line count, growth, and independent approval recorded.
-- [ ] Final focused and adjacent seams recorded.
-- [ ] Compilation, source scans, scope, and `git diff --check` recorded.
-- [ ] Zero external contact recorded.
-- [ ] Final reconciliation commit and clean worktree recorded.
+- [x] Task 3 causal vertical, targeting, failure, and snapshot results recorded.
+- [x] Task 3 commit, operator line count, growth, and independent approval recorded.
+- [x] Final focused and adjacent seams recorded.
+- [x] Compilation, source scans, scope, and `git diff --check` recorded.
+- [x] Zero external contact recorded.
+- [x] Final reconciliation commit and clean worktree recorded.
 
 ### Task 1 evidence
 
@@ -995,3 +1000,50 @@ qualification without later explicit authorization.
 - Growth: operator `+300/-0`, 260 nonblank lines; ChatRunner remains `+7/-0`.
 - Independent approval: 2026-08-05; focused seam `57 passed`; no findings.
 - External contact: none; capability composition remains absent.
+
+### Task 3 evidence
+
+- Valid RED: the causal stream reached the approved Task 2 surface and failed
+  only because `_consume_events` was absent; the production-composition RED
+  then failed only because `_run_row` was absent.
+- Main commit: `b24cc90473a6ac4d51ad29ebed02ad44ccc43047`.
+- Ownership-repair RED: an injected `PromptBuilder` exception escaped after
+  trace creation, left the trace open, and lost its path.
+- Ownership-repair commit: `df51da11629137e2a25b89762bd306a32b9d5f52`.
+- Verification after repair: `84 passed`, 11 pre-existing DSPy warnings;
+  compilation and `git diff --check` passed.
+- The causal vertical proves event flush before generator resume, exact flat
+  `ChatEvent` recording, shallow targeting refusal before dispatch, drift and
+  incomplete-stream stops, the real ChatRunner gateway seam, one eligible
+  final snapshot through the same canonical executor, and bounded close/error
+  outcomes without external contact.
+- Growth: Task 3 main commit added 212 physical operator lines; the repair was
+  `+5/-5`. Operator growth was 260 to exactly 450 nonblank lines. Complete
+  production growth from `fa45d4e6` is ChatRunner `+7/-0` plus operator
+  `+512/-0`, or `+519/-0` total.
+- Independent approval: 2026-08-05; `84 passed`, compilation,
+  `git diff --check`, clean worktree, and `450/450` independently reproduced;
+  no findings.
+
+### Task 4 final evidence
+
+- Focused recorder/ChatRunner seam: `197 passed`, 11 pre-existing DSPy
+  warnings.
+- Adjacent recorder/service seam: `409 passed`, exactly 2 pre-existing
+  knowledge-route failures, and 7 warnings. The failure identities and
+  signatures match the recorded clean baseline:
+  - `TestKnowledgeGraphRoutes::test_knowledge_graph_returns_valid_payload`:
+    expected `UnifiedStore`, observed `UnifiedStore+CommandKnowledgeStore`.
+  - `TestKnowledgeGraphRoutes::test_knowledge_note_found`: note `cmd_-Align`
+    returned 500 because `ModeKnowledge` is not JSON serializable.
+- Compilation passed for ChatRunner, the operator, and their focused tests.
+  Source scans found no recorder implementation outside the operator and no
+  recorder hook in ChatRunner. `git diff --check` passed.
+- Growth gate: `OPERATOR_NONBLANK=450`; the reviewed 350 threshold is crossed
+  and the absolute 450 limit is not exceeded.
+- Exact branch scope from `fa45d4e6` is the six files listed in Task 4 Step 4,
+  including the approved post-baseline specification correction.
+- External contact: zero model, provider, Ollama, MCP, Rhino, or Grasshopper
+  calls occurred during implementation or verification.
+- Reconciliation: this documentation-only commit records the final ledger;
+  the worktree is required to be clean immediately after the commit.
