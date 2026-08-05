@@ -194,7 +194,7 @@ The operator creates one ephemeral `Conversation` with:
 - the exact admitted model;
 - the exact admitted API base;
 - a code-owned qualification conversation ID;
-- code-owned persona `worker`;
+- code-owned persona `architect`;
 - the admitted document serial number; and
 - initially empty in-memory message history.
 
@@ -203,7 +203,7 @@ model-picker state.
 
 The caller-supplied system prompt is code-owned composition of:
 
-1. `PromptBuilder.build_system("worker")`; and
+1. `PromptBuilder.build_system("architect")`; and
 2. the exact decoded reviewed skill body under one fixed separator.
 
 The trace retains:
@@ -531,6 +531,21 @@ Stderr remains empty for ordinary bounded refusals and trace failures.
 - `tool_result`, Chat errors, `done` usage, and timing are retained;
 - normal completion with Chat errors may still finish; and
 - no content reaches stdout.
+
+One no-contact vertical uses the real `ChatRunner` with a fake LiteLLM stream,
+fake direct executor, and one fake canonical executor. The model-authored first
+round calls `rook_tools_call`; the second round returns ordinary text. The test
+then performs the operator-owned final snapshot through the same canonical
+callable. It proves:
+
+- the real ChatRunner produces the existing ordered `tool_start`, `tool_result`,
+  text, and `done` events;
+- those exact events reach the JSONL recorder unchanged;
+- the fake direct executor is not substituted for the gateway call;
+- the same canonical callable handles both the model-authored gateway call and
+  the fixed final snapshot; and
+- all model, direct-tool, canonical-tool, Rhino, and Grasshopper effects remain
+  causal fakes with no external contact.
 
 ### Targeting
 

@@ -230,7 +230,8 @@ worktree. Resume only after explicit Task 1 approval is recorded in the ledger.
 **Interfaces:**
 - Produces: `_QualificationRow`, `_RhinoTarget`, `_JsonlRecorder`,
   `_TraceWriteFailure`, `_load_row()`, and `_open_recorder()` for Task 3.
-- Does not construct ChatRunner or an external executor yet.
+- Performs no model, direct-executor, canonical-executor, tool, or external
+  calls; composition begins in Task 3.
 
 - [ ] **Step 1: Create an importable operator skeleton**
 
@@ -472,7 +473,7 @@ git status --short --branch
 ```
 
 Review must confirm the writer remains private, event payload is flat, no
-external construction exists yet, byte failures stop without repair, and the
+external call path exists yet, byte failures stop without repair, and the
 growth gate remains available for Task 3.
 
 ---
@@ -540,7 +541,113 @@ and final inspection. Assert `run_started` contains exact row/repository/runtime
 identity, skill hash, caller-prompt hash, active MCP profile, and frozen target.
 Stdout contains only status and trace path.
 
-- [ ] **Step 3: Add pre-dispatch targeting refusal valid-red tests**
+- [ ] **Step 3: Add one real-ChatRunner no-contact vertical**
+
+Construct the real class with one fake direct executor and one fake canonical
+executor:
+
+```python
+from unittest.mock import AsyncMock, MagicMock, call, patch
+
+from rook.agent.chat.chat_runner import ChatEvent, ChatRunner
+from rook.agent.tool_registry import ToolRegistry
+
+direct_executor = AsyncMock()
+canonical_executor = AsyncMock(
+    side_effect=[
+        {"success": True, "data": {"matches": ["Series"]}},
+        {"success": True, "data": {"epoch": 7, "components": []}},
+    ]
+)
+runner = ChatRunner(
+    tool_executor=direct_executor,
+    registry=ToolRegistry(catalog={}, agent_mode=True),
+    mcp_capability_executor=canonical_executor,
+)
+```
+
+Patch only `litellm.acompletion` and `collect_runtime_facts`. The first fake
+LiteLLM stream emits this model-authored call:
+
+```python
+{
+    "name": "rook_tools_call",
+    "arguments": {
+        "name": "gh_library",
+        "arguments": {"search": "Series"},
+    },
+}
+```
+
+Construct that stream with the same LiteLLM delta shape already used by
+`test_chat_runner.py`:
+
+```python
+def _gateway_stream():
+    async def _gen():
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = None
+        tool = MagicMock()
+        tool.index = 0
+        tool.id = "gateway_call"
+        tool.function.name = "rook_tools_call"
+        tool.function.arguments = json.dumps(
+            {"name": "gh_library", "arguments": {"search": "Series"}}
+        )
+        chunk.choices[0].delta.tool_calls = [tool]
+        chunk.usage = None
+        yield chunk
+
+    return _gen()
+
+
+def _text_stream():
+    async def _gen():
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = "Complete"
+        chunk.choices[0].delta.tool_calls = None
+        chunk.usage = None
+        yield chunk
+
+    return _gen()
+```
+
+The second fake stream emits ordinary text. Drive the real runner through the
+operator, including its final inspection. Assert:
+
+```python
+assert canonical_executor.await_args_list == [
+    call(
+        "rook_tools_call",
+        {"name": "gh_library", "arguments": {"search": "Series"}},
+    ),
+    call(
+        "rook_tools_call",
+        {
+            "name": "gh_snapshot",
+            "arguments": {"include_data": False, "max_preview_items": 0},
+        },
+    ),
+]
+direct_executor.assert_not_awaited()
+```
+
+Require exact recorded Chat event types in order:
+
+```text
+tool_start
+tool_result
+text_delta
+done
+```
+
+and exact flat `ChatEvent.to_dict()` payloads. This test complements rather than
+replaces `_CausalRunner`: real ChatRunner proves the composition seam, while the
+causal fake owns deterministic fault ordering.
+
+- [ ] **Step 4: Add pre-dispatch targeting refusal valid-red tests**
 
 Parameterize direct `tool_start` events for top-level `port`, `session`,
 `documentSerialNumber`, `rhino_set_active_instance`, and
@@ -564,7 +671,7 @@ no `run_finished` exists.
 Add a counterexample with `{"payload": {"session": "domain value"}}` and prove
 it is not recursively rejected.
 
-- [ ] **Step 4: Add drift, incomplete-stream, and write-failure valid-red tests**
+- [ ] **Step 5: Add drift, incomplete-stream, and write-failure valid-red tests**
 
 Cover separately:
 
@@ -589,10 +696,11 @@ exception/cancel/drift/missing done -> zero snapshot and no run_finished
 ```
 
 Assert ordinary stream exceptions record type and message without traceback,
-cancellation records `run_cancelled`, and pre-contact trace failure constructs
-or calls neither runner nor executor.
+cancellation records `run_cancelled`, and pre-contact trace failure causes zero
+model, direct-executor, canonical-executor, and tool calls. Inert objects may
+already have been constructed.
 
-- [ ] **Step 5: Add final-inspection valid-red tests**
+- [ ] **Step 6: Add final-inspection valid-red tests**
 
 The fixed call is:
 
@@ -619,7 +727,7 @@ Add one close-failure case where `run_finished` was already flushed. Require the
 trace to retain that row while bounded stdout reports `trace_write_failed`,
 proving the row does not claim close or operator success.
 
-- [ ] **Step 6: Run the complete Task 3 valid-red selection**
+- [ ] **Step 7: Run the complete Task 3 valid-red selection**
 
 ```powershell
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
@@ -628,7 +736,7 @@ proving the row does not claim close or operator success.
 
 Expected RED is missing Task 3 behavior, not collection or fixture failure.
 
-- [ ] **Step 7: Implement exact shallow targeting inspection**
+- [ ] **Step 8: Implement exact shallow targeting inspection**
 
 ```python
 _TARGET_CONTROL_TOOLS = frozenset({
@@ -658,7 +766,7 @@ def _targeting_refusal(event: ChatEvent) -> str | None:
 
 Do not recurse and do not move this policy into either executor.
 
-- [ ] **Step 8: Implement production composition without another framework**
+- [ ] **Step 9: Implement production composition without another framework**
 
 ```python
 dispatcher = ToolDispatcher(
@@ -674,8 +782,8 @@ runner = ChatRunner(
 ```
 
 Create one ephemeral `Conversation` with exact row model/API base, code-owned
-persona `worker`, and admitted document serial. Build the prompt from
-`PromptBuilder.build_system("worker")`, one fixed separator, and exact skill
+persona `architect`, and admitted document serial. Build the prompt from
+`PromptBuilder.build_system("architect")`, one fixed separator, and exact skill
 text. Hash only that caller-supplied prompt string.
 
 Save the previous active target, set the admitted `InstanceRef`, enter
@@ -684,7 +792,7 @@ target in cleanup. Use manual `anext()` and explicit `aclose()` so no subsequent
 event is requested after refusal, write failure, drift, or incomplete
 termination.
 
-- [ ] **Step 9: Implement metadata, finalization, and bounded CLI**
+- [ ] **Step 10: Implement metadata, finalization, and bounded CLI**
 
 Before the first generator request, collect local repository/runtime facts,
 open the recorder, and write/flush `run_started`. Use UTC wall clock for row
@@ -699,7 +807,7 @@ The CLI accepts exactly `sys.argv[1]` as the row path. Emit compact stdout only:
 Closed alternatives are `refused` and `trace_write_failed`. Never emit trace
 content or exception messages. Ordinary bounded paths keep stderr empty.
 
-- [ ] **Step 10: Run tests and enforce the growth gate**
+- [ ] **Step 11: Run tests and enforce the growth gate**
 
 ```powershell
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
@@ -720,7 +828,7 @@ git diff --check
 If the gate fails, do not split into another production module. Stop for renewed
 design review.
 
-- [ ] **Step 11: Commit Task 3 and stop for independent vertical review**
+- [ ] **Step 12: Commit Task 3 and stop for independent vertical review**
 
 ```powershell
 git add -- `
