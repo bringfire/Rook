@@ -348,16 +348,19 @@ snapshot_result
 run_finished
 ```
 
-`chat_event.payload.event` is exactly `ChatEvent.to_dict()` with no projection,
-redaction, augmentation, or interpretation. This retains exact adapter-boundary
-values serialized into JSON, not provider wire bytes or hidden reasoning.
+For a `chat_event` row, `payload` is exactly `ChatEvent.to_dict()` with no
+projection, redaction, augmentation, interpretation, or additional wrapper.
+This retains exact adapter-boundary values serialized into JSON, not provider
+wire bytes or hidden reasoning.
 
 `stream_exception` records the ordinary exception type and message without a
 traceback. It is local sensitive telemetry and is never copied to stdout.
 
-`run_finished` proves recording lifecycle completion only. It does not claim
-that the model satisfied the intent, that tools succeeded, or that the final
-snapshot was healthy. Its payload reports directly observed facts, including:
+`run_finished` proves only that the planned row sequence through
+`run_finished` was completely written and flushed. It does not prove successful
+file close, overall operator success, that the model satisfied the intent, that
+tools succeeded, or that the final snapshot was healthy. Its payload reports
+directly observed facts, including:
 
 - normal Chat stream exhaustion;
 - `done` observed;
@@ -519,7 +522,10 @@ Stderr remains empty for ordinary bounded refusals and trace failures.
 ### Event recording
 
 - every fake `ChatEvent.to_dict()` is retained exactly and in order;
-- sequence and timestamps are monotonic observations;
+- sequence is monotonic;
+- UTC timestamps are wall-clock observations and are not required to be
+  monotonic;
+- elapsed duration uses a monotonic clock;
 - `tool_start` is flushed before the fake generator proceeds to simulated
   dispatch;
 - `tool_result`, Chat errors, `done` usage, and timing are retained;
@@ -602,6 +608,17 @@ implemented, independently reviewed, merged, deployed from a clean merge SHA,
 and separately authorized for one reviewed row.
 
 ## Anti-quagmire stop
+
+Every mandatory implementation review reports:
+
+- nonblank production lines in the operator script;
+- additions in each changed production file; and
+- cumulative production additions across both sequential slices.
+
+The recorder returns for renewed design review before further implementation if
+the operator script would exceed 350 nonblank lines or if the recorder would
+require any production module beyond its one operator script. No safety or
+scope exception is authorized in advance.
 
 Stop before implementation expansion if the work requires:
 
