@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import contextmanager, nullcontext
 import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -26,6 +29,201 @@ from .runtime_paths import resolve_runtime_paths
 
 
 _CHIRP_CLEANUP_MAX_UNDO_ATTEMPTS = 8
+_CHIRP_ACCEPTANCE_PROVIDER_DELAY_SECONDS = 35.0
+_CHIRP_ACCEPTANCE_WATCHDOG_SECONDS = 1860.0
+_CHIRP_ACCEPTANCE_CONTENT = "[[ ## result ## ]]\nslow-ok\n\n[[ ## completed ## ]]"
+
+
+@dataclass
+class _SlowProvider:
+    host: str
+    port: int
+    request_path: Path
+    server: HTTPServer
+    thread: threading.Thread
+    stop_event: threading.Event
+    request_count: int = 0
+
+
+def _exception_payload(exc: BaseException) -> dict[str, str]:
+    return {"exception_type": type(exc).__name__, "message": str(exc)}
+
+
+def _stop_slow_provider(provider: _SlowProvider) -> None:
+    failures: list[dict[str, str]] = []
+    provider.stop_event.set()
+    for operation, action in (
+        ("shutdown", provider.server.shutdown),
+        ("server_close", provider.server.server_close),
+    ):
+        try:
+            action()
+        except BaseException as exc:
+            failures.append({"operation": operation, **_exception_payload(exc)})
+    provider.thread.join(timeout=5.0)
+    if provider.thread.is_alive():
+        failures.append(
+            {
+                "operation": "thread_join",
+                "exception_type": "TimeoutError",
+                "message": "slow provider thread remained alive after five seconds",
+            }
+        )
+    if failures:
+        raise ProofFailure(
+            "slow_provider_cleanup_failed",
+            "slow provider cleanup failed",
+            {"cleanup_failures": failures},
+        )
+
+
+@contextmanager
+def _slow_openai_provider(artifact_dir: Path, *, delay_seconds: float):
+    artifact_dir = Path(artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    request_path = artifact_dir / "slow-provider-request.json"
+    stop_event = threading.Event()
+    provider_ref: dict[str, _SlowProvider] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
+            if self.path != "/v1/chat/completions":
+                self.send_error(404)
+                return
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                request = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                self.send_error(400)
+                return
+
+            provider = provider_ref["provider"]
+            provider.request_count += 1
+            request_path.write_text(
+                json.dumps({"path": self.path, "request": request}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            if stop_event.wait(delay_seconds):
+                return
+
+            response = {
+                "id": "chatcmpl-rook-timeout-acceptance",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": "rook-timeout-acceptance",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": _CHIRP_ACCEPTANCE_CONTENT,
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            }
+            encoded = json.dumps(response).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        name="rook-chirp-timeout-provider",
+        daemon=False,
+    )
+    provider = _SlowProvider(
+        host="127.0.0.1",
+        port=int(server.server_address[1]),
+        request_path=request_path,
+        server=server,
+        thread=thread,
+        stop_event=stop_event,
+    )
+    provider_ref["provider"] = provider
+    thread.start()
+
+    body_failure: BaseException | None = None
+    body_traceback = None
+    try:
+        yield provider
+    except BaseException as exc:
+        body_failure = exc
+        body_traceback = exc.__traceback__
+
+    cleanup_failure: BaseException | None = None
+    try:
+        _stop_slow_provider(provider)
+    except BaseException as exc:
+        cleanup_failure = exc
+
+    if body_failure is not None and cleanup_failure is not None:
+        raise ProofFailure(
+            "slow_provider_cleanup_failed",
+            "slow provider body and cleanup both failed",
+            {
+                "body_failure": _exception_payload(body_failure),
+                "cleanup_failure": _exception_payload(cleanup_failure),
+            },
+        ) from body_failure
+    if cleanup_failure is not None:
+        raise cleanup_failure
+    if body_failure is not None:
+        raise body_failure.with_traceback(body_traceback)
+
+
+@contextmanager
+def _restoring_environment(updates: dict[str, str]):
+    prior = {name: os.environ.get(name) for name in updates}
+    present = {name: name in os.environ for name in updates}
+    os.environ.update(updates)
+    try:
+        yield
+    finally:
+        for name in updates:
+            if present[name]:
+                os.environ[name] = prior[name] or ""
+            else:
+                os.environ.pop(name, None)
+
+
+def _stop_owned_chirp_sidecar() -> dict[str, Any]:
+    from . import chirp_manager
+
+    process = chirp_manager._chirp_process
+    if process is None:
+        return {"attempted": False, "success": True, "pid": None, "forced": False}
+
+    chirp_manager._chirp_process = None
+    pid = getattr(process, "pid", None)
+    forced = False
+    try:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                forced = True
+                process.kill()
+                process.wait(timeout=5.0)
+    except BaseException as exc:
+        raise ProofFailure(
+            "chirp_sidecar_cleanup_failed",
+            "owned Chirp sidecar cleanup failed",
+            {"pid": pid, "forced": forced, **_exception_payload(exc)},
+        ) from exc
+    return {"attempted": True, "success": True, "pid": pid, "forced": forced}
 
 
 class ProofFailure(RuntimeError):
@@ -1523,6 +1721,8 @@ async def _run_chirp_smoke_mutation(
     component_name: str,
     dispatch_fn: Any,
     call_rhino_fn: Any,
+    create_arguments: dict[str, Any] | None = None,
+    verify_created_fn: Any | None = None,
 ) -> dict[str, Any]:
     baseline = await _capture_chirp_cleanup_state(
         args,
@@ -1534,23 +1734,25 @@ async def _run_chirp_smoke_mutation(
     component_guid: str | None = None
     original_failure: ProofFailure | None = None
     pending_cancellation: asyncio.CancelledError | None = None
+    verification: Any = None
+
+    request = {
+        **args,
+        "category": "classifier",
+        "name": component_name,
+        "pins_in": [{"name": "Input", "type": "string", "optional": True}],
+        "pins_out": [{"name": "Result", "type": "string"}],
+        "signature": "input -> result",
+        "deterministic_code": "Result = Input ?? string.Empty;",
+        "deterministic_only": True,
+        "x": 40,
+        "y": 40,
+    }
+    if create_arguments is not None:
+        request = {**args, **create_arguments}
 
     try:
-        chirp = await dispatch_fn(
-            "chirp_create",
-            {
-                **args,
-                "category": "classifier",
-                "name": component_name,
-                "pins_in": [{"name": "Input", "type": "string", "optional": True}],
-                "pins_out": [{"name": "Result", "type": "string"}],
-                "signature": "input -> result",
-                "deterministic_code": "Result = Input ?? string.Empty;",
-                "deterministic_only": True,
-                "x": 40,
-                "y": 40,
-            },
-        )
+        chirp = await dispatch_fn("chirp_create", request)
     except asyncio.CancelledError as exc:
         pending_cancellation = exc
         original_failure = _cancellation_failure("chirp_create", exc)
@@ -1572,6 +1774,25 @@ async def _run_chirp_smoke_mutation(
             "chirp_create returned an instance GUID already present in the baseline",
             details,
         )
+
+    if (
+        original_failure is None
+        and component_guid is not None
+        and verify_created_fn is not None
+    ):
+        try:
+            verification = await verify_created_fn(component_guid, chirp)
+        except asyncio.CancelledError as exc:
+            pending_cancellation = exc
+            original_failure = _cancellation_failure("chirp_verification", exc)
+        except ProofFailure as exc:
+            original_failure = exc
+        except Exception as exc:
+            original_failure = ProofFailure(
+                "chirp_verification_failed",
+                "Chirp verification raised an exception",
+                {"exception_type": type(exc).__name__, "message": str(exc)},
+            )
 
     if original_failure is None and component_guid is not None:
         try:
@@ -1678,13 +1899,146 @@ async def _run_chirp_smoke_mutation(
             details,
         ) from original_failure
 
-    return {"chirp_create": chirp, "gh_errors": errors, "gh_undo": cleanup}
+    return {
+        "chirp_create": chirp,
+        "gh_errors": errors,
+        "gh_undo": cleanup,
+        "verification": verification,
+    }
+
+
+async def _run_slow_chirp_smoke_mutation(
+    args: dict[str, int],
+    *,
+    provider: _SlowProvider,
+    delay_seconds: float,
+    dispatch_fn: Any,
+    call_rhino_fn: Any,
+) -> dict[str, Any]:
+    started = time.monotonic()
+
+    async def verify_created(component_guid: str, chirp: dict[str, Any]) -> dict[str, Any]:
+        data = chirp.get("data")
+        if not isinstance(data, dict):
+            raise ProofFailure(
+                "chirp_create_failed",
+                "slow Chirp creation data was malformed",
+                {"chirp_create": chirp},
+            )
+        if data.get("verification_deferred") is not True:
+            raise ProofFailure(
+                "chirp_verification_failed",
+                "slow Chirp creation did not defer inference verification",
+                {"chirp_create": chirp},
+            )
+        if data.get("solve_scheduled") is not True:
+            raise ProofFailure(
+                "chirp_verification_failed",
+                "slow Chirp creation did not schedule a solve",
+                {"chirp_create": chirp},
+            )
+        if "component_errors" in data:
+            raise ProofFailure(
+                "chirp_component_error",
+                "slow Chirp creation reported component errors",
+                {"chirp_create": chirp},
+            )
+
+        while True:
+            inspected = await dispatch_fn(
+                "gh_inspect_output",
+                {**args, "guid": component_guid, "param": "Result"},
+            )
+            if not isinstance(inspected, dict) or inspected.get("success") is not True:
+                raise ProofFailure(
+                    "chirp_verification_failed",
+                    "gh_inspect_output failed during slow inference",
+                    {"gh_inspect_output": inspected},
+                )
+            inspected_data = inspected.get("data")
+            preview = inspected_data.get("preview") if isinstance(inspected_data, dict) else None
+            if isinstance(preview, list) and any(str(value) == "slow-ok" for value in preview):
+                return {"output": "slow-ok", "gh_inspect_output": inspected}
+            await asyncio.sleep(0.25)
+
+    mutation = await _run_chirp_smoke_mutation(
+        args,
+        component_name="Rook Slow Inference Acceptance",
+        dispatch_fn=dispatch_fn,
+        call_rhino_fn=call_rhino_fn,
+        create_arguments={
+            "category": "classifier",
+            "name": "Rook Slow Inference Acceptance",
+            "pins_in": [{"name": "Input", "type": "string", "optional": True}],
+            "pins_out": [{"name": "Result", "type": "string"}],
+            "signature": "input -> result",
+            "x": 320,
+            "y": 40,
+        },
+        verify_created_fn=verify_created,
+    )
+    elapsed = time.monotonic() - started
+    if elapsed < delay_seconds:
+        raise ProofFailure(
+            "chirp_slow_response_too_fast",
+            "slow inference completed before the provider delay elapsed",
+            {"elapsed_seconds": elapsed, "provider_delay_seconds": delay_seconds},
+        )
+    if provider.request_count != 1 or not provider.request_path.is_file():
+        raise ProofFailure(
+            "chirp_provider_receipt_failed",
+            "slow provider did not record exactly one request",
+            {
+                "request_count": provider.request_count,
+                "request_path": str(provider.request_path),
+            },
+        )
+
+    active_evidence = json.dumps(
+        {
+            "chirp_create": mutation["chirp_create"],
+            "verification": mutation["verification"],
+            "gh_errors": mutation["gh_errors"],
+        },
+        sort_keys=True,
+    )
+    forbidden = [
+        token
+        for token in (
+            "chirp_inference_timeout",
+            "chirp_transport_timeout",
+            "component_errors",
+        )
+        if token in active_evidence
+    ]
+    if forbidden:
+        raise ProofFailure(
+            "chirp_slow_inference_failed",
+            "slow inference evidence contained a failure vocabulary",
+            {"forbidden": forbidden},
+        )
+
+    return {
+        "output": mutation["verification"]["output"],
+        "elapsed_seconds": elapsed,
+        "provider": {
+            "host": provider.host,
+            "port": provider.port,
+            "request_count": provider.request_count,
+            "request_path": str(provider.request_path),
+        },
+        "chirp_create": mutation["chirp_create"],
+        "gh_errors": mutation["gh_errors"],
+        "cleanup": mutation["gh_undo"],
+    }
 
 
 async def run_live_smoke(
     *,
     port: int | None = None,
     process_id: int | None = None,
+    slow_provider_delay_seconds: float | None = None,
+    artifact_dir: Path | None = None,
 ) -> dict[str, Any]:
     args: dict[str, int] = {}
     if port:
@@ -1696,36 +2050,113 @@ async def run_live_smoke(
     inherited_profile = os.environ.get("ROOK_MCP_TOOL_PROFILE")
     os.environ["ROOK_MCP_TOOL_PROFILE"] = "lean"
     try:
-        with rhino_request_context(port=port, process_id=process_id):
-            ping = await _call_tool_dispatch("rhino_ping", dict(args))
-            if not ping.get("success"):
-                raise ProofFailure(
-                    "rhino_ping_failed",
-                    "rhino_ping failed",
-                    {"rhino_ping": ping},
-                )
-
-            gh_ready = await _ensure_grasshopper_ready(args)
-            status = gh_ready["status"]
-
-            progressive_discovery = await _run_live_progressive_gh_status(args)
-
-            mutation = await _run_chirp_smoke_mutation(
-                args,
-                component_name="Rook Release Readiness Smoke",
-                dispatch_fn=_call_tool_dispatch,
-                call_rhino_fn=call_rhino,
+        if slow_provider_delay_seconds is not None and artifact_dir is None:
+            raise ProofFailure(
+                "slow_provider_artifact_missing",
+                "slow inference acceptance requires the owned harness artifact directory",
             )
+        provider_context = (
+            _slow_openai_provider(
+                Path(artifact_dir), delay_seconds=slow_provider_delay_seconds
+            )
+            if slow_provider_delay_seconds is not None
+            else nullcontext(None)
+        )
+        with provider_context as provider:
+            environment = (
+                {
+                    "CHIRP_MODEL": "openai/rook-timeout-acceptance",
+                    "CHIRP_PROVIDERS": json.dumps(
+                        {
+                            "openai/rook-timeout-acceptance": {
+                                "api_base": f"http://{provider.host}:{provider.port}/v1",
+                                "api_key_env": "CHIRP_TIMEOUT_ACCEPTANCE_API_KEY",
+                            }
+                        },
+                        separators=(",", ":"),
+                    ),
+                    "CHIRP_TIMEOUT_ACCEPTANCE_API_KEY": "loopback-only",
+                    "CHIRP_INFERENCE_TIMEOUT_SECONDS": "300",
+                }
+                if provider is not None
+                else {}
+            )
+            result: dict[str, Any] | None = None
+            body_failure: BaseException | None = None
+            body_traceback = None
+            sidecar_cleanup: dict[str, Any] | None = None
+            sidecar_cleanup_failure: BaseException | None = None
+            with _restoring_environment(environment):
+                try:
+                    with rhino_request_context(port=port, process_id=process_id):
+                        ping = await _call_tool_dispatch("rhino_ping", dict(args))
+                        if not ping.get("success"):
+                            raise ProofFailure(
+                                "rhino_ping_failed",
+                                "rhino_ping failed",
+                                {"rhino_ping": ping},
+                            )
 
-        return {
-            "rhino_ping": ping,
-            "grasshopper_ready": gh_ready,
-            "gh_status": status,
-            "progressive_discovery": progressive_discovery,
-            "chirp_create": mutation["chirp_create"],
-            "gh_errors": mutation["gh_errors"],
-            "gh_undo": mutation["gh_undo"],
-        }
+                        gh_ready = await _ensure_grasshopper_ready(args)
+                        status = gh_ready["status"]
+                        progressive_discovery = await _run_live_progressive_gh_status(args)
+                        mutation = await _run_chirp_smoke_mutation(
+                            args,
+                            component_name="Rook Release Readiness Smoke",
+                            dispatch_fn=_call_tool_dispatch,
+                            call_rhino_fn=call_rhino,
+                        )
+                        slow_inference = (
+                            await _run_slow_chirp_smoke_mutation(
+                                args,
+                                provider=provider,
+                                delay_seconds=slow_provider_delay_seconds,
+                                dispatch_fn=_call_tool_dispatch,
+                                call_rhino_fn=call_rhino,
+                            )
+                            if provider is not None
+                            and slow_provider_delay_seconds is not None
+                            else None
+                        )
+                    result = {
+                        "rhino_ping": ping,
+                        "grasshopper_ready": gh_ready,
+                        "gh_status": status,
+                        "progressive_discovery": progressive_discovery,
+                        "chirp_create": mutation["chirp_create"],
+                        "gh_errors": mutation["gh_errors"],
+                        "gh_undo": mutation["gh_undo"],
+                    }
+                    if slow_inference is not None:
+                        result["slow_inference"] = slow_inference
+                except BaseException as exc:
+                    body_failure = exc
+                    body_traceback = exc.__traceback__
+
+                if provider is not None:
+                    try:
+                        sidecar_cleanup = _stop_owned_chirp_sidecar()
+                    except BaseException as exc:
+                        sidecar_cleanup_failure = exc
+
+            if body_failure is not None and sidecar_cleanup_failure is not None:
+                raise ProofFailure(
+                    "chirp_sidecar_cleanup_failed",
+                    "live smoke body and Chirp sidecar cleanup both failed",
+                    {
+                        "body_failure": _exception_payload(body_failure),
+                        "cleanup_failure": _exception_payload(sidecar_cleanup_failure),
+                    },
+                ) from body_failure
+            if sidecar_cleanup_failure is not None:
+                raise sidecar_cleanup_failure
+            if body_failure is not None:
+                raise body_failure.with_traceback(body_traceback)
+            if result is None:
+                raise ProofFailure("installed_runtime_failed", "live smoke produced no result")
+            if sidecar_cleanup is not None:
+                result["slow_inference"]["sidecar_cleanup"] = sidecar_cleanup
+            return result
     finally:
         if profile_was_set:
             os.environ["ROOK_MCP_TOOL_PROFILE"] = inherited_profile or ""
@@ -1741,7 +2172,20 @@ def live_smoke_gate(
 ) -> GateResult:
     started = time.monotonic()
     try:
-        details = asyncio.run(run_live_smoke(port=port, process_id=process_id))
+        raw_artifact_dir = os.environ.get("ROOK_HARNESS_ARTIFACT_DIR")
+        if not raw_artifact_dir:
+            raise ProofFailure(
+                "slow_provider_artifact_missing",
+                "ROOK_HARNESS_ARTIFACT_DIR is required for installed live acceptance",
+            )
+        details = asyncio.run(
+            run_live_smoke(
+                port=port,
+                process_id=process_id,
+                slow_provider_delay_seconds=_CHIRP_ACCEPTANCE_PROVIDER_DELAY_SECONDS,
+                artifact_dir=Path(raw_artifact_dir),
+            )
+        )
         return GateResult.passed(
             gate="live_smoke",
             command=command,
@@ -1840,6 +2284,7 @@ def owned_release_readiness_gate(
         smoke_kind="installed-live-smoke",
         smoke_cwd=None,
         readiness_timeout_seconds=readiness_timeout_seconds,
+        smoke_timeout_seconds=_CHIRP_ACCEPTANCE_WATCHDOG_SECONDS,
         cleanup_timeout_seconds=cleanup_timeout_seconds,
         keep_rhino_on_failure=keep_rhino_on_failure,
     )

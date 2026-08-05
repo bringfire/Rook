@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import json
 import os
 import sys
+import threading
+import time
+import urllib.request
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -796,6 +800,199 @@ def _successful_live_harness(monkeypatch) -> _LiveSmokeHarness:
     )
     harness.install(monkeypatch)
     return harness
+
+
+@pytest.mark.asyncio
+async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_cleanup(
+    monkeypatch, tmp_path: Path
+):
+    deterministic_guid = _test_guid("deterministic")
+    component_guid = _test_guid("slow")
+    inventories = [
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", deterministic_guid),
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", component_guid),
+        _debug_inventory_response("baseline"),
+    ]
+    status_counts = [1, 1, 2, 1, 1, 2, 1]
+    calls: list[tuple[str, dict]] = []
+    create_count = 0
+
+    async def dispatch(name: str, args: dict):
+        nonlocal create_count
+        calls.append((name, dict(args)))
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            return _gh_status_response(status_counts.pop(0))
+        if name == "chirp_create":
+            create_count += 1
+            if create_count == 1:
+                return {
+                    "success": True,
+                    "data": {
+                        "component_guid": deterministic_guid,
+                        "component_errors": [],
+                    },
+                }
+            providers = json.loads(os.environ["CHIRP_PROVIDERS"])
+            provider = providers["openai/rook-timeout-acceptance"]
+            payload = _post_json(
+                provider["api_base"] + "/chat/completions",
+                {"model": "rook-timeout-acceptance", "messages": []},
+            )
+            assert "slow-ok" in payload["choices"][0]["message"]["content"]
+            return {
+                "success": True,
+                "data": {
+                    "component_guid": component_guid,
+                    "verification_deferred": True,
+                    "solve_scheduled": True,
+                },
+            }
+        if name == "gh_inspect_output":
+            return {"success": True, "data": {"preview": ["slow-ok"]}}
+        if name == "gh_errors":
+            return {"success": True, "data": {"errors": []}}
+        if name == "gh_undo":
+            return _gh_undo_success()
+        raise AssertionError(name)
+
+    async def call_rhino(endpoint, method="GET", data=None, **kwargs):
+        assert endpoint == "/gh/errors"
+        assert method == "GET"
+        assert data == {"debug": True}
+        assert kwargs == {"port": 9001, "process_id": 42}
+        return inventories.pop(0)
+
+    monkeypatch.setenv("CHIRP_MODEL", "prior-model")
+    monkeypatch.delenv("CHIRP_PROVIDERS", raising=False)
+    monkeypatch.delenv("CHIRP_TIMEOUT_ACCEPTANCE_API_KEY", raising=False)
+    monkeypatch.delenv("CHIRP_INFERENCE_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setattr(proof, "_call_tool_dispatch", dispatch)
+    monkeypatch.setattr(proof, "call_rhino", call_rhino)
+
+    async def progressive(_args):
+        return {"target": "gh_status", "target_hidden": True}
+
+    monkeypatch.setattr(proof, "_run_live_progressive_gh_status", progressive)
+
+    result = await proof.run_live_smoke(
+        port=9001,
+        process_id=42,
+        artifact_dir=tmp_path,
+        slow_provider_delay_seconds=0.02,
+    )
+    evidence = result["slow_inference"]
+
+    assert evidence["output"] == "slow-ok"
+    assert evidence["elapsed_seconds"] >= 0.02
+    assert evidence["provider"]["request_count"] == 1
+    assert evidence["cleanup"]["component_removed"] is True
+    assert evidence["sidecar_cleanup"]["success"] is True
+    assert os.environ["CHIRP_MODEL"] == "prior-model"
+    assert "CHIRP_PROVIDERS" not in os.environ
+    assert "CHIRP_TIMEOUT_ACCEPTANCE_API_KEY" not in os.environ
+    assert "CHIRP_INFERENCE_TIMEOUT_SECONDS" not in os.environ
+    assert [name for name, _ in calls].count("gh_inspect_output") == 1
+    create_args = [args for name, args in calls if name == "chirp_create"][1]
+    assert "deterministic_code" not in create_args
+    assert create_args.get("deterministic_only") is not True
+
+
+@pytest.mark.asyncio
+async def test_slow_inference_cancellation_still_cleans_provider_sidecar_and_component(
+    monkeypatch, tmp_path: Path
+):
+    deterministic_guid = _test_guid("deterministic-before-cancel")
+    component_guid = _test_guid("cancelled-slow")
+    inventories = [
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", deterministic_guid),
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", component_guid),
+        _debug_inventory_response("baseline"),
+    ]
+    status_counts = [1, 1, 2, 1, 1, 2, 1]
+    undo_calls = 0
+    create_count = 0
+
+    async def dispatch(name: str, _args: dict):
+        nonlocal create_count, undo_calls
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            return _gh_status_response(status_counts.pop(0))
+        if name == "chirp_create":
+            create_count += 1
+            if create_count == 1:
+                return {
+                    "success": True,
+                    "data": {
+                        "component_guid": deterministic_guid,
+                        "component_errors": [],
+                    },
+                }
+            return {
+                "success": True,
+                "data": {
+                    "component_guid": component_guid,
+                    "verification_deferred": True,
+                    "solve_scheduled": True,
+                },
+            }
+        if name == "gh_inspect_output":
+            raise asyncio.CancelledError("watchdog")
+        if name == "gh_errors":
+            return {"success": True, "data": {"errors": []}}
+        if name == "gh_undo":
+            undo_calls += 1
+            return _gh_undo_success()
+        raise AssertionError(name)
+
+    async def call_rhino(_endpoint, method="GET", data=None, **_kwargs):
+        return inventories.pop(0)
+
+    captured = {}
+    original_provider = proof._slow_openai_provider
+
+    @contextmanager
+    def capturing_provider(*args, **kwargs):
+        with original_provider(*args, **kwargs) as provider:
+            captured["provider"] = provider
+            yield provider
+
+    sidecar_cleanup_calls = []
+    original_sidecar_cleanup = proof._stop_owned_chirp_sidecar
+
+    def record_sidecar_cleanup():
+        sidecar_cleanup_calls.append(True)
+        return original_sidecar_cleanup()
+
+    monkeypatch.setattr(proof, "_slow_openai_provider", capturing_provider)
+    monkeypatch.setattr(proof, "_stop_owned_chirp_sidecar", record_sidecar_cleanup)
+    monkeypatch.setattr(proof, "_call_tool_dispatch", dispatch)
+    monkeypatch.setattr(proof, "call_rhino", call_rhino)
+
+    async def progressive(_args):
+        return {"target": "gh_status", "target_hidden": True}
+
+    monkeypatch.setattr(proof, "_run_live_progressive_gh_status", progressive)
+
+    with pytest.raises(asyncio.CancelledError, match="watchdog"):
+        await proof.run_live_smoke(
+            port=9001,
+            process_id=42,
+            artifact_dir=tmp_path,
+            slow_provider_delay_seconds=0.02,
+        )
+
+    assert undo_calls == 2
+    assert sidecar_cleanup_calls == [True]
+    assert captured["provider"].thread.is_alive() is False
 
 
 async def _ready_only_dispatch(name: str, _args: dict):
@@ -2316,6 +2513,7 @@ def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tm
     assert calls["smoke_command"] == [sys.executable, "-m", "rook.local_testing_proof", "live-smoke"]
     assert calls["smoke_kind"] == "installed-live-smoke"
     assert calls["keep_rhino_on_failure"] is False
+    assert calls["smoke_timeout_seconds"] == 1860
     assert (
         result.details["progressive_discovery"]
         == live_envelope["details"]["progressive_discovery"]
@@ -2411,3 +2609,98 @@ def test_read_optional_json_still_reads_plain_utf8(tmp_path: Path):
     manifest.write_text(json.dumps({"chirp_git_sha": "abc123"}), encoding="utf-8")
 
     assert proof._read_optional_json(manifest).get("chirp_git_sha") == "abc123"
+
+
+def _post_json(url: str, payload: dict) -> dict:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=2.0) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def test_slow_provider_is_loopback_single_request_and_bounded(tmp_path: Path):
+    with proof._slow_openai_provider(tmp_path, delay_seconds=0.02) as provider:
+        assert provider.host == "127.0.0.1"
+        assert provider.port > 0
+        payload = _post_json(
+            f"http://{provider.host}:{provider.port}/v1/chat/completions",
+            {"model": "rook-timeout-acceptance", "messages": [{"role": "user", "content": "go"}]},
+        )
+        assert payload["choices"][0]["message"]["content"] == (
+            "[[ ## result ## ]]\nslow-ok\n\n[[ ## completed ## ]]"
+        )
+        assert payload["usage"] == {
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+            "total_tokens": 2,
+        }
+        assert provider.request_count == 1
+
+    assert provider.thread.is_alive() is False
+    receipt = json.loads(provider.request_path.read_text(encoding="utf-8"))
+    assert receipt["path"] == "/v1/chat/completions"
+    assert receipt["request"]["model"] == "rook-timeout-acceptance"
+
+
+def test_slow_provider_cleanup_runs_after_body_failure(tmp_path: Path):
+    provider = None
+    with pytest.raises(RuntimeError, match="body failed"):
+        with proof._slow_openai_provider(tmp_path, delay_seconds=0.02) as provider:
+            raise RuntimeError("body failed")
+
+    assert provider is not None
+    assert provider.thread.is_alive() is False
+
+
+def test_slow_provider_cleanup_interrupts_active_request(tmp_path: Path):
+    client_failures = []
+    client = None
+    provider = None
+
+    with pytest.raises(RuntimeError, match="body failed"):
+        with proof._slow_openai_provider(tmp_path, delay_seconds=10.0) as provider:
+            def request_provider():
+                try:
+                    _post_json(
+                        f"http://{provider.host}:{provider.port}/v1/chat/completions",
+                        {"model": "rook-timeout-acceptance", "messages": []},
+                    )
+                except BaseException as exc:
+                    client_failures.append(exc)
+
+            client = threading.Thread(target=request_provider, daemon=False)
+            client.start()
+            deadline = time.monotonic() + 2.0
+            while provider.request_count == 0 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert provider.request_count == 1
+            raise RuntimeError("body failed")
+
+    assert provider is not None
+    assert client is not None
+    client.join(timeout=2.0)
+    assert client.is_alive() is False
+    assert provider.thread.is_alive() is False
+    assert client_failures
+
+
+def test_slow_provider_preserves_body_and_cleanup_failures(monkeypatch, tmp_path: Path):
+    original_stop = proof._stop_slow_provider
+
+    def cleanup_then_fail(provider):
+        original_stop(provider)
+        raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(proof, "_stop_slow_provider", cleanup_then_fail)
+
+    with pytest.raises(proof.ProofFailure) as captured:
+        with proof._slow_openai_provider(tmp_path, delay_seconds=0.02):
+            raise ValueError("body failed")
+
+    assert captured.value.failure_label == "slow_provider_cleanup_failed"
+    assert captured.value.details["body_failure"]["message"] == "body failed"
+    assert captured.value.details["cleanup_failure"]["message"] == "cleanup failed"
