@@ -165,6 +165,22 @@ function Test-DeployScriptSyncsChirpFromSiblingRepo {
     Assert-Contains -Text $content -Expected 'Chirp_API_Key.txt' -Message 'Local deploy must preserve local Chirp secrets by excluding key files.'
 }
 
+function Test-DeployScriptPreservesInstalledChirpEnvironment {
+    $content = Get-Content -Path $DeployScript -Raw
+    $syncMatch = [regex]::Match(
+        $content,
+        '(?ms)^function Sync-ChirpPayload \{(?<body>.*?)(?=^function Invoke-PostInstallConfig)'
+    )
+    Assert-True -Condition $syncMatch.Success -Message 'Local deploy must expose the bounded Sync-ChirpPayload function.'
+    $syncBody = $syncMatch.Groups['body'].Value
+
+    Assert-Contains -Text $content -Expected "`$excludeFiles = @('.env', '*.pyc', '*.pyo') + `$ExtraExcludeFiles" -Message 'Shared exact directory sync must exclude .env files.'
+    Assert-Contains -Text $syncBody -Expected 'Sync-Directory $ChirpSourceRoot $ChirpInstallRoot' -Message 'Chirp payload must continue through the shared exact mirror.'
+    Assert-NotContains -Text $syncBody -Unexpected 'Copy-EnvFileIfMissing' -Message 'Chirp sync must not seed or overwrite the installed .env.'
+    Assert-NotContains -Text $syncBody -Unexpected 'Remove-Item' -Message 'Chirp sync must not delete the installed .env.'
+    Assert-NotContains -Text $syncBody -Unexpected '.env' -Message 'Chirp-specific sync must not inspect, copy, delete, or validate .env.'
+}
+
 function Test-DeployScriptInstallsChirpByDefault {
     $content = Get-Content -Path $DeployScript -Raw
 
@@ -619,6 +635,7 @@ Test-DevDoctorScriptContract
 Test-RookMcpProcessHelperContract
 Test-DeployScriptSelectsExplicitMsvcToolset
 Test-DeployScriptSyncsChirpFromSiblingRepo
+Test-DeployScriptPreservesInstalledChirpEnvironment
 Test-DeployScriptInstallsChirpByDefault
 Test-DeployScriptVerifiesChirpRuntimeAndConfig
 Test-DeployScriptVerifiesRookImportOrigin

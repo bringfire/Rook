@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import json
 import os
 import sys
+import threading
+import time
+import urllib.request
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -577,6 +581,57 @@ def test_python_smoke_evidence_seed_preserves_explicit_release_env(
     assert os.environ["ROOK_INSTALL_ROOT"] == str(rook_root / "app")
 
 
+def test_installed_live_environment_overrides_source_chirp_home(monkeypatch, tmp_path: Path):
+    local_appdata = tmp_path / "AppData" / "Local"
+    rook_root = local_appdata / "Rook"
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    chirp_home = rook_root / "app" / "chirp"
+    (chirp_home / "src" / "chirp").mkdir(parents=True)
+    (chirp_home / ".venv" / "Scripts").mkdir(parents=True)
+    (chirp_home / ".venv" / "Scripts" / "python.exe").write_text("fake", encoding="utf-8")
+    installed_module = rook_root / "venv" / "Lib" / "site-packages" / "rook" / "local_testing_proof.py"
+    installed_module.parent.mkdir(parents=True)
+    installed_module.write_text("# installed", encoding="utf-8")
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("fake", encoding="utf-8")
+
+    monkeypatch.setattr(proof.sys, "executable", str(venv_python))
+    monkeypatch.setattr(proof, "__file__", str(installed_module))
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+    monkeypatch.setenv("CHIRP_HOME", str(tmp_path / "source" / "Chirp"))
+    monkeypatch.setenv("ROOK_INSTALL_ROOT", str(tmp_path / "source" / "Rook"))
+    monkeypatch.setenv("ROOK_MODE", "dev")
+
+    details = proof._require_installed_live_environment()
+
+    assert details["chirp_home"] == str(chirp_home)
+    assert os.environ["CHIRP_HOME"] == str(chirp_home)
+    assert os.environ["ROOK_INSTALL_ROOT"] == str(rook_root / "app")
+    assert os.environ["ROOK_DATA_DIR"] == str(rook_root / "data")
+    assert os.environ["ROOK_MODE"] == "release"
+
+
+def test_installed_live_environment_rejects_source_shadowing(monkeypatch, tmp_path: Path):
+    local_appdata = tmp_path / "AppData" / "Local"
+    rook_root = local_appdata / "Rook"
+    venv_python = rook_root / "venv" / "Scripts" / "python.exe"
+    chirp_home = rook_root / "app" / "chirp"
+    (chirp_home / "src" / "chirp").mkdir(parents=True)
+    (chirp_home / ".venv" / "Scripts").mkdir(parents=True)
+    (chirp_home / ".venv" / "Scripts" / "python.exe").write_text("fake", encoding="utf-8")
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("fake", encoding="utf-8")
+
+    monkeypatch.setattr(proof.sys, "executable", str(venv_python))
+    monkeypatch.setattr(proof, "__file__", str(tmp_path / "source" / "rook" / "local_testing_proof.py"))
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+
+    with pytest.raises(proof.ProofFailure) as exc:
+        proof._require_installed_live_environment()
+
+    assert exc.value.failure_label == "rook_import_leakage"
+
+
 def test_verify_command_knowledge_runtime_requires_grasshopper_preflight(monkeypatch):
     class FakeStore:
         def layering_diagnostics(self):
@@ -716,7 +771,7 @@ class _LiveSmokeHarness:
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             }
             if chirp_response is _UNSET
@@ -796,6 +851,209 @@ def _successful_live_harness(monkeypatch) -> _LiveSmokeHarness:
     )
     harness.install(monkeypatch)
     return harness
+
+
+@pytest.mark.asyncio
+async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_cleanup(
+    monkeypatch, tmp_path: Path
+):
+    deterministic_guid = _test_guid("deterministic")
+    component_guid = _test_guid("slow")
+    inventories = [
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", deterministic_guid),
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", component_guid),
+        _debug_inventory_response("baseline"),
+    ]
+    status_counts = [1, 1, 2, 1, 1, 2, 1]
+    calls: list[tuple[str, dict]] = []
+    create_count = 0
+
+    async def dispatch(name: str, args: dict):
+        nonlocal create_count
+        calls.append((name, dict(args)))
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            return _gh_status_response(status_counts.pop(0))
+        if name == "chirp_create":
+            create_count += 1
+            if create_count == 1:
+                return {
+                    "success": True,
+                    "data": {
+                        "component_guid": deterministic_guid,
+                        "component_errors": [],
+                    },
+                }
+            providers = json.loads(os.environ["CHIRP_PROVIDERS"])
+            model_key = os.environ["CHIRP_MODEL"]
+            assert model_key.startswith("openai/rook-timeout-acceptance-")
+            provider = providers[model_key]
+            payload = _post_json(
+                provider["api_base"] + "/chat/completions",
+                {"model": model_key.split("/", 1)[1], "messages": []},
+            )
+            assert "slow-ok" in payload["choices"][0]["message"]["content"]
+            return {
+                "success": True,
+                "data": {
+                    "component_guid": component_guid,
+                    "verification_deferred": True,
+                    "solve_scheduled": True,
+                },
+            }
+        if name == "gh_inspect_output":
+            return {"success": True, "data": {"preview": ["slow-ok"]}}
+        if name == "gh_errors":
+            return {"success": True, "data": {"errors": []}}
+        if name == "gh_undo":
+            return _gh_undo_success()
+        raise AssertionError(name)
+
+    async def call_rhino(endpoint, method="GET", data=None, **kwargs):
+        assert endpoint == "/gh/errors"
+        assert method == "GET"
+        assert data == {"debug": True}
+        assert kwargs == {"port": 9001, "process_id": 42}
+        return inventories.pop(0)
+
+    monkeypatch.setenv("CHIRP_MODEL", "prior-model")
+    monkeypatch.delenv("CHIRP_CACHE", raising=False)
+    monkeypatch.delenv("CHIRP_PROVIDERS", raising=False)
+    monkeypatch.delenv("CHIRP_TIMEOUT_ACCEPTANCE_API_KEY", raising=False)
+    monkeypatch.delenv("CHIRP_INFERENCE_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setattr(proof, "_call_tool_dispatch", dispatch)
+    monkeypatch.setattr(proof, "call_rhino", call_rhino)
+    monkeypatch.setattr(
+        proof,
+        "_stop_owned_chirp_sidecar",
+        lambda: {"attempted": True, "success": True, "pid": 1234, "forced": False},
+    )
+
+    async def progressive(_args):
+        return {"target": "gh_status", "target_hidden": True}
+
+    monkeypatch.setattr(proof, "_run_live_progressive_gh_status", progressive)
+
+    result = await proof.run_live_smoke(
+        port=9001,
+        process_id=42,
+        artifact_dir=tmp_path,
+        slow_provider_delay_seconds=0.05,
+    )
+    evidence = result["slow_inference"]
+
+    assert evidence["output"] == "slow-ok"
+    assert evidence["elapsed_seconds"] >= 0.05
+    assert evidence["provider"]["request_count"] == 1
+    assert evidence["cleanup"]["component_removed"] is True
+    assert evidence["sidecar_cleanup"]["success"] is True
+    assert os.environ["CHIRP_MODEL"] == "prior-model"
+    assert "CHIRP_PROVIDERS" not in os.environ
+    assert "CHIRP_TIMEOUT_ACCEPTANCE_API_KEY" not in os.environ
+    assert "CHIRP_INFERENCE_TIMEOUT_SECONDS" not in os.environ
+    assert "CHIRP_CACHE" not in os.environ
+    assert evidence["sidecar_cleanup"]["attempted"] is True
+    assert [name for name, _ in calls].count("gh_inspect_output") == 1
+    create_args = [args for name, args in calls if name == "chirp_create"][1]
+    assert "deterministic_code" not in create_args
+    assert create_args.get("deterministic_only") is not True
+
+
+@pytest.mark.asyncio
+async def test_slow_inference_cancellation_still_cleans_provider_sidecar_and_component(
+    monkeypatch, tmp_path: Path
+):
+    deterministic_guid = _test_guid("deterministic-before-cancel")
+    component_guid = _test_guid("cancelled-slow")
+    inventories = [
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", deterministic_guid),
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline"),
+        _debug_inventory_response("baseline", component_guid),
+        _debug_inventory_response("baseline"),
+    ]
+    status_counts = [1, 1, 2, 1, 1, 2, 1]
+    undo_calls = 0
+    create_count = 0
+
+    async def dispatch(name: str, _args: dict):
+        nonlocal create_count, undo_calls
+        if name == "rhino_ping":
+            return {"success": True, "data": {"processId": 42, "port": 9001}}
+        if name == "gh_status":
+            return _gh_status_response(status_counts.pop(0))
+        if name == "chirp_create":
+            create_count += 1
+            if create_count == 1:
+                return {
+                    "success": True,
+                    "data": {
+                        "component_guid": deterministic_guid,
+                        "component_errors": [],
+                    },
+                }
+            return {
+                "success": True,
+                "data": {
+                    "component_guid": component_guid,
+                    "verification_deferred": True,
+                    "solve_scheduled": True,
+                },
+            }
+        if name == "gh_inspect_output":
+            raise asyncio.CancelledError("watchdog")
+        if name == "gh_errors":
+            return {"success": True, "data": {"errors": []}}
+        if name == "gh_undo":
+            undo_calls += 1
+            return _gh_undo_success()
+        raise AssertionError(name)
+
+    async def call_rhino(_endpoint, method="GET", data=None, **_kwargs):
+        return inventories.pop(0)
+
+    captured = {}
+    original_provider = proof._slow_openai_provider
+
+    @contextmanager
+    def capturing_provider(*args, **kwargs):
+        with original_provider(*args, **kwargs) as provider:
+            captured["provider"] = provider
+            yield provider
+
+    sidecar_cleanup_calls = []
+    original_sidecar_cleanup = proof._stop_owned_chirp_sidecar
+
+    def record_sidecar_cleanup():
+        sidecar_cleanup_calls.append(True)
+        return original_sidecar_cleanup()
+
+    monkeypatch.setattr(proof, "_slow_openai_provider", capturing_provider)
+    monkeypatch.setattr(proof, "_stop_owned_chirp_sidecar", record_sidecar_cleanup)
+    monkeypatch.setattr(proof, "_call_tool_dispatch", dispatch)
+    monkeypatch.setattr(proof, "call_rhino", call_rhino)
+
+    async def progressive(_args):
+        return {"target": "gh_status", "target_hidden": True}
+
+    monkeypatch.setattr(proof, "_run_live_progressive_gh_status", progressive)
+
+    with pytest.raises(asyncio.CancelledError, match="watchdog"):
+        await proof.run_live_smoke(
+            port=9001,
+            process_id=42,
+            artifact_dir=tmp_path,
+            slow_provider_delay_seconds=0.02,
+        )
+
+    assert undo_calls == 2
+    assert sidecar_cleanup_calls == [True]
+    assert captured["provider"].thread.is_alive() is False
 
 
 async def _ready_only_dispatch(name: str, _args: dict):
@@ -1040,7 +1298,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "data": {
                     "component_guid": _test_guid("abc"),
                     "warning": "compiled with warning",
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             None,
@@ -1053,16 +1311,16 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": ["compile failed"],
+                    "component_errors": ["component failed"],
                 },
             },
             None,
-            "chirp_component_compile_error",
+            "chirp_component_error",
             _test_guid("abc"),
             1,
         ),
         (
-            {"success": True, "data": {"compilation_errors": []}},
+            {"success": True, "data": {"component_errors": []}},
             None,
             "cleanup_failed",
             "unknown-created",
@@ -1073,7 +1331,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             {"success": False, "data": "diagnostics unavailable"},
@@ -1086,7 +1344,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             {
@@ -1130,7 +1388,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             {"success": True, "data": []},
@@ -1143,7 +1401,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             {"success": True, "data": {"errors": [{"guid": 7, "errors": []}]}},
@@ -1156,7 +1414,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             RuntimeError("gh_errors transport broke"),
@@ -1236,7 +1494,7 @@ async def test_live_smoke_canonicalizes_alternate_valid_instance_guid_spellings(
             "success": True,
             "data": {
                 "component_guid": "{" + target.upper() + "}",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
         undo_responses=[_gh_undo_success()],
@@ -1299,7 +1557,7 @@ async def test_live_smoke_rejects_invalid_created_guid_without_undoing_unknown_a
             "success": True,
             "data": {
                 "component_guid": "not-an-instance-guid",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
         undo_responses=[_gh_undo_success()],
@@ -1331,7 +1589,7 @@ async def test_live_smoke_rejects_created_target_already_in_baseline_before_undo
         ],
         chirp_response={
             "success": True,
-            "data": {"component_guid": target, "compilation_errors": []},
+            "data": {"component_guid": target, "component_errors": []},
         },
         undo_responses=[_gh_undo_success()],
     )
@@ -1452,7 +1710,7 @@ async def test_live_smoke_normalizes_post_attempt_inventory_exception_and_retain
             "data": {
                 "component_guid": _test_guid("abc"),
                 "warning": "compiled with warning",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
     )
@@ -1694,7 +1952,7 @@ async def test_live_smoke_cleanup_failure_wins_and_retains_original_failure(
             "data": {
                 "component_guid": _test_guid("abc"),
                 "warning": "compiled with warning",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
     )
@@ -1725,7 +1983,7 @@ async def test_live_smoke_cleanup_failure_retains_prior_failure_and_real_cancell
             "data": {
                 "component_guid": _test_guid("abc"),
                 "warning": "compiled with warning",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
     )
@@ -2108,7 +2366,7 @@ async def test_live_smoke_launches_grasshopper_when_not_ready(
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             }
         if name == "gh_errors":
@@ -2190,7 +2448,7 @@ async def test_live_smoke_polls_after_grasshopper_command_timeout(
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             }
         if name == "gh_errors":
@@ -2262,6 +2520,32 @@ def test_write_json_writes_gate_envelope(tmp_path: Path):
     assert payload["failure_label"] is None
 
 
+def test_live_smoke_gate_requires_installed_environment(monkeypatch, tmp_path: Path):
+    calls = []
+
+    def require_installed_environment():
+        calls.append("installed")
+        return {"chirp_home": "C:/installed/Rook/app/chirp"}
+
+    def run_coroutine(coroutine):
+        coroutine.close()
+        return {"slow_inference": {}}
+
+    monkeypatch.setattr(proof, "_require_installed_live_environment", require_installed_environment)
+    monkeypatch.setattr(proof.asyncio, "run", run_coroutine)
+    monkeypatch.setenv("ROOK_HARNESS_ARTIFACT_DIR", str(tmp_path))
+
+    result = proof.live_smoke_gate(
+        ["python", "-m", "rook.local_testing_proof", "live-smoke"],
+        port=9876,
+        process_id=1234,
+    )
+
+    assert result.success is True
+    assert calls == ["installed"]
+    assert result.details["installed_environment"]["chirp_home"].endswith("app/chirp")
+
+
 def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tmp_path: Path):
     calls = {}
     live_envelope = {
@@ -2298,9 +2582,15 @@ def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tm
             }
 
     def fake_run_harness(**kwargs):
+        assert os.environ["CHIRP_HOME"] == "C:/installed/Rook/app/chirp"
         calls.update(kwargs)
         return FakeHarnessResult()
 
+    def require_installed_environment():
+        monkeypatch.setenv("CHIRP_HOME", "C:/installed/Rook/app/chirp")
+        return {"chirp_home": "C:/installed/Rook/app/chirp"}
+
+    monkeypatch.setattr(proof, "_require_installed_live_environment", require_installed_environment)
     monkeypatch.setattr(proof, "run_rhino_runtime_harness", fake_run_harness)
 
     result = proof.owned_release_readiness_gate(
@@ -2316,6 +2606,7 @@ def test_owned_release_readiness_uses_installed_python_for_smoke(monkeypatch, tm
     assert calls["smoke_command"] == [sys.executable, "-m", "rook.local_testing_proof", "live-smoke"]
     assert calls["smoke_kind"] == "installed-live-smoke"
     assert calls["keep_rhino_on_failure"] is False
+    assert calls["smoke_timeout_seconds"] == 1860
     assert (
         result.details["progressive_discovery"]
         == live_envelope["details"]["progressive_discovery"]
@@ -2333,6 +2624,7 @@ def test_owned_release_readiness_requires_progressive_evidence_on_success(
         def to_manifest_dict(self):
             return {"success": True, "smoke": {"stdout": self.smoke.stdout}}
 
+    monkeypatch.setattr(proof, "_require_installed_live_environment", lambda: {})
     monkeypatch.setattr(
         proof, "run_rhino_runtime_harness", lambda **_: FakeHarnessResult()
     )
@@ -2370,6 +2662,7 @@ def test_owned_release_readiness_preserves_live_smoke_failure_label(monkeypatch,
         def to_manifest_dict(self):
             return {"success": False, "smoke": {"stdout": self.smoke.stdout}}
 
+    monkeypatch.setattr(proof, "_require_installed_live_environment", lambda: {})
     monkeypatch.setattr(proof, "run_rhino_runtime_harness", lambda **_: FakeHarnessResult())
 
     result = proof.owned_release_readiness_gate(
@@ -2411,3 +2704,98 @@ def test_read_optional_json_still_reads_plain_utf8(tmp_path: Path):
     manifest.write_text(json.dumps({"chirp_git_sha": "abc123"}), encoding="utf-8")
 
     assert proof._read_optional_json(manifest).get("chirp_git_sha") == "abc123"
+
+
+def _post_json(url: str, payload: dict) -> dict:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=2.0) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def test_slow_provider_is_loopback_single_request_and_bounded(tmp_path: Path):
+    with proof._slow_openai_provider(tmp_path, delay_seconds=0.02) as provider:
+        assert provider.host == "127.0.0.1"
+        assert provider.port > 0
+        payload = _post_json(
+            f"http://{provider.host}:{provider.port}/v1/chat/completions",
+            {"model": "rook-timeout-acceptance", "messages": [{"role": "user", "content": "go"}]},
+        )
+        assert payload["choices"][0]["message"]["content"] == (
+            "[[ ## result ## ]]\nslow-ok\n\n[[ ## completed ## ]]"
+        )
+        assert payload["usage"] == {
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+            "total_tokens": 2,
+        }
+        assert provider.request_count == 1
+
+    assert provider.thread.is_alive() is False
+    receipt = json.loads(provider.request_path.read_text(encoding="utf-8"))
+    assert receipt["path"] == "/v1/chat/completions"
+    assert receipt["request"]["model"] == "rook-timeout-acceptance"
+
+
+def test_slow_provider_cleanup_runs_after_body_failure(tmp_path: Path):
+    provider = None
+    with pytest.raises(RuntimeError, match="body failed"):
+        with proof._slow_openai_provider(tmp_path, delay_seconds=0.02) as provider:
+            raise RuntimeError("body failed")
+
+    assert provider is not None
+    assert provider.thread.is_alive() is False
+
+
+def test_slow_provider_cleanup_interrupts_active_request(tmp_path: Path):
+    client_failures = []
+    client = None
+    provider = None
+
+    with pytest.raises(RuntimeError, match="body failed"):
+        with proof._slow_openai_provider(tmp_path, delay_seconds=10.0) as provider:
+            def request_provider():
+                try:
+                    _post_json(
+                        f"http://{provider.host}:{provider.port}/v1/chat/completions",
+                        {"model": "rook-timeout-acceptance", "messages": []},
+                    )
+                except BaseException as exc:
+                    client_failures.append(exc)
+
+            client = threading.Thread(target=request_provider, daemon=False)
+            client.start()
+            deadline = time.monotonic() + 2.0
+            while provider.request_count == 0 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert provider.request_count == 1
+            raise RuntimeError("body failed")
+
+    assert provider is not None
+    assert client is not None
+    client.join(timeout=2.0)
+    assert client.is_alive() is False
+    assert provider.thread.is_alive() is False
+    assert client_failures
+
+
+def test_slow_provider_preserves_body_and_cleanup_failures(monkeypatch, tmp_path: Path):
+    original_stop = proof._stop_slow_provider
+
+    def cleanup_then_fail(provider):
+        original_stop(provider)
+        raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(proof, "_stop_slow_provider", cleanup_then_fail)
+
+    with pytest.raises(proof.ProofFailure) as captured:
+        with proof._slow_openai_provider(tmp_path, delay_seconds=0.02):
+            raise ValueError("body failed")
+
+    assert captured.value.failure_label == "slow_provider_cleanup_failed"
+    assert captured.value.details["body_failure"]["message"] == "body failed"
+    assert captured.value.details["cleanup_failure"]["message"] == "cleanup failed"

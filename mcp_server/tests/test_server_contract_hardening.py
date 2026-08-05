@@ -1289,7 +1289,63 @@ async def test_gh_set_script_pins_typo_current_name_raises_structured_error(monk
 
 
 @pytest.mark.asyncio
+async def test_chirp_create_rejects_terminal_timeout_before_http_or_rhino(
+    monkeypatch, patched_server
+):
+    async def fake_ensure_chirp_running():
+        return {
+            "running": False,
+            "host": "127.0.0.1",
+            "port": 9900,
+            "error": (
+                "Chirp is disabled because CHIRP_INFERENCE_TIMEOUT_SECONDS must "
+                "contain only ASCII digits and resolve to 1–1800 seconds."
+            ),
+            "error_code": "chirp_invalid_inference_timeout",
+        }
+
+    class _ForbiddenAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("terminal configuration must reject before HTTP")
+
+    call_rhino_mock = AsyncMock(
+        side_effect=AssertionError("terminal configuration must reject before Rhino")
+    )
+    monkeypatch.setattr(
+        "rook.chirp_manager.ensure_chirp_running", fake_ensure_chirp_running
+    )
+    monkeypatch.setattr(server.httpx, "AsyncClient", _ForbiddenAsyncClient)
+    monkeypatch.setattr(server, "call_rhino", call_rhino_mock)
+
+    payload = _decode_response(
+        await server.call_tool(
+            "chirp_create",
+            {
+                "pins_in": [{"name": "Input", "type": "string"}],
+                "pins_out": [{"name": "Result", "type": "string"}],
+                "signature": "input -> result",
+                "category": "classifier",
+            },
+        )
+    )
+
+    assert payload == {
+        "success": False,
+        "data": {
+            "error": "chirp_invalid_inference_timeout",
+            "details": (
+                "Chirp is disabled because CHIRP_INFERENCE_TIMEOUT_SECONDS must "
+                "contain only ASCII digits and resolve to 1–1800 seconds."
+            ),
+        },
+    }
+    call_rhino_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_server):
+    routes = []
+
     class _FakeChirpResponse:
         status_code = 200
 
@@ -1321,8 +1377,9 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
         return {"running": True, "host": "127.0.0.1", "port": 9123}
 
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        routes.append(route)
         if route == "/gh/document":
-            return {"success": True, "data": {"name": "TestDoc"}}
+            raise AssertionError("deferred inference must not inspect /gh/document")
         if route == "/gh/create-component":
             return {"success": True, "data": {"guid": "chirp-guid"}}
         if route == "/gh/script-params":
@@ -1345,14 +1402,25 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
             }
             return {"success": True, "data": {"Guid": "chirp-guid", "Inputs": 1, "Outputs": 2}}
         if route == "/gh/script":
-            return {"success": True, "data": {"Guid": "chirp-guid"}}
+            return {
+                "success": True,
+                "data": {
+                    "Guid": "chirp-guid",
+                    "verification_deferred": True,
+                    "solve_scheduled": True,
+                },
+            }
         if route == "/gh/errors":
-            return {"success": True, "data": {"errors": []}}
+            raise AssertionError("deferred inference must not inspect /gh/errors")
         raise AssertionError(f"Unexpected route: {route}")
+
+    async def forbidden_sleep(_seconds):
+        raise AssertionError("deferred inference must not delay for verification")
 
     monkeypatch.setattr(server.httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setattr("rook.chirp_manager.ensure_chirp_running", fake_ensure_chirp_running)
     monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(server.asyncio, "sleep", forbidden_sleep)
 
     response = await server.call_tool(
         "chirp_create",
@@ -1375,6 +1443,7 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
         },
     )
     payload = _decode_response(response)
+    assert "/gh/document" not in routes
 
     assert payload["success"] is True
     assert payload["data"]["pins_in"] == [{
@@ -1394,6 +1463,10 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
     assert payload["data"]["pins_in"][0]["optional"] is False
     assert payload["data"]["pins_out"][0]["access"] == "list"
     assert payload["data"]["pins_out"][0]["description"] == "Candidate spans"
+    assert payload["data"]["verification_deferred"] is True
+    assert payload["data"]["solve_scheduled"] is True
+    assert "component_errors" not in payload["data"]
+    assert "/gh/errors" not in routes
 
 
 @pytest.mark.asyncio
@@ -1401,6 +1474,8 @@ async def test_chirp_create_deterministic_only_uses_host_compatible_script_witho
     monkeypatch, patched_server
 ):
     captured_scripts = []
+    routes = []
+    sleeps = []
 
     class _FakeChirpResponse:
         status_code = 200
@@ -1440,6 +1515,7 @@ async def test_chirp_create_deterministic_only_uses_host_compatible_script_witho
         return {"running": True, "host": "127.0.0.1", "port": 9123}
 
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        routes.append(route)
         if route == "/gh/document":
             return {"success": True, "data": {"name": "TestDoc"}}
         if route == "/gh/create-component":
@@ -1448,14 +1524,25 @@ async def test_chirp_create_deterministic_only_uses_host_compatible_script_witho
             return {"success": True, "data": {"Guid": "chirp-guid", "Inputs": 1, "Outputs": 1}}
         if route == "/gh/script":
             captured_scripts.append(payload["script"])
-            return {"success": True, "data": {"Guid": "chirp-guid"}}
+            return {
+                "success": True,
+                "data": {
+                    "Guid": "chirp-guid",
+                    "verification_deferred": True,
+                    "solve_scheduled": True,
+                },
+            }
         if route == "/gh/errors":
             return {"success": True, "data": {"errors": []}}
         raise AssertionError(f"Unexpected route: {route}")
 
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
     monkeypatch.setattr(server.httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setattr("rook.chirp_manager.ensure_chirp_running", fake_ensure_chirp_running)
     monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(server.asyncio, "sleep", fake_sleep)
 
     response = await server.call_tool(
         "chirp_create",
@@ -1475,6 +1562,88 @@ async def test_chirp_create_deterministic_only_uses_host_compatible_script_witho
     assert "System.Text.Json" not in captured_scripts[0]
     assert "JsonSerializer" not in captured_scripts[0]
     assert "Result = Input ?? string.Empty;" in captured_scripts[0]
+    assert routes.count("/gh/errors") == 1
+    assert sleeps == [0.2]
+    assert payload["data"]["verification_deferred"] is True
+    assert payload["data"]["solve_scheduled"] is True
+
+
+@pytest.mark.asyncio
+async def test_chirp_create_non_deferred_reports_only_component_errors(
+    monkeypatch, patched_server
+):
+    class _FakeChirpResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "script": "generated script",
+                "name": "Chirp Script",
+                "category": "classifier",
+                "pins_in": ["Input:string"],
+                "pins_out": ["Result:string"],
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, _url, json):
+            assert json["signature"] == "input -> result"
+            return _FakeChirpResponse()
+
+    async def fake_ensure_chirp_running():
+        return {"running": True, "host": "127.0.0.1", "port": 9123}
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "chirp-guid"}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"Guid": "chirp-guid"}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"Guid": "chirp-guid"}}
+        if route == "/gh/errors":
+            return {
+                "success": True,
+                "data": {
+                    "errors": [
+                        {"guid": "chirp-guid", "errors": ["component failed"]}
+                    ]
+                },
+            }
+        raise AssertionError(f"Unexpected route: {route}")
+
+    async def fake_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(server.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(
+        "rook.chirp_manager.ensure_chirp_running", fake_ensure_chirp_running
+    )
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(server.asyncio, "sleep", fake_sleep)
+
+    payload = _decode_response(
+        await server.call_tool(
+            "chirp_create",
+            {
+                "pins_in": [{"name": "Input", "type": "string"}],
+                "pins_out": [{"name": "Result", "type": "string"}],
+                "signature": "input -> result",
+                "category": "classifier",
+            },
+        )
+    )
+
+    assert payload["success"] is True
+    assert payload["data"]["component_errors"] == ["component failed"]
+    assert "compilation_errors" not in payload["data"]
 
 
 def test_python_preamble_item_access_emits_ghenv_extract_one():
