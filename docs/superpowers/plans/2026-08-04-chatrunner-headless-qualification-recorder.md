@@ -944,10 +944,10 @@ qualification without later explicit authorization.
 
 ## Execution ledger
 
-- [ ] Baseline identity and 166-test result recorded.
-- [ ] Task 1 valid RED recorded.
-- [ ] Task 1 commit, growth, and independent approval recorded.
-- [ ] Task 2 begins only after Task 1 approval.
+- [x] Baseline identity and 166-test result recorded.
+- [x] Task 1 valid RED recorded.
+- [x] Task 1 commit, growth, and independent approval recorded.
+- [x] Task 2 begins only after Task 1 approval.
 - [ ] Task 2 valid RED and writer/input results recorded.
 - [ ] Task 2 commit, operator line count, growth, and independent approval recorded.
 - [ ] Task 3 begins only after Task 2 approval.
@@ -957,3 +957,16 @@ qualification without later explicit authorization.
 - [ ] Compilation, source scans, scope, and `git diff --check` recorded.
 - [ ] Zero external contact recorded.
 - [ ] Final reconciliation commit and clean worktree recorded.
+
+### Task 1 evidence
+
+- Baseline: `9a963e823632a160e1cfaf4e70660f8646da28fa`; `166 passed`,
+  11 pre-existing warnings.
+- Valid RED: the empty completion emitted only `done` and retained an empty
+  assistant history entry.
+- Commit: `63219ab56466c5f688b62c6cf5a538ebf2195d40`.
+- Verification: `167 passed`, 11 pre-existing warnings; compilation and
+  `git diff --check` passed.
+- Growth: ChatRunner `+7/-0`; focused tests `+40/-0`; recorder script absent.
+- Independent approval: 2026-08-05; adjacent seam `3 passed`; no findings.
+- External contact: none.
