@@ -179,6 +179,23 @@ def test_row_loader_rejects_non_exact_shapes(tmp_path, mutation, reason):
         OPERATOR._load_row(row_path)
 
 
+@pytest.mark.parametrize(
+    ("field", "reason"),
+    [("model", "invalid_model"), ("intent", "invalid_intent")],
+)
+def test_row_loader_rejects_escaped_lone_surrogates(tmp_path, field, reason):
+    row_path, _, _ = _valid_row(tmp_path)
+    document = json.loads(row_path.read_text(encoding="utf-8"))
+    document[field] = "\ud800"
+    row_path.write_text(
+        json.dumps(document, ensure_ascii=True),
+        encoding="ascii",
+    )
+
+    with pytest.raises(ValueError, match=reason):
+        OPERATOR._load_row(row_path)
+
+
 @pytest.mark.parametrize("value", [True, False, 0, -1, 1.0, "1"])
 @pytest.mark.parametrize("field", ["port", "process_id", "document_serial_number"])
 def test_row_loader_requires_exact_positive_target_integers(tmp_path, field, value):

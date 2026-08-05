@@ -84,6 +84,10 @@ def _read_strict_utf8(path: Path, invalid_reason: str) -> tuple[bytes, str]:
 def _require_nonblank_string(value: Any, reason: str) -> str:
     if type(value) is not str or not value.strip():
         raise ValueError(reason)
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        raise ValueError(reason) from None
     return value
 
 
