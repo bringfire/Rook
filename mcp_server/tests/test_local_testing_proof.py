@@ -716,7 +716,7 @@ class _LiveSmokeHarness:
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             }
             if chirp_response is _UNSET
@@ -1040,7 +1040,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "data": {
                     "component_guid": _test_guid("abc"),
                     "warning": "compiled with warning",
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             None,
@@ -1053,16 +1053,16 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": ["compile failed"],
+                    "component_errors": ["component failed"],
                 },
             },
             None,
-            "chirp_component_compile_error",
+            "chirp_component_error",
             _test_guid("abc"),
             1,
         ),
         (
-            {"success": True, "data": {"compilation_errors": []}},
+            {"success": True, "data": {"component_errors": []}},
             None,
             "cleanup_failed",
             "unknown-created",
@@ -1073,7 +1073,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             {"success": False, "data": "diagnostics unavailable"},
@@ -1086,7 +1086,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             {
@@ -1130,7 +1130,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             {"success": True, "data": []},
@@ -1143,7 +1143,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             {"success": True, "data": {"errors": [{"guid": 7, "errors": []}]}},
@@ -1156,7 +1156,7 @@ async def test_live_smoke_refuses_to_undo_unknown_addition_after_failed_chirp_re
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             },
             RuntimeError("gh_errors transport broke"),
@@ -1236,7 +1236,7 @@ async def test_live_smoke_canonicalizes_alternate_valid_instance_guid_spellings(
             "success": True,
             "data": {
                 "component_guid": "{" + target.upper() + "}",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
         undo_responses=[_gh_undo_success()],
@@ -1299,7 +1299,7 @@ async def test_live_smoke_rejects_invalid_created_guid_without_undoing_unknown_a
             "success": True,
             "data": {
                 "component_guid": "not-an-instance-guid",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
         undo_responses=[_gh_undo_success()],
@@ -1331,7 +1331,7 @@ async def test_live_smoke_rejects_created_target_already_in_baseline_before_undo
         ],
         chirp_response={
             "success": True,
-            "data": {"component_guid": target, "compilation_errors": []},
+            "data": {"component_guid": target, "component_errors": []},
         },
         undo_responses=[_gh_undo_success()],
     )
@@ -1452,7 +1452,7 @@ async def test_live_smoke_normalizes_post_attempt_inventory_exception_and_retain
             "data": {
                 "component_guid": _test_guid("abc"),
                 "warning": "compiled with warning",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
     )
@@ -1694,7 +1694,7 @@ async def test_live_smoke_cleanup_failure_wins_and_retains_original_failure(
             "data": {
                 "component_guid": _test_guid("abc"),
                 "warning": "compiled with warning",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
     )
@@ -1725,7 +1725,7 @@ async def test_live_smoke_cleanup_failure_retains_prior_failure_and_real_cancell
             "data": {
                 "component_guid": _test_guid("abc"),
                 "warning": "compiled with warning",
-                "compilation_errors": [],
+                "component_errors": [],
             },
         },
     )
@@ -2108,7 +2108,7 @@ async def test_live_smoke_launches_grasshopper_when_not_ready(
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             }
         if name == "gh_errors":
@@ -2190,7 +2190,7 @@ async def test_live_smoke_polls_after_grasshopper_command_timeout(
                 "success": True,
                 "data": {
                     "component_guid": _test_guid("abc"),
-                    "compilation_errors": [],
+                    "component_errors": [],
                 },
             }
         if name == "gh_errors":

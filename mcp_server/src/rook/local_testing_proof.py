@@ -1453,11 +1453,11 @@ def _chirp_validation_failure(
             ),
             component_guid,
         )
-    if chirp_data.get("compilation_errors"):
+    if chirp_data.get("component_errors"):
         return (
             ProofFailure(
-                "chirp_component_compile_error",
-                "chirp_create compilation errors",
+                "chirp_component_error",
+                "chirp_create component errors",
                 {"chirp_create": chirp},
             ),
             component_guid,
@@ -1809,7 +1809,7 @@ def _harness_failure_label(harness_result: Any) -> str:
             "chirp_import_failed",
             "chirp_create_failed",
             "chirp_component_warning",
-            "chirp_component_compile_error",
+            "chirp_component_error",
             "gh_component_error",
             "cleanup_failed",
         ):
