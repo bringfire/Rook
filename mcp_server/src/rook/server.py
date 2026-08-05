@@ -15261,6 +15261,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             )
 
         case "chirp_create":
+            terminal_timeout_configuration = False
             signature = arguments.get("signature")
             category = arguments.get("category")
             chirp_name = arguments.get("name")
@@ -15278,7 +15279,20 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 from rook.chirp_manager import ensure_chirp_running
                 chirp_status = await ensure_chirp_running()
                 if not chirp_status["running"]:
-                    result = {"success": False, "data": chirp_status["error"]}
+                    if (
+                        chirp_status.get("error_code")
+                        == "chirp_invalid_inference_timeout"
+                    ):
+                        terminal_timeout_configuration = True
+                        result = {
+                            "success": False,
+                            "data": {
+                                "error": "chirp_invalid_inference_timeout",
+                                "details": chirp_status["error"],
+                            },
+                        }
+                    else:
+                        result = {"success": False, "data": chirp_status["error"]}
                 else:
                     chirp_host = chirp_status.get("host", "127.0.0.1")
                     chirp_port = chirp_status["port"]
@@ -15390,46 +15404,84 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                                                 "data": f"Component created but script injection failed: {script_result.get('data')}",
                                             }
                                         else:
-                                            # Step 5: Validate — check for compilation errors
-                                            # Small delay lets the GH solver process the new script
-                                            await asyncio.sleep(0.2)
-                                            errors_result = await call_rhino(
-                                                "/gh/errors", "GET", {}, port=port,
+                                            script_data = script_result.get("data")
+                                            if not isinstance(script_data, dict):
+                                                script_data = {}
+                                            verification_deferred = (
+                                                script_data.get("verification_deferred")
+                                                is True
                                             )
-                                            component_errors = []
-                                            if errors_result.get("success"):
-                                                edata = errors_result.get("data", {})
-                                                for err in edata.get("errors", []):
-                                                    if err.get("guid") == str(component_guid):
-                                                        component_errors = err.get("errors", [])
-                                                        break
-
-                                            result = {
-                                                "success": True,
-                                                "data": {
-                                                    "component_guid": str(component_guid),
-                                                    "pins_in": chirp_pin_defs_in,
-                                                    "pins_out": chirp_pin_defs_out,
-                                                    "position": {"x": cx, "y": cy},
-                                                    "signature": signature,
-                                                    "category": chirp_result.get("category", category),
-                                                    "name": chirp_result.get("name", chirp_name),
-                                                },
+                                            solve_scheduled = script_data.get(
+                                                "solve_scheduled"
+                                            )
+                                            data = {
+                                                "component_guid": str(component_guid),
+                                                "pins_in": chirp_pin_defs_in,
+                                                "pins_out": chirp_pin_defs_out,
+                                                "position": {"x": cx, "y": cy},
+                                                "signature": signature,
+                                                "category": chirp_result.get(
+                                                    "category", category
+                                                ),
+                                                "name": chirp_result.get(
+                                                    "name", chirp_name
+                                                ),
+                                                "verification_deferred": verification_deferred,
+                                                "solve_scheduled": solve_scheduled,
                                             }
-                                            if component_errors:
-                                                result["data"]["compilation_errors"] = component_errors
-                                                result["data"]["warning"] = "Component placed but has compilation errors"
+
+                                            if (
+                                                verification_deferred
+                                                and not deterministic_only
+                                            ):
+                                                result = {
+                                                    "success": True,
+                                                    "data": data,
+                                                }
+                                            else:
+                                                # Small delay lets the GH solver process the new script.
+                                                await asyncio.sleep(0.2)
+                                                errors_result = await call_rhino(
+                                                    "/gh/errors",
+                                                    "GET",
+                                                    {},
+                                                    port=port,
+                                                )
+                                                component_errors = []
+                                                if errors_result.get("success"):
+                                                    edata = errors_result.get("data", {})
+                                                    for err in edata.get("errors", []):
+                                                        if err.get("guid") == str(
+                                                            component_guid
+                                                        ):
+                                                            component_errors = err.get(
+                                                                "errors", []
+                                                            )
+                                                            break
+
+                                                result = {
+                                                    "success": True,
+                                                    "data": data,
+                                                }
+                                                if component_errors:
+                                                    data["component_errors"] = (
+                                                        component_errors
+                                                    )
+                                                    data["warning"] = (
+                                                        "Component placed but has component errors"
+                                                    )
 
                     except Exception as e:
                         result = {"success": False, "data": f"chirp_create failed: {str(e)}"}
 
-            await _record_gh_to_session(
-                action="chirp_create",
-                params=arguments,
-                result=result,
-                port=port,
-                components_created=[result.get("data", {}).get("component_guid", "")] if isinstance(result.get("data"), dict) and result.get("success") else [],
-            )
+            if not terminal_timeout_configuration:
+                await _record_gh_to_session(
+                    action="chirp_create",
+                    params=arguments,
+                    result=result,
+                    port=port,
+                    components_created=[result.get("data", {}).get("component_guid", "")] if isinstance(result.get("data"), dict) and result.get("success") else [],
+                )
 
         case "gh_errors":
             result = await call_rhino("/gh/errors", "GET", {}, port=port)

@@ -25,6 +25,11 @@ DISCOVERY_PREFIX = "chirp-service-"
 HEALTH_TIMEOUT = httpx.Timeout(2.0)
 STARTUP_POLL_INTERVAL = 0.4
 STARTUP_MAX_WAIT = float(os.environ.get("ROOK_CHIRP_STARTUP_MAX_WAIT", "45.0"))
+INVALID_TIMEOUT_CODE = "chirp_invalid_inference_timeout"
+INVALID_TIMEOUT_MESSAGE = (
+    "Chirp is disabled because CHIRP_INFERENCE_TIMEOUT_SECONDS must contain "
+    "only ASCII digits and resolve to 1–1800 seconds."
+)
 
 # Module-level state
 _chirp_process: subprocess.Popen | None = None
@@ -39,14 +44,40 @@ def _get_startup_lock() -> asyncio.Lock:
     return _startup_lock
 
 
-async def _health_check(host: str, port: int) -> bool:
-    """Return True if Chirp is responding on the given host:port."""
+async def _read_health(host: str, port: int) -> dict | None:
+    """Return a valid HTTP 200 Chirp health object, otherwise None."""
     try:
         async with httpx.AsyncClient(timeout=HEALTH_TIMEOUT) as client:
             resp = await client.get(f"http://{host}:{port}/health")
-            return resp.status_code == 200
+            if resp.status_code != 200:
+                return None
+            payload = resp.json()
+            return payload if isinstance(payload, dict) else None
     except Exception:
-        return False
+        return None
+
+
+def _classify_health(host: str, port: int, payload: dict | None) -> dict | None:
+    """Map only healthy or terminal timeout-policy health to lifecycle results."""
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("status") == "ok":
+        return {"running": True, "host": host, "port": port, "error": None}
+    error = payload.get("error")
+    if (
+        payload.get("status") == "disabled"
+        and isinstance(error, dict)
+        and error.get("code") == INVALID_TIMEOUT_CODE
+        and error.get("message") == INVALID_TIMEOUT_MESSAGE
+    ):
+        return {
+            "running": False,
+            "host": host,
+            "port": port,
+            "error": INVALID_TIMEOUT_MESSAGE,
+            "error_code": INVALID_TIMEOUT_CODE,
+        }
+    return None
 
 
 def _find_live_discovery() -> dict | None:
@@ -185,8 +216,9 @@ async def _wait_for_health(host: str, port: int) -> dict:
     while elapsed < STARTUP_MAX_WAIT:
         await asyncio.sleep(STARTUP_POLL_INTERVAL)
         elapsed += STARTUP_POLL_INTERVAL
-        if await _health_check(host, port):
-            return {"running": True, "host": host, "port": port, "error": None}
+        health_result = _classify_health(host, port, await _read_health(host, port))
+        if health_result is not None:
+            return health_result
     return {
         "running": False,
         "host": host,
@@ -208,8 +240,9 @@ async def ensure_chirp_running() -> dict:
     if disc:
         host = disc.get("host", "127.0.0.1")
         port = disc["port"]
-        if await _health_check(host, port):
-            return {"running": True, "host": host, "port": port, "error": None}
+        health_result = _classify_health(host, port, await _read_health(host, port))
+        if health_result is not None:
+            return health_result
 
     # Serialize startup attempts so concurrent calls don't spawn multiple processes
     async with _get_startup_lock():
@@ -218,8 +251,11 @@ async def ensure_chirp_running() -> dict:
         if disc:
             host = disc.get("host", "127.0.0.1")
             port = disc["port"]
-            if await _health_check(host, port):
-                return {"running": True, "host": host, "port": port, "error": None}
+            health_result = _classify_health(
+                host, port, await _read_health(host, port)
+            )
+            if health_result is not None:
+                return health_result
             # PID alive but not healthy — wait for reload
             logger.info("Chirp PID %s alive but not responding — waiting for reload", disc.get("pid"))
             return await _wait_for_health(host, port)
@@ -274,9 +310,18 @@ async def ensure_chirp_running() -> dict:
                 host = disc.get("host", "127.0.0.1")
                 port = disc["port"]
                 # Discovery file appeared — now wait for health
-                if await _health_check(host, port):
-                    logger.info("Chirp adapter is ready on %s:%d (%.1fs startup)", host, port, elapsed)
-                    return {"running": True, "host": host, "port": port, "error": None}
+                health_result = _classify_health(
+                    host, port, await _read_health(host, port)
+                )
+                if health_result is not None:
+                    if health_result["running"]:
+                        logger.info(
+                            "Chirp adapter is ready on %s:%d (%.1fs startup)",
+                            host,
+                            port,
+                            elapsed,
+                        )
+                    return health_result
 
         return {
             "running": False,
