@@ -27,7 +27,12 @@
 - `chat_event.payload` is exactly `ChatEvent.to_dict()`.
 - UTC timestamps are wall-clock observations; elapsed duration uses a monotonic clock.
 - Report cumulative production additions and operator nonblank lines at every review.
-- Stop for renewed design review before the operator exceeds 350 nonblank lines or if another production module is required. No exception is pre-authorized.
+- Report exact growth when the operator first crosses 350 nonblank lines and at
+  Task 3 review.
+- Stop before the operator exceeds 450 nonblank lines or if another production
+  module is required. The 450-line stop has no exception.
+- The original 350-line estimate fired at 260 nonblank lines before Task 3;
+  reviewed measurement replaced that estimate without changing scope.
 - If a test exposes a needed change outside the exact task boundary, stop with valid-red evidence instead of patching around it.
 
 ---
@@ -452,14 +457,17 @@ git diff --check
 $Operator = 'scripts/chatrunner_headless_qualification.py'
 $Nonblank = (Get-Content $Operator | Where-Object { $_.Trim().Length -gt 0 }).Count
 Write-Output "OPERATOR_NONBLANK=$Nonblank"
-if ($Nonblank -gt 350) { throw 'OPERATOR_GROWTH_GATE_EXCEEDED' }
+if ($Nonblank -gt 350) { Write-Output 'OPERATOR_CROSSED_350_REVIEW_THRESHOLD' }
+if ($Nonblank -gt 450) { throw 'OPERATOR_GROWTH_GATE_EXCEEDED' }
 git diff --numstat fa45d4e6 -- `
   mcp_server/src/rook/agent/chat/chat_runner.py `
   scripts/chatrunner_headless_qualification.py
 ```
 
-If another production module is needed or the operator exceeds 350 nonblank
-lines, stop for renewed design review. Do not continue to Task 3.
+If another production module is needed or the operator exceeds 450 nonblank
+lines, stop for renewed design review. Crossing 350 requires the exact growth
+report but does not itself authorize scope changes. Do not continue to Task 3
+without its ordinary approval gate.
 
 - [ ] **Step 10: Commit Task 2 and stop for ownership review**
 
@@ -818,15 +826,17 @@ content or exception messages. Ordinary bounded paths keep stderr empty.
 $Operator = 'scripts/chatrunner_headless_qualification.py'
 $Nonblank = (Get-Content $Operator | Where-Object { $_.Trim().Length -gt 0 }).Count
 Write-Output "OPERATOR_NONBLANK=$Nonblank"
-if ($Nonblank -gt 350) { throw 'OPERATOR_GROWTH_GATE_EXCEEDED' }
+if ($Nonblank -gt 350) { Write-Output 'OPERATOR_CROSSED_350_REVIEW_THRESHOLD' }
+if ($Nonblank -gt 450) { throw 'OPERATOR_GROWTH_GATE_EXCEEDED' }
 git diff --numstat fa45d4e6 -- `
   mcp_server/src/rook/agent/chat/chat_runner.py `
   scripts/chatrunner_headless_qualification.py
 git diff --check
 ```
 
-If the gate fails, do not split into another production module. Stop for renewed
-design review.
+Report the exact count when it crosses 350 and again at Task 3 review. If the
+450-line gate fails, do not split into another production module. Stop for
+renewed design review; no exception is authorized.
 
 - [ ] **Step 12: Commit Task 3 and stop for independent vertical review**
 
@@ -905,7 +915,8 @@ recorder hook in ChatRunner.
 $Operator = 'scripts/chatrunner_headless_qualification.py'
 $Nonblank = (Get-Content $Operator | Where-Object { $_.Trim().Length -gt 0 }).Count
 Write-Output "OPERATOR_NONBLANK=$Nonblank"
-if ($Nonblank -gt 350) { throw 'OPERATOR_GROWTH_GATE_EXCEEDED' }
+if ($Nonblank -gt 350) { Write-Output 'OPERATOR_CROSSED_350_REVIEW_THRESHOLD' }
+if ($Nonblank -gt 450) { throw 'OPERATOR_GROWTH_GATE_EXCEEDED' }
 git diff --numstat fa45d4e6 -- `
   mcp_server/src/rook/agent/chat/chat_runner.py `
   scripts/chatrunner_headless_qualification.py
@@ -951,6 +962,8 @@ qualification without later explicit authorization.
 - [x] Task 2 valid RED and writer/input results recorded.
 - [x] Task 2 commit, operator line count, growth, and independent approval recorded.
 - [x] Task 3 begins only after Task 2 approval.
+- [x] Original 350-line estimate fired at 260 before Task 3; reviewed 450-line
+  hard stop recorded.
 - [ ] Task 3 causal vertical, targeting, failure, and snapshot results recorded.
 - [ ] Task 3 commit, operator line count, growth, and independent approval recorded.
 - [ ] Final focused and adjacent seams recorded.

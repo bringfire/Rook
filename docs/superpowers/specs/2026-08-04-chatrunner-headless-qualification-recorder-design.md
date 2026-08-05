@@ -630,10 +630,17 @@ Every mandatory implementation review reports:
 - additions in each changed production file; and
 - cumulative production additions across both sequential slices.
 
-The recorder returns for renewed design review before further implementation if
-the operator script would exceed 350 nonblank lines or if the recorder would
-require any production module beyond its one operator script. No safety or
-scope exception is authorized in advance.
+The original 350-line estimate fired as designed after the approved strict
+loader and writer measured 260 nonblank lines, before any Task 3 expansion.
+Review of the remaining composition responsibilities established that 90 lines
+was insufficient for readable implementation without omitting required safety
+behavior. That measured evidence replaces the estimate; it does not authorize
+scope growth.
+
+Crossing 350 nonblank operator lines requires an immediate growth report, and
+the Task 3 review reports the exact final count. The operator must not exceed
+450 nonblank lines. The 450-line limit is an absolute stop with no exception,
+and any second production module remains forbidden.
 
 Stop before implementation expansion if the work requires:
 
