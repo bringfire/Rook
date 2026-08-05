@@ -6,11 +6,10 @@ Status: approved design awaiting written-spec review
 
 Rook evidence baseline: `9a963e823632a160e1cfaf4e70660f8646da28fa`
 
-Chirp evidence is not yet on one branch: `origin/master` is `2eedab6`, the
-installed Rook 1.5.17 payload records `936a155`, and the unrelated local
-model-default branch is at `2a28caf`. Before planning, select the exact reviewed
-Chirp base. The timeout diff must preserve that base's model defaults and routing;
-resolving the unrelated model commits is outside this correction.
+Chirp implementation base: `b0acae1c91243ec7bc1de58138ac17ae58fdcb05`,
+the immutable `master` merge of the separately reviewed Opus 5 planner/default
+and Sonnet 5 non-planner requirements. The timeout diff must preserve that base's
+model defaults and routing; those model changes are not part of this correction.
 
 ## Goal and boundary
 
@@ -48,9 +47,12 @@ would expose the missing aggregate, cancellation, error, and shutdown contracts.
 
 There is one surrounding hazard: after script injection, `chirp_create` waits and
 calls `/gh/errors`. If the scheduled solve has entered inference, that diagnostic
-can wait behind the solve and hit the 120-second bridge/client limit. When the
-existing script receipt says solve verification is deferred, normal
-inference-capable creation must return without that immediate probe.
+can wait behind the solve and hit the 120-second bridge/client limit. The actual
+response is retained as `script_result`; inspect
+`script_result.data.verification_deferred`. For inference-capable creation, when
+that value is true, skip both the delay and `/gh/errors`, and return at least
+`verification_deferred` and `solve_scheduled` in `chirp_create.data`. Omit
+`component_errors` in this deferred case rather than claiming it was checked.
 Deterministic-only creation may keep its focused verification.
 
 Rook also labels generic `/gh/errors` messages as `compilation_errors`, although
@@ -175,10 +177,12 @@ schema version, or deprecation path. Add one scoped guard preventing the old nam
 from returning to active Chirp contracts without scanning historical evidence or
 unrelated script-authoring contracts.
 
-For inference-capable creation, `component_errors` appears only when messages were
-observed without waiting behind a deferred solve. Otherwise return the creation
-receipt promptly with verification deferred. A later independent diagnostic does
-not own or cancel the component's inference.
+For inference-capable creation, `component_errors` appears only after the focused
+diagnostic actually ran and observed messages. When
+`script_result.data.verification_deferred` is true, return promptly with at least
+the received `verification_deferred` and `solve_scheduled` values and omit
+`component_errors`. A later independent diagnostic does not own or cancel the
+component's inference.
 
 The next release note mentions the corrected Chirp field once. Actual compiler
 diagnostics are called compilation errors only when their origin is known.
@@ -232,10 +236,19 @@ for review if evidence requires another production boundary.
 
 ## 7. Deployment and release propagation
 
-Existing Chirp `.env` files remain byte-identical during install, repair, and local
-deployment. A new Chirp `.env` created by the installer contains
-`CHIRP_INFERENCE_TIMEOUT_SECONDS=300`; a newly generated `.env.example` contains
-the same uncommented default. Existing examples need not be rewritten.
+Installer behavior is exact:
+
+- If Chirp `.env` exists, install and repair preserve it byte-for-byte, including
+  when the user enters a new API key.
+- If Chirp `.env` is missing and an API key is supplied, create it with that key
+  and `CHIRP_INFERENCE_TIMEOUT_SECONDS=300`.
+- If Chirp `.env` is missing and no API key is supplied, do not create it solely
+  for the timeout; the built-in 300 applies.
+- A newly generated `.env.example` includes the uncommented timeout setting;
+  an existing `.env.example` may remain untouched.
+
+Local deployment continues to exclude `.env`, so it does not inspect, copy,
+delete, validate, or rewrite the installed value.
 
 Local deployment already mirrors Chirp source while excluding `.env`, and release
 mode exact-syncs the sealed wheelhouse before `post_install.py`. Extend focused
@@ -246,7 +259,8 @@ dependency or lock change is expected.
 
 Release order:
 
-1. Merge Chirp from its explicitly selected reviewed base.
+1. Implement and review Chirp timeout work from exact base
+   `b0acae1c91243ec7bc1de58138ac17ae58fdcb05`.
 2. Merge the coordinated Rook correction and record the accepted Chirp SHA.
 3. Build/deploy/install from the resulting private Rook merge and that Chirp SHA.
 4. Run installed acceptance.
@@ -274,7 +288,11 @@ Focused Rook tests prove:
 
 - exact degraded health short-circuits while other startup states retain 45s;
 - admission precedes source generation and every Grasshopper request;
-- inference-capable creation does not wait behind a deferred solve;
+- inference-capable creation reads `script_result.data.verification_deferred`,
+  skips its delay and `/gh/errors` when true, returns the received
+  `verification_deferred` and `solve_scheduled` values, and does not report
+  `component_errors` as checked;
+- deterministic-only creation retains its focused verification;
 - active Chirp contracts use only `component_errors`;
 - the 1,860-second watchdog starts after installed readiness and bounded `finally`
   cleanup preserves body and cleanup failures; and
@@ -293,9 +311,12 @@ Rook/Chirp, create and execute one owned component and prove:
 - provider, sidecar, and host teardown runs in bounded `finally` cleanup even if
   the 1,860-second watchdog expires.
 
-The direct inference chain must have no lower Rook, HTTP, MCP, Grasshopper, DSPy,
-LiteLLM, provider, or harness timeout that can preempt the approved policy. Explicit
-shutdown remains a cancellation event with its independent cleanup bound.
+The direct inference chain must have no lower Rook/Chirp-owned HTTP, MCP,
+Grasshopper, DSPy, LiteLLM, or harness timeout that can preempt the approved
+policy. An external provider or locally hosted model server may enforce its own
+lower limit; preserve that as a provider failure rather than reclassifying it as
+Chirp budget exhaustion. Explicit shutdown remains a cancellation event with its
+independent cleanup bound.
 
 Repository-wide suites, native/managed/RookBIM builds, public promotion, and
 unrelated live scenarios are outside acceptance unless an affected file's existing
