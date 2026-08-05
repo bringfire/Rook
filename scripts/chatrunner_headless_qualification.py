@@ -448,16 +448,16 @@ def _target_matches(row: _QualificationRow) -> bool:
 
 
 async def _run_row(row: _QualificationRow) -> tuple[str, Path | None]:
+    target = row.target
+    previous_target = get_active_target()
     try:
         recorder = _open_recorder()
     except _TraceWriteFailure as exc:
         return "trace_write_failed", exc.path
-    prompt = (PromptBuilder().build_system("architect")
-              + "\n\n## Explicit qualification skill\n\n" + row.skill_text)
-    target = row.target
-    previous_target = get_active_target()
-    set_active_target(InstanceRef(target.port, target.process_id))
     try:
+        set_active_target(InstanceRef(target.port, target.process_id))
+        prompt = (PromptBuilder().build_system("architect")
+                  + "\n\n## Explicit qualification skill\n\n" + row.skill_text)
         with rhino_request_context(port=target.port, process_id=target.process_id,
                                    document_serial_number=target.document_serial_number):
             if not _target_matches(row):

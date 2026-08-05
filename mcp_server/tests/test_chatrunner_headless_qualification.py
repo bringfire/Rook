@@ -15,7 +15,7 @@ import pytest
 from rook.agent.chat.chat_runner import ChatEvent, ChatRunner
 from rook.agent.chat.conversation_store import Conversation
 from rook.agent.tool_registry import ToolRegistry
-from rook.targeting import get_active_target
+from rook.targeting import InstanceRef, clear_active_target, get_active_target, set_active_target
 
 
 _SCRIPT_PATH = (
@@ -1123,6 +1123,45 @@ async def test_run_started_write_failure_causes_zero_contact(tmp_path, monkeypat
     assert (status, path) == ("trace_write_failed", Path("trace.jsonl"))
     assert runner.call is None
     canonical.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_prompt_failure_closes_owned_trace_and_restores_target(tmp_path, monkeypatch):
+    row = _admitted_row(tmp_path)
+    stream = _TraceStream()
+    recorder = _recorder(stream)
+    dispatcher = MagicMock()
+    gateway = MagicMock()
+    runner = MagicMock()
+    previous = InstanceRef(port=19801, process_id=4321)
+    original = get_active_target()
+    set_active_target(previous)
+    monkeypatch.setattr(OPERATOR, "_open_recorder", lambda: recorder)
+    monkeypatch.setattr(
+        OPERATOR,
+        "PromptBuilder",
+        lambda: MagicMock(
+            build_system=MagicMock(side_effect=RuntimeError("PROMPT_SENTINEL"))
+        ),
+    )
+    monkeypatch.setattr(OPERATOR, "ToolDispatcher", dispatcher)
+    monkeypatch.setattr(OPERATOR, "build_mcp_capability_gateway_executor", gateway)
+    monkeypatch.setattr(OPERATOR, "ChatRunner", runner)
+
+    try:
+        status, path = await OPERATOR._run_row(row)
+        assert (status, path) == ("refused", Path("trace.jsonl"))
+        assert recorder.closed is True
+        assert stream.close_calls == 1
+        assert get_active_target() == previous
+        assert stream.content == b""
+        dispatcher.assert_not_called()
+        gateway.assert_not_called()
+        runner.assert_not_called()
+    finally:
+        clear_active_target()
+        if original is not None:
+            set_active_target(original)
 
 
 def test_main_emits_only_bounded_status_and_trace_path(tmp_path, monkeypatch, capsys):
