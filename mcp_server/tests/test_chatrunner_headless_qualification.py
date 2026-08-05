@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import sys
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+
+from rook.agent.chat.chat_runner import ChatEvent, ChatRunner
+from rook.agent.chat.conversation_store import Conversation
+from rook.agent.tool_registry import ToolRegistry
+from rook.targeting import get_active_target
 
 
 _SCRIPT_PATH = (
@@ -64,6 +71,44 @@ class _TraceStream:
         self.close_calls += 1
         if self.fail_close:
             raise OSError("CLOSE_SENTINEL")
+
+
+class _TimelineStream(_TraceStream):
+    def __init__(self, timeline, **kwargs):
+        super().__init__(**kwargs)
+        self.timeline = timeline
+
+    def flush(self):
+        super().flush()
+        row = json.loads(bytes(self.content).splitlines()[-1])
+        suffix = ""
+        if row["kind"] == "chat_event":
+            suffix = f":{row['payload']['type']}"
+        self.timeline.append(f"flush:{row['kind']}{suffix}")
+
+
+class _CausalRunner:
+    def __init__(self, events, timeline):
+        self.events = events
+        self.timeline = timeline
+        self.call = None
+
+    async def run_turn(self, conversation, intent, system_prompt):
+        self.call = (conversation, intent, system_prompt)
+        for event in self.events:
+            self.timeline.append(f"yield:{event.type}")
+            yield event
+            self.timeline.append(f"resume:{event.type}")
+
+
+class _ExceptionRunner:
+    def __init__(self, exception):
+        self.exception = exception
+
+    async def run_turn(self, conversation, intent, system_prompt):
+        if False:
+            yield None
+        raise self.exception
 
 
 def _valid_row(tmp_path: Path) -> tuple[Path, Path, bytes]:
@@ -123,6 +168,46 @@ def _recorder(stream=None, *, wall_clock=None):
         stream=stream or _TraceStream(),
         wall_clock=wall_clock or (lambda: _STAMP),
     )
+
+
+def _admitted_row(tmp_path):
+    row_path, _, _ = _valid_row(tmp_path)
+    return OPERATOR._load_row(row_path)
+
+
+def _trace_rows(stream):
+    return [json.loads(line) for line in bytes(stream.content).splitlines()]
+
+
+def _gateway_stream():
+    async def _gen():
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = None
+        tool = MagicMock()
+        tool.index = 0
+        tool.id = "gateway_call"
+        tool.function.name = "rook_tools_call"
+        tool.function.arguments = json.dumps(
+            {"name": "gh_library", "arguments": {"search": "Series"}}
+        )
+        chunk.choices[0].delta.tool_calls = [tool]
+        chunk.usage = None
+        yield chunk
+
+    return _gen()
+
+
+def _text_stream():
+    async def _gen():
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = "Complete"
+        chunk.choices[0].delta.tool_calls = None
+        chunk.usage = None
+        yield chunk
+
+    return _gen()
 
 
 def test_row_loader_retains_exact_values_and_hashes(tmp_path):
@@ -460,3 +545,604 @@ def test_open_recorder_refuses_without_local_app_data(monkeypatch):
 
     assert raised.value.reason == "localappdata_missing"
     assert raised.value.path is None
+
+
+@pytest.mark.asyncio
+async def test_event_stream_flushes_before_resume_and_finishes_with_snapshot(tmp_path):
+    timeline = []
+    stream = _TimelineStream(timeline)
+    recorder = _recorder(stream)
+    recorder.record("run_started", {"identity": "exact"})
+    events = [
+        ChatEvent(
+            "tool_start",
+            name="gh_edit",
+            params={"epoch": 7},
+            tool_call_id="c1",
+        ),
+        ChatEvent(
+            "tool_result",
+            name="gh_edit",
+            result='{"success":true}',
+            tool_call_id="c1",
+        ),
+        ChatEvent("text_delta", content="Complete"),
+        ChatEvent(
+            "done",
+            usage={"input_tokens": 10, "output_tokens": 3, "wall_time_s": 1.2},
+        ),
+    ]
+    runner = _CausalRunner(events, timeline)
+    conversation = Conversation(
+        id="qualification",
+        persona="architect",
+        model="local/model",
+        api_base="http://127.0.0.1:11434",
+    )
+
+    async def canonical(name, arguments):
+        timeline.append("snapshot:call")
+        assert name == "rook_tools_call"
+        assert arguments == {
+            "name": "gh_snapshot",
+            "arguments": {"include_data": False, "max_preview_items": 0},
+        }
+        return {"success": True, "data": {"epoch": 7, "components": []}}
+
+    elapsed = iter([10.0, 12.5])
+    status = await OPERATOR._consume_events(
+        recorder=recorder,
+        runner=runner,
+        conversation=conversation,
+        intent="Exact intent",
+        system_prompt="Exact prompt",
+        canonical_executor=canonical,
+        target_matches=lambda: True,
+        monotonic=lambda: next(elapsed),
+    )
+
+    assert status == "completed"
+    assert runner.call == (conversation, "Exact intent", "Exact prompt")
+    for event in events:
+        assert timeline.index(f"flush:chat_event:{event.type}") < timeline.index(
+            f"resume:{event.type}"
+        )
+    assert timeline.index("flush:snapshot_request") < timeline.index("snapshot:call")
+    rows = _trace_rows(stream)
+    assert [row["payload"] for row in rows if row["kind"] == "chat_event"] == [
+        event.to_dict() for event in events
+    ]
+    assert [row["kind"] for row in rows[-3:]] == [
+        "snapshot_request",
+        "snapshot_result",
+        "run_finished",
+    ]
+    assert rows[-1]["payload"] == {
+        "stream_exhausted": True,
+        "done_observed": True,
+        "chat_error_observed": False,
+        "usage": events[-1].usage,
+        "inspection_attempted": True,
+        "inspection_result_recorded": True,
+        "elapsed_seconds": 2.5,
+    }
+    assert recorder.closed is True
+
+
+@pytest.mark.asyncio
+async def test_real_chatrunner_uses_same_canonical_callable_for_gateway_and_snapshot():
+    direct_executor = AsyncMock()
+    canonical_executor = AsyncMock(
+        side_effect=[
+            {"success": True, "data": {"matches": ["Series"]}},
+            {"success": True, "data": {"epoch": 7, "components": []}},
+        ]
+    )
+    runner = ChatRunner(
+        tool_executor=direct_executor,
+        registry=ToolRegistry(catalog={}, agent_mode=True),
+        mcp_capability_executor=canonical_executor,
+    )
+    conversation = Conversation(
+        id="qualification",
+        persona="architect",
+        model="local/model",
+        api_base="http://127.0.0.1:11434",
+    )
+    stream = _TraceStream()
+    recorder = _recorder(stream)
+    recorder.record("run_started", {"identity": "exact"})
+    completion = AsyncMock(side_effect=[_gateway_stream(), _text_stream()])
+
+    with patch(
+        "rook.agent.chat.chat_runner.litellm.acompletion",
+        completion,
+    ), patch(
+        "rook.agent.chat.chat_runner.collect_runtime_facts",
+        new=AsyncMock(return_value={}),
+    ):
+        status = await OPERATOR._consume_events(
+            recorder=recorder,
+            runner=runner,
+            conversation=conversation,
+            intent="Exact intent",
+            system_prompt="Exact prompt",
+            canonical_executor=canonical_executor,
+            target_matches=lambda: True,
+            monotonic=iter([1.0, 2.0]).__next__,
+        )
+
+    assert status == "completed"
+    assert canonical_executor.await_args_list == [
+        call(
+            "rook_tools_call",
+            {"name": "gh_library", "arguments": {"search": "Series"}},
+        ),
+        call(
+            "rook_tools_call",
+            {
+                "name": "gh_snapshot",
+                "arguments": {"include_data": False, "max_preview_items": 0},
+            },
+        ),
+    ]
+    direct_executor.assert_not_awaited()
+    assert [
+        row["payload"]["type"]
+        for row in _trace_rows(stream)
+        if row["kind"] == "chat_event"
+    ] == ["tool_start", "tool_result", "text_delta", "done"]
+
+
+@pytest.mark.parametrize(
+    ("event", "reason"),
+    [
+        (ChatEvent("tool_start", name="gh_edit", params={"port": 9999}), "target_override_forbidden"),
+        (ChatEvent("tool_start", name="gh_edit", params={"session": "s"}), "target_override_forbidden"),
+        (
+            ChatEvent(
+                "tool_start",
+                name="gh_edit",
+                params={"documentSerialNumber": 3},
+            ),
+            "target_override_forbidden",
+        ),
+        (
+            ChatEvent("tool_start", name="rhino_set_active_instance", params={}),
+            "target_control_forbidden",
+        ),
+        (
+            ChatEvent("tool_start", name="rhino_clear_active_instance", params={}),
+            "target_control_forbidden",
+        ),
+        (
+            ChatEvent(
+                "tool_start",
+                name="rook_tools_call",
+                params={"name": "gh_edit", "arguments": {"port": 9999}},
+            ),
+            "target_override_forbidden",
+        ),
+        (
+            ChatEvent(
+                "tool_start",
+                name="rook_tools_call",
+                params={"name": "gh_edit", "arguments": {"session": "s"}},
+            ),
+            "target_override_forbidden",
+        ),
+        (
+            ChatEvent(
+                "tool_start",
+                name="rook_tools_call",
+                params={
+                    "name": "gh_edit",
+                    "arguments": {"documentSerialNumber": 3},
+                },
+            ),
+            "target_override_forbidden",
+        ),
+        (
+            ChatEvent(
+                "tool_start",
+                name="rook_tools_call",
+                params={"name": "rhino_set_active_instance", "arguments": {}},
+            ),
+            "target_control_forbidden",
+        ),
+        (
+            ChatEvent(
+                "tool_start",
+                name="rook_tools_call",
+                params={"name": "rhino_clear_active_instance", "arguments": {}},
+            ),
+            "target_control_forbidden",
+        ),
+    ],
+)
+def test_targeting_refusal_is_shallow_and_closed(event, reason):
+    assert OPERATOR._targeting_refusal(event) == reason
+
+
+def test_targeting_refusal_does_not_scan_domain_payloads_recursively():
+    event = ChatEvent(
+        "tool_start",
+        name="rook_tools_call",
+        params={
+            "name": "gh_edit",
+            "arguments": {"payload": {"session": "domain value"}},
+        },
+    )
+    assert OPERATOR._targeting_refusal(event) is None
+
+
+@pytest.mark.asyncio
+async def test_forbidden_tool_start_stops_before_generator_resume():
+    timeline = []
+    stream = _TimelineStream(timeline)
+    recorder = _recorder(stream)
+    recorder.record("run_started", {})
+    runner = _CausalRunner(
+        [ChatEvent("tool_start", name="gh_edit", params={"port": 9999})],
+        timeline,
+    )
+    canonical = AsyncMock()
+
+    status = await OPERATOR._consume_events(
+        recorder=recorder,
+        runner=runner,
+        conversation=Conversation(id="q", persona="architect"),
+        intent="intent",
+        system_prompt="prompt",
+        canonical_executor=canonical,
+        target_matches=lambda: True,
+        monotonic=lambda: 1.0,
+    )
+
+    assert status == "refused"
+    assert "resume:tool_start" not in timeline
+    canonical.assert_not_awaited()
+    assert [row["kind"] for row in _trace_rows(stream)] == [
+        "run_started",
+        "chat_event",
+        "qualification_refusal",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("runner", "kind"),
+    [
+        (_ExceptionRunner(RuntimeError("STREAM_SENTINEL")), "stream_exception"),
+        (_ExceptionRunner(asyncio.CancelledError()), "run_cancelled"),
+    ],
+)
+async def test_stream_failure_records_bounded_terminal_prefix(runner, kind):
+    stream = _TraceStream()
+    recorder = _recorder(stream)
+    recorder.record("run_started", {})
+    canonical = AsyncMock()
+
+    status = await OPERATOR._consume_events(
+        recorder=recorder,
+        runner=runner,
+        conversation=Conversation(id="q", persona="architect"),
+        intent="intent",
+        system_prompt="prompt",
+        canonical_executor=canonical,
+        target_matches=lambda: True,
+        monotonic=lambda: 1.0,
+    )
+
+    assert status == "refused"
+    canonical.assert_not_awaited()
+    rows = _trace_rows(stream)
+    assert rows[-1]["kind"] == kind
+    assert all(row["kind"] != "run_finished" for row in rows)
+    if kind == "stream_exception":
+        assert rows[-1]["payload"] == {
+            "exception_type": "RuntimeError",
+            "exception_message": "STREAM_SENTINEL",
+        }
+
+
+@pytest.mark.asyncio
+async def test_missing_done_and_target_drift_skip_snapshot():
+    for target_matches, final_kind in [
+        (lambda: True, "chat_event"),
+        (lambda: False, "target_drift"),
+    ]:
+        stream = _TraceStream()
+        recorder = _recorder(stream)
+        recorder.record("run_started", {})
+        canonical = AsyncMock()
+        status = await OPERATOR._consume_events(
+            recorder=recorder,
+            runner=_CausalRunner([ChatEvent("text_delta", content="partial")], []),
+            conversation=Conversation(id="q", persona="architect"),
+            intent="intent",
+            system_prompt="prompt",
+            canonical_executor=canonical,
+            target_matches=target_matches,
+            monotonic=lambda: 1.0,
+        )
+        assert status == "refused"
+        canonical.assert_not_awaited()
+        assert _trace_rows(stream)[-1]["kind"] == final_kind
+
+
+@pytest.mark.asyncio
+async def test_chat_error_followed_by_done_remains_snapshot_eligible():
+    stream = _TraceStream()
+    recorder = _recorder(stream)
+    recorder.record("run_started", {})
+    status = await OPERATOR._consume_events(
+        recorder=recorder,
+        runner=_CausalRunner(
+            [ChatEvent("error", content="bounded"), ChatEvent("done", usage={})],
+            [],
+        ),
+        conversation=Conversation(id="q", persona="architect"),
+        intent="intent",
+        system_prompt="prompt",
+        canonical_executor=AsyncMock(return_value={"success": False, "error": "offline"}),
+        target_matches=lambda: True,
+        monotonic=iter([1.0, 2.0]).__next__,
+    )
+    assert status == "completed"
+    rows = _trace_rows(stream)
+    assert rows[-1]["kind"] == "run_finished"
+    assert rows[-1]["payload"]["chat_error_observed"] is True
+    assert rows[-2]["payload"] == {"success": False, "error": "offline"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("fail_write_at", "events", "resumed"),
+    [
+        (2, [ChatEvent("tool_start", name="gh_edit", params={})], None),
+        (
+            3,
+            [
+                ChatEvent("tool_start", name="gh_edit", params={}),
+                ChatEvent("tool_result", name="gh_edit", result="{}"),
+            ],
+            "resume:tool_start",
+        ),
+    ],
+)
+async def test_event_write_failure_blocks_every_subsequent_call(
+    fail_write_at, events, resumed
+):
+    timeline = []
+    stream = _TimelineStream(timeline, fail_write_at=fail_write_at)
+    recorder = _recorder(stream)
+    recorder.record("run_started", {})
+    canonical = AsyncMock()
+    status = await OPERATOR._consume_events(
+        recorder=recorder,
+        runner=_CausalRunner(events, timeline),
+        conversation=Conversation(id="q", persona="architect"),
+        intent="intent",
+        system_prompt="prompt",
+        canonical_executor=canonical,
+        target_matches=lambda: True,
+        monotonic=lambda: 1.0,
+    )
+    assert status == "trace_write_failed"
+    canonical.assert_not_awaited()
+    if resumed is None:
+        assert not any(item.startswith("resume:") for item in timeline)
+    else:
+        assert resumed in timeline
+        assert "resume:tool_result" not in timeline
+
+
+@pytest.mark.asyncio
+async def test_snapshot_exception_or_post_call_drift_never_records_result():
+    for canonical, checks in [
+        (AsyncMock(side_effect=RuntimeError("SNAPSHOT_SENTINEL")), iter([True, True])),
+        (
+            AsyncMock(return_value={"success": True, "data": {"epoch": 7}}),
+            iter([True, True, False]),
+        ),
+    ]:
+        stream = _TraceStream()
+        recorder = _recorder(stream)
+        recorder.record("run_started", {})
+        status = await OPERATOR._consume_events(
+            recorder=recorder,
+            runner=_CausalRunner([ChatEvent("done", usage={})], []),
+            conversation=Conversation(id="q", persona="architect"),
+            intent="intent",
+            system_prompt="prompt",
+            canonical_executor=canonical,
+            target_matches=lambda: next(checks),
+            monotonic=lambda: 1.0,
+        )
+        assert status == "refused"
+        kinds = [row["kind"] for row in _trace_rows(stream)]
+        assert "snapshot_request" in kinds
+        assert "snapshot_result" not in kinds
+        assert "run_finished" not in kinds
+
+
+@pytest.mark.asyncio
+async def test_close_failure_preserves_run_finished_but_reports_trace_failure():
+    stream = _TraceStream(fail_close=True)
+    recorder = _recorder(stream)
+    recorder.record("run_started", {})
+    status = await OPERATOR._consume_events(
+        recorder=recorder,
+        runner=_CausalRunner([ChatEvent("done", usage={})], []),
+        conversation=Conversation(id="q", persona="architect"),
+        intent="intent",
+        system_prompt="prompt",
+        canonical_executor=AsyncMock(return_value={"success": True}),
+        target_matches=lambda: True,
+        monotonic=iter([1.0, 2.0]).__next__,
+    )
+    assert status == "trace_write_failed"
+    assert _trace_rows(stream)[-1]["kind"] == "run_finished"
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_row_composes_exact_identity_prompt_target_and_gateway(
+    tmp_path, monkeypatch
+):
+    row = _admitted_row(tmp_path)
+    trace_stream = _TraceStream()
+    recorder = _recorder(trace_stream)
+    runner = _CausalRunner([ChatEvent("done", usage={})], [])
+    dispatcher = MagicMock(dispatch=AsyncMock())
+    canonical = AsyncMock(return_value={"success": True, "data": {"epoch": 7}})
+    runner_factory = MagicMock(return_value=runner)
+    previous_target = get_active_target()
+
+    monkeypatch.setattr(OPERATOR, "_open_recorder", lambda: recorder)
+    monkeypatch.setattr(
+        OPERATOR,
+        "_runtime_identity",
+        lambda: {
+            "git_head": "abc123",
+            "git_dirty": False,
+            "python_executable": "python",
+            "python_version": "3.12.12",
+            "rook_module_path": "rook/__init__.py",
+            "litellm_version": "1.89.4",
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(
+        OPERATOR,
+        "PromptBuilder",
+        lambda: MagicMock(build_system=MagicMock(return_value="ARCHITECT")),
+        raising=False,
+    )
+    monkeypatch.setattr(OPERATOR, "build_local_tools", lambda: {}, raising=False)
+    monkeypatch.setattr(
+        OPERATOR,
+        "ToolDispatcher",
+        lambda *, port, local_tools: dispatcher,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        OPERATOR,
+        "build_mcp_capability_gateway_executor",
+        lambda access: canonical,
+        raising=False,
+    )
+    monkeypatch.setattr(OPERATOR, "ChatRunner", runner_factory, raising=False)
+    monkeypatch.setattr(
+        OPERATOR,
+        "resolve_profile",
+        lambda env: MagicMock(value="full"),
+        raising=False,
+    )
+
+    status, path = await OPERATOR._run_row(row)
+
+    assert (status, path) == ("completed", Path("trace.jsonl"))
+    conversation, intent, prompt = runner.call
+    assert conversation.persona == "architect"
+    assert conversation.model == row.model
+    assert conversation.api_base == row.api_base
+    assert conversation.document_serial_number == row.target.document_serial_number
+    assert intent == row.intent
+    assert prompt == f"ARCHITECT\n\n## Explicit qualification skill\n\n{row.skill_text}"
+    assert runner_factory.call_args.kwargs == {
+        "tool_executor": dispatcher.dispatch,
+        "tool_access": "full",
+        "mcp_capability_executor": canonical,
+    }
+    assert get_active_target() == previous_target
+    started = _trace_rows(trace_stream)[0]
+    assert started["kind"] == "run_started"
+    assert started["payload"] == {
+        "row_path": str(row.source_path),
+        "row_sha256": row.source_sha256,
+        "git_head": "abc123",
+        "git_dirty": False,
+        "python_executable": "python",
+        "python_version": "3.12.12",
+        "rook_module_path": "rook/__init__.py",
+        "litellm_version": "1.89.4",
+        "model": row.model,
+        "api_base": row.api_base,
+        "mcp_profile": "full",
+        "intent": row.intent,
+        "skill_path": str(row.skill_path),
+        "skill_sha256": row.skill_sha256,
+        "system_prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+        "rhino_target": {
+            "port": row.target.port,
+            "process_id": row.target.process_id,
+            "document_serial_number": row.target.document_serial_number,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_started_write_failure_causes_zero_contact(tmp_path, monkeypatch):
+    row = _admitted_row(tmp_path)
+    recorder = _recorder(_TraceStream(fail_write_at=1))
+    runner = _CausalRunner([ChatEvent("done", usage={})], [])
+    canonical = AsyncMock()
+    monkeypatch.setattr(OPERATOR, "_open_recorder", lambda: recorder)
+    monkeypatch.setattr(OPERATOR, "_runtime_identity", lambda: {}, raising=False)
+    monkeypatch.setattr(
+        OPERATOR,
+        "PromptBuilder",
+        lambda: MagicMock(build_system=MagicMock(return_value="ARCHITECT")),
+        raising=False,
+    )
+    monkeypatch.setattr(OPERATOR, "build_local_tools", lambda: {}, raising=False)
+    monkeypatch.setattr(
+        OPERATOR,
+        "ToolDispatcher",
+        lambda **kwargs: MagicMock(dispatch=AsyncMock()),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        OPERATOR,
+        "build_mcp_capability_gateway_executor",
+        lambda access: canonical,
+        raising=False,
+    )
+    monkeypatch.setattr(OPERATOR, "ChatRunner", lambda **kwargs: runner, raising=False)
+    monkeypatch.setattr(
+        OPERATOR,
+        "resolve_profile",
+        lambda env: MagicMock(value="full"),
+        raising=False,
+    )
+
+    status, path = await OPERATOR._run_row(row)
+
+    assert (status, path) == ("trace_write_failed", Path("trace.jsonl"))
+    assert runner.call is None
+    canonical.assert_not_awaited()
+
+
+def test_main_emits_only_bounded_status_and_trace_path(tmp_path, monkeypatch, capsys):
+    row = _admitted_row(tmp_path)
+    monkeypatch.setattr(OPERATOR, "_load_row", lambda path: row)
+
+    async def run(_row):
+        return "completed", Path("C:/trace.jsonl")
+
+    monkeypatch.setattr(OPERATOR, "_run_row", run, raising=False)
+    assert OPERATOR.main([str(row.source_path)]) == 0
+    assert capsys.readouterr() == (
+        '{"status":"completed","trace_path":"C:/trace.jsonl"}\n',
+        "",
+    )
+
+
+def test_main_refuses_invalid_argument_count_without_exception_text(capsys):
+    assert OPERATOR.main([]) == 1
+    assert capsys.readouterr() == (
+        '{"status":"refused","trace_path":null}\n',
+        "",
+    )

@@ -1,20 +1,38 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import importlib.metadata
 import json
 import os
 from pathlib import Path
+import platform
 import secrets
+import subprocess
+import sys
+import time
 from typing import Any, BinaryIO, Callable, Mapping
 from urllib.parse import urlsplit
+
+import rook
+from rook.agent.chat.chat_runner import ChatRunner
+from rook.agent.chat.conversation_store import Conversation
+from rook.agent.chat.prompt_builder import PromptBuilder
+from rook.agent.tool_dispatcher import ToolDispatcher, build_local_tools
+from rook.bridge import get_rhino_request_context, rhino_request_context
+from rook.mcp_tool_profiles import resolve_profile
+from rook.server import build_mcp_capability_gateway_executor
+from rook.targeting import InstanceRef, clear_active_target, get_active_target, set_active_target
 
 _ROW_MAX_BYTES = 256 * 1024
 _TRACE_MAX_BYTES = 4 * 1024 * 1024
 _ROW_KEYS = frozenset({"model", "api_base", "intent", "skill_path", "rhino_target"})
 _TARGET_KEYS = frozenset({"port", "process_id", "document_serial_number"})
+_TARGET_CONTROL_TOOLS = frozenset({"rhino_set_active_instance", "rhino_clear_active_instance"})
+_ROUTING_KEYS = frozenset({"port", "session", "documentSerialNumber"})
 _TRACE_KINDS = frozenset(
     {
         "run_started",
@@ -298,3 +316,197 @@ def _open_recorder() -> _JsonlRecorder:
     except Exception:
         raise _TraceWriteFailure("trace_open_failed", path) from None
     return _JsonlRecorder(path=path, stream=stream, wall_clock=_utc_now_string)
+
+
+def _targeting_refusal(event: Any) -> str | None:
+    if event.type != "tool_start":
+        return None
+    params = event.params if type(event.params) is dict else {}
+    if event.name in _TARGET_CONTROL_TOOLS:
+        return "target_control_forbidden"
+    if event.name == "rook_tools_call":
+        if params.get("name") in _TARGET_CONTROL_TOOLS:
+            return "target_control_forbidden"
+        arguments = params.get("arguments")
+        if type(arguments) is dict and _ROUTING_KEYS.intersection(arguments):
+            return "target_override_forbidden"
+        return None
+    if _ROUTING_KEYS.intersection(params):
+        return "target_override_forbidden"
+    return None
+
+
+async def _consume_events(
+    *, recorder: _JsonlRecorder, runner: Any, conversation: Any, intent: str,
+    system_prompt: str, canonical_executor: Callable[..., Any], target_matches: Callable[[], bool],
+    monotonic: Callable[[], float],
+) -> str:
+    started = monotonic()
+    stream = runner.run_turn(conversation, intent, system_prompt)
+    exhausted = done_observed = chat_error_observed = False
+    usage: Mapping[str, Any] | None = None
+    status = "refused"
+
+    try:
+        while True:
+            try:
+                event = await anext(stream)
+            except StopAsyncIteration:
+                exhausted = True
+                break
+            recorder.record("chat_event", event.to_dict())
+            if not target_matches():
+                recorder.record("target_drift", {"stage": "chat_event"})
+                break
+            refusal = _targeting_refusal(event)
+            if refusal is not None:
+                recorder.record("qualification_refusal",
+                                {"reason": refusal, "tool_name": event.name})
+                break
+            done_observed = done_observed or event.type == "done"
+            chat_error_observed = chat_error_observed or event.type == "error"
+            if event.type == "done":
+                usage = event.usage
+    except asyncio.CancelledError:
+        try:
+            recorder.record("run_cancelled", {})
+        except _TraceWriteFailure:
+            status = "trace_write_failed"
+    except _TraceWriteFailure:
+        status = "trace_write_failed"
+    except Exception as exc:
+        try:
+            recorder.record("stream_exception", {"exception_type": type(exc).__name__,
+                                                  "exception_message": str(exc)})
+        except _TraceWriteFailure:
+            status = "trace_write_failed"
+    finally:
+        try:
+            await stream.aclose()
+        except Exception:
+            pass
+
+    if status != "trace_write_failed" and exhausted and done_observed:
+        try:
+            if not target_matches():
+                recorder.record("target_drift", {"stage": "before_snapshot"})
+            else:
+                request = {"name": "gh_snapshot", "arguments": {
+                    "include_data": False, "max_preview_items": 0}}
+                recorder.record("snapshot_request", request)
+                result = await canonical_executor("rook_tools_call", request)
+                if not target_matches():
+                    recorder.record("target_drift", {"stage": "after_snapshot"})
+                else:
+                    recorder.record("snapshot_result", result)
+                    recorder.record(
+                        "run_finished",
+                        {
+                            "stream_exhausted": True, "done_observed": True,
+                            "chat_error_observed": chat_error_observed, "usage": usage,
+                            "inspection_attempted": True, "inspection_result_recorded": True,
+                            "elapsed_seconds": monotonic() - started,
+                        },
+                    )
+                    status = "completed"
+        except _TraceWriteFailure:
+            status = "trace_write_failed"
+        except Exception:
+            status = "refused"
+
+    return _close_recorder(recorder, status)
+
+
+def _close_recorder(recorder: _JsonlRecorder, status: str) -> str:
+    try:
+        recorder.close()
+    except _TraceWriteFailure:
+        return "trace_write_failed"
+    return status
+
+
+def _runtime_identity() -> dict[str, Any]:
+    root = Path(__file__).resolve().parents[1]
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            ["git", *args], cwd=root, text=True).strip()
+
+    return {
+        "git_head": git("rev-parse", "HEAD"), "git_dirty": bool(git("status", "--porcelain")),
+        "python_executable": sys.executable, "python_version": platform.python_version(),
+        "rook_module_path": str(Path(rook.__file__).resolve()), "litellm_version": importlib.metadata.version("litellm"),
+    }
+
+
+def _target_matches(row: _QualificationRow) -> bool:
+    target = row.target
+    context = {"port": target.port, "process_id": target.process_id,
+        "document_serial_number": target.document_serial_number}
+    return (get_active_target() == InstanceRef(target.port, target.process_id)
+            and get_rhino_request_context() == context)
+
+
+async def _run_row(row: _QualificationRow) -> tuple[str, Path | None]:
+    try:
+        recorder = _open_recorder()
+    except _TraceWriteFailure as exc:
+        return "trace_write_failed", exc.path
+    prompt = (PromptBuilder().build_system("architect")
+              + "\n\n## Explicit qualification skill\n\n" + row.skill_text)
+    target = row.target
+    previous_target = get_active_target()
+    set_active_target(InstanceRef(target.port, target.process_id))
+    try:
+        with rhino_request_context(port=target.port, process_id=target.process_id,
+                                   document_serial_number=target.document_serial_number):
+            if not _target_matches(row):
+                recorder.record("target_drift", {"stage": "before_start"})
+                return _close_recorder(recorder, "refused"), recorder.path
+            started = _runtime_identity() | {
+                "row_path": str(row.source_path), "row_sha256": row.source_sha256,
+                "model": row.model, "api_base": row.api_base,
+                "mcp_profile": resolve_profile(os.environ).value, "intent": row.intent,
+                "skill_path": str(row.skill_path), "skill_sha256": row.skill_sha256,
+                "system_prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+                "rhino_target": {"port": target.port, "process_id": target.process_id,
+                                 "document_serial_number": target.document_serial_number},
+            }
+            recorder.record("run_started", started)
+            dispatcher = ToolDispatcher(port=target.port, local_tools=build_local_tools())
+            canonical = build_mcp_capability_gateway_executor("full")
+            runner = ChatRunner(tool_executor=dispatcher.dispatch, tool_access="full",
+                                mcp_capability_executor=canonical)
+            conversation = Conversation(id="qualification", persona="architect",
+                document_serial_number=target.document_serial_number,
+                model=row.model, api_base=row.api_base)
+            status = await _consume_events(recorder=recorder, runner=runner,
+                conversation=conversation, intent=row.intent, system_prompt=prompt,
+                canonical_executor=canonical, target_matches=lambda: _target_matches(row),
+                monotonic=time.monotonic)
+            return status, recorder.path
+    except _TraceWriteFailure:
+        return _close_recorder(recorder, "trace_write_failed"), recorder.path
+    except Exception:
+        return _close_recorder(recorder, "refused"), recorder.path
+    finally:
+        clear_active_target()
+        if previous_target is not None:
+            set_active_target(previous_target)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    status, trace_path = "refused", None
+    if len(args) == 1:
+        try:
+            status, trace_path = asyncio.run(_run_row(_load_row(Path(args[0]))))
+        except Exception:
+            pass
+    result = {"status": status, "trace_path": trace_path.as_posix() if trace_path else None}
+    print(json.dumps(result, separators=(",", ":")))
+    return 0 if status == "completed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
