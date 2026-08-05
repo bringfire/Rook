@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 
-Status: approved design awaiting written-spec review
+Status: approved for implementation planning
 
 Rook evidence baseline: `9a963e823632a160e1cfaf4e70660f8646da28fa`
 
@@ -64,11 +64,20 @@ Rejected alternatives are (a) raising only the C# timeout and (b) applying a ful
 timeout independently to every retry. The first leaves work unbounded; the second
 multiplies wall-clock duration and can outlive outer callers.
 
-Make `/chirp/call` and the adapter path asynchronous. Wrap the complete adapter
-operation in one `asyncio.timeout` context. DSPy's async path reaches LiteLLM's
-async provider transports, so cancellation propagates instead of abandoning a
-worker thread. Signature work, provider attempts, retries, and retry delays all
-consume the same deadline.
+Make `/chirp/call` and the adapter path asynchronous. Pass the complete adapter
+coroutine to the Python 3.10-compatible aggregate deadline:
+
+```python
+await asyncio.wait_for(
+    adapter.acall(...),
+    timeout=inference_timeout_seconds,
+)
+```
+
+DSPy's async path reaches LiteLLM's async provider transports, so cancellation
+propagates instead of abandoning a worker thread. Signature work, provider
+attempts, retries, and retry delays all consume the same deadline. Do not use
+`shield`, worker threads, background abandonment, or custom scheduling.
 
 Every default and model-override `dspy.LM` also receives the configured timeout.
 That is a per-attempt transport backstop; the outer Chirp deadline alone governs
@@ -144,7 +153,7 @@ content. Rook parses health and short-circuits its 45-second poll only for this
 exact reachable terminal code. All other startup behavior remains unchanged, and
 Rook MCP remains available.
 
-Catch deadline expiration outside the `asyncio.timeout` context. It returns HTTP
+Catch `asyncio.TimeoutError` around the `asyncio.wait_for` call. It returns HTTP
 504, never generic 500:
 
 ```json
@@ -155,9 +164,12 @@ Catch deadline expiration outside the `asyncio.timeout` context. It returns HTTP
 }
 ```
 
-`timeout_seconds` is the validated effective value. Client disconnect, explicit
-shutdown, and task cancellation propagate as cancellation; they are not rewritten
-as budget exhaustion. No retry starts after the total deadline.
+`timeout_seconds` is the validated effective value. `wait_for` initiates
+cancellation at the deadline and waits for the child coroutine to finish
+cancelling, so the 504 may arrive slightly after the nominal budget; it must still
+arrive within the approved 30-second transport slack. Client disconnect, explicit
+shutdown, and external task cancellation propagate as cancellation; they are not
+rewritten as budget exhaustion. No retry starts after the total deadline.
 
 Generated C# recognizes 504 and reports `chirp_inference_timeout` as a Grasshopper
 runtime error. Reaching its own 1,830-second ceiling reports
@@ -279,8 +291,10 @@ Focused Chirp tests prove:
 - invalid configuration initializes no LM and admits only exact health/503 failures;
 - `/chirp/create` has admission but no inference budget;
 - every LM receives the explicit value;
-- one outer deadline includes attempts and delays, cancels provider work, starts no
-  later retry, and produces exact 504;
+- one `asyncio.wait_for` deadline includes attempts and delays, cancellation
+  reaches the fake provider, no later retry starts, exact 504 is produced promptly
+  within the 30-second transport slack, and external cancellation remains
+  cancellation rather than 504;
 - generated source contains 1,830 and both timeout codes; and
 - Uvicorn uses fixed 30-second graceful shutdown.
 
