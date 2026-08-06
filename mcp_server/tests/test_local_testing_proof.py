@@ -870,9 +870,11 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
     status_counts = [1, 1, 2, 1, 1, 2, 1]
     calls: list[tuple[str, dict]] = []
     create_count = 0
+    inspect_count = 0
+    sleep_delays: list[float] = []
 
     async def dispatch(name: str, args: dict):
-        nonlocal create_count
+        nonlocal create_count, inspect_count
         calls.append((name, dict(args)))
         if name == "rhino_ping":
             return {"success": True, "data": {"processId": 42, "port": 9001}}
@@ -906,6 +908,9 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
                 },
             }
         if name == "gh_inspect_output":
+            inspect_count += 1
+            if inspect_count == 1:
+                return {"success": False, "data": "GH callback request timed out."}
             return {"success": True, "data": {"preview": ["slow-ok"]}}
         if name == "gh_errors":
             return {"success": True, "data": {"errors": []}}
@@ -920,6 +925,9 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
         assert kwargs == {"port": 9001, "process_id": 42}
         return inventories.pop(0)
 
+    async def record_sleep(delay: float):
+        sleep_delays.append(delay)
+
     monkeypatch.setenv("CHIRP_MODEL", "prior-model")
     monkeypatch.delenv("CHIRP_CACHE", raising=False)
     monkeypatch.delenv("CHIRP_PROVIDERS", raising=False)
@@ -927,6 +935,7 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
     monkeypatch.delenv("CHIRP_INFERENCE_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(proof, "_call_tool_dispatch", dispatch)
     monkeypatch.setattr(proof, "call_rhino", call_rhino)
+    monkeypatch.setattr(proof.asyncio, "sleep", record_sleep)
     monkeypatch.setattr(
         proof,
         "_stop_owned_chirp_sidecar",
@@ -949,6 +958,7 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
     assert evidence["output"] == "slow-ok"
     assert evidence["elapsed_seconds"] >= 0.05
     assert evidence["provider"]["request_count"] == 1
+    assert evidence["transient_callback_timeouts"] == 1
     assert evidence["cleanup"]["component_removed"] is True
     assert evidence["sidecar_cleanup"]["success"] is True
     assert os.environ["CHIRP_MODEL"] == "prior-model"
@@ -957,10 +967,25 @@ async def test_slow_inference_acceptance_uses_scoped_environment_and_owned_clean
     assert "CHIRP_INFERENCE_TIMEOUT_SECONDS" not in os.environ
     assert "CHIRP_CACHE" not in os.environ
     assert evidence["sidecar_cleanup"]["attempted"] is True
-    assert [name for name, _ in calls].count("gh_inspect_output") == 1
+    assert [name for name, _ in calls].count("gh_inspect_output") == 2
+    assert sleep_delays == [0.25]
     create_args = [args for name, args in calls if name == "chirp_create"][1]
     assert "deterministic_code" not in create_args
     assert create_args.get("deterministic_only") is not True
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ({"success": False, "data": "GH callback request timed out."}, True),
+        ({"success": False, "data": "different failure"}, False),
+        ({"success": False, "data": "GH callback request timed out.", "extra": True}, False),
+        ({"success": True, "data": "GH callback request timed out."}, False),
+        (None, False),
+    ],
+)
+def test_slow_output_retry_is_limited_to_exact_callback_timeout(response, expected):
+    assert proof._is_retryable_slow_inspection_timeout(response) is expected
 
 
 @pytest.mark.asyncio
@@ -2676,6 +2701,196 @@ def test_owned_release_readiness_preserves_live_smoke_failure_label(monkeypatch,
 
     assert result.success is False
     assert result.failure_label == "chirp_create_failed"
+
+
+def _forced_cleanup_live_envelope(*, success: bool = True) -> dict:
+    component_guid = _test_guid("forced-cleanup-slow")
+    return {
+        "gate": "live_smoke",
+        "success": success,
+        "failure_label": None if success else "chirp_verification_failed",
+        "details": {
+            "progressive_discovery": {
+                "target": "gh_status",
+                "target_hidden": True,
+            },
+            "slow_inference": {
+                "output": "slow-ok",
+                "provider": {"request_count": 1},
+                "chirp_create": {
+                    "success": True,
+                    "data": {"component_guid": component_guid},
+                },
+                "cleanup": {
+                    "component_guid": component_guid,
+                    "component_observed_after_attempt": True,
+                    "component_removed": True,
+                    "baseline_object_count": 0,
+                    "final_object_count": 0,
+                    "baseline_instance_guids": [],
+                    "final_instance_guids": [],
+                },
+            },
+        },
+    }
+
+
+def _forced_cleanup_harness(
+    tmp_path: Path,
+    *,
+    envelope: dict | None = None,
+    discovery_leftover: bool = False,
+):
+    pid = 4321
+    port = 9876
+    artifact_dir = tmp_path / "run"
+    artifact_dir.mkdir()
+    ready_record_path = artifact_dir / f"owned-discovery-instance-{pid}-native.json"
+    ready_record_path.write_text(
+        json.dumps(
+            {
+                "processId": pid,
+                "pluginType": "native",
+                "host": "127.0.0.1",
+                "port": port,
+            }
+        ),
+        encoding="utf-8",
+    )
+    discovery_path = tmp_path / f"instance-{pid}-native.json"
+    if discovery_leftover:
+        discovery_path.write_text("{}", encoding="utf-8")
+    envelope = envelope or _forced_cleanup_live_envelope()
+    smoke = SimpleNamespace(
+        returncode=0 if envelope.get("success") is True else 1,
+        timed_out=False,
+        succeeded=envelope.get("success") is True,
+        stdout=json.dumps(envelope),
+        stderr="",
+    )
+
+    class FakeHarnessResult:
+        success = False
+        cleanup_status = proof.CleanupStatus.GRACEFUL_TIMEOUT_FORCED_KILL
+        runscript_safety_unrecovered_path = None
+
+        def __init__(self):
+            self.pid = pid
+            self.port = port
+            self.artifact_dir = artifact_dir
+            self.ready_record_path = ready_record_path
+            self.smoke = smoke
+            self.launch_outcome = {
+                "ok": True,
+                "pid": pid,
+                "port": port,
+                "discoveryRecordPath": str(discovery_path),
+            }
+
+        def to_manifest_dict(self):
+            return {
+                "success": False,
+                "pid": self.pid,
+                "port": self.port,
+                "ready": {"record_snapshot_path": str(self.ready_record_path)},
+                "smoke": {"stdout": self.smoke.stdout},
+                "cleanup": {"status": self.cleanup_status.value},
+                "launch_outcome": self.launch_outcome,
+            }
+
+    return FakeHarnessResult()
+
+
+def test_owned_release_readiness_admits_verified_forced_cleanup_only_locally(
+    monkeypatch, tmp_path: Path
+):
+    harness = _forced_cleanup_harness(tmp_path)
+    monkeypatch.setattr(proof, "_require_installed_live_environment", lambda: {})
+    monkeypatch.setattr(proof, "run_rhino_runtime_harness", lambda **_: harness)
+    monkeypatch.setattr(proof, "_is_pid_alive", lambda pid: False)
+
+    result = proof.owned_release_readiness_gate(
+        command=["python", "-m", "rook.local_testing_proof", "owned-release-readiness"],
+        rhino_exe=Path("C:/Program Files/Rhino 8/System/Rhino.exe"),
+        artifact_root=tmp_path,
+        keep_rhino_on_failure=False,
+        readiness_timeout_seconds=1.0,
+        cleanup_timeout_seconds=1.0,
+    )
+
+    assert result.success is True
+    assert result.cleanup == {
+        "attempted": True,
+        "success": False,
+        "label": "cleanup_failed",
+        "details": {"status": "graceful_timeout_forced_kill"},
+    }
+    assert result.details["forced_cleanup_admission"] == {
+        "admitted": True,
+        "status": "graceful_timeout_forced_kill",
+        "pid": 4321,
+        "process_terminated": True,
+        "discovery_record_removed": True,
+    }
+
+
+@pytest.mark.parametrize("failure_kind", ["body", "process", "discovery"])
+def test_owned_release_readiness_rejects_unproven_forced_cleanup(
+    monkeypatch, tmp_path: Path, failure_kind: str
+):
+    envelope = _forced_cleanup_live_envelope(success=failure_kind != "body")
+    harness = _forced_cleanup_harness(
+        tmp_path,
+        envelope=envelope,
+        discovery_leftover=failure_kind == "discovery",
+    )
+    monkeypatch.setattr(proof, "_require_installed_live_environment", lambda: {})
+    monkeypatch.setattr(proof, "run_rhino_runtime_harness", lambda **_: harness)
+    monkeypatch.setattr(proof, "_is_pid_alive", lambda pid: failure_kind == "process")
+
+    result = proof.owned_release_readiness_gate(
+        command=["python", "-m", "rook.local_testing_proof", "owned-release-readiness"],
+        rhino_exe=Path("C:/Program Files/Rhino 8/System/Rhino.exe"),
+        artifact_root=tmp_path,
+        keep_rhino_on_failure=False,
+        readiness_timeout_seconds=1.0,
+        cleanup_timeout_seconds=1.0,
+    )
+
+    assert result.success is False
+    assert result.failure_label == (
+        "chirp_verification_failed" if failure_kind == "body" else "cleanup_failed"
+    )
+
+
+@pytest.mark.parametrize("failure_kind", ["component", "request_bool", "canvas_bool"])
+def test_owned_release_readiness_rejects_malformed_forced_cleanup_evidence(
+    monkeypatch, tmp_path: Path, failure_kind: str
+):
+    envelope = _forced_cleanup_live_envelope()
+    slow = envelope["details"]["slow_inference"]
+    if failure_kind == "component":
+        slow["cleanup"]["component_guid"] = _test_guid("different-component")
+    elif failure_kind == "request_bool":
+        slow["provider"]["request_count"] = True
+    else:
+        slow["cleanup"]["baseline_object_count"] = False
+    harness = _forced_cleanup_harness(tmp_path, envelope=envelope)
+    monkeypatch.setattr(proof, "_require_installed_live_environment", lambda: {})
+    monkeypatch.setattr(proof, "run_rhino_runtime_harness", lambda **_: harness)
+    monkeypatch.setattr(proof, "_is_pid_alive", lambda pid: False)
+
+    result = proof.owned_release_readiness_gate(
+        command=["python", "-m", "rook.local_testing_proof", "owned-release-readiness"],
+        rhino_exe=Path("C:/Program Files/Rhino 8/System/Rhino.exe"),
+        artifact_root=tmp_path,
+        keep_rhino_on_failure=False,
+        readiness_timeout_seconds=1.0,
+        cleanup_timeout_seconds=1.0,
+    )
+
+    assert result.success is False
+    assert result.failure_label == "cleanup_failed"
 
 
 def test_read_optional_json_tolerates_utf8_bom(tmp_path: Path):

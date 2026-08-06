@@ -20,7 +20,7 @@ try:
 except ModuleNotFoundError:  # Python 3.10 support floor.
     tomllib = None  # type: ignore[assignment]
 
-from .bridge import call_rhino, rhino_request_context
+from .bridge import _is_pid_alive, call_rhino, rhino_request_context
 from .learning.command_knowledge_store import CommandKnowledgeStore
 from .preflight import preflight_rhino_command
 from . import runtime_paths as runtime_paths_module
@@ -1989,6 +1989,7 @@ async def _run_slow_chirp_smoke_mutation(
     started = time.monotonic()
 
     async def verify_created(component_guid: str, chirp: dict[str, Any]) -> dict[str, Any]:
+        transient_callback_timeouts = 0
         data = chirp.get("data")
         if not isinstance(data, dict):
             raise ProofFailure(
@@ -2020,6 +2021,10 @@ async def _run_slow_chirp_smoke_mutation(
                 "gh_inspect_output",
                 {**args, "guid": component_guid, "param": "Result"},
             )
+            if _is_retryable_slow_inspection_timeout(inspected):
+                transient_callback_timeouts += 1
+                await asyncio.sleep(0.25)
+                continue
             if not isinstance(inspected, dict) or inspected.get("success") is not True:
                 raise ProofFailure(
                     "chirp_verification_failed",
@@ -2029,7 +2034,11 @@ async def _run_slow_chirp_smoke_mutation(
             inspected_data = inspected.get("data")
             preview = inspected_data.get("preview") if isinstance(inspected_data, dict) else None
             if isinstance(preview, list) and any(str(value) == "slow-ok" for value in preview):
-                return {"output": "slow-ok", "gh_inspect_output": inspected}
+                return {
+                    "output": "slow-ok",
+                    "gh_inspect_output": inspected,
+                    "transient_callback_timeouts": transient_callback_timeouts,
+                }
             await asyncio.sleep(0.25)
 
     mutation = await _run_chirp_smoke_mutation(
@@ -2091,6 +2100,9 @@ async def _run_slow_chirp_smoke_mutation(
 
     return {
         "output": mutation["verification"]["output"],
+        "transient_callback_timeouts": mutation["verification"][
+            "transient_callback_timeouts"
+        ],
         "elapsed_seconds": elapsed,
         "provider": {
             "host": provider.host,
@@ -2102,6 +2114,10 @@ async def _run_slow_chirp_smoke_mutation(
         "gh_errors": mutation["gh_errors"],
         "cleanup": mutation["gh_undo"],
     }
+
+
+def _is_retryable_slow_inspection_timeout(response: Any) -> bool:
+    return response == {"success": False, "data": "GH callback request timed out."}
 
 
 async def run_live_smoke(
@@ -2352,6 +2368,113 @@ def _harness_failure_label(harness_result: Any) -> str:
     return "installed_runtime_failed"
 
 
+def _owned_forced_cleanup_admission(
+    harness_result: Any,
+    envelope: dict[str, Any] | None,
+) -> dict[str, Any]:
+    pid = getattr(harness_result, "pid", 0)
+    port = getattr(harness_result, "port", 0)
+    status = harness_result.cleanup_status.value
+    evidence: dict[str, Any] = {
+        "admitted": False,
+        "status": status,
+        "pid": pid,
+        "process_terminated": False,
+        "discovery_record_removed": False,
+    }
+    if harness_result.cleanup_status != CleanupStatus.GRACEFUL_TIMEOUT_FORCED_KILL:
+        return evidence
+
+    smoke = getattr(harness_result, "smoke", None)
+    if (
+        smoke is None
+        or getattr(smoke, "returncode", None) != 0
+        or getattr(smoke, "timed_out", False) is True
+        or not isinstance(envelope, dict)
+        or envelope.get("success") is not True
+    ):
+        return evidence
+
+    details = envelope.get("details")
+    slow = details.get("slow_inference") if isinstance(details, dict) else None
+    cleanup = slow.get("cleanup") if isinstance(slow, dict) else None
+    provider = slow.get("provider") if isinstance(slow, dict) else None
+    chirp_create = slow.get("chirp_create") if isinstance(slow, dict) else None
+    chirp_data = (
+        chirp_create.get("data") if isinstance(chirp_create, dict) else None
+    )
+    created_guid = _canonical_instance_guid(
+        chirp_data.get("component_guid") if isinstance(chirp_data, dict) else None
+    )
+    cleanup_guid = _canonical_instance_guid(
+        cleanup.get("component_guid") if isinstance(cleanup, dict) else None
+    )
+    if (
+        not isinstance(cleanup, dict)
+        or created_guid is None
+        or cleanup_guid != created_guid
+        or cleanup.get("component_observed_after_attempt") is not True
+        or cleanup.get("component_removed") is not True
+        or type(cleanup.get("baseline_object_count")) is not int
+        or cleanup.get("baseline_object_count") != 0
+        or type(cleanup.get("final_object_count")) is not int
+        or cleanup.get("final_object_count") != 0
+        or cleanup.get("baseline_instance_guids") != []
+        or cleanup.get("final_instance_guids") != []
+        or not isinstance(provider, dict)
+        or type(provider.get("request_count")) is not int
+        or provider.get("request_count") != 1
+        or slow.get("output") != "slow-ok"
+    ):
+        return evidence
+
+    launch = getattr(harness_result, "launch_outcome", None)
+    ready_record_path = getattr(harness_result, "ready_record_path", None)
+    if (
+        not isinstance(pid, int)
+        or isinstance(pid, bool)
+        or pid <= 0
+        or not isinstance(port, int)
+        or isinstance(port, bool)
+        or port <= 0
+        or not isinstance(launch, dict)
+        or launch.get("ok") is not True
+        or launch.get("pid") != pid
+        or launch.get("port") != port
+        or not isinstance(ready_record_path, Path)
+        or not ready_record_path.is_file()
+    ):
+        return evidence
+
+    try:
+        ready_record = json.loads(ready_record_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return evidence
+    if (
+        not isinstance(ready_record, dict)
+        or ready_record.get("processId") != pid
+        or ready_record.get("pluginType") != "native"
+        or ready_record.get("port") != port
+    ):
+        return evidence
+
+    raw_discovery_path = launch.get("discoveryRecordPath")
+    if not isinstance(raw_discovery_path, str) or not raw_discovery_path:
+        return evidence
+    discovery_path = Path(raw_discovery_path)
+    try:
+        evidence["process_terminated"] = not _is_pid_alive(pid)
+        evidence["discovery_record_removed"] = not discovery_path.exists()
+    except OSError:
+        return evidence
+    evidence["admitted"] = (
+        evidence["process_terminated"] is True
+        and evidence["discovery_record_removed"] is True
+        and getattr(harness_result, "runscript_safety_unrecovered_path", None) is None
+    )
+    return evidence
+
+
 def owned_release_readiness_gate(
     *,
     command: list[str],
@@ -2397,7 +2520,47 @@ def owned_release_readiness_gate(
     )
     if isinstance(progressive_discovery, dict):
         details["progressive_discovery"] = progressive_discovery
+    if (
+        harness.cleanup_status == CleanupStatus.GRACEFUL_TIMEOUT_FORCED_KILL
+        and isinstance(envelope, dict)
+        and envelope.get("success") is False
+    ):
+        failure_label = envelope.get("failure_label")
+        return GateResult.failure(
+            gate="owned_release_readiness",
+            failure_label=(
+                failure_label
+                if isinstance(failure_label, str) and failure_label
+                else "installed_runtime_failed"
+            ),
+            command=command,
+            started_at=started,
+            ended_at=time.monotonic(),
+            details=details,
+            cleanup=cleanup,
+        )
     if harness.success:
+        if not isinstance(progressive_discovery, dict):
+            return GateResult.failure(
+                gate="owned_release_readiness",
+                failure_label="progressive_discovery_failed",
+                command=command,
+                started_at=started,
+                ended_at=time.monotonic(),
+                details=details,
+                cleanup=cleanup,
+            )
+        return GateResult.passed(
+            gate="owned_release_readiness",
+            command=command,
+            started_at=started,
+            ended_at=time.monotonic(),
+            details=details,
+            cleanup=cleanup,
+        )
+    forced_cleanup_admission = _owned_forced_cleanup_admission(harness, envelope)
+    details["forced_cleanup_admission"] = forced_cleanup_admission
+    if forced_cleanup_admission["admitted"] is True:
         if not isinstance(progressive_discovery, dict):
             return GateResult.failure(
                 gate="owned_release_readiness",
