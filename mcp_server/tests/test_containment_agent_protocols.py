@@ -181,9 +181,14 @@ async def test_plan_graph_denies_before_params_or_dispatch(name: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_transport_wrapper_tombstones_missing_schema_before_sdk_validation() -> None:
+async def test_transport_wrapper_tombstones_missing_schema_before_sdk_validation(
+    monkeypatch,
+) -> None:
     from mcp import types as mcp_types
     from rook import server
+
+    dispatch = AsyncMock()
+    monkeypatch.setattr(server, "_call_tool_dispatch", dispatch)
 
     handler = server.mcp.request_handlers[mcp_types.CallToolRequest]
     request = mcp_types.CallToolRequest(
@@ -194,7 +199,20 @@ async def test_transport_wrapper_tombstones_missing_schema_before_sdk_validation
     )
     result = await handler(request)
     text = result.root.content[0].text
-    assert json.loads(text.removeprefix("Error: "))["tool"] == "gh_execute_intent"
+    assert text == (
+        'Error: {\n  "code": "legacy_semantic_tool_contained",\n'
+        '  "tool": "gh_execute_intent",\n  "verified": false,\n'
+        '  "retryable": false,\n  "disposition": "retired",\n'
+        '  "recovery": "Rediscover the current tool surface; use explicit '
+        'Grasshopper inspection, editing, solve, error, and output-verification tools."\n}'
+    )
+    direct_payload = json.loads(text.removeprefix("Error: "))
+    assert direct_payload["tool"] == "gh_execute_intent"
+    assert result.root.structuredContent == {
+        "success": False,
+        "data": direct_payload,
+    }
+    assert result.root.isError is True
 
     progressive = mcp_types.CallToolRequest(
         params=mcp_types.CallToolRequestParams(
@@ -204,4 +222,18 @@ async def test_transport_wrapper_tombstones_missing_schema_before_sdk_validation
     )
     nested_result = await handler(progressive)
     nested_text = nested_result.root.content[0].text
-    assert json.loads(nested_text.removeprefix("Error: "))["tool"] == "gh_replay_recipe"
+    assert nested_text == (
+        'Error: {\n  "code": "legacy_semantic_tool_contained",\n'
+        '  "tool": "gh_replay_recipe",\n  "verified": false,\n'
+        '  "retryable": false,\n  "disposition": "suspended",\n'
+        '  "recovery": "Rediscover the current tool surface; inspect recipe '
+        'data and use explicit mutation only after bounded validation."\n}'
+    )
+    nested_payload = json.loads(nested_text.removeprefix("Error: "))
+    assert nested_payload["tool"] == "gh_replay_recipe"
+    assert nested_result.root.structuredContent == {
+        "success": False,
+        "data": nested_payload,
+    }
+    assert nested_result.root.isError is True
+    dispatch.assert_not_awaited()
