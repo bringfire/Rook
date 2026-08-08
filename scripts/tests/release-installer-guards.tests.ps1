@@ -825,6 +825,39 @@ function Test-InstallerDeletesStaleChildChatManifests {
     }
 }
 
+function Test-InstallerExactRefreshesPythonWheelhouse {
+    $content = Get-Content -LiteralPath $InstallerScript -Raw
+    $installDeleteMatch = [regex]::Match(
+        $content,
+        '(?ms)^\[InstallDelete\]\s*(?<block>.*?)(?=^\[Files\])'
+    )
+    $filesMatch = [regex]::Match(
+        $content,
+        '(?ms)^\[Files\]\s*(?<block>.*?)(?=^\[|\z)'
+    )
+
+    Assert-True -Condition $installDeleteMatch.Success -Message '[InstallDelete] must precede [Files].'
+    Assert-True -Condition $filesMatch.Success -Message 'Installer must contain a [Files] section.'
+
+    $deleteLine = 'Type: filesandordirs; Name: "{app}\python-wheelhouse"; Components: mcp chirp'
+    $copyLine = 'Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"; Components: mcp chirp; Flags: ignoreversion'
+    $deleteLines = @(
+        $installDeleteMatch.Groups['block'].Value -split '\r?\n' |
+            Where-Object { $_ -match 'python-wheelhouse' } |
+            ForEach-Object { $_.Trim() }
+    )
+    $copyLines = @(
+        $filesMatch.Groups['block'].Value -split '\r?\n' |
+            Where-Object { $_ -match 'DestDir: "\{app\}\\python-wheelhouse"' } |
+            ForEach-Object { $_.Trim() }
+    )
+
+    Assert-True -Condition ($deleteLines.Count -eq 1) -Message "Expected exactly one wheelhouse deletion; found $($deleteLines.Count)."
+    Assert-True -Condition ($deleteLines[0] -ceq $deleteLine) -Message 'Wheelhouse deletion must use the exact owned directory, filesandordirs, and mcp chirp components.'
+    Assert-True -Condition ($copyLines.Count -eq 1) -Message "Expected exactly one wheelhouse replacement copy; found $($copyLines.Count)."
+    Assert-True -Condition ($copyLines[0] -ceq $copyLine) -Message 'Wheelhouse replacement must preserve the exact source, destination, components, and flags.'
+}
+
 Test-InstallerPackagesBundledPythonRuntime
 Test-PublicInstallerDoesNotRequireUserPython
 Test-InstallerPreservesExistingChirpEnvironment
@@ -868,5 +901,6 @@ Test-BuildReleaseDocsRequireFfmpegValidation
 Test-LegacyGitHubReleaseWorkflowIsDisabled
 Test-InstallerUsesRookProcessPreflight
 Test-InstallerDeletesStaleChildChatManifests
+Test-InstallerExactRefreshesPythonWheelhouse
 
 Write-Host 'Release installer guard tests passed.'

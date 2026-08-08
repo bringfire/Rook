@@ -109,6 +109,8 @@ Type: filesandordirs; Name: "{app}\.codex"
 Type: files; Name: "{app}\.mcp.json"
 Type: files; Name: "{app}\LICENSE"
 Type: files; Name: "{app}\BUILDING.md"
+; Replace the installer-owned sealed wheelhouse instead of overlaying stale wheels.
+Type: filesandordirs; Name: "{app}\python-wheelhouse"; Components: mcp chirp
 ; Remove stale per-runtime chat manifests before post_install writes fresh copies.
 Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net8.0\RookChatService.json"
 Type: files; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\net7.0\RookChatService.json"
