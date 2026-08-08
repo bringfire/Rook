@@ -565,6 +565,11 @@ After independent pre-contact approval:
 - Task 1 inert test count: **25 passed** with the sibling Python 3.11 environment; Python compilation passed
 - Pre-contact review repair: the launcher now binds the exact row hash before evidence/process entry, and causal request/result short-write tests pin the existing zero-call/one-call boundaries
 - Static manifest: **11/11** reviewed artifacts independently matched their uppercase SHA-256 values; no row, session, stdout, stderr, or final-inspection evidence exists
-- Independent pre-contact review: pending after Task 1 implementation
-- Live authorization: not requested
-- Live result: no contact performed
+- Independent pre-contact review: approved after **25/25** inert tests and exact manifest verification
+- Consumed live attempt: one separately authorized run used the frozen row `D9B8597ED73B543631A30AEB3E02B281651E18E4B88C7F06E9CD92715EA85DC9`; Prime terminated normally, but every IPython call refused before execution because the custom kernel omitted Prime's canonical default packages; the final inspection independently found an empty canvas, so no mutation occurred
+- Consumed evidence retained unchanged: Prime JSONL `3657E6A092F36031AD0EEA71A4541021DE9799DEB7D33614DA3ABC7C77B45C66`, native session `25B8E0F1942698D4C6B73D4D4A5F57A679809347A0E9841601A74D37F7600A4D`, final inspection `1EB95AF93DB7BD18A9934634606018B82CA87380435CBB101689BAAFA53E08DC`, and manifest `5C19BED4FA3F6B571F5A106F1C9D2089771DC0BCBC120B5A88FE1100C5FC456B`
+- Reviewed dependency repair: preserve the consumed directory and create the fresh sibling `C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v2`; adapter, skill, launcher, intent, model, targeting, and evidence behavior remain byte-identical apart from sibling paths
+- V2 kernel contract: `operator/kernel-requirements.txt` freezes the complete canonical Prime package set at the exact versions proven in the readonly V2 kernel, plus `mcp==1.28.0`; its SHA-256 is `ECA59771565CD204120936A7110BD62FC11C532D3E5FB7ACD26A70951E7DEF4A`
+- V2 inert verification: **26/26 passed** through the exact new interpreter, including imports of every canonical package plus `rlm`, `dill`, `mcp`, and `rook_full`; Python compilation passed
+- V2 static manifest: **12/12** entries matched; manifest SHA-256 is `C12C9F03649EE0D43D69C4BCA7E639000790902799ABE0EB9DF214FE8D39DB4C`; no row, session, stdout, stderr, or final-inspection evidence exists
+- V2 live authorization: not requested; no Prime, Ollama, Rook MCP, Rhino, or Grasshopper contact performed by the repair
