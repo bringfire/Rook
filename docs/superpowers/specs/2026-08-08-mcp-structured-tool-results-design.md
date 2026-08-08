@@ -2,7 +2,7 @@
 
 **Status:** Proposed
 **Baseline:** `02918747d38412419954c86fa3167a421eadfea4`
-**Scope:** One backward-compatible correction at Rook's public MCP tool-result boundary
+**Scope:** One legacy-text-compatible MCP semantic correction at Rook's public tool-result boundary
 
 ## Purpose
 
@@ -56,6 +56,12 @@ receiving the existing `list[TextContent]` result.
 The MCP Python SDK can return a `CallToolResult` containing both unstructured content and
 structured content. That public request boundary is the correct owner of the additive
 projection.
+
+Compatibility is deliberately limited to the legacy text surface and internal Python
+callers. `structuredContent` is additive, but changing a returned Rook failure from
+`isError=false` to `isError=true` is an intentional protocol behavior change. A compliant
+MCP client may now raise, stop, or branch where it previously accepted an error-prefixed
+string as a successful tool result.
 
 ## Public Result Contract
 
@@ -120,6 +126,28 @@ No public output schema is added.
 The existing internal `server.call_tool()` surface remains a text-content adapter for its
 current callers. ChatRunner continues to use its existing injected canonical gateway and
 existing MCP-to-agent conversion unchanged.
+
+## Containment Request Paths
+
+The installed MCP containment wrapper is part of the public request boundary. It currently
+has two branches that bypass the retained SDK handler and construct `CallToolResult`
+directly:
+
+- a direct request for a contained tool;
+- `rook_tools_call` whose requested target is contained.
+
+Both branches must use the same authoritative envelope execution and public structured
+projection as every other request-handler branch. A known containment refusal therefore
+retains its exact existing error-prefixed text while exposing:
+
+```text
+structuredContent = {"success": false, "data": exact refusal data}
+isError = true
+```
+
+The wrapper must not infer failure by parsing its formatted text, and it must not preserve
+its current hard-coded `isError=false`. The nested gateway case describes the contained
+target refusal directly rather than wrapping that refusal in a successful gateway envelope.
 
 ## Canonical Gateway Semantics
 
@@ -187,6 +215,12 @@ Additional causal tests prove:
 - a direct MCP target call returns its native envelope;
 - `rook_tools_call` returns that same target envelope without double wrapping;
 - gateway refusal remains policy-owned and is marked `isError=true`;
+- a direct contained-tool refusal retains exact legacy text, exposes its exact failure
+  envelope, and sets `isError=true`;
+- a contained target requested through `rook_tools_call` retains exact legacy text, exposes
+  that target refusal without double wrapping, and sets `isError=true`;
+- every public MCP request-handler branch, including the installed containment wrapper,
+  crosses the same structured projection;
 - internal `server.call_tool()` still returns the existing `list[TextContent]`;
 - existing shared text parsers still parse the unchanged content;
 - ChatRunner's injected canonical gateway result conversion remains unchanged;
@@ -228,7 +262,8 @@ comparison run.
 
 If implemented and verified, this slice may claim only that public Rook MCP clients receive
 an additive, truthful structured projection of the existing internal result envelope while
-legacy text and internal callers remain compatible.
+legacy text and internal callers remain compatible. It explicitly may not claim that client
+behavior is unchanged: truthful failure signaling is the intended semantic correction.
 
 It does not claim improved model judgment, Grasshopper semantic correctness, broader skill
 compatibility, or successful live qualification.
