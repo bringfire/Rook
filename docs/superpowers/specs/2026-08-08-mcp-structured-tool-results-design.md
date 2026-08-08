@@ -99,9 +99,9 @@ isError: true
 model interpretation, text-prefix inference, or reparsing of formatted output may determine
 the classification.
 
-Unexpected exceptions that escape before Rook produces an internal envelope retain the MCP
-SDK's existing exception behavior. This slice does not create an exception taxonomy or
-fabricate structured data for such failures.
+SDK-generated input-validation results and unexpected exceptions that occur before Rook
+produces an internal envelope retain the MCP SDK's existing behavior. This slice does not
+create an exception taxonomy or fabricate structured data for such failures.
 
 ## Boundary Shape
 
@@ -219,8 +219,10 @@ Additional causal tests prove:
   envelope, and sets `isError=true`;
 - a contained target requested through `rook_tools_call` retains exact legacy text, exposes
   that target refusal without double wrapping, and sets `isError=true`;
-- every public MCP request-handler branch, including the installed containment wrapper,
-  crosses the same structured projection;
+- every public MCP request-handler branch that completes with an ordinary Rook result
+  envelope, including the installed containment wrapper, crosses the same structured
+  projection;
+- SDK-generated validation and exception results retain their existing behavior;
 - internal `server.call_tool()` still returns the existing `list[TextContent]`;
 - existing shared text parsers still parse the unchanged content;
 - ChatRunner's injected canonical gateway result conversion remains unchanged;
