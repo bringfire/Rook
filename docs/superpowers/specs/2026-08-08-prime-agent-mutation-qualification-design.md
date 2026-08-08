@@ -223,7 +223,17 @@ Final inspection eligibility does not depend on Prime's semantic success claim o
 - required evidence files were closed;
 - `prime.jsonl` exists, is nonempty, and is valid JSONL;
 - exactly one native Prime session exists, is nonempty, and is valid JSONL; and
-- the retained native session contains the exact model and exact user intent.
+- the retained native session contains the exact user intent and a `model_change`
+  record whose identity is exactly:
+
+  ```json
+  {"provider": "ollama", "modelId": "qwen3.6:35b"}
+  ```
+
+  At least one `model_change` record must establish that pair, and no retained
+  `model_change` record may differ. Every retained assistant message that carries
+  model identity must agree through `provider == "ollama"` and
+  `model == "qwen3.6:35b"`.
 
 A nonzero Prime exit code remains eligible when this equation is satisfied. Prime may report failure or leave partial committed mutation; the independent final state is especially valuable in those cases.
 
@@ -259,7 +269,8 @@ No final-inspection retry, cleanup, interpretation, follow-up tool, or additiona
 
 ## Final-Inspection Evidence Grammar
 
-`final-inspection.jsonl` is exclusively created and has one of two shapes:
+When all intended rows are written completely, `final-inspection.jsonl` has one
+of two complete valid shapes:
 
 ```text
 refusal
@@ -272,7 +283,20 @@ request
 result
 ```
 
-Each row is strict JSON with a `kind` and `payload`.
+Each complete row is strict JSON with a `kind` and `payload`.
+
+An unsuccessful operator may instead leave one of these evidence prefixes:
+
+```text
+empty file
+partial request bytes
+request
+request + partial result bytes
+```
+
+`request` alone is valid JSONL but an incomplete inspection record. Partial-row
+prefixes are deliberately not claimed to be valid JSONL. The operator never
+repairs, truncates, reopens, or replaces any such prefix.
 
 ### Refusal
 
@@ -284,6 +308,25 @@ A refusal is the sole row when post-Prime eligibility or target admission reject
 - `target_mismatch`.
 
 No request or MCP call follows a refusal.
+
+The refusal token is selected by the first applicable check in this fixed order:
+
+```text
+cancelled, killed, forced, or otherwise non-natural lifecycle
+-> prime_termination_ineligible
+
+required artifact absent
+-> required_evidence_missing
+
+artifact malformed, multiple sessions, or model/intent mismatch
+-> required_evidence_invalid
+
+native discovery, listener owner, or reconstructed target mismatch
+-> target_mismatch
+```
+
+Incomplete stdout/stderr draining or evidence-file closure belongs to the first
+lifecycle class. A later class cannot replace an earlier refusal reason.
 
 ### Request
 
@@ -310,7 +353,10 @@ If the fixed call returns, its exact returned value is serialized as the `result
 
 Result serialization, write, short-write, or flush failure occurs after the snapshot call. The flushed request remains, the operator is unsuccessful, and no result is fabricated or retried. An OS short write may leave a partial final row; no repair is attempted.
 
-If invocation raises, the flushed request remains and no result row is written. Existing stderr/process evidence retains the failure. Close failure also makes the operator unsuccessful and causes no retry.
+If invocation raises, the flushed request remains and no result row is written.
+The operator returns the closed failure status `inspection_failed` and the
+evidence path. Exception-text retention is not guaranteed. Close failure also
+makes the operator unsuccessful and causes no retry.
 
 The result's success or failure fields are retained exactly. A failed returned snapshot is still a returned result, not a refusal.
 
@@ -352,15 +398,21 @@ Inert tests cover:
 8. closed row keys, exact model/intent, type-exact target values, and no overrides;
 9. full-profile agreement between adapter and launcher;
 10. one-shot refusal before contact when any evidence exists;
-11. normal termination eligibility independent of Prime exit code or claimed success;
-12. cancellation, forced termination, missing/corrupt evidence, and multiple sessions refusing inspection;
+11. exact session model identity through `provider`/`modelId`, assistant-message
+    agreement, exact intent, and eligibility independent of Prime exit code or
+    claimed success;
+12. deterministic refusal precedence across lifecycle, missing evidence, invalid
+    evidence, and target/listener mismatch;
 13. exact native discovery and Windows listener ownership admission;
 14. refusal as the sole row and its closed reason tokens;
 15. request flush before the one fake canonical call;
 16. exact returned-value retention;
-17. request-write failure causing zero calls;
-18. result-write failure occurring after exactly one call with no fabricated result;
-19. call exception retaining only the request; and
+17. request-write failure causing zero calls and permitting an empty or partial
+    non-JSONL prefix;
+18. result-write failure occurring after exactly one call with the request plus
+    an optional partial non-JSONL result prefix and no fabricated result;
+19. call exception retaining only the request and returning only the bounded
+    operator failure status; and
 20. zero external contact across the full inert suite.
 
 Fakes replace Prime, Ollama, MCP transport, Windows process/listener discovery, Rhino, and Grasshopper only at their external boundaries. The real disposable loader, adapter, skill construction, launcher admission, evidence writer, and final-inspection orchestration remain exercised.
