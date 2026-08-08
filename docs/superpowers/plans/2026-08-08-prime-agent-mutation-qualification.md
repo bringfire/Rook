@@ -504,7 +504,7 @@ After independent pre-contact approval:
    `operator/row.json` from the static manifest:
 
    ```powershell
-   $Root = 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification'
+   $Root = 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v2'
    $Operator = "$Root/operator"
    $Manifest = Get-Content -Raw -LiteralPath "$Operator/manifest.json" | ConvertFrom-Json
    $SkillRelative = 'agent/skills/prime-execute-grasshopper/SKILL.md'
@@ -545,8 +545,8 @@ After independent pre-contact approval:
 
    ```powershell
    powershell.exe -NoLogo -NoProfile -NonInteractive -File `
-     'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification/operator/run.ps1' `
-     -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification/operator/row.json'
+     'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v2/operator/run.ps1' `
+     -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v2/operator/row.json'
    ```
 
 8. Do not rerun regardless of outcome. Retain Prime JSONL, stderr, the one native session, and final-inspection evidence exactly as written.
