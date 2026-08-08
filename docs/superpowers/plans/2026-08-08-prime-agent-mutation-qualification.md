@@ -111,6 +111,7 @@ implementation files exist, define these exact `unittest` cases:
 - `ClosedRowAndLauncherTests.test_array_or_extra_row_fields_refuse_before_evidence`
 - `ClosedRowAndLauncherTests.test_existing_stdout_stderr_session_or_inspection_refuses`
 - `ClosedRowAndLauncherTests.test_launcher_uses_offline_no_extensions_and_full_profile`
+- `ClosedRowAndLauncherTests.test_false_inspection_result_maps_to_bounded_status_and_evidence_path`
 - `PrimeEvidenceTests.test_nonzero_exit_with_natural_lifecycle_and_valid_evidence_is_eligible`
 - `PrimeEvidenceTests.test_model_change_pair_and_every_assistant_identity_must_agree`
 - `PrimeEvidenceTests.test_refusal_precedence_is_lifecycle_then_missing_then_invalid_then_target`
@@ -360,7 +361,10 @@ The writer must exclusively create `final-inspection.jsonl`, serialize compact U
 {"kind": "result", "payload": returned_value}
 ```
 
-Request failure means zero calls. Result failure happens after one call. Invocation exception retains request-only evidence and returns `inspection_failed` without promising exception-text retention. Do not reopen, truncate, repair, retry, or fabricate rows.
+Request failure means zero calls. Result failure happens after one call. An
+invocation exception retains request-only evidence and makes `run()` return
+`False` without promising exception-text retention. `run()` never returns a
+status string. Do not reopen, truncate, repair, retry, or fabricate rows.
 
 - [ ] **Step 7: Implement the one-shot PowerShell launcher**
 
@@ -375,6 +379,22 @@ rook-readonly identity/path -> rook-full identity/path
 existing-evidence set -> prime.jsonl, stderr.txt, any session, final-inspection.jsonl
 after WaitForExit and both drain tasks -> call final_inspection.py once
 ```
+
+The helper result is mapped only by `run.ps1`:
+
+```text
+True
+-> no failure token
+
+False
+-> stdout line: inspection_failed
+-> stdout line: evidence_path=C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification/operator/final-inspection.jsonl
+-> nonzero launcher exit
+```
+
+The launcher prints no exception text or trace content. The launcher-level
+regression must inject a helper `False`, assert these two exact lines, assert the
+nonzero exit, and assert that the existing evidence file is not changed.
 
 The external launcher interface remains exactly:
 
