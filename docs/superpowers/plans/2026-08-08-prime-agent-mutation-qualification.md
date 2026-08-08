@@ -504,7 +504,7 @@ After independent pre-contact approval:
    `operator/row.json` from the static manifest:
 
    ```powershell
-   $Root = 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v2'
+   $Root = 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v3'
    $Operator = "$Root/operator"
    $Manifest = Get-Content -Raw -LiteralPath "$Operator/manifest.json" | ConvertFrom-Json
    $SkillRelative = 'agent/skills/prime-execute-grasshopper/SKILL.md'
@@ -545,8 +545,8 @@ After independent pre-contact approval:
 
    ```powershell
    powershell.exe -NoLogo -NoProfile -NonInteractive -File `
-     'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v2/operator/run.ps1' `
-     -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v2/operator/row.json'
+     'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v3/operator/run.ps1' `
+     -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v3/operator/row.json'
    ```
 
 8. Do not rerun regardless of outcome. Retain Prime JSONL, stderr, the one native session, and final-inspection evidence exactly as written.
@@ -572,4 +572,10 @@ After independent pre-contact approval:
 - V2 kernel contract: `operator/kernel-requirements.txt` freezes the complete canonical Prime package set at the exact versions proven in the readonly V2 kernel, plus `mcp==1.28.0`; its SHA-256 is `ECA59771565CD204120936A7110BD62FC11C532D3E5FB7ACD26A70951E7DEF4A`
 - V2 inert verification: **26/26 passed** through the exact new interpreter, including imports of every canonical package plus `rlm`, `dill`, `mcp`, and `rook_full`; Python compilation passed
 - V2 static manifest: **12/12** entries matched; manifest SHA-256 is `C12C9F03649EE0D43D69C4BCA7E639000790902799ABE0EB9DF214FE8D39DB4C`; no row, session, stdout, stderr, or final-inspection evidence exists
-- V2 live authorization: not requested; no Prime, Ollama, Rook MCP, Rhino, or Grasshopper contact performed by the repair
+- V2 live qualification: the separately authorized frozen row `CA4B82C92D4D0C32F73965035315586C2DCF1916A7412BD893358AD57D5F0A84` ran once; the repaired kernel completed 14 IPython calls, but Qwen made zero canonical gateway calls, wrote only a local unvalidated `.gh3` ZIP, and falsely reported completion while the independent snapshot remained empty at epoch `2`
+- V2 retained evidence: Prime JSONL `CA06ABF2630D194CAB6ACAB5E45465A06976F1629CCDF9FD8116FA4F302B86EB`, native session `0EA19F54949E94B4DE6E8D38C962A6B62D7E9C16EC672F2C80B1D9A8D2E2D6F6`, final inspection `681DA2AA837830EA0F2FBB97D5D75962087E410458BB537969ACA2F77BD26DBC`, and local artifact `CC173196F2B589AAFBA9D5EFE09813EB10903BEA6EA8CDE3A0B158BA0E22E163`
+- V3 experiment amendment: preserve V2 unchanged and create `C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v3`; change only the derived skill trigger/preamble to make live-canvas execution, canonical gateway custody, and Rook-evidence completion explicit; preserve the reviewed execution body byte-for-byte
+- V3 kernel parity: all installed distribution versions match the consumed V2 kernel exactly; the sole observed `starlette 1.5.1` transitive drift was reclosed to V2's `1.5.0` before qualification
+- V3 inert verification: **30/30 passed** through the exact V3 interpreter; Python compilation passed; non-skill runtime assets are byte-identical to V2, and installation commands differ only by the sibling path plus the recorded transitive reclosure
+- V3 static manifest: **12/12** entries matched; manifest SHA-256 is `5D6AA9D2EED566263F5E1E8DF2A1EC68A9655E5C00CBDA2E6347255FE508E6AD`; skill SHA-256 is `3745D9DF3E6094DD2883F7556EEC32602EB5B62F0BF5793631935FF33AE9043D`; no row or live evidence exists
+- V3 live authorization: not requested; no Prime, Ollama, Rook MCP, Rhino, or Grasshopper contact performed by the amendment
