@@ -253,10 +253,8 @@ def test_transport_method_and_execution_body_are_byte_identical(self):
 Run:
 
 ```powershell
-& 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v3/kernel-venv/Scripts/python.exe' `
-  -m unittest `
-  'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v4/operator/test_adapter.py' `
-  -v
+$Python = "$V3/kernel-venv/Scripts/python.exe"
+& $Python "$V4/operator/test_adapter.py" -v
 ```
 
 Expected: FAIL because the copied V3 adapter has no exact `__all__`, retains module `__getattr__`/the exported `rook_full` instance, and the V3 skill preamble does not use the new public functions. Existing custody tests must not fail for unrelated reasons.
@@ -377,7 +375,7 @@ Run:
 
 ```powershell
 $Python = "$V4/kernel-venv/Scripts/python.exe"
-& $Python -m unittest "$V4/operator/test_adapter.py" -v
+& $Python "$V4/operator/test_adapter.py" -v
 & $Python -m py_compile `
   "$V4/agent/skills/rook-full/src/rook_full/__init__.py" `
   "$V4/operator/final_inspection.py" `
