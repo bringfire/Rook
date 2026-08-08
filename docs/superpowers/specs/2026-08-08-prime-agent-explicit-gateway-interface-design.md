@@ -26,7 +26,7 @@ async def call(name: str, arguments: dict):
     )
 ```
 
-The selected model, natural intent, Rook profile, target custody, execution-skill body, kernel, launcher, evidence contract, and final inspection remain frozen.
+The selected model, natural intent, Rook profile, target custody, execution-skill body, kernel, launcher, and final-inspection evidence contract remain frozen.
 
 ## Evidence That Motivates V4
 
@@ -157,8 +157,9 @@ Inert tests prove:
 8. no wrapper parsing, schema copy, catalog, cache, retry, or fallback exists;
 9. the V4 preamble uses only `rook_full.search/read/call`;
 10. the appended execution body and checkpoint reference remain byte-identical to V3;
-11. model, intent, kernel, launcher, targeting, final inspector, and evidence behavior differ only by reviewed sibling paths and package identity; and
-12. the entire suite performs zero external contact.
+11. model, intent, kernel, launcher, targeting, and evidence behavior differ only by reviewed sibling paths and package identity;
+12. the final inspector's sole Rook invocation changes only from V3's dynamic `rook_tools_call` attribute to `rook_full.call("gh_snapshot", arguments)`, while its request, eligibility, custody, and evidence writing remain unchanged; and
+13. the entire suite performs zero external contact.
 
 The delegation tests use one causal private-integration fake. They establish adapter structure before live contact; they do not fabricate a live qualification result.
 
