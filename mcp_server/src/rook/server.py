@@ -20635,6 +20635,21 @@ def _format_tool_result(result: dict[str, Any]) -> list[TextContent]:
     return [TextContent(type="text", text=text)]
 
 
+def _project_tool_result(
+    result: dict[str, Any], *, public_mcp: bool
+) -> list[TextContent] | mcp_types.CallToolResult:
+    """Project one owned envelope without changing the legacy text content."""
+    contents = _format_tool_result(result)
+    if not public_mcp:
+        return contents
+    success = result["success"]
+    return mcp_types.CallToolResult(
+        content=contents,
+        structuredContent={"success": success, "data": result["data"]},
+        isError=not success,
+    )
+
+
 _RHINO_LAUNCH_CANONICAL_TOOL = "rhino_workbench_launch"
 
 
@@ -20728,7 +20743,7 @@ def _coerce_positive_int(value, default):
     return n if n > 0 else default
 
 
-async def _handle_meta_tool(name, arguments, profile):
+async def _handle_meta_tool(name, arguments, profile, *, _public_mcp=False):
     """Serve the four rook_tools_* progressive-disclosure meta-tools.
 
     ls/search/read are pure queries over the capability index, readonly-scoped when the active
@@ -20742,28 +20757,30 @@ async def _handle_meta_tool(name, arguments, profile):
             arguments.get("name"), DispatchOrigin.PROGRESSIVE_META
         )
         if denial is not None:
-            return _format_tool_result({"success": False, "data": denial})
+            return _project_tool_result({"success": False, "data": denial}, public_mcp=_public_mcp)
 
     index = await _get_capability_index()
     scope_readonly = (profile == Profile.READONLY)
     if name == "rook_tools_ls":
-        return _format_tool_result({"success": True, "data": index.ls(
+        return _project_tool_result({"success": True, "data": index.ls(
             str(arguments.get("path") or "/"), _coerce_positive_int(arguments.get("depth"), 1),
-            scope_readonly=scope_readonly)})
+            scope_readonly=scope_readonly)}, public_mcp=_public_mcp)
     if name == "rook_tools_search":
         # readonly profile ALWAYS forces safe-only discovery; the readonly_safe arg may only NARROW
         # further (True), never widen a readonly client past the wall.
         want_safe = scope_readonly or bool(arguments.get("readonly_safe"))
         domain = arguments.get("domain")
-        return _format_tool_result({"success": True, "data": index.search(
+        return _project_tool_result({"success": True, "data": index.search(
             str(arguments.get("query") or ""), domain=(domain if isinstance(domain, str) else None),
-            scope_readonly=want_safe, limit=_coerce_positive_int(arguments.get("limit"), 10))})
+            scope_readonly=want_safe, limit=_coerce_positive_int(arguments.get("limit"), 10))},
+            public_mcp=_public_mcp)
     if name == "rook_tools_read":
         rec = index.read(str(arguments.get("name") or ""), scope_readonly=scope_readonly)
         if rec is None:
-            return _format_tool_result({"success": False, "data": {"error": "unknown_or_non_dispatchable",
-                                                                   "name": arguments.get("name")}})
-        return _format_tool_result({"success": True, "data": rec})
+            return _project_tool_result({"success": False, "data": {"error": "unknown_or_non_dispatchable",
+                                                                      "name": arguments.get("name")}},
+                                        public_mcp=_public_mcp)
+        return _project_tool_result({"success": True, "data": rec}, public_mcp=_public_mcp)
     # rook_tools_call — untrusted input; guards in order: recursion -> readonly wall(target) ->
     # mcp_dispatchable -> arguments-is-object -> field validation -> dispatch.
     target = str(arguments.get("name") or "")
@@ -20771,8 +20788,9 @@ async def _handle_meta_tool(name, arguments, profile):
     if targs is None:
         targs = {}
     if target in META_TOOL_NAMES:
-        return _format_tool_result({"success": False, "data": {"error": "meta_recursion_forbidden",
-                                                               "name": target}})
+        return _project_tool_result({"success": False, "data": {"error": "meta_recursion_forbidden",
+                                                                  "name": target}},
+                                    public_mcp=_public_mcp)
     # The wall runs BEFORE the existence/dispatchability check, by design. Under readonly this is
     # default-deny: an UNKNOWN name (not on the readonly allowlist) returns tool_profile_blocked, not
     # not_mcp_dispatchable (which is what full returns). That is intentional — it keeps rook_tools_call
@@ -20780,48 +20798,53 @@ async def _handle_meta_tool(name, arguments, profile):
     # this below index.read() to "correct" the readonly label would leak that existence (an enumeration
     # oracle for the hidden surface), so keep the wall first.
     if tool_blocked(target, profile):
-        return _format_tool_result(profile_blocked_envelope(target, profile))
+        return _project_tool_result(profile_blocked_envelope(target, profile), public_mcp=_public_mcp)
     rec = index.read(target)
     if rec is None:                                                # covers unknown + non-dispatchable
-        return _format_tool_result({"success": False, "data": {"error": "not_mcp_dispatchable",
-                                                               "name": target}})
+        return _project_tool_result({"success": False, "data": {"error": "not_mcp_dispatchable",
+                                                                  "name": target}},
+                                    public_mcp=_public_mcp)
     if not isinstance(targs, dict):                                # untrusted arg must not reach dict()
-        return _format_tool_result({"success": False, "data": {"error": "invalid_arguments",
-                                                               "name": target,
-                                                               "fields": ["arguments: must be an object"]}})
+        return _project_tool_result({"success": False, "data": {"error": "invalid_arguments",
+                                                                  "name": target,
+                                                                  "fields": ["arguments: must be an object"]}},
+                                    public_mcp=_public_mcp)
     verrs = validate_arguments(rec["input_schema"], targs)
     if verrs:
-        return _format_tool_result({"success": False, "data": {"error": "invalid_arguments",
-                                                               "name": target, "fields": verrs}})
+        return _project_tool_result({"success": False, "data": {"error": "invalid_arguments",
+                                                                  "name": target, "fields": verrs}},
+                                    public_mcp=_public_mcp)
     token = _dispatch_origin.set("meta")                           # tag target obs as meta-originated
     try:
-        return await call_tool(target, targs)                      # re-enter full policy path
+        return await call_tool(target, targs, _public_mcp=_public_mcp)  # re-enter full policy path
     finally:
         _dispatch_origin.reset(token)
 
 
-@mcp.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+async def call_tool(
+    name: str, arguments: dict[str, Any] | None, *, _public_mcp: bool = False
+) -> list[TextContent] | mcp_types.CallToolResult:
     """Handle tool calls with centralized Rhino target routing."""
     denial = deny_if_contained(name, DispatchOrigin.PUBLIC_MCP)
     if denial is not None:
-        return _format_tool_result({"success": False, "data": denial})
+        return _project_tool_result({"success": False, "data": denial}, public_mcp=_public_mcp)
     arguments = dict(arguments) if arguments else {}
     _active_profile = resolve_profile(os.environ)
     if tool_blocked(name, _active_profile):
-        return _format_tool_result(profile_blocked_envelope(name, _active_profile))
+        return _project_tool_result(profile_blocked_envelope(name, _active_profile),
+                                    public_mcp=_public_mcp)
 
     if name.startswith("rhino_director_"):
-        return _format_tool_result(
-            {"success": False, "data": f"Unknown tool: {name}"}
-        )
+        return _project_tool_result({"success": False, "data": f"Unknown tool: {name}"},
+                                    public_mcp=_public_mcp)
 
     # Progressive-disclosure meta-tools are intercepted here — AFTER the readonly wall (so a
     # blocked meta-tool is refused like any other) and BEFORE _call_tool_dispatch (so they never
     # hit the universal recording tail themselves). rook_tools_call re-enters call_tool() for its
     # target, so the wall + dispatch + recording all apply to the target unchanged.
     if name in META_TOOL_NAMES:
-        return await _handle_meta_tool(name, arguments, _active_profile)
+        return await _handle_meta_tool(name, arguments, _active_profile,
+                                       _public_mcp=_public_mcp)
 
     if (
         name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
@@ -20833,7 +20856,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         raw_result = _interactive_command_deprecated_result(name)
         get_phase_tracker().record_call(name)
         _record_observation(name, arguments, raw_result, (_time.perf_counter() - _t0) * 1000, None)
-        return _format_tool_result(raw_result)
+        return _project_tool_result(raw_result, public_mcp=_public_mcp)
 
     policy = targeting.policy_for_tool(name)
     explicit_port = arguments.get("port")
@@ -20846,28 +20869,31 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         raw_result = {"success": False, "data": targeting.get_panel_target_config_error()}
         if name == "rhino_launch":
             raw_result = _with_rhino_launch_canonical_tool(raw_result)
-        return _format_tool_result(raw_result)
+        return _project_tool_result(raw_result, public_mcp=_public_mcp)
 
     if targeting.get_panel_target_lock() is not None and name in {"spawn_agent", "plan_and_execute"}:
-        return _format_tool_result(
+        return _project_tool_result(
             targeting.panel_target_locked_result(
                 message="Background agents are disabled in the embedded panel-locked Claude Code tab."
-            )
-        )
+            ), public_mcp=_public_mcp)
 
     if name in {"rhino_workbench_launch", "rhino_workbench_list", "rhino_workbench_close"}:
         if targeting.get_panel_target_config_error() is not None:
-            return _format_tool_result(
-                {"success": False, "data": targeting.get_panel_target_config_error()})
+            return _project_tool_result({"success": False,
+                                         "data": targeting.get_panel_target_config_error()},
+                                        public_mcp=_public_mcp)
         if targeting.get_panel_target_lock() is not None:
-            return _format_tool_result(targeting.panel_target_locked_result(
-                message="Workbench lifecycle tools are disabled in the panel-locked Claude Code tab."))
+            return _project_tool_result(
+                targeting.panel_target_locked_result(
+                    message="Workbench lifecycle tools are disabled in the panel-locked Claude Code tab."
+                ), public_mcp=_public_mcp)
 
     if not policy.requires_rhino:
         if has_explicit_session and not targeting.allows_non_routed_session_argument(name):
-            return _format_tool_result(targeting.session_not_targetable_result(name))
+            return _project_tool_result(targeting.session_not_targetable_result(name),
+                                        public_mcp=_public_mcp)
         raw_result = await _call_tool_dispatch(name, arguments)
-        return _format_tool_result(raw_result)
+        return _project_tool_result(raw_result, public_mcp=_public_mcp)
 
     route = targeting.resolve_tool_route(
         name,
@@ -20876,22 +20902,23 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         has_explicit_session=has_explicit_session,
     )
     if not route.success:
-        return _format_tool_result(targeting.route_error_result(route))
+        return _project_tool_result(targeting.route_error_result(route), public_mcp=_public_mcp)
     if route.target is None:
-        return _format_tool_result(
+        return _project_tool_result(
             {
                 "success": False,
                 "data": {
                     "error": "rhino_target_unavailable",
                     "instances": route.instances or [],
                 },
-            }
+            },
+            public_mcp=_public_mcp,
         )
 
     dispatch_arguments = dict(arguments)
     doc_applied = targeting.apply_locked_document_context(dispatch_arguments)
     if isinstance(doc_applied, dict) and doc_applied.get("success") is False:
-        return _format_tool_result(doc_applied)
+        return _project_tool_result(doc_applied, public_mcp=_public_mcp)
     dispatch_arguments = doc_applied
     if explicit_port is not None:
         dispatch_arguments["port"] = route.target.port
@@ -20904,7 +20931,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     ):
         raw_result = await _call_tool_dispatch(name, dispatch_arguments)
     raw_result = targeting.attach_route_metadata(raw_result, route)
-    return _format_tool_result(raw_result)
+    return _project_tool_result(raw_result, public_mcp=_public_mcp)
+
+
+@mcp.call_tool()
+async def _mcp_call_tool(name: str, arguments: dict[str, Any]):
+    return await call_tool(name, arguments, _public_mcp=True)
 
 
 def _install_mcp_call_tool_containment_wrapper() -> None:
@@ -20916,19 +20948,15 @@ def _install_mcp_call_tool_containment_wrapper() -> None:
     async def containment_handler(request):
         raw_name = request.params.name
         if resolve_contained_tool(raw_name) is not None:
-            contents = await call_tool(raw_name, None)
-            return mcp_types.ServerResult(
-                mcp_types.CallToolResult(content=contents, isError=False)
-            )
+            result = await call_tool(raw_name, None, _public_mcp=True)
+            return mcp_types.ServerResult(result)
 
         if raw_name == "rook_tools_call":
             outer = request.params.arguments
             target = outer.get("name") if isinstance(outer, Mapping) else None
             if resolve_contained_tool(target) is not None:
-                contents = await call_tool(raw_name, outer)
-                return mcp_types.ServerResult(
-                    mcp_types.CallToolResult(content=contents, isError=False)
-                )
+                result = await call_tool(raw_name, outer, _public_mcp=True)
+                return mcp_types.ServerResult(result)
 
         return await retained_handler(request)
 
