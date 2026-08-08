@@ -133,14 +133,21 @@ IntentPlanner (P1) → ExecutionPlan → SmartExecutor (P2) → ExecutionResult 
 
 ### Tool Result Surface
 
-Two result shapes exist and **are not interchangeable**. The seam lives in exactly one function — `_format_tool_result()` in `server.py`:
+The internal envelope and legacy text projection **are not interchangeable**. The legacy text seam lives in exactly one function — `_format_tool_result()` in `server.py`:
 
 | Layer | Shape |
 |-------|-------|
 | **Internal** — `_call_tool_dispatch()` and every `*_result()` helper | envelope dict `{ "success": bool, "data": {...} }` |
-| **Public wire** — `call_tool()` → `list[TextContent]` | success: `json.dumps(data)` — the **`data` only**; failure: `"Error: " + json.dumps(data)` for a dict payload, else `"Error: " + str(data)` |
+| **Legacy text** — internal `server.call_tool()` and public MCP `CallToolResult.content` | success: `json.dumps(data)` — the **`data` only**; failure: `"Error: " + json.dumps(data)` for a dict payload, else `"Error: " + str(data)` |
 
 A test or live harness reading `call_tool()` output therefore parses the success text as the **data itself** (e.g. `json.loads(text)["artifacts"]`), **not** `["data"]["artifacts"]`; for failures, strip the leading `Error: `, then parse the remainder as JSON when the payload is a dict, otherwise treat it as raw error text. Mistaking the internal envelope for the wire shape is a recurring footgun (it cost a ~13-run debugging detour in P6 Slice 1). The public success shape is load-bearing — agents may depend on success-text-being-`data` — so the contract is documented and centralized rather than changed. Shared parse helpers + a contract test that pins the formatter are tracked in issue #218.
+
+For every public request-handler branch that completes with an ordinary Rook `{success, data}` envelope, MCP also returns:
+
+- `structuredContent = {"success": success, "data": data}`;
+- `isError = !success`.
+
+The existing `TextContent` bytes remain unchanged. Structured content is additive, but truthful `isError` is a deliberate semantic behavior change for compliant MCP clients. SDK-generated schema-validation and pre-envelope exception results retain the SDK's existing result behavior. Internal Python callers of `server.call_tool()` continue receiving `list[TextContent]`.
 
 ## Knowledge Stores
 

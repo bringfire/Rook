@@ -62,7 +62,7 @@ Recorded plan-time baseline: **190 passed, 11 existing DSPy warnings**.
 - Produces: `_project_tool_result(result, *, public_mcp)` returning existing text content for internal mode or `mcp_types.CallToolResult` for public mode.
 - Preserves: `call_tool(name, arguments)` and `_handle_meta_tool(name, arguments, profile)` default to the existing internal list result.
 
-- [ ] **Step 1: Add table-driven public-handler RED tests**
+- [x] **Step 1: Add table-driven public-handler RED tests**
 
 Create `mcp_server/tests/test_mcp_structured_tool_results.py` with the following helpers and cases:
 
@@ -132,7 +132,7 @@ async def test_public_direct_failure_retains_text_and_sets_mcp_error(
     retained.assert_awaited_once_with()
 ```
 
-- [ ] **Step 2: Add direct/gateway ownership and SDK-deferral RED tests**
+- [x] **Step 2: Add direct/gateway ownership and SDK-deferral RED tests**
 
 Append these tests to the new module:
 
@@ -216,7 +216,7 @@ async def test_pre_envelope_exception_retains_sdk_owned_shape(monkeypatch):
 
 The argument test asserts equality at the canonical ingress only. It does not constrain later targeting enrichment.
 
-- [ ] **Step 3: Strengthen the containment transport RED test**
+- [x] **Step 3: Strengthen the containment transport RED test**
 
 In `test_transport_wrapper_tombstones_missing_schema_before_sdk_validation`, retain both existing text assertions and add exact envelope/error assertions:
 
@@ -251,7 +251,7 @@ async def test_transport_wrapper_tombstones_missing_schema_before_sdk_validation
 
 The function already imports `server` before constructing the requests; place the mock after that import and before either handler call. Both refusals must remain pre-dispatch.
 
-- [ ] **Step 4: Run the RED selection**
+- [x] **Step 4: Run the RED selection**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
@@ -263,7 +263,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
 
 Expected: failures show ordinary public results have `structuredContent is None`, failures retain `isError=False`, and containment still hard-codes `isError=False`. There must be no network or host contact.
 
-- [ ] **Step 5: Add one private projection helper**
+- [x] **Step 5: Add one private projection helper**
 
 In `server.py`, immediately after `_format_tool_result`, add:
 
@@ -284,7 +284,7 @@ def _project_tool_result(
 
 Do not change `_format_tool_result`. Indexing `success` and `data` treats a malformed code-owned envelope as an internal contradiction rather than inventing defaults.
 
-- [ ] **Step 6: Preserve `_handle_meta_tool()` defaults while propagating public mode**
+- [x] **Step 6: Preserve `_handle_meta_tool()` defaults while propagating public mode**
 
 Change its signature to:
 
@@ -318,7 +318,7 @@ For the admitted target call, preserve the existing origin token and propagate t
 
 With `_public_mcp=False`, existing ChatRunner composition still receives formatted content. With `True`, the target's envelope becomes the sole public structured result.
 
-- [ ] **Step 7: Preserve internal `call_tool()` while registering a thin public handler**
+- [x] **Step 7: Preserve internal `call_tool()` while registering a thin public handler**
 
 Remove `@mcp.call_tool()` from the existing `call_tool` function and add its private mode:
 
@@ -356,7 +356,7 @@ async def _mcp_call_tool(name: str, arguments: dict[str, Any]):
 
 The SDK therefore receives `CallToolResult`; all direct internal calls omit the private keyword and retain `list[TextContent]`.
 
-- [ ] **Step 8: Route both containment bypasses through the same projection**
+- [x] **Step 8: Route both containment bypasses through the same projection**
 
 Replace each manual containment `CallToolResult(content=contents, isError=False)` construction with:
 
@@ -374,7 +374,7 @@ and for the nested branch:
 
 Do not call the retained SDK handler for these tombstones; they intentionally refuse before SDK schema validation. Do not parse their text.
 
-- [ ] **Step 9: Run the GREEN selection**
+- [x] **Step 9: Run the GREEN selection**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
@@ -386,7 +386,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
 
 Expected: all selected tests pass. Confirm the data-shape matrix covers object, array, string, number, boolean, and null success plus object/string failure.
 
-- [ ] **Step 10: Run the internal compatibility seam**
+- [x] **Step 10: Run the internal compatibility seam**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
@@ -399,7 +399,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
 
 Expected: all pass with the existing DSPy warnings only. Existing tests must continue proving the internal gateway conversion, text parser, profile intersection, targeting transformation, and ChatRunner injection behavior.
 
-- [ ] **Step 11: Review source scope and commit Task 1**
+- [x] **Step 11: Review source scope and commit Task 1**
 
 ```powershell
 git diff --check
@@ -428,7 +428,7 @@ Expected production scope: only `mcp_server/src/rook/server.py`. Stop for indepe
 - Consumes: Task 1's verified public `CallToolResult` projection.
 - Produces: canonical architecture wording and a reproducible verification ledger.
 
-- [ ] **Step 1: Update the canonical Tool Result Surface documentation**
+- [x] **Step 1: Update the canonical Tool Result Surface documentation**
 
 Retain the current internal/public text rows and add these facts without deleting the legacy parsing guidance:
 
@@ -446,7 +446,7 @@ the SDK's existing result behavior. Internal Python callers of `server.call_tool
 continue receiving `list[TextContent]`.
 ```
 
-- [ ] **Step 2: Run the complete focused seam**
+- [x] **Step 2: Run the complete focused seam**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
@@ -461,7 +461,7 @@ $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
 
 Expected: baseline **190 tests** plus the new structured-result cases pass; warnings are limited to the existing DSPy warnings.
 
-- [ ] **Step 3: Compile and scan the exact surface**
+- [x] **Step 3: Compile and scan the exact surface**
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path 'mcp_server/src').Path
@@ -492,7 +492,7 @@ mcp_server/tests/test_mcp_structured_tool_results.py
 
 No Prime, ChatRunner, managed, native, slider, or component-metadata path may appear.
 
-- [ ] **Step 4: Record exact evidence in this plan**
+- [x] **Step 4: Record exact evidence in this plan**
 
 Append an `## Execution Ledger` section with exactly these fixed labels and their observed
 values copied from the preceding commands: `Baseline SHA`, `Task 1 commit`, `Focused seam`,
@@ -502,7 +502,7 @@ values copied from the preceding commands: `Baseline SHA`, `Task 1 commit`, `Foc
 `External contact`. Do not record estimates or provisional values; every entry must contain
 the actual SHA, count, path, or pass/fail fact available at execution time.
 
-- [ ] **Step 5: Commit Task 2 and stop for final review**
+- [x] **Step 5: Commit Task 2 and stop for final review**
 
 ```powershell
 git add -- `
@@ -515,3 +515,17 @@ git status --short --branch
 ```
 
 Expected: clean worktree. Stop for independent review. Do not push, deploy, or contact Prime/Rhino/Grasshopper without later authorization.
+
+## Execution Ledger
+
+- **Baseline SHA:** `02918747d38412419954c86fa3167a421eadfea4` (`origin/main`).
+- **Task 1 commit:** `8ddc2586c3c579c70132e822cbe65dc6f4947d9d` (`fix: expose structured MCP tool results`).
+- **Focused seam:** `203 passed`, with exactly `11` existing DSPy warnings.
+- **Production scope:** only `mcp_server/src/rook/server.py`; Git delta `80` additions and `52` deletions, of which `76` additions and `52` deletions are nonblank.
+- **Legacy text equality:** passed for successful object, list, string, number, boolean, and null data; failed object and string data; and both direct and nested containment refusals.
+- **Structured data-shape matrix:** exact `{"success": success, "data": data}` passed for successful object, list, string, number, boolean, and null data and for failed object and string data; `isError` matched `not success` in every case.
+- **Direct/gateway no-double-wrap:** passed; the direct result and the target result reached through `rook_tools_call` each expose the target envelope exactly once.
+- **Direct/nested containment:** passed; direct `gh_execute_intent` and nested `gh_replay_recipe` refusals retain exact legacy text, expose structured failure envelopes, set `isError=true`, and perform zero target dispatches.
+- **SDK validation/exception deferral:** passed; SDK-generated schema-validation and pre-envelope exception results retain `structuredContent=None` and the existing SDK error behavior.
+- **Internal server.call_tool and ChatRunner seams:** isolated compatibility selection `95 passed`, with exactly `11` existing DSPy warnings; default internal calls continue returning `list[TextContent]`.
+- **External contact:** none; verification used imported handlers, causal test doubles, compilation, and repository scans only. No Prime, provider, Ollama, MCP subprocess, Rhino, or Grasshopper contact occurred.
