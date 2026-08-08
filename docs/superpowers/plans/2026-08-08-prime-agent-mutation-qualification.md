@@ -562,7 +562,8 @@ After independent pre-contact approval:
 - Approved design commits: `9aabe182f68038c92511a48bddf1d152f4bc504c`, `7c3bdab21373d6a7113f08615316d3a2388ff8a8`
 - Task 1 implementation: disposable sibling prepared at `C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification`; no Rook or Prime repository implementation files changed
 - Dependency installation: the offline command stopped on missing cached Windows wheels; the operator then explicitly authorized fetching the exact declared dependencies, after which the sibling environment installed successfully
-- Task 1 inert test count: **22 passed** with the sibling Python 3.11 environment; Python compilation passed
+- Task 1 inert test count: **25 passed** with the sibling Python 3.11 environment; Python compilation passed
+- Pre-contact review repair: the launcher now binds the exact row hash before evidence/process entry, and causal request/result short-write tests pin the existing zero-call/one-call boundaries
 - Static manifest: **11/11** reviewed artifacts independently matched their uppercase SHA-256 values; no row, session, stdout, stderr, or final-inspection evidence exists
 - Independent pre-contact review: pending after Task 1 implementation
 - Live authorization: not requested
