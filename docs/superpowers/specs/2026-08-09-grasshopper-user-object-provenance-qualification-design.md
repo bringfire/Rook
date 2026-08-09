@@ -2,6 +2,7 @@
 
 **Status:** Design complete; awaiting independent review before `writing-plans`
 **Date:** 2026-08-09
+**Amended:** 2026-08-09
 **Baseline:** `a867f8e06ae8aca904102104c47780d02d5640b8`
 **Branch:** `codex/grasshopper-user-object-provenance-qualification-design`
 
@@ -101,10 +102,11 @@ Observed counts are retained. Any disagreement makes the probe incomplete.
 
 ## Path handling
 
-Original host paths are retained byte-for-byte as decoded strings. Comparison uses a
-separate value produced by `System.IO.Path.GetFullPath`, Windows separator
-canonicalization, and ordinal case-insensitive equality. No symlink, package, family,
-or version meaning is inferred.
+The exact returned .NET string is retained unchanged as the JSON string value and is
+strictly UTF-8 encoded with the artifact. Byte identity applies only to those encoded
+artifact bytes. Comparison uses a separate value produced by
+`System.IO.Path.GetFullPath`, Windows separator canonicalization, and ordinal
+case-insensitive equality. No symlink, package, family, or version meaning is inferred.
 
 ## Compact evidence artifact
 
@@ -232,7 +234,8 @@ Unexpected values are never converted, enumerated, serialized, decoded, or parse
 
 ```text
 status,
-id, name, version, assemblyName, assemblyVersion, isCoreLibrary,
+id, name, version, authorName, authorContact, description,
+assemblyName, assemblyVersion, assemblyDescription, isCoreLibrary,
 location, loadingMechanism,
 runtimeAssemblyName, runtimeAssemblyFullName,
 runtimeAssemblyVersion, runtimeAssemblyLocation,
@@ -242,6 +245,12 @@ propertyErrors, error
 `status` is `found`, `not_found`, `error`, or `not_attempted`. `not_found` is complete
 evidence. Remaining fields are strings, booleans, or null. Neither the
 `GH_AssemblyInfo` nor its `Assembly` object is serialized.
+
+`authorName`, `authorContact`, and `description` project the exact nullable public
+`GH_AssemblyInfo` scalar properties. `assemblyDescription` projects only the exact
+nullable string from the runtime assembly's
+`System.Reflection.AssemblyDescriptionAttribute.Description`. No other custom
+attribute, attribute object, or reflection object is retained.
 
 ### Temporary instance
 
@@ -279,9 +288,32 @@ AND FindAssemblyByObject(instance) returned found or not_found
 Per-specimen failures are retained and later specimens continue. Any incomplete
 specimen forces `probeComplete=false`.
 
-The host-produced probe is complete only when all six specimens are complete, observed
-counts match the budget, the canvas counts match, and the compact artifact was written
-and flushed.
+`probeComplete` is computed solely from host observations:
+
+```text
+all six specimens complete
+AND observed counts match the closed budget
+AND canvas objectCountBefore == objectCountAfter
+```
+
+It is placed into the in-memory payload before encoding. It makes no claim about the
+subsequent artifact write.
+
+The capture sequence is exact:
+
+```text
+compute probeComplete from host observations, budget, and canvas equality
+-> strictly UTF-8 encode the compact artifact
+-> compute SHA-256 over those exact encoded bytes
+-> create-new full write
+-> flush and fsync
+-> print exactly: ROOK_GHUSER_PROVENANCE_OK <UPPERCASE_SHA256>\n
+-> retain the outer response in invoke-result.json
+-> operator verifies the exact sentinel, hash, and Rook response envelope
+```
+
+A short write, serialization failure, flush/fsync failure, or any other artifact-write
+failure prints no success sentinel.
 
 `probeComplete` cannot claim custody of the later HTTP envelope. Overall qualification
 completeness is derived only during evidence review:
@@ -289,7 +321,11 @@ completeness is derived only during evidence review:
 ```text
 probeComplete == true
 AND invoke-result.json was written and flushed
-AND its exact status/body correlate the compact artifact SHA-256
+AND HTTP status == 200
+AND the exact retained response envelope has success == true
+AND data.output is exactly the success sentinel plus its one trailing newline
+AND data.stderr is exactly empty
+AND the sentinel SHA-256 equals the independently computed compact-artifact SHA-256
 ```
 
 A complete result may truthfully establish that package, author, family, or version
@@ -324,6 +360,8 @@ Before authorization, inert tests prove:
 - `CreateComponentFromGuid`, `EmitObject`, search, scans, insertion, and solution paths
   are unreachable;
 - every projection contains only its enumerated keys;
+- assembly author/contact/description and runtime assembly-description scalars are
+  retained exactly without retaining attribute or assembly objects;
 - original paths survive while normalized Windows paths own equality;
 - GUID, kind, or path contradictions make a specimen incomplete;
 - null, `byte[]`, unexpected-type, and not-observed `Data` paths are causal;
@@ -332,6 +370,11 @@ Before authorization, inert tests prove:
 - one specimen failure does not prevent the other five;
 - incomplete specimens, canvas mismatch, or budget mismatch prevent completion;
 - compact and outer evidence remain separate;
+- `probeComplete` depends only on host observations, budget, and canvas equality;
+- full write plus flush/fsync precedes the exact success sentinel;
+- write failures produce no success sentinel;
+- outer HTTP status, Rook envelope, sentinel, and independently computed artifact hash
+  must correlate exactly;
 - manifest/evidence refusal happens before host contact.
 
 No test contacts Rhino, Grasshopper, MCP, a model, or a provider.
