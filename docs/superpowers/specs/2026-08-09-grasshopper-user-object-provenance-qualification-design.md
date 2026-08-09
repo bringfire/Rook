@@ -247,10 +247,9 @@ evidence. Remaining fields are strings, booleans, or null. Neither the
 `GH_AssemblyInfo` nor its `Assembly` object is serialized.
 
 `authorName`, `authorContact`, and `description` project the exact nullable public
-`GH_AssemblyInfo` scalar properties. `assemblyDescription` projects only the exact
-nullable string from the runtime assembly's
-`System.Reflection.AssemblyDescriptionAttribute.Description`. No other custom
-attribute, attribute object, or reflection object is retained.
+`GH_AssemblyInfo` scalar properties. `assemblyDescription` projects the exact nullable
+public `GH_AssemblyInfo.AssemblyDescription` string. No custom attribute, attribute
+object, or reflection object is retained.
 
 ### Temporary instance
 
@@ -307,7 +306,8 @@ compute probeComplete from host observations, budget, and canvas equality
 -> compute SHA-256 over those exact encoded bytes
 -> create-new full write
 -> flush and fsync
--> print exactly: ROOK_GHUSER_PROVENANCE_OK <UPPERCASE_SHA256>\n
+-> define sentinel = "ROOK_GHUSER_PROVENANCE_OK <UPPERCASE_SHA256>"
+-> write stdout exactly as sentinel + "\n"
 -> retain the outer response in invoke-result.json
 -> operator verifies the exact sentinel, hash, and Rook response envelope
 ```
@@ -323,8 +323,10 @@ probeComplete == true
 AND invoke-result.json was written and flushed
 AND HTTP status == 200
 AND the exact retained response envelope has success == true
-AND data.output is exactly the success sentinel plus its one trailing newline
+AND data.output == sentinel + "\n"
 AND data.stderr is exactly empty
+AND data.objectsCreated == 0
+AND data.objectIds == []
 AND the sentinel SHA-256 equals the independently computed compact-artifact SHA-256
 ```
 
@@ -360,8 +362,8 @@ Before authorization, inert tests prove:
 - `CreateComponentFromGuid`, `EmitObject`, search, scans, insertion, and solution paths
   are unreachable;
 - every projection contains only its enumerated keys;
-- assembly author/contact/description and runtime assembly-description scalars are
-  retained exactly without retaining attribute or assembly objects;
+- assembly author/contact/description and direct `GH_AssemblyInfo.AssemblyDescription`
+  scalars are retained exactly without retaining reflection or assembly objects;
 - original paths survive while normalized Windows paths own equality;
 - GUID, kind, or path contradictions make a specimen incomplete;
 - null, `byte[]`, unexpected-type, and not-observed `Data` paths are causal;
@@ -373,8 +375,8 @@ Before authorization, inert tests prove:
 - `probeComplete` depends only on host observations, budget, and canvas equality;
 - full write plus flush/fsync precedes the exact success sentinel;
 - write failures produce no success sentinel;
-- outer HTTP status, Rook envelope, sentinel, and independently computed artifact hash
-  must correlate exactly;
+- outer HTTP status, Rook envelope, zero-created-object fields, sentinel, and
+  independently computed artifact hash must correlate exactly;
 - manifest/evidence refusal happens before host contact.
 
 No test contacts Rhino, Grasshopper, MCP, a model, or a provider.
