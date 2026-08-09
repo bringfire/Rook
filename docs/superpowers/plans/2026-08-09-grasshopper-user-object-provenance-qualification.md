@@ -19,7 +19,8 @@
 - The probe continues after specimen-local failures and reports them; it never substitutes a selector or lookup path.
 - Raw `GH_UserObject.Data` bytes never enter an evidence payload, log, exception, or test diagnostic.
 - The implementation stops if it needs archive parsing, inferred package identity, product changes, another host request, a registry, or canvas mutation.
-- All fallible local preparation that does not depend on host observations completes before the sole `/execute` request begins.
+- All operator-owned fallible preparation completes before `/execute`.
+- Probe-local repository preparation occurs immediately after entry and before Rhino/Grasshopper imports, target access, or specimen operations.
 - Representable specimen observations accumulate monotonically: later projection failures append errors and mark incompleteness without replacing earlier fields. Artifact serialization or writing may still leave only an unsuccessful evidence prefix; no fallback artifact is permitted.
 - Do not amend the production discovery specification until Task 3 evidence has been independently reviewed.
 
