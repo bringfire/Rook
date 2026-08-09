@@ -546,10 +546,35 @@ Task 1 disposable construction:
     none
 
 Task 1 mandatory independent review:
-  pending
+  approved with no P0-P2 findings
+  independent inert seam: 44/44 passed
+  source hashes and worktree independently verified
 
 Task 2 frozen target:
-  pending
+  corroborated without /execute:
+    Rhino PID: 38672
+    native port: 55902
+    listener owner PID: 38672
+    document serial: 268435457
+    document serial custody: exact Rook Chat panel confirmation from the operator
+  target.json SHA-256:
+    63CE846465A22E03BD1DE9BCB074B3FA9E5A34FCA68BA5A2F619718EBBFE392A
+  post-target manifest:
+    exactly four entries; all hashes matched
+    manifest.json SHA-256:
+      0B0604E0B84A46EF109357C67FCA04AEA85834ED6649386F5E86008C45980027
+  reviewed source hashes:
+    unchanged from Task 1
+  inert seam:
+    44/44 passed
+  Python compilation and PowerShell parser:
+    passed
+  validation-only launcher:
+    exit 0; exact output `validated`
+  live evidence:
+    absent
+  /execute calls:
+    zero
 
 Task 2 one-shot authorization:
   pending
