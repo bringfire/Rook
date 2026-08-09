@@ -26,13 +26,14 @@
 - Call `FindObjectByName` and `AliasTargets` exactly once per fixed query. Each budget is exactly seven.
 - Enumerate live proxies once. Cache `FindAssembly` by `LibraryGuid`.
 - Do not instantiate components. Metadata-side provenance uses `FindAssemblyByObject(Guid)` only for bounded selected specimens.
-- Compare native candidates with the complete legacy predicate over all live proxies, never the current truncated endpoint response.
+- Evaluate the legacy predicate over every live proxy, never the current truncated endpoint response. Label the comparison complete only when every property required by that evaluation was read successfully.
 - Preserve the current category predicate exactly: case-insensitive substring across `Category` or `SubCategory`.
 - Treat native scores as observations. Do not infer a semantic match reason or stable cross-version scale.
 - Select third-party specimens from the live catalog. Do not create a core/plugin allowlist or durable product fixture.
 - Preserve host provenance as exactly `core`, `third_party`, or `unknown`. Select a third-party specimen only when `IsCoreLibrary == false` was read successfully; missing or failed provenance remains `unknown` evidence.
 - Optional proxy/plugin provenance failures are per-proxy or per-GUID observations. Only component-server absence, the reflected/native search contract, target identity, or evidence writing may abort the complete capture.
-- Before authorization, prove the installed reflected four-parameter `FindObjects` signature and pin the Python.NET out/ref projection as `(count, proxies, weights)` through inert tests.
+- Before authorization, prove the installed reflected four-parameter `FindObjects` signature and pin the only accepted Python.NET out/ref projection as `(count, proxies, weights)` through inert tests. The authorized Task 0 call—not the synthetic tuple test—qualifies whether the live binding actually produces that shape and fails closed on disagreement.
+- Every legacy-predicate input retains `value`, `missing`, or `error` state. Any incomplete fixed-query or category comparison forces the report recommendation to `qualification incomplete`.
 - Keep raw evidence outside Git. Commit only the bounded Markdown report produced from it.
 - Stop after the report commit for mandatory independent review. Do not choose eligibility or provenance policy autonomously.
 - Retain the two existing knowledge-test failures separately; do not modify knowledge code or tests.
@@ -172,21 +173,77 @@ def _category_matches(fact, category):
 
 
 def _legacy_matches(fact, query, exact=False, category=None):
-    if fact.get("obsolete") or not _category_matches(fact, category):
-        return False
+    evaluation = _legacy_evaluation(fact, query, exact, category)
+    return evaluation["matches"] if evaluation["complete"] else None
+
+
+def _legacy_property_state(fact, field):
+    explicit = (fact.get("legacy_properties") or {}).get(field)
+    if explicit is not None:
+        return explicit
+    value = fact.get(field)
+    return {
+        "status": "missing" if value is None else "value",
+        "value": value,
+        "error": None,
+    }
+
+
+def _legacy_evaluation(fact, query, exact=False, category=None):
+    obsolete = _legacy_property_state(fact, "obsolete")
+    if obsolete["status"] != "value":
+        return {"complete": False, "matches": None, "incomplete_fields": ["obsolete"]}
+    if obsolete["value"]:
+        return {"complete": True, "matches": False, "incomplete_fields": []}
+
+    required = ["name"] if exact else ["name", "nickname", "description"]
+    if category:
+        required.extend(("category", "subcategory"))
+    states = {field: _legacy_property_state(fact, field) for field in required}
+    incomplete = sorted(
+        field for field, state in states.items() if state["status"] != "value"
+    )
+    if incomplete:
+        return {"complete": False, "matches": None, "incomplete_fields": incomplete}
+
+    if category and not _category_matches(fact, category):
+        return {"complete": True, "matches": False, "incomplete_fields": []}
     needle = query.lower()
     if exact:
-        return _lower(fact.get("name")) == needle
-    return any(
-        needle in _lower(fact.get(field))
-        for field in ("name", "nickname", "description")
-    )
+        matches = _lower(fact.get("name")) == needle
+    else:
+        matches = any(
+            needle in _lower(fact.get(field))
+            for field in ("name", "nickname", "description")
+        )
+    return {"complete": True, "matches": matches, "incomplete_fields": []}
+
+
+def _legacy_set_observation(facts, query, exact=False, category=None):
+    matches = []
+    incomplete = []
+    for fact in facts:
+        evaluation = _legacy_evaluation(fact, query, exact, category)
+        if not evaluation["complete"]:
+            incomplete.append(
+                {
+                    "guid": fact["guid"],
+                    "fields": evaluation["incomplete_fields"],
+                }
+            )
+        elif evaluation["matches"]:
+            matches.append(fact["guid"])
+    return {
+        "complete": not incomplete,
+        "guids": sorted(matches),
+        "incomplete": incomplete,
+    }
 
 
 def _duplicate_exact_groups(facts):
     groups = {}
     for fact in facts:
-        if fact.get("obsolete"):
+        if fact.get("obsolete") is not False:
             continue
         groups.setdefault(_lower(fact.get("name")), []).append(fact["guid"])
     return {
@@ -232,6 +289,30 @@ def _safe_get(obj, name, errors=None):
         if errors is not None:
             errors.append(_error_observation(error, name))
         return None
+
+
+def _read_property(obj, name, coerce):
+    if obj is None:
+        return None, {"status": "missing", "value": None, "error": None}
+    try:
+        raw = getattr(obj, name)
+    except Exception as error:
+        return None, {
+            "status": "error",
+            "value": None,
+            "error": _error_observation(error, name),
+        }
+    if raw is None:
+        return None, {"status": "missing", "value": None, "error": None}
+    try:
+        value = coerce(raw)
+    except Exception as error:
+        return raw, {
+            "status": "error",
+            "value": None,
+            "error": _error_observation(error, name + ".coerce"),
+        }
+    return raw, {"status": "value", "value": value, "error": None}
 
 
 def _assembly_info(info):
@@ -308,7 +389,26 @@ def _find_assembly_by_object_observation(server, guid_text, parse_guid):
 
 def _proxy_fact(proxy, server, assembly_cache):
     errors = []
-    desc = _safe_get(proxy, "Desc", errors)
+    desc, desc_state = _read_property(proxy, "Desc", lambda _value: True)
+    if desc_state["error"] is not None:
+        errors.append(desc_state["error"])
+    _, name_state = _read_property(desc, "Name", str)
+    _, nickname_state = _read_property(desc, "NickName", str)
+    _, description_state = _read_property(desc, "Description", str)
+    _, category_state = _read_property(desc, "Category", str)
+    _, subcategory_state = _read_property(desc, "SubCategory", str)
+    _, obsolete_state = _read_property(proxy, "Obsolete", bool)
+    legacy_properties = {
+        "name": name_state,
+        "nickname": nickname_state,
+        "description": description_state,
+        "category": category_state,
+        "subcategory": subcategory_state,
+        "obsolete": obsolete_state,
+    }
+    for state in legacy_properties.values():
+        if state["error"] is not None:
+            errors.append(state["error"])
     raw_library_guid = _safe_get(proxy, "LibraryGuid", errors)
     library_guid = _text(raw_library_guid)
     if library_guid is None:
@@ -353,13 +453,14 @@ def _proxy_fact(proxy, server, assembly_cache):
         exposure_value = None
     return {
         "guid": _text(proxy.Guid),
-        "name": _text(_safe_get(desc, "Name", errors)) if desc else None,
-        "nickname": _text(_safe_get(desc, "NickName", errors)) if desc else None,
-        "description": _text(_safe_get(desc, "Description", errors)) if desc else None,
-        "category": _text(_safe_get(desc, "Category", errors)) if desc else None,
-        "subcategory": _text(_safe_get(desc, "SubCategory", errors)) if desc else None,
+        "name": name_state["value"],
+        "nickname": nickname_state["value"],
+        "description": description_state["value"],
+        "category": category_state["value"],
+        "subcategory": subcategory_state["value"],
         "keywords": keywords,
-        "obsolete": bool(_safe_get(proxy, "Obsolete", errors)),
+        "obsolete": obsolete_state["value"],
+        "legacy_properties": legacy_properties,
         "exposure": exposure_value,
         "exposure_text": _text(exposure),
         "kind": _text(_safe_get(proxy, "Kind", errors)),
@@ -536,15 +637,11 @@ def main():
                 "candidates": candidates,
                 "find_object_by_name": exact_observation,
                 "alias_targets": alias_observation,
-                "legacy_nonexact_guids": sorted(
-                    fact["guid"]
-                    for fact in facts
-                    if _legacy_matches(fact, query, exact=False)
+                "legacy_nonexact": _legacy_set_observation(
+                    facts, query, exact=False
                 ),
-                "legacy_exact_guids": sorted(
-                    fact["guid"]
-                    for fact in facts
-                    if _legacy_matches(fact, query, exact=True)
+                "legacy_exact": _legacy_set_observation(
+                    facts, query, exact=True
                 ),
             }
         )
@@ -554,15 +651,11 @@ def main():
         matching_query = next(
             row for row in query_rows if row["query"] == category_case["query"]
         )
-        category_case["legacy_nonexact_guids"] = sorted(
-            fact["guid"]
-            for fact in facts
-            if _legacy_matches(
-                fact,
-                matching_query["query"],
-                exact=False,
-                category=category_case["category"],
-            )
+        category_case["legacy_nonexact"] = _legacy_set_observation(
+            facts,
+            matching_query["query"],
+            exact=False,
+            category=category_case["category"],
         )
 
     duplicate_groups = _duplicate_exact_groups(facts)
@@ -588,7 +681,11 @@ def main():
     ):
         assembly = ((fact.get("assembly_lookup") or {}).get("info") or {})
         library_guid = fact.get("library_guid")
-        if assembly.get("classification") != "third_party" or not library_guid:
+        if (
+            fact.get("obsolete") is not False
+            or assembly.get("classification") != "third_party"
+            or not library_guid
+        ):
             continue
         if library_guid in seen_libraries:
             continue
@@ -637,7 +734,7 @@ def main():
             )
 
     catalog_order = sorted(
-        [fact["guid"] for fact in facts if not fact["obsolete"]],
+        [fact["guid"] for fact in facts if fact["obsolete"] is False],
         key=functools.cmp_to_key(
             lambda left, right: _compare_guid_rows(
                 left,
@@ -651,6 +748,16 @@ def main():
 
     objects_after = None if document is None else document.Objects
     canvas_count_after = None if objects_after is None else int(objects_after.Count)
+    legacy_observations = [
+        observation
+        for row in query_rows
+        for observation in (row["legacy_nonexact"], row["legacy_exact"])
+    ]
+    if category_case is not None:
+        legacy_observations.append(category_case["legacy_nonexact"])
+    legacy_comparisons_complete = category_case is not None and all(
+        observation["complete"] for observation in legacy_observations
+    )
 
     payload = {
         "schema": "rook.task0.gh_native_discovery.v1",
@@ -684,6 +791,7 @@ def main():
         "catalog_compare_proxies_then_guid_order": catalog_order,
         "queries": query_rows,
         "category_case": category_case,
+        "legacy_comparisons_complete": legacy_comparisons_complete,
         "duplicate_exact_name_groups": duplicate_groups,
         "third_party_specimens": third_party,
         "metadata_provenance": metadata_provenance,
@@ -973,6 +1081,14 @@ class PredicateTests(unittest.TestCase):
         self.assertTrue(self.probe._legacy_matches(fact, "Construct Point", exact=True))
         self.assertTrue(self.probe._legacy_matches(fact, "point", category="POI"))
         self.assertFalse(self.probe._legacy_matches(fact, "point", category="mesh"))
+        incomplete = dict(fact)
+        incomplete["description"] = None
+        self.assertIsNone(self.probe._legacy_matches(incomplete, "point"))
+        observation = self.probe._legacy_set_observation(
+            [fact, incomplete], "point"
+        )
+        self.assertFalse(observation["complete"])
+        self.assertEqual(observation["incomplete"][0]["guid"], "g1")
         fact["obsolete"] = True
         self.assertFalse(self.probe._legacy_matches(fact, "point"))
 
@@ -1075,6 +1191,27 @@ if ($methods.Count -ne 1) { throw 'unexpected FindObjects overload count' }
         self.assertEqual(
             self.probe._assembly_info(object())["classification"], "unknown"
         )
+
+        class BrokenObsolete:
+            @property
+            def Obsolete(self):
+                raise RuntimeError("obsolete read failure")
+
+        _, obsolete_state = self.probe._read_property(
+            BrokenObsolete(), "Obsolete", bool
+        )
+        self.assertEqual(obsolete_state["status"], "error")
+        incomplete_legacy = self.probe._legacy_set_observation(
+            [
+                {
+                    "guid": "broken",
+                    "legacy_properties": {"obsolete": obsolete_state},
+                }
+            ],
+            "Point",
+        )
+        self.assertFalse(incomplete_legacy["complete"])
+        self.assertEqual(incomplete_legacy["incomplete"][0]["fields"], ["obsolete"])
 
         class FailingServer:
             def FindAssembly(self, _guid):
@@ -1275,10 +1412,12 @@ class CustodyTests(unittest.TestCase):
 
     def test_manifest_matches_inert_sources(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(set(manifest), {"probe.py", "run.ps1", "test_probe.py"})
+        expected = {"probe.py", "run.ps1", "test_probe.py"}
+        if TARGET.exists():
+            expected.add("target.json")
+        self.assertEqual(set(manifest), expected)
         for name in manifest:
             self.assertEqual(manifest[name], _sha256(ROOT / name))
-        self.assertFalse(TARGET.exists())
 
 
 if __name__ == "__main__":
@@ -1337,8 +1476,9 @@ Report:
 
 - exact four hashes;
 - exact inert passing count;
-- the installed reflected `FindObjects` signature and the pinned Python.NET projection
-  `(count, proxies, weights)`;
+- the installed reflected `FindObjects` signature and the inertly pinned accepted
+  projection `(count, proxies, weights)`, explicitly without claiming the live binding
+  has produced it yet;
 - the successful representative `Int64` target-admission regression and rejected upper
   bounds;
 - the fixed external and internal call budgets;
@@ -1413,9 +1553,10 @@ $Python = 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe'
 & $Python "$Root/test_probe.py" -v
 ```
 
-Before this rerun, update only `test_manifest_matches_inert_sources` so its expected
-manifest set includes `target.json`, verifies its hash, and requires all live evidence to
-remain absent. No other probe, runner, or test behavior changes.
+The Task 1 test is already phase-aware: it requires exactly three manifest entries while
+`target.json` is absent and exactly four after it exists. Do not edit `test_probe.py`,
+`probe.py`, or `run.ps1` in Task 2. Their independently reviewed hashes remain unchanged;
+Task 2 changes only `target.json` and the one new manifest entry.
 
 Expected: the updated inert seam passes and all live evidence remains absent.
 
@@ -1467,7 +1608,7 @@ $Root = 'C:/Users/bring/AppData/Local/Temp/rook-gh-native-discovery-task0'
 $Python = 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe'
 
 Get-FileHash "$Root/native-discovery.json", "$Root/invoke-result.json", "$Root/stderr.txt" -Algorithm SHA256
-& $Python -c "import json, pathlib; p=pathlib.Path(r'$Root/native-discovery.json'); d=json.loads(p.read_text(encoding='utf-8')); print(json.dumps({'schema':d['schema'],'environment':d['environment'],'budgets':d['budgets'],'query_count':len(d['queries']),'category_case_present':d['category_case'] is not None,'duplicate_group_count':len(d['duplicate_exact_name_groups']),'third_party_count':len(d['third_party_specimens'])}, indent=2))"
+& $Python -c "import json, pathlib; p=pathlib.Path(r'$Root/native-discovery.json'); d=json.loads(p.read_text(encoding='utf-8')); print(json.dumps({'schema':d['schema'],'environment':d['environment'],'budgets':d['budgets'],'query_count':len(d['queries']),'legacy_comparisons_complete':d['legacy_comparisons_complete'],'category_case_present':d['category_case'] is not None,'duplicate_group_count':len(d['duplicate_exact_name_groups']),'third_party_count':len(d['third_party_specimens'])}, indent=2))"
 ```
 
 Require:
@@ -1478,6 +1619,9 @@ Require:
 - canvas object count unchanged;
 - exact `21/7/7/0/0` internal budgets;
 - seven query rows, each with three runs;
+- `legacy_comparisons_complete` plus every per-GUID incomplete-field observation;
+- successful raw-artifact creation as the evidence that the live Python.NET call produced
+  the accepted `(count, proxies, weights)` projection;
 - raw JSON and invocation response parse successfully;
 - exactly one external request occurred;
 - no model or canvas tool was called.
@@ -1507,10 +1651,13 @@ rewriting raw evidence:
 - each query's three elapsed times, count, stability, top ten GUID/name/library tuples,
   and alias targets;
 - the rank of `Series`, `Range`, `Multiplication`, `Addition`, and every exact duplicate;
-- complete legacy-minus-native and native-minus-legacy GUID sets;
-- exposure, obsolete, library, and assembly facts for every legacy-minus-native item;
-- category case query/filter, displaced rank, complete native GUID set, and complete
-  legacy GUID set;
+- complete legacy-minus-native and native-minus-legacy GUID sets only when their source
+  legacy observation has `complete=true`; otherwise label the partial sets and enumerate
+  every incomplete GUID/field;
+- exposure, tri-state obsolete/name/description/category inputs, library, and assembly
+  facts for every legacy-only or incompletely classified item;
+- category case query/filter, displaced rank, complete native GUID set, and the legacy
+  observation with its completeness flag and incomplete fields;
 - all duplicate exact-name groups;
 - five third-party specimens or the exact lower available count;
 - all proxy and `FindAssemblyByObject` provenance field values for selected specimens;
@@ -1561,8 +1708,14 @@ do not adopt native FindObjects
 qualification incomplete
 ```
 
-It must also recommend one exact ordinary eligibility policy and enumerate every GUID
-whose visibility would change from the complete legacy predicate.
+If `legacy_comparisons_complete` is false, `qualification incomplete` is the only allowed
+recommendation. The report may still describe native timing and ordering evidence, but
+it must not recommend adoption from a partial compatibility comparison.
+
+When `legacy_comparisons_complete` is true, it must also recommend one exact ordinary
+eligibility policy and enumerate every GUID whose visibility would change from the
+complete legacy predicate. When false, it records the unresolved policy and the observed
+partial deltas without presenting them as complete.
 
 - [ ] **Step 3: Verify documentation-only scope**
 
