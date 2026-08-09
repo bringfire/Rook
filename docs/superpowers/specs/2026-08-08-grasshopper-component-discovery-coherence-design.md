@@ -1,7 +1,8 @@
 # Grasshopper Component Discovery Coherence Design
 
-**Status:** Proposed for independent review
+**Status:** Task 0 design proposed for independent review; production contract provisional
 **Date:** 2026-08-08
+**Amended:** 2026-08-09
 **Baseline:** `4bf6fad8418d90590f3ecb4e7cc7921d7894deae`
 **Branch:** `codex/grasshopper-component-discovery-coherence-design`
 
@@ -26,6 +27,62 @@ Grasshopper remains the authority for installed component registration, native s
 aliases, and native relevance scores. Rook owns filtering, public compatibility,
 deterministic tie-breaking, and safe identity handoff. Knowledge owns none of those
 facts.
+
+## Identity handoff invariant
+
+Discovery is not complete merely because it returns ranked candidates. Every public
+surface that accepts or returns component-type identity must preserve a complete,
+correlated, provenance-bearing handoff.
+
+For every caller-supplied name or GUID metadata selector, in original order and
+including duplicates:
+
+```text
+selector
+-> exactly one outcome
+
+selected outcome:
+  original selector
+  component-type GUID
+  exact Task 0-qualified host provenance
+  authoritative SDK metadata
+
+ambiguous outcome:
+  original selector
+  every exact candidate
+  the same GUID/provenance identity fields for every candidate
+  no selection or metadata dispatch for that item
+
+not-found outcome:
+  original selector
+  explicit bounded reason
+```
+
+Mixed batches preserve this equation item by item. An ambiguous or missing selector does
+not prevent other uniquely resolved selectors in the same request from reaching the
+authoritative metadata owner.
+
+The same exact Task 0-qualified provenance field set must appear on:
+
+- every `gh_library` catalog/search candidate;
+- every successful GUID metadata outcome;
+- every uniquely resolved name metadata outcome;
+- every candidate inside an ambiguous-name outcome.
+
+Task 0 must determine the exact host-owned fields, canonical representation, and
+nullability. No production plan or implementation may substitute an open-ended “when
+available” contract.
+
+The layered identity model is:
+
+```text
+search ranking proposes candidates
+-> provenance-bearing identity handoff distinguishes candidates
+-> selected GUID obtains authoritative metadata
+-> existing T* and C* identities handle graph execution
+```
+
+Ranking and knowledge never select identity.
 
 ## Motivation
 
@@ -53,6 +110,17 @@ The slice contains two gates:
 
 1. A read-only Task 0 qualification of the installed Grasshopper component server.
 2. A bounded production correction only after independent review of Task 0 evidence.
+
+This version of the specification authorizes only a Task 0 implementation plan. It does
+not authorize a complete production plan. After Task 0 review, amend this specification
+to pin:
+
+- the exact ordinary eligibility policy;
+- whether native `FindObjects()` is adopted;
+- the exact host provenance field names, representation, and nullability;
+- any measured compatibility consequences.
+
+Only that reviewed amendment may be converted into the production implementation plan.
 
 The production correction is limited to:
 
@@ -269,6 +337,14 @@ Task 0 reports:
 - every eligibility delta with exposure/obsolete facts;
 - third-party visibility and provenance evidence.
 
+For provenance specifically, Task 0 inventories every usable host-owned source on both
+proxy and instantiated metadata paths, including library/plugin identity, library GUID,
+assembly identity, assembly version, or equivalent fields actually exposed by the
+installed host. The report must propose one exact minimal field set that can be emitted
+consistently by catalog candidates, successful GUID metadata, uniquely resolved name
+metadata, and ambiguous-name candidates. It records field values, absence behavior, and
+canonical string formatting rather than inventing Rook-maintained plugin labels.
+
 Elapsed times are observations. Task 0 defines no hidden “fast enough” threshold and
 does not authorize adoption automatically.
 
@@ -289,19 +365,28 @@ The review decides:
   catalog;
 - whether native eligibility should replace or be reconciled with the current broader
   `not obsolete` policy;
-- whether any unexplained third-party omission blocks adoption.
+- whether any unexplained third-party omission blocks adoption;
+- whether native `FindObjects()` is adopted for ordinary search;
+- the exact host provenance fields and representation required by the identity handoff.
+
+After those decisions, this specification must be amended and independently reviewed.
+Writing the production implementation plan before that amendment is prohibited.
 
 If performance is unexpectedly expensive, investigate the measured bottleneck. Do not
 invent repeated over-fetch loops, a parallel search index, or a custom ranking system.
 
-## Proposed production behavior after Task 0 approval
+## Provisional production behavior blocked on Task 0
+
+The following behavior records the intended boundary but is not implementation-ready.
+Every reference to an approved policy or Task 0-qualified field must be replaced by exact
+language in the post-Task 0 specification amendment before production planning begins.
 
 ### Audit branch
 
 ```text
 audit=true
 -> execute existing audit enumeration and filtering
--> preserve existing audit response byte-shape
+-> preserve existing audit JSON response shape
 -> bypass ordinary native ranking
 ```
 
@@ -403,6 +488,10 @@ Ordering is the product behavior.
 It is not inferred from the numerical native score. Other actual search results use
 `native_search`. Catalog browsing omits both fields.
 
+Every catalog/search component also carries the exact host provenance fields selected in
+the post-Task 0 specification amendment. Those fields are identity evidence, not ranking
+inputs. The same field names and value semantics must be used by metadata outcomes.
+
 The `audit=true` response shape remains unchanged and receives none of these additions.
 
 ## `gh_batch_component_info` identity contract
@@ -428,6 +517,9 @@ The result preserves deterministic request order and returns one identified outc
 every requested GUID, including duplicate requests, invalid GUIDs, not-found GUIDs,
 uninstantiable types, and successful metadata. No requested GUID silently disappears.
 
+Every successful GUID outcome carries the exact host provenance fields selected after
+Task 0, using the same names and semantics as `gh_library` candidates.
+
 ### Name input
 
 Names remain supported for compatibility, but knowledge no longer resolves type
@@ -449,8 +541,13 @@ multiple exact matches
 -> perform no first-candidate selection
 ```
 
-Each ambiguous candidate includes the host-owned facts available without inventing a
-Rook plugin registry:
+The result preserves original name request order and returns exactly one outcome per
+requested name, including repeated identical names and mixed batches containing unique,
+missing, and ambiguous items. A unique item may proceed to authoritative metadata even
+when another item in the same batch is ambiguous or missing. An ambiguous item prevents
+metadata contact only for that item.
+
+Each ambiguous candidate includes:
 
 ```text
 name
@@ -458,7 +555,7 @@ nickname
 category
 subcategory
 guid
-plugin/library or assembly identity when available
+the exact Task 0-qualified host provenance fields
 ```
 
 Candidate ordering is deterministic and never collapses duplicate names. Knowledge-store
@@ -508,11 +605,71 @@ These contracts apply through:
 
 No second capability catalog or dispatch table is introduced.
 
-## Frozen Opus control
+## Frozen Opus control definition
 
-Before deploying the production correction, run the previously frozen Opus control
-against the unchanged discovery surface and unchanged intent, skill, adapter, model
-settings, targeting, and evidence contract.
+The control is pinned to this exact future artifact root:
+
+```text
+C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control
+```
+
+Its reviewed row path is:
+
+```text
+C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control/operator/row.json
+```
+
+The row and isolated model configuration must pin:
+
+```text
+model: anthropic/claude-opus-4-6
+provider: anthropic
+modelId: claude-opus-4-6
+api: anthropic-messages
+credential-free base URL: https://api.anthropic.com
+intent: Create a Grasshopper definition that generates a row of points along the X axis using adjustable Start, Step, and Count controls, with Y and Z fixed at zero.
+```
+
+The control reuses the Prime V7 public capability surface and reviewed execution method:
+
+```text
+source artifact: C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v7
+control skill: C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control/agent/skills/prime-execute-grasshopper/SKILL.md
+control checkpoint: C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control/agent/skills/prime-execute-grasshopper/references/checkpoint-protocol.md
+control adapter: C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control/agent/skills/rook-full/src/rook_full/__init__.py
+skill SHA-256: 0F7C8D1F2D612FFB7522469C4E3D467985E8872585CA3C18DF9B46BD1A84D36E
+checkpoint SHA-256: 76A7C0CFF04DEF83A75519A546AC812804AC32BBF30CC14609A6D52950248964
+rook_full adapter SHA-256: E7577F0EC8A9B504712BC73290BB8F4C673E9677AEF952CFBFC346F206A62996
+```
+
+The skill body, checkpoint, adapter transport, `search/read/call` public surface, natural
+intent, full Rook profile, evidence rules, and final-inspection request remain unchanged.
+Only the isolated provider/model configuration, model-custody checks, sibling paths, and
+fresh reviewed Rhino target differ from V7.
+
+Before contact, the complete sibling manifest and row hash must be independently
+reviewed. The fresh row carries the exact panel-locked PID, native port, and document
+serial for an empty disposable canvas. This target-dependent row hash cannot be invented
+in the design document; the exact artifact path and static capability hashes above are
+the durable control identity.
+
+The evidence contract is:
+
+```text
+one natural Prime termination
+zero operator reruns
+zero adapter retries
+no cleanup
+Prime JSONL retained exactly
+one native Prime session retained exactly
+stderr retained exactly
+one independent final gh_snapshot after normal termination and intact targeting/evidence
+request and result retained in final-inspection.jsonl
+missing/corrupt evidence, cancellation, forced termination, or target drift -> no inspection
+```
+
+Before deploying the production correction, run this control against the unchanged
+discovery surface under separate authorization.
 
 Record at minimum:
 
@@ -557,10 +714,15 @@ causal proxies representing native and third-party collisions.
 Prove:
 
 - GUID-only requests call authoritative metadata directly;
-- both selector families refuse before target contact;
+- requests containing both selector families refuse before target contact;
 - every GUID produces one ordered outcome, including not found;
 - zero, one, and multiple live exact-name matches produce the required outcomes;
+- every requested name produces one ordered outcome, including duplicates and mixed
+  unique/missing/ambiguous batches;
+- ambiguity blocks metadata only for the ambiguous item;
 - ambiguous candidates all survive and remain distinguishable;
+- catalog, GUID metadata, unique-name metadata, and ambiguity candidates expose the same
+  exact Task 0-qualified provenance fields;
 - GUID lookup resolves each same-name native/third-party candidate independently;
 - knowledge-store ordering cannot influence name identity;
 - ambiguous name creation remains refused.
