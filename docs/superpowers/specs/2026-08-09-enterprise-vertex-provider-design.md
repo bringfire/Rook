@@ -1,6 +1,6 @@
 # Enterprise Vertex Provider Design
 
-**Status:** Approved for implementation planning after the 2026-08-09 review
+**Status:** Amended after implementation-plan review; pending execution approval
 **Date:** 2026-08-09
 **Rook baseline:** `a867f8e06ae8aca904102104c47780d02d5640b8`
 **Chirp baseline:** `c7b1aacec6b1ae23514cb9fb0d2a365e1fb7a468`
@@ -15,9 +15,10 @@ Python/LiteLLM text-model surfaces:
 - Rook agents and DSPy;
 - Chirp.
 
-The provider identity is `vertex_ai/...`. It is additive. It does not replace,
-modify, or silently intercept the existing Gemini Developer API / Google AI
-Studio provider identity `gemini/...`.
+The initial provider identity is `vertex_ai/gemini-*`. It is additive. It does
+not replace, modify, or silently intercept the existing Gemini Developer API /
+Google AI Studio provider identity `gemini/...`. Other Vertex publisher and
+partner-model families are outside this workstream.
 
 This is the first of three separately reviewed 1.5.19 workstreams:
 
@@ -35,7 +36,7 @@ Rook supports two independent Google provider contracts:
 | Provider identity | Authentication | Configuration | Authorized surfaces in this design |
 | --- | --- | --- | --- |
 | `gemini/...` | Existing Gemini Developer API / AI Studio API key | Existing `GEMINI_API_KEY` behavior | Existing Rook Chat, agents/DSPy, Chirp, RookVision image, and Veo video behavior |
-| `vertex_ai/...` | Rook desktop OAuth, explicitly selected ADC, or explicitly selected service-account credential | Organization project ID plus region | Rook Chat, agents/DSPy, and Chirp text-model calls |
+| `vertex_ai/gemini-*` | Rook desktop OAuth, explicitly selected ADC, or explicitly selected service-account credential | Organization project ID plus region | Rook Chat, agents/DSPy, and Chirp Gemini publisher-model calls on Vertex |
 
 The following invariants are normative:
 
@@ -52,8 +53,11 @@ The following invariants are normative:
   disable the other.
 - No request falls back from Vertex to Gemini or from Gemini to Vertex.
 - Model/provider selection remains explicit. A `gemini/...` identifier cannot
-  resolve to Vertex, and a `vertex_ai/...` identifier cannot resolve to the
+  resolve to Vertex, and a `vertex_ai/gemini-*` identifier cannot resolve to the
   Developer API.
+- Any other `vertex_ai/*` identifier fails locally with
+  `vertex_model_family_unsupported` before credential refresh, readiness, or
+  inference. It never falls through to another provider.
 
 The implementation must include source and behavioral guards for these
 invariants. A generic "Google" credential slot or status is prohibited.
@@ -66,8 +70,8 @@ Google Cloud environment. The required user-provided configuration is:
 - Google authorization mode;
 - organization-controlled Google Cloud project ID;
 - Vertex region;
-- explicit `vertex_ai/...` model selection through the existing model-profile
-  or allowed model-override mechanisms.
+- explicit `vertex_ai/gemini-*` model selection through the existing
+  model-profile or allowed model-override mechanisms.
 
 The organization remains solely responsible for:
 
@@ -136,21 +140,32 @@ Rook Chat and Rook MCP import the same authorization module from the installed
 `rook-mcp` distribution. They resolve Vertex authorization immediately before a
 Vertex call and retain access tokens only in process memory.
 
-Chirp does not get a second persistent store or its own Google login. For a
-Rook-managed Chirp launch, `chirp_manager` obtains an in-memory authorized-user
-credential envelope from the authoritative module and transfers it once through
-an anonymous child-stdin bootstrap pipe selected by a non-secret launch flag.
-The payload is not placed in command-line arguments, environment variables, or
-files. The bootstrap includes the non-secret store generation that authorized
-the launch. Chirp holds the credential only in memory and supplies it to its
-Vertex `dspy.LM`. Before every Vertex call, it reads only the current record's
-generation and requires an exact match. Missing or changed generation produces
-`vertex_restart_required` before provider work; the manager must replace and
-re-bootstrap that child before retrying the call. A committed configuration or
-credential change proactively retires every Rook-managed Chirp child it owns.
-When Vertex is not selected or configured, no auth bootstrap is sent. A
-standalone Chirp process may use explicitly selected ADC or a service-account
-path, but it cannot create or persist a second copy of Rook desktop OAuth.
+Chirp does not get a second persistent store or its own Google login. Every
+Chirp child launched by Rook receives the non-secret `--rook-managed` marker and
+participates in bounded retirement. For a managed Vertex launch,
+`chirp_manager` additionally obtains an in-memory authorized-user credential
+envelope from the authoritative module and transfers it once through an
+anonymous child-stdin bootstrap pipe selected only by
+`--rook-vertex-bootstrap-stdin`. The payload is not placed in command-line
+arguments, environment variables, or files. The bootstrap includes the
+non-secret store generation that authorized the launch. Chirp holds the
+credential only in memory and supplies it to its Vertex `dspy.LM`. Before every
+Vertex call, it reads only the current record's generation and requires an exact
+match. Missing or changed generation produces `vertex_restart_required` before
+provider work; the manager must replace and re-bootstrap that child before
+retrying the call.
+
+The managed marker enables the child to self-report and respond to the
+retirement event; it is not termination authority. A rediscovered process that
+reports managed state may be signaled and observed for graceful exit. Forceful
+termination is permitted only when the current `chirp_manager` still owns the
+exact launch handle and the PID, discovery record, and port all match that
+launch. If those facts cannot be proven, Rook never terminates the process and
+fails closed with `vertex_restart_required`. When Vertex is not selected or
+configured, Rook still supplies `--rook-managed` but sends no authorization
+bootstrap. A standalone Chirp process receives neither flag; it may use
+explicitly selected ADC or a service-account path, but it cannot create or
+persist a second copy of Rook desktop OAuth.
 
 Disconnect revokes the Google authorization where possible, removes the
 encrypted refresh credential, invalidates cached Rook tokens, and stops or
@@ -240,12 +255,20 @@ recommend long-lived service-account keys over the primary OAuth path.
 
 ### 5.1 Closed model admission
 
-`vertex_ai/...` is a closed provider prefix with provider-specific readiness.
-It is not added to the single-environment-key map. The active model resolver
-must distinguish:
+This workstream admits only the closed `vertex_ai/gemini-*` family. Rook and
+Chirp each have one local parser implementing the same closed contract because
+they are separately packaged runtimes. Each parser recognizes the broader
+`vertex_ai/` prefix so unsupported Vertex families cannot fall through as
+non-Vertex. It returns the exact provider-relative `gemini-*` model name for
+admitted models and returns `vertex_model_family_unsupported` for every other
+`vertex_ai/*` identifier before credentials or network access. Only those
+parsers may strip `vertex_ai/`, and only the provider-relative name enters Google's
+`publishers/google/models/{model}` readiness URL. The provider is not added to
+the single-environment-key map. The active model resolver must distinguish:
 
 - Gemini Developer API key readiness for `gemini/...`;
-- Vertex authorization plus project/region readiness for `vertex_ai/...`;
+- Vertex authorization plus project/region readiness for
+  `vertex_ai/gemini-*`;
 - existing API-key and local-provider readiness for all other providers.
 
 Configuring Vertex does not change the active model profile. Users select a
@@ -255,33 +278,35 @@ provider-wide fallback is introduced.
 
 ### 5.2 Rook Chat
 
-Immediately before `litellm.acompletion`, a `vertex_ai/...` model resolves a
-fresh in-memory Vertex argument set containing the explicit project, region,
-and supported Google credential representation. Non-Vertex calls do not invoke
-the Vertex authorization owner. A Vertex admission failure is returned before
+Immediately before `litellm.acompletion`, an admitted `vertex_ai/gemini-*`
+model resolves a fresh in-memory Vertex argument set containing the explicit
+project, region, and supported Google credential representation. Non-Vertex
+calls do not invoke the Vertex authorization owner. Unsupported Vertex families
+fail before refresh or inference. A Vertex admission failure is returned before
 starting the model request and does not affect the chat service's health for
 other providers.
 
 ### 5.3 Agents and DSPy
 
-The existing DSPy construction seams add one explicit `vertex_ai/...` branch.
-Every Vertex `dspy.LM` receives the same authoritative project, region, and
-in-memory credential representation. The existing `gemini/...`, Anthropic,
-OpenAI API, OpenRouter, and local-model construction paths remain unchanged.
+The existing DSPy construction seams add one explicit
+`vertex_ai/gemini-*` branch. Every admitted Vertex `dspy.LM` receives the same
+authoritative project, region, and in-memory credential representation. The
+existing `gemini/...`, Anthropic, OpenAI API, OpenRouter, and local-model
+construction paths remain unchanged.
 
 ### 5.4 Chirp
 
-Chirp accepts the one-time Rook bootstrap only when started with the private
-Rook-managed bootstrap flag and stdin pipe. It rejects malformed, duplicate,
-late, or unexpectedly present payloads before initializing a Vertex LM. The
-payload is never echoed, logged, cached to disk, included in traces, or returned
-by `/health` or `/chirp/*`.
+Chirp accepts the one-time Rook bootstrap only when started with both
+`--rook-managed` and `--rook-vertex-bootstrap-stdin`. It rejects malformed,
+duplicate, late, or unexpectedly present payloads before initializing a Vertex
+LM. The payload is never echoed, logged, cached to disk, included in traces, or
+returned by `/health` or `/chirp/*`.
 
-Chirp uses the payload only for `vertex_ai/...` models. Its existing
-`gemini/...` and API-key/provider behavior remains unchanged. A Vertex failure
-must not disable Chirp's non-Vertex models; if the selected/default Chirp model
-is Vertex, `/health` reports Vertex disabled while the sidecar stays available
-for a later explicit non-Vertex selection.
+Chirp uses the payload only for admitted `vertex_ai/gemini-*` models. Its
+existing `gemini/...` and API-key/provider behavior remains unchanged. A Vertex
+failure must not disable Chirp's non-Vertex models; if the selected/default
+Chirp model is Vertex, `/health` reports Vertex disabled while the sidecar stays
+available for a later explicit non-Vertex selection.
 
 ## 6. Provider Setup contract
 
@@ -314,11 +339,15 @@ region may be shown because they are configuration, not secrets. The selected
 service-account path is not returned through general health or diagnostic
 surfaces.
 
-Provider testing performs token acquisition plus one fixed, non-generating
-Vertex admission probe against the selected project, region, and configured
-model. The implementation plan must pin the exact Google method and verify that
-it does not submit user content or request generated output. A successful OAuth
-exchange alone is not reported as project readiness.
+Passive health and model enumeration perform local admission only. They do not
+refresh a token, call `countTokens`, or contact a provider. Explicit **Test
+Vertex** and installed acceptance may acquire or refresh a token and perform one
+fixed, non-generating Vertex admission probe against the selected project,
+region, and configured model. Normal admitted inference may refresh credentials
+and contact Vertex as required for that request. The implementation plan must
+pin the explicit test method and verify that it does not submit user content or
+request generated output. A successful OAuth exchange alone is not reported as
+project readiness.
 
 ## 7. Closed configuration and error taxonomy
 
@@ -341,6 +370,7 @@ codes is reported with a stable remediation message and no raw Google payload:
 | `vertex_permission_missing` | The identity lacks the required Vertex inference permission. |
 | `vertex_region_invalid` | The region is unsupported or invalid for the request. |
 | `vertex_model_unavailable` | The explicit model is unavailable in the selected project/region. |
+| `vertex_model_family_unsupported` | The model uses `vertex_ai/` but is not an admitted Gemini publisher model for this release. |
 | `vertex_auth_dependency_missing` | The installed supported Google auth dependency is absent or incompatible. |
 | `vertex_request_failed` | A provider failure occurred but the available structured evidence cannot safely prove a narrower classification. |
 
@@ -350,6 +380,11 @@ text. Unknown or changed provider responses map to `vertex_request_failed`.
 Messages are bounded, redacted, and never include tokens, credential paths,
 raw response bodies, prompts, project metadata beyond the user-supplied project
 ID, or organization details.
+
+`vertex_model_family_unsupported` always uses the stable public message:
+`This release supports only Gemini publisher models on Vertex AI
+(vertex_ai/gemini-*).` It is a local admission error and never includes the
+rejected identifier.
 
 OAuth login state is not provider inference state. A signed-in identity can
 still fail project, billing, IAM, region, API, or model admission, and Provider
@@ -367,7 +402,8 @@ Setup must display that distinction.
 - Access tokens are short-lived, memory-only, and refreshed through supported
   Google authentication libraries.
 - The Rook OAuth flow starts only from an explicit user action. Installer,
-  startup, health, and model enumeration cannot open a browser.
+  startup, passive health, and model enumeration cannot open a browser, refresh
+  authorization, call `countTokens`, or make another provider request.
 - Login attempts are single-owner, bounded, cancellable, and cannot overwrite
   a previously working authorization until a new token exchange succeeds.
 - A new OAuth record is admitted only after the refresh-token and exact granted-
@@ -408,7 +444,9 @@ acceptance.
 
 ### 10.1 Permanent automated contracts
 
-- Exact `gemini/...` versus `vertex_ai/...` provider classification.
+- Exact `gemini/...`, admitted `vertex_ai/gemini-*`, unsupported
+  `vertex_ai/*`, and non-Vertex provider classification. Unsupported Vertex
+  families return `vertex_model_family_unsupported` before provider work.
 - Existing Gemini API-key resolution and model behavior remain unchanged.
 - RookVision Gemini image and Veo code retain their Developer API hostname and
   API-key authorization path, with no Vertex dependencies.
@@ -418,14 +456,19 @@ acceptance.
 - Concurrent connect, configuration-save, and disconnect attempts serialize
   through the fixed Vertex mutation lock; lock timeout leaves the prior record
   byte-for-byte unchanged.
+- Every Rook-launched Chirp receives `--rook-managed`; only an admitted Vertex
+  launch receives `--rook-vertex-bootstrap-stdin` and stdin credentials.
 - Every committed record receives a new generation. A Rook-managed Chirp bound
   to an older or missing generation returns `vertex_restart_required` before any
-  provider call, and its manager replaces it before retry.
+  provider call. A rediscovered managed child may be signaled and observed, but
+  force termination is limited to the exact child handle/PID/port/discovery
+  tuple owned by the current manager; ambiguous ownership fails closed.
 - OAuth PKCE/state/loopback/single-attempt/timeout behavior with a fake token
   endpoint; no live credentials in automated tests.
 - Exact scope set contains only `cloud-platform`; missing refresh authorization,
   scope mismatch, or failed refresh preserves the previous record byte-for-byte.
-- Rook Chat and DSPy obtain Vertex arguments only for `vertex_ai/...` calls.
+- Rook Chat and DSPy obtain Vertex arguments only for admitted
+  `vertex_ai/gemini-*` calls.
 - Chirp bootstrap uses the anonymous stdin pipe and rejects every other secret
   transport or malformed lifecycle.
 - Phase 1 exposes browser authorization only to the bounded non-MCP acceptance
@@ -433,14 +476,20 @@ acceptance.
   temporary production UI.
 - Token and service-account sentinels are absent from logs, health, errors,
   manifests, environment, command lines, and persisted non-DPAPI fields.
+- Passive health and model enumeration are proven network-free. Explicit
+  readiness and ordinary admitted inference are exercised separately.
 - Every closed error code is behaviorally covered, including unknown-provider
   response fallback.
 - Vertex-unavailable tests prove non-Vertex models and Rook startup stay green.
 
-### 10.2 Installed-candidate acceptance
+### 10.2 Technical installed-candidate acceptance
 
 Acceptance must start from exact reviewed Rook and Chirp commits and record the
-installed file/wheel inventory and hashes. It must prove:
+installed file/wheel inventory and hashes. It may use a separately approved
+test OAuth client and yields only **technical acceptance** unless section 10.3
+also passes. The source-controlled harness uses fixed prompts, bounded watchdogs,
+owned canvas state, and machine-parsed predicates; it does not require
+byte-exact natural-language output. It must prove:
 
 1. Existing Gemini Developer API configuration remains usable without
    reconfiguration.
@@ -450,10 +499,12 @@ installed file/wheel inventory and hashes. It must prove:
    operation, and a managed organization identity completes Rook desktop OAuth
    in the system browser.
 4. The organization-owned project and region pass the bounded readiness probe.
-5. One benign installed Rook Chat call succeeds through `vertex_ai/...`.
-6. One benign installed DSPy/agent call succeeds through `vertex_ai/...`.
-7. One disposable Chirp component succeeds through `vertex_ai/...`, followed
-   by owned-canvas cleanup.
+5. One benign installed Rook Chat call succeeds through an explicit
+   `vertex_ai/gemini-*` model.
+6. One benign installed DSPy/agent call succeeds through the same explicit
+   `vertex_ai/gemini-*` model.
+7. One disposable Chirp component succeeds through the same explicit
+   `vertex_ai/gemini-*` model, followed by owned-canvas cleanup.
 8. Disconnect prevents subsequent Vertex refresh/use and leaves Gemini, local
    models, RookVision, and Rook tool operation healthy.
 9. Logs, diagnostics, manifests, process command lines/environments, and
@@ -464,6 +515,17 @@ installed file/wheel inventory and hashes. It must prove:
 Live provider calls may incur cost. They require explicit acceptance-task
 authorization, a named test model/project/region, bounded prompts, and no user
 or customer data.
+
+### 10.3 Production release readiness
+
+Technical acceptance is not an unqualified production PASS. Production
+readiness additionally requires every external prerequisite in section 9, use
+of the production Rook desktop OAuth client, completed applicable Google
+verification, published enterprise-administrator guidance, and installed
+validation with a managed business identity against an organization-owned
+project. Evidence must label the result `technical_pass` or
+`production_ready`; an approved but unverified test client can produce only the
+former.
 
 ## 11. Commit and release structure
 
