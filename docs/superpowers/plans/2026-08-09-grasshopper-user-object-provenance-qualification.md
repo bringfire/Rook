@@ -19,6 +19,8 @@
 - The probe continues after specimen-local failures and reports them; it never substitutes a selector or lookup path.
 - Raw `GH_UserObject.Data` bytes never enter an evidence payload, log, exception, or test diagnostic.
 - The implementation stops if it needs archive parsing, inferred package identity, product changes, another host request, a registry, or canvas mutation.
+- All fallible local preparation that does not depend on host observations completes before the sole `/execute` request begins.
+- Representable specimen observations accumulate monotonically: later projection failures append errors and mark incompleteness without replacing earlier fields. Artifact serialization or writing may still leave only an unsuccessful evidence prefix; no fallback artifact is permitted.
 - Do not amend the production discovery specification until Task 3 evidence has been independently reviewed.
 
 ## File map
@@ -66,6 +68,7 @@ ProjectionSchemaTests
   test_exact_top_level_and_nested_key_sets
   test_description_projection_is_closed
   test_unexpected_text_type_records_property_error_and_is_incomplete
+  test_exposure_numeric_failure_is_explicit_and_incomplete
   test_assembly_projection_uses_direct_assembly_description
   test_reflection_objects_never_reach_json
 
@@ -95,6 +98,12 @@ PrefixAndBudgetTests
   test_budget_mismatch_forces_probe_incomplete
   test_no_search_insert_solution_retry_or_cleanup_is_reachable
 
+PhaseOrderingTests
+  test_repository_failure_precedes_all_host_operations
+  test_document_mismatch_consumes_entry_but_zero_specimen_operations
+  test_data_hash_failure_preserves_prior_fields_and_continues
+  test_returned_envelope_refusal_preserves_one_shot_prefix
+
 WriterTests
   test_full_write_flush_fsync_precede_sentinel
   test_serialization_failure_emits_no_sentinel
@@ -111,6 +120,7 @@ LauncherTests
   test_invalid_target_refuses_before_transport
   test_outer_envelope_requires_zero_created_objects
   test_outer_envelope_requires_exact_sentinel_and_hash
+  test_stderr_marker_precedes_the_only_post
 ```
 
 - [ ] Make the unexpected-text regression causal with a non-string sentinel whose `__str__` and `__repr__` fail if invoked; assert one property error, an incomplete specimen, and zero coercion calls.
@@ -178,15 +188,17 @@ if not observed:
 if value is None:
     return null_record, True
 if value.GetType().FullName == "System.Byte[]":
-    digest = hashlib.sha256(bytes(value)).hexdigest().upper()
-    return bytes_record_with_length_and_digest, True
+    return injected_byte_length_and_sha_projection(value)
 return unexpected_type_record_with_only_runtime_type, False
 ```
 
-- [ ] Ensure the byte sequence exists only as a local hashing input and is dropped before the record is returned.
+- [ ] Inject one live .NET-owned `System.Byte[]` projector using `LongLength` plus `System.Security.Cryptography.SHA256`; do not rely solely on Python `bytes(value)` projection.
+- [ ] If length or hashing fails after the runtime type is observed, retain `status=bytes` and `runtimeType=System.Byte[]`, leave length/hash null, append one `Data` property error to the user-object block, preserve Path/BaseGuid/Description, mark the specimen incomplete, and continue later observations and specimens.
+- [ ] Raw byte content exists only inside the hashing operation and is never returned, logged, serialized, or placed in an exception.
 
 ### Step 3: Implement exact specimen observation and budget custody
 
+- [ ] Collect repository identity before importing Rhino or Grasshopper and before any host-dependent operation. A repository collection failure performs zero host operations.
 - [ ] Implement `_observe_specimen()` with this sole lookup sequence:
 
 ```text
@@ -249,9 +261,16 @@ document_serial_number: positive Int64 <= UInt32.MaxValue
 
 - [ ] Verify manifest source hashes before any evidence creation or transport. Accept exactly three manifest entries before Task 2 and exactly four afterward; the only fourth entry is `target.json`.
 - [ ] Refuse if any of `user-object-provenance.json`, `invoke-result.json`, or `stderr.txt` exists.
-- [ ] Use Rook discovery plus `Get-NetTCPConnection` to prove the reviewed PID owns the reviewed native port and that the current document serial is the reviewed value.
+- [ ] Use Rook discovery plus `Get-NetTCPConnection` to prove the reviewed PID owns the reviewed native port. Current discovery does not expose document serial.
+- [ ] Preserve the frozen document serial in the request. The probe checks it immediately inside `/execute`, after local repository preparation and before canvas/component-server access or any specimen operation.
 - [ ] In validation-only mode, stop after custody checks with zero `/execute` calls and zero evidence files.
-- [ ] In live mode, create `stderr.txt` exclusively, POST exactly one reviewed `/execute` request, and retain the HTTP status plus exact response body in create-new `invoke-result.json` before interpreting it.
+- [ ] In live mode, create empty `stderr.txt` exclusively immediately before the sole `PostAsync`, then retain the HTTP status plus exact response body in create-new `invoke-result.json` before interpreting it.
+- [ ] Enforce these truthful boundaries:
+
+```text
+PID/port/listener mismatch -> zero /execute calls
+document mismatch -> one unsuccessful /execute and zero specimen operations
+```
 - [ ] Require the outer result equation:
 
 ```text
@@ -332,8 +351,8 @@ git commit -m "docs: prepare user object provenance probe"
 ### Step 1: Corroborate the fresh target without `/execute`
 
 - [ ] Require a disposable Grasshopper document and an open Rook Chat panel.
-- [ ] Use existing process discovery and OS listener inspection to obtain one exact Rhino PID, native port, and document serial.
-- [ ] Confirm the listener owner PID equals the selected Rhino PID and the current active document serial equals the intended disposable document.
+- [ ] Use existing process discovery and OS listener inspection to obtain one exact Rhino PID and native port. Obtain the intended document serial from the open Rook Chat panel/document record; do not claim native discovery corroborates it.
+- [ ] Confirm the listener owner PID equals the selected Rhino PID. Record the exact intended document serial for the first in-probe admission check.
 - [ ] Confirm no probe evidence exists and the Git worktree is clean.
 
 ### Step 2: Create and hash the closed target
@@ -392,7 +411,7 @@ I authorize exactly one read-only user-object provenance qualification using fro
 ### Step 1: Recheck the authorized boundary
 
 - [ ] Confirm the authorization names the exact current target SHA-256.
-- [ ] Reverify all four manifest entries, the target/listener/document triple, absent evidence, source-evidence hash, clean Git worktree, and unchanged probe/test/launcher hashes.
+- [ ] Reverify all four manifest entries, PID/port/listener custody, the frozen document serial value, absent evidence, source-evidence hash, clean Git worktree, and unchanged probe/test/launcher hashes. Do not claim external document-serial corroboration.
 - [ ] Stop without contact on any mismatch.
 
 ### Step 2: Make the sole authorized request
@@ -490,8 +509,16 @@ Task 1 disposable construction:
     C:/Users/bring/AppData/Local/Temp/rook-gh-user-object-provenance-qualification
   TDD RED:
     missing probe.py refused test import as intended
+    six phase-ordering/projection regressions failed against the first frozen sources
+  reviewed Task 1 repair:
+    repository preparation precedes host access
+    document mismatch admits zero specimen operations
+    Data hashing failure preserves prior observations and later specimens
+    returned-envelope refusal preserves invoke-result prefix
+    stderr marker precedes the sole PostAsync
+    exposure conversion and prohibited surfaces are causal
   inert seam:
-    38/38 passed
+    44/44 passed
   Python compilation:
     passed for probe.py and test_probe.py
   PowerShell parser:
@@ -499,10 +526,10 @@ Task 1 disposable construction:
   manifest phase:
     pre_target
   source files:
-    probe.py      4B36092A527D577D7EE7537A9A617ABC597AEF04027E86AB7D901184334524DA
-    run.ps1       259554E6A0007430619AD3356FAA1CE6CDAE411B98EB019911422FC6E7411516
-    test_probe.py 9A55AC013090D55907B175A30A21AB9AAB2DA5149FC974351BC6860FB5EACF56
-    manifest.json 7C46A2A887BEEA0A712486097FDF5B2479F6CF4C67494DE3B924D7FFD34EDC51
+    probe.py      1CC562EE8CFADA09D26D27426015B6C856D69593D71982D510107F67ACA50B67
+    run.ps1       FB15B1451D3CE408E19A5D4296152E2CCB1096C5D2AB00F3DFF98856928745A2
+    test_probe.py B3D1EAACEEF3B01807C21257C112D9A5CD6D879DC40F3517DEFBACC0A5F9968F
+    manifest.json 751EF9D1E6CB67210EB1FEA1BA3F85EA0FF11160A4EF1640856DB4631E155FD5
   installed reflection:
     EmitObjectProxy(System.Guid) -> IGH_ObjectProxy
     FindAssemblyByObject(System.Guid) -> GH_AssemblyInfo
