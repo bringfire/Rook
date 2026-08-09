@@ -1,6 +1,6 @@
 # Grasshopper User-Object Provenance Qualification Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans for Inline Execution, implementing this plan task-by-task and stopping at every review gate. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Capture one bounded, metadata-only Grasshopper qualification that determines which host-owned identity and provenance fields are available for six already-retained `.ghuser` component types.
 
@@ -65,6 +65,7 @@ FrozenSpecimenTests
 ProjectionSchemaTests
   test_exact_top_level_and_nested_key_sets
   test_description_projection_is_closed
+  test_unexpected_text_type_records_property_error_and_is_incomplete
   test_assembly_projection_uses_direct_assembly_description
   test_reflection_objects_never_reach_json
 
@@ -96,6 +97,8 @@ PrefixAndBudgetTests
 
 WriterTests
   test_full_write_flush_fsync_precede_sentinel
+  test_serialization_failure_emits_no_sentinel
+  test_open_failure_emits_no_sentinel
   test_short_write_emits_no_sentinel
   test_flush_or_fsync_failure_emits_no_sentinel
   test_sentinel_hashes_exact_encoded_artifact
@@ -110,6 +113,8 @@ LauncherTests
   test_outer_envelope_requires_exact_sentinel_and_hash
 ```
 
+- [ ] Make the unexpected-text regression causal with a non-string sentinel whose `__str__` and `__repr__` fail if invoked; assert one property error, an incomplete specimen, and zero coercion calls.
+- [ ] Make serialization- and open-failure writer regressions inject failures before any artifact bytes exist; assert no sentinel, no reopen, and no retry.
 - [ ] Make the tests import the exact Task 0 V2 source artifact and assert SHA-256 `254A9BF5A8EEE5DCCA72A37AD08DF20EDF63271F55E2F14AC4587BC180481988` before extracting the six frozen selector records.
 - [ ] Run the direct test-file command and confirm RED because `probe.py` and `run.ps1` do not exist:
 
@@ -128,7 +133,11 @@ Expected: test failure caused only by the absent implementation artifacts.
 - [ ] Use these exact projection owners:
 
 ```python
-def _strict_text(value: object | None) -> str | None: ...
+def _strict_text(
+    value: object | None,
+    property_name: str,
+    property_errors: list[dict],
+) -> tuple[str | None, bool]: ...
 def _stage_error(stage: str, exc: BaseException | None = None, message: str | None = None) -> dict | None: ...
 def _property_error(property_name: str, exc: BaseException) -> dict: ...
 def _normalize_path(value: str) -> str: ...
@@ -140,6 +149,7 @@ def _instance_projection(instance: object | None, attempted: bool) -> tuple[dict
 def _observe_specimen(server: object, selector: dict, counters: dict, host: object) -> dict: ...
 ```
 
+- [ ] `_strict_text()` accepts only `None` or an actual Python `str`. `None` returns `(None, True)`. A `str` must be strictly UTF-8 encodable and returns unchanged with `True`. Any other type or UTF-8 encoding failure appends one closed `propertyErrors` entry, returns `(None, False)`, and makes the containing specimen incomplete. It must never call `str()`, `repr()`, reflection, or serialization on an unexpected value.
 - [ ] Keep every projection schema literal and closed. Reject or convert no arbitrary reflection object through generic JSON serialization.
 - [ ] Project every description as exactly:
 
@@ -406,9 +416,9 @@ I authorize exactly one read-only user-object provenance qualification using fro
 - [ ] Choose exactly one evidence conclusion:
 
 ```text
-identity handoff closed
 qualification incomplete
-compiled and user-object provenance require distinct response shapes
+identity handoff closed with one shared provenance shape
+identity handoff closed with source-kind-specific provenance variants
 ```
 
 The conclusion is descriptive evidence for later specification work, not product behavior.
