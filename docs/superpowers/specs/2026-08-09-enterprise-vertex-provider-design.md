@@ -1,6 +1,6 @@
 # Enterprise Vertex Provider Design
 
-**Status:** Proposed for reviewer approval; implementation planning blocked
+**Status:** Approved for implementation planning after the 2026-08-09 review
 **Date:** 2026-08-09
 **Rook baseline:** `a867f8e06ae8aca904102104c47780d02d5640b8`
 **Chirp baseline:** `c7b1aacec6b1ae23514cb9fb0d2a365e1fb7a468`
@@ -119,9 +119,18 @@ The store is Vertex-specific, not a new general secret framework. It contains
 ordinary configuration in clear JSON and, only for the OAuth mode, one
 DPAPI-CurrentUser ciphertext envelope. The plaintext refresh credential,
 access tokens, authorization codes, PKCE verifier, and OAuth state are never
-persisted. Writes are serialized and atomic; readers must never observe a
-partially written record. Unknown schema versions fail closed without rewriting
-or deleting the record.
+persisted. Each committed record contains a fresh opaque, non-secret generation
+ID.
+
+Connect, configuration save, and disconnect acquire one Vertex-specific,
+bounded cross-process mutation lock before re-reading and changing the store.
+The implementation plan must pin the exact Windows locking primitive and fixed
+identity; a thread lock is insufficient, and no general credential broker or
+locking framework is introduced. Lock timeout fails closed without touching the
+current record. A mutation writes a complete replacement to a sibling temporary
+file, flushes it, atomically replaces the record, and only then publishes the new
+generation. Readers must never observe a partial record. Unknown schema versions
+fail closed without rewriting or deleting the record.
 
 Rook Chat and Rook MCP import the same authorization module from the installed
 `rook-mcp` distribution. They resolve Vertex authorization immediately before a
@@ -132,7 +141,13 @@ Rook-managed Chirp launch, `chirp_manager` obtains an in-memory authorized-user
 credential envelope from the authoritative module and transfers it once through
 an anonymous child-stdin bootstrap pipe selected by a non-secret launch flag.
 The payload is not placed in command-line arguments, environment variables, or
-files. Chirp holds it only in memory and supplies it to its Vertex `dspy.LM`.
+files. The bootstrap includes the non-secret store generation that authorized
+the launch. Chirp holds the credential only in memory and supplies it to its
+Vertex `dspy.LM`. Before every Vertex call, it reads only the current record's
+generation and requires an exact match. Missing or changed generation produces
+`vertex_restart_required` before provider work; the manager must replace and
+re-bootstrap that child before retrying the call. A committed configuration or
+credential change proactively retires every Rook-managed Chirp child it owns.
 When Vertex is not selected or configured, no auth bootstrap is sent. A
 standalone Chirp process may use explicitly selected ADC or a service-account
 path, but it cannot create or persist a second copy of Rook desktop OAuth.
@@ -182,6 +197,22 @@ The desktop client ID is shipped and documented so enterprise administrators
 can inspect or allowlist it. An installed desktop application cannot keep a
 client credential secret; any Google-issued desktop client material included
 with Rook is application identity, not a user/provider secret.
+
+A successful HTTP token response is not sufficient to replace a working Rook
+authorization. Before committing a new OAuth record, the backend must require:
+
+- a non-empty refresh token;
+- the expected bearer token response with a usable, unexpired access token;
+- a granted-scope field whose normalized set is exactly
+  `{https://www.googleapis.com/auth/cloud-platform}`; and
+- one successful refresh performed through the supported Google authentication
+  library using the returned refresh token.
+
+Missing refresh authorization, absent or expanded/reduced granted scope, or a
+failed refresh returns a bounded authorization failure and leaves the previous
+record byte-for-byte unchanged. Project readiness remains a separate status:
+successful authorization does not imply project, billing, IAM, API, region, or
+model readiness.
 
 ### 4.2 Application Default Credentials — advanced
 
@@ -254,12 +285,20 @@ for a later explicit non-Vertex selection.
 
 ## 6. Provider Setup contract
 
-This workstream supplies provider-specific backend operations that the later
-unified Provider Setup slice will present. It does not add more installer
-password boxes.
+This workstream is backend-only. It supplies provider-specific operations that
+the later unified Provider Setup slice will present. It does not add installer
+password boxes, a temporary production UI, a public HTTP route, or an
+agent-callable MCP tool.
 
-The Vertex card is labeled **Google Cloud Vertex AI — Enterprise project** and
-is visually separate from **Google AI Studio — Gemini API key**. It exposes:
+Phase 1 installed acceptance invokes the installed backend's single connect
+operation through a source-controlled, bounded, non-MCP acceptance harness. The
+harness supplies project and region, opens the real system-browser OAuth flow,
+captures only redacted status, and is not installed or documented as an ordinary
+user command. The production card and normal user invocation are owned by Phase
+3 and call the same reviewed backend operation without changing its contract.
+
+Phase 3's Vertex card is labeled **Google Cloud Vertex AI — Enterprise project**
+and is visually separate from **Google AI Studio — Gemini API key**. It exposes:
 
 - authorization mode selection;
 - Sign in with Google for desktop OAuth;
@@ -331,9 +370,14 @@ Setup must display that distinction.
   startup, health, and model enumeration cannot open a browser.
 - Login attempts are single-owner, bounded, cancellable, and cannot overwrite
   a previously working authorization until a new token exchange succeeds.
+- A new OAuth record is admitted only after the refresh-token and exact granted-
+  scope checks in section 4.1; partial or ambiguous exchanges retain the prior
+  record byte-for-byte.
 - A failed save cannot destroy the previous valid store.
-- Disconnect is explicit, idempotent, and cannot touch Gemini or another
-  provider's credentials.
+- Disconnect is explicit and idempotent. It performs one bounded best-effort
+  Google revocation, then exact-deletes the local `vertex.json` even when network
+  revocation fails. It reports revocation and local deletion separately and
+  cannot touch Gemini or another provider's credentials.
 - Invalid or unavailable Vertex configuration disables only Vertex. Rook
   startup, Rhino/Grasshopper tools, RookVision, local models, and every other
   configured provider remain operational.
@@ -371,12 +415,22 @@ acceptance.
 - Vertex configuration never mutates or falls back to Gemini configuration.
 - DPAPI round trip, wrong-user/unprotect failure, atomic write, schema-version
   failure, and disconnect behavior.
+- Concurrent connect, configuration-save, and disconnect attempts serialize
+  through the fixed Vertex mutation lock; lock timeout leaves the prior record
+  byte-for-byte unchanged.
+- Every committed record receives a new generation. A Rook-managed Chirp bound
+  to an older or missing generation returns `vertex_restart_required` before any
+  provider call, and its manager replaces it before retry.
 - OAuth PKCE/state/loopback/single-attempt/timeout behavior with a fake token
   endpoint; no live credentials in automated tests.
-- Exact scope set contains only `cloud-platform`.
+- Exact scope set contains only `cloud-platform`; missing refresh authorization,
+  scope mismatch, or failed refresh preserves the previous record byte-for-byte.
 - Rook Chat and DSPy obtain Vertex arguments only for `vertex_ai/...` calls.
 - Chirp bootstrap uses the anonymous stdin pipe and rejects every other secret
   transport or malformed lifecycle.
+- Phase 1 exposes browser authorization only to the bounded non-MCP acceptance
+  harness; source guards reject a public HTTP login route, MCP login tool, or
+  temporary production UI.
 - Token and service-account sentinels are absent from logs, health, errors,
   manifests, environment, command lines, and persisted non-DPAPI fields.
 - Every closed error code is behaviorally covered, including unknown-provider
@@ -392,8 +446,9 @@ installed file/wheel inventory and hashes. It must prove:
    reconfiguration.
 2. Gemini Developer API and Vertex can be configured simultaneously and calls
    use their declared provider, endpoint family, and authorization type.
-3. A managed organization identity completes Rook desktop OAuth in the system
-   browser.
+3. The bounded non-MCP acceptance harness invokes the installed connect
+   operation, and a managed organization identity completes Rook desktop OAuth
+   in the system browser.
 4. The organization-owned project and region pass the bounded readiness probe.
 5. One benign installed Rook Chat call succeeds through `vertex_ai/...`.
 6. One benign installed DSPy/agent call succeeds through `vertex_ai/...`.
@@ -435,6 +490,20 @@ experience. The 1.5.19 version bump remains a later mechanical change. Release
 artifacts are built, installed, accepted, and promoted only from the resulting
 immutable merge provenance.
 
+Phase 3 also owns the exact installer lifecycle contract:
+
+- upgrade and repair preserve
+  `%LOCALAPPDATA%\Rook\data\provider_auth\vertex.json` byte-for-byte;
+- explicit disconnect uses the reviewed backend's bounded best-effort
+  revocation and exact local deletion;
+- uninstall performs no network revocation and exact-deletes only
+  `provider_auth\vertex.json` under the canonical Rook data root;
+- uninstall never recursively removes `provider_auth`, another provider record,
+  or sibling Rook data; and
+- focused Phase 3 migration tests seed the exact record plus sibling sentinels,
+  prove byte-identical preservation on upgrade/repair, and prove exact-only
+  deletion on uninstall.
+
 ## 12. Explicitly rejected approaches
 
 - Replacing Gemini Developer API with Vertex.
@@ -450,22 +519,24 @@ immutable merge provenance.
 
 ## 13. Planning gate
 
-Implementation planning remains blocked until this written specification is
-reviewed and approved. Planning must begin with a Task 0 probe that pins:
+Implementation planning must begin with a Task 0 probe that pins:
 
 - the exact supported Google auth dependency versions in both sealed Python
   environments;
 - the installed LiteLLM/DSPy Vertex argument contract;
 - the exact non-generating readiness method and structured error evidence;
+- the exact Windows cross-process mutation-lock primitive, fixed lock identity,
+  bounded acquisition behavior, and abandoned-owner handling;
 - the anonymous Chirp bootstrap lifecycle and redaction boundary;
 - the exact file allowlist and no-touch guards for Gemini and RookVision.
 
-No production OAuth client is created, no live enterprise login is attempted,
-and no implementation code changes before that approval.
+No production OAuth client is created and no live enterprise login is attempted
+during planning.
 
 ## Authoritative references
 
 - [Google OAuth for desktop applications](https://developers.google.com/identity/protocols/oauth2/native-app)
+- [Google OAuth token storage and revocation guidance](https://developers.google.com/identity/protocols/oauth2/resources/best-practices)
 - [Google OAuth application verification](https://support.google.com/cloud/answer/13463073)
 - [Google OAuth scope catalog](https://developers.google.com/identity/protocols/oauth2/scopes)
 - [Google Application Default Credentials](https://docs.cloud.google.com/docs/authentication/set-up-adc-local-dev-environment)
