@@ -1631,6 +1631,52 @@ query order is unstable, record that fact. Do not fabricate success or rerun.
 
 ---
 
+### Task 2 continuation ledger: failed Python.NET binding and fresh sibling
+
+The first authorized Task 2 request was consumed on 2026-08-09 against frozen target
+SHA-256
+`63CE846465A22E03BD1DE9BCB074B3FA9E5A34FCA68BA5A2F619718EBBFE392A`.
+The launcher returned `refused invoke_failed`; the retained `invoke-result.json` SHA-256
+is `8351F36888FF20E04ACA0EE3E83D6E3C1626D255AF8B9200C24F1DA7390EAAB1`.
+The response proves zero created objects and records that Python.NET rejected the
+two-argument `FindObjects(String[], Int32)` call before `FindObjects()` entered. It does
+not qualify discovery behavior, performance, ranking, eligibility, or third-party
+coverage. Preserve
+`C:/Users/bring/AppData/Local/Temp/rook-gh-native-discovery-task0` and all of its evidence
+unchanged; it is a consumed historical lane and must never be rerun.
+
+Continue in the fresh sibling
+`C:/Users/bring/AppData/Local/Temp/rook-gh-native-discovery-task0-v2`. Relative to the
+reviewed first lane, permit only:
+
+- sibling-path substitutions;
+- typed empty `IGH_ObjectProxy[]` and `Double[]` placeholders plus `Int32` conversion in
+  the existing `FindObjects()` call;
+- one causal inert regression proving all four arguments and their expected types;
+- refreshed hashes and a fresh target/evidence lifecycle.
+
+Keep `_coerce_find_objects_result()` pinned to `(count, proxies, weights)`. The inert
+test proves only that the probe supplies the required four typed arguments. The next
+separately authorized live request remains responsible for qualifying the actual
+Python.NET return projection and must fail closed on disagreement.
+
+The fresh sibling passed 14 inert tests before target creation with these reviewed source
+hashes:
+
+```text
+probe.py      8A828FA6C71626955326A2787619D817A5942C1EE658155126DCD25522DF7C6B
+run.ps1       F0A1724947D72E45777ED069943F0340CBA0069A71BA4B250442D8664251FD5A
+test_probe.py A56C0C9B53FE21CED667C22DAC5DBEC59D598036B6D8935606EF21C9A3BFCC05
+```
+
+Mandatory stop: independently review this inert sibling before creating its
+`target.json`. After approval, corroborate a fresh target, add only its manifest entry,
+rerun the 14 inert tests, and obtain a new one-shot authorization containing the exact
+fresh target hash. Do not use a separate diagnostic request; the new authorization is
+for the complete Task 0 capture.
+
+---
+
 ### Task 3: Write the bounded qualification report and stop for policy review
 
 **Files:**
