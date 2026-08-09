@@ -30,6 +30,9 @@
 - Preserve the current category predicate exactly: case-insensitive substring across `Category` or `SubCategory`.
 - Treat native scores as observations. Do not infer a semantic match reason or stable cross-version scale.
 - Select third-party specimens from the live catalog. Do not create a core/plugin allowlist or durable product fixture.
+- Preserve host provenance as exactly `core`, `third_party`, or `unknown`. Select a third-party specimen only when `IsCoreLibrary == false` was read successfully; missing or failed provenance remains `unknown` evidence.
+- Optional proxy/plugin provenance failures are per-proxy or per-GUID observations. Only component-server absence, the reflected/native search contract, target identity, or evidence writing may abort the complete capture.
+- Before authorization, prove the installed reflected four-parameter `FindObjects` signature and pin the Python.NET out/ref projection as `(count, proxies, weights)` through inert tests.
 - Keep raw evidence outside Git. Commit only the bounded Markdown report produced from it.
 - Stop after the report commit for mandatory independent review. Do not choose eligibility or provenance policy autonomously.
 - Retain the two existing knowledge-test failures separately; do not modify knowledge code or tests.
@@ -140,10 +143,19 @@ QUERIES = (
 )
 NATIVE_RUNS_PER_QUERY = 3
 PUBLIC_LIMIT = 50
+EXPECTED_FIND_OBJECTS_SIGNATURE = (
+    "Int32 FindObjects(System.String[], Int32, "
+    "Grasshopper.Kernel.IGH_ObjectProxy[] ByRef, Double[] ByRef)"
+)
 
 
 def _text(value):
-    return None if value is None else str(value)
+    if value is None:
+        return None
+    try:
+        return str(value)
+    except Exception:
+        return None
 
 
 def _lower(value):
@@ -205,17 +217,28 @@ def _choose_category_case(query_rows):
     return None
 
 
-def _safe_get(obj, name):
+def _error_observation(error, field=None):
+    return {
+        "field": field,
+        "error_type": type(error).__name__,
+        "error": _text(error),
+    }
+
+
+def _safe_get(obj, name, errors=None):
     try:
         return getattr(obj, name)
-    except Exception:
+    except Exception as error:
+        if errors is not None:
+            errors.append(_error_observation(error, name))
         return None
 
 
 def _assembly_info(info):
     if info is None:
         return None
-    assembly = _safe_get(info, "Assembly")
+    errors = []
+    assembly = _safe_get(info, "Assembly", errors)
     assembly_name = None
     assembly_full_name = None
     assembly_location = None
@@ -225,30 +248,81 @@ def _assembly_info(info):
             assembly_name = _text(name.Name)
             assembly_full_name = _text(assembly.FullName)
             assembly_location = _text(assembly.Location)
-        except Exception:
-            pass
+        except Exception as error:
+            errors.append(_error_observation(error, "Assembly.GetName"))
+    is_core = _safe_get(info, "IsCoreLibrary", errors)
+    classification = (
+        "unknown"
+        if is_core is None
+        else ("core" if bool(is_core) else "third_party")
+    )
     return {
-        "id": _text(_safe_get(info, "Id")),
-        "name": _text(_safe_get(info, "Name")),
-        "version": _text(_safe_get(info, "Version")),
-        "assembly_name": _text(_safe_get(info, "AssemblyName")) or assembly_name,
-        "assembly_version": _text(_safe_get(info, "AssemblyVersion")),
+        "id": _text(_safe_get(info, "Id", errors)),
+        "name": _text(_safe_get(info, "Name", errors)),
+        "version": _text(_safe_get(info, "Version", errors)),
+        "assembly_name": _text(_safe_get(info, "AssemblyName", errors))
+        or assembly_name,
+        "assembly_version": _text(_safe_get(info, "AssemblyVersion", errors)),
         "assembly_full_name": assembly_full_name,
-        "is_core_library": bool(_safe_get(info, "IsCoreLibrary")),
-        "location": _text(_safe_get(info, "Location")) or assembly_location,
-        "loading_mechanism": _text(_safe_get(info, "LoadingMechanism")),
+        "is_core_library": None if is_core is None else bool(is_core),
+        "classification": classification,
+        "location": _text(_safe_get(info, "Location", errors)) or assembly_location,
+        "loading_mechanism": _text(_safe_get(info, "LoadingMechanism", errors)),
+        "property_errors": errors,
+    }
+
+
+def _find_assembly_observation(server, library_guid):
+    if library_guid is None:
+        return {"status": "missing_library_guid", "info": None, "error": None}
+    try:
+        info = server.FindAssembly(library_guid)
+    except Exception as error:
+        return {
+            "status": "error",
+            "info": None,
+            "error": _error_observation(error, "FindAssembly"),
+        }
+    if info is None:
+        return {"status": "not_found", "info": None, "error": None}
+    return {"status": "found", "info": _assembly_info(info), "error": None}
+
+
+def _find_assembly_by_object_observation(server, guid_text, parse_guid):
+    try:
+        info = server.FindAssemblyByObject(parse_guid(guid_text))
+    except Exception as error:
+        return {
+            "guid": guid_text,
+            "status": "error",
+            "assembly_by_object": None,
+            "error": _error_observation(error, "FindAssemblyByObject"),
+        }
+    return {
+        "guid": guid_text,
+        "status": "not_found" if info is None else "found",
+        "assembly_by_object": _assembly_info(info),
+        "error": None,
     }
 
 
 def _proxy_fact(proxy, server, assembly_cache):
-    desc = proxy.Desc
-    library_guid = _text(proxy.LibraryGuid)
-    if library_guid not in assembly_cache:
-        assembly_cache[library_guid] = _assembly_info(
-            server.FindAssembly(proxy.LibraryGuid)
-        )
-    proxy_type = _safe_get(proxy, "Type")
-    type_assembly = _safe_get(proxy_type, "Assembly") if proxy_type else None
+    errors = []
+    desc = _safe_get(proxy, "Desc", errors)
+    raw_library_guid = _safe_get(proxy, "LibraryGuid", errors)
+    library_guid = _text(raw_library_guid)
+    if library_guid is None:
+        assembly_observation = _find_assembly_observation(server, None)
+    else:
+        if library_guid not in assembly_cache:
+            assembly_cache[library_guid] = _find_assembly_observation(
+                server, raw_library_guid
+            )
+        assembly_observation = assembly_cache[library_guid]
+    proxy_type = _safe_get(proxy, "Type", errors)
+    type_assembly = (
+        _safe_get(proxy_type, "Assembly", errors) if proxy_type else None
+    )
     type_name = None
     type_version = None
     type_full_name = None
@@ -260,47 +334,115 @@ def _proxy_fact(proxy, server, assembly_cache):
             type_version = _text(name.Version)
             type_full_name = _text(type_assembly.FullName)
             type_location = _text(type_assembly.Location)
-        except Exception:
-            pass
+        except Exception as error:
+            errors.append(_error_observation(error, "Type.Assembly.GetName"))
+    keywords_value = _safe_get(desc, "Keywords", errors) if desc else None
+    if keywords_value is None:
+        keywords = []
+    else:
+        try:
+            keywords = [_text(item) for item in keywords_value]
+        except Exception as error:
+            errors.append(_error_observation(error, "Desc.Keywords.iteration"))
+            keywords = []
+    exposure = _safe_get(proxy, "Exposure", errors)
+    try:
+        exposure_value = None if exposure is None else int(exposure)
+    except Exception as error:
+        errors.append(_error_observation(error, "Exposure.int"))
+        exposure_value = None
     return {
         "guid": _text(proxy.Guid),
-        "name": _text(desc.Name),
-        "nickname": _text(desc.NickName),
-        "description": _text(desc.Description),
-        "category": _text(desc.Category),
-        "subcategory": _text(desc.SubCategory),
-        "keywords": [_text(item) for item in desc.Keywords],
-        "obsolete": bool(proxy.Obsolete),
-        "exposure": int(proxy.Exposure),
-        "exposure_text": _text(proxy.Exposure),
-        "kind": _text(proxy.Kind),
-        "sdk_compliant": bool(proxy.SDKCompliant),
+        "name": _text(_safe_get(desc, "Name", errors)) if desc else None,
+        "nickname": _text(_safe_get(desc, "NickName", errors)) if desc else None,
+        "description": _text(_safe_get(desc, "Description", errors)) if desc else None,
+        "category": _text(_safe_get(desc, "Category", errors)) if desc else None,
+        "subcategory": _text(_safe_get(desc, "SubCategory", errors)) if desc else None,
+        "keywords": keywords,
+        "obsolete": bool(_safe_get(proxy, "Obsolete", errors)),
+        "exposure": exposure_value,
+        "exposure_text": _text(exposure),
+        "kind": _text(_safe_get(proxy, "Kind", errors)),
+        "sdk_compliant": bool(_safe_get(proxy, "SDKCompliant", errors)),
         "library_guid": library_guid,
-        "proxy_location": _text(proxy.Location),
-        "assembly": assembly_cache[library_guid],
+        "proxy_location": _text(_safe_get(proxy, "Location", errors)),
+        "assembly_lookup": assembly_observation,
         "type_assembly_name": type_name,
         "type_assembly_version": type_version,
         "type_assembly_full_name": type_full_name,
         "type_assembly_location": type_location,
+        "property_errors": errors,
     }
+
+
+def _coerce_find_objects_result(returned):
+    if not isinstance(returned, tuple) or len(returned) != 3:
+        raise RuntimeError(
+            "unexpected FindObjects Python.NET out/ref projection; expected "
+            "(count, proxies, weights)"
+        )
+    count, proxies, weights = returned
+    proxies = list(proxies)
+    weights = [float(weight) for weight in weights]
+    if int(count) != len(proxies) or len(proxies) != len(weights):
+        raise RuntimeError("inconsistent FindObjects result lengths")
+    return proxies, weights
 
 
 def _find_objects(server, query, maximum_results, Array, String):
     started = time.perf_counter()
     returned = server.FindObjects(Array[String]([query]), maximum_results)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
-    if not isinstance(returned, tuple) or len(returned) != 3:
-        raise RuntimeError("unexpected FindObjects Python.NET return contract")
-    count, proxies, weights = returned
-    proxies = list(proxies)
-    weights = [float(weight) for weight in weights]
-    if int(count) != len(proxies) or len(proxies) != len(weights):
-        raise RuntimeError("inconsistent FindObjects result lengths")
+    proxies, weights = _coerce_find_objects_result(returned)
     return proxies, weights, elapsed_ms
 
 
-def _compare_guid_rows(left, right, proxy_by_guid, compare_proxies):
-    comparison = int(compare_proxies(proxy_by_guid[left], proxy_by_guid[right]))
+def _find_object_by_name_observation(server, query):
+    try:
+        proxy = server.FindObjectByName(query, False, True)
+    except Exception as error:
+        return {
+            "status": "error",
+            "guid": None,
+            "error": _error_observation(error, "FindObjectByName"),
+        }
+    return {
+        "status": "not_found" if proxy is None else "found",
+        "guid": None if proxy is None else _text(proxy.Guid),
+        "error": None,
+    }
+
+
+def _alias_targets_observation(server, query):
+    try:
+        targets = server.AliasTargets(query)
+        return {
+            "status": "found",
+            "guids": sorted(_text(guid) for guid in (targets or [])),
+            "error": None,
+        }
+    except Exception as error:
+        return {
+            "status": "error",
+            "guids": [],
+            "error": _error_observation(error, "AliasTargets"),
+        }
+
+
+def _compare_guid_rows(
+    left, right, proxy_by_guid, compare_proxies, comparison_errors
+):
+    try:
+        comparison = int(compare_proxies(proxy_by_guid[left], proxy_by_guid[right]))
+    except Exception as error:
+        comparison_errors.append(
+            {
+                "left_guid": left,
+                "right_guid": right,
+                "error": _error_observation(error, "CompareProxies"),
+            }
+        )
+        comparison = 0
     if comparison:
         return comparison
     return (left > right) - (left < right)
@@ -382,8 +524,8 @@ def main():
             and runs[0]["weights"] == run["weights"]
             for run in runs[1:]
         )
-        exact_proxy = server.FindObjectByName(query, False, True)
-        alias_targets = sorted(_text(guid) for guid in server.AliasTargets(query))
+        exact_observation = _find_object_by_name_observation(server, query)
+        alias_observation = _alias_targets_observation(server, query)
         query_rows.append(
             {
                 "query": query,
@@ -392,10 +534,8 @@ def main():
                 "stable": stable,
                 "native_count": len(candidates),
                 "candidates": candidates,
-                "find_object_by_name_guid": (
-                    None if exact_proxy is None else _text(exact_proxy.Guid)
-                ),
-                "alias_targets": alias_targets,
+                "find_object_by_name": exact_observation,
+                "alias_targets": alias_observation,
                 "legacy_nonexact_guids": sorted(
                     fact["guid"]
                     for fact in facts
@@ -435,14 +575,20 @@ def main():
     for fact in sorted(
         facts,
         key=lambda item: (
-            _lower((item.get("assembly") or {}).get("name")),
-            _lower((item.get("assembly") or {}).get("version")),
+            _lower(
+                ((item.get("assembly_lookup") or {}).get("info") or {}).get("name")
+            ),
+            _lower(
+                ((item.get("assembly_lookup") or {}).get("info") or {}).get(
+                    "version"
+                )
+            ),
             item["guid"],
         ),
     ):
-        assembly = fact.get("assembly") or {}
+        assembly = ((fact.get("assembly_lookup") or {}).get("info") or {})
         library_guid = fact.get("library_guid")
-        if assembly.get("is_core_library") or not library_guid:
+        if assembly.get("classification") != "third_party" or not library_guid:
             continue
         if library_guid in seen_libraries:
             continue
@@ -454,11 +600,13 @@ def main():
 
     metadata_provenance = []
     for guid_text in sorted(selected_guids):
-        info = server.FindAssemblyByObject(System.Guid.Parse(guid_text))
         metadata_provenance.append(
-            {"guid": guid_text, "assembly_by_object": _assembly_info(info)}
+            _find_assembly_by_object_observation(
+                server, guid_text, System.Guid.Parse
+            )
         )
 
+    comparison_errors = []
     tie_groups = []
     for row in query_rows:
         by_score = {}
@@ -471,7 +619,11 @@ def main():
                 guids,
                 key=functools.cmp_to_key(
                     lambda left, right: _compare_guid_rows(
-                        left, right, proxy_by_guid, GH_ComponentServer.CompareProxies
+                        left,
+                        right,
+                        proxy_by_guid,
+                        GH_ComponentServer.CompareProxies,
+                        comparison_errors,
                     )
                 ),
             )
@@ -488,7 +640,11 @@ def main():
         [fact["guid"] for fact in facts if not fact["obsolete"]],
         key=functools.cmp_to_key(
             lambda left, right: _compare_guid_rows(
-                left, right, proxy_by_guid, GH_ComponentServer.CompareProxies
+                left,
+                right,
+                proxy_by_guid,
+                GH_ComponentServer.CompareProxies,
+                comparison_errors,
             )
         ),
     )
@@ -532,6 +688,7 @@ def main():
         "third_party_specimens": third_party,
         "metadata_provenance": metadata_provenance,
         "equal_score_groups": tie_groups,
+        "compare_proxies_errors": comparison_errors,
     }
 
     encoded = json.dumps(
@@ -557,13 +714,15 @@ Use `apply_patch` to create `run.ps1` with this complete source:
 ```powershell
 param(
     [Parameter(Mandatory = $true)]
-    [string]$TargetPath
+    [string]$TargetPath,
+    [switch]$ValidateTargetOnly
 )
 
 $ErrorActionPreference = 'Stop'
 $Root = 'C:/Users/bring/AppData/Local/Temp/rook-gh-native-discovery-task0'
 $Probe = Join-Path $Root 'probe.py'
 $ManifestPath = Join-Path $Root 'manifest.json'
+$FrozenTargetPath = Join-Path $Root 'target.json'
 $Raw = Join-Path $Root 'native-discovery.json'
 $InvokeResult = Join-Path $Root 'invoke-result.json'
 $Stderr = Join-Path $Root 'stderr.txt'
@@ -591,19 +750,41 @@ function WriteNewUtf8([string]$Path, [string]$Text) {
     }
 }
 
-foreach ($path in @($Raw, $InvokeResult, $Stderr)) {
-    if (Test-Path -LiteralPath $path) { Refuse 'evidence_exists' }
-}
-foreach ($path in @($Probe, $ManifestPath, $TargetPath, $Python)) {
-    if (-not (Test-Path -LiteralPath $path)) { Refuse 'required_file_missing' }
-}
+if (-not (Test-Path -LiteralPath $TargetPath)) { Refuse 'required_file_missing' }
+if (
+    -not $ValidateTargetOnly -and
+    [IO.Path]::GetFullPath($TargetPath) -cne [IO.Path]::GetFullPath($FrozenTargetPath)
+) { Refuse 'target_path_mismatch' }
 
 try {
     $Target = Get-Content -Raw -LiteralPath $TargetPath | ConvertFrom-Json
     $TargetKeys = @($Target.PSObject.Properties.Name | Sort-Object)
     if (($TargetKeys -join ',') -cne $ExpectedKeys) { Refuse 'invalid_target' }
-    foreach ($value in @($Target.process_id, $Target.port, $Target.document_serial_number)) {
-        if ($value -isnot [int] -or $value -le 0) { Refuse 'invalid_target' }
+    if (
+        $Target.process_id -isnot [long] -or
+        $Target.process_id -le 0 -or
+        $Target.process_id -gt [uint32]::MaxValue
+    ) { Refuse 'invalid_target' }
+    if (
+        $Target.port -isnot [long] -or
+        $Target.port -le 0 -or
+        $Target.port -gt 65535
+    ) { Refuse 'invalid_target' }
+    if (
+        $Target.document_serial_number -isnot [long] -or
+        $Target.document_serial_number -le 0 -or
+        $Target.document_serial_number -gt [uint32]::MaxValue
+    ) { Refuse 'invalid_target' }
+    if ($ValidateTargetOnly) {
+        [Console]::Out.WriteLine('validated')
+        exit 0
+    }
+
+    foreach ($path in @($Raw, $InvokeResult, $Stderr)) {
+        if (Test-Path -LiteralPath $path) { Refuse 'evidence_exists' }
+    }
+    foreach ($path in @($Probe, $ManifestPath, $Python)) {
+        if (-not (Test-Path -LiteralPath $path)) { Refuse 'required_file_missing' }
     }
 
     $Manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
@@ -727,6 +908,8 @@ import importlib.util
 import json
 import pathlib
 import py_compile
+import subprocess
+import tempfile
 import unittest
 
 
@@ -821,6 +1004,123 @@ class PredicateTests(unittest.TestCase):
         self.assertEqual(result["category"], "LatePlugin")
         self.assertEqual(result["first_displaced_rank"], 51)
 
+    def test_installed_find_objects_signature_and_pythonnet_projection_are_pinned(self):
+        reflection = r"""
+[void][Reflection.Assembly]::LoadFrom(
+  'C:/Program Files/Rhino 8/System/RhinoCommon.dll'
+)
+$assembly = [Reflection.Assembly]::LoadFrom(
+  'C:/Program Files/Rhino 8/Plug-ins/Grasshopper/Grasshopper.dll'
+)
+$type = $assembly.GetType('Grasshopper.Kernel.GH_ComponentServer', $true)
+$methods = @(
+  $type.GetMethods() | Where-Object {
+    $_.Name -ceq 'FindObjects' -and $_.GetParameters().Count -eq 4
+  }
+)
+if ($methods.Count -ne 1) { throw 'unexpected FindObjects overload count' }
+[Console]::Out.Write($methods[0].ToString())
+"""
+        completed = subprocess.run(
+            ["pwsh", "-NoProfile", "-Command", reflection],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            completed.stdout,
+            self.probe.EXPECTED_FIND_OBJECTS_SIGNATURE,
+        )
+        proxies, weights = self.probe._coerce_find_objects_result(
+            (2, ("p1", "p2"), (10.0, 5.0))
+        )
+        self.assertEqual(proxies, ["p1", "p2"])
+        self.assertEqual(weights, [10.0, 5.0])
+        with self.assertRaisesRegex(RuntimeError, "out/ref projection"):
+            self.probe._coerce_find_objects_result((2, ("p1", "p2")))
+
+    def test_optional_provenance_is_tristate_and_failures_are_observations(self):
+        class ThirdPartyInfo:
+            IsCoreLibrary = False
+
+        class Description:
+            Name = "Plugin Example"
+            NickName = "PE"
+            Description = "Plugin specimen"
+            Category = "Plugin"
+            SubCategory = "Example"
+            Keywords = None
+
+        class Proxy:
+            Guid = "00000000-0000-0000-0000-000000000001"
+            LibraryGuid = "00000000-0000-0000-0000-000000000002"
+            Desc = Description()
+            Type = None
+            Exposure = 1
+            Obsolete = False
+            Kind = "CompiledObject"
+            SDKCompliant = True
+            Location = "plugin.gha"
+
+        class Server:
+            def FindAssembly(self, _guid):
+                return ThirdPartyInfo()
+
+        fact = self.probe._proxy_fact(Proxy(), Server(), {})
+        self.assertEqual(fact["keywords"], [])
+        self.assertEqual(
+            fact["assembly_lookup"]["info"]["classification"], "third_party"
+        )
+        self.assertEqual(
+            self.probe._assembly_info(object())["classification"], "unknown"
+        )
+
+        class FailingServer:
+            def FindAssembly(self, _guid):
+                raise RuntimeError("assembly failure")
+
+            def FindAssemblyByObject(self, _guid):
+                raise RuntimeError("metadata failure")
+
+            def FindObjectByName(self, *_args):
+                raise RuntimeError("exact lookup failure")
+
+            def AliasTargets(self, _query):
+                raise RuntimeError("alias lookup failure")
+
+        assembly_failure = self.probe._find_assembly_observation(
+            FailingServer(), "library-guid"
+        )
+        self.assertEqual(assembly_failure["status"], "error")
+        metadata_failure = self.probe._find_assembly_by_object_observation(
+            FailingServer(), "component-guid", lambda value: value
+        )
+        self.assertEqual(metadata_failure["status"], "error")
+        self.assertEqual(metadata_failure["guid"], "component-guid")
+        self.assertEqual(
+            self.probe._find_object_by_name_observation(FailingServer(), "Series")[
+                "status"
+            ],
+            "error",
+        )
+        self.assertEqual(
+            self.probe._alias_targets_observation(FailingServer(), "Series")[
+                "status"
+            ],
+            "error",
+        )
+        comparison_errors = []
+        order = self.probe._compare_guid_rows(
+            "a",
+            "b",
+            {"a": object(), "b": object()},
+            lambda *_args: (_ for _ in ()).throw(RuntimeError("compare failure")),
+            comparison_errors,
+        )
+        self.assertEqual(order, -1)
+        self.assertEqual(len(comparison_errors), 1)
+
 
 class CustodyTests(unittest.TestCase):
     def test_probe_compiles_without_importing_rhino(self):
@@ -860,6 +1160,114 @@ class CustodyTests(unittest.TestCase):
             "canvas_object_count_after",
         ):
             self.assertIn(token, source)
+
+    def test_runner_type_exact_target_admission_is_no_contact(self):
+        cases = (
+            (
+                {
+                    "process_id": 4242,
+                    "port": 65000,
+                    "document_serial_number": 268435457,
+                },
+                0,
+                "validated",
+            ),
+            (
+                {
+                    "process_id": 0,
+                    "port": 65000,
+                    "document_serial_number": 268435457,
+                },
+                2,
+                "refused invalid_target",
+            ),
+            (
+                {
+                    "process_id": 4294967296,
+                    "port": 65000,
+                    "document_serial_number": 268435457,
+                },
+                2,
+                "refused invalid_target",
+            ),
+            (
+                {
+                    "process_id": 4242,
+                    "port": 0,
+                    "document_serial_number": 268435457,
+                },
+                2,
+                "refused invalid_target",
+            ),
+            (
+                {
+                    "process_id": 4242,
+                    "port": 65536,
+                    "document_serial_number": 268435457,
+                },
+                2,
+                "refused invalid_target",
+            ),
+            (
+                {
+                    "process_id": 4242,
+                    "port": 65000,
+                    "document_serial_number": 0,
+                },
+                2,
+                "refused invalid_target",
+            ),
+            (
+                {
+                    "process_id": 4242,
+                    "port": 65000,
+                    "document_serial_number": 4294967296,
+                },
+                2,
+                "refused invalid_target",
+            ),
+            (
+                {
+                    "process_id": 4242,
+                    "port": [65000],
+                    "document_serial_number": 268435457,
+                },
+                2,
+                "refused invalid_target",
+            ),
+            (
+                {
+                    "process_id": 4242,
+                    "port": 65000,
+                    "document_serial_number": 268435457,
+                    "extra": 1,
+                },
+                2,
+                "refused invalid_target",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_directory:
+            target = pathlib.Path(temp_directory) / "target.json"
+            for payload, expected_code, expected_stdout in cases:
+                target.write_text(json.dumps(payload), encoding="utf-8")
+                completed = subprocess.run(
+                    [
+                        "pwsh",
+                        "-NoProfile",
+                        "-File",
+                        str(RUNNER),
+                        "-TargetPath",
+                        str(target),
+                        "-ValidateTargetOnly",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(completed.returncode, expected_code)
+                self.assertEqual(completed.stdout.strip(), expected_stdout)
+        for path in EVIDENCE:
+            self.assertFalse(path.exists(), path)
 
     def test_live_evidence_is_absent_before_authorization(self):
         for path in EVIDENCE:
@@ -906,7 +1314,7 @@ $Python = 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe'
 Expected:
 
 ```text
-10 tests pass.
+13 tests pass.
 No Rhino, Grasshopper, model, MCP, or HTTP contact occurs.
 No target or live evidence file exists.
 ```
@@ -929,6 +1337,10 @@ Report:
 
 - exact four hashes;
 - exact inert passing count;
+- the installed reflected `FindObjects` signature and the pinned Python.NET projection
+  `(count, proxies, weights)`;
+- the successful representative `Int64` target-admission regression and rejected upper
+  bounds;
 - the fixed external and internal call budgets;
 - static absence of mutation/instantiation calls;
 - absence of `target.json` and all live evidence;
