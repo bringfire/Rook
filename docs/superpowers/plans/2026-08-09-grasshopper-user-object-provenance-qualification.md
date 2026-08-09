@@ -485,7 +485,37 @@ Authoritative source evidence:
   SHA-256 254A9BF5A8EEE5DCCA72A37AD08DF20EDF63271F55E2F14AC4587BC180481988
 
 Task 1 disposable construction:
-  pending
+  prepared for mandatory independent review
+  disposable root:
+    C:/Users/bring/AppData/Local/Temp/rook-gh-user-object-provenance-qualification
+  TDD RED:
+    missing probe.py refused test import as intended
+  inert seam:
+    38/38 passed
+  Python compilation:
+    passed for probe.py and test_probe.py
+  PowerShell parser:
+    passed for run.ps1
+  manifest phase:
+    pre_target
+  source files:
+    probe.py      4B36092A527D577D7EE7537A9A617ABC597AEF04027E86AB7D901184334524DA
+    run.ps1       259554E6A0007430619AD3356FAA1CE6CDAE411B98EB019911422FC6E7411516
+    test_probe.py 9A55AC013090D55907B175A30A21AB9AAB2DA5149FC974351BC6860FB5EACF56
+    manifest.json 7C46A2A887BEEA0A712486097FDF5B2479F6CF4C67494DE3B924D7FFD34EDC51
+  installed reflection:
+    EmitObjectProxy(System.Guid) -> IGH_ObjectProxy
+    FindAssemblyByObject(System.Guid) -> GH_AssemblyInfo
+    FindAssemblyByObject(IGH_DocumentObject) -> GH_AssemblyInfo
+    GH_UserObject constructors include System.String
+    GH_UserObject.Data -> System.Byte[]
+    GH_AssemblyInfo.AssemblyDescription -> System.String
+  focused repository baseline:
+    4 passed, 11 existing warnings
+  target and live evidence:
+    absent
+  external contact:
+    none
 
 Task 1 mandatory independent review:
   pending
