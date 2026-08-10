@@ -622,7 +622,7 @@ bridge custody, and no change to `GetComponentParams()` before Task 3.
 - Produces: `_validate_gh_batch_component_info_arguments(arguments: dict) -> tuple[str, list[str], dict]` and `_project_gh_batch_component_info_result(selector_kind: str, selectors: list[str], result: dict) -> dict` inside `server.py`.
 - Preserves: existing `_project_tool_result` behavior for internal and public MCP callers.
 
-- [ ] **Step 1: Repair the stale no-contact fixture and replace obsolete metadata tests**
+- [x] **Step 1: Repair the stale no-contact fixture and replace obsolete metadata tests**
 
 In `test_server_component_deprecation.py`, make `patched_server` supply a non-Rhino test
 policy before public `call_tool()` enters target selection:
@@ -638,7 +638,7 @@ monkeypatch.setattr(
 Keep both `gh_edit` assertions unchanged. Replace the two metadata tests that expect
 `UnifiedStore`/library resolution with one-call managed ownership assertions.
 
-- [ ] **Step 2: Write RED Python admission and schema tests**
+- [x] **Step 2: Write RED Python admission and schema tests**
 
 Assert the advertised schema exposes both `names` and `guids`, describes exactly one
 family, and preserves no copied catalog. Test refusal before `call_rhino` for:
@@ -654,7 +654,7 @@ non-string element
 Do not require JSON-Schema `oneOf`; local admission is authoritative and avoids reopening
 provider-schema compatibility. The schema descriptions must still state the rule.
 
-- [ ] **Step 3: Write RED one-call and correlation tests**
+- [x] **Step 3: Write RED one-call and correlation tests**
 
 Use `AsyncMock` for `call_rhino` and hostile mocks for `get_unified_store` and any library
 route. Prove:
@@ -676,7 +676,7 @@ Repeat for GUIDs. Add returned-response cases for success, not-found, ambiguity,
 GUID, projection failure, instantiation failure, mixed outcomes, all failures, and
 target-wide failure.
 
-- [ ] **Step 4: Implement strict local selector-family validation**
+- [x] **Step 4: Implement strict local selector-family validation**
 
 Use exact built-in JSON carrier types:
 
@@ -699,7 +699,7 @@ def _validate_gh_batch_component_info_arguments(arguments: dict):
 Convert validation errors into the existing internal failure envelope before target
 contact; do not surface Python exception text through a new taxonomy.
 
-- [ ] **Step 5: Forward once and validate host correlation**
+- [x] **Step 5: Forward once and validate host correlation**
 
 Replace the current `UnifiedStore` and `/gh/library` loops with:
 
@@ -718,7 +718,7 @@ The projector must require a successful host envelope to contain a dict with int
 require each `selector.kind/value` to equal the corresponding admitted selector exactly;
 and require only the closed status/error shapes. Any mismatch returns top-level failure.
 
-- [ ] **Step 6: Add names-only compatibility summaries**
+- [x] **Step 6: Add names-only compatibility summaries**
 
 For `selector_kind == "name"` only:
 
@@ -739,7 +739,7 @@ Insert those fields alongside the managed `count/errors/results`. The ordered re
 array remains authoritative when repeated successful names collapse in `resolved`.
 GUID requests omit both fields.
 
-- [ ] **Step 7: Close `gh_library` empty-string transport semantics**
+- [x] **Step 7: Close `gh_library` empty-string transport semantics**
 
 In the canonical MCP branch, use key presence plus nonempty string rather than generic
 rewriting:
@@ -756,7 +756,7 @@ if "exact" in arguments:
 Whitespace-only strings pass unchanged. Omitted and empty strings both omit the query
 parameter. Do not trim.
 
-- [ ] **Step 8: Prove direct and contained MCP semantics**
+- [x] **Step 8: Prove direct and contained MCP semantics**
 
 Call the internal path and the registered public handler, then call the same targets
 through `rook_tools_call`. Prove:
@@ -769,7 +769,7 @@ legacy TextContent remains owned by the existing projection
 no gateway double wrapping
 ```
 
-- [ ] **Step 9: Run GREEN and the focused Python seam**
+- [x] **Step 9: Run GREEN and the focused Python seam**
 
 ```powershell
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
@@ -782,7 +782,7 @@ no gateway double wrapping
 
 Expected: every selected test passes. Report exact count and warnings.
 
-- [ ] **Step 10: Run source-surface scans**
+- [x] **Step 10: Run source-surface scans**
 
 Use an AST/source test in the new test module to isolate the
 `gh_batch_component_info` case and assert it contains none of:
@@ -795,7 +795,7 @@ resolve_active_component_guid_by_name
 
 Also assert exactly one `/gh/batch-component-info` call expression appears.
 
-- [ ] **Step 11: Commit Task 3**
+- [x] **Step 11: Commit Task 3**
 
 ```powershell
 git add mcp_server/src/rook/server.py `
@@ -804,6 +804,27 @@ git add mcp_server/src/rook/server.py `
   docs/superpowers/plans/2026-08-09-grasshopper-component-discovery-coherence.md
 git commit -m "feat: delegate component selectors to Grasshopper"
 ```
+
+Observed Task 3 evidence on 2026-08-10: the first Python RED run passed `9` existing
+cases and failed `7` causal cases because the schema exposed names only, malformed
+families could touch `UnifiedStore`, admitted names/GUIDs did not make the one managed
+call, and the dispatch branch still contained the knowledge/library fallback. After the
+first GREEN, three adversarial correlation cases failed because an impossible
+`invalid_guid` name outcome and rewritten canonical GUIDs were admitted; those now fail
+closed. The first complete seam passed `251` tests and failed the two existing gateway
+refusal cases because an empty selector body reached Rhino targeting before local
+admission. Moving the same selector-family admission to `call_tool()` before target
+resolution restored the canonical `invalid_arguments` result and zero-contact boundary.
+
+The final prescribed seam passes `253/253` with `76` existing warning emissions. Python
+compilation, `git diff --check`, exact registered-handler/gateway projection tests, and
+the AST-isolated dispatch scan pass. The metadata branch contains exactly one
+`/gh/batch-component-info` call and no `get_unified_store`,
+`resolve_active_component_guid_by_name`, or `/gh/library` identity fallback. Task 3
+production growth is `296 additions` and `60 deletions` in the existing `server.py`
+owner; the strict projection is local to the two planned helpers and adds no module,
+registry, cache, retry, or result taxonomy. No model, Rhino, Grasshopper, provider, or
+other live-system contact occurred.
 
 **Mandatory review gate:** stop. Review must verify zero pre-contact calls on invalid
 input, exactly one target call for admitted input, exact correlation, names-only summary

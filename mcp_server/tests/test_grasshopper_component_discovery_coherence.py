@@ -1,0 +1,485 @@
+"""Python custody tests for coherent Grasshopper component discovery metadata."""
+
+import ast
+import inspect
+import json
+import textwrap
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+from mcp import types as mcp_types
+
+from rook import server
+
+
+GUID = "10000000-0000-0000-0000-000000000001"
+
+
+class _DummyPhaseTracker:
+    def record_call(self, _name: str) -> None:
+        pass
+
+
+async def _public_call(name: str, arguments: dict):
+    handler = server.mcp.request_handlers[mcp_types.CallToolRequest]
+    request = mcp_types.CallToolRequest(
+        params=mcp_types.CallToolRequestParams(name=name, arguments=arguments)
+    )
+    return (await handler(request)).root
+
+
+@pytest.fixture(autouse=True)
+def isolated_server(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    monkeypatch.setattr(server, "should_inject", lambda _name, _result: False)
+    monkeypatch.setattr(server, "_record_observation", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server, "get_phase_tracker", lambda: _DummyPhaseTracker())
+    monkeypatch.setattr(
+        server.targeting,
+        "policy_for_tool",
+        lambda _name: server.targeting.RhinoToolPolicy(False, "read"),
+    )
+
+
+def _compiled_success(selector_kind: str, selector_value: str) -> dict:
+    return {
+        "selector": {"kind": selector_kind, "value": selector_value},
+        "status": "success",
+        "guid": GUID,
+        "name": "Area",
+        "nickName": "Area",
+        "description": "Computes area.",
+        "category": "Surface",
+        "subCategory": "Analysis",
+        "sourceKind": "compiled",
+        "provenance": {
+            "libraryGuid": "20000000-0000-0000-0000-000000000001",
+            "libraryName": "Grasshopper",
+            "libraryVersion": "8.0",
+            "assemblyFullName": "Grasshopper, Version=8.0.0.0",
+            "assemblyVersion": "8.0.0.0",
+            "assemblyLocation": "C:\\Program Files\\Rhino 8\\Grasshopper.dll",
+        },
+        "implementation": {
+            "baseGuid": None,
+            "componentGuid": GUID,
+            "runtimeType": "Grasshopper.Kernel.Components.Component_Area",
+            "runtimeAssemblyName": "Grasshopper",
+            "runtimeAssemblyVersion": "8.0.0.0",
+            "runtimeAssemblyLocation": "C:\\Program Files\\Rhino 8\\Grasshopper.dll",
+        },
+        "params": None,
+    }
+
+
+def _host_batch(results: list[dict], *, errors: int | None = None) -> dict:
+    error_count = (
+        sum(item["status"] != "success" for item in results)
+        if errors is None
+        else errors
+    )
+    return {
+        "success": True,
+        "data": {"count": len(results), "errors": error_count, "results": results},
+    }
+
+
+def _candidate(guid: str, name: str) -> dict:
+    return {
+        "guid": guid,
+        "name": name,
+        "nickName": name,
+        "description": None,
+        "category": "Maths",
+        "subCategory": "Operators",
+        "sourceKind": "compiled",
+        "nativeScore": None,
+        "matchSource": "exact_name",
+    }
+
+
+def _compiled_failure_prefix(selector_value: str, status: str, error: str) -> dict:
+    success = _compiled_success("name", selector_value)
+    return {
+        key: value
+        for key, value in success.items()
+        if key not in {"implementation", "params"}
+    } | {"status": status, "error": error}
+
+
+@pytest.mark.asyncio
+async def test_schema_advertises_names_and_guids_without_provider_oneof():
+    tools = {tool.name: tool for tool in await server.list_tools()}
+
+    schema = tools["gh_batch_component_info"].inputSchema
+
+    assert set(schema["properties"]) == {"names", "guids"}
+    assert schema["required"] == []
+    assert "oneOf" not in schema
+    assert "exactly one" in tools["gh_batch_component_info"].description.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {},
+        {"names": ["Area"], "guids": [GUID]},
+        {"names": []},
+        {"guids": []},
+        {"names": "Area"},
+        {"guids": GUID},
+        {"names": [1]},
+        {"guids": [False]},
+    ],
+)
+async def test_invalid_selector_family_refuses_before_identity_or_target_contact(
+    monkeypatch, arguments
+):
+    target = AsyncMock()
+    identity = Mock(side_effect=AssertionError("knowledge identity must not run"))
+    monkeypatch.setattr(server, "call_rhino", target)
+    monkeypatch.setattr(server, "get_unified_store", identity)
+
+    result = await server._call_tool_dispatch("gh_batch_component_info", arguments)
+
+    assert result["success"] is False
+    assert target.await_count == 0
+    assert identity.call_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "selector_kind", "selector_value"),
+    [
+        ({"names": ["Area"]}, "name", "Area"),
+        ({"guids": [GUID.upper()]}, "guid", GUID.upper()),
+    ],
+)
+async def test_admitted_selector_family_is_forwarded_once_unchanged(
+    monkeypatch, arguments, selector_kind, selector_value
+):
+    target = AsyncMock(
+        return_value=_host_batch([_compiled_success(selector_kind, selector_value)])
+    )
+    identity = Mock(side_effect=AssertionError("knowledge identity must not run"))
+    monkeypatch.setattr(server, "call_rhino", target)
+    monkeypatch.setattr(server, "get_unified_store", identity)
+
+    result = await server._call_tool_dispatch("gh_batch_component_info", arguments)
+
+    assert result["success"] is True
+    target.assert_awaited_once_with(
+        "/gh/batch-component-info", "POST", arguments, port=None
+    )
+    assert identity.call_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"count": 2, "errors": 0, "results": [_compiled_success("name", "Area")]},
+        {"count": 1, "errors": 0, "results": []},
+        {
+            "count": 1,
+            "errors": 0,
+            "results": [_compiled_success("name", "Rewritten")],
+        },
+        {
+            "count": 1,
+            "errors": 0,
+            "results": [
+                {
+                    **_compiled_success("name", "Area"),
+                    "status": "invented_status",
+                }
+            ],
+        },
+    ],
+)
+async def test_malformed_host_correlation_fails_the_whole_operation(monkeypatch, data):
+    monkeypatch.setattr(
+        server, "call_rhino", AsyncMock(return_value={"success": True, "data": data})
+    )
+    monkeypatch.setattr(
+        server,
+        "get_unified_store",
+        Mock(side_effect=AssertionError("knowledge identity must not run")),
+    )
+
+    result = await server._call_tool_dispatch(
+        "gh_batch_component_info", {"names": ["Area"]}
+    )
+
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_mixed_name_outcomes_preserve_order_and_legacy_summaries(monkeypatch):
+    second_guid = "10000000-0000-0000-0000-000000000002"
+    results = [
+        _compiled_success("name", "Area"),
+        {
+            "selector": {"kind": "name", "value": "Missing"},
+            "status": "not_found",
+            "error": "component_not_found",
+        },
+        {
+            "selector": {"kind": "name", "value": "Duplicate"},
+            "status": "ambiguous_name",
+            "candidates": [
+                _candidate(GUID, "Duplicate"),
+                _candidate(second_guid, "Duplicate"),
+            ],
+        },
+        {
+            "selector": {"kind": "name", "value": "Broken"},
+            "status": "projection_failure",
+            "error": "proxy_projection_failed",
+        },
+        _compiled_failure_prefix(
+            "Factory", "instantiation_failure", "component_instantiation_failed"
+        ),
+        _compiled_failure_prefix(
+            "Implementation", "projection_failure", "implementation_projection_failed"
+        ),
+        _compiled_success("name", "Area"),
+    ]
+    target = AsyncMock(return_value=_host_batch(results))
+    monkeypatch.setattr(server, "call_rhino", target)
+    arguments = {
+        "names": [
+            "Area", "Missing", "Duplicate", "Broken", "Factory",
+            "Implementation", "Area",
+        ]
+    }
+
+    result = await server._call_tool_dispatch("gh_batch_component_info", arguments)
+
+    assert result["success"] is True
+    assert result["data"]["count"] == 7
+    assert result["data"]["errors"] == 5
+    assert [item["selector"]["value"] for item in result["data"]["results"]] == [
+        "Area", "Missing", "Duplicate", "Broken", "Factory", "Implementation", "Area"
+    ]
+    assert result["data"]["resolved"] == {"Area": GUID}
+    assert result["data"]["unresolved"] == [
+        "Missing", "Duplicate", "Broken", "Factory", "Implementation"
+    ]
+    target.assert_awaited_once_with(
+        "/gh/batch-component-info", "POST", arguments, port=None
+    )
+
+
+@pytest.mark.asyncio
+async def test_guid_all_failure_batch_is_complete_without_name_summaries(monkeypatch):
+    missing = "10000000-0000-0000-0000-000000000099"
+    results = [
+        {
+            "selector": {"kind": "guid", "value": "not-a-guid"},
+            "status": "invalid_guid",
+            "error": "invalid_guid",
+        },
+        {
+            "selector": {"kind": "guid", "value": missing.upper()},
+            "status": "not_found",
+            "error": "component_not_found",
+            "guid": missing,
+        },
+    ]
+    monkeypatch.setattr(server, "call_rhino", AsyncMock(return_value=_host_batch(results)))
+
+    result = await server._call_tool_dispatch(
+        "gh_batch_component_info", {"guids": ["not-a-guid", missing.upper()]}
+    )
+
+    assert result == {
+        "success": True,
+        "data": {"count": 2, "errors": 2, "results": results},
+    }
+    assert "resolved" not in result["data"]
+    assert "unresolved" not in result["data"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"status": "invalid_guid", "error": "invalid_guid"},
+        {"status": "not_found", "error": "wrong_error"},
+        {"status": "projection_failure", "error": "unknown_projection"},
+        {"status": "instantiation_failure", "error": "wrong_error"},
+    ],
+)
+async def test_status_error_or_prefix_disagreement_refuses(monkeypatch, mutation):
+    item = _compiled_success("name", "Area") | mutation
+    monkeypatch.setattr(server, "call_rhino", AsyncMock(return_value=_host_batch([item], errors=1)))
+
+    result = await server._call_tool_dispatch(
+        "gh_batch_component_info", {"names": ["Area"]}
+    )
+
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "item"),
+    [
+        (
+            {"names": ["Area"]},
+            {
+                "selector": {"kind": "name", "value": "Area"},
+                "status": "invalid_guid",
+                "error": "invalid_guid",
+            },
+        ),
+        (
+            {"guids": [GUID.upper()]},
+            {
+                **_compiled_success("guid", GUID.upper()),
+                "guid": "10000000-0000-0000-0000-000000000002",
+            },
+        ),
+        (
+            {"guids": [GUID.upper()]},
+            {
+                "selector": {"kind": "guid", "value": GUID.upper()},
+                "status": "not_found",
+                "error": "component_not_found",
+                "guid": "10000000-0000-0000-0000-000000000002",
+            },
+        ),
+    ],
+)
+async def test_guid_outcome_cannot_rewrite_selector_identity(monkeypatch, arguments, item):
+    monkeypatch.setattr(
+        server, "call_rhino", AsyncMock(return_value=_host_batch([item]))
+    )
+
+    result = await server._call_tool_dispatch("gh_batch_component_info", arguments)
+
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_target_failure_passes_through_without_reconstruction(monkeypatch):
+    failure = {"success": False, "data": {"error": "rhino_target_unavailable"}}
+    monkeypatch.setattr(server, "call_rhino", AsyncMock(return_value=failure))
+
+    result = await server._call_tool_dispatch(
+        "gh_batch_component_info", {"names": ["Area"]}
+    )
+
+    assert result == failure
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ({}, {}),
+        ({"search": "", "category": "", "exact": False}, {"exact": False}),
+        (
+            {"search": "  ", "category": " Math ", "exact": True, "limit": 4},
+            {"search": "  ", "category": " Math ", "exact": True, "limit": 4},
+        ),
+    ],
+)
+async def test_library_omits_empty_strings_and_preserves_present_values(
+    monkeypatch, arguments, expected
+):
+    target = AsyncMock(return_value={"success": True, "data": {"components": []}})
+    monkeypatch.setattr(server, "call_rhino", target)
+
+    result = await server._call_tool_dispatch("gh_library", arguments)
+
+    assert result["success"] is True
+    target.assert_awaited_once_with("/gh/library", "GET", expected, port=None)
+
+
+@pytest.mark.asyncio
+async def test_direct_and_gateway_public_calls_keep_all_failure_batch_success(monkeypatch):
+    results = [
+        {
+            "selector": {"kind": "name", "value": "Missing"},
+            "status": "not_found",
+            "error": "component_not_found",
+        }
+    ]
+    monkeypatch.setattr(server, "call_rhino", AsyncMock(return_value=_host_batch(results)))
+
+    direct = await _public_call("gh_batch_component_info", {"names": ["Missing"]})
+    server._reset_capability_index_cache()
+    gateway = await _public_call(
+        "rook_tools_call",
+        {
+            "name": "gh_batch_component_info",
+            "arguments": {"names": ["Missing"]},
+        },
+    )
+
+    expected = {
+        "success": True,
+        "data": {
+            "count": 1,
+            "errors": 1,
+            "results": results,
+            "resolved": {},
+            "unresolved": ["Missing"],
+        },
+    }
+    for public in (direct, gateway):
+        assert public.isError is False
+        assert public.structuredContent == expected
+        assert json.loads(public.content[0].text) == expected["data"]
+
+
+@pytest.mark.asyncio
+async def test_direct_and_gateway_public_calls_expose_top_level_failure(monkeypatch):
+    failure = {"success": False, "data": {"error": "component_server_failed"}}
+    monkeypatch.setattr(server, "call_rhino", AsyncMock(return_value=failure))
+
+    direct = await _public_call("gh_batch_component_info", {"guids": [GUID]})
+    server._reset_capability_index_cache()
+    gateway = await _public_call(
+        "rook_tools_call",
+        {"name": "gh_batch_component_info", "arguments": {"guids": [GUID]}},
+    )
+
+    for public in (direct, gateway):
+        assert public.isError is True
+        assert public.structuredContent == failure
+        assert public.content[0].text == 'Error: {\n  "error": "component_server_failed"\n}'
+
+
+def test_metadata_dispatch_source_has_one_target_call_and_no_identity_fallback():
+    source = textwrap.dedent(inspect.getsource(server._call_tool_dispatch))
+    tree = ast.parse(source)
+    match_case = next(
+        case
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Match)
+        for case in node.cases
+        if isinstance(case.pattern, ast.MatchValue)
+        and isinstance(case.pattern.value, ast.Constant)
+        and case.pattern.value.value == "gh_batch_component_info"
+    )
+    isolated = ast.unparse(ast.Module(body=match_case.body, type_ignores=[]))
+    target_calls = [
+        node
+        for statement in match_case.body
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "call_rhino"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value == "/gh/batch-component-info"
+    ]
+
+    assert len(target_calls) == 1
+    assert "get_unified_store" not in isolated
+    assert "resolve_active_component_guid_by_name" not in isolated
+    assert '"/gh/library"' not in isolated
