@@ -977,7 +977,7 @@ $protectedDelta = git diff --unified=0 411613d7 -- `
   mcp_server/src/rook/server.py `
   mcp_server/src/rook/agent/tool_dispatcher.py `
   mcp_server/src/rook/learning/knowledge_injector.py |
-  rg '^\+.*(gh_edit|gh_snapshot|T\*|C\*|receipt)'
+  rg -i -P '^(?!\+\+\+|---)[+-].*(gh_edit|gh_snapshot|T\*|C\*|receipt)'
 if ($LASTEXITCODE -eq 0) {
   throw "Protected execution/identity surface changed:`n$protectedDelta"
 }
