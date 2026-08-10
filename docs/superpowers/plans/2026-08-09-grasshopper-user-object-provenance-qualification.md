@@ -509,8 +509,9 @@ evidence.
   corroborated target, and rerun compilation, parsing, all hashes, all 45 tests, and
   `-ValidateTargetOnly`.
 - [x] Confirm V2 contains no live evidence and V1 source/evidence hashes remain unchanged.
-- [ ] Stop for independent pre-contact review and one new explicit authorization. No
-  V2 `/execute` call is authorized by this repair.
+- [x] Receive exact operator authorization naming both the frozen V2 target and manifest,
+  perform the sole V2 `/execute`, preserve its bytes, and stop for independent evidence
+  review without amending production or the discovery specification.
 
 The bounded authorization form is:
 
@@ -690,14 +691,39 @@ Task 4 V2 deterministic repair:
   validation-only launcher:
     exit 0; exact output `validated`
   V2 live evidence and /execute calls:
-    absent; zero
+    launcher invocations: 1
+    /execute requests: 1
+    post-request host calls: 0
+    user-object-provenance.json:
+      E7BC4124D1029D9F50721FB45B3E1079317CDC1901A0332B635532681CCE04BD
+    invoke-result.json:
+      DCA890C23199698AFFE97DC8A43867CE9E91295A7020DFBE6A51B24332104A20
+    stderr.txt (empty):
+      E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855
+  V2 transport and host equations:
+    HTTP 200; success true; exact sentinel/hash correlation passed
+    stderr empty; objectsCreated 0; objectIds empty
+    exact call budget matched
+    canvas object count 0 before and 0 after
+  V2 specimens:
+    six ordered identities complete
+    six Data lengths and SHA-256 fingerprints retained
+    proxy-GUID assembly not_found: 6/6
+    temporary-instance assembly found as GhPython: 6/6
+    probeComplete true
+  V2 identity-handoff decision:
+    identity handoff closed with source-kind-specific provenance variants
+  V2 report:
+    docs/superpowers/reports/2026-08-09-grasshopper-user-object-provenance-qualification-v2.md
   V1 preservation:
     all three source hashes unchanged
     artifact 72D734E11E9E7CC1408020C7DA2CFD42F89712750713025D41C952BB22E4FB26
     invocation 496BCD9A304C1E52B18A0A1EE5D16BDA734856C743F159BAFBF0DA4751CE17EB
     stderr E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855
   V2 one-shot authorization:
-    pending independent pre-contact review and explicit authorization
+    exact target-and-manifest authorization received and consumed
+  V2 independent evidence review:
+    pending
 
 Production files changed:
   none
