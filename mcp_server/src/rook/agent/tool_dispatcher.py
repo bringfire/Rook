@@ -857,12 +857,14 @@ async def _local_gh_create_csharp_script(port: int | None = None, **kwargs) -> d
 
 def _transform_gh_library(args: dict) -> Tuple[str, str, dict]:
     params = {}
-    if args.get("search"):
+    if "search" in args and args["search"] != "":
         params["search"] = args["search"]
-    if args.get("category"):
+    if "category" in args and args["category"] != "":
         params["category"] = args["category"]
     if args.get("limit"):
         params["limit"] = args["limit"]
+    if "exact" in args:
+        params["exact"] = args["exact"]
     return "/gh/library", "GET", params
 
 

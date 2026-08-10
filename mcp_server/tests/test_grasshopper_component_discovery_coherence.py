@@ -1,6 +1,7 @@
 """Python custody tests for coherent Grasshopper component discovery metadata."""
 
 import ast
+import copy
 import inspect
 import json
 import textwrap
@@ -10,6 +11,8 @@ import pytest
 from mcp import types as mcp_types
 
 from rook import server
+from rook.agent.tool_dispatcher import _transform_gh_library
+from rook.learning import knowledge_injector
 
 
 GUID = "10000000-0000-0000-0000-000000000001"
@@ -446,6 +449,29 @@ async def test_library_omits_empty_strings_and_preserves_present_values(
     target.assert_awaited_once_with("/gh/library", "GET", expected, port=None)
 
 
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ({}, {}),
+        ({"search": ""}, {}),
+        ({"search": "   "}, {"search": "   "}),
+        ({"category": ""}, {}),
+        ({"category": "   "}, {"category": "   "}),
+        ({"exact": False}, {"exact": False}),
+        ({"exact": True}, {"exact": True}),
+    ],
+)
+def test_direct_library_transform_matches_canonical_query_semantics(
+    arguments, expected
+):
+    original = copy.deepcopy(arguments)
+
+    transformed = _transform_gh_library(arguments)
+
+    assert transformed == ("/gh/library", "GET", expected)
+    assert arguments == original
+
+
 @pytest.mark.asyncio
 async def test_direct_and_gateway_public_calls_keep_all_failure_batch_success(monkeypatch):
     results = [
@@ -499,6 +525,131 @@ async def test_direct_and_gateway_public_calls_expose_top_level_failure(monkeypa
         assert public.isError is True
         assert public.structuredContent == failure
         assert public.content[0].text == 'Error: {\n  "error": "component_server_failed"\n}'
+
+
+@pytest.mark.asyncio
+async def test_gateway_vertical_preserves_authoritative_results_without_knowledge(
+    monkeypatch,
+):
+    first_guid = "30000000-0000-0000-0000-000000000001"
+    second_guid = "30000000-0000-0000-0000-000000000002"
+    candidate_one = {
+        "guid": first_guid,
+        "name": "Area",
+        "nickName": "Area",
+        "description": "First installed Area.",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "sourceKind": "compiled",
+        "nativeScore": None,
+        "matchSource": "exact_name",
+    }
+    candidate_two = {
+        **candidate_one,
+        "guid": second_guid,
+        "description": "Second installed Area.",
+        "sourceKind": "user_object",
+    }
+    library_component = {
+        **candidate_one,
+        "name": "Series",
+        "nickName": "Series",
+        "description": "Create an arithmetic progression.",
+        "nativeScore": 1.0,
+        "matchSource": "exact_name",
+    }
+    calls = []
+
+    async def fake_native(route, method="GET", payload=None, port=None):
+        calls.append((route, method, payload, port))
+        if route == "/gh/library":
+            return {
+                "success": True,
+                "data": {
+                    "count": 1,
+                    "returnedCount": 1,
+                    "totalMatches": 1,
+                    "truncated": False,
+                    "components": [library_component],
+                },
+            }
+        if route == "/gh/batch-component-info":
+            result = {
+                "selector": {"kind": "name", "value": "Area"},
+                "status": "ambiguous_name",
+                "candidates": [candidate_one, candidate_two],
+            }
+            return {
+                "success": True,
+                "data": {"count": 1, "errors": 1, "results": [result]},
+            }
+        raise AssertionError(f"unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_native)
+    monkeypatch.setattr(server, "should_inject", knowledge_injector.should_inject)
+    injection = AsyncMock(side_effect=AssertionError("knowledge injection must not run"))
+    monkeypatch.setattr(server, "inject_knowledge", injection)
+    server._reset_capability_index_cache()
+
+    library = await _public_call(
+        "rook_tools_call",
+        {
+            "name": "gh_library",
+            "arguments": {"search": "Series", "exact": True, "limit": 3},
+        },
+    )
+    metadata = await _public_call(
+        "rook_tools_call",
+        {
+            "name": "gh_batch_component_info",
+            "arguments": {"names": ["Area"]},
+        },
+    )
+
+    assert calls == [
+        (
+            "/gh/library",
+            "GET",
+            {"search": "Series", "exact": True, "limit": 3},
+            None,
+        ),
+        ("/gh/batch-component-info", "POST", {"names": ["Area"]}, None),
+    ]
+    assert injection.await_count == 0
+    assert library.isError is False
+    assert library.structuredContent == {
+        "success": True,
+        "data": {
+            "count": 1,
+            "returnedCount": 1,
+            "totalMatches": 1,
+            "truncated": False,
+            "components": [library_component],
+        },
+    }
+    assert set(library.structuredContent["data"]["components"][0]) == {
+        "guid", "name", "nickName", "description", "category", "subCategory",
+        "sourceKind", "nativeScore", "matchSource",
+    }
+    assert metadata.isError is False
+    assert metadata.structuredContent == {
+        "success": True,
+        "data": {
+            "count": 1,
+            "errors": 1,
+            "results": [
+                {
+                    "selector": {"kind": "name", "value": "Area"},
+                    "status": "ambiguous_name",
+                    "candidates": [candidate_one, candidate_two],
+                }
+            ],
+            "resolved": {},
+            "unresolved": ["Area"],
+        },
+    }
+    assert json.loads(library.content[0].text) == library.structuredContent["data"]
+    assert json.loads(metadata.content[0].text) == metadata.structuredContent["data"]
 
 
 def test_metadata_dispatch_source_has_one_target_call_and_no_identity_fallback():

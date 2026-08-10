@@ -856,7 +856,7 @@ Python before Task 4.
 - Consumes: existing direct ToolDispatcher transformation and universal knowledge gate.
 - Produces: exact direct/canonical `gh_library` parity and deterministic no-injection for both authoritative tools.
 
-- [ ] **Step 1: Write RED direct-dispatch parity tests**
+- [x] **Step 1: Write RED direct-dispatch parity tests**
 
 Parameterize:
 
@@ -873,7 +873,7 @@ Parameterize:
 Assert `_transform_gh_library` returns `("/gh/library", "GET", expected)` and does not
 mutate the caller dictionary.
 
-- [ ] **Step 2: Implement the minimal dispatcher correction**
+- [x] **Step 2: Implement the minimal dispatcher correction**
 
 ```python
 def _transform_gh_library(args: dict) -> Tuple[str, str, dict]:
@@ -891,7 +891,7 @@ def _transform_gh_library(args: dict) -> Tuple[str, str, dict]:
 
 Do not change another transform or add a generic query normalizer.
 
-- [ ] **Step 3: Write RED authoritative-tool knowledge tests**
+- [x] **Step 3: Write RED authoritative-tool knowledge tests**
 
 Add exact assertions:
 
@@ -906,7 +906,7 @@ Prove the ordinary result cannot reach injection: `should_inject()` must return 
 and a real server-dispatch regression with `inject_knowledge` patched to raise must still
 return the ordinary tool result for both names.
 
-- [ ] **Step 4: Add the two tools to the existing skip set**
+- [x] **Step 4: Add the two tools to the existing skip set**
 
 Only edit `_SKIP_TOOLS`:
 
@@ -917,7 +917,7 @@ Only edit `_SKIP_TOOLS`:
 
 Do not redesign mapping categories or fix the two known mapping failures.
 
-- [ ] **Step 5: Add one causal full vertical**
+- [x] **Step 5: Add one causal full vertical**
 
 The Python vertical must use the real server dispatch and fake only the native transport.
 Run:
@@ -939,7 +939,7 @@ rook_tools_call(gh_batch_component_info names with duplicate)
 Assert the complete call ledger, exact arguments, exact returned fields, no copied
 provenance in search, no double wrapping, and no second target call.
 
-- [ ] **Step 6: Run the focused seam and preserve known failures**
+- [x] **Step 6: Run the focused seam and preserve known failures**
 
 ```powershell
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
@@ -957,7 +957,7 @@ provenance in search, no double wrapping, and no second target call.
 Expected: first command fully green. Second command has exactly the two documented
 `TestGHOperationMapping` failures and no others. Record exact counts and warnings.
 
-- [ ] **Step 7: Compile Python and run managed/Python adjacent seams**
+- [x] **Step 7: Compile Python and run managed/Python adjacent seams**
 
 ```powershell
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m compileall -q `
@@ -972,7 +972,7 @@ git diff --check
 
 Stop on a new failure or a changed known-failure signature.
 
-- [ ] **Step 8: Report growth and audit scope**
+- [x] **Step 8: Report growth and audit scope**
 
 ```powershell
 git diff --numstat 411613d7 -- `
@@ -986,7 +986,7 @@ git diff --name-only 411613d7
 Confirm there are exactly four production owners, no new production module, and no
 changes to `gh_edit`, `gh_snapshot`, T*/C*, receipt code, or public MCP projection.
 
-- [ ] **Step 9: Commit Task 4**
+- [x] **Step 9: Commit Task 4**
 
 ```powershell
 git add mcp_server/src/rook/agent/tool_dispatcher.py `
@@ -996,6 +996,24 @@ git add mcp_server/src/rook/agent/tool_dispatcher.py `
   docs/superpowers/plans/2026-08-09-grasshopper-component-discovery-coherence.md
 git commit -m "fix: align component discovery boundaries"
 ```
+
+Observed Task 4 evidence on 2026-08-10: the RED boundary run produced the intended
+`5` failures with `38` passing tests: both `exact` values were dropped by direct
+dispatch, and both authoritative tools still reached knowledge injection. After the
+minimal corrections, the focused module passed `43/43`. The complete primary Python
+seam passed `304/304` with `76` existing warnings. The knowledge seam passed `67`
+tests and retained exactly the two documented `TestGHOperationMapping` baseline
+failures, with no changed signature or additional failure. Python compilation passed,
+and the complete managed suite passed `3719/3719`.
+
+Task 4 production growth is `5 additions / 2 deletions`: `4/2` in
+`tool_dispatcher.py` and `1/0` in `knowledge_injector.py`. Cumulative production growth
+from `411613d7` is `1088 additions / 301 deletions` across exactly the four approved
+owners: `GrasshopperHandler.cs`, `server.py`, `tool_dispatcher.py`, and
+`knowledge_injector.py`. A diff-scoped bidirectional protected-surface scan found no
+added or deleted `gh_edit`, `gh_snapshot`, `T*`, `C*`, or receipt lines. No fifth
+production owner, new module, identity abstraction, live host contact, or public MCP
+projection change entered Task 4.
 
 **Mandatory review gate:** stop. Independent review must approve direct/canonical parity,
 knowledge exclusion, public/gateway result semantics, production growth, and exact scope

@@ -86,6 +86,7 @@ _SKIP_TOOLS = frozenset({
     "gh_knowledge_reload", "gh_record_learning",
     "rhino_command_knowledge", "rhino_command_knowledge_reload",
     "rhino_command_observations",
+    "gh_library", "gh_batch_component_info",
 })
 
 
