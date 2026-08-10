@@ -147,7 +147,7 @@ foreach ($needle in @('google.oauth2.credentials', 'google.auth.transport.reques
 }
 ```
 
-- [ ] **Step 4: Resolve the current `google-auth==2.56.3` candidate in disposable project copies**
+- [ ] **Step 4: Resolve `google-auth==2.56.3` in Rook and the sealed Chirp environment**
 
 `2.56.0` was the original reviewed candidate. `2.56.3` is the current patch in
 the same supported line at this amendment and is probed explicitly rather than
@@ -162,27 +162,102 @@ try {
     git -C $rookWorktree archive --format=zip --output="$probeRoot\rook.zip" HEAD mcp_server
     if ($LASTEXITCODE -ne 0) { throw 'Rook probe archive failed' }
     Expand-Archive -LiteralPath "$probeRoot\rook.zip" -DestinationPath $probeRoot
-    git -C $chirpWorktree archive --format=zip --output="$probeRoot\chirp.zip" HEAD
-    if ($LASTEXITCODE -ne 0) { throw 'Chirp probe archive failed' }
-    New-Item -ItemType Directory -Path "$probeRoot\Chirp" | Out-Null
-    Expand-Archive -LiteralPath "$probeRoot\chirp.zip" -DestinationPath "$probeRoot\Chirp"
-    foreach ($project in @("$probeRoot\mcp_server\pyproject.toml", "$probeRoot\Chirp\pyproject.toml")) {
-        $text = Get-Content -Raw -LiteralPath $project
-        $text = $text -replace '(dependencies = \[\r?\n)', "`$1    `"google-auth==2.56.3`",`r`n"
-        Set-Content -LiteralPath $project -Value $text -Encoding UTF8
-    }
+    $project = "$probeRoot\mcp_server\pyproject.toml"
+    $text = Get-Content -Raw -LiteralPath $project
+    $text = $text -replace '(dependencies = \[\r?\n)', "`$1    `"google-auth==2.56.3`",`r`n"
+    Set-Content -LiteralPath $project -Value $text -Encoding UTF8
 
     Push-Location "$probeRoot\mcp_server"
     uv lock
     uv sync --frozen --extra test --python "$env:LOCALAPPDATA\Rook\python\cpython-3.11.9\python.exe"
     .\.venv\Scripts\python.exe -c "from importlib.metadata import version; import google.auth, google.oauth2.credentials; assert version('google-auth') == '2.56.3'; assert version('litellm') == '1.89.4'; print(version('google-auth'), version('litellm'))"
-    .\.venv\Scripts\python.exe -m pip check
+    uv pip check --python .\.venv\Scripts\python.exe
     Pop-Location
 
-    & "$env:LOCALAPPDATA\Rook\python\cpython-3.11.9\python.exe" -m venv "$probeRoot\Chirp\.venv"
-    & "$probeRoot\Chirp\.venv\Scripts\python.exe" -m pip install -e "$probeRoot\Chirp[dev]"
-    & "$probeRoot\Chirp\.venv\Scripts\python.exe" -c "from importlib.metadata import version; import google.auth, google.oauth2.credentials; assert version('google-auth') == '2.56.3'; assert version('litellm') == '1.89.4'; print(version('google-auth'), version('litellm'))"
-    & "$probeRoot\Chirp\.venv\Scripts\python.exe" -m pip check
+    # Chirp ships from Rook's one sealed wheelhouse and Chirp lock. A standalone
+    # editable Chirp resolution is not an accepted release comparison boundary.
+    $sealedRoot = "$env:LOCALAPPDATA\Rook\app"
+    $wheelhouse = Join-Path $sealedRoot 'python-wheelhouse'
+    $manifest = Get-Content -Raw -LiteralPath (Join-Path $sealedRoot 'python-runtime-manifest.json') | ConvertFrom-Json
+    if ($manifest.chirp_git_sha -ne $chirpBase) { throw 'Sealed Chirp provenance mismatch' }
+    $expectedWheels = @{}
+    foreach ($item in $manifest.wheelhouse.wheels) { $expectedWheels[$item.file] = $item.sha256 }
+    $actualWheels = @(Get-ChildItem -LiteralPath $wheelhouse -Filter '*.whl' -File)
+    if ($actualWheels.Count -ne $expectedWheels.Count) { throw 'Sealed wheel count mismatch' }
+    foreach ($wheel in $actualWheels) {
+        if (-not $expectedWheels.ContainsKey($wheel.Name) -or
+            (Get-FileHash -LiteralPath $wheel.FullName -Algorithm SHA256).Hash -ne $expectedWheels[$wheel.Name]) {
+            throw "Sealed wheel mismatch: $($wheel.Name)"
+        }
+    }
+    foreach ($lockName in @('bootstrap', 'rook', 'chirp')) {
+        $entry = $manifest.lockfiles.$lockName
+        $path = Join-Path $sealedRoot (Split-Path -Leaf $entry.path)
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.sha256) {
+            throw "Sealed lock mismatch: $lockName"
+        }
+    }
+
+    $basePython = "$env:LOCALAPPDATA\Rook\python\cpython-3.11.9\python.exe"
+    $chirpVenv = "$probeRoot\chirp-sealed-venv"
+    & $basePython -m venv $chirpVenv
+    $chirpPython = Join-Path $chirpVenv 'Scripts\python.exe'
+    & $chirpPython -m pip --isolated install --no-index --find-links $wheelhouse --require-hashes -r (Join-Path $sealedRoot 'requirements-bootstrap-lock.txt')
+    & $chirpPython -m pip --isolated install --no-index --find-links $wheelhouse --require-hashes -r (Join-Path $sealedRoot 'requirements-chirp-lock.txt')
+    & $chirpPython -c "from importlib.metadata import version; assert version('litellm') == '1.89.4'; assert version('dspy') == '3.3.0'"
+    & $chirpPython -m pip check
+    $before = @((& $chirpPython -m pip list --format=json) | ConvertFrom-Json)
+
+    $addon = New-Item -ItemType Directory -Path "$probeRoot\addon-wheels"
+    & $basePython -m pip download --dest $addon.FullName --only-binary=:all: --no-deps google-auth==2.56.3 pyasn1-modules==0.4.2 pyasn1==0.6.4
+    $newWheelHashes = @{
+        'google_auth-2.56.3-py3-none-any.whl' = '8EC438808F813AD034535000261EED1067475D229D05BBF4216E78C3F2362E53'
+        'pyasn1_modules-0.4.2-py3-none-any.whl' = '29253A9207CE32B64C3AC6600EDC75368F98473906E8FD1043BD6B5B1DE2C14A'
+        'pyasn1-0.6.4-py3-none-any.whl' = 'DEDA9277CFD454080EC40B207FB6DF82206A3A2688735233CDCD8D3D565F088B'
+    }
+    $newWheels = @(Get-ChildItem -LiteralPath $addon.FullName -Filter '*.whl' -File)
+    if ($newWheels.Count -ne 3) { throw 'Unexpected new wheel count' }
+    foreach ($wheel in $newWheels) {
+        if (-not $newWheelHashes.ContainsKey($wheel.Name) -or
+            (Get-FileHash -LiteralPath $wheel.FullName -Algorithm SHA256).Hash -ne $newWheelHashes[$wheel.Name]) {
+            throw "New wheel mismatch: $($wheel.Name)"
+        }
+    }
+    $candidateWheels = @(
+        "$($addon.FullName)\google_auth-2.56.3-py3-none-any.whl",
+        "$($addon.FullName)\pyasn1_modules-0.4.2-py3-none-any.whl",
+        "$($addon.FullName)\pyasn1-0.6.4-py3-none-any.whl",
+        "$wheelhouse\cryptography-50.0.0-cp311-abi3-win_amd64.whl",
+        "$wheelhouse\cffi-2.1.1-cp311-cp311-win_amd64.whl",
+        "$wheelhouse\pycparser-3.0-py3-none-any.whl"
+    )
+    & $chirpPython -m pip --isolated install --no-index --no-deps @candidateWheels
+    & $chirpPython -c "from importlib.metadata import version; import google.auth, google.oauth2.credentials; assert version('google-auth') == '2.56.3'; assert version('litellm') == '1.89.4'; assert version('dspy') == '3.3.0'"
+    & $chirpPython -m pip check
+    $after = @((& $chirpPython -m pip list --format=json) | ConvertFrom-Json)
+
+    # Canonicalize names and require six additions, zero removals, and zero
+    # existing-version changes. Only google-auth, pyasn1-modules, and pyasn1
+    # are new wheelhouse artifacts; cryptography, cffi, and pycparser are reused.
+    $normalize = { param($name) ($name.ToLowerInvariant() -replace '[-_.]+', '-') }
+    $beforeMap = @{}; foreach ($item in $before) { $beforeMap[(& $normalize $item.name)] = $item.version }
+    $afterMap = @{}; foreach ($item in $after) { $afterMap[(& $normalize $item.name)] = $item.version }
+    $expectedAdditions = @{
+        'google-auth' = '2.56.3'; 'pyasn1-modules' = '0.4.2'; 'pyasn1' = '0.6.4'
+        'cryptography' = '50.0.0'; 'cffi' = '2.1.1'; 'pycparser' = '3.0'
+    }
+    $added = @($afterMap.Keys | Where-Object { -not $beforeMap.ContainsKey($_) })
+    if ($added.Count -ne 6) { throw "Unexpected Chirp additions: $($added -join ', ')" }
+    foreach ($entry in $expectedAdditions.GetEnumerator()) {
+        if ($beforeMap.ContainsKey($entry.Key) -or $afterMap[$entry.Key] -ne $entry.Value) {
+            throw "Chirp addition mismatch: $($entry.Key)"
+        }
+    }
+    foreach ($entry in $beforeMap.GetEnumerator()) {
+        if (-not $afterMap.ContainsKey($entry.Key) -or $afterMap[$entry.Key] -ne $entry.Value) {
+            throw "Existing Chirp package changed: $($entry.Key)"
+        }
+    }
 }
 finally {
     if (Test-Path -LiteralPath $probeRoot) { Remove-Item -LiteralPath $probeRoot -Recurse -Force }
@@ -355,7 +430,7 @@ def apply_vertex_litellm_arguments(model, kwargs, *, store=None):
 Set-Location "$rookWorktree\mcp_server"
 uv sync --frozen --extra test --python "$env:LOCALAPPDATA\Rook\python\cpython-3.11.9\python.exe"
 .\.venv\Scripts\python.exe -m pytest tests/test_vertex_auth.py -q
-.\.venv\Scripts\python.exe -m pip check
+uv pip check --python .\.venv\Scripts\python.exe
 Set-Location $rookWorktree
 git diff --check
 git add mcp_server/pyproject.toml mcp_server/uv.lock mcp_server/src/rook/providers/vertex_auth.py mcp_server/tests/test_vertex_auth.py
@@ -891,7 +966,7 @@ Set-Location "$rookWorktree\mcp_server"
     tests/test_chirp_manager.py `
     tests/test_server_contract_hardening.py `
     tests/test_vertex_acceptance_harness.py -q
-.\.venv\Scripts\python.exe -m pip check
+uv pip check --python .\.venv\Scripts\python.exe
 
 Set-Location $chirpWorktree
 .\.venv\Scripts\python.exe -m pytest tests -q

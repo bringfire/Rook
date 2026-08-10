@@ -1,7 +1,7 @@
 # Enterprise Vertex Provider Task 0 Dependency Probe
 
 **Date:** 2026-08-09
-**Status:** Blocked pending reviewer direction; no dependency is admitted
+**Status:** Corrected probe passed; dependency admission remains pending
 **Approved plan:** `5a2d1d7288f15f150f3f2d31afdd7e97d5cebb02`
 **Approval tag:** `plan/enterprise-vertex-provider-2026-08-09-approved`
 **Specification:** `4a16658b77bbb00a29146b7d2853c5484add044b`
@@ -10,17 +10,17 @@
 
 ## Outcome
 
-`google-auth==2.56.3` resolved cleanly in Rook's locked project copy, but the
-planned Chirp probe did not preserve the shipped LiteLLM version. A fresh
-editable install from Chirp's source metadata selected `litellm==1.96.0`, while
-the plan requires and the installed product uses `litellm==1.89.4`. The exact
-planned assertion therefore failed.
+`google-auth==2.56.3` resolved cleanly in both Rook's locked project copy and a
+Chirp environment recreated from Rook's exact sealed wheelhouse and Chirp lock.
+The corrected Chirp candidate preserved `litellm==1.89.4` and `dspy==3.3.0`,
+imported the Google authorization modules, passed `pip check`, added exactly six
+packages, and changed no existing package version.
 
-This is a reproducibility problem in the Chirp probe boundary, not evidence of
-a `google-auth` incompatibility. Task 0 does not admit `2.56.3`, Task 1 did not
-begin, and no implementation file was changed. The reviewer must decide whether
-the Chirp probe should consume the sealed release constraints or whether Chirp
-must first gain an independently reviewed dependency constraint.
+The earlier standalone editable Chirp result is superseded because it did not
+represent Rook's shipped resolution boundary. Rook's canonical builder resolves
+Rook and Chirp together and the sealed release constraints govern the installed
+Chirp environment. Task 0 still does not admit `2.56.3`; Task 1 did not begin
+and no implementation file was changed.
 
 ## Provenance and installed-state checks
 
@@ -31,6 +31,11 @@ must first gain an independently reviewed dependency constraint.
 - The clean Chirp worktree was created at the exact pinned base.
 - Installed Rook and Chirp both reported `litellm==1.89.4`.
 - `google.auth` was absent from both installed environments.
+- The sealed `1.5.18` payload contained 103 wheels and matched every manifest
+  wheel and lock hash. Its Rook provenance was `1b445caf1f5f104ec19a59b53ad0fbf760a15ef9`
+  and its Chirp provenance was the pinned `c7b1aacec6b1ae23514cb9fb0d2a365e1fb7a468`.
+- The sealed Chirp lock SHA-256 was
+  `62777BD6E3BEF9927A3007C894A7808E9B1CFC95A331123FA975E05BBBACBC55`.
 - Installed LiteLLM source contains the required
   `google.oauth2.credentials`, `google.auth.transport.requests`, and
   `vertex_credentials` seams.
@@ -72,23 +77,30 @@ Added wheel records:
 | `pyasn1-modules==0.4.2` | `29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a` |
 | `pyasn1==0.6.4` | `deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b` |
 
-### Chirp disposable resolution
+### Chirp sealed-environment resolution
 
-| Role | Package | Installed product | Fresh source resolution |
+| Role | Package | Sealed baseline | Candidate |
 |---|---|---:|---:|
 | Direct candidate | `google-auth` | absent | `2.56.3` |
 | Transitive | `pyasn1-modules` | absent | `0.4.2` |
 | Transitive | `pyasn1` | absent | `0.6.4` |
 | Transitive | `cryptography` | absent | `50.0.0` |
+| Transitive | `cffi` | absent | `2.1.1` |
+| Transitive | `pycparser` | absent | `3.0` |
 | Existing integration | `dspy` | `3.3.0` | `3.3.0` |
-| Existing integration | `litellm` | `1.89.4` | `1.96.0` |
+| Existing integration | `litellm` | `1.89.4` | `1.89.4` |
 
-The Chirp environment imported `google.auth` successfully and `pip check`
-reported no broken requirements. It nevertheless failed the required
-`litellm==1.89.4` assertion. Chirp's source metadata admits `dspy>=2.6`, whose
-fresh resolution currently admits the newer LiteLLM; the installed release
-payload obtains its narrower version from Rook's sealed release constraints.
-No source constraint was changed during this probe.
+The sealed baseline contained 67 packages; the candidate contained 73. The
+inventory delta was exactly the six additions above, with zero removals and zero
+existing-version changes. Both the baseline and candidate passed `pip check`,
+and the candidate imported `google.auth` and `google.oauth2.credentials`.
+
+Only three new shared-wheelhouse artifacts are required:
+`google-auth==2.56.3`, `pyasn1-modules==0.4.2`, and `pyasn1==0.6.4`.
+`cryptography==50.0.0`, `cffi==2.1.1`, and `pycparser==3.0` were absent from the
+sealed Chirp environment but already present in Rook's shared 103-wheel
+wheelhouse, so they are environment additions rather than wheelhouse additions.
+No separate LiteLLM pin was added to Chirp.
 
 ## Pinned implementation contracts
 
@@ -116,14 +128,17 @@ No source constraint was changed during this probe.
 
 ## Cleanup and stop state
 
-Automated removal of the disposable probe directory was blocked by the safety
-layer after exact-path validation. The remaining bounded cleanup target is:
+Automated removal of both disposable probe directories was blocked by the
+safety layer after exact parent/name validation. The remaining bounded cleanup
+targets are:
 
 `C:\Users\aryan\AppData\Local\Temp\rook-vertex-dependency-30605fa2da6545089f7aabfb5805124d`
+
+`C:\Users\aryan\AppData\Local\Temp\rook-vertex-sealed-chirp-060e82b23125466c9b2826908e2be9a4`
 
 No client material, credential value, provider response body, Google identity,
 Google Cloud project identity, model prompt, token, or service-account path is
 recorded here.
 
-Task 0 stops at this report. The exact dependency and Chirp reproducibility
-boundary require reviewer admission or amendment before any implementation.
+Task 0 stops at this report. The exact `google-auth==2.56.3` pin and recorded
+transitive set require reviewer admission before any implementation.
