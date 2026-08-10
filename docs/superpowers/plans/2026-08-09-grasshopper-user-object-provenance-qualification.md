@@ -577,14 +577,55 @@ Task 2 frozen target:
     zero
 
 Task 2 one-shot authorization:
-  pending
+  exact frozen-target authorization received
+  authorized target SHA-256:
+    63CE846465A22E03BD1DE9BCB074B3FA9E5A34FCA68BA5A2F619718EBBFE392A
+  prohibitions retained:
+    no model call, mutation, search, rerun, retry, second /execute, cleanup, or additional host call
 
 Task 3 authorized /execute:
-  pending
+  launcher invocations: 1
+  /execute requests: 1
+  launcher exit: 0
+  launcher output:
+    completed C:\Users\bring\AppData\Local\Temp\rook-gh-user-object-provenance-qualification\user-object-provenance.json
+  retained artifacts:
+    user-object-provenance.json
+      72D734E11E9E7CC1408020C7DA2CFD42F89712750713025D41C952BB22E4FB26
+    invoke-result.json
+      496BCD9A304C1E52B18A0A1EE5D16BDA734856C743F159BAFBF0DA4751CE17EB
+    stderr.txt (empty)
+      E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855
+  outer transport:
+    HTTP 200; success true; exact sentinel/hash correlation passed
+    stderr empty; objectsCreated 0; objectIds empty
+  call budget:
+    exact reviewed budget matched
+    six proxy emissions, constructions, temporary instances, and both assembly lookups
+    two canvas count reads
+    zero search, insertion, solution, model, retry, and cleanup calls
+  canvas object count:
+    0 before; 0 after
+  specimen observations:
+    six ordered selectors retained
+    six identity/path equations passed
+    proxy-GUID assembly not_found: 6/6
+    temporary-instance assembly found as GhPython: 6/6
+    Data projection errors: 6/6
+  probeComplete:
+    false
+  conclusion:
+    qualification incomplete
+  post-request host contact:
+    zero
 
 Task 3 evidence review:
-  pending
+  local strict UTF-8 and duplicate-key checks passed
+  exact schemas, selector order, identities, budget, canvas equality, and outer envelope verified
+  report:
+    docs/superpowers/reports/2026-08-09-grasshopper-user-object-provenance-qualification.md
+  mandatory independent evidence review pending
 
 Production files changed:
-  none permitted
+  none
 ```
