@@ -325,6 +325,15 @@ git commit -m "feat: rank Grasshopper component discovery natively"
 audit isolation, eligibility, candidate shape, deterministic ties, limit ordering, and
 the absence of instantiation/hashing before Task 2.
 
+Task 1 review repair on 2026-08-10 tightened `Exposure` to the installed host's enum
+representation and replaced the fake integer with an enum. The new raw-integer regression
+failed alone before the one-line production correction (`1 failed`, `13 passed`). The
+returned-count and exact audit-shape/value regressions were mutation-checked and each
+failed when its protected equation was temporarily removed. The restored focused seam
+completed with `81 passed`, `0 failed`, and `229` existing compiler/analyzer warning
+lines. A clean rebuild completed with `228` repository warnings and `0` errors; no warning
+points to the Task 1 test file or newly added discovery lines.
+
 ---
 
 ### Task 2: Managed selector resolution and source-kind metadata custody

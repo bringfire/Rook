@@ -4420,7 +4420,11 @@ namespace Rook.Handlers
                 {
                     if (hasSearch)
                     {
-                        var scoreComparison = right.NativeScore!.Value.CompareTo(left.NativeScore!.Value);
+                        var leftScore = left.NativeScore
+                            ?? throw new InvalidOperationException("Search candidate lacked a native score.");
+                        var rightScore = right.NativeScore
+                            ?? throw new InvalidOperationException("Search candidate lacked a native score.");
+                        var scoreComparison = rightScore.CompareTo(leftScore);
                         if (scoreComparison != 0)
                             return scoreComparison;
                     }
@@ -4509,7 +4513,7 @@ namespace Rook.Handlers
                 if (obsolete) obsoleteCount++;
                 if ((exposure & 16) != 0) hiddenCount++;
 
-                if (!string.IsNullOrEmpty(category))
+                if (category is { Length: > 0 })
                 {
                     var filterCatLower = category.ToLowerInvariant();
                     var catMatches = (componentCat ?? "").ToLowerInvariant().Contains(filterCatLower) ||
@@ -4671,8 +4675,8 @@ namespace Rook.Handlers
             var value = RequireHostProperty(desc, "Exposure")
                 ?? throw new InvalidOperationException("Proxy Exposure was null.");
             var type = value.GetType();
-            if (!type.IsEnum && type != typeof(int))
-                throw new InvalidOperationException("Proxy Exposure was not an enum or Int32.");
+            if (!type.IsEnum)
+                throw new InvalidOperationException("Proxy Exposure was not an enum.");
             return Convert.ToInt32(value);
         }
 

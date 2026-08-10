@@ -93,11 +93,19 @@ namespace Rook.Tests.Handlers
                 SearchResults = new object[] { proxy },
                 SearchScores = Array.Empty<double>()
             };
+            var countDisagreement = new FakeServer(proxy)
+            {
+                SearchResults = new object[] { proxy },
+                SearchScores = new[] { 1.0 },
+                ReturnCount = 0
+            };
 
             Assert.False(Search(nonfinite, "Series", null, 50, exact: false).Success);
             Assert.False(Search(misaligned, "Series", null, 50, exact: false).Success);
+            Assert.False(Search(countDisagreement, "Series", null, 50, exact: false).Success);
             Assert.Equal(1, nonfinite.FindObjectsCalls);
             Assert.Equal(1, misaligned.FindObjectsCalls);
+            Assert.Equal(1, countDisagreement.FindObjectsCalls);
         }
 
         [Fact]
@@ -200,6 +208,17 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Raw_integer_exposure_fails_strict_projection()
+        {
+            var server = new FakeServer(Proxy("Integer Exposure", rawIntegerExposure: true));
+
+            var response = Search(server, null, null, 50, exact: false);
+
+            Assert.False(response.Success);
+            Assert.Contains("Exposure", Assert.IsType<string>(response.Data), StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void Search_and_catalog_never_instantiate_or_read_user_object_data()
         {
             var proxy = Proxy("User Tool", kind: FakeProxyKind.UserObject);
@@ -235,26 +254,73 @@ namespace Rook.Tests.Handlers
         [Fact]
         public void Audit_branch_shape_and_source_path_remain_unchanged()
         {
-            var visible = Proxy("Visible", exposure: 1);
-            var obsolete = Proxy("Obsolete", obsolete: true);
-            var hidden = Proxy("Hidden", exposure: 16);
-            var quarantined = Proxy("Quarantined", exposure: 8);
+            var visible = Proxy("Visible", guid: "00000000-0000-0000-0000-000000000001", exposure: 1);
+            var obsolete = Proxy("Obsolete", guid: "00000000-0000-0000-0000-000000000002", obsolete: true);
+            var hidden = Proxy("Hidden", guid: "00000000-0000-0000-0000-000000000003", exposure: 16);
+            var quarantined = Proxy("Quarantined", guid: "00000000-0000-0000-0000-000000000004", exposure: 8);
             var server = new FakeServer(visible, obsolete, hidden, quarantined);
 
             var response = Audit(server, null, null, exact: false);
             var data = Data(response);
 
             Assert.True(response.Success);
+            Assert.Equal(
+                new[] { "totalScanned", "deprecatedCount", "obsoleteCount", "hiddenCount", "components" },
+                data.EnumerateObject().Select(property => property.Name).ToArray());
             Assert.Equal(4, data.GetProperty("totalScanned").GetInt32());
             Assert.Equal(3, data.GetProperty("deprecatedCount").GetInt32());
             Assert.Equal(1, data.GetProperty("obsoleteCount").GetInt32());
             Assert.Equal(1, data.GetProperty("hiddenCount").GetInt32());
-            foreach (var component in data.GetProperty("components").EnumerateArray())
-            {
-                Assert.False(component.TryGetProperty("sourceKind", out _));
-                Assert.False(component.TryGetProperty("nativeScore", out _));
-            }
+            var components = data.GetProperty("components").EnumerateArray().ToArray();
+            Assert.Equal(new[] { "Obsolete", "Hidden", "Quarantined" }, components
+                .Select(component => component.GetProperty("name").GetString()).ToArray());
+            AssertAuditComponent(
+                components[0],
+                "Obsolete",
+                "00000000-0000-0000-0000-000000000002",
+                obsolete: true,
+                exposure: 1,
+                exposureLabel: "primary");
+            AssertAuditComponent(
+                components[1],
+                "Hidden",
+                "00000000-0000-0000-0000-000000000003",
+                obsolete: false,
+                exposure: 16,
+                exposureLabel: "hidden");
+            AssertAuditComponent(
+                components[2],
+                "Quarantined",
+                "00000000-0000-0000-0000-000000000004",
+                obsolete: false,
+                exposure: 8,
+                exposureLabel: "quarantine");
             Assert.Equal(0, server.FindObjectsCalls);
+        }
+
+        private static void AssertAuditComponent(
+            JsonElement component,
+            string name,
+            string guid,
+            bool obsolete,
+            int exposure,
+            string exposureLabel)
+        {
+            Assert.Equal(
+                new[]
+                {
+                    "name", "nickName", "category", "subCategory", "guid", "obsolete",
+                    "exposure", "exposureLabel"
+                },
+                component.EnumerateObject().Select(property => property.Name).ToArray());
+            Assert.Equal(name, component.GetProperty("name").GetString());
+            Assert.Equal(name + " Nick", component.GetProperty("nickName").GetString());
+            Assert.Equal("Synthetic", component.GetProperty("category").GetString());
+            Assert.Equal("Operators", component.GetProperty("subCategory").GetString());
+            Assert.Equal(guid, component.GetProperty("guid").GetString());
+            Assert.Equal(obsolete, component.GetProperty("obsolete").GetBoolean());
+            Assert.Equal(exposure, component.GetProperty("exposure").GetInt32());
+            Assert.Equal(exposureLabel, component.GetProperty("exposureLabel").GetString());
         }
 
         private static ApiResponse Search(
@@ -299,7 +365,8 @@ namespace Rook.Tests.Handlers
             bool obsolete = false,
             int exposure = 1,
             int compareRank = 0,
-            bool compareThrows = false) =>
+            bool compareThrows = false,
+            bool rawIntegerExposure = false) =>
             new(
                 name,
                 guid == null ? Guid.NewGuid() : Guid.Parse(guid),
@@ -309,13 +376,25 @@ namespace Rook.Tests.Handlers
                 compareRank,
                 compareThrows,
                 category,
-                subCategory);
+                subCategory,
+                rawIntegerExposure);
 
         private enum FakeProxyKind
         {
             CompiledObject,
             UserObject,
             Unsupported
+        }
+
+        [Flags]
+        private enum FakeExposure
+        {
+            Primary = 1,
+            Secondary = 2,
+            Tertiary = 4,
+            Quarantine = 8,
+            Hidden = 16,
+            Obscure = 32
         }
 
         private sealed class FakeDescription
@@ -325,9 +404,33 @@ namespace Rook.Tests.Handlers
             public string? Description { get; }
             public string? Category { get; }
             public string? SubCategory { get; }
-            public int Exposure { get; }
+            public FakeExposure Exposure { get; }
 
             public FakeDescription(
+                string name,
+                string? category,
+                string? subCategory,
+                int exposure)
+            {
+                Name = name;
+                NickName = name + " Nick";
+                Description = name + " description";
+                Category = category;
+                SubCategory = subCategory;
+                Exposure = (FakeExposure)exposure;
+            }
+        }
+
+        private sealed class RawIntegerExposureDescription
+        {
+            public string Name { get; }
+            public string? NickName { get; }
+            public string? Description { get; }
+            public string? Category { get; }
+            public string? SubCategory { get; }
+            public int Exposure { get; }
+
+            public RawIntegerExposureDescription(
                 string name,
                 string? category,
                 string? subCategory,
@@ -346,7 +449,7 @@ namespace Rook.Tests.Handlers
         {
             private readonly bool _compareThrows;
 
-            public FakeDescription Desc { get; }
+            public object Desc { get; }
             public Guid Guid { get; }
             public Guid LibraryGuid { get; } = Guid.NewGuid();
             public FakeProxyKind Kind { get; }
@@ -376,9 +479,12 @@ namespace Rook.Tests.Handlers
                 int compareRank,
                 bool compareThrows,
                 string? category,
-                string? subCategory)
+                string? subCategory,
+                bool rawIntegerExposure)
             {
-                Desc = new FakeDescription(name, category, subCategory, exposure);
+                Desc = rawIntegerExposure
+                    ? new RawIntegerExposureDescription(name, category, subCategory, exposure)
+                    : new FakeDescription(name, category, subCategory, exposure);
                 Guid = guid;
                 Kind = kind;
                 Obsolete = obsolete;
