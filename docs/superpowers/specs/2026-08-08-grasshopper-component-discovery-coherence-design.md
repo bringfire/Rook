@@ -600,6 +600,30 @@ contentSha256: uppercase 64-character SHA-256 string | null
 Rook uses the exact selected proxy and exact host-returned user-object path. It does not
 parse the path into package, family, author, or version identity.
 
+The selected proxy and constructed user object must identify the same file:
+
+```text
+constructor input
+  = exact selected proxy Location
+
+returned provenance path
+  = exact GH_UserObject.Path string, retained unchanged
+
+comparison value for each path
+  = Path.GetFullPath(path)
+  -> replace Windows alternate directory separators with DirectorySeparatorChar
+
+identity equation
+  = String.Equals(normalized proxy Location,
+                  normalized GH_UserObject.Path,
+                  StringComparison.OrdinalIgnoreCase)
+```
+
+Rook does not return either normalized comparison value. A mismatch, `GetFullPath`
+failure, separator-normalization failure, missing/unreadable path, or unexpected path
+runtime type produces `projection_failure / provenance_projection_failed`. Rook does
+not resolve symlinks, infer a package identity, or substitute one path for the other.
+
 Installed `GH_UserObject.Data` is handled exactly:
 
 ```text
@@ -1056,6 +1080,9 @@ Prove:
 - compiled provenance uses `FindAssembly(LibraryGuid)` with the exact closed shape;
 - missing compiled assembly provenance fails locally without fallback;
 - user-object provenance returns exact path and paired content fields;
+- user-object provenance retains exact `GH_UserObject.Path` while requiring normalized
+  Windows path identity with the selected proxy `Location`;
+- path mismatch or normalization failure is a causal provenance projection failure;
 - null `Data` succeeds with paired nulls;
 - user-object construction, type, conversion, and hashing failures become provenance
   projection failures;

@@ -379,6 +379,7 @@ path factory. Cover exact successful shapes and each failure prefix:
 Compiled_provenance_uses_selected_proxy_library_guid
 Compiled_missing_assembly_retains_proxy_and_fails_provenance
 User_object_provenance_uses_path_and_exact_data_hash
+User_object_path_mismatch_or_normalization_failure_fails_provenance
 User_object_null_data_returns_paired_nulls
 User_object_unexpected_data_or_hash_error_fails_provenance
 Instantiation_failure_retains_complete_provenance
@@ -452,15 +453,21 @@ User object:
 ```text
 selected proxy Location
 -> construct GH_UserObject(string path)
--> require exact host Path
+-> retain exact GH_UserObject.Path as provenance.path
+-> normalize proxy Location and GH_UserObject.Path independently with Path.GetFullPath
+-> replace Path.AltDirectorySeparatorChar with Path.DirectorySeparatorChar
+-> require StringComparison.OrdinalIgnoreCase equality
 -> project BaseGuid for later implementation
 -> Data null => paired null content fields
 -> Data byte[] => exact LongLength and uppercase SHA-256
 ```
 
-Use `System.Security.Cryptography.SHA256` already in the BCL. Never serialize or log raw
-bytes. Construction, path, runtime-type, conversion, or hashing failure emits the same
-provenance failure prefix.
+The returned `provenance.path` remains the exact unnormalized `GH_UserObject.Path` string.
+Do not resolve symlinks, infer package identity, or return the normalized comparison
+values. Mismatch, path normalization, construction, path runtime-type, byte conversion,
+or hashing failure emits the same provenance failure prefix. Use
+`System.Security.Cryptography.SHA256` already in the BCL and never serialize or log raw
+bytes.
 
 The optional `userObjectFactory` exists only on the internal same-module helper and is
 used by tests; the public path supplies the exact reflected `GH_UserObject(string)`
@@ -965,19 +972,47 @@ failures are the two exact documented knowledge-mapping identities.
 - [ ] **Step 3: Run final source-surface and repository checks**
 
 ```powershell
-rg -n "get_unified_store|resolve_active_component_guid_by_name|/gh/library" `
-  mcp_server/tests/test_grasshopper_component_discovery_coherence.py
-rg -n "gh_edit|gh_snapshot|T\*|C\*|receipt" `
+$protectedDelta = git diff --unified=0 411613d7 -- `
   src/Rook/Handlers/GrasshopperHandler.cs `
-  mcp_server/src/rook/server.py
+  mcp_server/src/rook/server.py `
+  mcp_server/src/rook/agent/tool_dispatcher.py `
+  mcp_server/src/rook/learning/knowledge_injector.py |
+  rg '^\+.*(gh_edit|gh_snapshot|T\*|C\*|receipt)'
+if ($LASTEXITCODE -eq 0) {
+  throw "Protected execution/identity surface changed:`n$protectedDelta"
+}
+if ($LASTEXITCODE -ne 1) { exit $LASTEXITCODE }
+
+$allowed = @(
+  'src/Rook/Handlers/GrasshopperHandler.cs',
+  'mcp_server/src/rook/server.py',
+  'mcp_server/src/rook/agent/tool_dispatcher.py',
+  'mcp_server/src/rook/learning/knowledge_injector.py',
+  'src/Rook.Tests/Handlers/GrasshopperComponentDiscoveryContractTests.cs',
+  'src/Rook.Tests/InternalBridge/NativeGhBridgeRegistrarTests.cs',
+  'mcp_server/tests/test_grasshopper_component_discovery_coherence.py',
+  'mcp_server/tests/test_server_component_deprecation.py',
+  'mcp_server/tests/test_knowledge_injector.py',
+  'docs/CURRENT_ARCHITECTURE.md',
+  'docs/superpowers/specs/2026-08-08-grasshopper-component-discovery-coherence-design.md',
+  'docs/superpowers/plans/2026-08-09-grasshopper-component-discovery-coherence.md'
+)
+$changed = @(git diff --name-only 411613d7)
+$unexpected = @($changed | Where-Object { $_ -cnotin $allowed })
+if ($unexpected.Count -ne 0) {
+  throw "Unexpected changed path(s): $($unexpected -join ', ')"
+}
+
 git diff --check
 git status --short --branch
 git diff --name-only 411613d7
 ```
 
-Use the causal source test—not raw repository-wide grep counts—to prove the metadata
-branch owns no knowledge/library fallback. Review the diff manually to prove unrelated
-`gh_edit`, `gh_snapshot`, and receipt regions are untouched.
+The AST-isolated Python regression from Task 3 is the authoritative proof that the
+metadata branch owns no knowledge or `/gh/library` fallback. Do not replace it with a
+raw grep: the production server and its causal test intentionally contain those terms.
+The zero-context diff scan above proves this slice did not add lines to protected
+execution/identity surfaces.
 
 - [ ] **Step 4: Reconcile the ledger**
 
