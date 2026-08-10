@@ -131,6 +131,16 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void Batch_component_info_bridge_forwards_the_exact_request_body_once()
+        {
+            var source = ReadRegistrarSource();
+            const string exactForwarder =
+                "requestJson => Handler.HandleBatchComponentInfo(requestJson)";
+
+            Assert.Single(Regex.Matches(source, Regex.Escape(exactForwarder)).Cast<Match>());
+        }
+
+        [Fact]
         public void OpenDocument_PreflightRunsBeforeTheSingleUiBoundary()
         {
             var method = ExtractMethod(ReadRegistrarSource(), "private static int HandleOpenDocument");

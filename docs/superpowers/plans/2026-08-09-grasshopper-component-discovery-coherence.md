@@ -371,7 +371,7 @@ component_instantiation_failed
 implementation_projection_failed
 ```
 
-- [ ] **Step 1: Write RED request, resolution, and correlation tests**
+- [x] **Step 1: Write RED request, resolution, and correlation tests**
 
 Add tests proving:
 
@@ -393,7 +393,7 @@ All_item_failures_still_complete_the_batch
 Instrument the fake server so `ObjectProxies` is read exactly once for the batch. Make
 unexpected `FindObjects` and knowledge access impossible in these tests.
 
-- [ ] **Step 2: Write RED provenance and implementation tests**
+- [x] **Step 2: Write RED provenance and implementation tests**
 
 Add compiled fakes for `FindAssembly(Guid)` and user-object fakes created from an injected
 path factory. Cover exact successful shapes and each failure prefix:
@@ -416,13 +416,13 @@ Failure_prefixes_accumulate_monotonically
 The implementation-source fake must make `Type.Name` and `AssemblyQualifiedName` visibly
 different from `Type.FullName` so the regression detects substitution.
 
-- [ ] **Step 3: Prove RED**
+- [x] **Step 3: Prove RED**
 
 Run the same focused managed test command from Task 1. Expected failures: managed endpoint
 still accepts GUIDs only, selects through a GUID map, replaces proxy names from the
 instance, and lacks provenance/implementation/outcome fields.
 
-- [ ] **Step 4: Parse one closed selector family in the managed endpoint**
+- [x] **Step 4: Parse one closed selector family in the managed endpoint**
 
 Deserialize without coercion. Admission is:
 
@@ -442,7 +442,7 @@ new { Kind = "guid", Value = exactValue }
 
 Do not trim, case-fold, deduplicate, or discard invalid GUID selectors.
 
-- [ ] **Step 5: Resolve from one live proxy view**
+- [x] **Step 5: Resolve from one live proxy view**
 
 Snapshot `ObjectProxies` once. Project proxy identity/source kind with the same strict
 Task 1 helper. Resolve:
@@ -456,7 +456,7 @@ For each selector, append one item before moving to the next. Ambiguity returns 
 complete candidate in `CompareProxies` then GUID order and makes zero provenance,
 instantiation, or Params calls for that selector.
 
-- [ ] **Step 6: Implement closed compiled and user-object provenance**
+- [x] **Step 6: Implement closed compiled and user-object provenance**
 
 Compiled:
 
@@ -496,7 +496,7 @@ The optional `userObjectFactory` exists only on the internal same-module helper 
 used by tests; the public path supplies the exact reflected `GH_UserObject(string)`
 constructor. Do not add a service, interface, or registry for this seam.
 
-- [ ] **Step 7: Instantiate the selected proxy and project implementation exactly**
+- [x] **Step 7: Instantiate the selected proxy and project implementation exactly**
 
 Call the exact selected proxy's `CreateInstance()` once. Do not call
 `CreateComponentFromGuid()` and do not rescan proxies.
@@ -526,7 +526,7 @@ one separate code-owned null. Any other missing/unreadable/unexpected value emit
 `projection_failure/implementation_projection_failed`, retains completed provenance, and
 omits implementation and Params.
 
-- [ ] **Step 8: Call `GetComponentParams()` without changing it**
+- [x] **Step 8: Call `GetComponentParams()` without changing it**
 
 Use its current return value directly:
 
@@ -538,7 +538,7 @@ An object becomes the existing `params` shape. Null—including an exception cau
 `GetComponentParams()`—is successful `params: null`. Do not add another status or catch
 around it that changes current behavior.
 
-- [ ] **Step 9: Close batch equations and bridge custody**
+- [x] **Step 9: Close batch equations and bridge custody**
 
 Return internal `Success=true` after every admitted selector has one valid ordered item:
 
@@ -557,7 +557,7 @@ top-level `Success=false`. Do not change `NativeGhBridgeRegistrar.HandleBatchCom
 Add a source-bound bridge regression asserting the callback still passes `requestJson`
 directly to `Handler.HandleBatchComponentInfo(requestJson)` with no parse/re-encode step.
 
-- [ ] **Step 10: Run GREEN and compile the full managed project**
+- [x] **Step 10: Run GREEN and compile the full managed project**
 
 ```powershell
 dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore `
@@ -569,7 +569,7 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore --verbosity minimal
 Record exact passing/failing counts, warning count, production growth, and any established
 unrelated failures. Stop on a new failure.
 
-- [ ] **Step 11: Commit Task 2**
+- [x] **Step 11: Commit Task 2**
 
 ```powershell
 git add src/Rook/Handlers/GrasshopperHandler.cs `
@@ -578,6 +578,17 @@ git add src/Rook/Handlers/GrasshopperHandler.cs `
   docs/superpowers/plans/2026-08-09-grasshopper-component-discovery-coherence.md
 git commit -m "feat: preserve Grasshopper component metadata identity"
 ```
+
+Observed Task 2 evidence on 2026-08-10: the new reflection seam failed all `18`
+metadata test cases before production because `HandleBatchComponentInfoFromServer` did
+not exist. After the managed implementation, exact-shape assertions, user-object path
+and content failures, and the unchanged bridge-forwarding regression were restored, the
+focused managed seam passed `101/101`. The complete managed suite passed `3713/3713`.
+A no-incremental managed build completed with exit `0`; its `450` emitted warning lines
+are established repository warnings and none points to the Task 2 handler region or the
+new/changed Task 2 tests. Task 2 production growth is `389 additions` and `100 deletions`
+in the existing managed owner. The bridge production callback and existing
+`GetComponentParams()` implementation remain byte-unchanged.
 
 **Mandatory review gate:** stop. Review the complete selector-to-proxy-to-provenance-to-
 implementation-to-Params chain, every failure prefix, one-view/one-instantiation counts,
