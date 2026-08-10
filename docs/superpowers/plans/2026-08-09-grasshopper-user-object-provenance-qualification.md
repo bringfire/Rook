@@ -489,6 +489,37 @@ git commit -m "docs: record user object provenance qualification"
 
 ---
 
+## Task 4: Prepare the deterministic V2 probe repair and stop for authorization
+
+The consumed V1 lane and all three V1 evidence artifacts remain immutable. Create the
+fresh sibling
+`C:/Users/bring/AppData/Local/Temp/rook-gh-user-object-provenance-qualification-v2`
+from the three reviewed source files only. Do not copy its target, manifest, or live
+evidence.
+
+- [x] Reproduce the live-only Python.NET defect through the complete `main()` path with
+  a causal fake whose `BitConverter.ToString()` result is a Python `str`.
+- [x] Observe RED: the prior 44 tests pass and only the new boundary regression fails
+  because the artifact reports `probeComplete=false`.
+- [x] Correct only Python string normalization: `.Replace("-", "")` becomes
+  `.replace("-", "")`. The only other probe delta is the V2 root path.
+- [x] Observe GREEN: all 45 tests pass, including six exact byte lengths and hashes
+  through the complete fake-backed `main()` path.
+- [x] Preserve `run.ps1` byte-for-byte, create a fresh phase-aware manifest, freeze the
+  corroborated target, and rerun compilation, parsing, all hashes, all 45 tests, and
+  `-ValidateTargetOnly`.
+- [x] Confirm V2 contains no live evidence and V1 source/evidence hashes remain unchanged.
+- [ ] Stop for independent pre-contact review and one new explicit authorization. No
+  V2 `/execute` call is authorized by this repair.
+
+The bounded authorization form is:
+
+```text
+I authorize exactly one V2 read-only user-object provenance qualification using frozen target 63CE846465A22E03BD1DE9BCB074B3FA9E5A34FCA68BA5A2F619718EBBFE392A and manifest A3BD72712D2D09E56315384F2DADEC2497C5B1257CEFCE8BFEE786D17971B624. No model call, canvas mutation, search, operator rerun, adapter retry, second /execute request, cleanup, or additional host call is authorized.
+```
+
+---
+
 ## Evidence ledger
 
 ```text
@@ -624,7 +655,49 @@ Task 3 evidence review:
   exact schemas, selector order, identities, budget, canvas equality, and outer envelope verified
   report:
     docs/superpowers/reports/2026-08-09-grasshopper-user-object-provenance-qualification.md
-  mandatory independent evidence review pending
+  independent review approved the report and identified one deterministic disposable-probe defect
+
+Task 4 V2 deterministic repair:
+  disposable root:
+    C:/Users/bring/AppData/Local/Temp/rook-gh-user-object-provenance-qualification-v2
+  root cause:
+    Python.NET returned a Python str from BitConverter.ToString
+    live-only code incorrectly invoked the .NET-style Replace method
+  TDD RED:
+    44 prior tests passed
+    the new complete-main Python-string boundary regression alone failed
+    failure: probeComplete was false instead of true
+  minimal behavioral correction:
+    System.BitConverter.ToString(digest).Replace("-", "")
+    -> System.BitConverter.ToString(digest).replace("-", "")
+  GREEN:
+    45/45 passed
+    exact byte length and SHA-256 retained for all six causal fake specimens
+  V2 source files:
+    probe.py      86F36BD9D3146B192411C068EEC69C75AA0ADFB38595B41AE4C7BC64213DD38C
+    run.ps1       FB15B1451D3CE408E19A5D4296152E2CCB1096C5D2AB00F3DFF98856928745A2
+    test_probe.py E364BEA1F25773DB557BE7E3C6D1EB38B2FFB928ACA5097A805116095548DEED
+  V2 frozen target:
+    process ID 38672; port 55902; document serial 268435457
+    target.json SHA-256:
+      63CE846465A22E03BD1DE9BCB074B3FA9E5A34FCA68BA5A2F619718EBBFE392A
+  V2 post-target manifest:
+    exactly four entries; all hashes matched
+    manifest.json SHA-256:
+      A3BD72712D2D09E56315384F2DADEC2497C5B1257CEFCE8BFEE786D17971B624
+  compilation and PowerShell parser:
+    passed
+  validation-only launcher:
+    exit 0; exact output `validated`
+  V2 live evidence and /execute calls:
+    absent; zero
+  V1 preservation:
+    all three source hashes unchanged
+    artifact 72D734E11E9E7CC1408020C7DA2CFD42F89712750713025D41C952BB22E4FB26
+    invocation 496BCD9A304C1E52B18A0A1EE5D16BDA734856C743F159BAFBF0DA4751CE17EB
+    stderr E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855
+  V2 one-shot authorization:
+    pending independent pre-contact review and explicit authorization
 
 Production files changed:
   none
