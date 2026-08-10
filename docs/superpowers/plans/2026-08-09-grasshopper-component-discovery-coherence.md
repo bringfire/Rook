@@ -590,6 +590,20 @@ new/changed Task 2 tests. Task 2 production growth is `389 additions` and `100 d
 in the existing managed owner. The bridge production callback and existing
 `GetComponentParams()` implementation remain byte-unchanged.
 
+Task 2 review repair on 2026-08-10 moved `.ghuser` `BaseGuid` projection into the
+implementation phase and replaced the eager batch-wide GUID index with selector-local
+reads over the one frozen proxy snapshot. The four initial regressions failed before the
+repair: throwing, null, and wrong-type `BaseGuid` values were misclassified as provenance
+failures, while one malformed proxy erased the mixed batch. After repair, valid path/hash
+provenance survives all three implementation failures; conclusive selectors before and
+after a malformed proxy survive; incomplete GUID scans cannot guess `not_found`; and
+obsolete proxies do not trigger an unnecessary exposure read. The incomplete-scan guard
+was mutation-checked: removing it made its causal regression fail `1/1`. The repaired
+focused seam passes `107/107`, and the complete managed suite passes `3719/3719`.
+The repair delta is `91 additions` and `34 deletions`; cumulative Task 2 production
+growth from the approved Task 1 head is `445 additions` and `99 deletions`, still wholly
+inside the existing managed owner.
+
 **Mandatory review gate:** stop. Review the complete selector-to-proxy-to-provenance-to-
 implementation-to-Params chain, every failure prefix, one-view/one-instantiation counts,
 bridge custody, and no change to `GetComponentParams()` before Task 3.

@@ -683,6 +683,122 @@ namespace Rook.Tests.Handlers
             Assert.Equal(2, data.GetProperty("results").GetArrayLength());
         }
 
+        [Theory]
+        [InlineData("throwing")]
+        [InlineData("null")]
+        [InlineData("wrong_type")]
+        public void User_object_BaseGuid_failure_belongs_to_implementation_and_preserves_provenance(
+            string failure)
+        {
+            const string guid = "d0000000-0000-0000-0000-000000000001";
+            const string path = "C:\\synthetic\\base-guid.ghuser";
+            var proxy = Proxy(
+                "Base Guid",
+                guid: guid,
+                kind: FakeProxyKind.UserObject,
+                location: path,
+                componentFactory: () => new FakeComponent(Guid.Parse(guid)));
+
+            object Factory(string actualPath) => failure switch
+            {
+                "throwing" => new ThrowingBaseGuidUserObject { Path = actualPath, Data = new byte[] { 4, 5 } },
+                "null" => new FlexibleBaseGuidUserObject { Path = actualPath, BaseGuid = null, Data = new byte[] { 4, 5 } },
+                _ => new FlexibleBaseGuidUserObject { Path = actualPath, BaseGuid = "not-a-guid", Data = new byte[] { 4, 5 } }
+            };
+
+            var result = Assert.Single(Results(Batch(
+                new FakeServer(proxy),
+                $"{{\"guids\":[\"{guid}\"]}}",
+                Factory)));
+
+            Assert.Equal("projection_failure", result.GetProperty("status").GetString());
+            Assert.Equal("implementation_projection_failed", result.GetProperty("error").GetString());
+            var provenance = result.GetProperty("provenance");
+            Assert.Equal(path, provenance.GetProperty("path").GetString());
+            Assert.Equal(2, provenance.GetProperty("contentByteLength").GetInt64());
+            Assert.Equal(
+                "2FA1B377BF67309F65E5E7BC9D924345CA648DEC4E601A398A9CB497DCBA3765",
+                provenance.GetProperty("contentSha256").GetString());
+            Assert.False(result.TryGetProperty("implementation", out _));
+            Assert.False(result.TryGetProperty("params", out _));
+            Assert.Equal(1, proxy.CreateInstanceCalls);
+        }
+
+        [Fact]
+        public void Malformed_proxy_failure_is_selector_local_and_mixed_batch_outcomes_survive()
+        {
+            const string goodGuid = "e0000000-0000-0000-0000-000000000001";
+            var good = Proxy(
+                "Good",
+                guid: goodGuid,
+                libraryGuid: "e0000000-0000-0000-0000-000000000002",
+                componentFactory: () => new FakeComponent(Guid.Parse(goodGuid)));
+            var malformed = new ThrowingGuidProxy("Affected");
+            var server = new FakeServer(good, malformed);
+            server.AddAssembly(good.LibraryGuid, AssemblyInfo());
+
+            var response = Batch(server, "{\"names\":[\"Good\",\"Affected\",\"Good\"]}");
+
+            Assert.True(response.Success);
+            var results = Results(response);
+            Assert.Equal(
+                new[] { "success", "projection_failure", "success" },
+                results.Select(result => result.GetProperty("status").GetString()).ToArray());
+            Assert.Equal("proxy_projection_failed", results[1].GetProperty("error").GetString());
+            Assert.Equal(
+                new[] { "Good", "Affected", "Good" },
+                results.Select(ResultSelectorValue).ToArray());
+            Assert.Equal(2, good.CreateInstanceCalls);
+            Assert.Equal(1, server.ObjectProxiesReads);
+            Assert.Equal(0, server.FindObjectsCalls);
+        }
+
+        [Fact]
+        public void Guid_resolution_preserves_exact_match_but_never_guesses_not_found_after_incomplete_scan()
+        {
+            const string goodGuid = "f0000000-0000-0000-0000-000000000001";
+            const string missingGuid = "f0000000-0000-0000-0000-000000000099";
+            var good = Proxy(
+                "Good Guid",
+                guid: goodGuid,
+                libraryGuid: "f0000000-0000-0000-0000-000000000002",
+                componentFactory: () => new FakeComponent(Guid.Parse(goodGuid)));
+            var server = new FakeServer(new ThrowingGuidProxy("Unknown Guid"), good);
+            server.AddAssembly(good.LibraryGuid, AssemblyInfo());
+
+            var results = Results(Batch(
+                server,
+                $"{{\"guids\":[\"{goodGuid}\",\"{missingGuid}\"]}}"));
+
+            Assert.Equal("success", results[0].GetProperty("status").GetString());
+            Assert.Equal("projection_failure", results[1].GetProperty("status").GetString());
+            Assert.Equal("proxy_projection_failed", results[1].GetProperty("error").GetString());
+            Assert.Equal(missingGuid, results[1].GetProperty("guid").GetString());
+            Assert.Equal(1, good.CreateInstanceCalls);
+            Assert.Equal(1, server.ObjectProxiesReads);
+        }
+
+        [Fact]
+        public void Name_resolution_does_not_read_exposure_after_obsolete_already_excludes_proxy()
+        {
+            const string guid = "f1000000-0000-0000-0000-000000000001";
+            var selected = Proxy(
+                "Eligible",
+                guid: guid,
+                libraryGuid: "f1000000-0000-0000-0000-000000000002",
+                componentFactory: () => new FakeComponent(Guid.Parse(guid)));
+            var excluded = new ObsoleteThrowingExposureProxy("Eligible");
+            var server = new FakeServer(excluded, selected);
+            server.AddAssembly(selected.LibraryGuid, AssemblyInfo());
+
+            var result = Assert.Single(Results(Batch(server, "{\"names\":[\"Eligible\"]}")));
+
+            Assert.Equal("success", result.GetProperty("status").GetString());
+            Assert.Equal(guid, result.GetProperty("guid").GetString());
+            Assert.Equal(1, selected.CreateInstanceCalls);
+            Assert.Equal(0, excluded.ExposureReads);
+        }
+
         private static void AssertAuditComponent(
             JsonElement component,
             string name,
@@ -953,9 +1069,9 @@ namespace Rook.Tests.Handlers
             public string[]? LastTerms { get; private set; }
             public int LastMaximumResults { get; private set; }
 
-            public FakeServer(params FakeProxy[] proxies)
+            public FakeServer(params object[] proxies)
             {
-                _proxies = proxies.Cast<object>().ToArray();
+                _proxies = proxies;
                 SearchResults = _proxies.ToArray();
                 SearchScores = Enumerable.Repeat(1.0, proxies.Length).ToArray();
                 CompareCalls = 0;
@@ -1021,6 +1137,70 @@ namespace Rook.Tests.Handlers
             public string Path { get; init; } = null!;
             public Guid BaseGuid { get; init; }
             public object Data => throw new InvalidOperationException("Synthetic Data getter failure.");
+        }
+
+        private sealed class FlexibleBaseGuidUserObject
+        {
+            public string Path { get; init; } = null!;
+            public object? BaseGuid { get; init; }
+            public object? Data { get; init; }
+        }
+
+        private sealed class ThrowingBaseGuidUserObject
+        {
+            public string Path { get; init; } = null!;
+            public object BaseGuid => throw new InvalidOperationException("Synthetic BaseGuid getter failure.");
+            public object? Data { get; init; }
+        }
+
+        private sealed class ThrowingGuidProxy
+        {
+            public object Desc { get; }
+            public Guid Guid => throw new InvalidOperationException("Synthetic Guid getter failure.");
+            public Guid LibraryGuid { get; } = Guid.NewGuid();
+            public FakeProxyKind Kind { get; } = FakeProxyKind.CompiledObject;
+            public bool Obsolete { get; } = false;
+            public string Location { get; } = "C:/synthetic/malformed.ghuser";
+
+            public ThrowingGuidProxy(string name)
+            {
+                Desc = new FakeDescription(name, "Synthetic", "Operators", exposure: 1);
+            }
+
+            public object CreateInstance() =>
+                throw new InvalidOperationException("Malformed proxy must not be instantiated.");
+        }
+
+        private sealed class ObsoleteThrowingExposureProxy
+        {
+            public ThrowingExposureDescription Desc { get; }
+            public Guid Guid { get; } = Guid.NewGuid();
+            public bool Obsolete { get; } = true;
+            public int ExposureReads => Desc.ExposureReads;
+
+            public ObsoleteThrowingExposureProxy(string name)
+            {
+                Desc = new ThrowingExposureDescription(name);
+            }
+        }
+
+        private sealed class ThrowingExposureDescription
+        {
+            public string Name { get; }
+            public int ExposureReads { get; private set; }
+            public FakeExposure Exposure
+            {
+                get
+                {
+                    ExposureReads++;
+                    throw new InvalidOperationException("Synthetic Exposure getter failure.");
+                }
+            }
+
+            public ThrowingExposureDescription(string name)
+            {
+                Name = name;
+            }
         }
 
         private sealed class FakeComponent

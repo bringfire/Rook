@@ -6536,16 +6536,6 @@ namespace Rook.Handlers
             try
             {
                 var proxySnapshot = ReadObjectProxySnapshot(server);
-                var guidLookup = new Dictionary<Guid, object>();
-                foreach (var proxy in proxySnapshot)
-                {
-                    var guidValue = RequireHostProperty(proxy, "Guid");
-                    if (guidValue is not Guid guid)
-                        throw new InvalidOperationException("Proxy Guid was not a GUID.");
-                    if (!guidLookup.ContainsKey(guid))
-                        guidLookup.Add(guid, proxy);
-                }
-
                 var results = new List<Dictionary<string, object?>>();
                 foreach (var selectorValue in selectors)
                 {
@@ -6559,7 +6549,40 @@ namespace Rook.Handlers
                         }
 
                         var canonicalGuid = guid.ToString("D").ToLowerInvariant();
-                        if (!guidLookup.TryGetValue(guid, out var proxy))
+                        object? proxy = null;
+                        var duplicateGuid = false;
+                        var incompleteGuidScan = false;
+                        foreach (var candidateProxy in proxySnapshot)
+                        {
+                            try
+                            {
+                                var guidValue = RequireHostProperty(candidateProxy, "Guid");
+                                if (guidValue is not Guid candidateGuid)
+                                    throw new InvalidOperationException("Proxy Guid was not a GUID.");
+                                if (candidateGuid != guid)
+                                    continue;
+                                if (proxy != null)
+                                    duplicateGuid = true;
+                                else
+                                    proxy = candidateProxy;
+                            }
+                            catch
+                            {
+                                incompleteGuidScan = true;
+                            }
+                        }
+
+                        if (duplicateGuid || (proxy == null && incompleteGuidScan))
+                        {
+                            results.Add(MetadataFailure(
+                                selector,
+                                "projection_failure",
+                                "proxy_projection_failed",
+                                canonicalGuid));
+                            continue;
+                        }
+
+                        if (proxy == null)
                         {
                             results.Add(MetadataFailure(
                                 selector,
@@ -6579,20 +6602,50 @@ namespace Rook.Handlers
                     }
 
                     var matches = new List<object>();
+                    var incompleteNameScan = false;
                     foreach (var proxy in proxySnapshot)
                     {
-                        var desc = RequireHostProperty(proxy, "Desc")
-                            ?? throw new InvalidOperationException("Proxy Desc was null.");
-                        var name = RequireHostString(desc, "Name");
-                        var obsolete = RequireHostProperty(proxy, "Obsolete");
-                        if (obsolete is not bool obsoleteValue)
-                            throw new InvalidOperationException("Proxy Obsolete was not boolean.");
-                        var exposure = ReadExposure(desc);
-                        if (!obsoleteValue && (exposure & 16) == 0 &&
-                            string.Equals(name, selectorValue, StringComparison.OrdinalIgnoreCase))
+                        object desc;
+                        string name;
+                        try
                         {
-                            matches.Add(proxy);
+                            desc = RequireHostProperty(proxy, "Desc")
+                                ?? throw new InvalidOperationException("Proxy Desc was null.");
+                            name = RequireHostString(desc, "Name");
                         }
+                        catch
+                        {
+                            incompleteNameScan = true;
+                            continue;
+                        }
+
+                        if (!string.Equals(name, selectorValue, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        try
+                        {
+                            var obsolete = RequireHostProperty(proxy, "Obsolete");
+                            if (obsolete is not bool obsoleteValue)
+                                throw new InvalidOperationException("Proxy Obsolete was not boolean.");
+                            if (obsoleteValue)
+                                continue;
+                            var exposure = ReadExposure(desc);
+                            if ((exposure & 16) == 0)
+                                matches.Add(proxy);
+                        }
+                        catch
+                        {
+                            incompleteNameScan = true;
+                        }
+                    }
+
+                    if (incompleteNameScan)
+                    {
+                        results.Add(MetadataFailure(
+                            selector,
+                            "projection_failure",
+                            "proxy_projection_failed"));
+                        continue;
                     }
 
                     if (matches.Count == 0)
@@ -6723,7 +6776,7 @@ namespace Rook.Handlers
 
             var result = MetadataPrefix(selector, candidate);
             object provenance;
-            Guid? baseGuid = null;
+            object? userObject = null;
             try
             {
                 if (candidate.SourceKind == "compiled")
@@ -6734,7 +6787,7 @@ namespace Rook.Handlers
                 {
                     var projection = ProjectUserObjectProvenance(proxy, userObjectFactory);
                     provenance = projection.Provenance;
-                    baseGuid = projection.BaseGuid;
+                    userObject = projection.UserObject;
                 }
             }
             catch
@@ -6762,7 +6815,7 @@ namespace Rook.Handlers
 
             try
             {
-                result["implementation"] = ProjectImplementation(component, candidate.SourceKind, baseGuid);
+                result["implementation"] = ProjectImplementation(component, candidate.SourceKind, userObject);
             }
             catch
             {
@@ -6821,9 +6874,6 @@ namespace Rook.Handlers
                 throw new InvalidOperationException("User-object path did not match its selected proxy.");
             }
 
-            var baseGuidValue = RequireHostProperty(userObject, "BaseGuid");
-            if (baseGuidValue is not Guid baseGuid)
-                throw new InvalidOperationException("User-object BaseGuid was not a GUID.");
             var data = RequireHostProperty(userObject, "Data");
             long? byteLength = null;
             string? sha256 = null;
@@ -6838,7 +6888,7 @@ namespace Rook.Handlers
 
             return new UserObjectProjection
             {
-                BaseGuid = baseGuid,
+                UserObject = userObject,
                 Provenance = new
                 {
                     Path = path,
@@ -6851,7 +6901,7 @@ namespace Rook.Handlers
         private static string NormalizeWindowsPath(string path) =>
             Path.GetFullPath(path).Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
 
-        private static object ProjectImplementation(object component, string sourceKind, Guid? baseGuid)
+        private static object ProjectImplementation(object component, string sourceKind, object? userObject)
         {
             var componentGuidValue = RequireHostProperty(component, "ComponentGuid");
             if (componentGuidValue is not Guid componentGuid)
@@ -6861,13 +6911,20 @@ namespace Rook.Handlers
                 ?? throw new InvalidOperationException("Runtime type FullName was null.");
             var assembly = type.Assembly;
             var assemblyName = assembly.GetName();
+            string? baseGuid = null;
+            if (sourceKind == "user_object")
+            {
+                var baseGuidValue = RequireHostProperty(
+                    userObject ?? throw new InvalidOperationException("User object was missing."),
+                    "BaseGuid");
+                if (baseGuidValue is not Guid parsedBaseGuid)
+                    throw new InvalidOperationException("User-object BaseGuid was not a GUID.");
+                baseGuid = parsedBaseGuid.ToString("D").ToLowerInvariant();
+            }
 
             return new
             {
-                BaseGuid = sourceKind == "user_object"
-                    ? baseGuid?.ToString("D").ToLowerInvariant()
-                        ?? throw new InvalidOperationException("User-object BaseGuid was missing.")
-                    : null,
+                BaseGuid = baseGuid,
                 ComponentGuid = componentGuid.ToString("D").ToLowerInvariant(),
                 RuntimeType = runtimeType,
                 RuntimeAssemblyName = assemblyName.Name,
@@ -6942,7 +6999,7 @@ namespace Rook.Handlers
 
         private sealed class UserObjectProjection
         {
-            public Guid BaseGuid { get; init; }
+            public object UserObject { get; init; } = null!;
             public object Provenance { get; init; } = null!;
         }
 
