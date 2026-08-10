@@ -1031,7 +1031,7 @@ before final reconciliation.
 - Consumes: approved Tasks 1-4.
 - Produces: durable architecture wording and a reproducible verification ledger only.
 
-- [ ] **Step 1: Add the concise architecture statement**
+- [x] **Step 1: Add the concise architecture statement**
 
 Record:
 
@@ -1047,7 +1047,7 @@ Existing T*/C* identities own graph execution after type selection.
 
 Do not copy the full specification or qualification reports into the architecture note.
 
-- [ ] **Step 2: Run the complete prescribed verification seam**
+- [x] **Step 2: Run the complete prescribed verification seam**
 
 Run all Task 4 commands plus:
 
@@ -1067,7 +1067,7 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore --verbosity minimal
 Report exact managed and Python pass/fail/warning counts. The only accepted Python
 failures are the two exact documented knowledge-mapping identities.
 
-- [ ] **Step 3: Run final source-surface and repository checks**
+- [x] **Step 3: Run final source-surface and repository checks**
 
 ```powershell
 $protectedDelta = git diff --unified=0 411613d7 -- `
@@ -1112,7 +1112,7 @@ raw grep: the production server and its causal test intentionally contain those 
 The zero-context diff scan above proves this slice did not add lines to protected
 execution/identity surfaces.
 
-- [ ] **Step 4: Reconcile the ledger**
+- [x] **Step 4: Reconcile the ledger**
 
 Mark only observed steps complete. Record:
 
@@ -1128,13 +1128,48 @@ worktree status
 confirmation of zero live/model contact
 ```
 
-- [ ] **Step 5: Commit documentation only**
+- [x] **Step 5: Commit documentation only**
 
 ```powershell
 git add docs/CURRENT_ARCHITECTURE.md `
   docs/superpowers/plans/2026-08-09-grasshopper-component-discovery-coherence.md
 git commit -m "docs: reconcile component discovery architecture"
 ```
+
+Observed Task 5 evidence on 2026-08-10: Python compilation passed. The managed
+companion compiled and its complete suite passed `3719/3719`. The primary Python seam
+passed `304/304` with `76` existing warnings. The knowledge seam passed `67` tests and
+retained exactly the two documented baseline failures:
+`TestGHOperationMapping::test_mapped_tools_return_operation` and
+`TestGHOperationMapping::test_mapping_covers_all_categories`.
+
+The exact slice diff from `411613d7` contains these `12` planned files:
+
+```text
+docs/CURRENT_ARCHITECTURE.md
+docs/superpowers/plans/2026-08-09-grasshopper-component-discovery-coherence.md
+docs/superpowers/specs/2026-08-08-grasshopper-component-discovery-coherence-design.md
+mcp_server/src/rook/agent/tool_dispatcher.py
+mcp_server/src/rook/learning/knowledge_injector.py
+mcp_server/src/rook/server.py
+mcp_server/tests/test_grasshopper_component_discovery_coherence.py
+mcp_server/tests/test_knowledge_injector.py
+mcp_server/tests/test_server_component_deprecation.py
+src/Rook.Tests/Handlers/GrasshopperComponentDiscoveryContractTests.cs
+src/Rook.Tests/InternalBridge/NativeGhBridgeRegistrarTests.cs
+src/Rook/Handlers/GrasshopperHandler.cs
+```
+
+Production remains exactly four owners with exact cumulative additions/deletions:
+`GrasshopperHandler.cs 789/239`, `server.py 294/60`, `tool_dispatcher.py 4/2`, and
+`knowledge_injector.py 1/0`, totaling `1088/301`. The bidirectional zero-context scan
+found no added or deleted `gh_edit`, `gh_snapshot`, `T*`, `C*`, or receipt line. The
+AST-isolated metadata regression remains authoritative for zero knowledge or
+`/gh/library` identity fallback. `git diff --check` passed. Immediately before the
+documentation-only commit, worktree status contained only the intended
+`docs/CURRENT_ARCHITECTURE.md` and plan-ledger changes. No model, Rhino, Grasshopper,
+deployment, or other live-system contact occurred during implementation or final
+verification.
 
 Stop for independent final review. Do not deploy, contact Rhino/Grasshopper, run the Opus
 control, run a local-model comparison, push, or open a PR without separate authorization.
