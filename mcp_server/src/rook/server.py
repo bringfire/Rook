@@ -13613,15 +13613,18 @@ def _project_gh_batch_component_info_result(
         "runtimeAssemblyVersion", "runtimeAssemblyLocation",
     }
 
-    def canonical_guid_value(value: Any) -> str | None:
-        try:
-            import uuid
-            return str(uuid.UUID(value)) if type(value) is str else None
-        except (ValueError, AttributeError, TypeError):
-            return None
-
     def canonical_guid(value: Any) -> bool:
-        return canonical_guid_value(value) == value
+        if type(value) is not str or len(value) != 36:
+            return False
+        parts = value.split("-")
+        return (
+            [len(part) for part in parts] == [8, 4, 4, 4, 12]
+            and all(
+                char in "0123456789abcdef"
+                for part in parts
+                for char in part
+            )
+        )
 
     def valid_proxy(item: dict) -> bool:
         if not canonical_guid(item.get("guid")) or type(item.get("name")) is not str:
@@ -13708,13 +13711,8 @@ def _project_gh_batch_component_info_result(
         ):
             return malformed
         status = item.get("status")
-        selector_guid = canonical_guid_value(expected) if selector_kind == "guid" else None
-        if status == "invalid_guid":
-            if selector_kind != "guid" or selector_guid is not None:
-                return malformed
-        elif selector_kind == "guid":
-            if selector_guid is None or item.get("guid") != selector_guid:
-                return malformed
+        if status == "invalid_guid" and selector_kind != "guid":
+            return malformed
         if status == "success":
             expected_keys = {"selector", "status", "provenance", "implementation", "params"} | proxy_fields
             if (

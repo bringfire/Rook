@@ -325,40 +325,87 @@ async def test_status_error_or_prefix_disagreement_refuses(monkeypatch, mutation
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("arguments", "item"),
+    ("selector", "item"),
     [
         (
-            {"names": ["Area"]},
-            {
-                "selector": {"kind": "name", "value": "Area"},
-                "status": "invalid_guid",
-                "error": "invalid_guid",
-            },
+            f"({GUID})",
+            _compiled_success("guid", f"({GUID})"),
         ),
         (
-            {"guids": [GUID.upper()]},
-            {
-                **_compiled_success("guid", GUID.upper()),
-                "guid": "10000000-0000-0000-0000-000000000002",
-            },
-        ),
-        (
-            {"guids": [GUID.upper()]},
-            {
-                "selector": {"kind": "guid", "value": GUID.upper()},
-                "status": "not_found",
-                "error": "component_not_found",
-                "guid": "10000000-0000-0000-0000-000000000002",
-            },
+            "{0x10000000,0x0000,0x0000,{0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01}}",
+            _compiled_success(
+                "guid",
+                "{0x10000000,0x0000,0x0000,{0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01}}",
+            ),
         ),
     ],
 )
-async def test_guid_outcome_cannot_rewrite_selector_identity(monkeypatch, arguments, item):
+async def test_dotnet_guid_syntax_success_is_owned_by_managed_host(
+    monkeypatch, selector, item
+):
     monkeypatch.setattr(
         server, "call_rhino", AsyncMock(return_value=_host_batch([item]))
     )
 
-    result = await server._call_tool_dispatch("gh_batch_component_info", arguments)
+    result = await server._call_tool_dispatch(
+        "gh_batch_component_info", {"guids": [selector]}
+    )
+
+    assert result["success"] is True
+    assert result["data"]["results"] == [item]
+
+
+@pytest.mark.asyncio
+async def test_python_only_urn_guid_syntax_can_be_managed_invalid(monkeypatch):
+    selector = f"urn:uuid:{GUID}"
+    item = {
+        "selector": {"kind": "guid", "value": selector},
+        "status": "invalid_guid",
+        "error": "invalid_guid",
+    }
+    monkeypatch.setattr(
+        server, "call_rhino", AsyncMock(return_value=_host_batch([item]))
+    )
+
+    result = await server._call_tool_dispatch(
+        "gh_batch_component_info", {"guids": [selector]}
+    )
+
+    assert result["success"] is True
+    assert result["data"]["results"] == [item]
+
+
+@pytest.mark.asyncio
+async def test_invalid_guid_status_is_impossible_for_name_selector(monkeypatch):
+    item = {
+        "selector": {"kind": "name", "value": "Area"},
+        "status": "invalid_guid",
+        "error": "invalid_guid",
+    }
+    monkeypatch.setattr(
+        server, "call_rhino", AsyncMock(return_value=_host_batch([item]))
+    )
+
+    result = await server._call_tool_dispatch(
+        "gh_batch_component_info", {"names": ["Area"]}
+    )
+
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_returned_guid_must_be_canonical_lowercase_d_format(monkeypatch):
+    item = {
+        **_compiled_success("guid", GUID),
+        "guid": "ABCDEF00-0000-0000-0000-000000000001",
+    }
+    monkeypatch.setattr(
+        server, "call_rhino", AsyncMock(return_value=_host_batch([item]))
+    )
+
+    result = await server._call_tool_dispatch(
+        "gh_batch_component_info", {"guids": [GUID]}
+    )
 
     assert result["success"] is False
 

@@ -826,6 +826,17 @@ owner; the strict projection is local to the two planned helpers and adds no mod
 registry, cache, retry, or result taxonomy. No model, Rhino, Grasshopper, provider, or
 other live-system contact occurred.
 
+Task 3 review repair on 2026-08-10 removed Python's independent `uuid.UUID()`
+classification of caller-supplied GUID selectors. The three required managed-ownership
+regressions failed before the repair: parenthesized and `X`-format selectors with
+truthful managed successes, and a `urn:uuid:` selector with a truthful managed
+`invalid_guid` result. Python now treats the exact echoed selector and managed status as
+authoritative while checking only lowercase D-format shape for any returned `guid`
+field. The focused module passes `33/33`; the complete Task 3 seam passes `255/255` with
+the same `76` existing warning emissions. The repair delta is `13 additions` and
+`15 deletions` in production; cumulative Task 3 production growth from the approved
+Task 2 head is `294 additions` and `60 deletions`.
+
 **Mandatory review gate:** stop. Review must verify zero pre-contact calls on invalid
 input, exactly one target call for admitted input, exact correlation, names-only summary
 compatibility, all-failure MCP success, and zero knowledge/library identity work in
