@@ -127,7 +127,7 @@ projects or package versions to work around it.
 - Produces: `internal ApiResponse SearchLibraryFromComponentServer(object server, string? search, string? category, int limit, bool exact)` for the ordinary branch; the public `SearchLibrary()` retains the existing audit branch and delegates only non-audit calls.
 - Produces candidate JSON fields: `name`, `nickName`, `description`, `category`, `subCategory`, `guid`, `sourceKind`, plus search-only `nativeScore` and `matchSource`.
 
-- [ ] **Step 1: Restore the managed test project and record the exact baseline command**
+- [x] **Step 1: Restore the managed test project and record the exact baseline command**
 
 Run:
 
@@ -140,7 +140,10 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore `
 
 Record the pass/fail counts and warning count in this plan. Stop on unexplained failures.
 
-- [ ] **Step 2: Write RED ordinary-discovery contract tests**
+Observed on 2026-08-10: restore succeeded; the exact incremental baseline completed with
+`88 passed`, `0 failed`, `0 skipped`, and `0 warning lines`.
+
+- [x] **Step 2: Write RED ordinary-discovery contract tests**
 
 Create causal fake host types in the test file. The fake server must expose:
 
@@ -178,7 +181,7 @@ Audit_branch_shape_and_source_path_remain_unchanged
 Use synthetic GUIDs and synthetic plugin labels only. Do not use installed Ladybug,
 Honeybee, or native component identities as product fixtures.
 
-- [ ] **Step 3: Run the new tests and prove RED**
+- [x] **Step 3: Run the new tests and prove RED**
 
 Run:
 
@@ -191,7 +194,10 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore `
 Expected: failures because `SearchLibraryFromComponentServer` and the new response fields
 do not exist, and current ordinary search truncates registration order.
 
-- [ ] **Step 4: Add the smallest local ordinary-search seam**
+Observed: `13 failed`, `0 passed`. Every failure was the expected missing
+`SearchLibraryFromComponentServer` or `SearchLibraryAuditUnchanged` seam.
+
+- [x] **Step 4: Add the smallest local ordinary-search seam**
 
 Keep `SearchLibrary()` as the public owner:
 
@@ -220,7 +226,7 @@ public ApiResponse SearchLibrary(
 its filtering, counts, ordering, fields, and JSON response shape/values must remain
 behaviorally equivalent. Do not route audit through ordinary candidate projection.
 
-- [ ] **Step 5: Implement complete native acquisition and deterministic filtering**
+- [x] **Step 5: Implement complete native acquisition and deterministic filtering**
 
 The ordinary helper must execute this exact decision:
 
@@ -273,7 +279,7 @@ new ApiResponse
 };
 ```
 
-- [ ] **Step 6: Run GREEN and the adjacent managed seam**
+- [x] **Step 6: Run GREEN and the adjacent managed seam**
 
 Run:
 
@@ -285,7 +291,10 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore `
 
 Expected: all selected tests pass.
 
-- [ ] **Step 7: Verify audit and prohibited surfaces mechanically**
+Observed: `80 passed`, `0 failed`, `0 skipped`, and `0 warning lines` on the exact
+incremental GREEN command.
+
+- [x] **Step 7: Verify audit and prohibited surfaces mechanically**
 
 Run:
 
@@ -298,7 +307,12 @@ git diff --check
 Review the ordinary-search method body and prove none of those metadata operations is
 reachable from it. Report production additions/deletions.
 
-- [ ] **Step 8: Commit Task 1**
+Observed: the isolated ordinary-search body contains none of `CreateInstance`,
+`GH_UserObject`, `SHA256`, or `FindAssembly`. Task 1 production growth is `340 additions`
+and `140 deletions` in the existing managed owner; the net growth is the native search,
+strict projection, deterministic ordering, and extracted behavior-equivalent audit seam.
+
+- [x] **Step 8: Commit Task 1**
 
 ```powershell
 git add src/Rook/Handlers/GrasshopperHandler.cs `

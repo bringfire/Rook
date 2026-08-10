@@ -4338,168 +4338,10 @@ namespace Rook.Handlers
             try
             {
                 var server = componentServer.Server!;
-
-                var proxiesProp = server.GetType().GetProperty("ObjectProxies");
-                var proxies = proxiesProp?.GetValue(server) as System.Collections.IEnumerable;
-
-                if (proxies == null)
-                    return new ApiResponse { Success = false, Data = "Could not retrieve proxies" };
-
-                var results = new List<object>();
-                var searchLower = search?.ToLowerInvariant();
-                int totalScanned = 0;
-                int obsoleteCount = 0;
-                int hiddenCount = 0;
-
-                foreach (var proxy in proxies)
-                {
-                    if (!audit && results.Count >= limit) break;
-
-                    var descProp = proxy.GetType().GetProperty("Desc");
-                    var desc = descProp?.GetValue(proxy);
-
-                    var nameProp = desc?.GetType().GetProperty("Name");
-                    var name = nameProp?.GetValue(desc)?.ToString() ?? "";
-
-                    var nicknameProp = desc?.GetType().GetProperty("NickName");
-                    var nickname = nicknameProp?.GetValue(desc)?.ToString();
-
-                    var descriptionProp = desc?.GetType().GetProperty("Description");
-                    var description = descriptionProp?.GetValue(desc)?.ToString();
-
-                    var categoryProp = desc?.GetType().GetProperty("Category");
-                    var componentCat = categoryProp?.GetValue(desc)?.ToString();
-
-                    var subcategoryProp = desc?.GetType().GetProperty("SubCategory");
-                    var componentSubCat = subcategoryProp?.GetValue(desc)?.ToString();
-
-                    var guidProp = proxy.GetType().GetProperty("Guid");
-                    var guid = guidProp?.GetValue(proxy)?.ToString();
-
-                    var obsoleteProp = proxy.GetType().GetProperty("Obsolete");
-                    var obsolete = obsoleteProp?.GetValue(proxy) as bool? ?? false;
-
-                    // Read Exposure from Desc (GH_Exposure flags enum)
-                    int exposure = 0;
-                    string exposureLabel = "unknown";
-                    if (audit)
-                    {
-                        var exposureProp = desc?.GetType().GetProperty("Exposure");
-                        if (exposureProp != null)
-                        {
-                            var exposureVal = exposureProp.GetValue(desc);
-                            if (exposureVal != null)
-                            {
-                                exposure = Convert.ToInt32(exposureVal);
-                                // Decode flags: primary=1, secondary=2, tertiary=4,
-                                // quarantine=8, hidden=16, obscure=32
-                                var flags = new List<string>();
-                                if ((exposure & 1) != 0) flags.Add("primary");
-                                if ((exposure & 2) != 0) flags.Add("secondary");
-                                if ((exposure & 4) != 0) flags.Add("tertiary");
-                                if ((exposure & 8) != 0) flags.Add("quarantine");
-                                if ((exposure & 16) != 0) flags.Add("hidden");
-                                if ((exposure & 32) != 0) flags.Add("obscure");
-                                exposureLabel = flags.Count > 0 ? string.Join("|", flags) : "none";
-                            }
-                        }
-
-                        totalScanned++;
-                        if (obsolete) obsoleteCount++;
-                        if ((exposure & 16) != 0) hiddenCount++;
-                    }
-
-                    // Filter by category if provided (matches category or subcategory)
-                    if (!string.IsNullOrEmpty(category))
-                    {
-                        var filterCatLower = category.ToLowerInvariant();
-                        var compCatLower = (componentCat ?? "").ToLowerInvariant();
-                        var compSubCatLower = (componentSubCat ?? "").ToLowerInvariant();
-                        var catMatches = compCatLower.Contains(filterCatLower) ||
-                                        compSubCatLower.Contains(filterCatLower);
-                        if (!catMatches) continue;
-                    }
-
-                    // Filter by search term if provided
-                    if (!string.IsNullOrEmpty(searchLower))
-                    {
-                        bool matches;
-                        if (exact)
-                        {
-                            // Exact mode: name must match exactly (case-insensitive)
-                            matches = name.ToLowerInvariant() == searchLower;
-                        }
-                        else
-                        {
-                            matches = name.ToLowerInvariant().Contains(searchLower) ||
-                                      (nickname?.ToLowerInvariant().Contains(searchLower) ?? false) ||
-                                      (description?.ToLowerInvariant().Contains(searchLower) ?? false);
-                        }
-                        if (!matches) continue;
-                    }
-
-                    // Skip obsolete unless in audit mode
-                    if (obsolete && !audit) continue;
-
-                    if (audit)
-                    {
-                        // In audit mode, only include deprecated/hidden components
-                        // to avoid exceeding the 1MB bridge response buffer.
-                        // Summary counts cover the full set.
-                        if (obsolete || (exposure & 16) != 0 || (exposure & 8) != 0)
-                        {
-                            results.Add(new
-                            {
-                                Name = name,
-                                NickName = nickname,
-                                Category = componentCat,
-                                SubCategory = componentSubCat,
-                                Guid = guid,
-                                Obsolete = obsolete,
-                                Exposure = exposure,
-                                ExposureLabel = exposureLabel
-                            });
-                        }
-                    }
-                    else
-                    {
-                        results.Add(new
-                        {
-                            Name = name,
-                            NickName = nickname,
-                            Description = description,
-                            Category = componentCat,
-                            SubCategory = componentSubCat,
-                            Guid = guid
-                        });
-                    }
-                }
-
                 if (audit)
-                {
-                    return new ApiResponse
-                    {
-                        Success = true,
-                        Data = new
-                        {
-                            TotalScanned = totalScanned,
-                            DeprecatedCount = results.Count,
-                            ObsoleteCount = obsoleteCount,
-                            HiddenCount = hiddenCount,
-                            Components = results
-                        }
-                    };
-                }
+                    return SearchLibraryAuditUnchanged(server, search, category, exact);
 
-                return new ApiResponse
-                {
-                    Success = true,
-                    Data = new
-                    {
-                        Count = results.Count,
-                        Components = results
-                    }
-                };
+                return SearchLibraryFromComponentServer(server, search, category, limit, exact);
             }
             catch (Exception ex)
             {
@@ -4509,6 +4351,364 @@ namespace Rook.Handlers
                     Data = $"SearchLibrary failed: {ex.Message}"
                 };
             }
+        }
+
+        internal ApiResponse SearchLibraryFromComponentServer(
+            object server,
+            string? search,
+            string? category,
+            int limit,
+            bool exact)
+        {
+            try
+            {
+                var proxySnapshot = ReadObjectProxySnapshot(server);
+                var hasSearch = !string.IsNullOrEmpty(search);
+                var hasCategory = !string.IsNullOrEmpty(category);
+                var candidates = new List<LibraryCandidate>();
+
+                if (hasSearch)
+                {
+                    var findObjects = RequireHostMethod(server.GetType(), "FindObjects", 4);
+                    var arguments = new object?[]
+                    {
+                        new[] { search! },
+                        proxySnapshot.Count,
+                        null,
+                        null
+                    };
+                    var returnValue = findObjects.Invoke(server, arguments);
+                    if (returnValue is not int returnedCount ||
+                        arguments[2] is not Array foundProxies ||
+                        arguments[3] is not Array foundScores ||
+                        returnedCount != foundProxies.Length ||
+                        returnedCount != foundScores.Length)
+                    {
+                        throw new InvalidOperationException("FindObjects returned an incomplete candidate projection.");
+                    }
+
+                    for (var index = 0; index < returnedCount; index++)
+                    {
+                        var proxy = foundProxies.GetValue(index)
+                            ?? throw new InvalidOperationException("FindObjects returned a null proxy.");
+                        var scoreValue = foundScores.GetValue(index);
+                        if (scoreValue is not double score || double.IsNaN(score) || double.IsInfinity(score))
+                            throw new InvalidOperationException("FindObjects returned an invalid native score.");
+                        candidates.Add(ProjectLibraryCandidate(
+                            proxy,
+                            score,
+                            exact ? "exact_name" : "native_search"));
+                    }
+                }
+                else
+                {
+                    foreach (var proxy in proxySnapshot)
+                        candidates.Add(ProjectLibraryCandidate(proxy, null, null));
+                }
+
+                var filtered = candidates
+                    .Where(candidate => !candidate.Obsolete && (candidate.Exposure & 16) == 0)
+                    .Where(candidate => !hasCategory ||
+                        ContainsOrdinalIgnoreCase(candidate.Category, category!) ||
+                        ContainsOrdinalIgnoreCase(candidate.SubCategory, category!))
+                    .Where(candidate => !hasSearch || !exact ||
+                        string.Equals(candidate.Name, search, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                var compareProxies = RequireHostMethod(server.GetType(), "CompareProxies", 2);
+                filtered.Sort((left, right) =>
+                {
+                    if (hasSearch)
+                    {
+                        var scoreComparison = right.NativeScore!.Value.CompareTo(left.NativeScore!.Value);
+                        if (scoreComparison != 0)
+                            return scoreComparison;
+                    }
+
+                    var proxyComparisonValue = compareProxies.Invoke(server, new[] { left.Proxy, right.Proxy });
+                    if (proxyComparisonValue is not int proxyComparison)
+                        throw new InvalidOperationException("CompareProxies returned a non-integer result.");
+                    return proxyComparison != 0
+                        ? proxyComparison
+                        : StringComparer.Ordinal.Compare(left.Guid, right.Guid);
+                });
+
+                var returned = filtered
+                    .Take(Math.Max(0, limit))
+                    .Select(candidate => CandidatePayload(candidate, hasSearch))
+                    .ToList();
+
+                return new ApiResponse
+                {
+                    Success = true,
+                    Data = new
+                    {
+                        Count = returned.Count,
+                        ReturnedCount = returned.Count,
+                        TotalMatches = filtered.Count,
+                        Truncated = returned.Count < filtered.Count,
+                        Components = returned
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = $"SearchLibrary failed: {UnwrapInvocationException(ex).Message}"
+                };
+            }
+        }
+
+        private ApiResponse SearchLibraryAuditUnchanged(
+            object server,
+            string? search,
+            string? category,
+            bool exact)
+        {
+            var proxiesProp = server.GetType().GetProperty("ObjectProxies");
+            var proxies = proxiesProp?.GetValue(server) as System.Collections.IEnumerable;
+            if (proxies == null)
+                return new ApiResponse { Success = false, Data = "Could not retrieve proxies" };
+
+            var results = new List<object>();
+            var searchLower = search?.ToLowerInvariant();
+            var totalScanned = 0;
+            var obsoleteCount = 0;
+            var hiddenCount = 0;
+
+            foreach (var proxy in proxies)
+            {
+                var desc = proxy.GetType().GetProperty("Desc")?.GetValue(proxy);
+                var name = desc?.GetType().GetProperty("Name")?.GetValue(desc)?.ToString() ?? "";
+                var nickname = desc?.GetType().GetProperty("NickName")?.GetValue(desc)?.ToString();
+                var componentDescription = desc?.GetType().GetProperty("Description")?.GetValue(desc)?.ToString();
+                var componentCat = desc?.GetType().GetProperty("Category")?.GetValue(desc)?.ToString();
+                var componentSubCat = desc?.GetType().GetProperty("SubCategory")?.GetValue(desc)?.ToString();
+                var guid = proxy.GetType().GetProperty("Guid")?.GetValue(proxy)?.ToString();
+                var obsolete = proxy.GetType().GetProperty("Obsolete")?.GetValue(proxy) as bool? ?? false;
+
+                var exposure = 0;
+                var exposureLabel = "unknown";
+                var exposureVal = desc?.GetType().GetProperty("Exposure")?.GetValue(desc);
+                if (exposureVal != null)
+                {
+                    exposure = Convert.ToInt32(exposureVal);
+                    var flags = new List<string>();
+                    if ((exposure & 1) != 0) flags.Add("primary");
+                    if ((exposure & 2) != 0) flags.Add("secondary");
+                    if ((exposure & 4) != 0) flags.Add("tertiary");
+                    if ((exposure & 8) != 0) flags.Add("quarantine");
+                    if ((exposure & 16) != 0) flags.Add("hidden");
+                    if ((exposure & 32) != 0) flags.Add("obscure");
+                    exposureLabel = flags.Count > 0 ? string.Join("|", flags) : "none";
+                }
+
+                totalScanned++;
+                if (obsolete) obsoleteCount++;
+                if ((exposure & 16) != 0) hiddenCount++;
+
+                if (!string.IsNullOrEmpty(category))
+                {
+                    var filterCatLower = category.ToLowerInvariant();
+                    var catMatches = (componentCat ?? "").ToLowerInvariant().Contains(filterCatLower) ||
+                                     (componentSubCat ?? "").ToLowerInvariant().Contains(filterCatLower);
+                    if (!catMatches) continue;
+                }
+
+                if (!string.IsNullOrEmpty(searchLower))
+                {
+                    var matches = exact
+                        ? name.ToLowerInvariant() == searchLower
+                        : name.ToLowerInvariant().Contains(searchLower) ||
+                          (nickname?.ToLowerInvariant().Contains(searchLower) ?? false) ||
+                          (componentDescription?.ToLowerInvariant().Contains(searchLower) ?? false);
+                    if (!matches) continue;
+                }
+
+                if (obsolete || (exposure & 16) != 0 || (exposure & 8) != 0)
+                {
+                    results.Add(new
+                    {
+                        Name = name,
+                        NickName = nickname,
+                        Category = componentCat,
+                        SubCategory = componentSubCat,
+                        Guid = guid,
+                        Obsolete = obsolete,
+                        Exposure = exposure,
+                        ExposureLabel = exposureLabel
+                    });
+                }
+            }
+
+            return new ApiResponse
+            {
+                Success = true,
+                Data = new
+                {
+                    TotalScanned = totalScanned,
+                    DeprecatedCount = results.Count,
+                    ObsoleteCount = obsoleteCount,
+                    HiddenCount = hiddenCount,
+                    Components = results
+                }
+            };
+        }
+
+        private static List<object> ReadObjectProxySnapshot(object server)
+        {
+            var proxiesValue = RequireHostProperty(server, "ObjectProxies");
+            if (proxiesValue is not System.Collections.IEnumerable proxies)
+                throw new InvalidOperationException("ObjectProxies was not enumerable.");
+
+            var snapshot = new List<object>();
+            foreach (var proxy in proxies)
+                snapshot.Add(proxy ?? throw new InvalidOperationException("ObjectProxies contained null."));
+            return snapshot;
+        }
+
+        private static LibraryCandidate ProjectLibraryCandidate(
+            object proxy,
+            double? nativeScore,
+            string? matchSource)
+        {
+            var desc = RequireHostProperty(proxy, "Desc")
+                ?? throw new InvalidOperationException("Proxy Desc was null.");
+            var guidValue = RequireHostProperty(proxy, "Guid");
+            if (guidValue is not Guid guid)
+                throw new InvalidOperationException("Proxy Guid was not a GUID.");
+            var obsoleteValue = RequireHostProperty(proxy, "Obsolete");
+            if (obsoleteValue is not bool obsolete)
+                throw new InvalidOperationException("Proxy Obsolete was not boolean.");
+
+            return new LibraryCandidate
+            {
+                Proxy = proxy,
+                Name = RequireHostString(desc, "Name"),
+                NickName = ReadNullableHostString(desc, "NickName"),
+                Description = ReadNullableHostString(desc, "Description"),
+                Category = ReadNullableHostString(desc, "Category"),
+                SubCategory = ReadNullableHostString(desc, "SubCategory"),
+                Guid = guid.ToString("D").ToLowerInvariant(),
+                SourceKind = ReadSourceKind(proxy),
+                Obsolete = obsolete,
+                Exposure = ReadExposure(desc),
+                NativeScore = nativeScore,
+                MatchSource = matchSource
+            };
+        }
+
+        private static object CandidatePayload(LibraryCandidate candidate, bool includeSearchEvidence)
+        {
+            if (includeSearchEvidence)
+            {
+                return new
+                {
+                    candidate.Name,
+                    candidate.NickName,
+                    candidate.Description,
+                    candidate.Category,
+                    candidate.SubCategory,
+                    candidate.Guid,
+                    candidate.SourceKind,
+                    NativeScore = candidate.NativeScore!.Value,
+                    candidate.MatchSource
+                };
+            }
+
+            return new
+            {
+                candidate.Name,
+                candidate.NickName,
+                candidate.Description,
+                candidate.Category,
+                candidate.SubCategory,
+                candidate.Guid,
+                candidate.SourceKind
+            };
+        }
+
+        private static object? RequireHostProperty(object owner, string propertyName)
+        {
+            var property = owner.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance)
+                ?? throw new InvalidOperationException($"Required host property {propertyName} was missing.");
+            return property.GetValue(owner);
+        }
+
+        private static string RequireHostString(object owner, string propertyName)
+        {
+            var value = RequireHostProperty(owner, propertyName);
+            return value as string
+                ?? throw new InvalidOperationException($"Required host property {propertyName} was not a string.");
+        }
+
+        private static string? ReadNullableHostString(object owner, string propertyName)
+        {
+            var value = RequireHostProperty(owner, propertyName);
+            if (value == null || value is string)
+                return (string?)value;
+            throw new InvalidOperationException($"Host property {propertyName} was not a string or null.");
+        }
+
+        private static string ReadSourceKind(object proxy)
+        {
+            var value = RequireHostProperty(proxy, "Kind")
+                ?? throw new InvalidOperationException("Proxy Kind was null.");
+            if (!value.GetType().IsEnum)
+                throw new InvalidOperationException("Proxy Kind was not an enum.");
+            return value.ToString() switch
+            {
+                "CompiledObject" => "compiled",
+                "UserObject" => "user_object",
+                _ => throw new InvalidOperationException("Proxy Kind was unsupported.")
+            };
+        }
+
+        private static int ReadExposure(object desc)
+        {
+            var value = RequireHostProperty(desc, "Exposure")
+                ?? throw new InvalidOperationException("Proxy Exposure was null.");
+            var type = value.GetType();
+            if (!type.IsEnum && type != typeof(int))
+                throw new InvalidOperationException("Proxy Exposure was not an enum or Int32.");
+            return Convert.ToInt32(value);
+        }
+
+        private static MethodInfo RequireHostMethod(Type ownerType, string methodName, int parameterCount)
+        {
+            var matches = ownerType
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
+                .Where(method => method.Name == methodName && method.GetParameters().Length == parameterCount)
+                .ToArray();
+            return matches.Length == 1
+                ? matches[0]
+                : throw new InvalidOperationException($"Expected one host method {methodName}/{parameterCount}.");
+        }
+
+        private static bool ContainsOrdinalIgnoreCase(string? value, string search) =>
+            value?.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
+
+        private static Exception UnwrapInvocationException(Exception exception) =>
+            exception is TargetInvocationException { InnerException: not null } invocation
+                ? invocation.InnerException
+                : exception;
+
+        private sealed class LibraryCandidate
+        {
+            public object Proxy { get; init; } = null!;
+            public string Name { get; init; } = null!;
+            public string? NickName { get; init; }
+            public string? Description { get; init; }
+            public string? Category { get; init; }
+            public string? SubCategory { get; init; }
+            public string Guid { get; init; } = null!;
+            public string SourceKind { get; init; } = null!;
+            public bool Obsolete { get; init; }
+            public int Exposure { get; init; }
+            public double? NativeScore { get; init; }
+            public string? MatchSource { get; init; }
         }
 
         /// <summary>
