@@ -178,11 +178,12 @@ ordinary retrieval owner.
 
 ### Metadata
 
-The managed `/gh/batch-component-info` endpoint accepts GUIDs and reads proxy identity
-plus SDK-backed ports. The public MCP path currently accepts names only, consults
-`UnifiedStore`, and may select the first exact library result. The managed endpoint also
-currently replaces proxy `Name` and `NickName` with temporary-instance values. Both
-behaviors violate the ownership invariant.
+The managed `/gh/batch-component-info` endpoint currently accepts GUIDs and reads proxy
+identity plus SDK-backed ports. The public MCP path currently accepts names only,
+consults `UnifiedStore`, performs additional `/gh/library` calls for unresolved names,
+and may select the first exact library result. The managed endpoint also currently
+replaces proxy `Name` and `NickName` with temporary-instance values. Those behaviors
+violate the ownership invariant.
 
 ### Creation and canvas identity
 
@@ -191,6 +192,27 @@ the caller to use a GUID. This slice aligns discovery and metadata with that rul
 does not alter creation behavior or canvas identity.
 
 ## `gh_library` request branches
+
+Request strings have these exact branch semantics before the three branches below:
+
+```text
+search omitted or search == ""
+-> catalog browsing
+-> exact has no filtering effect
+
+search is any other string, including whitespace-only text
+-> actual search
+-> preserve the exact caller text without trimming
+
+category omitted or category == ""
+-> no category filter
+
+category is any other string, including whitespace-only text
+-> apply the existing category filter to the exact caller text without trimming
+```
+
+Python MCP dispatch and direct `ToolDispatcher` dispatch preserve these distinctions.
+Neither path turns nonempty whitespace into omission.
 
 ### Audit branch
 
@@ -445,6 +467,35 @@ Requests containing both families, neither family, an empty selected family, a
 non-array family, or a non-string element fail before target contact. The handler does
 not trim, case-fold, coerce, or otherwise rewrite admitted strings.
 
+### Selector-resolution ownership
+
+One admitted batch makes exactly one managed target call. Ownership is fixed as:
+
+```text
+Python MCP owner
+-> validate exactly one nonempty selector family before target contact
+-> forward the exact admitted selector body once to /gh/batch-component-info
+-> perform no UnifiedStore lookup and no /gh/library call
+-> validate exact ordered host correlation against the admitted selectors
+-> add names-only resolved/unresolved compatibility summaries
+-> retain the existing public MCP result projection
+
+Native-to-managed bridge
+-> forward the request body unchanged
+
+Managed Grasshopper owner
+-> accept names or GUIDs
+-> obtain one live component-server view for the admitted batch
+-> resolve names by a complete eligible case-insensitive exact Desc.Name scan
+-> produce exactly one ordered outcome per selector, including duplicates
+-> own proxy identity, source-kind provenance, temporary implementation, and Params
+```
+
+The managed response contains the selector evidence needed for Python to verify
+correlation. Missing, extra, reordered, or rewritten selector outcomes make the entire
+public operation fail. Python never reconstructs a successful host outcome and never
+performs a second target call to repair one.
+
 For every admitted element, in original order and including duplicates:
 
 ```text
@@ -597,6 +648,39 @@ runtimeAssemblyVersion:
 runtimeAssemblyLocation:
   exact host string or actual host null
 ```
+
+Each field has exactly one host source:
+
+```text
+baseGuid
+  user_object -> selected GH_UserObject.BaseGuid
+  compiled    -> code-owned null
+
+componentGuid
+  -> temporary component instance ComponentGuid
+
+runtimeType
+  -> temporary component instance GetType().FullName
+
+runtimeAssemblyName
+  -> temporary component instance GetType().Assembly.GetName().Name
+
+runtimeAssemblyVersion
+  -> temporary component instance GetType().Assembly.GetName().Version.ToString()
+     when Version is non-null
+  -> actual host null when Version is null
+
+runtimeAssemblyLocation
+  -> temporary component instance GetType().Assembly.Location
+```
+
+The implementation projector does not substitute `Type.Name`,
+`AssemblyQualifiedName`, proxy fields, provenance fields, or another assembly lookup.
+Apart from the code-owned compiled `baseGuid=null`, a host-returned null is admitted only
+for the three nullable runtime-assembly fields. A null `FullName`, missing or unreadable
+property, thrown getter, thrown `GetName()`, invalid GUID, or unexpected runtime type
+produces the implementation projection failure below. Empty returned strings remain
+empty strings.
 
 Empty host strings remain empty strings. Missing properties, unreadable values, invalid
 GUID projection, or unexpected runtime types produce:
@@ -960,6 +1044,9 @@ Use synthetic causal proxies, never installed-plugin fixtures, to prove:
 Prove:
 
 - input admits exactly one nonempty selector family;
+- the managed endpoint accepts either admitted selector family from one forwarded body;
+- `NativeGhBridgeRegistrar` forwards the admitted names or GUID body unchanged;
+- one live component-server view owns name resolution and metadata for the batch;
 - selector strings, order, case, and duplicates are preserved;
 - parsed and resolved GUIDs use canonical lowercase format;
 - proxy fields remain authoritative when instance names differ;
@@ -992,11 +1079,15 @@ Prove through direct MCP and `rook_tools_call` paths:
 - `gh_library` schemas, arguments, additive results, and failures pass through the
   existing public projection;
 - `gh_batch_component_info` selector validation and ordered outcomes are identical;
+- admitted metadata sends exactly one unchanged selector body to
+  `/gh/batch-component-info`, with zero `UnifiedStore` and `/gh/library` resolution;
+- names-only compatibility summaries derive only from the correlated managed outcomes;
 - complete admitted all-failure batches remain MCP `isError=false`;
 - top-level request/target/host failures become MCP `isError=true`;
 - no gateway double wrapping appears;
 - both authoritative tools bypass knowledge injection;
-- direct `ToolDispatcher` preserves `exact`;
+- direct `ToolDispatcher` preserves `exact` plus omitted, empty, and nonempty-whitespace
+  search/category semantics;
 - the two unrelated knowledge-injector baseline failures retain their exact identities
   and signatures, with no new failures.
 
