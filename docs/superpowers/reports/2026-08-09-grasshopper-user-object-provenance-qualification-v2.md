@@ -70,6 +70,7 @@ shared execution implementation, not the package that supplied a `.ghuser` file.
 `.gha` components may use authoritative assembly provenance. A `.ghuser` component uses
 its current-installation proxy GUID plus exact user-object path, description, and content
 length/fingerprint. `BaseGuid` and runtime assembly remain implementation metadata.
+The compiled-component half is established by the [prior native-discovery qualification](2026-08-08-grasshopper-native-component-discovery-qualification.md), whose retained `native-discovery.json` SHA-256 is `254A9BF5A8EEE5DCCA72A37AD08DF20EDF63271F55E2F14AC4587BC180481988`.
 
 ## Claims and non-claims
 
