@@ -1,10 +1,10 @@
 # Grasshopper Component Discovery Coherence Design
 
-**Status:** Task 0 design proposed for independent review; production contract provisional
+**Status:** Implementation-ready production contract; awaiting independent review
 **Date:** 2026-08-08
 **Amended:** 2026-08-09
-**Baseline:** `4bf6fad8418d90590f3ecb4e7cc7921d7894deae`
-**Branch:** `codex/grasshopper-component-discovery-coherence-design`
+**Production baseline:** `a0f2a12e3388f069e51dbaa8e30c646983c26d76`
+**Branch:** `codex/grasshopper-component-discovery-coherence-production-design`
 
 ## Purpose
 
@@ -12,559 +12,810 @@ Rook already exposes Grasshopper's live registered component catalog and SDK-bac
 component metadata. The missing quality is a coherent ownership chain between search,
 type identity, metadata lookup, and creation.
 
-This slice establishes that chain:
+This contract establishes that chain:
 
 ```text
-Grasshopper native search
--> authoritative component-type GUID
--> authoritative SDK metadata
--> agent decision
--> validated mutation
+Grasshopper native retrieval proposes candidates
+-> proxy-owned identity distinguishes component types
+-> source-kind provenance describes the selected type
+-> temporary-instance metadata describes its implementation and ports
+-> the selected component-type GUID enters validated mutation
+-> existing T* and C* identities own graph execution
 ```
 
-It does not create a new catalog, retrieval framework, or component vocabulary.
-Grasshopper remains the authority for installed component registration, native search,
-aliases, and native relevance scores. Rook owns filtering, public compatibility,
-deterministic tie-breaking, and safe identity handoff. Knowledge owns none of those
-facts.
+Grasshopper remains authoritative for installed component registration, native search,
+aliases, native relevance scores, proxy identity, and SDK metadata. Rook owns public
+filtering, deterministic tie-breaking, correlation, compatibility fields, and truthful
+failure projection. Knowledge owns none of those facts.
 
-## Identity handoff invariant
+## Evidence authority
 
-Discovery is not complete merely because it returns ranked candidates. Every public
-surface that accepts or returns component-type identity must preserve a complete,
-correlated, provenance-bearing handoff.
+The production decisions in this contract are based on two independently reviewed,
+read-only qualifications. They must not be repeated as part of implementation.
 
-For every caller-supplied name or GUID metadata selector, in original order and
-including duplicates:
+### Native discovery qualification
 
-```text
-selector
--> exactly one outcome
-
-selected outcome:
-  original selector
-  component-type GUID
-  exact Task 0-qualified host provenance
-  authoritative SDK metadata
-
-ambiguous outcome:
-  original selector
-  every exact candidate
-  the same GUID/provenance identity fields for every candidate
-  no selection or metadata dispatch for that item
-
-not-found outcome:
-  original selector
-  explicit bounded reason
-```
-
-Mixed batches preserve this equation item by item. An ambiguous or missing selector does
-not prevent other uniquely resolved selectors in the same request from reaching the
-authoritative metadata owner.
-
-The same exact Task 0-qualified provenance field set must appear on:
-
-- every `gh_library` catalog/search candidate;
-- every successful GUID metadata outcome;
-- every uniquely resolved name metadata outcome;
-- every candidate inside an ambiguous-name outcome.
-
-Task 0 must determine the exact host-owned fields, canonical representation, and
-nullability. No production plan or implementation may substitute an open-ended “when
-available” contract.
-
-The layered identity model is:
-
-```text
-search ranking proposes candidates
--> provenance-bearing identity handoff distinguishes candidates
--> selected GUID obtains authoritative metadata
--> existing T* and C* identities handle graph execution
-```
-
-Ranking and knowledge never select identity.
-
-## Motivation
-
-The Prime Agent V4 qualification proved that a local model could use Rook's canonical
-gateway in a disciplined way and create a mechanically valid Grasshopper definition.
-It also exposed avoidable discovery burden:
-
-- ordinary `gh_library` search returns registration-order matches and applies `limit`
-  before completing its scan;
-- broad lexical matches place plugin descriptions ahead of the intended core component;
-- names, GUIDs, and metadata do not compose cleanly across `gh_library` and
-  `gh_batch_component_info`;
-- the direct ChatRunner transformation drops `gh_library.exact`;
-- unrelated knowledge hints are injected into authoritative catalog and metadata results;
-- duplicate native and third-party component names can be resolved by unsafe first-match
-  behavior outside the creation path.
-
-These are interoperability defects, not evidence that Grasshopper lacks an authentic
-catalog. The correction should reuse the host's established machinery rather than
-reimplementing it.
-
-## Scope
-
-The slice contains two gates:
-
-1. A read-only Task 0 qualification of the installed Grasshopper component server.
-2. A bounded production correction only after independent review of Task 0 evidence.
-
-This version of the specification authorizes only a Task 0 implementation plan. It does
-not authorize a complete production plan. After Task 0 review, amend this specification
-to pin:
-
-- the exact ordinary eligibility policy;
-- whether native `FindObjects()` is adopted;
-- the exact host provenance field names, representation, and nullability;
-- any measured compatibility consequences.
-
-Only that reviewed amendment may be converted into the production implementation plan.
-
-The production correction is limited to:
-
-- native-ranked `gh_library` search with a separate catalog-browse branch;
-- additive truthful search evidence;
-- GUID-safe and duplicate-name-safe `gh_batch_component_info` behavior;
-- `gh_library.exact` parity through direct `ToolDispatcher` dispatch;
-- suppression of unrelated knowledge hints for the two authoritative tools.
-
-The frozen Opus control must run against the unchanged surface before the correction is
-deployed. It is an affordance audit, not a prerequisite for choosing the implementation
-algorithm and not proof that the current surface is adequate.
-
-## Explicit non-goals
-
-This slice adds no:
-
-- embeddings, vector retrieval, reciprocal-rank fusion, or semantic reranking;
-- custom alias catalog, synonym table, fuzzy matcher, or morphology engine;
-- knowledge-store identity authority or recipe retrieval;
-- DSPy optimization;
-- harvested component registry or curated core-component allowlist;
-- new component shorthand family;
-- schema-driven compiler or semantic-graph behavior;
-- Prime- or model-specific prompting;
-- MCP session pooling, critic, scoring framework, or benchmark harness;
-- canvas mutation during Task 0;
-- cleanup of the two unrelated pre-existing knowledge-test failures.
-
-## Current ownership and behavior
-
-### Live catalog
-
-`GrasshopperHandler.SearchLibrary()` obtains the live `GH_ComponentServer` and reads its
-`ObjectProxies`. These include successfully registered native and installed third-party
-components. Rook does not need a copied component catalog.
-
-The current ordinary endpoint:
-
-- iterates proxies in their existing enumeration order;
-- stops once `results.Count >= limit`;
-- excludes obsolete proxies;
-- does not explicitly exclude hidden or quarantined proxies;
-- applies case-insensitive category substring matching across both `Category` and
-  `SubCategory`;
-- uses a case-insensitive exact `Desc.Name` predicate when `exact=true`;
-- otherwise performs a literal substring match across name, nickname, and description.
-
-Because it stops before completing the scan, its returned list is not the complete
-legacy match set.
-
-### Installed native discovery machinery
-
-The installed Grasshopper assembly at the baseline exposes:
-
-```text
-GH_ComponentServer.FindObjectByName(...)
-GH_ComponentServer.FindObjects(...)
-GH_ComponentServer.CompareProxies(...)
-GH_ComponentServer.Aliases / AliasTargets(...)
-```
-
-Static inspection of the installed Rhino 8 Grasshopper build established:
-
-- `FindObjects()` scans cached proxies, computes weighted native scores, incorporates
-  Grasshopper-owned alias targets, sorts candidates, and only then applies its
-  `maximumResults` bound;
-- native name matches receive greater weight than nickname/keyword matches, which
-  receive greater weight than description matches;
-- `CompareProxies()` considers exposure and component names;
-- native score values are host diagnostics, not stable cross-version product values;
-- installed `FindObjectByName()` returns the first non-hidden, non-obsolete proxy whose
-  `Desc.Name` matches. It does not preserve duplicate exact names and its installed
-  behavior does not implement the category/subcategory qualification described by the
-  API documentation.
-
-Therefore `FindObjectByName()` cannot be the sole public exact-resolution path. Exact
-public semantics require preserving every matching live type.
-
-Relevant host API references:
-
-- <https://developer.rhino3d.com/api/grasshopper/html/T_Grasshopper_Kernel_GH_ComponentServer.htm>
-- <https://developer.rhino3d.com/api/grasshopper/html/M_Grasshopper_Kernel_GH_ComponentServer_FindObjectByName.htm>
-- <https://developer.rhino3d.com/api/grasshopper/html/Overload_Grasshopper_Kernel_GH_ComponentServer_FindObjects.htm>
-- <https://developer.rhino3d.com/api/grasshopper/html/M_Grasshopper_Kernel_GH_ComponentServer_CompareProxies.htm>
-
-### Metadata
-
-The managed `/gh/batch-component-info` endpoint already accepts component-type GUIDs and
-reads proxy identity plus SDK-backed ports. The public MCP tool accepts names only,
-resolves them through `UnifiedStore`, and falls back to the first exact library result.
-That public name path can silently collapse native/third-party duplicate names.
-
-### Creation and canvas identity
-
-Component creation already refuses ambiguous exact name/nickname matches and directs
-the caller to use a GUID. The discovery and metadata path should enforce the same
-identity rule.
-
-This does not change transaction or canvas shorthand:
-
-```text
-component type GUID
--> selected catalog identity used when ambiguity exists
-
-T1, T2, ...
--> new instances inside one gh_edit batch
-
-C1, C2, ...
--> existing instances in a gh_snapshot
-
-gh_edit receipt
--> T* to C* and physical instance GUID correlation
-```
-
-Full type GUIDs are needed only when establishing ambiguous component-type identity.
-Agents continue using compact `T*` and `C*` identifiers for graph construction and
-subsequent editing.
-
-## Task 0: installed native discovery qualification
-
-Task 0 is a separately reviewed, read-only qualification. It makes no production or
-test-code change and performs no model call or canvas mutation.
-
-It may use one reviewed operator-only in-process probe against the installed
-`GH_ComponentServer`. It must not add a product endpoint, registry, fixture authority,
-or reusable benchmark framework.
-
-### Candidate acquisition
-
-For actual searches, Task 0 calls:
-
-```text
-FindObjects(
-    terms = new[] { exact caller-supplied search string },
-    maximumResults = ObjectProxies.Count,
-    out proxies,
-    out weights
-)
-```
-
-Rook does not split, rewrite, stem, or expand the caller's search string.
-
-Static inspection says `FindObjects()` already scans before truncation. The full bound
-asks Grasshopper to retain its complete ranked candidate set so Rook can apply its
-existing category and exact predicates without losing lower-ranked valid candidates.
-
-Task 0 must not pass an empty query to `FindObjects()` and infer catalog-browse behavior.
-Catalog browsing is qualified by direct live proxy enumeration.
-
-### Fixed queries
-
-The qualification records these fixed searches:
-
-```text
-Series
-Range
-Multiplication
-Addition
-Construct Point
-Add
-Point
-```
-
-It also records:
-
-- at least one category-filtered case whose complete expected set includes candidates
-  below the ordinary public limit;
-- exact-name duplicate cases, including native/third-party collisions when installed;
-- several currently installed third-party specimens from distinct plugin families;
-- an empty-search catalog enumeration.
-
-Third-party specimens are selected from the installed live catalog. For environmental
-evidence, Task 0 records each specimen's component GUID, host-owned plugin/library or
-assembly identity, plugin name, and version when the host exposes them. These specimens
-do not become product fixtures, requirements, or an allowlist.
-
-### Legacy comparison set
-
-“Present in today's search” means every live proxy satisfying the complete current
-ordinary predicate, not the prematurely truncated endpoint response.
-
-For each applicable query, Task 0 independently evaluates across all live proxies:
-
-```text
-not obsolete
-AND current case-insensitive Category/SubCategory substring predicate
-AND (
-    exact case-insensitive Desc.Name equality
-    OR current case-insensitive Name/NickName/Description substring predicate
-)
-```
-
-It compares that complete GUID set with the complete native `FindObjects()` candidate
-set and classifies every GUID delta as obsolete, hidden, quarantined, another exposure
-class, or otherwise unexplained.
-
-### Required observations
-
-Task 0 reports:
-
-- exact Rhino and Grasshopper versions;
-- live proxy count;
-- complete legacy predicate match count;
-- complete native candidate count;
-- cold elapsed time for the first full native search;
-- warm elapsed time for every fixed query;
-- repeated timings sufficient to expose gross variance without becoming a benchmark;
-- native ordered GUIDs and host scores;
-- equal-score groups and the deterministic `CompareProxies`/GUID order;
-- category-filter completeness;
-- duplicate exact-name preservation;
-- stable ordering across repeated calls;
-- every eligibility delta with exposure/obsolete facts;
-- third-party visibility and provenance evidence.
-
-For provenance specifically, Task 0 inventories every usable host-owned source on both
-proxy and instantiated metadata paths, including library/plugin identity, library GUID,
-assembly identity, assembly version, or equivalent fields actually exposed by the
-installed host. The report must propose one exact minimal field set that can be emitted
-consistently by catalog candidates, successful GUID metadata, uniquely resolved name
-metadata, and ambiguous-name candidates. It records field values, absence behavior, and
-canonical string formatting rather than inventing Rook-maintained plugin labels.
-
-Elapsed times are observations. Task 0 defines no hidden “fast enough” threshold and
-does not authorize adoption automatically.
-
-### Mandatory stop
-
-Task 0 commits one bounded report at:
+Report:
 
 ```text
 docs/superpowers/reports/2026-08-08-grasshopper-native-component-discovery-qualification.md
 ```
 
-The disposable probe and raw transient output do not become product code, a durable
-catalog fixture, or a new evidence system. Task 0 then stops for independent review.
+Retained evidence:
 
-The review decides:
+```text
+native-discovery.json SHA-256
+254A9BF5A8EEE5DCCA72A37AD08DF20EDF63271F55E2F14AC4587BC180481988
+```
 
-- whether full candidate retention has ordinary latency on the installed plugin-heavy
-  catalog;
-- whether native eligibility should replace or be reconciled with the current broader
-  `not obsolete` policy;
-- whether any unexplained third-party omission blocks adoption;
-- whether native `FindObjects()` is adopted for ordinary search;
-- the exact host provenance fields and representation required by the identity handoff.
+It established:
 
-After those decisions, this specification must be amended and independently reviewed.
-Writing the production implementation plan before that amendment is prohibited.
+- complete `FindObjects()` candidate acquisition remained below 16 ms across every
+  qualified call on a live catalog containing 1,890 proxies;
+- native ordering and weights were stable across repeated calls;
+- canonical components ranked first for the fixed searches;
+- category filtering must occur before the public limit;
+- native search excluded only hidden legacy matches in the qualified cases;
+- installed third-party and `.ghuser` components remained discoverable;
+- public exact-name identity cannot use `FindObjectByName()` because it collapses
+  duplicates;
+- 53 non-obsolete exact-name duplicate groups existed, at least 33 with multiple
+  non-hidden candidates.
 
-If performance is unexpectedly expensive, investigate the measured bottleneck. Do not
-invent repeated over-fetch loops, a parallel search index, or a custom ranking system.
+### User-object provenance qualification
 
-## Provisional production behavior blocked on Task 0
+Report:
 
-The following behavior records the intended boundary but is not implementation-ready.
-Every reference to an approved policy or Task 0-qualified field must be replaced by exact
-language in the post-Task 0 specification amendment before production planning begins.
+```text
+docs/superpowers/reports/2026-08-09-grasshopper-user-object-provenance-qualification-v2.md
+```
+
+Retained evidence:
+
+```text
+user-object-provenance.json SHA-256
+E7BC4124D1029D9F50721FB45B3E1079317CDC1901A0332B635532681CCE04BD
+
+invoke-result.json SHA-256
+DCA890C23199698AFFE97DC8A43867CE9E91295A7020DFBE6A51B24332104A20
+```
+
+It established:
+
+- a `.ghuser` proxy GUID identifies that user object in the current installation but is
+  not promised to be portable across machines;
+- exact user-object path and content fingerprint distinguish installed user-object
+  identities without archive parsing or package inference;
+- `BaseGuid`, temporary `ComponentGuid`, runtime type, and runtime assembly describe the
+  shared execution implementation, not the package that supplied the `.ghuser`;
+- compiled `.gha` components and `.ghuser` components require distinct provenance
+  variants.
+
+The evidence does not establish package, author, family, or package-version identity for
+`.ghuser` files. Folder names remain environmental observations, not public package
+labels.
+
+## Scope
+
+The production correction is limited to:
+
+- native-ranked `gh_library` search with a separate catalog-browse branch;
+- complete filtering before limiting and deterministic tie-breaking;
+- compact search-level source-kind disclosure;
+- GUID-safe and duplicate-name-safe `gh_batch_component_info` behavior;
+- closed compiled and user-object provenance variants for selected metadata;
+- exact selector and per-item outcome correlation;
+- `gh_library.exact` parity through direct `ToolDispatcher` dispatch;
+- suppression of unrelated knowledge hints for `gh_library` and
+  `gh_batch_component_info`.
+
+The frozen Opus control remains an unchanged-surface affordance audit that must run under
+separate authorization before production deployment. It does not choose the search
+algorithm and cannot invalidate the qualification evidence.
+
+## Explicit non-goals
+
+This slice adds no:
+
+- embeddings, vector retrieval, semantic reranking, or reciprocal-rank fusion;
+- custom alias catalog, synonym table, fuzzy matcher, or morphology engine;
+- knowledge-store identity authority, recipe retrieval, or knowledge cleanup;
+- DSPy optimization;
+- harvested component registry or curated core-component allowlist;
+- new component shorthand family;
+- semantic-graph or compiler behavior;
+- Prime- or model-specific prompting;
+- MCP session pooling, critic, scoring framework, or benchmark harness;
+- change to `gh_edit`, `gh_snapshot`, flow syntax, T*/C*, or receipt correlation;
+- cleanup of the two separately documented knowledge-injector baseline failures.
+
+## End-to-end ownership invariant
+
+Every request proceeds through these ownership stages:
+
+```text
+exact caller selector
+-> proxy-owned component-type identity
+-> source-kind provenance
+-> temporary implementation metadata
+-> existing Params projection
+-> one correlated per-selector outcome
+-> one batch result
+-> existing public MCP result projection
+```
+
+Each stage publishes one complete fact set. A later stage may add facts but must not
+overwrite or erase a previously completed authoritative stage.
+
+In particular:
+
+- caller strings are never rewritten inside selector evidence;
+- temporary-instance names never replace proxy names;
+- implementation assembly facts never masquerade as `.ghuser` package provenance;
+- ranking and knowledge never select component identity;
+- per-item failures never disappear from a mixed batch;
+- batch success and MCP success report completion of the admitted batch, not success of
+  every item.
+
+## Current behavior being corrected
+
+### Live catalog
+
+`GrasshopperHandler.SearchLibrary()` currently reads the live
+`GH_ComponentServer.ObjectProxies` collection but ordinary search:
+
+- iterates registration order;
+- stops once `results.Count >= limit`;
+- excludes obsolete proxies but not hidden proxies explicitly;
+- applies case-insensitive category substring matching across `Category` and
+  `SubCategory`;
+- uses case-insensitive exact `Desc.Name` equality for `exact=true`;
+- otherwise uses literal substring matching over name, nickname, and description.
+
+The installed host exposes `FindObjects()`, `CompareProxies()`, aliases, and alias
+targets. The qualification established that those host facilities are the correct
+ordinary retrieval owner.
+
+### Metadata
+
+The managed `/gh/batch-component-info` endpoint accepts GUIDs and reads proxy identity
+plus SDK-backed ports. The public MCP path currently accepts names only, consults
+`UnifiedStore`, and may select the first exact library result. The managed endpoint also
+currently replaces proxy `Name` and `NickName` with temporary-instance values. Both
+behaviors violate the ownership invariant.
+
+### Creation and canvas identity
+
+Component creation already refuses ambiguous exact name or nickname matches and directs
+the caller to use a GUID. This slice aligns discovery and metadata with that rule. It
+does not alter creation behavior or canvas identity.
+
+## `gh_library` request branches
 
 ### Audit branch
 
 ```text
 audit=true
--> execute existing audit enumeration and filtering
--> preserve existing audit JSON response shape
+-> execute the existing audit enumeration and filtering
+-> preserve the existing audit JSON response shape
 -> bypass ordinary native ranking
 ```
 
-Task 0 does not authorize changing audit counts, filters, ordering, or component fields.
+Audit counts, filters, ordering, fields, and eligibility remain unchanged. Audit results
+receive no `sourceKind`, ranking metadata, provenance, or ordinary count additions.
 
 ### Catalog branch
 
 ```text
 audit=false
 AND search absent
--> enumerate complete live proxy set
--> apply the independently approved eligibility policy
--> preserve current Category/SubCategory filter semantics
--> order by host CompareProxies priority
--> order equal proxies by GUID ordinal
--> apply public limit after ordering
+-> enumerate the complete live proxy set
+-> retain proxies where Obsolete == false
+-> exclude proxies carrying the hidden exposure flag
+-> preserve current Category/SubCategory filtering
+-> order with CompareProxies
+-> break remaining ties by canonical GUID ordinal
+-> apply the public limit
 ```
 
-Catalog components do not receive search metadata. There was no match operation.
+Catalog components contain proxy descriptive identity plus `sourceKind`. They omit
+`nativeScore` and `matchSource` because no match operation occurred.
 
 ### Search branch
 
 ```text
 audit=false
 AND search present
--> FindObjects(search terms, ObjectProxies.Count)
--> apply the independently approved eligibility policy
--> preserve current Category/SubCategory filter semantics
+-> pass the caller's exact search string as one FindObjects term
+-> use ObjectProxies.Count as maximumResults
+-> require a complete proxy/score projection
+-> retain proxies where Obsolete == false
+-> exclude proxies carrying the hidden exposure flag
+-> preserve current Category/SubCategory filtering
 -> when exact=true, retain only case-insensitive exact Desc.Name matches
 -> preserve every exact-name duplicate
 -> order by native score descending
--> break equal native scores with host CompareProxies priority
--> break any remaining tie with GUID ordinal
--> apply public limit after filtering and ordering
+-> break equal scores with CompareProxies
+-> break any remaining tie by canonical GUID ordinal
+-> apply the public limit
 ```
 
-Aliases may influence ordinary native search because Grasshopper owns them. Alias
-targets never masquerade as exact-name matches.
+Rook does not split, trim, stem, rewrite, or expand the caller's search string. Aliases
+may influence ordinary native search because Grasshopper owns them. Alias targets never
+masquerade as exact-name matches.
 
-No production rule prefers native components over third-party components. Ranking helps
-discovery; GUID selection establishes identity.
+No rule prefers a native component over a third-party component. Native ranking proposes
+candidates; the selected GUID establishes identity.
 
 ### Category compatibility
 
-Category filtering remains exactly:
+Category filtering remains:
 
 ```text
 case-insensitive substring match against Category OR SubCategory
 ```
 
-This slice does not narrow it to exact category names or reinterpret category hierarchy.
+It occurs before the public limit in both ordinary branches.
+
+### Ordinary eligibility
+
+Ordinary catalog, search, and exact-name resolution use exactly:
+
+```text
+Obsolete == false
+AND hidden exposure flag is absent
+```
+
+Quarantined or obscure proxies are not excluded merely for those classifications unless
+they are also hidden or obsolete. Audit retains its existing broader visibility.
+
+### Native failure behavior
+
+Failure to obtain the component server, call `FindObjects()`, project its complete
+candidate/score result, compare proxies, or compute the complete filtered set returns a
+truthful tool failure. Rook does not fall back to registration-order search, repeated
+over-fetching, knowledge lookup, or a copied index.
+
+## Candidate contract
+
+### Proxy-owned descriptive identity
+
+Search candidates, catalog components, successful metadata outcomes, and ambiguity
+candidates derive these fields only from the selected proxy:
+
+```text
+name: non-null exact host string
+nickName: exact host string or actual host null
+description: exact host string or actual host null
+category: exact host string or actual host null
+subCategory: exact host string or actual host null
+guid: canonical lowercase GUID
+sourceKind: compiled | user_object
+```
+
+Empty host strings remain empty strings. Missing properties, unreadable values, invalid
+GUID projection, or unexpected runtime types are projection failures; they are not
+coerced to strings or null.
+
+Temporary-instance `Name` and `NickName` must not replace proxy values. Instance-owned
+facts appear only under `implementation`.
+
+### Source-kind projection
+
+```text
+proxy Kind == CompiledObject
+-> sourceKind = compiled
+
+proxy Kind == UserObject
+-> sourceKind = user_object
+
+missing, unreadable, or any other proxy Kind
+-> catalog/search fails with no candidate list
+-> metadata item returns projection_failure / proxy_projection_failed
+```
+
+Unknown source kind never falls back to compiled or user-object behavior.
+
+### Search evidence
+
+Actual search candidates add:
+
+```text
+nativeScore: exact finite JSON number from FindObjects
+matchSource: native_search | exact_name
+```
+
+`matchSource=exact_name` means Rook applied case-insensitive exact `Desc.Name` equality.
+It is not inferred from the score.
+
+Ambiguity candidates come from a complete exact-name scan that does not call
+`FindObjects()` and therefore use:
+
+```text
+nativeScore: null
+matchSource: exact_name
+```
+
+A non-finite or unprojectable native score fails the complete search. It is never
+serialized, replaced with null, or silently reordered.
+
+### Two-level provenance disclosure
+
+Ordinary catalog/search and ambiguity candidates expose only proxy descriptive identity,
+the exact component-type GUID, and `sourceKind`. They do not expose assembly paths,
+`.ghuser` paths, fingerprints, or implementation fields.
+
+Detailed provenance is projected only for metadata GUIDs selected explicitly by the
+caller. A caller resolving ambiguity may pass every candidate GUID in one
+`gh_batch_component_info` request.
+
+Search and catalog projection never instantiate candidates, construct
+`GH_UserObject`, read user-object `Data`, or hash content.
 
 ## `gh_library` response contract
 
-Existing ordinary fields remain:
+Successful ordinary responses retain the legacy fields:
 
 ```text
 count
 components
 ```
 
-Additive ordinary fields are:
+They add:
 
 ```text
 returnedCount
+totalMatches
 truncated
-totalMatches       # only when the complete filtered set was computed
 ```
 
-The equations are:
+Both ordinary branches compute the complete eligible filtered set. Therefore every
+successful ordinary response includes all three additions and satisfies:
 
 ```text
 count == returnedCount == components.length
-```
-
-When completeness is known:
-
-```text
-totalMatches == complete filtered-set size
+totalMatches == complete eligible filtered-set size
 truncated == returnedCount < totalMatches
 ```
 
-When completeness is not proven, both `totalMatches` and `truncated` are omitted.
-`truncated=false` is never emitted as a guess. Under the proposed full search and
-catalog-enumeration paths, completeness should ordinarily be known.
+If completeness cannot be proven, the operation fails rather than emitting guessed
+counts.
 
-Actual search results additionally carry:
+Illustrative search payload using synthetic values:
 
-```text
-nativeScore
-matchSource: exact_name | native_search
+```json
+{
+  "count": 1,
+  "returnedCount": 1,
+  "totalMatches": 2,
+  "truncated": true,
+  "components": [
+    {
+      "name": "Example Component",
+      "nickName": "Example",
+      "description": "Example proxy description.",
+      "category": "Example",
+      "subCategory": "Operators",
+      "guid": "11111111-1111-1111-1111-111111111111",
+      "sourceKind": "compiled",
+      "nativeScore": 42.0,
+      "matchSource": "native_search"
+    }
+  ]
+}
 ```
 
-`nativeScore` is the exact host-provided diagnostic score for that call. Clients may
-observe it but must not treat its numerical scale as stable across Grasshopper versions.
-Ordering is the product behavior.
+Illustrative audit payload preserving the existing shape:
 
-`matchSource=exact_name` means Rook applied case-insensitive exact `Desc.Name` equality.
-It is not inferred from the numerical native score. Other actual search results use
-`native_search`. Catalog browsing omits both fields.
+```json
+{
+  "totalScanned": 2,
+  "deprecatedCount": 1,
+  "obsoleteCount": 0,
+  "hiddenCount": 1,
+  "components": [
+    {
+      "name": "Hidden Example",
+      "nickName": "Hidden",
+      "category": "Example",
+      "subCategory": "Legacy",
+      "guid": "22222222-2222-2222-2222-222222222222",
+      "obsolete": false,
+      "exposure": 16,
+      "exposureLabel": "hidden"
+    }
+  ]
+}
+```
 
-Every catalog/search component also carries the exact host provenance fields selected in
-the post-Task 0 specification amendment. Those fields are identity evidence, not ranking
-inputs. The same field names and value semantics must be used by metadata outcomes.
+Synthetic GUIDs in examples illustrate shape only and are not production fixtures or
+preferred components.
 
-The `audit=true` response shape remains unchanged and receives none of these additions.
+## `gh_batch_component_info` request contract
 
-## `gh_batch_component_info` identity contract
-
-The public tool accepts exactly one selector family:
+The public tool accepts exactly one nonempty selector family:
 
 ```text
-names only
+names: nonempty array of JSON strings
 OR
-guids only
+guids: nonempty array of JSON strings
 ```
 
-Requests containing both nonempty `names` and nonempty `guids` refuse before target
-contact. Requests containing neither refuse under the existing public validation
-boundary.
+Requests containing both families, neither family, an empty selected family, a
+non-array family, or a non-string element fail before target contact. The handler does
+not trim, case-fold, coerce, or otherwise rewrite admitted strings.
 
-### GUID input
-
-GUID requests bypass `UnifiedStore` and call the authoritative managed metadata endpoint
-directly.
-
-The result preserves deterministic request order and returns one identified outcome for
-every requested GUID, including duplicate requests, invalid GUIDs, not-found GUIDs,
-uninstantiable types, and successful metadata. No requested GUID silently disappears.
-
-Every successful GUID outcome carries the exact host provenance fields selected after
-Task 0, using the same names and semantics as `gh_library` candidates.
-
-### Name input
-
-Names remain supported for compatibility, but knowledge no longer resolves type
-identity. For each requested name, Rook performs a live case-insensitive exact
-`Desc.Name` lookup over the complete proxy set satisfying the eligibility policy
-approved after Task 0:
+For every admitted element, in original order and including duplicates:
 
 ```text
-zero exact matches
--> explicit not_found outcome
-
-one exact match
--> resolve that GUID
--> return authoritative metadata
-
-multiple exact matches
--> explicit ambiguous_name outcome
--> include every candidate
--> perform no first-candidate selection
+selector.kind: name | guid
+selector.value: exact caller-supplied string
+-> exactly one result item
 ```
 
-The result preserves original name request order and returns exactly one outcome per
-requested name, including repeated identical names and mixed batches containing unique,
-missing, and ambiguous items. A unique item may proceed to authoritative metadata even
-when another item in the same batch is ambiguous or missing. An ambiguous item prevents
-metadata contact only for that item.
-
-Each ambiguous candidate includes:
+For GUID selectors:
 
 ```text
-name
-nickname
-category
-subcategory
+invalid syntax
+-> invalid_guid outcome
+-> no canonical guid field
+
+valid syntax
+-> guid is canonical lowercase D-format
+-> direct live proxy lookup by that GUID
+```
+
+Explicit GUID lookup is not limited by ordinary search eligibility. A caller that
+already possesses a hidden or obsolete GUID may request its metadata directly. Name
+lookup uses the ordinary eligible proxy set.
+
+## Name resolution and ambiguity
+
+Names remain supported for compatibility, but knowledge never resolves type identity.
+For each name, Rook performs a complete live case-insensitive exact `Desc.Name` scan over
+the ordinary eligible proxies:
+
+```text
+zero matches
+-> not_found
+
+one match
+-> selected proxy GUID
+-> authoritative metadata pipeline
+
+multiple matches
+-> ambiguous_name
+-> every candidate in deterministic CompareProxies/GUID order
+-> no candidate selection or metadata dispatch for that item
+```
+
+Ambiguity candidates use the candidate contract above. No rule prefers core or
+third-party identity.
+
+## Metadata projection phases
+
+Selected metadata proceeds through fixed phases:
+
+```text
+selector parsing or name resolution
+-> complete proxy identity projection
+-> complete source-kind provenance projection
+-> temporary component instantiation
+-> complete implementation projection
+-> existing GetComponentParams projection
+```
+
+Completed phases accumulate monotonically. Later failure retains each earlier completed
+phase and omits only the incomplete phase and its successors.
+
+### Compiled provenance
+
+For `sourceKind=compiled`, `provenance` always contains exactly:
+
+```text
+libraryGuid: canonical lowercase non-null GUID
+libraryName: exact host string or actual host null
+libraryVersion: exact host string or actual host null
+assemblyFullName: exact host string or actual host null
+assemblyVersion: exact host string or actual host null
+assemblyLocation: exact host string or actual host null
+```
+
+Empty host strings remain empty strings. `Guid.Empty` remains a non-null canonical GUID
+when that is the exact host value.
+
+Rook obtains the record from `FindAssembly(LibraryGuid)`. A not-found assembly record,
+missing property, unreadable value, invalid GUID projection, or unexpected runtime type
+produces:
+
+```text
+status: projection_failure
+error: provenance_projection_failed
+```
+
+No runtime assembly or proxy location fallback is permitted to manufacture compiled
+provenance.
+
+### User-object provenance
+
+For `sourceKind=user_object`, `provenance` always contains exactly:
+
+```text
+path: exact non-null host string
+contentByteLength: non-negative integer | null
+contentSha256: uppercase 64-character SHA-256 string | null
+```
+
+Rook uses the exact selected proxy and exact host-returned user-object path. It does not
+parse the path into package, family, author, or version identity.
+
+Installed `GH_UserObject.Data` is handled exactly:
+
+```text
+Data == null
+-> contentByteLength = null
+-> contentSha256 = null
+-> provenance remains successful
+
+Data is byte[]
+-> contentByteLength = exact byte count
+-> contentSha256 = exact uppercase SHA-256
+
+any other runtime type
+-> provenance_projection_failed
+```
+
+A missing or unreadable path, `GH_UserObject` construction failure, byte conversion
+failure, or hashing failure also produces `projection_failure /
+provenance_projection_failed`. Raw `Data` bytes are never retained or returned.
+
+### Temporary implementation metadata
+
+After complete provenance, Rook creates one temporary instance for selected metadata.
+The instance is not inserted into a document and is used only for implementation and
+port projection.
+
+`implementation` always contains exactly:
+
+```text
+baseGuid:
+  canonical lowercase non-null GUID for user_object
+  null for compiled
+
+componentGuid:
+  canonical lowercase non-null GUID
+
+runtimeType:
+  exact non-null host string
+
+runtimeAssemblyName:
+  exact host string or actual host null
+
+runtimeAssemblyVersion:
+  exact host string or actual host null
+
+runtimeAssemblyLocation:
+  exact host string or actual host null
+```
+
+Empty host strings remain empty strings. Missing properties, unreadable values, invalid
+GUID projection, or unexpected runtime types produce:
+
+```text
+status: projection_failure
+error: implementation_projection_failed
+```
+
+That outcome retains selector, canonical GUID, complete proxy identity, `sourceKind`,
+and complete provenance. It omits `implementation` and `params`.
+
+`baseGuid`, `componentGuid`, runtime type, and runtime assembly describe execution
+implementation only. They never identify the package that supplied a `.ghuser`.
+
+### Params compatibility
+
+`GetComponentParams()` remains unchanged.
+
+```text
+existing object result
+-> params contains the existing inputs/outputs or simple-parameter shape
+
+existing null result, including an internally caught exception
+-> successful metadata outcome with params: null
+```
+
+This slice does not add `params_projection_failed`, refactor `GetComponentParams()`, or
+reinterpret optionality, access, type names, source counts, recipient counts, or simple
+parameter behavior.
+
+## Successful metadata outcome
+
+Unique-name selectors and GUID selectors return the same success shape. Only the
+selector differs.
+
+```text
+selector
+status = success
 guid
-the exact Task 0-qualified host provenance fields
+proxy-owned name/nickName/description/category/subCategory
+sourceKind
+closed source-kind provenance
+closed implementation
+params using the existing projection
 ```
 
-Candidate ordering is deterministic and never collapses duplicate names. Knowledge-store
-ordering cannot influence identity.
+Illustrative compiled success using synthetic identity:
 
-Unique name requests continue to work. Previously unsafe ambiguous requests change from
-nondeterministic selection to a truthful refusal requiring a selected GUID.
+```json
+{
+  "selector": {"kind": "guid", "value": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"},
+  "status": "success",
+  "guid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "name": "Example Component",
+  "nickName": "Example",
+  "description": "Example proxy description.",
+  "category": "Example",
+  "subCategory": "Operators",
+  "sourceKind": "compiled",
+  "provenance": {
+    "libraryGuid": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    "libraryName": "Example Library",
+    "libraryVersion": "1.0.0",
+    "assemblyFullName": "Example, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+    "assemblyVersion": "1.0.0.0",
+    "assemblyLocation": "C:\\Example\\Example.gha"
+  },
+  "implementation": {
+    "baseGuid": null,
+    "componentGuid": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "runtimeType": "Example.Component",
+    "runtimeAssemblyName": "Example",
+    "runtimeAssemblyVersion": "1.0.0.0",
+    "runtimeAssemblyLocation": "C:\\Example\\Example.gha"
+  },
+  "params": null
+}
+```
 
-## Creation compatibility
+## Per-selector outcome contract
+
+The closed status set is:
+
+```text
+success
+invalid_guid
+not_found
+ambiguous_name
+projection_failure
+instantiation_failure
+```
+
+### Invalid GUID
+
+```text
+retain selector
+omit guid and every later phase
+error = invalid_guid
+```
+
+### Valid but missing GUID or missing name
+
+```text
+retain selector
+retain canonical guid for a valid GUID selector
+omit guid for an unresolved name selector
+error = component_not_found
+```
+
+### Ambiguous name
+
+```text
+retain selector
+return every complete candidate
+perform no metadata projection for that selector
+```
+
+### Proxy projection failure
+
+```text
+retain selector
+retain canonical guid when parsing or name resolution completed
+omit incomplete proxy fields and every later phase
+status = projection_failure
+error = proxy_projection_failed
+```
+
+Unreadable or unsupported proxy `Kind` is a proxy projection failure.
+
+### Provenance projection failure
+
+```text
+retain selector
+retain canonical guid
+retain complete proxy identity and sourceKind
+omit provenance, implementation, and params
+status = projection_failure
+error = provenance_projection_failed
+```
+
+### Instantiation failure
+
+```text
+retain selector
+retain canonical guid
+retain complete proxy identity, sourceKind, and provenance
+omit implementation and params
+status = instantiation_failure
+error = component_instantiation_failed
+```
+
+### Implementation projection failure
+
+```text
+retain selector
+retain canonical guid
+retain complete proxy identity, sourceKind, and provenance
+omit implementation and params
+status = projection_failure
+error = implementation_projection_failed
+```
+
+No later failure rewrites an earlier status, substitutes knowledge, retries, or falls
+back to another identity path.
+
+## Batch result and MCP semantics
+
+An admitted batch is complete only when it returns exactly one valid ordered outcome per
+selector, including duplicates.
+
+For every complete admitted batch:
+
+```text
+top-level internal success = true
+public MCP isError = false
+count == results.length
+errors == number of results whose status != success
+```
+
+This remains true when every per-selector outcome is non-success. Batch success means the
+admitted batch was evaluated completely; it does not mean every requested component was
+found or projected.
+
+These conditions produce top-level failure and existing public `isError=true`:
+
+```text
+invalid selector-family shape
+target-wide failure
+component-server failure
+malformed host response
+missing, extra, or reordered outcomes
+unknown outcome status or invalid outcome shape
+```
+
+The existing public structured-result owner remains authoritative. This slice adds no
+new MCP result wrapper, output schema, or error taxonomy outside the per-item contract.
+
+## Names-only compatibility summaries
+
+Names-only responses retain the legacy summaries:
+
+```text
+resolved:
+  each exact caller-supplied name string whose outcome is success
+  -> canonical GUID
+
+unresolved:
+  each exact original name selector whose outcome is not success
+  -> original request order
+  -> duplicates preserved
+```
+
+Because `resolved` is a mapping, repeated identical successful names necessarily collapse
+there. The ordered `results` array is authoritative and preserves every request item.
+
+GUID-only requests omit `resolved` and `unresolved`.
+
+## Creation and compact execution compatibility
 
 Short-name creation remains supported:
 
@@ -580,80 +831,91 @@ exact component-type GUID
 -> deterministic type creation
 ```
 
-Existing `gh_edit` temporary identifiers, snapshot short identifiers, flow syntax, and
-receipt correlation remain unchanged. Neither `gh_edit` nor `gh_snapshot` acquires a new
-lookup or identity layer.
+The identity layers remain:
+
+```text
+component-type GUID
+-> selected catalog type identity
+
+T1, T2, ...
+-> new instances inside one gh_edit batch
+
+C1, C2, ...
+-> existing instances in gh_snapshot
+
+gh_edit receipt
+-> T* to C* and physical instance GUID correlation
+```
+
+Neither `gh_edit` nor `gh_snapshot` acquires a new lookup, shorthand, provenance, or
+identity layer.
 
 ## Knowledge and dispatcher corrections
 
 `gh_library` and `gh_batch_component_info` are authoritative live discovery tools.
-`KnowledgeInjector` must skip both tools rather than adding unrelated canvas-size,
-mesh-validity, recipe, or other learned hints.
+`KnowledgeInjector` must skip both tools. It must not add canvas-size, mesh-validity,
+recipe, workflow, or other learned hints to their results.
 
-This does not remove knowledge as future advisory context. A later retrieval slice may
-propose semantic candidates, but it may not alter native ranking, component GUIDs, port
-metadata, or ambiguity decisions.
+This does not remove knowledge as future advisory context. Later retrieval may propose
+semantic candidates, but it may not alter native ranking, component GUIDs, provenance,
+port metadata, or ambiguity decisions.
 
-The direct ChatRunner `ToolDispatcher` transformation must preserve the existing
-`exact` argument exactly as canonical MCP dispatch already does.
+The direct ChatRunner `ToolDispatcher` transformation must preserve the exact boolean
+`gh_library.exact` argument. Canonical MCP dispatch already owns the remaining public
+validation and targeting behavior.
 
 These contracts apply through:
 
 - direct public MCP calls;
 - contained targets invoked through `rook_tools_call`;
-- direct ChatRunner tools where already supported.
+- direct ChatRunner tools already supported by `ToolDispatcher`.
 
 No second capability catalog or dispatch table is introduced.
 
-## Frozen Opus control definition
+## Frozen Opus control
 
-The control is pinned to this exact future artifact root:
+The unchanged-surface control is pinned to:
 
 ```text
 C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control
 ```
 
-Its reviewed row path is:
+Reviewed row path:
 
 ```text
 C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control/operator/row.json
 ```
 
-The row and isolated model configuration must pin:
+Model custody:
 
 ```text
 model: anthropic/claude-opus-4-6
 provider: anthropic
 modelId: claude-opus-4-6
 api: anthropic-messages
-credential-free base URL: https://api.anthropic.com
+base URL containing no embedded credentials: https://api.anthropic.com
 intent: Create a Grasshopper definition that generates a row of points along the X axis using adjustable Start, Step, and Count controls, with Y and Z fixed at zero.
 ```
 
-The control reuses the Prime V7 public capability surface and reviewed execution method:
+Static capability custody:
 
 ```text
 source artifact: C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v7
-control skill: C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control/agent/skills/prime-execute-grasshopper/SKILL.md
-control checkpoint: C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control/agent/skills/prime-execute-grasshopper/references/checkpoint-protocol.md
-control adapter: C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-opus-control/agent/skills/rook-full/src/rook_full/__init__.py
 skill SHA-256: 0F7C8D1F2D612FFB7522469C4E3D467985E8872585CA3C18DF9B46BD1A84D36E
 checkpoint SHA-256: 76A7C0CFF04DEF83A75519A546AC812804AC32BBF30CC14609A6D52950248964
 rook_full adapter SHA-256: E7577F0EC8A9B504712BC73290BB8F4C673E9677AEF952CFBFC346F206A62996
 ```
 
-The skill body, checkpoint, adapter transport, `search/read/call` public surface, natural
-intent, full Rook profile, evidence rules, and final-inspection request remain unchanged.
-Only the isolated provider/model configuration, model-custody checks, sibling paths, and
-fresh reviewed Rhino target differ from V7.
+The isolated row and model configuration must pin the exact generation settings and the
+credential environment-variable names used by the Anthropic provider. No credential
+value enters an artifact.
 
-Before contact, the complete sibling manifest and row hash must be independently
-reviewed. The fresh row carries the exact panel-locked PID, native port, and document
-serial for an empty disposable canvas. This target-dependent row hash cannot be invented
-in the design document; the exact artifact path and static capability hashes above are
-the durable control identity.
+The skill body, checkpoint, adapter transport, `search/read/call` surface, intent, full
+Rook profile, evidence rules, and final-inspection request remain unchanged from the
+reviewed V7 method. Only provider/model configuration, model-custody checks, sibling
+paths, and a fresh reviewed Rhino target differ.
 
-The evidence contract is:
+Evidence contract:
 
 ```text
 one natural Prime termination
@@ -668,81 +930,79 @@ request and result retained in final-inspection.jsonl
 missing/corrupt evidence, cancellation, forced termination, or target drift -> no inspection
 ```
 
-Before deploying the production correction, run this control against the unchanged
-discovery surface under separate authorization.
-
-Record at minimum:
-
-- its semantic plan before the first mutation;
-- every discovery query and selected option;
-- rank of the ultimately selected component;
-- irrelevant results consumed;
-- whether it discovers `Series`;
-- metadata/schema reads and invalid calls;
-- time and cumulative tokens before first mutation;
-- edits, snapshots, partial results, and corrections;
-- final mechanical outcome;
-- final semantic fidelity separately from compilation or clean diagnostics.
-
-Opus success demonstrates compensation ability only. It does not invalidate measured
-discovery defects or authorize skipping the correction.
+The control records semantic plan, discovery queries, candidate ranks, irrelevant
+results consumed, whether `Series` is discovered, schema reads, invalid calls, time and
+tokens before mutation, edits, snapshots, corrections, mechanical outcome, and semantic
+fidelity. Success demonstrates compensation ability only.
 
 ## Verification requirements
 
 ### Managed discovery tests
 
-Use causal proxy fixtures to prove:
+Use synthetic causal proxies, never installed-plugin fixtures, to prove:
 
-- `audit=true` bypasses ordinary ranking and preserves its response shape;
-- absent search uses complete enumeration, category filtering, `CompareProxies`, GUID
-  tie-breaking, and limit-after-ordering;
-- present search consumes native ranked candidates and limits only after filters;
-- current category/subcategory substring behavior is preserved;
-- exact mode is case-insensitive `Desc.Name` equality;
-- every exact duplicate survives, including native/third-party same-name candidates;
-- aliases can influence ordinary native search but not exact matches;
-- count equations and conditional completeness fields are exact;
-- native scores remain observational fields;
-- third-party proxies are not excluded by a core allowlist;
-- the independently approved eligibility policy is implemented exactly.
+- audit bypasses ordinary ranking and preserves its exact response shape;
+- catalog browsing uses complete enumeration, ordinary eligibility, category filtering,
+  `CompareProxies`, GUID ties, and limit-after-ordering;
+- search calls `FindObjects()` once with the caller string and live proxy count;
+- exact/category filtering precedes limiting;
+- native score ordering, equal-score comparison, and GUID ties are deterministic;
+- non-finite or unprojectable scores fail the search;
+- aliases can influence ordinary search but not exact-name equality;
+- hidden and obsolete eligibility is exact;
+- third-party candidates are not filtered by a core allowlist;
+- unknown proxy Kind fails rather than being reclassified;
+- search/catalog never instantiate, construct user objects, read `Data`, or hash content;
+- count equations are exact.
 
-Do not make installed third-party specimens durable product fixtures. Tests use synthetic
-causal proxies representing native and third-party collisions.
-
-### Metadata tests
+### Managed metadata tests
 
 Prove:
 
-- GUID-only requests call authoritative metadata directly;
-- requests containing both selector families refuse before target contact;
-- every GUID produces one ordered outcome, including not found;
-- zero, one, and multiple live exact-name matches produce the required outcomes;
-- every requested name produces one ordered outcome, including duplicates and mixed
-  unique/missing/ambiguous batches;
-- ambiguity blocks metadata only for the ambiguous item;
-- ambiguous candidates all survive and remain distinguishable;
-- catalog, GUID metadata, unique-name metadata, and ambiguity candidates expose the same
-  exact Task 0-qualified provenance fields;
-- GUID lookup resolves each same-name native/third-party candidate independently;
-- knowledge-store ordering cannot influence name identity;
+- input admits exactly one nonempty selector family;
+- selector strings, order, case, and duplicates are preserved;
+- parsed and resolved GUIDs use canonical lowercase format;
+- proxy fields remain authoritative when instance names differ;
+- name lookup uses complete eligible exact-name matching;
+- ambiguity preserves every candidate and dispatches no metadata for that item;
+- GUID lookup bypasses `UnifiedStore` and ordinary eligibility;
+- compiled provenance uses `FindAssembly(LibraryGuid)` with the exact closed shape;
+- missing compiled assembly provenance fails locally without fallback;
+- user-object provenance returns exact path and paired content fields;
+- null `Data` succeeds with paired nulls;
+- user-object construction, type, conversion, and hashing failures become provenance
+  projection failures;
+- implementation fields, nullability, and source-kind-specific `baseGuid` are exact;
+- implementation failure retains provenance and omits implementation/params;
+- temporary-instance names never overwrite proxy identity;
+- `GetComponentParams()` remains unchanged and null remains a successful `params:null`;
+- every failure prefix retains all earlier completed phases;
+- mixed batches continue item by item;
+- one ordered outcome exists per selector;
+- count/error equations and all-failure batch success are exact;
+- names-only `resolved`/`unresolved` summaries remain compatible;
+- GUID-only results omit those summaries;
+- malformed host correlation becomes top-level failure;
 - ambiguous name creation remains refused.
 
 ### Python boundary tests
 
 Prove through direct MCP and `rook_tools_call` paths:
 
-- `gh_library` search arguments and additive results pass through unchanged;
-- `gh_batch_component_info` names/GUIDs validation is identical;
-- structured MCP success/failure projection remains owned by the existing public handler;
-- no gateway double wrapping is introduced;
+- `gh_library` schemas, arguments, additive results, and failures pass through the
+  existing public projection;
+- `gh_batch_component_info` selector validation and ordered outcomes are identical;
+- complete admitted all-failure batches remain MCP `isError=false`;
+- top-level request/target/host failures become MCP `isError=true`;
+- no gateway double wrapping appears;
 - both authoritative tools bypass knowledge injection;
-- the direct `ToolDispatcher` preserves `exact`;
-- the two existing unrelated knowledge-test failures keep their recorded identities and
-  signatures, with no new failures.
+- direct `ToolDispatcher` preserves `exact`;
+- the two unrelated knowledge-injector baseline failures retain their exact identities
+  and signatures, with no new failures.
 
 ## Production module boundary
 
-The expected production scope is limited to the existing owners:
+Production changes are limited to:
 
 ```text
 src/Rook/Handlers/GrasshopperHandler.cs
@@ -751,63 +1011,59 @@ mcp_server/src/rook/agent/tool_dispatcher.py
 mcp_server/src/rook/learning/knowledge_injector.py
 ```
 
-Focused tests and the Task 0 evidence artifact may be added. No new production module,
-registry, search service, result framework, or identity abstraction is expected.
+`NativeGhBridgeRegistrar` already forwards library arguments and the metadata request
+body unchanged; it does not require modification. Focused managed and Python test files
+may be added.
 
-If the implementation requires broader machinery, stop and reconsider the boundary.
-
-## Failure behavior
-
-- Failure to obtain the live component server returns the existing tool failure shape.
-- Unexpected native-search failure returns a truthful failure; it does not silently fall
-  back to the old registration-order algorithm.
-- Ambiguous name identity refuses selection and reports candidates.
-- Missing GUID identity returns an explicit per-request failure.
-- Metadata instantiation failure remains a per-request outcome.
-- Task 0 unexplained candidate loss or unexpectedly expensive full retention blocks
-  adoption pending review.
-- No retry, hidden fallback, knowledge substitution, or automatic native preference is
-  introduced.
+No new production module, registry, search service, cache, result framework, persistent
+catalog, identity abstraction, or endpoint is permitted. If another production owner
+becomes materially necessary, stop for scope review.
 
 ## Claims
 
-After Task 0 and a successful implementation, this slice may claim:
+After implementation and review, this slice may claim:
 
 - ordinary component search uses Grasshopper's native ranked catalog and aliases;
-- Rook preserves its public category and exact-name semantics;
-- results are limited after complete filtering and ordering;
-- native and installed third-party components remain discoverable subject to the
-  independently approved eligibility policy;
-- duplicate component-type names cannot silently choose the wrong implementation;
-- a selected catalog GUID flows directly into authoritative SDK metadata;
-- agents retain compact `T*` and `C*` identities for graph work;
-- unrelated knowledge hints no longer modify these authoritative results.
+- Rook preserves category and exact-name semantics while filtering before limiting;
+- ordinary search excludes hidden and obsolete candidates;
+- native and installed third-party candidates remain discoverable without an allowlist;
+- duplicate component names cannot silently select the wrong implementation;
+- caller selectors and per-item outcomes remain correlated in order;
+- selected GUIDs flow directly into authoritative metadata;
+- proxy identity, source-kind provenance, implementation, and Params have separate
+  owners;
+- compiled and user-object provenance are truthful source-specific variants;
+- agents retain compact T*/C* identities for graph execution;
+- unrelated knowledge hints no longer modify authoritative discovery results.
 
 It may not claim:
 
-- arbitrary semantic retrieval or typo recovery;
+- fuzzy, semantic, intent-aware, or typo-tolerant retrieval;
 - stable native-score values across Grasshopper versions;
 - visibility of plugins that failed to load or register;
-- automatic preference for core or third-party components;
-- that metadata proves runtime semantic correctness;
-- improved model reasoning independently of a controlled rerun;
+- portable `.ghuser` proxy GUIDs;
+- `.ghuser` package, author, family, or package-version identity;
+- that runtime assembly identifies the supplier of a `.ghuser`;
+- runtime semantic correctness from metadata alone;
+- improved model reasoning independently of controlled comparison;
 - knowledge or DSPy effectiveness.
 
 ## Anti-quagmire stop conditions
 
 Stop before implementation expansion if:
 
-- Task 0 requires a new product endpoint or persistent catalog;
-- native search cannot preserve installed third-party candidates without a parallel index;
-- preserving category completeness appears to require repeated speculative over-fetching;
-- the correction requires embeddings, fuzzy matching, custom aliases, or knowledge
-  migration;
+- native search requires a persistent or parallel catalog;
+- category completeness requires speculative repeated over-fetching;
+- search would instantiate candidates or hash user-object content;
+- provenance requires archive parsing or inferred package labels;
+- embeddings, fuzzy matching, custom aliases, or knowledge migration enter scope;
 - a new GUID or short-ID family is proposed;
-- `gh_edit` or `gh_snapshot` identity machinery must change;
+- `gh_edit`, `gh_snapshot`, T*/C*, flows, or receipts must change;
 - more than the four existing production owners need material changes;
-- the Opus or later Qwen result is used to introduce witness-specific ranking or prompts.
+- a model result is used to add witness-specific ranking or prompts.
 
 The KISS boundary is:
 
-> One native search owner, one authoritative type GUID, one authoritative metadata owner,
-> existing compact canvas identities, and truthful ambiguity.
+> One native retrieval owner, one proxy-owned component-type GUID, one source-specific
+> provenance handoff, one existing metadata owner, existing compact graph identities,
+> and truthful correlated outcomes.
