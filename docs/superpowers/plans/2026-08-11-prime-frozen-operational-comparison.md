@@ -1,0 +1,1101 @@
+# Prime Frozen Operational Model Comparison Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Construct and execute one frozen two-row Prime Agent comparison between Claude Opus 4.6 and Qwen3.6:35b on equivalent empty Grasshopper canvases, preserving exact operational evidence without changing Rook or Prime product code.
+
+**Architecture:** Create two isolated disposable Prime roots whose common artifacts are byte-identical and whose row-specific JSON differences are mechanically allowlisted. Prime's actual provider builders produce credential-redacted, no-contact request captures through an intercepted transport; a common PowerShell operator enforces one-shot execution, the 30-minute ceiling, and Windows PID-ancestry custody; one common Python inspector owns the exact initial and final `gh_snapshot` calls. Targets are created sequentially, and every host or model boundary stops for independent review and separate authorization.
+
+**Tech Stack:** Windows PowerShell 7, Python 3.11, `unittest`, TypeScript/`tsx`, Prime Agent commit `c98941a2`, Prime `ModelRegistry` and `streamSimple`, MCP Python SDK `1.28.0`, Rook merge `06534f37`, Anthropic Messages API, Ollama OpenAI-completions compatibility, Rhino 8, Grasshopper.
+
+## Global Constraints
+
+- Treat `docs/superpowers/specs/2026-08-11-prime-frozen-operational-comparison-design.md` at commit `10985fef418a1bee6f11f11fb058c7bbc94165db` as authoritative.
+- The qualified Rook product/runtime identity is merge `06534f371b173308179164189e54b722a34f8a24`.
+- The qualified Prime identity is commit `c98941a2a5cf40faecf9b4648ac3c304abf48fd3`.
+- Create exactly one new disposable root: `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison`.
+- Preserve every earlier disposable Prime qualification directory and its evidence unchanged.
+- Modify no Rook or Prime production/test module. Repository changes are limited to this plan's execution ledger and the final compact comparison report.
+- Use exact rows `anthropic/claude-opus-4-6` and `ollama_chat/qwen3.6:35b`.
+- Use exact intent: `Create a Grasshopper definition that generates a row of points along the X axis using adjustable Start, Step, and Count controls, with Y and Z fixed at zero.`
+- Use exact Prime `thinkingLevel=medium` for both rows. No off-mode row or provider default is admitted.
+- The Anthropic control uses environment `ANTHROPIC_API_KEY`, workspace label `rook-prime-operational-comparison-opus-2026-08-11`, and exact workspace spend limit `25.00` USD.
+- `ANTHROPIC_OAUTH_TOKEN`, stored Anthropic auth, CLI `--api-key`, custom Anthropic providers, and alternate credential resolvers are prohibited.
+- Use exact local endpoint `http://127.0.0.1:11434/v1`, API `openai-completions`, `reasoning=true`, `supportsDeveloperRole=false`, and `supportsReasoningEffort=true`.
+- Common adapter, skill, checkpoint, dependencies, intent, operator, inspector, evidence contract, and assessment contract are byte-identical across rows.
+- Prime settings are parsed-equal; every other parsed difference must pass the specification's exact JSON Pointer normalization and be retained in full.
+- Each row has a hard 30-minute monotonic wall-clock ceiling from immediately before Prime start through final-inspection flush.
+- Prime/provider-native retries remain observational. Add no operator retry, campaign rerun, operator follow-up turn, adapter retry, hidden MCP replay, or operator-authored cleanup, repair, reset, or fallback.
+- Allow and record model-authored repeated inspections, execution-fixture cleanup required by the frozen skill, and the skill's one bounded correction from fresh evidence.
+- Identify qualification-owned processes only by recorded PID ancestry and creation identity. Never use executable-name matching.
+- Use only existing local caches/checkouts for inert environment construction. A missing dependency stops Task 1; it does not authorize package-network contact.
+- Task 1 contacts no Anthropic API, Ollama, model, Rhino, Grasshopper, Rook MCP, or other live runtime.
+- Stop for independent review after Task 1, before each initial snapshot, before each model run, and after the control run.
+- Do not collapse gateway discipline, discovery behavior, mechanical outcome, semantic fidelity, and cost/latency into a score.
+- Provider token counts are retained independently and are not normalized or directly compared.
+
+## File Map
+
+The disposable comparison root owns these shared construction/test files:
+
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/operator/request_capture.ts` — loads exact Prime row models, invokes Prime's actual provider builders, intercepts `fetch`, and writes credential-redacted request evidence.
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/operator/parity.py` — strict duplicate-key JSON admission, exact JSON Pointer sentinel normalization, and complete path/value difference evidence.
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/operator/test_request_capture.ts` — causal no-contact provider-builder tests.
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/operator/test_comparison.py` — causal artifact, parity, snapshot, lifecycle, timeout, and PID-ancestry tests.
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/non-target-parity.json` — create-new ordered report frozen before target A.
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/target-parity.json` — absent until target B is frozen; create-new target difference report.
+
+Each of `control/` and `local/` owns the same relative file layout:
+
+- `agent/settings.json` — isolated Prime settings with built-in skills disabled and empty packages/extensions.
+- `agent/models.json` — row-specific provider/model configuration.
+- `agent/auth.json` — empty object; no stored Anthropic credential.
+- `agent/skills/rook-full/pyproject.toml` — exact proven local package metadata, SHA-256 `7568CD3239405C69B6023BDB1714D79CA28EB399656FFC12B3BAB7FEC625E8CB`.
+- `agent/skills/rook-full/src/rook_full/__init__.py` — exact adapter hash `E7577F0EC8A9B504712BC73290BB8F4C673E9677AEF952CFBFC346F206A62996`.
+- `agent/skills/prime-execute-grasshopper/SKILL.md` — exact skill hash `0F7C8D1F2D612FFB7522469C4E3D467985E8872585CA3C18DF9B46BD1A84D36E`.
+- `agent/skills/prime-execute-grasshopper/references/checkpoint-protocol.md` — exact checkpoint hash `76A7C0CFF04DEF83A75519A546AC812804AC32BBF30CC14609A6D52950248964`.
+- `kernel-venv/` — isolated Python kernel with package versions matching the proven V4 environment.
+- `operator/intent.txt` — byte-identical exact intent.
+- `operator/evidence-contract.json` — byte-identical closed evidence requirements.
+- `operator/assessment-contract.json` — byte-identical five-conclusion contract.
+- `operator/kernel-requirements.txt` — byte-identical frozen Python requirement set, exact SHA-256 `ECA59771565CD204120936A7110BD62FC11C532D3E5FB7ACD26A70951E7DEF4A`.
+- `cache/prime_agent_runtime-0.1.0-py3-none-any.whl` — byte-identical locally cached Prime runtime wheel, exact SHA-256 `0A2A0DDBC8B372D33DB54AF7B4307460E42CE735BBF9B90A9C854FCF21B655A9`.
+- `operator/offline-install-commands.txt` — byte-identical literal commands used to construct both kernels with `--no-index`.
+- `operator/pip-freeze.txt` — byte-identical installed-package evidence created once after each offline install.
+- `operator/request_capture.ts` — byte-identical copy of the root capture owner.
+- `operator/run.ps1` — byte-identical one-shot launcher, timeout owner, and PID-ancestry ledger owner.
+- `operator/inspection.py` — byte-identical initial/final snapshot and evidence owner.
+- `operator/reasoning-capture.json` — row-specific create-new, credential-redacted request capture.
+- `operator/row.json` — immutable non-target row.
+- `operator/manifest.json` — phase-aware static/target artifact hashes.
+- `operator/target.json` — absent through Task 1 and created only after the separately authorized initial snapshot.
+- `operator/initial-inspection.jsonl` — absent through Task 1 and written by exactly one authorized initial snapshot.
+- `operator/prime.jsonl`, `operator/stderr.txt`, `operator/process-ledger.json`, `operator/final-inspection.jsonl` — absent until the separately authorized model row.
+- `agent/sessions/` and `agent/session-artifacts/` — row-owned Prime evidence, empty before its model run.
+
+No target or live evidence file exists when Task 1 stops.
+
+---
+
+### Task 1: Construct and inertly qualify both non-target rows
+
+**Files:**
+
+- Create: every disposable file listed above except target/live evidence
+- Read unchanged: `C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v4/`
+- Read unchanged: `D:/prime-agent/packages/ai/src/providers/anthropic.ts`
+- Read unchanged: `D:/prime-agent/packages/ai/src/providers/openai-completions.ts`
+- Read unchanged: `D:/prime-agent/packages/coding-agent/src/core/auth-storage.ts`
+- Read unchanged: `D:/prime-agent/packages/coding-agent/src/core/model-registry.ts`
+- Modify after successful inert review: `docs/superpowers/plans/2026-08-11-prime-frozen-operational-comparison.md`
+
+**Interfaces:**
+
+- Consumes: exact V4 adapter/skill/checkpoint/dependency artifacts, Prime `AuthStorage.create()`, `ModelRegistry.create()`, `ModelRegistry.find()`, `ModelRegistry.getApiKeyAndHeaders()`, and `streamSimple()`.
+- Produces: `request_capture.ts ROW_ROOT OUTPUT_PATH`, `parity.py non-target COMPARISON_ROOT OUTPUT_PATH`, `inspection.py initial --process-id PID --native-port PORT --document-serial SERIAL --evidence-path PATH --target-output-path PATH`, `inspection.py final --row-path PATH --target-path PATH --process-ledger-path PATH --evidence-path PATH --remaining-seconds SECONDS`, and `run.ps1 -RowPath ROW_JSON`.
+- `run.ps1` receives exactly one operator argument. All provider, model, intent, limit, credential mode, isolated path, and target facts come from reviewed artifacts.
+- `inspection.py` invokes only `rook_full.call("gh_snapshot", {"include_data": True, "max_preview_items": 3})`.
+
+- [ ] **Step 1: Verify immutable sources and unused destination**
+
+Run:
+
+```powershell
+$Lane = 'C:/UDEV/Rook/.worktrees/prime-frozen-control-local-comparison-design'
+$V4 = 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v4'
+$Comparison = 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison'
+
+git -C $Lane rev-parse HEAD
+git -C $Lane status --short
+git -C D:/prime-agent rev-parse HEAD
+git -C D:/prime-agent status --short
+Get-FileHash "$V4/agent/skills/rook-full/src/rook_full/__init__.py" -Algorithm SHA256
+Get-FileHash "$V4/agent/skills/prime-execute-grasshopper/SKILL.md" -Algorithm SHA256
+Get-FileHash "$V4/agent/skills/prime-execute-grasshopper/references/checkpoint-protocol.md" -Algorithm SHA256
+Test-Path -LiteralPath $Comparison
+```
+
+Expected: lane contains the approved specification and plan commits with a clean worktree; Prime is exactly `c98941a2a5cf40faecf9b4648ac3c304abf48fd3` and clean; all three hashes equal the File Map values; destination is `False`. If the destination exists, stop without deleting or reusing it.
+
+- [ ] **Step 2: Write RED request-capture tests before the capture owner**
+
+Create `operator/test_request_capture.ts` with Node strict assertions. Its first executed
+assertion checks that `request_capture.ts` exists; only then does it dynamically import
+`captureRequest`. It covers:
+
+```typescript
+await assert.rejects(() => captureRequest(opusRowWithReasoning("off")), /reasoning/);
+await assert.rejects(() => captureRequest(qwenRowWithReasoning("off")), /reasoning/);
+await assert.rejects(() => captureRequest(qwenRowWithDeveloperLeak()), /developer/);
+await assert.rejects(() => captureRequest(opusRowWithStoredAnthropicAuth()), /stored_auth/);
+await assert.rejects(() => captureRequest(opusRowWithOAuthEnv()), /oauth/);
+```
+
+Positive assertions are exact:
+
+```typescript
+assert.equal(opus.model.reasoning, true);
+assert.equal(opus.request.body.thinking.type, "adaptive");
+assert.equal(opus.request.body.output_config.effort, "medium");
+assert.equal(opus.request.headers["x-api-key"], "ROOK_DUMMY_ANTHROPIC_KEY");
+assert.equal(opus.request.headers.authorization, undefined);
+assert.equal(opus.request.url, "https://api.anthropic.com/v1/messages");
+
+assert.equal(qwen.model.reasoning, true);
+assert.equal(qwen.request.body.reasoning_effort, "medium");
+assert.equal(qwen.request.body.messages.some((m) => m.role === "developer"), false);
+assert.equal(qwen.request.url, "http://127.0.0.1:11434/v1/chat/completions");
+```
+
+The fake transport must count exactly one intercepted `fetch` per capture and throw if a URL is not the row's exact endpoint.
+
+- [ ] **Step 3: Run request-capture RED**
+
+Run:
+
+```powershell
+& 'D:/prime-agent/node_modules/.bin/tsx.cmd' `
+  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/operator/test_request_capture.ts'
+```
+
+Expected: executed assertion failure `request_capture.ts missing`. A TypeScript
+collection/configuration failure is not a valid RED.
+
+- [ ] **Step 4: Write RED Python tests for parity, inspection, process custody, and launch policy**
+
+Create `operator/test_comparison.py`. Each test first executes an assertion that its
+subject artifact exists and only then loads it dynamically. Use these exact causal groups:
+
+```text
+ArtifactParityTests
+  test_common_artifacts_are_byte_identical
+  test_isolated_settings_disable_builtin_skills_packages_and_extensions
+  test_exact_models_api_bases_and_no_fallback
+  test_settings_are_parsed_equal_without_normalization
+  test_exact_pointer_differences_pass_and_are_fully_retained
+  test_extra_nested_row_difference_refuses
+  test_extra_nested_model_difference_refuses
+  test_ancestor_subtree_removal_is_impossible
+  test_target_paths_are_not_admitted_in_non_target_phase
+
+AdapterContractTests
+  test_v4_transport_and_stack_owned_errlog_are_byte_identical
+  test_public_surface_is_exactly_search_read_call
+  test_search_read_call_delegate_exact_canonical_envelopes
+  test_arguments_results_and_exceptions_pass_through_unchanged
+
+EmptyStateTests
+  test_exact_empty_snapshot_passes
+  test_component_only_refuses
+  test_flow_only_refuses
+  test_group_only_refuses
+  test_relay_only_refuses
+  test_error_or_warning_refuses
+
+ModelCorrectionTests
+  test_repeated_model_authored_inspections_and_one_correction_are_retained
+  test_operator_retry_and_hidden_mcp_replay_remain_zero
+
+ProcessCustodyTests
+  test_descendants_are_selected_by_pid_ancestry_not_name
+  test_unrelated_same_name_process_is_excluded
+  test_pid_reuse_with_different_creation_identity_is_excluded
+  test_lingering_kernel_or_mcp_child_blocks_final_inspection
+  test_no_lingering_descendant_allows_final_inspection
+
+TimeoutTests
+  test_timeout_before_prime_exit_kills_owned_tree_and_calls_no_inspection
+  test_timeout_after_inspection_request_permits_no_second_call
+  test_timeout_preserves_existing_stdout_stderr_and_process_ledger_prefix
+
+OneShotTests
+  test_existing_session_stdout_stderr_or_inspection_refuses_before_process_start
+  test_target_absence_refuses_before_process_start
+  test_manifest_or_row_hash_mismatch_refuses_before_process_start
+  test_only_row_path_is_an_operator_argument
+
+CredentialCustodyTests
+  test_control_requires_nonblank_api_key_without_echo_or_hash
+  test_oauth_or_stored_auth_refuses_before_process_start
+  test_literal_key_in_prime_or_session_evidence_blocks_inspection_without_echo
+  test_local_child_environment_contains_no_anthropic_credentials
+
+InspectionWriterTests
+  test_initial_and_final_use_exact_fixed_snapshot_request
+  test_final_reconstructs_exact_frozen_target
+  test_request_flush_precedes_snapshot_call
+  test_request_failure_causes_zero_calls
+  test_result_failure_retains_request_after_one_call
+  test_target_or_listener_mismatch_causes_zero_calls
+  test_final_requires_natural_evidence_and_zero_owned_processes
+```
+
+The model-correction fake must emit two public
+`rook_full.call("gh_snapshot", {"include_data": true, "max_preview_items": 3})`
+cells around one failed mutation and one corrected mutation. The test asserts four
+model-authored calls are retained, while operator launch count remains one and
+operator/adapter retry counters remain zero.
+
+The process tests feed rows shaped exactly as:
+
+```python
+{"pid": 4100, "parentPid": 4000, "creationId": "20260811153000.000000-240"}
+```
+
+No fake or production function accepts an executable name.
+
+- [ ] **Step 5: Run Python RED**
+
+Use the existing V4 interpreter only to execute the not-yet-implemented tests:
+
+```powershell
+& 'C:/Users/bring/AppData/Local/Temp/prime-rook-full-mutation-qualification-v4/kernel-venv/Scripts/python.exe' `
+  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/operator/test_comparison.py' -v
+```
+
+Expected: executed assertion failures for missing comparison artifacts and owners, not import collection failure.
+
+- [ ] **Step 6: Create both isolated roots and byte-identical common artifacts**
+
+Use `apply_patch` for text artifacts. Copy only the three hash-qualified V4 artifacts and the frozen requirement/wheel material; do not copy V4 sessions, evidence, settings, models, row, manifest, or caches wholesale.
+
+Both `agent/settings.json` files are exactly:
+
+```json
+{
+  "enableBuiltinSkills": false,
+  "packages": [],
+  "extensions": []
+}
+```
+
+Both `agent/auth.json` files are exactly `{}`.
+
+Both `operator/intent.txt` files contain the exact intent followed by one LF. Both
+`operator/evidence-contract.json` files are exactly:
+
+```json
+{
+  "schema": "rook.qualification.prime_operational_comparison.evidence.v1",
+  "primeRuns": 1,
+  "userTurns": 1,
+  "operatorFinalSnapshotsMaximum": 1,
+  "originalEvidenceImmutable": true,
+  "requiredEvidence": [
+    "prime.jsonl",
+    "stderr.txt",
+    "one_native_prime_session",
+    "process-ledger.json"
+  ],
+  "conditionalEvidence": [
+    "final-inspection.jsonl"
+  ]
+}
+```
+
+Both `operator/assessment-contract.json` files are exactly:
+
+```json
+{
+  "schema": "rook.qualification.prime_operational_comparison.assessment.v1",
+  "conclusions": [
+    "gateway_discipline",
+    "discovery_behavior",
+    "mechanical_outcome",
+    "semantic_fidelity",
+    "cost_latency"
+  ],
+  "aggregateScore": false,
+  "providerTokensDirectlyComparable": false
+}
+```
+
+The control `agent/models.json` is:
+
+```json
+{
+  "providers": {}
+}
+```
+
+The local `agent/models.json` is:
+
+```json
+{
+  "providers": {
+    "ollama_chat": {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true
+      },
+      "models": [
+        {
+          "id": "qwen3.6:35b",
+          "reasoning": true
+        }
+      ]
+    }
+  }
+}
+```
+
+Copy the already proven local Prime runtime wheel into each row's `cache/` and retain its
+hash. Create both venvs independently with the exact V4 interpreter version and the
+literal commands retained in `operator/offline-install-commands.txt`. Every install
+command is offline and install the copied `prime_agent_runtime` wheel, frozen
+requirements, and local `rook-full` package only from reviewed local paths. The common
+file is exactly these executable PowerShell statements; the caller supplies only the
+code-owned row root:
+
+```powershell
+$UvCache = 'C:/Users/bring/AppData/Local/uv/cache'
+$Requirements = "$RowRoot/operator/kernel-requirements.txt"
+uv venv --offline --python 3.11.14 "$RowRoot/kernel-venv"
+uv pip install --offline --cache-dir $UvCache --find-links "$RowRoot/cache" --python "$RowRoot/kernel-venv/Scripts/python.exe" --requirements $Requirements
+uv pip install --offline --cache-dir $UvCache --python "$RowRoot/kernel-venv/Scripts/python.exe" --editable "$RowRoot/agent/skills/rook-full"
+uv pip install --offline --cache-dir $UvCache --python "$RowRoot/kernel-venv/Scripts/python.exe" starlette==1.5.0
+```
+
+If any required cached distribution is absent, stop. Afterward, create each
+`operator/pip-freeze.txt` once from `python -m pip freeze --all` and require byte
+equality before either file enters its manifest.
+
+- [ ] **Step 7: Implement request capture through Prime's actual owners**
+
+Create `request_capture.ts` with this interface:
+
+```typescript
+export async function captureRequest(
+  rowRoot: string,
+  outputPath: string,
+): Promise<CapturedRequestEvidence>;
+```
+
+The only admitted row-root leaf names are code-owned `control` and `local`. They map
+respectively to `anthropic/claude-opus-4-6` and `ollama_chat/qwen3.6:35b`; every other
+leaf refuses. No CLI model/provider override exists.
+
+Implementation must:
+
+1. Set `PRIME_AGENT_CODING_AGENT_DIR` to the exact row `agent` directory.
+2. For the Opus inert capture only, set `ANTHROPIC_API_KEY=ROOK_DUMMY_ANTHROPIC_KEY` and delete `ANTHROPIC_OAUTH_TOKEN`.
+3. Construct `AuthStorage` from that row's exact empty `auth.json`.
+4. Construct `ModelRegistry` from that row's exact `models.json`.
+5. Resolve the exact provider/model with `registry.find(provider, model)` and require `model.reasoning === true`.
+6. Resolve credentials/headers with `registry.getApiKeyAndHeaders(model)`.
+7. Replace `globalThis.fetch` with a capture function before calling Prime. It records
+   the actual `Request` URL, headers, and body, increments a single call counter, and
+   throws one private `InterceptedTransportStop` sentinel before network entry.
+8. Call Prime's exported `streamSimple(model, context, { reasoning: "medium", apiKey, headers, maxRetries: 0, onPayload })`.
+9. Consume the returned stream until the private sentinel is observed. Accept only that
+   sentinel, require exactly one intercepted request and the exact endpoint, and reject
+   every other provider/build/transport exception.
+10. Restore `fetch` and environment in `finally`.
+11. Strictly serialize one credential-redacted create-new JSON record.
+
+The captured body is the body emitted by Prime/provider code. Do not build or reconstruct a second expected payload object. Assertions read the intercepted request and Prime's `onPayload` observation and require their reasoning fields to agree.
+
+The create-new capture has exactly this closed top-level shape:
+
+```typescript
+type CapturedRequestEvidence = {
+  schema: "rook.qualification.prime_operational_comparison.reasoning_capture.v1",
+  rowId: "control" | "local",
+  provider: "anthropic" | "ollama_chat",
+  model: "claude-opus-4-6" | "qwen3.6:35b",
+  modelReasoning: true,
+  fetchCount: 1,
+  request: {
+    url: string,
+    method: "POST",
+    headers: {
+      xApiKeyMode: "dummy_sentinel" | "absent",
+      authorizationMode: "absent" | "ollama_static_token"
+    },
+    body: unknown
+  },
+  providerPayload: unknown
+};
+```
+
+`body` is the exact parsed JSON from the intercepted `Request`; `providerPayload` is the
+exact value observed by Prime's callback. The only header values retained are the two
+closed modes above. Strictly verify that the two bodies agree on the provider reasoning
+fields and that the raw serialized capture contains neither `ROOK_DUMMY_ANTHROPIC_KEY`
+nor any Authorization value.
+
+The in-memory header projection is closed:
+
+```typescript
+type CapturedHeaderModes = {
+  xApiKeyMode: "dummy_sentinel" | "absent",
+  authorizationMode: "absent" | "ollama_static_token"
+};
+```
+
+No real key or hash of a real key may enter the capture.
+
+- [ ] **Step 8: Implement exact JSON Pointer parity**
+
+Create `parity.py` with exact callables
+`load_json_strict(path: Path) -> object`,
+`normalize_pair(file_name: str, control: object, local: object, phase: str) -> tuple[object, object, list[dict]]`,
+and `write_report_create_new(path: Path, records: list[dict]) -> None`.
+
+Use only the exact file/pointer allowlist in the specification. Replace differing admitted leaves with one internal sentinel; never delete an ancestor. Preserve exact `file`, `pointer`, presence flags, and values in pointer order. Reject duplicate keys, non-UTF-8 text, an unknown phase, extra array items, and every unlisted difference.
+
+The CLI is exact:
+
+```text
+parity.py non-target COMPARISON_ROOT OUTPUT_PATH
+parity.py target     COMPARISON_ROOT OUTPUT_PATH
+```
+
+Both output paths are create-new. Target mode refuses until both `target.json` and initial-inspection artifacts exist.
+
+- [ ] **Step 9: Implement the common snapshot inspector**
+
+Adapt the proven V4 final inspector into byte-identical `operator/inspection.py` copies. Keep its bounded create-new JSONL writer and exact public `rook_full.call()` invocation.
+
+Expose
+`run_initial(process_id: int, native_port: int, document_serial_number: int, evidence_path: Path, target_output_path: Path) -> bool`
+and
+`run_final(row_path: Path, target_path: Path, process_ledger_path: Path, evidence_path: Path, remaining_seconds: float) -> bool`.
+
+`run_initial()` writes/flushed the exact request before contact, calls once, writes the exact result, and returns true only when:
+
+```python
+result = await rook_full.call(
+    "gh_snapshot",
+    {"include_data": True, "max_preview_items": 3},
+)
+if not isinstance(result, dict) or result.get("success") is not True or "data" not in result:
+    return False
+data = result["data"]
+```
+
+The retained result row contains `result` unchanged. The empty-state predicate is then:
+
+```python
+(
+    data["components"] == []
+    and data["flows"] == []
+    and data.get("groups", []) == []
+    and data.get("relays", []) == []
+    and data["diagnostics"]["total"] == 0
+    and data["diagnostics"]["errors"] == 0
+    and data["diagnostics"]["warnings"] == 0
+)
+```
+
+Before importing `rook_full`, both inspector modes set the child MCP process environment
+from their admitted inputs/row only:
+
+```text
+ROOK_MCP_TARGET_MODE=panel_locked
+ROOK_MCP_TARGET_PROCESS_ID=decimal string of the exact admitted positive processId
+ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER=decimal string of the exact admitted positive documentSerialNumber
+ROOK_MCP_TOOL_PROFILE=full
+```
+
+They verify the Windows listener owner still equals the admitted PID/native port both
+before opening the MCP session and after the returned event. A mismatch causes zero calls
+before entry or no further call after entry.
+
+On successful initial evidence flush, hash the exact encoded request and result JSONL rows
+and create `target_output_path` once with:
+
+```python
+{
+    "schema": "rook.qualification.prime_operational_comparison.target.v1",
+    "processId": process_id,
+    "nativePort": native_port,
+    "documentSerialNumber": document_serial_number,
+    "initialSnapshotRequestHash": request_row_sha256,
+    "initialSnapshotResultHash": result_row_sha256,
+    "initialStateVerified": True,
+}
+```
+
+Any snapshot, predicate, serialization, write, short-write, flush, or close failure leaves
+`target_output_path` absent. Never rewrite it.
+
+`run_final()` additionally requires valid unique Prime JSON/session evidence and a process ledger whose `remaining` array is empty. It never discovers process ownership by name.
+
+- [ ] **Step 10: Implement one-shot launcher, timeout, and PID ancestry**
+
+Create byte-identical `operator/run.ps1` files. It accepts only `-RowPath`, derives `target.json`, and validates exact row/manifest/target hashes before creating stdout or stderr.
+
+Define pure ancestry helpers callable from inert tests:
+`Add-OwnedDescendants([hashtable]$Ledger, [object[]]$ProcessRows)` and
+`Get-RemainingOwnedProcesses([hashtable]$Ledger, [object[]]$ProcessRows)`.
+
+Each ledger entry contains only `pid`, `parentPid`, and `creationId`. A process enters the ledger only when its `parentPid` belongs to the recorded tree. PID equality with a different `creationId` is not ownership. Names and executable paths are not inputs.
+
+The live loop uses `Get-CimInstance Win32_Process` every 100 milliseconds, adds ancestry
+observations monotonically, and uses `[System.Diagnostics.Stopwatch]` for the 1,800-second
+ceiling. On timeout it kills only the recorded qualification root process tree, drains
+redirected output best-effort, writes the exact process ledger, performs no inspection,
+and returns bounded `incomplete` status.
+
+Prime arguments are exactly:
+
+```text
+--cwd $RowRoot
+--offline
+--no-extensions
+--mode json
+--model $QualifiedModel
+--thinking medium
+$Intent
+```
+
+Launch with `C:/Program Files/Git/bin/bash.exe`, working directory `D:/prime-agent`, and
+script `D:/prime-agent/prime-agent.sh`. Set `UseShellExecute=false`, redirect stdout and
+stderr into their create-new files, and set `CreateNoWindow=true`. The qualified model is
+the exact `provider/model` pair from the row; no model picker or settings default may
+participate.
+
+The child receives exactly the code-owned qualification overrides
+`PRIME_AGENT_CODING_AGENT_DIR`, `PRIME_AGENT_KERNEL_PYTHON`,
+`ROOK_MCP_TARGET_MODE=panel_locked`, the frozen process/document values, and
+`ROOK_MCP_TOOL_PROFILE=full`. The control inherits only the already-admitted
+`ANTHROPIC_API_KEY` credential; the launcher deletes `ANTHROPIC_OAUTH_TOKEN`. The local
+row deletes both Anthropic credential variables. Neither path supplies `--api-key`.
+
+The child environment sets the exact isolated agent/kernel paths and Rook full panel lock. Control admission requires the real `ANTHROPIC_API_KEY`, absent OAuth, empty Anthropic stored auth, workspace label, and `25.00` USD limit. The actual key is inherited directly and never interpolated into arguments, stdout, manifests, or logs.
+
+After natural Prime termination, write `process-ledger.json` create-new. Any remaining
+recorded descendant makes the row incomplete and causes zero final-inspection calls. If
+inspection is otherwise eligible, scan Prime stdout, stderr, and the one native session
+for the exact API-key string still held only in process memory. A literal match marks the
+control incomplete and causes zero final-inspection calls; report only closed token
+`credential_leak`, never the value, its hash, or matching text. Then pass the exact
+remaining monotonic deadline into `inspection.py`.
+The inspector uses `asyncio.timeout` around its one call; expiration retains the existing
+request prefix, closes only its qualification-owned stdio session, makes no additional
+call, and never terminates Rhino or the deployed host runtime.
+
+- [ ] **Step 11: Generate captures, finalize rows, and write static manifests**
+
+Run `request_capture.ts` once per inert row with dummy credentials and intercepted
+transport:
+
+```powershell
+$Comparison = 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison'
+$Tsx = 'D:/prime-agent/node_modules/.bin/tsx.cmd'
+& $Tsx "$Comparison/operator/request_capture.ts" "$Comparison/control" "$Comparison/control/operator/reasoning-capture.json"
+& $Tsx "$Comparison/operator/request_capture.ts" "$Comparison/local" "$Comparison/local/operator/reasoning-capture.json"
+```
+
+Hash each capture, then use this executable construction pattern to write each final
+`operator/row.json` once:
+
+```python
+import hashlib
+import json
+from pathlib import Path
+
+ROOT = Path("C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison")
+CONTROL = ROOT / "control"
+LOCAL = ROOT / "local"
+INTENT = (
+    "Create a Grasshopper definition that generates a row of points along the X axis "
+    "using adjustable Start, Step, and Count controls, with Y and Z fixed at zero."
+)
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest().upper()
+
+def write_create_new(path: Path, value: object) -> None:
+    encoded = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    with path.open("xb") as handle:
+        written = handle.write(encoded)
+        if written != len(encoded):
+            raise OSError("short write")
+        handle.flush()
+
+def artifact_hashes(root: Path) -> dict[str, str]:
+    paths = {
+        "adapter": root / "agent/skills/rook-full/src/rook_full/__init__.py",
+        "skill": root / "agent/skills/prime-execute-grasshopper/SKILL.md",
+        "checkpoint": root / "agent/skills/prime-execute-grasshopper/references/checkpoint-protocol.md",
+        "operator": root / "operator/run.ps1",
+        "inspector": root / "operator/inspection.py",
+        "intent": root / "operator/intent.txt",
+    }
+    return {name: sha256(path) for name, path in paths.items()}
+
+def dependency_hashes(root: Path) -> dict[str, str]:
+    paths = {
+        "requirements": root / "operator/kernel-requirements.txt",
+        "primeRuntimeWheel": root / "cache/prime_agent_runtime-0.1.0-py3-none-any.whl",
+        "offlineInstallCommands": root / "operator/offline-install-commands.txt",
+        "pipFreeze": root / "operator/pip-freeze.txt",
+        "skillPackage": root / "agent/skills/rook-full/pyproject.toml",
+    }
+    return {name: sha256(path) for name, path in paths.items()}
+
+def isolated_paths(root: Path) -> dict[str, str]:
+    return {
+        "root": root.as_posix(),
+        "agentDir": (root / "agent").as_posix(),
+        "kernelPython": (root / "kernel-venv/Scripts/python.exe").as_posix(),
+        "workingDir": root.as_posix(),
+        "stdout": (root / "operator/prime.jsonl").as_posix(),
+        "stderr": (root / "operator/stderr.txt").as_posix(),
+        "sessionDir": (root / "agent/sessions").as_posix(),
+        "initialInspection": (root / "operator/initial-inspection.jsonl").as_posix(),
+        "finalInspection": (root / "operator/final-inspection.jsonl").as_posix(),
+    }
+
+def build_row(root: Path, row_id: str) -> dict[str, object]:
+    control = row_id == "control"
+    return {
+        "schema": "rook.qualification.prime_operational_comparison.row.v1",
+        "rowId": row_id,
+        "provider": "anthropic" if control else "ollama_chat",
+        "model": "claude-opus-4-6" if control else "qwen3.6:35b",
+        "apiBase": "https://api.anthropic.com" if control else "http://127.0.0.1:11434/v1",
+        "credentialMode": "environment_api_key" if control else "loopback_no_remote_credential",
+        "reasoningRequest": {
+            "primeThinkingLevel": "medium",
+            "providerApiShape": "anthropic-messages" if control else "openai-completions",
+            "providerWire": {
+                "anthropicThinkingType": "adaptive" if control else None,
+                "anthropicEffort": "medium" if control else None,
+                "qwenReasoningEffort": None if control else "medium",
+            },
+        },
+        "reasoningCaptureHash": sha256(root / "operator/reasoning-capture.json"),
+        "intent": INTENT,
+        "repositoryIdentities": {
+            "rook": "06534f371b173308179164189e54b722a34f8a24",
+            "prime": "c98941a2a5cf40faecf9b4648ac3c304abf48fd3",
+        },
+        "artifactHashes": artifact_hashes(root),
+        "dependencyHashes": dependency_hashes(root),
+        "primeInvocation": {
+            "offline": True,
+            "noExtensions": True,
+            "mode": "json",
+            "thinkingLevel": "medium",
+            "userTurns": 1,
+        },
+        "limits": {
+            "wallClockSeconds": 1800,
+            "anthropicWorkspaceLabel": "rook-prime-operational-comparison-opus-2026-08-11" if control else None,
+            "anthropicWorkspaceSpendLimitUsd": 25.0 if control else None,
+        },
+        "evidenceContractHash": sha256(root / "operator/evidence-contract.json"),
+        "assessmentContractHash": sha256(root / "operator/assessment-contract.json"),
+        "isolatedPaths": isolated_paths(root),
+    }
+
+write_create_new(CONTROL / "operator/row.json", build_row(CONTROL, "control"))
+write_create_new(LOCAL / "operator/row.json", build_row(LOCAL, "local"))
+```
+
+Freeze these exact row facts:
+
+```text
+control provider/model: anthropic / claude-opus-4-6
+local provider/model:   ollama_chat / qwen3.6:35b
+Prime thinking level:   medium / medium
+control spend limit:    25.00 USD
+wall clock:             1800 seconds / 1800 seconds
+target:                 absent / absent
+```
+
+Write phase-one `manifest.json` files containing every static artifact hash but no target or live evidence. Run `parity.py non-target` to create `non-target-parity.json`.
+
+```powershell
+& "$Comparison/control/kernel-venv/Scripts/python.exe" `
+  "$Comparison/operator/parity.py" `
+  non-target `
+  $Comparison `
+  "$Comparison/non-target-parity.json"
+```
+
+- [ ] **Step 12: Run the complete inert seam**
+
+Run:
+
+```powershell
+$Comparison = 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison'
+$ControlPython = "$Comparison/control/kernel-venv/Scripts/python.exe"
+$LocalPython = "$Comparison/local/kernel-venv/Scripts/python.exe"
+
+& 'D:/prime-agent/node_modules/.bin/tsx.cmd' "$Comparison/operator/test_request_capture.ts"
+& $ControlPython "$Comparison/operator/test_comparison.py" -v
+& $ControlPython -m py_compile `
+  "$Comparison/operator/parity.py" `
+  "$Comparison/control/operator/inspection.py" `
+  "$Comparison/local/operator/inspection.py"
+& $ControlPython -c "import rlm, dill, mcp, rook_full"
+& $LocalPython -c "import rlm, dill, mcp, rook_full"
+$FrozenControlPackages = Get-Content -Raw "$Comparison/control/operator/pip-freeze.txt"
+$FrozenLocalPackages = Get-Content -Raw "$Comparison/local/operator/pip-freeze.txt"
+$CurrentControlPackages = ((& $ControlPython -m pip freeze --all) -join "`n") + "`n"
+$CurrentLocalPackages = ((& $LocalPython -m pip freeze --all) -join "`n") + "`n"
+if ($FrozenControlPackages -cne $FrozenLocalPackages -or `
+    $FrozenControlPackages -cne $CurrentControlPackages -or `
+    $FrozenLocalPackages -cne $CurrentLocalPackages) {
+    throw 'kernel dependency parity failed'
+}
+[scriptblock]::Create((Get-Content -Raw "$Comparison/control/operator/run.ps1")) | Out-Null
+[scriptblock]::Create((Get-Content -Raw "$Comparison/local/operator/run.ps1")) | Out-Null
+```
+
+Then verify all manifest hashes, common byte equality, strict JSON parsing, exact non-target parity, empty session/evidence directories, destination-only process fakes, and no target files.
+
+- [ ] **Step 13: Record Task 1 evidence and commit the ledger**
+
+Append the exact commands, test counts, artifact hashes, parity-report hash, Prime/Rook identities, line counts, and absence of target/live evidence to this plan's execution ledger. Do not include dummy or real credential material.
+
+Run:
+
+```powershell
+git add docs/superpowers/plans/2026-08-11-prime-frozen-operational-comparison.md
+git diff --cached --check
+git commit -m "docs: prepare frozen Prime comparison"
+```
+
+### Mandatory Task 1 review gate
+
+Stop. Independent review must reproduce request capture through Prime's real provider builders, exact JSON Pointer parity, empty-state regressions, model-correction allowance, PID-ancestry isolation, timeout behavior, manifest hashes, and zero live evidence. No target creation or host/model contact is authorized.
+
+---
+
+### Task 2: Freeze target A with one authorized initial snapshot
+
+**Files:**
+
+- Create after authorization: `control/operator/target.json`
+- Create after authorization: `control/operator/initial-inspection.jsonl`
+- Modify after success: `control/operator/manifest.json`
+- Modify after review: this plan's execution ledger
+
+**Interfaces:**
+
+- Consumes: reviewed control non-target row, exact PID/port/document candidate, and `inspection.py run_initial()`.
+- Produces: complete target A identity and updated manifest; performs exactly one canonical `gh_snapshot` and no model call.
+
+- [ ] **Step 1: Reverify the approved inert package before asking for a target**
+
+Rerun all Task 1 inert tests and hashes. Require `control/operator/target.json`, both initial/final inspection files, Prime stdout/stderr, process ledger, and every session artifact to be absent.
+
+- [ ] **Step 2: Stop for explicit target-A contact authorization**
+
+The operator creates a fresh empty disposable Grasshopper document, activates its Rhino document, opens/reopens Rook Chat, and supplies the exact panel line. This step authorizes no snapshot by itself.
+
+- [ ] **Step 3: Corroborate target A without MCP contact**
+
+Use the current native discovery record and Windows listener table to establish exact
+positive `processId`, `nativePort`, listener owner, and Rhino
+`documentSerialNumber`. Keep those values in the operator shell and print the closed
+credential-free candidate for authorization; do not create a target file yet. If any
+value is missing or inconsistent, stop with zero MCP calls.
+
+#### Mandatory target-A initial-snapshot review gate
+
+Stop. Independent review must reproduce the static hashes and inert seam, verify the
+exact positive PID/port/document candidate and Windows listener owner, and confirm that
+the target and all live evidence remain absent. Review does not authorize contact.
+
+- [ ] **Step 4: Obtain explicit authorization for exactly one initial snapshot**
+
+State the complete target candidate and exact call:
+
+```text
+rook_full.call("gh_snapshot", {"include_data": true, "max_preview_items": 3})
+```
+
+No model, mutation, retry, second inspection, or fallback is part of this authorization.
+
+- [ ] **Step 5: Execute one initial inspection and freeze target A**
+
+Run the control kernel's `inspection.py initial`. If the exact empty predicate fails, preserve the request/result evidence, do not create `target.json`, and stop.
+
+On success, `inspection.py` creates `target.json` once from the exact authorized values
+and exact encoded request/result row hashes. Add only target/initial entries to the
+phase-aware manifest and rerun the inert tests. Report the target SHA-256 and manifest
+SHA-256.
+
+- [ ] **Step 6: Record and commit target-A custody**
+
+Append exact target/evidence hashes and the one-call budget to the ledger, then commit only the ledger:
+
+```powershell
+git add docs/superpowers/plans/2026-08-11-prime-frozen-operational-comparison.md
+git diff --cached --check
+git commit -m "docs: freeze Prime control target"
+```
+
+### Mandatory target-A/model gate
+
+Stop. Independent review must verify target/manifest hashes, exact empty state, one snapshot call, and absence of Prime/model evidence. The Opus run requires separate explicit authorization.
+
+---
+
+### Task 3: Execute and review the one-shot Opus control
+
+**Files:**
+
+- Create once: `control/operator/prime.jsonl`
+- Create once: `control/operator/stderr.txt`
+- Create once: `control/operator/process-ledger.json`
+- Create when eligible: `control/operator/final-inspection.jsonl`
+- Create once: `control/operator/evidence-manifest.json`
+- Create after analysis: `control/operator/assessment.md`
+- Modify after review: this plan's execution ledger
+
+**Interfaces:**
+
+- Consumes: complete frozen control row, dedicated workspace/key, exact target A, and separate one-shot authorization.
+- Produces: one Prime session, authentic tool evidence, process custody, at most one operator final snapshot, and five separate conclusions.
+
+- [ ] **Step 1: Verify live-control preconditions without model or MCP contact**
+
+Require exact static/target hashes, empty live evidence/session locations, current PID/port/listener match, Prime commit, clean Prime worktree, `ANTHROPIC_API_KEY` present/nonblank, OAuth absent, empty Anthropic auth entry, workspace label, and `25.00` USD spend limit. Print no key material.
+
+Prove Rook release custody without contact by hashing
+`C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/server.py` against
+`mcp_server/src/rook/server.py` at merge `06534f37`, and hashing
+`C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net8.0/Rook.rhp`
+against `src/Rook/bin/Release/net8.0/Rook.rhp` from that merge build. A mismatch blocks
+authorization; do not copy or redeploy files in this task.
+
+The launcher can prove the row values and credential-resolution walls, but it cannot
+query Anthropic account administration without adding contact. Before authorization,
+the user separately attests that the supplied key belongs to the dedicated workspace
+named by the row and that its configured ceiling is exactly `25.00` USD. Record only the
+closed facts `workspace_attested=true` and `spend_limit_attested=true`; retain no key,
+key hash, billing response, or account metadata.
+
+- [ ] **Step 2: Obtain explicit authorization for exactly one Opus row**
+
+Report the complete row identity, target hash, workspace label, spend limit, and 30-minute ceiling. Authorization includes Prime-owned provider behavior, model-authored Rook calls, and one final operator snapshot when eligible. It includes no operator rerun, cleanup, repair, or follow-up turn.
+
+- [ ] **Step 3: Run the control launcher once**
+
+Invoke only:
+
+```powershell
+& 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/control/operator/run.ps1' `
+  -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/control/operator/row.json'
+```
+
+Do not intervene during the run. At 30 minutes the launcher performs the frozen safety termination. Do not manually retry a provider or tool call.
+
+- [ ] **Step 4: Seal control evidence without another host call**
+
+Hash every retained Prime/session/stderr/process/final-inspection artifact into create-new `evidence-manifest.json`. Do not rewrite original evidence. Confirm target B still does not exist.
+
+- [ ] **Step 5: Write the five control conclusions**
+
+Create `assessment.md` from retained evidence only. Report gateway discipline, discovery behavior, mechanical outcome, semantic fidelity, and cost/latency independently. State the first visible semantic plan before mutation or that none was retained. Do not normalize provider tokens or select a winner.
+
+- [ ] **Step 6: Record and commit the control ledger**
+
+Append lifecycle, elapsed time, exit, timeout, process, call, session, final-snapshot, usage, evidence hashes, and five conclusion summaries. Commit only the ledger:
+
+```powershell
+git add docs/superpowers/plans/2026-08-11-prime-frozen-operational-comparison.md
+git diff --cached --check
+git commit -m "docs: record Prime Opus control"
+```
+
+### Mandatory control review gate
+
+Stop. If the row timed out or had infrastructure, custody, evidence, or lingering-process failure, target B and Qwen remain blocked. A naturally completed model/task failure may proceed only after independent review confirms healthy evidence and no artifact or interpretation change.
+
+---
+
+### Task 4: Freeze target B after control review
+
+**Files:**
+
+- Create after authorization: `local/operator/target.json`
+- Create after authorization: `local/operator/initial-inspection.jsonl`
+- Modify after success: `local/operator/manifest.json`
+- Create after success: `target-parity.json`
+- Modify after review: this plan's execution ledger
+
+**Interfaces:**
+
+- Consumes: the pre-control local non-target hashes, approved control review, fresh target B candidate, and one initial-snapshot authorization.
+- Produces: complete target B identity and target parity evidence; performs one canonical snapshot and no model call.
+
+- [ ] **Step 1: Prove local non-target artifacts survived the control unchanged**
+
+Recompute every local non-target hash and compare it with the Task 1 manifest and non-target parity report. Require no local target, session, stdout, stderr, process ledger, or inspection evidence.
+
+- [ ] **Step 2: Prepare and corroborate target B without contact**
+
+Only now create a second fresh empty disposable Grasshopper document. Obtain its exact
+Rook Chat document line, corroborate PID/port/listener, retain the candidate values in the
+operator shell, and print the closed target candidate. Do not create a target file or
+contact MCP.
+
+#### Mandatory target-B initial-snapshot review gate
+
+Stop. Independent review must reproduce the unchanged local non-target hashes, verify
+the exact candidate/listener evidence, and confirm that every local target/live artifact
+is absent. Review does not authorize contact.
+
+- [ ] **Step 3: Obtain explicit authorization for exactly one target-B initial snapshot**
+
+State the complete target candidate and fixed canonical snapshot request. Authorization
+includes no model, mutation, retry, second inspection, or fallback.
+
+- [ ] **Step 4: Execute one initial snapshot and freeze target B**
+
+Use local `inspection.py initial`. Require the exact empty-state predicate. On success write `target.json`, update only target-phase manifest entries, and refuse any retry on failure.
+
+- [ ] **Step 5: Produce target parity evidence**
+
+Run:
+
+```powershell
+& 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/control/kernel-venv/Scripts/python.exe' `
+  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/operator/parity.py' `
+  target `
+  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison' `
+  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/target-parity.json'
+```
+
+Require only the exact target pointers and manifest entries from the specification. Retain every path/value pair.
+
+- [ ] **Step 6: Rerun inert verification and commit target-B custody**
+
+Run the complete Task 1 inert seam, hash target/parity evidence, append the ledger, and commit:
+
+```powershell
+git add docs/superpowers/plans/2026-08-11-prime-frozen-operational-comparison.md
+git diff --cached --check
+git commit -m "docs: freeze Prime local target"
+```
+
+### Mandatory target-B/model gate
+
+Stop. Independent review must verify unchanged local non-target artifacts, exact empty target B, one initial snapshot, target parity, and zero local model evidence. Qwen requires separate explicit authorization.
+
+---
+
+### Task 5: Execute the one-shot Qwen local row
+
+**Files:**
+
+- Create once: `local/operator/prime.jsonl`
+- Create once: `local/operator/stderr.txt`
+- Create once: `local/operator/process-ledger.json`
+- Create when eligible: `local/operator/final-inspection.jsonl`
+- Create once: `local/operator/evidence-manifest.json`
+- Create after analysis: `local/operator/assessment.md`
+- Modify after review: this plan's execution ledger
+
+**Interfaces:**
+
+- Consumes: complete frozen local row, exact target B, unchanged comparison contracts, and separate one-shot authorization.
+- Produces: one local Prime session, authentic tool evidence, process custody, at most one final operator snapshot, and five separate conclusions.
+
+- [ ] **Step 1: Verify live-local preconditions without model or MCP contact**
+
+Require exact non-target/target/parity hashes, empty local live evidence/session locations, current PID/port/listener match, exact Prime identity, the same two Rook release-file hash equations used for control, and the loopback Ollama route. Remove Anthropic credential variables from the child environment. Do not probe Ollama yet.
+
+- [ ] **Step 2: Obtain explicit authorization for exactly one Qwen row**
+
+Report complete row/target hashes and the 30-minute ceiling. Authorization includes model-authored Rook calls and one eligible final snapshot; it includes no operator rerun, cleanup, repair, follow-up turn, or alternate model.
+
+- [ ] **Step 3: Run the local launcher once**
+
+Invoke only:
+
+```powershell
+& 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/local/operator/run.ps1' `
+  -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/local/operator/row.json'
+```
+
+Do not intervene. Preserve a timeout or failure prefix without retry.
+
+- [ ] **Step 4: Seal local evidence without another host call**
+
+Create `evidence-manifest.json` from retained artifacts. Do not rewrite original evidence or inspect the canvas again.
+
+- [ ] **Step 5: Write the five local conclusions**
+
+Use the identical assessment contract and evidence rules used for control. Report gateway discipline, discovery behavior, mechanical outcome, semantic fidelity, and cost/latency separately. Provider token counts remain Qwen-only telemetry.
+
+- [ ] **Step 6: Record and commit the local ledger**
+
+Append exact hashes, lifecycle, process, timing, usage, calls, final inspection, and conclusions. Commit only the ledger:
+
+```powershell
+git add docs/superpowers/plans/2026-08-11-prime-frozen-operational-comparison.md
+git diff --cached --check
+git commit -m "docs: record Prime Qwen row"
+```
+
+### Mandatory local review gate
+
+Stop for independent evidence review. No further host call, cleanup, rerun, model, or interpretation change is authorized.
+
+---
+
+### Task 6: Reconcile the frozen comparison without contact
+
+**Files:**
+
+- Create: `docs/superpowers/reports/2026-08-11-prime-frozen-operational-comparison.md`
+- Modify: `docs/superpowers/plans/2026-08-11-prime-frozen-operational-comparison.md`
+
+**Interfaces:**
+
+- Consumes: both immutable rows, parity reports, manifests, Prime evidence, assessments, and independent reviews.
+- Produces: one compact durable milestone with five side-by-side conclusions and explicit non-claims.
+
+- [ ] **Step 1: Reverify every retained hash and JSON/JSONL artifact**
+
+Strictly parse all complete JSON/JSONL artifacts with duplicate-key rejection, verify every manifest, and confirm no original evidence changed after its row. Record partial byte prefixes as incomplete rather than repairing them.
+
+- [ ] **Step 2: Reconcile the five conclusion families**
+
+Create a side-by-side table only if both rows completed with healthy evidence. Do not create a winner or aggregate score. If either row is incomplete, report each row independently and state that comparative superiority is unproven.
+
+- [ ] **Step 3: Preserve the exact claims and non-claims**
+
+The report must state that this exact comparison does not prove general model superiority, repeatability, equivalent reasoning effort, equivalent token accounting, hidden-reasoning quality, arbitrary Grasshopper competence, OS isolation, or that Prime should replace ChatRunner.
+
+- [ ] **Step 4: Run final no-contact checks**
+
+Run:
+
+```powershell
+git diff --check
+git status --short
+git diff --name-only 06534f371b173308179164189e54b722a34f8a24...HEAD
+```
+
+Re-run the inert comparison tests one final time. Do not contact either target or provider.
+
+- [ ] **Step 5: Commit the milestone**
+
+```powershell
+git add `
+  docs/superpowers/plans/2026-08-11-prime-frozen-operational-comparison.md `
+  docs/superpowers/reports/2026-08-11-prime-frozen-operational-comparison.md
+git diff --cached --check
+git commit -m "docs: record frozen Prime model comparison"
+```
+
+- [ ] **Step 6: Stop for final independent review**
+
+Report exact commit, scope, evidence hashes, test counts, five conclusion families, and clean worktree. Do not push, merge, rerun, or change product code without a new instruction.
+
+## Execution Ledger
+
+No implementation, target, model, provider, Ollama, Rhino, Grasshopper, Prime live session, or Rook MCP contact has occurred under this plan. Populate this section only with exact commands, hashes, counts, authorizations, and observed facts as each mandatory gate is completed.
