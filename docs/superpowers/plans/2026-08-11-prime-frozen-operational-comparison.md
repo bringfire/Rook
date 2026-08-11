@@ -925,6 +925,30 @@ JSON Pointer parity, empty-state regressions, model-correction allowance, PID-an
 isolation, timeout behavior, manifest hashes, and zero runtime/target/live evidence. No
 deployment, Rhino start, target creation, or host/model contact is authorized.
 
+#### Task 1 review repair and authoritative disposable root
+
+The first frozen root, `prime-rook-operational-comparison`, is preserved byte-for-byte as
+rejected review evidence. It must never be deployed or receive a target. The repaired and
+fully re-frozen Task 1 root is:
+
+```text
+C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2
+```
+
+V2 requires exactly one final Prime `agent_end` event in `prime.jsonl`; Prime's native
+session retains its existing JSONL contract. The launcher records the actual Prime process
+exit code, and a nonzero code remains eligible only when natural termination, terminal
+Prime evidence, native-session evidence, and zero owned descendants all hold. Request
+capture now uses a directly tested interceptor owner around the saved delegate: interceptor
+entry, sentinel throw, and zero delegate entry are causal observations rather than
+self-reported constants.
+
+Every Task 2-7 reference to the comparison root resolves to V2. V1 paths below this point
+are invalid and must refuse review. All V2 non-target artifacts, captures, rows, manifests,
+and parity evidence were regenerated after the repair. The approved common adapter, skill,
+checkpoint, dependency, intent, and assessment artifacts were copied byte-identically;
+no V1 row, capture, manifest, or parity artifact was reused.
+
 ---
 
 ### Task 2: Establish Release deployment and fresh-Rhino runtime custody
@@ -973,7 +997,7 @@ observations outside the transcript and run only:
 
 ```powershell
 $RuntimeLane = 'C:/UDEV/Rook/.worktrees/prime-frozen-control-local-comparison-runtime'
-$Transcript = 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/runtime/release-deployment.txt'
+$Transcript = 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/runtime/release-deployment.txt'
 & pwsh -NoProfile -File "$RuntimeLane/scripts/deploy-local-testing.ps1" -Configuration Release 2>&1 |
   Tee-Object -FilePath $Transcript
 if ($LASTEXITCODE -ne 0) { throw "release deployment failed: $LASTEXITCODE" }
@@ -1157,8 +1181,8 @@ Report the complete row identity, target hash, workspace label, spend limit, and
 Invoke only:
 
 ```powershell
-& 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/control/operator/run.ps1' `
-  -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/control/operator/row.json'
+& 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/control/operator/run.ps1' `
+  -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/control/operator/row.json'
 ```
 
 Do not intervene during the run. At 30 minutes the launcher performs the frozen safety termination. Do not manually retry a provider or tool call.
@@ -1239,11 +1263,11 @@ Use local `inspection.py initial`. Require the exact empty-state predicate. On s
 Run:
 
 ```powershell
-& 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/control/kernel-venv/Scripts/python.exe' `
-  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/operator/parity.py' `
+& 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/control/kernel-venv/Scripts/python.exe' `
+  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/operator/parity.py' `
   target `
-  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison' `
-  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/target-parity.json'
+  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2' `
+  'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/target-parity.json'
 ```
 
 Require only the exact target pointers and manifest entries from the specification. Retain every path/value pair.
@@ -1299,8 +1323,8 @@ Report complete row/target hashes and the 30-minute ceiling. Authorization inclu
 Invoke only:
 
 ```powershell
-& 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/local/operator/run.ps1' `
-  -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/local/operator/row.json'
+& 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/local/operator/run.ps1' `
+  -RowPath 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/local/operator/row.json'
 ```
 
 Do not intervene. Preserve a timeout or failure prefix without retry.
@@ -1455,3 +1479,69 @@ test_comparison.py       387 lines / 323 nonblank
 No `runtime/`, deployment, Rhino-start, target, initial snapshot, Prime session, Prime
 stdout/stderr, process ledger, final inspection, model response, Grasshopper mutation, or
 Rook MCP evidence exists. Task 1 stops here for mandatory independent review.
+
+### Task 1 review repair — V2 inert non-target rows
+
+- Independent review rejected V1 before Task 2 because a syntactically valid Prime JSONL
+  prefix could pass final-inspection admission without Prime's terminal `agent_end`, and
+  the request interceptor's delegate-entry counter was disconnected from the saved
+  delegate. V1 remains inert and must never receive a target.
+- The seven frozen V1 hashes listed above were rechecked before V2 construction and remain
+  unchanged. No V1 row, capture, manifest, or parity artifact was edited or reused.
+- Fresh V2 root:
+  `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2`.
+- Prime's retained V4 evidence established the real lifecycle split: Prime JSON stdout has
+  exactly one final `agent_end`; the native session JSONL has no `agent_end` event. V2
+  enforces the former only on `prime.jsonl` and preserves the native-session contract.
+- RED evidence was causal: TypeScript failed because `createFetchInterceptor` did not
+  exist; Python failed because terminal lifecycle parsing and process-ledger exit-code
+  custody did not exist, and a valid partial Prime stream reached the snapshot fake once.
+- V2's fetch owner receives the saved delegate, counts any attempted delegate entry, and
+  is directly exercised with a hostile fake delegate. The exact sentinel is thrown before
+  delegate entry. Prime's real Anthropic and OpenAI-compatible builders each retain one
+  provider-owned terminal `Connection error.` event.
+- V2 records `primeExitCode` from the exited Prime process. Any exact integer, including a
+  nonzero value, remains eligible only when natural termination, exact final `agent_end`,
+  one valid native session, and zero owned descendants all hold.
+- Both V2 Python 3.11.14 kernel environments were rebuilt with the retained four offline
+  `uv` commands. No registry, provider, model, Rhino, Grasshopper, Rook MCP, or deployment
+  contact occurred.
+- Request-capture causal seam: `REQUEST_CAPTURE_TESTS_OK assertions=41`.
+- Python causal seam: **63 passed**.
+- Python compilation passed for `parity.py` and both inspector copies. Static parity,
+  manifest verification, exact common-artifact equality, Qwen manifest/blob custody, and
+  absence of target/live evidence passed.
+
+V2 frozen hashes:
+
+```text
+control row                  86C705A76A94B94073387701C08AC80979E87EA214458F5882A8672164B377DB
+local row                    230FA4954EED221703B2FD28342728150837F330A0A42016C50D661CD9A2E5A5
+control manifest             DC81A467CB1BE9EF0887298ECB981E353BEF3C7BCE0573346CA35FE88C6E4E89
+local manifest               E59F4FBB4C6BA3370167126DDA3CA8AA599A7B9D035BE07349D37CB9246485A2
+non-target parity            F316D42A2F65911BCBEC8F337BA3E63C301D347AE1EA9A94A24252651AC4F52F
+control reasoning capture    B09CE96DE7D9D56EAE426E5A4909B7DB2DEE3952B30C2445D9A5A59DBC0ADBBD
+local reasoning capture      6729AB668DBBD801F1D1A87FF944598F25EFCC63EB5B559F94E7D116E70414F4
+request capture owner        124E2E36EA16864F1038BFBB3C3DBF0DE85C1544307034E6B4FB4735487E466D
+parity owner                 5BFF0D9B3AE5D69A1A11A5733CDDDDC7D21FFF0B96A46FBF3CFD5986B6C6E742
+launcher                     E1735390C827A70DF7726A6826380CD2BFB9E3B288FF38E4ECE9C7E7E32FCDC4
+inspector                    1E25A619B9CA455AD47763A32774F248A4E693AFC097CB6C9937E7A3D03FA2E4
+normalized package inventory EEF8045B9C0C51C3E0B680A3F1FE42A185C4E67C1DBFC09A100CA3E8E2F35356
+test_request_capture.ts      DFD478D807C386B8CD6C3D097A8E95714CB90212A583DA89A5321E3454872246
+test_comparison.py           5AEB41DAF97A4E61E7F407FD67777EB1FB36D594C9BC9E37A3E65D5D292AB937
+```
+
+V2 disposable owner/test sizes:
+
+```text
+request_capture.ts       239 lines / 226 nonblank
+parity.py                243 lines / 218 nonblank
+run.ps1                  339 lines / 317 nonblank
+inspection.py            300 lines / 252 nonblank
+test_request_capture.ts  202 lines / 182 nonblank
+test_comparison.py       410 lines / 344 nonblank
+```
+
+V2 contains no `runtime/`, target, initial snapshot, Prime session, Prime stdout/stderr,
+process ledger, final inspection, model response, Grasshopper mutation, or Rook MCP
+evidence. Task 1 stops again for mandatory independent review; Task 2 remains unauthorized.
