@@ -1,6 +1,6 @@
 # Prime Frozen Operational Model Comparison Design
 
-**Status:** Design complete; awaiting independent review before `writing-plans`
+**Status:** Design and plan amended for runtime-resolution custody; awaiting renewed independent review
 **Date:** 2026-08-11
 **Baseline:** `06534f371b173308179164189e54b722a34f8a24`
 **Branch:** `codex/prime-frozen-control-local-comparison-design`
@@ -60,15 +60,41 @@ record, and usage reporting.
 The comparison does not re-qualify the adapter or component-discovery implementation.
 Their exact hashes and deployment custody are preconditions.
 
+## Runtime-resolution custody invariant
+
+Every runtime claim follows one ownership chain:
+
+```text
+declared identity
+-> runtime resolution
+-> observation at the layer that owns the effective outcome
+-> retained correlated evidence
+```
+
+Configured or on-disk input state cannot stand in for the effective runtime fact:
+
+```text
+intercepted transport exception != Prime-observed terminal outcome
+deployed file alone             != payload selected by a running Rhino process
+mutable Ollama tag              != immutable local model artifact
+```
+
+Prime stream events own the no-contact provider outcome. A clean standard Release
+deployment, exact companion registration, and a later fresh Rhino process own Rook
+runtime selection. Ollama's exact manifest plus its config/layer digests own the local
+model artifact. Each correlation is retained before the corresponding row may run.
+
 The reasoning and credential decisions rely on reviewed Prime source at commit
 `c98941a2a5cf40faecf9b4648ac3c304abf48fd3`:
 
 - `D:/prime-agent/packages/agent/src/agent.ts:475` shows that Prime `off` omits a
   reasoning request rather than forcing provider reasoning off;
 - `D:/prime-agent/packages/ai/src/providers/openai-completions.ts` owns the
-  OpenAI-compatible reasoning payload;
+  OpenAI-compatible reasoning payload and converts transport exceptions into terminal
+  stream `error` events;
 - `D:/prime-agent/packages/ai/src/providers/anthropic.ts` owns the Anthropic adaptive
-  thinking and effort payload;
+  thinking and effort payload and converts transport exceptions into terminal stream
+  `error` events;
 - `D:/prime-agent/packages/coding-agent/src/core/auth-storage.ts:810` owns runtime,
   stored-auth, and environment credential precedence;
 - `D:/prime-agent/packages/ai/src/env-api-keys.ts:100` gives Anthropic OAuth precedence
@@ -91,7 +117,9 @@ working directory, evidence directory, and Grasshopper target. Common artifacts 
 copied byte-for-byte and verified by hash.
 
 This prevents the control model from contaminating the local row through files, Prime
-state, learned refinements, process state, or canvas mutation.
+state, learned refinements, or reuse of the mutated canvas. The rows deliberately share
+one freshly deployed Rhino process to preserve loaded-runtime custody; the comparison
+does not claim Rhino process-state isolation between rows.
 
 ### 2. One shared Prime root with two evidence directories — rejected
 
@@ -117,6 +145,7 @@ same Prime Agent commit
 + same Prime invocation policy
 + same evidence and assessment contract
 + equivalent fresh empty target state
++ same freshly deployed Rhino process and native port
 + separately verified medium reasoning requests
 + predeclared provider/model route
 -> two operational rows differing only through an explicit allowlist
@@ -171,6 +200,7 @@ schema
 rowId
 provider
 model
+modelArtifactIdentity
 apiBase
 credentialMode
 reasoningRequest
@@ -259,6 +289,22 @@ only the following exact JSON Pointer leaf paths with one common sentinel.
 /reasoningRequest/providerWire/anthropicEffort
 /reasoningRequest/providerWire/qwenReasoningEffort
 /reasoningCaptureHash
+/modelArtifactIdentity/kind
+/modelArtifactIdentity/providerModelId
+/modelArtifactIdentity/ollamaManifestPath
+/modelArtifactIdentity/ollamaManifestSha256
+/modelArtifactIdentity/config/mediaType
+/modelArtifactIdentity/config/digest
+/modelArtifactIdentity/config/size
+/modelArtifactIdentity/layers/0/mediaType
+/modelArtifactIdentity/layers/0/digest
+/modelArtifactIdentity/layers/0/size
+/modelArtifactIdentity/layers/1/mediaType
+/modelArtifactIdentity/layers/1/digest
+/modelArtifactIdentity/layers/1/size
+/modelArtifactIdentity/layers/2/mediaType
+/modelArtifactIdentity/layers/2/digest
+/modelArtifactIdentity/layers/2/size
 /limits/anthropicWorkspaceLabel
 /limits/anthropicWorkspaceSpendLimitUsd
 /isolatedPaths/root
@@ -284,14 +330,13 @@ keys:
 After target B is later frozen, `operator/target.json` parity permits exactly:
 
 ```text
-/processId
-/nativePort
 /documentSerialNumber
 /initialSnapshotRequestHash
 /initialSnapshotResultHash
 ```
 
-`initialStateVerified` and the target schema must remain equal. The target-phase manifest
+`processId`, `nativePort`, `initialStateVerified`, and the target schema must remain equal.
+The target-phase manifest
 may additionally differ only at:
 
 ```text
@@ -358,6 +403,60 @@ supportsDeveloperRole: false
 supportsReasoningEffort: true
 ```
 
+The mutable local tag is not the artifact identity. Before target A, the local row freezes
+the installed manifest at:
+
+```text
+C:/Users/bring/.ollama/models/manifests/registry.ollama.ai/library/qwen3.6/35b
+```
+
+with exact SHA-256:
+
+```text
+07D35212591FC27746F0A317C975A6D68754FB38E9053D82E25F06057AF28522
+```
+
+and exact manifest-owned identities:
+
+```text
+config:
+  mediaType: application/vnd.docker.container.image.v1+json
+  digest: sha256:5d1c86a949f7f3b5e75370e129765af7526f0cc1812a9de21a541da042596faa
+  size: 462
+
+layers[0]:
+  mediaType: application/vnd.ollama.image.model
+  digest: sha256:f5ee307a2982106a6eb82b62b2c00b575c9072145a759ae4660378acda8dcf2d
+  size: 23938321664
+
+layers[1]:
+  mediaType: application/vnd.ollama.image.license
+  digest: sha256:5f3a3c817e78f5b8a4ad2d2c458a3e4b2cce470d6c12642c4eeb12cb8a9bf51d
+  size: 11357
+
+layers[2]:
+  mediaType: application/vnd.ollama.image.params
+  digest: sha256:86eff881e8d2c2b1caa3966ba775d007f76a693d8541d0973b1bd2aab4214a43
+  size: 94
+```
+
+For each digest, remove the `sha256:` prefix and append the lowercase hexadecimal suffix
+to `C:/Users/bring/.ollama/models/blobs/sha256-`. Every resulting content-addressed file
+must exist with the exact manifest-declared size. The config/layer values and manifest
+hash are retained in the immutable non-target row and rechecked immediately before the
+Qwen row without invoking Ollama. Tag resolution, manifest mismatch, missing blob, or
+size mismatch refuses the local row. This custody does not claim that every
+multi-gigabyte blob was independently rehash-scanned by the qualification.
+
+`modelArtifactIdentity` has one closed shape in both rows. The control uses
+`kind="remote_provider_model_id"`, its exact provider model ID, and null Ollama fields.
+The local row uses `kind="ollama_manifest_v2"`, its exact provider model ID, the values
+above, and no null Ollama field. The control's three layer slots exist with null fields so
+the cross-row difference remains mechanically leaf-allowlisted rather than excluding an
+arbitrary subtree. Both objects contain exactly the listed keys, one config object, and
+three ordered layer objects; an extra field, missing field, or different array length
+refuses parity.
+
 There is no model picker, provider fallback, default model resolution, or environment
 override for either row.
 
@@ -375,6 +474,20 @@ Before any target or live row is created, a no-contact request-capture preflight
 - intercepted transport that cannot contact a provider.
 
 The capture occurs after payload and header construction but before network entry.
+
+The intercepted transport throws one unique code-owned message. Prime's Anthropic and
+OpenAI-compatible providers catch that exception and own the observable result. The
+capture therefore consumes the returned stream normally and requires exactly:
+
+```text
+one intercepted request
++ one terminal error event whose errorMessage equals the unique sentinel
++ zero done events
++ zero other error events
+```
+
+The thrown exception is not itself treated as evidence. A different error message,
+additional terminal event, `done`, or second request refuses the capture.
 
 ### Required Opus capture
 
@@ -464,6 +577,51 @@ not revert or modify the Grasshopper canvas.
 Prime's own provider retry behavior remains Prime-owned and is retained as evidence. The
 operator, adapter, and qualification add no provider retry, MCP retry, rerun, or fallback.
 
+## Release deployment and running-Rhino custody
+
+Before target A, create a clean detached deployment checkout at exact Rook merge
+`06534f371b173308179164189e54b722a34f8a24`. With Rhino and MCP processes stopped, run
+exactly:
+
+```powershell
+./scripts/deploy-local-testing.ps1 -Configuration Release
+```
+
+Do not pass `-PayloadOnly`, `-SkipBuild`, `-UseRepoVenv`, `-DevPythonRuntime`,
+`-AllowRunning`, or another deployment mode. Retain the complete deployment transcript,
+exit code, start/completion wall-clock observations, exact checkout SHA, and hashes for:
+
+```text
+source and installed site-packages rook/server.py
+source-build and deployed RookNative.rhp
+source-build and deployed net8.0/Rook.rhp
+```
+
+The standard deployment explicitly registers
+`.../RookNative/net8.0/Rook.rhp`. Retain the exact companion registry `FileName`, require
+that exact normalized path, and refuse `net48`, `net7.0`, or a root-level fallback. This
+pins the selected managed payload as `net8.0` for this campaign.
+
+Only after successful deployment does the operator start Rhino. Retain the Rhino PID,
+process creation identity/time, the Rook Chat panel-open line emitted by the newly loaded
+companion, and the equation:
+
+```text
+deployment completed
+AND net8.0 companion registration/hash was retained before Rhino start
+AND Rhino process creation occurred after deployment completion
+AND Rook Chat executed in that fresh process
+-> campaign runtime-custody chain established
+```
+
+This is causal startup evidence, not an in-memory byte dump. On-disk hashes alone make no
+loaded-binary claim. There is no deployment, payload replacement, or Rhino restart
+between rows; Prime's ordinary per-call MCP subprocess lifecycle remains unchanged.
+Targets A and B use the same exact Rhino PID and creation identity. Before every target
+snapshot and model row, recheck that PID/creation identity, the registered `net8.0` path,
+and all deployment hashes remain unchanged. Any drift stops the campaign; do not repair
+it within this qualification.
+
 ## Sequential target custody
 
 Target B is not created or frozen before the control run.
@@ -473,6 +631,8 @@ Target B is not created or frozen before the control run.
 ```text
 freeze all non-target artifacts for both rows
 -> independently review hashes and parity
+-> deploy exact Rook merge through the standard Release path
+-> start one fresh Rhino process after deployment and retain runtime custody
 -> create fresh empty disposable target A
 -> corroborate exact PID, native port, listener owner, and document serial
 -> take exactly one operator-owned initial snapshot
@@ -490,6 +650,7 @@ Only after the control review:
 
 ```text
 reverify every local non-target artifact against its pre-control hash
+-> require the same unchanged Rhino PID and creation identity
 -> create fresh empty disposable target B
 -> corroborate exact PID, native port, listener owner, and document serial
 -> take exactly one operator-owned initial snapshot
@@ -500,9 +661,10 @@ reverify every local non-target artifact against its pre-control hash
 -> retain final evidence
 ```
 
-The two targets must be distinct Grasshopper documents with equivalent initial evidence.
-They need not share a Rhino process. If they do, their complete target triples and canvas
-custody remain distinct.
+The two targets must be distinct Grasshopper documents with equivalent initial evidence
+inside the same freshly started Rhino process. Their complete target triples and canvas
+custody remain distinct even when the Rhino document serial is the same. No second Rhino
+process, deployment, or restart is admitted between rows.
 
 The initial snapshot uses the same canonical Rook gateway and reconstructed panel lock as
 the row. Its exact fixed request is:
@@ -615,6 +777,10 @@ Each row retains:
 - credential-redacted no-contact reasoning request capture;
 - repository, deployment, adapter, skill, checkpoint, operator, inspector, settings, and
   dependency hashes;
+- the campaign's standard Release deployment transcript, selected `net8.0` registration,
+  pre-start payload hashes, and fresh Rhino process-start correlation;
+- the local row's exact Ollama manifest hash, config/layer digests and sizes, and
+  content-addressed blob existence/size observations;
 - initial-snapshot request and exact result;
 - Prime JSON stdout;
 - Prime stderr;
@@ -729,6 +895,9 @@ comparative superiority claim.
 |---|---|
 | No-contact reasoning capture disagrees with the frozen contract | Freeze neither live row; no target or provider contact |
 | Common artifact or parsed parity mismatch | Freeze neither live row |
+| Release deployment, `net8.0` registration, or fresh-Rhino ordering is incomplete | Create neither target; no model contact |
+| Deployed payload, registration, Rhino PID/creation identity, or startup evidence drifts between rows | Stop campaign; no repair or local row |
+| Qwen manifest/config/layer/blob identity disagrees with the frozen local artifact | Refuse the local row without Ollama inference |
 | Anthropic credential or spend custody fails | Refuse control before provider contact |
 | Initial target or snapshot fails | Refuse that row before model contact |
 | Control model reports failure but terminates naturally with healthy evidence | Take final snapshot; retain valid control outcome; local row may proceed after review |
@@ -756,20 +925,25 @@ Before target A exists, deterministic tests must prove:
 8. Opus request capture produces adaptive thinking, medium effort, and API-key headers.
 9. Qwen request capture produces explicit `reasoning_effort="medium"`; inserting one
    outbound `developer` message must refuse the capture.
-10. Anthropic OAuth, stored auth, CLI API-key override, and alternate providers refuse.
-11. The real Anthropic key cannot enter row, manifest, stdout, capture, or hash evidence.
-12. The 30-minute monotonic timeout before Prime termination causes zero final-inspection
+10. Both provider captures observe exactly one Prime-owned terminal `error` event with the
+    exact sentinel message, one intercepted request, no `done`, and no other error; a
+    different message or extra event refuses.
+11. Anthropic OAuth, stored auth, CLI API-key override, and alternate providers refuse.
+12. The real Anthropic key cannot enter row, manifest, stdout, capture, or hash evidence.
+13. The local manifest hash, config/layer identities, and every content-addressed blob
+    path/size match; a changed tag manifest, digest, missing blob, or wrong size refuses.
+14. The 30-minute monotonic timeout before Prime termination causes zero final-inspection
     calls; a timeout after one inspection request permits no additional call. Both retain
     their exact evidence prefix and block the second row.
-13. Target records cannot exist during the initial inert review.
-14. One-shot evidence refuses any consumed sibling before process or host entry.
-15. The empty-state projector accepts the exact empty predicate and rejects component-,
+15. Target records cannot exist during the initial inert review.
+16. One-shot evidence refuses any consumed sibling before process or host entry.
+17. The empty-state projector accepts the exact empty predicate and rejects component-,
     flow-, group-, relay-, error-, or warning-bearing snapshots; group-only and relay-only
     cases are causal regressions.
-16. A fake model may author repeated fresh inspections and exactly one bounded correction;
+18. A fake model may author repeated fresh inspections and exactly one bounded correction;
     all calls are retained while operator retries and hidden MCP replay remain zero.
-17. A lingering qualification-owned Prime, kernel, or MCP child prevents final inspection.
-18. Final inspection uses the exact frozen target and exact canonical snapshot request.
+19. A lingering qualification-owned Prime, kernel, or MCP child prevents final inspection.
+20. Final inspection uses the exact frozen target and exact canonical snapshot request.
 
 These tests use intercepted providers, fake process boundaries, and inert target records.
 They contact no model, Anthropic API, Ollama, Rhino, Grasshopper, Rook MCP, or other live
@@ -815,6 +989,8 @@ It does not prove:
 - equivalent internal reasoning effort;
 - hidden-reasoning quality;
 - OS-level isolation;
+- an in-memory byte dump of the loaded managed plugin;
+- an independent full-content rehash of the 23.9 GB Ollama model layer;
 - arbitrary Grasshopper competence;
 - mutation safety outside Rook's existing authority wall;
 - that Prime should replace ChatRunner;
@@ -834,10 +1010,15 @@ these gates:
 ```text
 construct both disposable non-target rows with inert tests
 -> mandatory independent pre-contact review
--> separately authorize target A creation and initial snapshot
+-> separately authorize standard Release deployment from the exact merge
+-> start one fresh Rhino process after deployment and retain runtime custody
+-> prepare target A candidate
+-> independently review deployment/startup correlation and target A candidate together
+-> separately authorize target A initial snapshot
 -> freeze target A and stop
 -> separately authorize the Opus run
 -> independently review Opus evidence
+-> require the same unchanged Rhino PID and creation identity
 -> separately authorize target B creation and initial snapshot
 -> freeze target B and stop
 -> separately authorize the Qwen run

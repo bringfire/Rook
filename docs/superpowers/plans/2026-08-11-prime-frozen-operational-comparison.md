@@ -8,9 +8,26 @@
 
 **Tech Stack:** Windows PowerShell 7, Python 3.11, `unittest`, TypeScript/`tsx`, Prime Agent commit `c98941a2`, Prime `ModelRegistry` and `streamSimple`, MCP Python SDK `1.28.0`, Rook merge `06534f37`, Anthropic Messages API, Ollama OpenAI-completions compatibility, Rhino 8, Grasshopper.
 
+## Runtime-Resolution Custody Invariant
+
+Every effective runtime claim follows one chain:
+
+```text
+declared identity
+-> runtime resolution
+-> observation at the owning boundary
+-> retained correlated evidence
+```
+
+Prime's terminal stream event owns the intercepted-request outcome. Standard Release
+deployment, exact `net8.0` registration, and one subsequently started Rhino process own
+Rook runtime selection. The frozen Ollama manifest and its config/layer digests own the
+local model artifact. Configured inputs or current files alone never substitute for those
+owner observations.
+
 ## Global Constraints
 
-- Treat `docs/superpowers/specs/2026-08-11-prime-frozen-operational-comparison-design.md` at commit `10985fef418a1bee6f11f11fb058c7bbc94165db` as authoritative.
+- Treat `docs/superpowers/specs/2026-08-11-prime-frozen-operational-comparison-design.md` as authoritative. Its previously approved pre-amendment identity is `10985fef418a1bee6f11f11fb058c7bbc94165db`; the specification and this runtime-custody plan amendment must be reviewed and committed together before Task 1.
 - The qualified Rook product/runtime identity is merge `06534f371b173308179164189e54b722a34f8a24`.
 - The qualified Prime identity is commit `c98941a2a5cf40faecf9b4648ac3c304abf48fd3`.
 - Create exactly one new disposable root: `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison`.
@@ -22,6 +39,8 @@
 - The Anthropic control uses environment `ANTHROPIC_API_KEY`, workspace label `rook-prime-operational-comparison-opus-2026-08-11`, and exact workspace spend limit `25.00` USD.
 - `ANTHROPIC_OAUTH_TOKEN`, stored Anthropic auth, CLI `--api-key`, custom Anthropic providers, and alternate credential resolvers are prohibited.
 - Use exact local endpoint `http://127.0.0.1:11434/v1`, API `openai-completions`, `reasoning=true`, `supportsDeveloperRole=false`, and `supportsReasoningEffort=true`.
+- Freeze Qwen manifest SHA-256 `07D35212591FC27746F0A317C975A6D68754FB38E9053D82E25F06057AF28522` plus its exact config/layer digests and sizes; require every content-addressed blob before target A and again before Qwen without contacting Ollama.
+- Before target A, deploy exact Rook merge `06534f37` through the standard Release path, register and retain the exact `net8.0` companion, then start one fresh Rhino process. Use that exact PID and creation identity for both rows with no intervening deployment, payload replacement, or Rhino restart. Prime may still create and close its ordinary per-call MCP subprocesses.
 - Common adapter, skill, checkpoint, dependencies, intent, operator, inspector, evidence contract, and assessment contract are byte-identical across rows.
 - Prime settings are parsed-equal; every other parsed difference must pass the specification's exact JSON Pointer normalization and be retained in full.
 - Each row has a hard 30-minute monotonic wall-clock ceiling from immediately before Prime start through final-inspection flush.
@@ -30,7 +49,7 @@
 - Identify qualification-owned processes only by recorded PID ancestry and creation identity. Never use executable-name matching.
 - Use only existing local caches/checkouts for inert environment construction. A missing dependency stops Task 1; it does not authorize package-network contact.
 - Task 1 contacts no Anthropic API, Ollama, model, Rhino, Grasshopper, Rook MCP, or other live runtime.
-- Stop for independent review after Task 1, before each initial snapshot, before each model run, and after the control run.
+- Stop for independent review after Task 1, before each initial snapshot, before each model run, and after the control run. The target-A initial-snapshot review includes the complete Release deployment/fresh-Rhino custody chain.
 - Do not collapse gateway discipline, discovery behavior, mechanical outcome, semantic fidelity, and cost/latency into a score.
 - Provider token counts are retained independently and are not normalized or directly compared.
 
@@ -44,6 +63,10 @@ The disposable comparison root owns these shared construction/test files:
 - `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/operator/test_comparison.py` — causal artifact, parity, snapshot, lifecycle, timeout, and PID-ancestry tests.
 - `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/non-target-parity.json` — create-new ordered report frozen before target A.
 - `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/target-parity.json` — absent until target B is frozen; create-new target difference report.
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/runtime/release-deployment.txt` — exact standard Release transcript and exit facts.
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/runtime/release-custody.json` — exact merge/source/deployed hashes and selected `net8.0` registration.
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/runtime/rhino-start-custody.json` — fresh Rhino PID/creation identity and deployment-before-process correlation.
+- `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/runtime/manifest.json` — create-new hashes of the three runtime-custody artifacts, referenced by both row evidence manifests.
 
 Each of `control/` and `local/` owns the same relative file layout:
 
@@ -73,7 +96,7 @@ Each of `control/` and `local/` owns the same relative file layout:
 - `operator/prime.jsonl`, `operator/stderr.txt`, `operator/process-ledger.json`, `operator/final-inspection.jsonl` — absent until the separately authorized model row.
 - `agent/sessions/` and `agent/session-artifacts/` — row-owned Prime evidence, empty before its model run.
 
-No target or live evidence file exists when Task 1 stops.
+No runtime-deployment, Rhino-start, target, or live evidence file exists when Task 1 stops.
 
 ---
 
@@ -129,6 +152,9 @@ await assert.rejects(() => captureRequest(qwenRowWithReasoning("off")), /reasoni
 await assert.rejects(() => captureRequest(qwenRowWithDeveloperLeak()), /developer/);
 await assert.rejects(() => captureRequest(opusRowWithStoredAnthropicAuth()), /stored_auth/);
 await assert.rejects(() => captureRequest(opusRowWithOAuthEnv()), /oauth/);
+await assert.rejects(() => captureWithTerminalMessage("different-message"), /terminal_event/);
+await assert.rejects(() => captureWithExtraEventAfterSentinel(), /terminal_event/);
+await assert.rejects(() => captureWithDoneAfterSentinel(), /terminal_event/);
 ```
 
 Positive assertions are exact:
@@ -145,9 +171,18 @@ assert.equal(qwen.model.reasoning, true);
 assert.equal(qwen.request.body.reasoning_effort, "medium");
 assert.equal(qwen.request.body.messages.some((m) => m.role === "developer"), false);
 assert.equal(qwen.request.url, "http://127.0.0.1:11434/v1/chat/completions");
+
+assert.equal(opus.streamEvents.length, 1);
+assert.equal(opus.streamEvents[0].type, "error");
+assert.equal(opus.streamEvents[0].error.errorMessage, "ROOK_REQUEST_CAPTURE_INTERCEPTED_V1");
+assert.equal(qwen.streamEvents.length, 1);
+assert.equal(qwen.streamEvents[0].type, "error");
+assert.equal(qwen.streamEvents[0].error.errorMessage, "ROOK_REQUEST_CAPTURE_INTERCEPTED_V1");
 ```
 
-The fake transport must count exactly one intercepted `fetch` per capture and throw if a URL is not the row's exact endpoint.
+The fake transport must count exactly one intercepted `fetch` per capture and throw if a
+URL is not the row's exact endpoint. The stream must contain one terminal error, no
+`done`, and no other event.
 
 - [ ] **Step 3: Run request-capture RED**
 
@@ -173,16 +208,34 @@ ArtifactParityTests
   test_exact_models_api_bases_and_no_fallback
   test_settings_are_parsed_equal_without_normalization
   test_exact_pointer_differences_pass_and_are_fully_retained
+  test_target_process_and_port_must_remain_equal
   test_extra_nested_row_difference_refuses
   test_extra_nested_model_difference_refuses
   test_ancestor_subtree_removal_is_impossible
   test_target_paths_are_not_admitted_in_non_target_phase
+  test_runtime_deployment_and_rhino_start_artifacts_are_absent
 
 AdapterContractTests
   test_v4_transport_and_stack_owned_errlog_are_byte_identical
   test_public_surface_is_exactly_search_read_call
   test_search_read_call_delegate_exact_canonical_envelopes
   test_arguments_results_and_exceptions_pass_through_unchanged
+
+ModelArtifactCustodyTests
+  test_exact_qwen_manifest_config_and_layers_pass
+  test_changed_manifest_hash_or_digest_refuses
+  test_missing_or_wrong_size_content_addressed_blob_refuses
+  test_mutable_tag_without_frozen_manifest_refuses
+  test_qwen_prelaunch_recheck_invokes_no_ollama_process_or_transport
+  test_qwen_manifest_drift_during_row_blocks_final_inspection
+
+ReleaseRuntimeCustodyTests
+  test_only_exact_standard_release_command_is_admitted
+  test_on_disk_hashes_without_fresh_process_correlation_refuse
+  test_registered_net8_payload_and_post_deployment_process_pass
+  test_net48_net7_or_root_fallback_registration_refuses
+  test_process_started_before_deployment_completion_refuses
+  test_payload_registration_or_rhino_identity_drift_between_rows_refuses
 
 EmptyStateTests
   test_exact_empty_snapshot_passes
@@ -372,6 +425,8 @@ export async function captureRequest(
   rowRoot: string,
   outputPath: string,
 ): Promise<CapturedRequestEvidence>;
+
+export function validateCaptureEvents(events: unknown[]): void;
 ```
 
 The only admitted row-root leaf names are code-owned `control` and `local`. They map
@@ -388,11 +443,13 @@ Implementation must:
 6. Resolve credentials/headers with `registry.getApiKeyAndHeaders(model)`.
 7. Replace `globalThis.fetch` with a capture function before calling Prime. It records
    the actual `Request` URL, headers, and body, increments a single call counter, and
-   throws one private `InterceptedTransportStop` sentinel before network entry.
+   throws `Error("ROOK_REQUEST_CAPTURE_INTERCEPTED_V1")` before network entry.
 8. Call Prime's exported `streamSimple(model, context, { reasoning: "medium", apiKey, headers, maxRetries: 0, onPayload })`.
-9. Consume the returned stream until the private sentinel is observed. Accept only that
-   sentinel, require exactly one intercepted request and the exact endpoint, and reject
-   every other provider/build/transport exception.
+9. Consume the returned Prime stream normally through its terminal event. Require the
+   event list to contain exactly one `error`, require
+   `event.error.errorMessage === "ROOK_REQUEST_CAPTURE_INTERCEPTED_V1"`, and require zero
+   `done` or other events. The provider-caught stream event—not the thrown exception—is
+   the observable capture outcome.
 10. Restore `fetch` and environment in `finally`.
 11. Strictly serialize one credential-redacted create-new JSON record.
 
@@ -408,6 +465,7 @@ type CapturedRequestEvidence = {
   model: "claude-opus-4-6" | "qwen3.6:35b",
   modelReasoning: true,
   fetchCount: 1,
+  streamEvents: unknown[],
   request: {
     url: string,
     method: "POST",
@@ -422,7 +480,8 @@ type CapturedRequestEvidence = {
 ```
 
 `body` is the exact parsed JSON from the intercepted `Request`; `providerPayload` is the
-exact value observed by Prime's callback. The only header values retained are the two
+exact value observed by Prime's callback; `streamEvents` retains the exact Prime events
+without projecting the caught exception independently. The only header values retained are the two
 closed modes above. Strictly verify that the two bodies agree on the provider reasoning
 fields and that the raw serialized capture contains neither `ROOK_DUMMY_ANTHROPIC_KEY`
 nor any Authorization value.
@@ -570,16 +629,29 @@ The child environment sets the exact isolated agent/kernel paths and Rook full p
 
 After natural Prime termination, write `process-ledger.json` create-new. Any remaining
 recorded descendant makes the row incomplete and causes zero final-inspection calls. If
-inspection is otherwise eligible, scan Prime stdout, stderr, and the one native session
+inspection is otherwise eligible, reverify the campaign runtime manifest, registered
+`net8.0` path, all payload hashes, and the same Rhino PID/creation identity; drift causes
+zero final-inspection calls. Then scan Prime stdout, stderr, and the one native session
 for the exact API-key string still held only in process memory. A literal match marks the
 control incomplete and causes zero final-inspection calls; report only closed token
 `credential_leak`, never the value, its hash, or matching text. Then pass the exact
 remaining monotonic deadline into `inspection.py`.
+
+For the local row, rehash and reparse the frozen Ollama manifest and recheck all blob
+paths/sizes immediately after Prime termination and before final-inspection eligibility.
+Any drift from the prelaunch observation marks the row incomplete and permits zero final
+inspection. This check opens no Ollama process or transport.
 The inspector uses `asyncio.timeout` around its one call; expiration retains the existing
 request prefix, closes only its qualification-owned stdio session, makes no additional
 call, and never terminates Rhino or the deployed host runtime.
 
 - [ ] **Step 11: Generate captures, finalize rows, and write static manifests**
+
+Strictly parse and hash the installed Qwen manifest without invoking `ollama` or opening
+its loopback endpoint. Require its exact frozen config/layer records, then map each digest
+to `C:/Users/bring/.ollama/models/blobs/sha256-` plus the lowercase hexadecimal suffix;
+require every file and exact declared size. A mismatch stops before request capture and
+leaves both row files absent.
 
 Run `request_capture.ts` once per inert row with dummy credentials and intercepted
 transport:
@@ -606,6 +678,49 @@ INTENT = (
     "Create a Grasshopper definition that generates a row of points along the X axis "
     "using adjustable Start, Step, and Count controls, with Y and Z fixed at zero."
 )
+
+def model_artifact_identity(control: bool) -> dict[str, object]:
+    if control:
+        return {
+            "kind": "remote_provider_model_id",
+            "providerModelId": "anthropic/claude-opus-4-6",
+            "ollamaManifestPath": None,
+            "ollamaManifestSha256": None,
+            "config": {"mediaType": None, "digest": None, "size": None},
+            "layers": [
+                {"mediaType": None, "digest": None, "size": None},
+                {"mediaType": None, "digest": None, "size": None},
+                {"mediaType": None, "digest": None, "size": None},
+            ],
+        }
+    return {
+        "kind": "ollama_manifest_v2",
+        "providerModelId": "ollama_chat/qwen3.6:35b",
+        "ollamaManifestPath": "C:/Users/bring/.ollama/models/manifests/registry.ollama.ai/library/qwen3.6/35b",
+        "ollamaManifestSha256": "07D35212591FC27746F0A317C975A6D68754FB38E9053D82E25F06057AF28522",
+        "config": {
+            "mediaType": "application/vnd.docker.container.image.v1+json",
+            "digest": "sha256:5d1c86a949f7f3b5e75370e129765af7526f0cc1812a9de21a541da042596faa",
+            "size": 462,
+        },
+        "layers": [
+            {
+                "mediaType": "application/vnd.ollama.image.model",
+                "digest": "sha256:f5ee307a2982106a6eb82b62b2c00b575c9072145a759ae4660378acda8dcf2d",
+                "size": 23938321664,
+            },
+            {
+                "mediaType": "application/vnd.ollama.image.license",
+                "digest": "sha256:5f3a3c817e78f5b8a4ad2d2c458a3e4b2cce470d6c12642c4eeb12cb8a9bf51d",
+                "size": 11357,
+            },
+            {
+                "mediaType": "application/vnd.ollama.image.params",
+                "digest": "sha256:86eff881e8d2c2b1caa3966ba775d007f76a693d8541d0973b1bd2aab4214a43",
+                "size": 94,
+            },
+        ],
+    }
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest().upper()
@@ -659,6 +774,7 @@ def build_row(root: Path, row_id: str) -> dict[str, object]:
         "rowId": row_id,
         "provider": "anthropic" if control else "ollama_chat",
         "model": "claude-opus-4-6" if control else "qwen3.6:35b",
+        "modelArtifactIdentity": model_artifact_identity(control),
         "apiBase": "https://api.anthropic.com" if control else "http://127.0.0.1:11434/v1",
         "credentialMode": "environment_api_key" if control else "loopback_no_remote_credential",
         "reasoningRequest": {
@@ -766,11 +882,120 @@ git commit -m "docs: prepare frozen Prime comparison"
 
 ### Mandatory Task 1 review gate
 
-Stop. Independent review must reproduce request capture through Prime's real provider builders, exact JSON Pointer parity, empty-state regressions, model-correction allowance, PID-ancestry isolation, timeout behavior, manifest hashes, and zero live evidence. No target creation or host/model contact is authorized.
+Stop. Independent review must reproduce request capture through Prime's real provider
+builders and terminal stream events, exact Qwen manifest/config/layer/blob custody, exact
+JSON Pointer parity, empty-state regressions, model-correction allowance, PID-ancestry
+isolation, timeout behavior, manifest hashes, and zero runtime/target/live evidence. No
+deployment, Rhino start, target creation, or host/model contact is authorized.
 
 ---
 
-### Task 2: Freeze target A with one authorized initial snapshot
+### Task 2: Establish Release deployment and fresh-Rhino runtime custody
+
+**Files:**
+
+- Create after authorization: `runtime/release-deployment.txt`
+- Create after successful deployment: `runtime/release-custody.json`
+- Create after Rhino starts: `runtime/rhino-start-custody.json`
+- Create after custody validation: `runtime/manifest.json`
+- Create outside the design lane: detached worktree `C:/UDEV/Rook/.worktrees/prime-frozen-control-local-comparison-runtime`
+- Modify after review: this plan's execution ledger
+
+**Interfaces:**
+
+- Consumes: exact Rook merge `06534f371b173308179164189e54b722a34f8a24`, the standard Release deployment script, exact plugin registry owner, and one newly started Rhino process.
+- Produces: causal evidence that the registered `net8.0` payload was deployed before the one Rhino process used by both rows. Performs no model, Grasshopper mutation, or MCP tool call.
+
+- [ ] **Step 1: Reverify inert artifacts and prepare an exact detached deployment lane**
+
+Rerun Task 1's complete inert seam. Require the runtime directory and detached deployment
+worktree to be absent, both row manifests unchanged, and all target/model evidence absent.
+Then add a clean detached worktree at the exact merge:
+
+```powershell
+git -C C:/UDEV/Rook worktree add --detach `
+  C:/UDEV/Rook/.worktrees/prime-frozen-control-local-comparison-runtime `
+  06534f371b173308179164189e54b722a34f8a24
+git -C C:/UDEV/Rook/.worktrees/prime-frozen-control-local-comparison-runtime status --short
+git -C C:/UDEV/Rook/.worktrees/prime-frozen-control-local-comparison-runtime rev-parse HEAD
+```
+
+Expected: empty status and exact merge. Do not reuse a pre-existing path.
+
+- [ ] **Step 2: Obtain explicit authorization for standard Release deployment**
+
+Report the exact checkout SHA, destination paths, and command. The user closes Rhino and
+MCP client/runtime processes. The deployment script must observe no full-deploy blockers;
+do not terminate or bypass them from the operator. Authorization includes one standard
+build/deploy/registration and no target or model contact.
+
+- [ ] **Step 3: Run the exact Release deployment once and retain its transcript**
+
+With `runtime/release-deployment.txt` absent, record UTC wall-clock start/completion
+observations outside the transcript and run only:
+
+```powershell
+$RuntimeLane = 'C:/UDEV/Rook/.worktrees/prime-frozen-control-local-comparison-runtime'
+$Transcript = 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison/runtime/release-deployment.txt'
+& pwsh -NoProfile -File "$RuntimeLane/scripts/deploy-local-testing.ps1" -Configuration Release 2>&1 |
+  Tee-Object -FilePath $Transcript
+if ($LASTEXITCODE -ne 0) { throw "release deployment failed: $LASTEXITCODE" }
+```
+
+No `-PayloadOnly`, `-SkipBuild`, `-UseRepoVenv`, `-DevPythonRuntime`, `-AllowRunning`, or
+other mode flag is admitted. A failure consumes this deployment attempt and stops before
+Rhino start; do not edit, redeploy, or reuse the transcript.
+
+- [ ] **Step 4: Freeze exact source/deployed and registration custody**
+
+Create `release-custody.json` once with the exact deployment start/completion
+observations, transcript hash, exit `0`, merge SHA, and source/deployed SHA-256 pairs for:
+
+```text
+mcp_server/src/rook/server.py
+  -> C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/server.py
+src/RookNative/bin/Release/x64/RookNative.rhp
+  -> C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp
+src/Rook/bin/Release/net8.0/Rook.rhp
+  -> C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net8.0/Rook.rhp
+```
+
+Read registry value
+`HKCU:\Software\McNeel\Rhinoceros\8.0\Plug-Ins\b7e4a8c9-1f62-4c7e-9a2b-5d4e8f1c3a7b\PlugIn` property `FileName`.
+Normalize it with `Path.GetFullPath` and `OrdinalIgnoreCase`; require the exact deployed
+`net8.0/Rook.rhp` path. Refuse `net48`, `net7.0`, and root-level `Rook.rhp`. This evidence
+establishes deployed and selected startup inputs only; it makes no loaded-process claim.
+
+- [ ] **Step 5: Start one fresh Rhino process after deployment**
+
+Only now may the user start Rhino, open the disposable Rhino file, and open Rook Chat.
+Retain the exact panel-open line. Record the sole Rhino PID, `Win32_Process.CreationDate`,
+executable path, deployment completion observation, registry path/hash, and the exact
+equation `Rhino creation > deployment completion` in `rhino-start-custody.json`. Require
+that process to own the native listener discovered after startup. Do not call MCP.
+
+- [ ] **Step 6: Record and commit runtime custody**
+
+Hash all three runtime artifacts into create-new `runtime/manifest.json`; append the
+manifest hash and closed facts to the ledger. Both later row evidence manifests must
+retain this exact runtime-manifest hash. Commit only
+the specification/plan ledger amendment:
+
+```powershell
+git add `
+  docs/superpowers/specs/2026-08-11-prime-frozen-operational-comparison-design.md `
+  docs/superpowers/plans/2026-08-11-prime-frozen-operational-comparison.md
+git diff --cached --check
+git commit -m "docs: establish Prime comparison runtime custody"
+```
+
+Task 2 authorizes no snapshot. Preserve the fresh process unchanged and proceed only to
+Task 3 target corroboration; the mandatory target-A initial-snapshot gate reviews this
+entire runtime chain before any MCP contact.
+
+---
+
+### Task 3: Freeze target A with one authorized initial snapshot
 
 **Files:**
 
@@ -786,11 +1011,18 @@ Stop. Independent review must reproduce request capture through Prime's real pro
 
 - [ ] **Step 1: Reverify the approved inert package before asking for a target**
 
-Rerun all Task 1 inert tests and hashes. Require `control/operator/target.json`, both initial/final inspection files, Prime stdout/stderr, process ledger, and every session artifact to be absent.
+Rerun all Task 1 inert tests and hashes. Verify all runtime-custody hashes and require the
+same live Rhino PID and `CreationDate` recorded after deployment. Require
+`control/operator/target.json`, both initial/final inspection files, Prime stdout/stderr,
+process ledger, and every session artifact to be absent. Any runtime drift stops; do not
+deploy or restart.
 
 - [ ] **Step 2: Stop for explicit target-A contact authorization**
 
-The operator creates a fresh empty disposable Grasshopper document, activates its Rhino document, opens/reopens Rook Chat, and supplies the exact panel line. This step authorizes no snapshot by itself.
+Inside the already frozen Rhino process, the operator creates a fresh empty disposable
+Grasshopper document, activates its Rhino document, opens/reopens Rook Chat, and supplies
+the exact panel line. Starting another Rhino process is not admitted. This step authorizes
+no snapshot by itself.
 
 - [ ] **Step 3: Corroborate target A without MCP contact**
 
@@ -798,13 +1030,17 @@ Use the current native discovery record and Windows listener table to establish 
 positive `processId`, `nativePort`, listener owner, and Rhino
 `documentSerialNumber`. Keep those values in the operator shell and print the closed
 credential-free candidate for authorization; do not create a target file yet. If any
-value is missing or inconsistent, stop with zero MCP calls.
+value is missing or inconsistent, or `processId`/creation identity differs from
+`rhino-start-custody.json`, stop with zero MCP calls.
 
 #### Mandatory target-A initial-snapshot review gate
 
 Stop. Independent review must reproduce the static hashes and inert seam, verify the
-exact positive PID/port/document candidate and Windows listener owner, and confirm that
-the target and all live evidence remain absent. Review does not authorize contact.
+exact Release command/transcript, three payload hash equations, `net8.0` registry path,
+deployment-before-process ordering, Rook Chat line, positive PID/port/document candidate,
+and Windows listener owner. Confirm that target and all live evidence remain absent.
+On-disk hashes without fresh-process correlation do not pass. Review does not authorize
+contact.
 
 - [ ] **Step 4: Obtain explicit authorization for exactly one initial snapshot**
 
@@ -841,7 +1077,7 @@ Stop. Independent review must verify target/manifest hashes, exact empty state, 
 
 ---
 
-### Task 3: Execute and review the one-shot Opus control
+### Task 4: Execute and review the one-shot Opus control
 
 **Files:**
 
@@ -862,12 +1098,11 @@ Stop. Independent review must verify target/manifest hashes, exact empty state, 
 
 Require exact static/target hashes, empty live evidence/session locations, current PID/port/listener match, Prime commit, clean Prime worktree, `ANTHROPIC_API_KEY` present/nonblank, OAuth absent, empty Anthropic auth entry, workspace label, and `25.00` USD spend limit. Print no key material.
 
-Prove Rook release custody without contact by hashing
-`C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/server.py` against
-`mcp_server/src/rook/server.py` at merge `06534f37`, and hashing
-`C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net8.0/Rook.rhp`
-against `src/Rook/bin/Release/net8.0/Rook.rhp` from that merge build. A mismatch blocks
-authorization; do not copy or redeploy files in this task.
+Reverify the complete Task 2 runtime chain: unchanged transcript/custody hashes, exact
+registered `net8.0` path, all three source/deployed hash equations, and the same running
+Rhino PID plus creation identity observed after deployment. On-disk equality is only one
+input to that correlated chain. A mismatch blocks authorization; do not copy, deploy, or
+restart in this task.
 
 The launcher can prove the row values and credential-resolution walls, but it cannot
 query Anthropic account administration without adding contact. Before authorization,
@@ -893,7 +1128,9 @@ Do not intervene during the run. At 30 minutes the launcher performs the frozen 
 
 - [ ] **Step 4: Seal control evidence without another host call**
 
-Hash every retained Prime/session/stderr/process/final-inspection artifact into create-new `evidence-manifest.json`. Do not rewrite original evidence. Confirm target B still does not exist.
+Hash every retained Prime/session/stderr/process/final-inspection artifact and the exact
+campaign `runtime/manifest.json` hash into create-new `evidence-manifest.json`. Do not
+rewrite original evidence. Confirm target B still does not exist.
 
 - [ ] **Step 5: Write the five control conclusions**
 
@@ -915,7 +1152,7 @@ Stop. If the row timed out or had infrastructure, custody, evidence, or lingerin
 
 ---
 
-### Task 4: Freeze target B after control review
+### Task 5: Freeze target B after control review
 
 **Files:**
 
@@ -933,13 +1170,17 @@ Stop. If the row timed out or had infrastructure, custody, evidence, or lingerin
 - [ ] **Step 1: Prove local non-target artifacts survived the control unchanged**
 
 Recompute every local non-target hash and compare it with the Task 1 manifest and non-target parity report. Require no local target, session, stdout, stderr, process ledger, or inspection evidence.
+Reverify the complete Task 2 deployment/startup chain and require the exact same live
+Rhino PID and creation identity used by target A. A changed registered path, payload hash,
+process identity, or listener blocks target B without repair.
 
 - [ ] **Step 2: Prepare and corroborate target B without contact**
 
-Only now create a second fresh empty disposable Grasshopper document. Obtain its exact
-Rook Chat document line, corroborate PID/port/listener, retain the candidate values in the
-operator shell, and print the closed target candidate. Do not create a target file or
-contact MCP.
+Only now create a second fresh empty disposable Grasshopper document inside the same
+frozen Rhino process. Obtain its exact Rook Chat document line, corroborate
+PID/creation identity/port/listener, retain the candidate values in the operator shell,
+and print the closed target candidate. A deployment, payload change, Rhino restart, or
+different PID refuses the campaign. Do not create a target file or contact MCP.
 
 #### Mandatory target-B initial-snapshot review gate
 
@@ -986,7 +1227,7 @@ Stop. Independent review must verify unchanged local non-target artifacts, exact
 
 ---
 
-### Task 5: Execute the one-shot Qwen local row
+### Task 6: Execute the one-shot Qwen local row
 
 **Files:**
 
@@ -1005,7 +1246,12 @@ Stop. Independent review must verify unchanged local non-target artifacts, exact
 
 - [ ] **Step 1: Verify live-local preconditions without model or MCP contact**
 
-Require exact non-target/target/parity hashes, empty local live evidence/session locations, current PID/port/listener match, exact Prime identity, the same two Rook release-file hash equations used for control, and the loopback Ollama route. Remove Anthropic credential variables from the child environment. Do not probe Ollama yet.
+Require exact non-target/target/parity hashes, empty local live evidence/session locations,
+current PID/port/listener match, exact Prime identity, the unchanged complete Task 2
+runtime chain, and the loopback Ollama route. Strictly rehash the installed Qwen manifest,
+recompare every frozen config/layer record, and require every content-addressed blob at
+its exact declared size. Do not invoke the Ollama CLI, process, or endpoint during this
+check. Remove Anthropic credential variables from the child environment.
 
 - [ ] **Step 2: Obtain explicit authorization for exactly one Qwen row**
 
@@ -1024,7 +1270,8 @@ Do not intervene. Preserve a timeout or failure prefix without retry.
 
 - [ ] **Step 4: Seal local evidence without another host call**
 
-Create `evidence-manifest.json` from retained artifacts. Do not rewrite original evidence or inspect the canvas again.
+Create `evidence-manifest.json` from retained artifacts plus the unchanged campaign
+`runtime/manifest.json` hash. Do not rewrite original evidence or inspect the canvas again.
 
 - [ ] **Step 5: Write the five local conclusions**
 
@@ -1046,7 +1293,7 @@ Stop for independent evidence review. No further host call, cleanup, rerun, mode
 
 ---
 
-### Task 6: Reconcile the frozen comparison without contact
+### Task 7: Reconcile the frozen comparison without contact
 
 **Files:**
 
@@ -1069,6 +1316,9 @@ Create a side-by-side table only if both rows completed with healthy evidence. D
 - [ ] **Step 3: Preserve the exact claims and non-claims**
 
 The report must state that this exact comparison does not prove general model superiority, repeatability, equivalent reasoning effort, equivalent token accounting, hidden-reasoning quality, arbitrary Grasshopper competence, OS isolation, or that Prime should replace ChatRunner.
+It must distinguish the causal Release/registration/fresh-process custody chain from an
+in-memory plugin byte dump, and the frozen Ollama manifest/blob existence contract from
+an independent full rehash of the 23.9 GB model layer.
 
 - [ ] **Step 4: Run final no-contact checks**
 
