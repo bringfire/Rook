@@ -27,6 +27,11 @@ from mcp import types as mcp_types
 from mcp.types import Tool, TextContent
 
 from .gh_edit_contract import apply_gh_edit_contract
+from .grasshopper_component_contract import (
+    is_canonical_lower_guid as _is_canonical_lower_guid,
+    project_gh_library_result as _project_gh_library_result,
+    valid_component_candidate as _valid_gh_component_candidate,
+)
 from .mcp_capability_gateway_contract import (
     MCP_CAPABILITY_GATEWAY_NAMES,
     build_mcp_capability_gateway_tools,
@@ -13602,7 +13607,6 @@ def _project_gh_batch_component_info_result(
     proxy_fields = {
         "guid", "name", "nickName", "description", "category", "subCategory", "sourceKind"
     }
-    nullable_strings = {"nickName", "description", "category", "subCategory"}
     compiled_provenance = {
         "libraryGuid", "libraryName", "libraryVersion", "assemblyFullName",
         "assemblyVersion", "assemblyLocation",
@@ -13613,27 +13617,14 @@ def _project_gh_batch_component_info_result(
         "runtimeAssemblyVersion", "runtimeAssemblyLocation",
     }
 
-    def canonical_guid(value: Any) -> bool:
-        if type(value) is not str or len(value) != 36:
-            return False
-        parts = value.split("-")
-        return (
-            [len(part) for part in parts] == [8, 4, 4, 4, 12]
-            and all(
-                char in "0123456789abcdef"
-                for part in parts
-                for char in part
-            )
-        )
-
     def valid_proxy(item: dict) -> bool:
-        if not canonical_guid(item.get("guid")) or type(item.get("name")) is not str:
+        if not _is_canonical_lower_guid(item.get("guid")) or type(item.get("name")) is not str:
             return False
         if item.get("sourceKind") not in {"compiled", "user_object"}:
             return False
         return all(
             type(item.get(key)) is str or item.get(key) is None
-            for key in nullable_strings
+            for key in {"nickName", "description", "category", "subCategory"}
         )
 
     def valid_provenance(item: dict) -> bool:
@@ -13643,7 +13634,7 @@ def _project_gh_batch_component_info_result(
         if item["sourceKind"] == "compiled":
             return (
                 set(provenance) == compiled_provenance
-                and canonical_guid(provenance.get("libraryGuid"))
+                and _is_canonical_lower_guid(provenance.get("libraryGuid"))
                 and all(
                     type(provenance.get(key)) is str or provenance.get(key) is None
                     for key in compiled_provenance - {"libraryGuid"}
@@ -13674,9 +13665,9 @@ def _project_gh_batch_component_info_result(
         if item["sourceKind"] == "compiled":
             if base_guid is not None:
                 return False
-        elif not canonical_guid(base_guid):
+        elif not _is_canonical_lower_guid(base_guid):
             return False
-        if not canonical_guid(implementation.get("componentGuid")):
+        if not _is_canonical_lower_guid(implementation.get("componentGuid")):
             return False
         if type(implementation.get("runtimeType")) is not str:
             return False
@@ -13688,15 +13679,7 @@ def _project_gh_batch_component_info_result(
         )
 
     def valid_candidate(candidate: Any) -> bool:
-        if type(candidate) is not dict or set(candidate) != proxy_fields | {
-            "nativeScore", "matchSource"
-        }:
-            return False
-        return (
-            valid_proxy(candidate)
-            and candidate["nativeScore"] is None
-            and candidate["matchSource"] == "exact_name"
-        )
+        return _valid_gh_component_candidate(candidate, "ambiguity")
 
     non_success = 0
     for expected, item in zip(selectors, results):
@@ -13737,7 +13720,7 @@ def _project_gh_batch_component_info_result(
             if (
                 set(item) != expected_keys
                 or error != "component_not_found"
-                or (selector_kind == "guid" and not canonical_guid(item.get("guid")))
+                or (selector_kind == "guid" and not _is_canonical_lower_guid(item.get("guid")))
             ):
                 return malformed
         elif status == "ambiguous_name":
@@ -13756,7 +13739,7 @@ def _project_gh_batch_component_info_result(
                     return malformed
                 if set(item) - {"selector", "status", "error", "guid"}:
                     return malformed
-                if "guid" in item and not canonical_guid(item["guid"]):
+                if "guid" in item and not _is_canonical_lower_guid(item["guid"]):
                     return malformed
             elif error == "provenance_projection_failed":
                 if set(item) != {"selector", "status", "error"} | proxy_fields or not valid_proxy(item):
@@ -15366,7 +15349,10 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 params["limit"] = arguments["limit"]
             if "exact" in arguments:
                 params["exact"] = arguments["exact"]
-            result = await call_rhino("/gh/library", "GET", params, port=port)
+            result = _project_gh_library_result(
+                arguments,
+                await call_rhino("/gh/library", "GET", params, port=port),
+            )
 
         case "gh_categories":
             result = await call_rhino("/gh/categories", "GET", port=port)

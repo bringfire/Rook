@@ -4440,7 +4440,9 @@ namespace Rook.Handlers
 
                 var returned = filtered
                     .Take(Math.Max(0, limit))
-                    .Select(candidate => CandidatePayload(candidate, hasSearch))
+                    .Select(candidate => CandidatePayload(
+                        candidate,
+                        hasSearch ? CandidatePayloadShape.Search : CandidatePayloadShape.Catalog))
                     .ToList();
 
                 return new ApiResponse
@@ -4599,10 +4601,15 @@ namespace Rook.Handlers
             };
         }
 
-        private static object CandidatePayload(LibraryCandidate candidate, bool includeSearchEvidence)
+        private static object CandidatePayload(
+            LibraryCandidate candidate,
+            CandidatePayloadShape shape)
         {
-            if (includeSearchEvidence)
+            if (shape == CandidatePayloadShape.Search)
             {
+                if (candidate.NativeScore == null ||
+                    candidate.MatchSource is not ("native_search" or "exact_name"))
+                    throw new InvalidOperationException("Search candidate lacked search evidence.");
                 return new
                 {
                     candidate.Name,
@@ -4617,16 +4624,42 @@ namespace Rook.Handlers
                 };
             }
 
-            return new
+            if (shape == CandidatePayloadShape.Ambiguity)
             {
-                candidate.Name,
-                candidate.NickName,
-                candidate.Description,
-                candidate.Category,
-                candidate.SubCategory,
-                candidate.Guid,
-                candidate.SourceKind
-            };
+                if (candidate.NativeScore != null || candidate.MatchSource != "exact_name")
+                    throw new InvalidOperationException("Ambiguity candidate had invalid match evidence.");
+                return new
+                {
+                    candidate.Name,
+                    candidate.NickName,
+                    candidate.Description,
+                    candidate.Category,
+                    candidate.SubCategory,
+                    candidate.Guid,
+                    candidate.SourceKind,
+                    candidate.NativeScore,
+                    candidate.MatchSource
+                };
+            }
+
+            if (shape == CandidatePayloadShape.Catalog)
+            {
+                if (candidate.NativeScore != null || candidate.MatchSource != null)
+                    throw new InvalidOperationException("Catalog candidate carried match evidence.");
+
+                return new
+                {
+                    candidate.Name,
+                    candidate.NickName,
+                    candidate.Description,
+                    candidate.Category,
+                    candidate.SubCategory,
+                    candidate.Guid,
+                    candidate.SourceKind
+                };
+            }
+
+            throw new ArgumentOutOfRangeException(nameof(shape), shape, "Unknown candidate payload shape.");
         }
 
         private static object? RequireHostProperty(object owner, string propertyName)
@@ -4708,6 +4741,13 @@ namespace Rook.Handlers
             public int Exposure { get; init; }
             public double? NativeScore { get; init; }
             public string? MatchSource { get; init; }
+        }
+
+        private enum CandidatePayloadShape
+        {
+            Catalog,
+            Search,
+            Ambiguity
         }
 
         /// <summary>
@@ -6658,7 +6698,9 @@ namespace Rook.Handlers
                             SortMetadataCandidates(server, candidates);
                             var failure = MetadataFailure(selector, "ambiguous_name", error: null);
                             failure["candidates"] = candidates
-                                .Select(candidate => CandidatePayload(candidate, includeSearchEvidence: false))
+                                .Select(candidate => CandidatePayload(
+                                    candidate,
+                                    CandidatePayloadShape.Ambiguity))
                                 .ToList();
                             results.Add(failure);
                         }

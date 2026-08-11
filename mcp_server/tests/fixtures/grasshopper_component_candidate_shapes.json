@@ -1,0 +1,33 @@
+{
+  "catalog": {
+    "name": "Contract Candidate",
+    "nickName": "Contract Candidate Nick",
+    "description": "Contract Candidate description",
+    "category": "Synthetic",
+    "subCategory": "Operators",
+    "guid": "10000000-0000-0000-0000-000000000001",
+    "sourceKind": "compiled"
+  },
+  "search": {
+    "name": "Contract Candidate",
+    "nickName": "Contract Candidate Nick",
+    "description": "Contract Candidate description",
+    "category": "Synthetic",
+    "subCategory": "Operators",
+    "guid": "10000000-0000-0000-0000-000000000001",
+    "sourceKind": "compiled",
+    "nativeScore": 17.5,
+    "matchSource": "native_search"
+  },
+  "ambiguity": {
+    "name": "Contract Candidate",
+    "nickName": "Contract Candidate Nick",
+    "description": "Contract Candidate description",
+    "category": "Synthetic",
+    "subCategory": "Operators",
+    "guid": "10000000-0000-0000-0000-000000000001",
+    "sourceKind": "compiled",
+    "nativeScore": null,
+    "matchSource": "exact_name"
+  }
+}

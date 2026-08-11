@@ -5,17 +5,23 @@ import copy
 import inspect
 import json
 import textwrap
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from mcp import types as mcp_types
 
 from rook import server
-from rook.agent.tool_dispatcher import _transform_gh_library
+from rook.agent import tool_dispatcher
+from rook.agent.tool_dispatcher import ToolDispatcher, _transform_gh_library
 from rook.learning import knowledge_injector
 
 
 GUID = "10000000-0000-0000-0000-000000000001"
+SHARED_CANDIDATE_FIXTURES = json.loads(
+    (Path(__file__).parent / "fixtures" / "grasshopper_component_candidate_shapes.json")
+    .read_text(encoding="utf-8")
+)
 
 
 class _DummyPhaseTracker:
@@ -176,6 +182,158 @@ async def test_admitted_selector_family_is_forwarded_once_unchanged(
         "/gh/batch-component-info", "POST", arguments, port=None
     )
     assert identity.call_count == 0
+
+
+def _library_host(candidate: dict) -> dict:
+    return {
+        "success": True,
+        "data": {
+            "count": 1,
+            "returnedCount": 1,
+            "totalMatches": 1,
+            "truncated": False,
+            "components": [copy.deepcopy(candidate)],
+        },
+    }
+
+
+def _fixture_search_candidate(match_source: str) -> dict:
+    candidate = copy.deepcopy(SHARED_CANDIDATE_FIXTURES["search"])
+    candidate["matchSource"] = match_source
+    return candidate
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "shape"),
+    [
+        ({}, "catalog"),
+        ({"search": "Contract Candidate"}, "search"),
+    ],
+)
+async def test_shared_candidate_fixture_passes_python_library_projection(
+    monkeypatch, arguments, shape
+):
+    host = _library_host(SHARED_CANDIDATE_FIXTURES[shape])
+    target = AsyncMock(return_value=copy.deepcopy(host))
+    monkeypatch.setattr(server, "call_rhino", target)
+
+    result = await server._call_tool_dispatch("gh_library", arguments)
+
+    assert result == host
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("surface", ["canonical", "direct"])
+@pytest.mark.parametrize(
+    ("exact", "match_source", "admitted"),
+    [
+        (False, "native_search", True),
+        (True, "exact_name", True),
+        (True, "native_search", False),
+        (False, "exact_name", False),
+    ],
+)
+async def test_search_source_is_bound_to_request_context_on_both_python_surfaces(
+    monkeypatch, surface, exact, match_source, admitted
+):
+    arguments = {"search": "Contract Candidate", "exact": exact}
+    host = _library_host(_fixture_search_candidate(match_source))
+    target = AsyncMock(return_value=copy.deepcopy(host))
+    if surface == "canonical":
+        monkeypatch.setattr(server, "call_rhino", target)
+        result = await server._call_tool_dispatch("gh_library", arguments)
+    else:
+        monkeypatch.setattr(tool_dispatcher, "call_rhino", target)
+        result = await ToolDispatcher(port=9950).dispatch("gh_library", arguments)
+
+    expected = (
+        host
+        if admitted
+        else {"success": False, "data": "Malformed gh_library response"}
+    )
+    assert result == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "wrong_shape"),
+    [
+        ({}, "search"),
+        ({}, "ambiguity"),
+        ({"search": "Contract Candidate"}, "catalog"),
+        ({"search": "Contract Candidate"}, "ambiguity"),
+    ],
+)
+async def test_python_library_projection_rejects_cross_shape_substitution(
+    monkeypatch, arguments, wrong_shape
+):
+    target = AsyncMock(
+        return_value=_library_host(SHARED_CANDIDATE_FIXTURES[wrong_shape])
+    )
+    monkeypatch.setattr(server, "call_rhino", target)
+
+    result = await server._call_tool_dispatch("gh_library", arguments)
+
+    assert result == {"success": False, "data": "Malformed gh_library response"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("nativeScore", None),
+        ("nativeScore", "17.5"),
+        ("nativeScore", float("nan")),
+        ("nativeScore", float("inf")),
+        ("nativeScore", 10**1000),
+        ("matchSource", "wrong_source"),
+    ],
+)
+async def test_library_search_rejects_each_invalid_evidence_field_without_raising(
+    monkeypatch, field, value
+):
+    candidate = copy.deepcopy(SHARED_CANDIDATE_FIXTURES["search"])
+    candidate[field] = value
+    monkeypatch.setattr(
+        server,
+        "call_rhino",
+        AsyncMock(return_value=_library_host(candidate)),
+    )
+
+    result = await server._call_tool_dispatch(
+        "gh_library", {"search": "Contract Candidate"}
+    )
+
+    assert result == {"success": False, "data": "Malformed gh_library response"}
+
+
+def test_shared_ambiguity_fixture_passes_only_ambiguity_projection():
+    candidate = SHARED_CANDIDATE_FIXTURES["ambiguity"]
+    host = _host_batch(
+        [
+            {
+                "selector": {"kind": "name", "value": "Contract Candidate"},
+                "status": "ambiguous_name",
+                "candidates": [copy.deepcopy(candidate), copy.deepcopy(candidate)],
+            }
+        ]
+    )
+
+    result = server._project_gh_batch_component_info_result(
+        "name", ["Contract Candidate"], host
+    )
+
+    assert result["success"] is True
+    for wrong_shape in ("catalog", "search"):
+        substituted = copy.deepcopy(host)
+        substituted["data"]["results"][0]["candidates"] = [
+            copy.deepcopy(SHARED_CANDIDATE_FIXTURES[wrong_shape]),
+            copy.deepcopy(SHARED_CANDIDATE_FIXTURES[wrong_shape]),
+        ]
+        assert server._project_gh_batch_component_info_result(
+            "name", ["Contract Candidate"], substituted
+        ) == {"success": False, "data": "Malformed gh_batch_component_info response"}
 
 
 @pytest.mark.asyncio
@@ -440,7 +598,18 @@ async def test_target_failure_passes_through_without_reconstruction(monkeypatch)
 async def test_library_omits_empty_strings_and_preserves_present_values(
     monkeypatch, arguments, expected
 ):
-    target = AsyncMock(return_value={"success": True, "data": {"components": []}})
+    target = AsyncMock(
+        return_value={
+            "success": True,
+            "data": {
+                "count": 0,
+                "returnedCount": 0,
+                "totalMatches": 0,
+                "truncated": False,
+                "components": [],
+            },
+        }
+    )
     monkeypatch.setattr(server, "call_rhino", target)
 
     result = await server._call_tool_dispatch("gh_library", arguments)
@@ -470,6 +639,51 @@ def test_direct_library_transform_matches_canonical_query_semantics(
 
     assert transformed == ("/gh/library", "GET", expected)
     assert arguments == original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "shape"),
+    [
+        ({}, "catalog"),
+        ({"search": "Contract Candidate"}, "search"),
+    ],
+)
+async def test_direct_dispatch_accepts_same_fixture_shapes_as_canonical(
+    monkeypatch, arguments, shape
+):
+    host = _library_host(SHARED_CANDIDATE_FIXTURES[shape])
+    target = AsyncMock(return_value=copy.deepcopy(host))
+    monkeypatch.setattr(tool_dispatcher, "call_rhino", target)
+
+    result = await ToolDispatcher(port=9950).dispatch("gh_library", arguments)
+
+    assert result == host
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "wrong_shape"),
+    [
+        ({}, "search"),
+        ({}, "ambiguity"),
+        ({"search": "Contract Candidate"}, "catalog"),
+        ({"search": "Contract Candidate"}, "ambiguity"),
+    ],
+)
+async def test_direct_dispatch_rejects_same_cross_shape_responses_as_canonical(
+    monkeypatch, arguments, wrong_shape
+):
+    target = AsyncMock(
+        return_value=_library_host(SHARED_CANDIDATE_FIXTURES[wrong_shape])
+    )
+    monkeypatch.setattr(tool_dispatcher, "call_rhino", target)
+
+    result = await ToolDispatcher(port=9950).dispatch("gh_library", arguments)
+
+    assert result == {"success": False, "data": "Malformed gh_library response"}
+    endpoint, method, data = _transform_gh_library(arguments)
+    target.assert_awaited_once_with(endpoint, method, data, 9950)
 
 
 @pytest.mark.asyncio

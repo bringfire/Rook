@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..bridge import call_rhino
 from ..gh_edit_contract import apply_gh_edit_contract
+from ..grasshopper_component_contract import project_gh_library_result
 from ..gh_status_contract import normalize_gh_status_result
 from ..tool_lifecycle import resolve_contained_tool
 from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
@@ -2047,7 +2048,10 @@ class ToolDispatcher:
                 # Transform returned an error (endpoint is None)
                 if endpoint is None:
                     return data  # data contains the error dict
-                return await call_rhino(endpoint, method, data, port)
+                result = await call_rhino(endpoint, method, data, port)
+                if name == "gh_library":
+                    result = project_gh_library_result(params, result)
+                return result
             except Exception as e:
                 logger.error(f"Transform failed for {name}: {e}")
                 return {"success": False, "data": f"Transform error: {e}"}
