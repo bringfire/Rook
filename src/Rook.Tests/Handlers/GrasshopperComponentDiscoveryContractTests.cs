@@ -19,6 +19,82 @@ namespace Rook.Tests.Handlers
         };
 
         [Fact]
+        public void Managed_candidate_serialization_matches_shared_three_shape_fixture()
+        {
+            const string guid = "10000000-0000-0000-0000-000000000001";
+            var candidate = Proxy("Contract Candidate", guid: guid, compareRank: 1);
+            var other = Proxy(
+                "Contract Candidate",
+                guid: "10000000-0000-0000-0000-000000000002",
+                compareRank: 2);
+
+            var catalog = Assert.Single(Components(Search(
+                new FakeServer(candidate), null, null, 50, exact: false)));
+
+            var searchServer = new FakeServer(candidate)
+            {
+                SearchResults = new object[] { candidate },
+                SearchScores = new[] { 17.5 }
+            };
+            var search = Assert.Single(Components(Search(
+                searchServer, "Contract Candidate", null, 50, exact: false)));
+
+            var ambiguity = Assert.Single(Results(Batch(
+                    new FakeServer(candidate, other),
+                    "{\"names\":[\"Contract Candidate\"]}")))
+                .GetProperty("candidates")[0];
+
+            AssertFixtureCandidate("catalog", catalog);
+            AssertFixtureCandidate("search", search);
+            AssertFixtureCandidate("ambiguity", ambiguity);
+        }
+
+        [Theory]
+        [InlineData(false, "native_search")]
+        [InlineData(true, "exact_name")]
+        public void Managed_search_source_matches_exact_request_context(
+            bool exact,
+            string expectedMatchSource)
+        {
+            var candidate = Proxy(
+                "Contract Candidate",
+                guid: "10000000-0000-0000-0000-000000000001",
+                compareRank: 1);
+            var server = new FakeServer(candidate)
+            {
+                SearchResults = new object[] { candidate },
+                SearchScores = new[] { 17.5 }
+            };
+
+            var actual = Assert.Single(Components(Search(
+                server, "Contract Candidate", null, 50, exact)));
+
+            AssertFixtureDerivedSearchCandidate(expectedMatchSource, actual);
+        }
+
+        [Fact]
+        public void Managed_search_candidate_rejects_unknown_match_source()
+        {
+            var candidate = ProjectCandidateForPayload(1.0, "wrong_source");
+
+            var exception = Assert.Throws<TargetInvocationException>(() =>
+                InvokeCandidatePayload(candidate, "Search"));
+
+            Assert.IsType<InvalidOperationException>(exception.InnerException);
+        }
+
+        [Fact]
+        public void Managed_candidate_projection_rejects_unknown_shape_value()
+        {
+            var candidate = ProjectCandidateForPayload(null, null);
+
+            var exception = Assert.Throws<TargetInvocationException>(() =>
+                InvokeCandidatePayload(candidate, 99));
+
+            Assert.IsType<ArgumentOutOfRangeException>(exception.InnerException);
+        }
+
+        [Fact]
         public void Search_present_calls_FindObjects_once_with_exact_string_and_proxy_count()
         {
             var selected = Proxy("Series", kind: FakeProxyKind.CompiledObject);
@@ -883,6 +959,83 @@ namespace Rook.Tests.Handlers
 
         private static string? ResultSelectorValue(JsonElement result) =>
             result.GetProperty("selector").GetProperty("value").GetString();
+
+        private static void AssertFixtureCandidate(string shape, JsonElement actual)
+        {
+            using var fixture = JsonDocument.Parse(File.ReadAllText(CandidateFixturePath()));
+            var expected = fixture.RootElement.GetProperty(shape);
+            Assert.Equal(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(actual));
+        }
+
+        private static void AssertFixtureDerivedSearchCandidate(
+            string expectedMatchSource,
+            JsonElement actual)
+        {
+            using var fixture = JsonDocument.Parse(File.ReadAllText(CandidateFixturePath()));
+            var expected = fixture.RootElement.GetProperty("search");
+            Assert.Equal(
+                expected.EnumerateObject().Select(property => property.Name),
+                actual.EnumerateObject().Select(property => property.Name));
+            foreach (var property in expected.EnumerateObject())
+            {
+                if (property.Name == "matchSource")
+                    Assert.Equal(expectedMatchSource, actual.GetProperty(property.Name).GetString());
+                else
+                    Assert.Equal(
+                        JsonSerializer.Serialize(property.Value),
+                        JsonSerializer.Serialize(actual.GetProperty(property.Name)));
+            }
+        }
+
+        private static object ProjectCandidateForPayload(double? nativeScore, string? matchSource)
+        {
+            var method = typeof(GrasshopperHandler).GetMethod(
+                "ProjectLibraryCandidate",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            var candidate = method!.Invoke(
+                null,
+                new object?[] { Proxy("Contract Candidate"), nativeScore, matchSource });
+            Assert.NotNull(candidate);
+            return candidate!;
+        }
+
+        private static object InvokeCandidatePayload(object candidate, object shapeValue)
+        {
+            var shapeType = typeof(GrasshopperHandler).GetNestedType(
+                "CandidatePayloadShape",
+                BindingFlags.NonPublic);
+            Assert.NotNull(shapeType);
+            var shape = shapeValue is string name
+                ? Enum.Parse(shapeType!, name)
+                : Enum.ToObject(shapeType!, shapeValue);
+            var method = typeof(GrasshopperHandler).GetMethod(
+                "CandidatePayload",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            var payload = method!.Invoke(null, new[] { candidate, shape });
+            Assert.NotNull(payload);
+            return payload!;
+        }
+
+        private static string CandidateFixturePath()
+        {
+            for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+                 directory != null;
+                 directory = directory.Parent)
+            {
+                var candidate = Path.Combine(
+                    directory.FullName,
+                    "mcp_server",
+                    "tests",
+                    "fixtures",
+                    "grasshopper_component_candidate_shapes.json");
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            throw new FileNotFoundException("Shared Grasshopper candidate fixture was not found.");
+        }
 
         private static ApiResponse Batch(
             FakeServer server,
