@@ -22,6 +22,7 @@ from ..model_profiles import (
     get_profile_names,
 )
 from ...providers import openrouter_catalog
+from ...providers.vertex_auth import VertexAuthError, vertex_gemini_model_name
 from ..personas import available_personas, get_model_role, load_display_config
 from .prompt_builder import PromptBuilder
 
@@ -117,6 +118,17 @@ def _ungated_option(model: str, source: str) -> ModelOverrideOption:
     )
 
 
+def _declared_model_is_admitted(model: object) -> bool:
+    if not isinstance(model, str) or not model:
+        return False
+    if not model.startswith("vertex_ai/"):
+        return True
+    try:
+        return vertex_gemini_model_name(model) is not None
+    except VertexAuthError:
+        return False
+
+
 def compute_model_override_options(
     role_status: dict,
     local_providers: dict,
@@ -134,16 +146,18 @@ def compute_model_override_options(
 
     for role in (role_status.get("roles") or {}).values():
         model = role.get("effective_model")
-        if model:
+        if _declared_model_is_admitted(model):
             by_id.setdefault(model, _ungated_option(model, "role"))
 
     for provider in (local_providers or {}).values():
         for entry in provider.get("models") or []:
             override = entry.get("model_override")
-            if override:
+            if override and not override.startswith("vertex_ai/"):
                 by_id.setdefault(override, _ungated_option(override, "local"))
 
     for meta in catalog_view.models:
+        if meta.litellm_id.startswith("vertex_ai/"):
+            continue
         if meta.litellm_id in by_id:
             existing = by_id[meta.litellm_id]
             if existing.display_name == existing.id and meta.display_name:
@@ -567,6 +581,8 @@ async def resolve_allowed_model_override(
     force_refresh: bool = False,
 ) -> ModelOverrideResolution:
     """Validate a chat override and bind routing metadata for the server."""
+    if isinstance(model_override, str) and model_override.startswith("vertex_ai/"):
+        vertex_gemini_model_name(model_override)
     role_status = build_role_status()
     local_providers = await get_cached_local_provider_status_async(
         force_refresh=force_refresh

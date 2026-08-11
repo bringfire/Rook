@@ -31,6 +31,7 @@ from typing import Any, Callable, Dict, List, Optional
 from .config import GuardianConfig
 from .events import AgentEvent, TOOL_EXEC_START, TOOL_EXEC_END, GUARDIAN_INTERVENTION
 from .generation_params import sanitize_generation_params_for_model
+from ..providers.vertex_auth import apply_vertex_litellm_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -394,6 +395,10 @@ class Guardian:
             )
             if self._config.api_base:
                 llm_kwargs["api_base"] = self._config.api_base
+            llm_kwargs = apply_vertex_litellm_arguments(
+                self._config.llm_analysis_model,
+                llm_kwargs,
+            )
             response = await litellm.acompletion(**llm_kwargs)
 
             text = response.choices[0].message.content or ""

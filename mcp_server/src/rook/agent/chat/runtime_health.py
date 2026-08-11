@@ -8,6 +8,11 @@ import asyncio
 from typing import Any
 
 from ...bridge import call_rhino
+from ...providers.vertex_auth import (
+    VertexAuthError,
+    VertexStore,
+    vertex_gemini_model_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,19 +39,55 @@ def _effective_default_model() -> str:
         return "anthropic/claude-sonnet-5"
 
 
-def _llm_state(active_model: str | None = None) -> dict[str, Any]:
+def _llm_state(
+    active_model: str | None = None,
+    *,
+    vertex_store: VertexStore | None = None,
+) -> dict[str, Any]:
     """Health gated on the active/effective model's required key (I3).
 
     Gates ``configured`` on the key the active model actually needs: the
     conversation model during a turn, or the worker-role default otherwise.
-    Local and multi-auth/unknown providers are treated as configured (no single
-    required env var).  The full provider-key map is reported informationally.
+    Local and unknown providers are treated as configured when they have no
+    single required key. Vertex is checked through its local Rook record only.
+    The full provider-key map is reported informationally.
     """
     from ...agent.model_profiles import api_key_env_for_model
     provider_keys = _provider_key_state()
     model = active_model or _effective_default_model()
     provider = model.split("/", 1)[0] if "/" in model else "unknown"
     key_env = api_key_env_for_model(model)
+
+    if model.startswith("vertex_ai/"):
+        try:
+            vertex_gemini_model_name(model)
+            store = vertex_store if vertex_store is not None else VertexStore.production()
+            record = store.read()
+        except VertexAuthError as exc:
+            return {
+                "configured": False,
+                "provider": provider,
+                "message": exc.public_message,
+                "active_model": model,
+                "provider_keys": provider_keys,
+                "code": exc.code,
+            }
+        if record is None:
+            return {
+                "configured": False,
+                "provider": provider,
+                "message": "Vertex AI is not configured for this Windows user.",
+                "active_model": model,
+                "provider_keys": provider_keys,
+                "code": "vertex_signed_out",
+            }
+        return {
+            "configured": True,
+            "provider": provider,
+            "message": "Vertex AI is configured locally for the active model.",
+            "active_model": model,
+            "provider_keys": provider_keys,
+        }
 
     if key_env is None:
         return {
@@ -183,8 +224,11 @@ def _build_verified_fact_lines(
             lines.append("Grasshopper availability is not verified in this session.")
 
     if llm_state.get("configured"):
-        lines.append("An LLM provider API key is configured for chat turns.")
+        lines.append("The active LLM provider is configured for chat turns.")
     else:
-        lines.append("No LLM provider API key is configured for the active model; explain this explicitly instead of attempting a model call.")
+        lines.append(
+            "The active LLM provider is not configured; explain this explicitly "
+            "instead of attempting a model call."
+        )
 
     return lines

@@ -7,12 +7,13 @@ DSPy modules in the learning system.
 
 import os
 import logging
-from typing import Optional
+from typing import Any, Optional
 from pathlib import Path
 
 import dspy
 
 from rook.agent.generation_params import sanitize_generation_params_for_model
+from rook.providers.vertex_auth import apply_vertex_litellm_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,64 @@ _cache_configured = False
 
 
 DEFAULT_MODEL = "claude-sonnet-5"
+_VERTEX_RUNTIME_FIELDS = frozenset(
+    {"vertex_project", "vertex_location", "vertex_credentials"}
+)
+
+
+def _without_vertex_runtime_fields(kwargs: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in kwargs.items()
+        if key not in _VERTEX_RUNTIME_FIELDS
+    }
+
+
+class _VertexAwareLM(dspy.LM):
+    """DSPy LM that resolves Rook-owned Vertex authorization per inference."""
+
+    def __init__(self, model: str, **kwargs: Any):
+        constructor_kwargs = _without_vertex_runtime_fields(kwargs)
+        # Validate current authorization at configuration time without retaining it.
+        apply_vertex_litellm_arguments(model, constructor_kwargs)
+        super().__init__(model=model, **constructor_kwargs)
+
+    def _fresh_call_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        return apply_vertex_litellm_arguments(
+            self.model,
+            _without_vertex_runtime_fields(kwargs),
+        )
+
+    def forward(
+        self,
+        prompt: Optional[str] = None,
+        messages: Optional[list[dict[str, Any]]] = None,
+        **kwargs: Any,
+    ):
+        return super().forward(
+            prompt=prompt,
+            messages=messages,
+            **self._fresh_call_kwargs(kwargs),
+        )
+
+    async def aforward(
+        self,
+        prompt: Optional[str] = None,
+        messages: Optional[list[dict[str, Any]]] = None,
+        **kwargs: Any,
+    ):
+        return await super().aforward(
+            prompt=prompt,
+            messages=messages,
+            **self._fresh_call_kwargs(kwargs),
+        )
+
+
+def _create_dspy_lm(lm_kwargs: dict[str, Any]) -> dspy.LM:
+    model = lm_kwargs.get("model")
+    if isinstance(model, str) and model.startswith("vertex_ai/"):
+        return _VertexAwareLM(**lm_kwargs)
+    return dspy.LM(**lm_kwargs)
 
 
 def _get_rook_dspy_cache_dir() -> Optional[str]:
@@ -193,7 +252,7 @@ def configure_dspy(
     if api_base:
         lm_kwargs["api_base"] = api_base
 
-    _lm = dspy.LM(**lm_kwargs)
+    _lm = _create_dspy_lm(lm_kwargs)
 
     # Set as the global default LM for all DSPy modules
     dspy.configure(lm=_lm)
@@ -305,8 +364,8 @@ def configure_dspy_for_optimization(
     if student_base:
         student_kwargs["api_base"] = student_base
 
-    teacher_lm = dspy.LM(**teacher_kwargs)
-    student_lm = dspy.LM(**student_kwargs)
+    teacher_lm = _create_dspy_lm(teacher_kwargs)
+    student_lm = _create_dspy_lm(student_kwargs)
 
     # Set student as default (teacher used explicitly during optimization)
     dspy.configure(lm=student_lm)

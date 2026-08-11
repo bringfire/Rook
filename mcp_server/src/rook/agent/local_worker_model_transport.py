@@ -13,6 +13,7 @@ import litellm
 from rook.agent.local_worker_adapter import TransportError
 from rook.agent.local_worker_turn_response import LOCAL_WORKER_TURN_RESPONSE_SCHEMA
 from rook.agent.model_profiles import api_base_for_model
+from rook.providers.vertex_auth import apply_vertex_litellm_arguments
 
 __all__ = (
     "build_local_worker_response_schema",
@@ -171,6 +172,7 @@ class LiteLLMWorkerTransport:
         api_base = api_base_for_model(self.model, self.profile_api_base)
         if api_base:
             kwargs["api_base"] = api_base
+        kwargs = apply_vertex_litellm_arguments(self.model, kwargs)
         started = time.perf_counter()
         response = litellm.completion(**kwargs)
         latency_ms = (time.perf_counter() - started) * 1000.0

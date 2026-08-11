@@ -39,6 +39,7 @@ import litellm
 
 from .config import AgentConfig
 from .generation_params import sanitize_generation_params_for_model
+from ..providers.vertex_auth import apply_vertex_litellm_arguments
 from .events import (
     AgentEvent, EventDispatcher,
     AGENT_START, AGENT_END,
@@ -680,6 +681,7 @@ class RookAgent:
             kwargs = sanitize_generation_params_for_model(self.config.model, kwargs)
             if self.config.api_base:
                 kwargs["api_base"] = self.config.api_base
+            kwargs = apply_vertex_litellm_arguments(self.config.model, kwargs)
             response = await litellm.acompletion(**kwargs)
             return response
 
