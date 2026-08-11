@@ -1,6 +1,6 @@
 # Current Architecture
 
-Updated: 2026-08-02
+Updated: 2026-08-10
 
 This file is the short canonical description of the live runtime architecture.
 
@@ -69,6 +69,16 @@ The companion is **internal** — not a separate public plugin surface.
 - `/block/set-layers`, `/block/set-materials`, `/block/set-object-colors`, `/block/set-object-names`, `/block/set-object-user-strings`, `/block/replace-object-geometry`, `/block/transform-object`
 
 Everything else is native-owned.
+
+### Grasshopper component discovery and identity
+
+Grasshopper-native `FindObjects()` proposes ordinary component candidates. Proxy GUID
+and `sourceKind` own component-type identity, while the managed Grasshopper endpoint
+resolves one names-or-GUID batch against one live component-server view. Compiled and
+user-object provenance remain distinct. Python forwards the batch once, verifies ordered
+correlation, and adds compatibility summaries; knowledge does not alter authoritative
+discovery or metadata. After type selection, the existing `T*` and `C*` identities own
+graph execution.
 
 ## Runtime Capability Discovery
 
