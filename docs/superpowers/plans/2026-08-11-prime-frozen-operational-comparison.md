@@ -152,9 +152,11 @@ await assert.rejects(() => captureRequest(qwenRowWithReasoning("off")), /reasoni
 await assert.rejects(() => captureRequest(qwenRowWithDeveloperLeak()), /developer/);
 await assert.rejects(() => captureRequest(opusRowWithStoredAnthropicAuth()), /stored_auth/);
 await assert.rejects(() => captureRequest(opusRowWithOAuthEnv()), /oauth/);
-await assert.rejects(() => captureWithTerminalMessage("different-message"), /terminal_event/);
-await assert.rejects(() => captureWithExtraEventAfterSentinel(), /terminal_event/);
-await assert.rejects(() => captureWithDoneAfterSentinel(), /terminal_event/);
+await assert.rejects(() => captureWithNoInterceptorEntry(), /interceptor_entry/);
+await assert.rejects(() => captureWithSecondFetch(), /interceptor_entry/);
+await assert.rejects(() => captureWithUnexpectedTerminalError(), /terminal_event/);
+await assert.rejects(() => captureWithExtraStreamEvent(), /terminal_event/);
+await assert.rejects(() => captureWithDoneEvent(), /terminal_event/);
 ```
 
 Positive assertions are exact:
@@ -172,17 +174,32 @@ assert.equal(qwen.request.body.reasoning_effort, "medium");
 assert.equal(qwen.request.body.messages.some((m) => m.role === "developer"), false);
 assert.equal(qwen.request.url, "http://127.0.0.1:11434/v1/chat/completions");
 
+assert.deepEqual(opus.interceptor, {
+  fetchEntryCount: 1,
+  delegateFetchEntryCount: 0,
+  sentinelThrown: true,
+  sentinelMessage: "ROOK_REQUEST_CAPTURE_INTERCEPTED_V1",
+});
+assert.deepEqual(qwen.interceptor, opus.interceptor);
+
 assert.equal(opus.streamEvents.length, 1);
 assert.equal(opus.streamEvents[0].type, "error");
-assert.equal(opus.streamEvents[0].error.errorMessage, "ROOK_REQUEST_CAPTURE_INTERCEPTED_V1");
+assert.equal(opus.streamEvents[0].reason, "error");
+assert.equal(opus.streamEvents[0].error.stopReason, "error");
+assert.equal(opus.streamEvents[0].error.errorMessage, "Connection error.");
 assert.equal(qwen.streamEvents.length, 1);
 assert.equal(qwen.streamEvents[0].type, "error");
-assert.equal(qwen.streamEvents[0].error.errorMessage, "ROOK_REQUEST_CAPTURE_INTERCEPTED_V1");
+assert.equal(qwen.streamEvents[0].reason, "error");
+assert.equal(qwen.streamEvents[0].error.stopReason, "error");
+assert.equal(qwen.streamEvents[0].error.errorMessage, "Connection error.");
 ```
 
-The fake transport must count exactly one intercepted `fetch` per capture and throw if a
-URL is not the row's exact endpoint. The stream must contain one terminal error, no
-`done`, and no other event.
+The interceptor must count exactly one entered `fetch` per capture, throw if a URL is not
+the row's exact endpoint, record the exact request, and throw the code-owned sentinel
+without entering the saved/delegate fetch. The frozen real provider builder must wrap
+that failure into the exact Prime terminal fields asserted above. The full exact event is
+retained even when Anthropic adds its provider-failure diagnostic. No `done` or additional
+event is admitted.
 
 - [ ] **Step 3: Run request-capture RED**
 
@@ -426,7 +443,11 @@ export async function captureRequest(
   outputPath: string,
 ): Promise<CapturedRequestEvidence>;
 
-export function validateCaptureEvents(events: unknown[]): void;
+export function validateCaptureOutcome(
+  rowId: "control" | "local",
+  interceptor: InterceptorObservation,
+  events: unknown[],
+): void;
 ```
 
 The only admitted row-root leaf names are code-owned `control` and `local`. They map
@@ -441,15 +462,18 @@ Implementation must:
 4. Construct `ModelRegistry` from that row's exact `models.json`.
 5. Resolve the exact provider/model with `registry.find(provider, model)` and require `model.reasoning === true`.
 6. Resolve credentials/headers with `registry.getApiKeyAndHeaders(model)`.
-7. Replace `globalThis.fetch` with a capture function before calling Prime. It records
-   the actual `Request` URL, headers, and body, increments a single call counter, and
-   throws `Error("ROOK_REQUEST_CAPTURE_INTERCEPTED_V1")` before network entry.
+7. Save `globalThis.fetch`, then replace it with a capture function before calling Prime.
+   The replacement records the actual `Request` URL, headers, and body, increments its
+   private entry count, records that it threw
+   `Error("ROOK_REQUEST_CAPTURE_INTERCEPTED_V1")`, and throws before ever invoking the
+   saved fetch. The saved/delegate fetch entry count must remain zero.
 8. Call Prime's exported `streamSimple(model, context, { reasoning: "medium", apiKey, headers, maxRetries: 0, onPayload })`.
-9. Consume the returned Prime stream normally through its terminal event. Require the
-   event list to contain exactly one `error`, require
-   `event.error.errorMessage === "ROOK_REQUEST_CAPTURE_INTERCEPTED_V1"`, and require zero
-   `done` or other events. The provider-caught stream event—not the thrown exception—is
-   the observable capture outcome.
+9. Consume the returned Prime stream normally through its terminal event. The provider
+   SDK converts the sentinel into `APIConnectionError`, so the Prime event does not own
+   sentinel equality. Require exactly one event with `type === "error"`,
+   `reason === "error"`, `event.error.stopReason === "error"`, and
+   `event.error.errorMessage === "Connection error."`; require zero `done` or additional
+   events. Retain the exact event, including any Anthropic diagnostic fields.
 10. Restore `fetch` and environment in `finally`.
 11. Strictly serialize one credential-redacted create-new JSON record.
 
@@ -464,7 +488,12 @@ type CapturedRequestEvidence = {
   provider: "anthropic" | "ollama_chat",
   model: "claude-opus-4-6" | "qwen3.6:35b",
   modelReasoning: true,
-  fetchCount: 1,
+  interceptor: {
+    fetchEntryCount: 1,
+    delegateFetchEntryCount: 0,
+    sentinelThrown: true,
+    sentinelMessage: "ROOK_REQUEST_CAPTURE_INTERCEPTED_V1"
+  },
   streamEvents: unknown[],
   request: {
     url: string,
@@ -480,11 +509,13 @@ type CapturedRequestEvidence = {
 ```
 
 `body` is the exact parsed JSON from the intercepted `Request`; `providerPayload` is the
-exact value observed by Prime's callback; `streamEvents` retains the exact Prime events
-without projecting the caught exception independently. The only header values retained are the two
-closed modes above. Strictly verify that the two bodies agree on the provider reasoning
-fields and that the raw serialized capture contains neither `ROOK_DUMMY_ANTHROPIC_KEY`
-nor any Authorization value.
+exact value observed by Prime's callback. `interceptor` is code-owned private state and
+proves the sentinel throw before saved/delegate transport entry. `streamEvents` retains
+the exact Prime events and proves the real SDK/provider wrapper separately; it is not
+required to expose the original cause message. The only header values retained are the
+two closed modes above. Strictly verify that the two bodies agree on the provider
+reasoning fields and that the raw serialized capture contains neither
+`ROOK_DUMMY_ANTHROPIC_KEY` nor any Authorization value.
 
 The in-memory header projection is closed:
 

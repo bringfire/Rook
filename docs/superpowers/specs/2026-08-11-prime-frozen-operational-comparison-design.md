@@ -475,19 +475,34 @@ Before any target or live row is created, a no-contact request-capture preflight
 
 The capture occurs after payload and header construction but before network entry.
 
-The intercepted transport throws one unique code-owned message. Prime's Anthropic and
-OpenAI-compatible providers catch that exception and own the observable result. The
-capture therefore consumes the returned stream normally and requires exactly:
+The interceptor and provider own different observations. The interceptor retains exact
+private state proving:
 
 ```text
-one intercepted request
-+ one terminal error event whose errorMessage equals the unique sentinel
-+ zero done events
-+ zero other error events
+fetch entered exactly once
++ exact request captured
++ code-owned sentinel thrown before any saved/delegate fetch entry
++ zero saved/delegate fetch entries
 ```
 
-The thrown exception is not itself treated as evidence. A different error message,
-additional terminal event, `done`, or second request refuses the capture.
+The Anthropic and OpenAI SDKs wrap that thrown sentinel as `APIConnectionError`; Prime
+therefore cannot observe the original sentinel message. Prime owns the provider outcome.
+The capture consumes the returned stream normally and retains the exact event while
+requiring the frozen real provider builders to produce exactly:
+
+```text
+one event
++ event.type == "error"
++ event.reason == "error"
++ event.error.stopReason == "error"
++ event.error.errorMessage == "Connection error."
++ zero done or additional events
+```
+
+The original sentinel is evidence only in interceptor-owned state. It is never required
+to survive the SDK wrapper in the Prime event. Zero interceptor entry, a second fetch,
+any saved/delegate fetch entry, an unexpected provider-wrapper outcome, `done`, or an
+additional stream event refuses the capture.
 
 ### Required Opus capture
 
@@ -925,9 +940,12 @@ Before target A exists, deterministic tests must prove:
 8. Opus request capture produces adaptive thinking, medium effort, and API-key headers.
 9. Qwen request capture produces explicit `reasoning_effort="medium"`; inserting one
    outbound `developer` message must refuse the capture.
-10. Both provider captures observe exactly one Prime-owned terminal `error` event with the
-    exact sentinel message, one intercepted request, no `done`, and no other error; a
-    different message or extra event refuses.
+10. Both provider captures retain two correlated observations: interceptor-owned state
+    proves one fetch entry, the exact request, the code-owned sentinel throw, and zero
+    saved/delegate fetch entries; Prime-owned state contains exactly one terminal `error`
+    event with the frozen provider-wrapper fields above and no `done` or additional event.
+    Zero interceptor entry, a second fetch, an unexpected terminal wrapper, or an extra
+    event refuses.
 11. Anthropic OAuth, stored auth, CLI API-key override, and alternate providers refuse.
 12. The real Anthropic key cannot enter row, manifest, stdout, capture, or hash evidence.
 13. The local manifest hash, config/layer identities, and every content-addressed blob
