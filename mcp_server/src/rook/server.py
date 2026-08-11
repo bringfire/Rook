@@ -8873,6 +8873,10 @@ Requires: Chirp adapter running (`python -m chirp` from the Chirp repo).""",
                         "type": "string",
                         "description": "Display name / NickName for the component (default: 'Chirp <Category>')"
                     },
+                    "model": {
+                        "type": "string",
+                        "description": "Optional explicit LiteLLM model identifier for this Chirp"
+                    },
                     "deterministic_code": {
                         "type": "string",
                         "description": "Optional C# code to run after LLM outputs are assigned (post-processing)"
@@ -15261,10 +15265,11 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             )
 
         case "chirp_create":
-            terminal_timeout_configuration = False
+            terminal_chirp_failure = False
             signature = arguments.get("signature")
             category = arguments.get("category")
             chirp_name = arguments.get("name")
+            chirp_model = arguments.get("model")
             deterministic_code = arguments.get("deterministic_code")
             deterministic_only = bool(arguments.get("deterministic_only"))
             cx = arguments.get("x", 200)
@@ -15277,17 +15282,15 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             else:
                 # Ensure Chirp adapter is running (auto-start if needed)
                 from rook.chirp_manager import ensure_chirp_running
-                chirp_status = await ensure_chirp_running()
+                chirp_status = await ensure_chirp_running(chirp_model)
                 if not chirp_status["running"]:
-                    if (
-                        chirp_status.get("error_code")
-                        == "chirp_invalid_inference_timeout"
-                    ):
-                        terminal_timeout_configuration = True
+                    error_code = chirp_status.get("error_code")
+                    if isinstance(error_code, str):
+                        terminal_chirp_failure = True
                         result = {
                             "success": False,
                             "data": {
-                                "error": "chirp_invalid_inference_timeout",
+                                "error": error_code,
                                 "details": chirp_status["error"],
                             },
                         }
@@ -15313,6 +15316,8 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         }
                         if chirp_name:
                             chirp_payload["name"] = chirp_name
+                        if "model" in arguments:
+                            chirp_payload["model"] = chirp_model
                         if deterministic_code:
                             chirp_payload["deterministic_code"] = deterministic_code
                         if deterministic_only:
@@ -15325,10 +15330,26 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                             )
                             if chirp_resp.status_code != 200:
                                 error_data = chirp_resp.json()
-                                result = {
-                                    "success": False,
-                                    "data": f"Chirp script generation failed: {error_data.get('details', chirp_resp.text)}",
-                                }
+                                error_code = error_data.get("error")
+                                if (
+                                    isinstance(error_code, str)
+                                    and error_code.startswith("vertex_")
+                                ):
+                                    terminal_chirp_failure = True
+                                    result = {
+                                        "success": False,
+                                        "data": {
+                                            "error": error_code,
+                                            "details": error_data.get(
+                                                "details", chirp_resp.text
+                                            ),
+                                        },
+                                    }
+                                else:
+                                    result = {
+                                        "success": False,
+                                        "data": f"Chirp script generation failed: {error_data.get('details', chirp_resp.text)}",
+                                    }
                             else:
                                 chirp_result = chirp_resp.json()
                                 script = chirp_result["script"]
@@ -15480,7 +15501,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 and isinstance(result_data, dict)
                 and result_data.get("verification_deferred") is True
             )
-            if not terminal_timeout_configuration and not deferred_inference_creation:
+            if not terminal_chirp_failure and not deferred_inference_creation:
                 await _record_gh_to_session(
                     action="chirp_create",
                     params=arguments,

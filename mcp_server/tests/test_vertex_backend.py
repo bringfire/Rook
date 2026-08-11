@@ -575,6 +575,25 @@ def test_recycler_failure_reports_restart_required_after_commit(tmp_path):
     assert "recycler detail" not in result.message
 
 
+def test_save_uses_managed_chirp_recycler_by_default(tmp_path, monkeypatch):
+    backend = _backend()
+    auth = _auth()
+    manager = importlib.import_module("rook.chirp_manager")
+    store = _store(tmp_path)
+    recycled = []
+    monkeypatch.setattr(manager, "recycle_after_vertex_commit", recycled.append)
+
+    result = backend.save_vertex_configuration(
+        auth.VertexMode.ADC,
+        "company-ai-project",
+        "us-central1",
+        store=store,
+    )
+
+    assert result.success is True
+    assert recycled == [store.read().generation]
+
+
 @pytest.mark.parametrize("revocation_outcome", [True, False, RuntimeError("network-secret")])
 def test_disconnect_deletes_oauth_even_when_best_effort_revocation_fails(
     tmp_path,

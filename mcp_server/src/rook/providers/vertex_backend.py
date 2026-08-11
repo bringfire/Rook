@@ -147,6 +147,25 @@ def _replace_and_recycle(
     return _success(committed.generation, message)
 
 
+def _managed_chirp_recycler(generation: str | None) -> None:
+    from ..chirp_manager import recycle_after_vertex_commit
+
+    recycle_after_vertex_commit(generation)
+
+
+def _select_recycler(
+    recycler: Callable[[str | None], None] | None,
+) -> Callable[[str | None], None]:
+    if recycler is None:
+        return _managed_chirp_recycler
+    if not callable(recycler):
+        raise VertexAuthError(
+            "vertex_request_failed",
+            _MESSAGES["vertex_request_failed"],
+        )
+    return recycler
+
+
 def _default_token_loader(runtime: VertexRuntimeArguments) -> str:
     try:
         import google.auth
@@ -367,7 +386,7 @@ def connect_vertex_oauth(
     project_id: object,
     region: object,
     *,
-    recycler: Callable[[str | None], None],
+    recycler: Callable[[str | None], None] | None = None,
     store: VertexStore | None = None,
     authorize: Callable[[DesktopOAuthClient], dict[str, str]] | None = None,
     oauth_dependencies: _OAuthDependencies | None = None,
@@ -376,11 +395,7 @@ def connect_vertex_oauth(
 
     selected_store = store or VertexStore.production()
     try:
-        if not callable(recycler):
-            raise VertexAuthError(
-                "vertex_request_failed",
-                _MESSAGES["vertex_request_failed"],
-            )
+        selected_recycler = _select_recycler(recycler)
         _validate_project_region(project_id, region)
         with _mutation_lock(selected_store):
             selected_store.read()
@@ -402,7 +417,7 @@ def connect_vertex_oauth(
             return _replace_and_recycle(
                 selected_store,
                 requested,
-                recycler,
+                selected_recycler,
                 message="Google authorization was saved for Vertex AI.",
             )
     except VertexAuthError as exc:
@@ -416,7 +431,7 @@ def save_vertex_configuration(
     project_id: object,
     region: object,
     *,
-    recycler: Callable[[str | None], None],
+    recycler: Callable[[str | None], None] | None = None,
     service_account_path: str | None = None,
     store: VertexStore | None = None,
 ) -> VertexOperationResult:
@@ -424,11 +439,7 @@ def save_vertex_configuration(
 
     selected_store = store or VertexStore.production()
     try:
-        if not callable(recycler):
-            raise VertexAuthError(
-                "vertex_request_failed",
-                _MESSAGES["vertex_request_failed"],
-            )
+        selected_recycler = _select_recycler(recycler)
         _validate_project_region(project_id, region)
         try:
             selected_mode = mode if isinstance(mode, VertexMode) else VertexMode(mode)
@@ -470,7 +481,7 @@ def save_vertex_configuration(
             return _replace_and_recycle(
                 selected_store,
                 requested,
-                recycler,
+                selected_recycler,
                 message="Vertex AI configuration was saved.",
             )
     except VertexAuthError as exc:
@@ -490,7 +501,7 @@ def _revoke_token(refresh_token: str) -> bool:
 
 def disconnect_vertex(
     *,
-    recycler: Callable[[str | None], None],
+    recycler: Callable[[str | None], None] | None = None,
     store: VertexStore | None = None,
     revoke: Callable[[str], bool] | None = None,
 ) -> VertexOperationResult:
@@ -498,11 +509,7 @@ def disconnect_vertex(
 
     selected_store = store or VertexStore.production()
     try:
-        if not callable(recycler):
-            raise VertexAuthError(
-                "vertex_request_failed",
-                _MESSAGES["vertex_request_failed"],
-            )
+        selected_recycler = _select_recycler(recycler)
         with _mutation_lock(selected_store):
             record = selected_store.read()
             if record is None:
@@ -546,7 +553,7 @@ def disconnect_vertex(
             else:
                 local_deletion = "deleted"
             try:
-                recycler(None)
+                selected_recycler(None)
             except Exception:
                 return _restart_required(
                     None,
