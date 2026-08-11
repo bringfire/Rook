@@ -119,7 +119,7 @@ No runtime-deployment, Rhino-start, target, or live evidence file exists when Ta
 - `run.ps1` receives exactly one operator argument. All provider, model, intent, limit, credential mode, isolated path, and target facts come from reviewed artifacts.
 - `inspection.py` invokes only `rook_full.call("gh_snapshot", {"include_data": True, "max_preview_items": 3})`.
 
-- [ ] **Step 1: Verify immutable sources and unused destination**
+- [x] **Step 1: Verify immutable sources and unused destination**
 
 Run:
 
@@ -140,7 +140,7 @@ Test-Path -LiteralPath $Comparison
 
 Expected: lane contains the approved specification and plan commits with a clean worktree; Prime is exactly `c98941a2a5cf40faecf9b4648ac3c304abf48fd3` and clean; all three hashes equal the File Map values; destination is `False`. If the destination exists, stop without deleting or reusing it.
 
-- [ ] **Step 2: Write RED request-capture tests before the capture owner**
+- [x] **Step 2: Write RED request-capture tests before the capture owner**
 
 Create `operator/test_request_capture.ts` with Node strict assertions. Its first executed
 assertion checks that `request_capture.ts` exists; only then does it dynamically import
@@ -201,7 +201,7 @@ that failure into the exact Prime terminal fields asserted above. The full exact
 retained even when Anthropic adds its provider-failure diagnostic. No `done` or additional
 event is admitted.
 
-- [ ] **Step 3: Run request-capture RED**
+- [x] **Step 3: Run request-capture RED**
 
 Run:
 
@@ -213,7 +213,7 @@ Run:
 Expected: executed assertion failure `request_capture.ts missing`. A TypeScript
 collection/configuration failure is not a valid RED.
 
-- [ ] **Step 4: Write RED Python tests for parity, inspection, process custody, and launch policy**
+- [x] **Step 4: Write RED Python tests for parity, inspection, process custody, and launch policy**
 
 Create `operator/test_comparison.py`. Each test first executes an assertion that its
 subject artifact exists and only then loads it dynamically. Use these exact causal groups:
@@ -314,7 +314,7 @@ The process tests feed rows shaped exactly as:
 
 No fake or production function accepts an executable name.
 
-- [ ] **Step 5: Run Python RED**
+- [x] **Step 5: Run Python RED**
 
 Use the existing V4 interpreter only to execute the not-yet-implemented tests:
 
@@ -325,7 +325,7 @@ Use the existing V4 interpreter only to execute the not-yet-implemented tests:
 
 Expected: executed assertion failures for missing comparison artifacts and owners, not import collection failure.
 
-- [ ] **Step 6: Create both isolated roots and byte-identical common artifacts**
+- [x] **Step 6: Create both isolated roots and byte-identical common artifacts**
 
 Use `apply_patch` for text artifacts. Copy only the three hash-qualified V4 artifacts and the frozen requirement/wheel material; do not copy V4 sessions, evidence, settings, models, row, manifest, or caches wholesale.
 
@@ -429,11 +429,13 @@ uv pip install --offline --cache-dir $UvCache --python "$RowRoot/kernel-venv/Scr
 uv pip install --offline --cache-dir $UvCache --python "$RowRoot/kernel-venv/Scripts/python.exe" starlette==1.5.0
 ```
 
-If any required cached distribution is absent, stop. Afterward, create each
-`operator/pip-freeze.txt` once from `python -m pip freeze --all` and require byte
-equality before either file enters its manifest.
+If any required cached distribution is absent, stop. The reviewed `uv venv` command does
+not seed `pip`, so create each `operator/pip-freeze.txt` once from
+`uv pip freeze --python <row-python>`. Normalize only the row-root prefix of the one
+editable `rook-full` URI to literal `<ROW_ROOT>`; retain every other byte and require the
+two normalized 76-line inventories to be byte-identical before either enters its manifest.
 
-- [ ] **Step 7: Implement request capture through Prime's actual owners**
+- [x] **Step 7: Implement request capture through Prime's actual owners**
 
 Create `request_capture.ts` with this interface:
 
@@ -528,7 +530,7 @@ type CapturedHeaderModes = {
 
 No real key or hash of a real key may enter the capture.
 
-- [ ] **Step 8: Implement exact JSON Pointer parity**
+- [x] **Step 8: Implement exact JSON Pointer parity**
 
 Create `parity.py` with exact callables
 `load_json_strict(path: Path) -> object`,
@@ -546,7 +548,7 @@ parity.py target     COMPARISON_ROOT OUTPUT_PATH
 
 Both output paths are create-new. Target mode refuses until both `target.json` and initial-inspection artifacts exist.
 
-- [ ] **Step 9: Implement the common snapshot inspector**
+- [x] **Step 9: Implement the common snapshot inspector**
 
 Adapt the proven V4 final inspector into byte-identical `operator/inspection.py` copies. Keep its bounded create-new JSONL writer and exact public `rook_full.call()` invocation.
 
@@ -615,7 +617,7 @@ Any snapshot, predicate, serialization, write, short-write, flush, or close fail
 
 `run_final()` additionally requires valid unique Prime JSON/session evidence and a process ledger whose `remaining` array is empty. It never discovers process ownership by name.
 
-- [ ] **Step 10: Implement one-shot launcher, timeout, and PID ancestry**
+- [x] **Step 10: Implement one-shot launcher, timeout, and PID ancestry**
 
 Create byte-identical `operator/run.ps1` files. It accepts only `-RowPath`, derives `target.json`, and validates exact row/manifest/target hashes before creating stdout or stderr.
 
@@ -676,7 +678,7 @@ The inspector uses `asyncio.timeout` around its one call; expiration retains the
 request prefix, closes only its qualification-owned stdio session, makes no additional
 call, and never terminates Rhino or the deployed host runtime.
 
-- [ ] **Step 11: Generate captures, finalize rows, and write static manifests**
+- [x] **Step 11: Generate captures, finalize rows, and write static manifests**
 
 Strictly parse and hash the installed Qwen manifest without invoking `ollama` or opening
 its loopback endpoint. Require its exact frozen config/layer records, then map each digest
@@ -867,7 +869,7 @@ Write phase-one `manifest.json` files containing every static artifact hash but 
   "$Comparison/non-target-parity.json"
 ```
 
-- [ ] **Step 12: Run the complete inert seam**
+- [x] **Step 12: Run the complete inert seam**
 
 Run:
 
@@ -886,8 +888,12 @@ $LocalPython = "$Comparison/local/kernel-venv/Scripts/python.exe"
 & $LocalPython -c "import rlm, dill, mcp, rook_full"
 $FrozenControlPackages = Get-Content -Raw "$Comparison/control/operator/pip-freeze.txt"
 $FrozenLocalPackages = Get-Content -Raw "$Comparison/local/operator/pip-freeze.txt"
-$CurrentControlPackages = ((& $ControlPython -m pip freeze --all) -join "`n") + "`n"
-$CurrentLocalPackages = ((& $LocalPython -m pip freeze --all) -join "`n") + "`n"
+$CurrentControlPackages = ((@(& uv pip freeze --python $ControlPython) -replace `
+    [regex]::Escape("file:///$Comparison/control/agent/skills/rook-full"), `
+    'file:///<ROW_ROOT>/agent/skills/rook-full') -join "`n") + "`n"
+$CurrentLocalPackages = ((@(& uv pip freeze --python $LocalPython) -replace `
+    [regex]::Escape("file:///$Comparison/local/agent/skills/rook-full"), `
+    'file:///<ROW_ROOT>/agent/skills/rook-full') -join "`n") + "`n"
 if ($FrozenControlPackages -cne $FrozenLocalPackages -or `
     $FrozenControlPackages -cne $CurrentControlPackages -or `
     $FrozenLocalPackages -cne $CurrentLocalPackages) {
@@ -899,7 +905,7 @@ if ($FrozenControlPackages -cne $FrozenLocalPackages -or `
 
 Then verify all manifest hashes, common byte equality, strict JSON parsing, exact non-target parity, empty session/evidence directories, destination-only process fakes, and no target files.
 
-- [ ] **Step 13: Record Task 1 evidence and commit the ledger**
+- [x] **Step 13: Record Task 1 evidence and commit the ledger**
 
 Append the exact commands, test counts, artifact hashes, parity-report hash, Prime/Rook identities, line counts, and absence of target/live evidence to this plan's execution ledger. Do not include dummy or real credential material.
 
@@ -1379,4 +1385,73 @@ Report exact commit, scope, evidence hashes, test counts, five conclusion famili
 
 ## Execution Ledger
 
-No implementation, target, model, provider, Ollama, Rhino, Grasshopper, Prime live session, or Rook MCP contact has occurred under this plan. Populate this section only with exact commands, hashes, counts, authorizations, and observed facts as each mandatory gate is completed.
+### Task 1 — inert non-target rows
+
+- Authorized 2026-08-11 for Inline Execution through the mandatory Task 1 review gate.
+- Starting design lane: `795688b899af6fb0b7ffc7d2ff018e91db9086aa`, clean.
+- Rook runtime identity frozen in both rows: `06534f371b173308179164189e54b722a34f8a24`.
+- Prime source: `c98941a2a5cf40faecf9b4648ac3c304abf48fd3`, clean before and after construction.
+- The first TypeScript RED executed and failed only at `request_capture.ts missing`.
+- The first Python RED executed all 58 planned cases and failed on absent owners/artifacts.
+- Prime's checked-out workspace packages initially had no local `dist`. Local-only `tsgo`
+  compilation of `packages/ai` and `packages/agent` made the reviewed source imports
+  executable. An attempted broader `packages/coding-agent` compilation reported its
+  pre-existing missing `pi-tui` build dependency; the capture imports the reviewed
+  `auth-storage.ts` and `model-registry.ts` source directly and does not consume that
+  partial output. No package install or network access occurred.
+- Both Python 3.11.14 kernel environments were created with the four literal offline `uv`
+  commands retained in `offline-install-commands.txt`. The reviewed `uv venv` command did
+  not seed `pip`; the executable verification above therefore uses `uv pip freeze`, with
+  only the row-root portion of the editable URI normalized to `<ROW_ROOT>`. Both normalized
+  inventories contain 76 byte-identical lines.
+- Real Prime provider-builder capture, intercepted before saved/delegate `fetch` entry:
+  `REQUEST_CAPTURE_TESTS_OK assertions=36`. Both rows recorded one fetch entry, zero
+  delegate entries, the code-owned sentinel throw, one provider-owned terminal
+  `Connection error.` event, no `done`, and exact request/provider-payload reasoning
+  agreement. No Anthropic API or Ollama endpoint was contacted.
+- Python causal seam: **60 passed**. It covers exact JSON Pointer parity, strict JSON value
+  types, V4 adapter delegation, exact Qwen manifest/blob custody, Release/fresh-Rhino
+  custody gates, credential custody, empty-state projection, one-shot admission,
+  PID-ancestry ownership, timeout behavior, model-authored correction, and snapshot writer
+  ordering.
+- Compilation/import checks passed for `parity.py`, both `inspection.py` copies, and
+  `rlm`, `dill`, `mcp`, and `rook_full` in both exact interpreters. Both PowerShell
+  launchers parsed successfully.
+- Static custody verification passed: two 19-entry manifests, 16 byte-identical common
+  artifacts, strict duplicate-key JSON parsing, and exact non-target parity.
+
+Frozen hashes:
+
+```text
+control row                 CEC2CB78DCC757348797B413D02D44FFA7BC9F7CF85D2268C53D03331C739063
+local row                   369EE61160B06C7E1FD93B9BE2A850905277F986C3577CABAF55BDD813DB38D7
+control manifest            D45BE45F62E17B1396410BEDC005172DBEDBEF68555E4A953E655A657372D23C
+local manifest              42E4094B01CB3B5D1F1BA068A3DC197856A3D176BA740844B01C2CDC85EB8FF4
+non-target parity           FD459DD93DBACAF26095F3930C86AFBB717A17DB3662F3B59FE7A9954A38FFC7
+control reasoning capture   8996DA2E5B3B4AE2B9D3D71CA0D33C79D52FD9E7ED97F32318870A572E3AAEB8
+local reasoning capture     42FB9675C602E21B19E242586808137137FA85411A59C4C4E6048D4B132F7D4C
+request capture owner       587B70AF5C875FDDD6306D93F55374198EA5642126AC84DCF16267A7DA120826
+parity owner                5BFF0D9B3AE5D69A1A11A5733CDDDDC7D21FFF0B96A46FBF3CFD5986B6C6E742
+launcher                    BB7D55DDBAA9443329485402C83D391BF5506B0D4CA64A8EDE9617CE74DD0BBF
+inspector                   616C3BDC80AB40314FA3D62F66B3101C540A128A79DBBC89FDAF010F0DBA8374
+normalized package inventory EEF8045B9C0C51C3E0B680A3F1FE42A185C4E67C1DBFC09A100CA3E8E2F35356
+Qwen manifest               07D35212591FC27746F0A317C975A6D68754FB38E9053D82E25F06057AF28522
+V4 adapter                  E7577F0EC8A9B504712BC73290BB8F4C673E9677AEF952CFBFC346F206A62996
+V4 skill                    0F7C8D1F2D612FFB7522469C4E3D467985E8872585CA3C18DF9B46BD1A84D36E
+V4 checkpoint               76A7C0CFF04DEF83A75519A546AC812804AC32BBF30CC14609A6D52950248964
+```
+
+Disposable owner/test sizes:
+
+```text
+request_capture.ts       218 lines / 206 nonblank
+parity.py                243 lines / 218 nonblank
+run.ps1                  320 lines / 299 nonblank
+inspection.py            279 lines / 233 nonblank
+test_request_capture.ts  176 lines / 157 nonblank
+test_comparison.py       387 lines / 323 nonblank
+```
+
+No `runtime/`, deployment, Rhino-start, target, initial snapshot, Prime session, Prime
+stdout/stderr, process ledger, final inspection, model response, Grasshopper mutation, or
+Rook MCP evidence exists. Task 1 stops here for mandatory independent review.
