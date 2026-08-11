@@ -967,7 +967,7 @@ no V1 row, capture, manifest, or parity artifact was reused.
 - Consumes: exact Rook merge `06534f371b173308179164189e54b722a34f8a24`, the standard Release deployment script, exact plugin registry owner, and one newly started Rhino process.
 - Produces: causal evidence that the registered `net8.0` payload was deployed before the one Rhino process used by both rows. Performs no model, Grasshopper mutation, or MCP tool call.
 
-- [ ] **Step 1: Reverify inert artifacts and prepare an exact detached deployment lane**
+- [x] **Step 1: Reverify inert artifacts and prepare an exact detached deployment lane**
 
 Rerun Task 1's complete inert seam. Require the runtime directory and detached deployment
 worktree to be absent, both row manifests unchanged, and all target/model evidence absent.
@@ -1545,3 +1545,27 @@ test_comparison.py       410 lines / 344 nonblank
 V2 contains no `runtime/`, target, initial snapshot, Prime session, Prime stdout/stderr,
 process ledger, final inspection, model response, Grasshopper mutation, or Rook MCP
 evidence. Task 1 stops again for mandatory independent review; Task 2 remains unauthorized.
+
+### Task 2, Step 1 — detached runtime lane and inert revalidation
+
+- Task 1 V2 was independently approved before this step began. V1 remains rejected and
+  received no target or other change.
+- The complete V2 inert seam was rerun: `REQUEST_CAPTURE_TESTS_OK assertions=41`, **63
+  Python tests passed**, Python compilation passed, and both PowerShell launchers parsed.
+- Both 19-entry manifests and all seven V2 frozen row/capture/manifest/parity hashes
+  matched the approved Task 1 values.
+- The V2 `runtime/` directory, target files, target parity, Prime/session output, process
+  ledgers, initial/final inspections, model evidence, Grasshopper mutation evidence, and
+  Rook MCP evidence remain absent.
+- Prime remained clean at `c98941a2a5cf40faecf9b4648ac3c304abf48fd3`; the design
+  lane began clean at `1fc85527ec568f52300d5b9fc744ff94ae22c584`.
+- The dirty primary Rook checkout was read only and left untouched.
+- The absent detached path was created exactly once at:
+  `C:/UDEV/Rook/.worktrees/prime-frozen-control-local-comparison-runtime`.
+- Runtime lane identity: detached `HEAD`
+  `06534f371b173308179164189e54b722a34f8a24`, empty status, linked Git directory
+  `C:/UDEV/Rook/.git/worktrees/prime-frozen-control-local-comparison-runtime`.
+- No Release command ran. No transcript or runtime-custody artifact exists. No Rhino,
+  Grasshopper, Rook MCP, Anthropic API, Ollama, or model contact occurred.
+
+Task 2 stops at Step 2 for explicit authorization of the standard Release deployment.
