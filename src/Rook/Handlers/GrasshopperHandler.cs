@@ -4494,21 +4494,15 @@ namespace Rook.Handlers
                 var guid = proxy.GetType().GetProperty("Guid")?.GetValue(proxy)?.ToString();
                 var obsolete = proxy.GetType().GetProperty("Obsolete")?.GetValue(proxy) as bool? ?? false;
 
-                var exposure = 0;
-                var exposureLabel = "unknown";
-                var exposureVal = desc?.GetType().GetProperty("Exposure")?.GetValue(desc);
-                if (exposureVal != null)
-                {
-                    exposure = Convert.ToInt32(exposureVal);
-                    var flags = new List<string>();
-                    if ((exposure & 1) != 0) flags.Add("primary");
-                    if ((exposure & 2) != 0) flags.Add("secondary");
-                    if ((exposure & 4) != 0) flags.Add("tertiary");
-                    if ((exposure & 8) != 0) flags.Add("quarantine");
-                    if ((exposure & 16) != 0) flags.Add("hidden");
-                    if ((exposure & 32) != 0) flags.Add("obscure");
-                    exposureLabel = flags.Count > 0 ? string.Join("|", flags) : "none";
-                }
+                var exposure = ReadExposure(proxy);
+                var flags = new List<string>();
+                if ((exposure & 1) != 0) flags.Add("primary");
+                if ((exposure & 2) != 0) flags.Add("secondary");
+                if ((exposure & 4) != 0) flags.Add("tertiary");
+                if ((exposure & 8) != 0) flags.Add("quarantine");
+                if ((exposure & 16) != 0) flags.Add("hidden");
+                if ((exposure & 32) != 0) flags.Add("obscure");
+                var exposureLabel = flags.Count > 0 ? string.Join("|", flags) : "none";
 
                 totalScanned++;
                 if (obsolete) obsoleteCount++;
@@ -4599,7 +4593,7 @@ namespace Rook.Handlers
                 Guid = guid.ToString("D").ToLowerInvariant(),
                 SourceKind = ReadSourceKind(proxy),
                 Obsolete = obsolete,
-                Exposure = ReadExposure(desc),
+                Exposure = ReadExposure(proxy),
                 NativeScore = nativeScore,
                 MatchSource = matchSource
             };
@@ -4671,9 +4665,9 @@ namespace Rook.Handlers
             };
         }
 
-        private static int ReadExposure(object desc)
+        private static int ReadExposure(object proxy)
         {
-            var value = RequireHostProperty(desc, "Exposure")
+            var value = RequireHostProperty(proxy, "Exposure")
                 ?? throw new InvalidOperationException("Proxy Exposure was null.");
             var type = value.GetType();
             if (!type.IsEnum)
@@ -6629,7 +6623,7 @@ namespace Rook.Handlers
                                 throw new InvalidOperationException("Proxy Obsolete was not boolean.");
                             if (obsoleteValue)
                                 continue;
-                            var exposure = ReadExposure(desc);
+                            var exposure = ReadExposure(proxy);
                             if ((exposure & 16) == 0)
                                 matches.Add(proxy);
                         }

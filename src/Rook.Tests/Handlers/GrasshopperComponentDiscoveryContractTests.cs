@@ -212,12 +212,33 @@ namespace Rook.Tests.Handlers
         [Fact]
         public void Raw_integer_exposure_fails_strict_projection()
         {
-            var server = new FakeServer(Proxy("Integer Exposure", rawIntegerExposure: true));
+            var server = new FakeServer(Proxy(
+                "Integer Exposure",
+                exposureProjection: FakeExposureProjection.RawInteger));
 
             var response = Search(server, null, null, 50, exact: false);
 
             Assert.False(response.Success);
             Assert.Contains("Exposure", Assert.IsType<string>(response.Data), StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [InlineData(FakeExposureProjection.Null)]
+        [InlineData(FakeExposureProjection.WrongType)]
+        [InlineData(FakeExposureProjection.Throwing)]
+        public void Invalid_proxy_exposure_fails_strict_projection(
+            FakeExposureProjection exposureProjection)
+        {
+            var proxy = Proxy(
+                "Invalid Exposure",
+                exposureProjection: exposureProjection);
+            var server = new FakeServer(proxy);
+
+            var response = Search(server, null, null, 50, exact: false);
+
+            Assert.False(response.Success);
+            Assert.Contains("Exposure", Assert.IsType<string>(response.Data), StringComparison.Ordinal);
+            Assert.Equal(1, proxy.ExposureReads);
         }
 
         [Fact]
@@ -896,7 +917,7 @@ namespace Rook.Tests.Handlers
             int exposure = 1,
             int compareRank = 0,
             bool compareThrows = false,
-            bool rawIntegerExposure = false,
+            FakeExposureProjection exposureProjection = FakeExposureProjection.Enum,
             string? libraryGuid = null,
             string location = "C:/synthetic/component.ghuser",
             Func<object?>? componentFactory = null) =>
@@ -910,7 +931,7 @@ namespace Rook.Tests.Handlers
                 compareThrows,
                 category,
                 subCategory,
-                rawIntegerExposure,
+                exposureProjection,
                 libraryGuid == null ? Guid.NewGuid() : Guid.Parse(libraryGuid),
                 location,
                 componentFactory);
@@ -933,6 +954,15 @@ namespace Rook.Tests.Handlers
             Obscure = 32
         }
 
+        public enum FakeExposureProjection
+        {
+            Enum,
+            RawInteger,
+            Null,
+            WrongType,
+            Throwing
+        }
+
         private sealed class FakeDescription
         {
             public string Name { get; }
@@ -940,50 +970,25 @@ namespace Rook.Tests.Handlers
             public string? Description { get; }
             public string? Category { get; }
             public string? SubCategory { get; }
-            public FakeExposure Exposure { get; }
 
             public FakeDescription(
                 string name,
                 string? category,
-                string? subCategory,
-                int exposure)
+                string? subCategory)
             {
                 Name = name;
                 NickName = name + " Nick";
                 Description = name + " description";
                 Category = category;
                 SubCategory = subCategory;
-                Exposure = (FakeExposure)exposure;
-            }
-        }
-
-        private sealed class RawIntegerExposureDescription
-        {
-            public string Name { get; }
-            public string? NickName { get; }
-            public string? Description { get; }
-            public string? Category { get; }
-            public string? SubCategory { get; }
-            public int Exposure { get; }
-
-            public RawIntegerExposureDescription(
-                string name,
-                string? category,
-                string? subCategory,
-                int exposure)
-            {
-                Name = name;
-                NickName = name + " Nick";
-                Description = name + " description";
-                Category = category;
-                SubCategory = subCategory;
-                Exposure = exposure;
             }
         }
 
         private sealed class FakeProxy
         {
             private readonly bool _compareThrows;
+            private readonly object? _exposure;
+            private readonly bool _throwOnExposure;
 
             public object Desc { get; }
             public Guid Guid { get; }
@@ -994,8 +999,20 @@ namespace Rook.Tests.Handlers
             public int CompareRank { get; }
             public int CreateInstanceCalls { get; private set; }
             public int DataReadCalls { get; private set; }
+            public int ExposureReads { get; private set; }
 
             public bool CompareThrows => _compareThrows;
+
+            public object? Exposure
+            {
+                get
+                {
+                    ExposureReads++;
+                    if (_throwOnExposure)
+                        throw new InvalidOperationException("Synthetic Exposure getter failure.");
+                    return _exposure;
+                }
+            }
 
             public object Data
             {
@@ -1016,14 +1033,22 @@ namespace Rook.Tests.Handlers
                 bool compareThrows,
                 string? category,
                 string? subCategory,
-                bool rawIntegerExposure,
+                FakeExposureProjection exposureProjection,
                 Guid libraryGuid,
                 string location,
                 Func<object?>? componentFactory)
             {
-                Desc = rawIntegerExposure
-                    ? new RawIntegerExposureDescription(name, category, subCategory, exposure)
-                    : new FakeDescription(name, category, subCategory, exposure);
+                Desc = new FakeDescription(name, category, subCategory);
+                _exposure = exposureProjection switch
+                {
+                    FakeExposureProjection.Enum => (FakeExposure)exposure,
+                    FakeExposureProjection.RawInteger => exposure,
+                    FakeExposureProjection.Null => null,
+                    FakeExposureProjection.WrongType => "primary",
+                    FakeExposureProjection.Throwing => null,
+                    _ => throw new ArgumentOutOfRangeException(nameof(exposureProjection))
+                };
+                _throwOnExposure = exposureProjection == FakeExposureProjection.Throwing;
                 Guid = guid;
                 LibraryGuid = libraryGuid;
                 Kind = kind;
@@ -1160,11 +1185,12 @@ namespace Rook.Tests.Handlers
             public Guid LibraryGuid { get; } = Guid.NewGuid();
             public FakeProxyKind Kind { get; } = FakeProxyKind.CompiledObject;
             public bool Obsolete { get; } = false;
+            public FakeExposure Exposure { get; } = FakeExposure.Primary;
             public string Location { get; } = "C:/synthetic/malformed.ghuser";
 
             public ThrowingGuidProxy(string name)
             {
-                Desc = new FakeDescription(name, "Synthetic", "Operators", exposure: 1);
+                Desc = new FakeDescription(name, "Synthetic", "Operators");
             }
 
             public object CreateInstance() =>
@@ -1173,20 +1199,9 @@ namespace Rook.Tests.Handlers
 
         private sealed class ObsoleteThrowingExposureProxy
         {
-            public ThrowingExposureDescription Desc { get; }
+            public FakeDescription Desc { get; }
             public Guid Guid { get; } = Guid.NewGuid();
             public bool Obsolete { get; } = true;
-            public int ExposureReads => Desc.ExposureReads;
-
-            public ObsoleteThrowingExposureProxy(string name)
-            {
-                Desc = new ThrowingExposureDescription(name);
-            }
-        }
-
-        private sealed class ThrowingExposureDescription
-        {
-            public string Name { get; }
             public int ExposureReads { get; private set; }
             public FakeExposure Exposure
             {
@@ -1197,9 +1212,9 @@ namespace Rook.Tests.Handlers
                 }
             }
 
-            public ThrowingExposureDescription(string name)
+            public ObsoleteThrowingExposureProxy(string name)
             {
-                Name = name;
+                Desc = new FakeDescription(name, "Synthetic", "Operators");
             }
         }
 
