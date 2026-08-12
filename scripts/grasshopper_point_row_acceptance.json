@@ -1,0 +1,68 @@
+{
+  "schema": "rook.experimental.grasshopper_point_row_acceptance:v1",
+  "intent": "Create a Grasshopper definition that generates a row of points along the X axis using adjustable Start, Step, and Count controls, with Y and Z fixed at zero.",
+  "criteria": [
+    {
+      "id": "adjustable_controls_present",
+      "description": "Independent adjustable Start, Step, and Count controls are present.",
+      "requirements": [
+        "adjustable_start_present",
+        "adjustable_step_present",
+        "adjustable_count_present"
+      ]
+    },
+    {
+      "id": "point_count_equals_count",
+      "description": "The point-row cardinality equals Count."
+    },
+    {
+      "id": "first_x_equals_start",
+      "description": "The first point X coordinate equals Start."
+    },
+    {
+      "id": "successive_x_difference_equals_step",
+      "description": "Successive point X coordinates differ by Step."
+    },
+    {
+      "id": "all_yz_zero",
+      "description": "Every point has Y and Z structurally fixed at zero."
+    },
+    {
+      "id": "no_runtime_errors",
+      "description": "The Grasshopper definition has no runtime errors."
+    }
+  ],
+  "reviewed_primitive_semantics": {
+    "e64c5fb1-845c-4ab1-8911-5f338516ba67": {
+      "kind": "series",
+      "inputs": {
+        "start": 0,
+        "step": 1,
+        "count": 2
+      },
+      "outputs": {
+        "values": 0
+      },
+      "facts": {
+        "output_count_equals_count": true,
+        "first_value_equals_start": true,
+        "successive_difference_equals_step": true
+      }
+    },
+    "3581f42a-9592-4549-bd6b-1c0fc39d067b": {
+      "kind": "construct_point",
+      "inputs": {
+        "x": 0,
+        "y": 1,
+        "z": 2
+      },
+      "outputs": {
+        "point": 0
+      },
+      "facts": {
+        "unconnected_y_default": 0,
+        "unconnected_z_default": 0
+      }
+    }
+  }
+}
