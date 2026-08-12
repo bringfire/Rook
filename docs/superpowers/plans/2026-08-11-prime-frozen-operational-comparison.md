@@ -983,7 +983,7 @@ git -C C:/UDEV/Rook/.worktrees/prime-frozen-control-local-comparison-runtime rev
 
 Expected: empty status and exact merge. Do not reuse a pre-existing path.
 
-- [ ] **Step 2: Obtain explicit authorization for standard Release deployment**
+- [x] **Step 2: Obtain explicit authorization for standard Release deployment**
 
 Report the exact checkout SHA, destination paths, and command. The user closes Rhino and
 MCP client/runtime processes. The deployment script must observe no full-deploy blockers;
@@ -1569,3 +1569,31 @@ evidence. Task 1 stops again for mandatory independent review; Task 2 remains un
   Grasshopper, Rook MCP, Anthropic API, Ollama, or model contact occurred.
 
 Task 2 stops at Step 2 for explicit authorization of the standard Release deployment.
+
+### Task 2, Step 3 — consumed unsuccessful Release attempt
+
+- The user explicitly authorized one standard Release deployment with the exact reviewed
+  command and no mode flags. Rhino and every exact `python -m rook` process were absent
+  immediately before invocation.
+- Deployment started at `2026-08-12T00:04:36.2283786Z` and completed unsuccessfully at
+  `2026-08-12T00:05:09.0015749Z` with exit code `1`.
+- Preserved transcript:
+  `C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/runtime/release-deployment.txt`,
+  SHA-256 `77BDA63C642D692948A26919F4609C21D0B6EDC651E0C08DB15B303DE7C63664`.
+- The native build, managed Release build, RookBIM build, plugin copy, `net8.0`
+  registration, AppData payload sync, and Chirp sync completed before the failure. The
+  sealed Python release-payload step then refused because the clean detached merge lacked
+  `installer/runtime/python-wheelhouse`.
+- Read-only root-cause audit proved `installer/runtime/**` has no tracked member at the
+  merge, is generated/ignored release staging, and is consumed—but not produced—by
+  `deploy-local-testing.ps1`. The producing owners are
+  `scripts/python-runtime/stage-rook-python-runtime.ps1` and
+  `scripts/python-runtime/build-rook-python-wheelhouse.ps1`.
+- No `release-custody.json` was created. Rhino and Rook MCP remain stopped. The partial
+  deployment is not qualified and Rhino must not start from it.
+- The one deployment attempt is consumed. No retry, alternate flag, manual copy, runtime
+  staging, target creation, snapshot, MCP call, or model contact occurred after failure.
+
+Task 2 is stopped. A reviewed continuation must add the missing sealed-runtime staging
+precondition and assign a fresh transcript/evidence path before authorizing another
+deployment attempt; the preserved failed transcript must not be rewritten or reused.
