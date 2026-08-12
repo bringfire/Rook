@@ -335,8 +335,13 @@ def probe_vertex_readiness(
                 "vertex_request_failed",
                 _MESSAGES["vertex_request_failed"],
             )
+        host = (
+            "aiplatform.googleapis.com"
+            if runtime.region == "global"
+            else f"{runtime.region}-aiplatform.googleapis.com"
+        )
         url = (
-            f"https://{runtime.region}-aiplatform.googleapis.com/v1/"
+            f"https://{host}/v1/"
             f"projects/{runtime.project_id}/locations/{runtime.region}/"
             f"publishers/google/models/{publisher_model}:countTokens"
         )

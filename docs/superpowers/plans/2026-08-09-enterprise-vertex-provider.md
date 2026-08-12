@@ -481,8 +481,13 @@ Pin this non-generating request. `vertex_gemini_model_name()` must produce
 `publisher_model`; the literal `vertex_ai/` prefix must never enter the URL:
 
 ```python
+host = (
+    "aiplatform.googleapis.com"
+    if region == "global"
+    else f"{region}-aiplatform.googleapis.com"
+)
 url = (
-    f"https://{region}-aiplatform.googleapis.com/v1/"
+    f"https://{host}/v1/"
     f"projects/{project}/locations/{region}/publishers/google/models/{publisher_model}:countTokens"
 )
 body = {"contents": [{"role": "user", "parts": [{"text": "Rook Vertex readiness probe"}]}]}

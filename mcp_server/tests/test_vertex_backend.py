@@ -72,13 +72,19 @@ _DEFAULT_PAYLOAD = object()
 
 
 class _ReadinessHarness:
-    def __init__(self, status_code=200, payload=_DEFAULT_PAYLOAD):
+    def __init__(
+        self,
+        status_code=200,
+        payload=_DEFAULT_PAYLOAD,
+        *,
+        region="us-central1",
+    ):
         auth = _auth()
         self.store = _RuntimeStore(
             auth.VertexRuntimeArguments(
                 generation="0123456789abcdef0123456789abcdef",
                 project_id="company-ai-project",
-                region="us-central1",
+                region=region,
                 vertex_credentials={
                     "type": "authorized_user",
                     "client_id": "client",
@@ -112,9 +118,29 @@ def _error_payload(status, details, *, hostile_message="raw-provider-secret"):
     }
 
 
-def test_vertex_readiness_uses_one_fixed_non_generating_count_tokens_request():
+@pytest.mark.parametrize(
+    ("region", "expected_url"),
+    [
+        (
+            "us-central1",
+            "https://us-central1-aiplatform.googleapis.com/v1/"
+            "projects/company-ai-project/locations/us-central1/"
+            "publishers/google/models/gemini-2.5-pro:countTokens",
+        ),
+        (
+            "global",
+            "https://aiplatform.googleapis.com/v1/"
+            "projects/company-ai-project/locations/global/"
+            "publishers/google/models/gemini-2.5-pro:countTokens",
+        ),
+    ],
+)
+def test_vertex_readiness_uses_exact_regional_or_global_count_tokens_url(
+    region,
+    expected_url,
+):
     backend = _backend()
-    harness = _ReadinessHarness()
+    harness = _ReadinessHarness(region=region)
 
     result = backend.probe_vertex_readiness(
         "vertex_ai/gemini-2.5-pro",
@@ -132,9 +158,7 @@ def test_vertex_readiness_uses_one_fixed_non_generating_count_tokens_request():
     assert len(harness.token_calls) == 1
     assert harness.http_calls == [
         (
-            "https://us-central1-aiplatform.googleapis.com/v1/"
-            "projects/company-ai-project/locations/us-central1/"
-            "publishers/google/models/gemini-2.5-pro:countTokens",
+            expected_url,
             {
                 "contents": [
                     {
