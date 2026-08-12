@@ -27,6 +27,11 @@ from mcp import types as mcp_types
 from mcp.types import Tool, TextContent
 
 from .gh_edit_contract import apply_gh_edit_contract
+from .grasshopper_component_contract import (
+    is_canonical_lower_guid as _is_canonical_lower_guid,
+    project_gh_library_result as _project_gh_library_result,
+    valid_component_candidate as _valid_gh_component_candidate,
+)
 from .mcp_capability_gateway_contract import (
     MCP_CAPABILITY_GATEWAY_NAMES,
     build_mcp_capability_gateway_tools,
@@ -10362,10 +10367,13 @@ Example: Deep explore Sphere:
         ),
         Tool(
             name="gh_batch_component_info",
-            description="""Get full metadata and I/O parameters for multiple components by name.
+            description="""Get full metadata and I/O parameters for multiple components.
 
-Accepts component NAMES (not GUIDs). Resolves names to GUIDs internally via the
-knowledge store, then queries the GH SDK for full metadata including:
+Provide exactly one nonempty selector family: names or guids. Grasshopper resolves
+names against its complete live eligible component catalog and reports ambiguity
+rather than selecting the first duplicate. GUIDs select component types directly.
+
+Returns authoritative GH SDK metadata including:
 - Description (from SDK proxy)
 - Category / SubCategory
 - Input parameters (name, nickname, type)
@@ -10385,9 +10393,14 @@ Example: Get info for Sphere and Loft:
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Component names to look up (e.g., ['Sphere', 'Loft'])"
+                    },
+                    "guids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Component type GUIDs to look up"
                     }
                 },
-                "required": ["names"]
+                "required": []
             }
         ),
         # GH Exploration Tools (for learning and knowledge capture)
@@ -13552,6 +13565,227 @@ def _encode_reconstruction_job_id(jid: Any) -> tuple[str | None, dict | None]:
     return _quote(jid, safe=""), None
 
 
+def _validate_gh_batch_component_info_arguments(
+    arguments: dict,
+) -> tuple[str, list[str], dict]:
+    """Admit exactly one JSON selector family without resolving its identities."""
+    has_names = "names" in arguments
+    has_guids = "guids" in arguments
+    if has_names == has_guids:
+        raise ValueError("exactly one of names or guids is required")
+    kind = "name" if has_names else "guid"
+    key = "names" if has_names else "guids"
+    values = arguments[key]
+    if type(values) is not list or not values:
+        raise ValueError(f"{key} must be a nonempty array")
+    if any(type(value) is not str for value in values):
+        raise ValueError(f"{key} items must be strings")
+    return kind, list(values), {key: list(values)}
+
+
+def _project_gh_batch_component_info_result(
+    selector_kind: str, selectors: list[str], result: dict
+) -> dict:
+    """Validate one ordered managed batch and add legacy name summaries."""
+    malformed = {"success": False, "data": "Malformed gh_batch_component_info response"}
+    if type(result) is not dict or type(result.get("success")) is not bool:
+        return malformed
+    if not result["success"]:
+        return result
+
+    data = result.get("data")
+    if type(data) is not dict or set(data) != {"count", "errors", "results"}:
+        return malformed
+    count = data["count"]
+    errors = data["errors"]
+    results = data["results"]
+    if (
+        type(count) is not int
+        or type(errors) is not int
+        or type(results) is not list
+        or count != len(results)
+        or count != len(selectors)
+    ):
+        return malformed
+
+    proxy_fields = {
+        "guid", "name", "nickName", "description", "category", "subCategory", "sourceKind"
+    }
+    compiled_provenance = {
+        "libraryGuid", "libraryName", "libraryVersion", "assemblyFullName",
+        "assemblyVersion", "assemblyLocation",
+    }
+    user_provenance = {"path", "contentByteLength", "contentSha256"}
+    implementation_fields = {
+        "baseGuid", "componentGuid", "runtimeType", "runtimeAssemblyName",
+        "runtimeAssemblyVersion", "runtimeAssemblyLocation",
+    }
+
+    def valid_proxy(item: dict) -> bool:
+        if not _is_canonical_lower_guid(item.get("guid")) or type(item.get("name")) is not str:
+            return False
+        if item.get("sourceKind") not in {"compiled", "user_object"}:
+            return False
+        return all(
+            type(item.get(key)) is str or item.get(key) is None
+            for key in {"nickName", "description", "category", "subCategory"}
+        )
+
+    def valid_provenance(item: dict) -> bool:
+        provenance = item.get("provenance")
+        if type(provenance) is not dict:
+            return False
+        if item["sourceKind"] == "compiled":
+            return (
+                set(provenance) == compiled_provenance
+                and _is_canonical_lower_guid(provenance.get("libraryGuid"))
+                and all(
+                    type(provenance.get(key)) is str or provenance.get(key) is None
+                    for key in compiled_provenance - {"libraryGuid"}
+                )
+            )
+        length = provenance.get("contentByteLength")
+        digest = provenance.get("contentSha256")
+        return (
+            set(provenance) == user_provenance
+            and type(provenance.get("path")) is str
+            and (length is None or (type(length) is int and length >= 0))
+            and (
+                digest is None
+                or (
+                    type(digest) is str
+                    and len(digest) == 64
+                    and all(char in "0123456789ABCDEF" for char in digest)
+                )
+            )
+            and ((length is None) == (digest is None))
+        )
+
+    def valid_implementation(item: dict) -> bool:
+        implementation = item.get("implementation")
+        if type(implementation) is not dict or set(implementation) != implementation_fields:
+            return False
+        base_guid = implementation.get("baseGuid")
+        if item["sourceKind"] == "compiled":
+            if base_guid is not None:
+                return False
+        elif not _is_canonical_lower_guid(base_guid):
+            return False
+        if not _is_canonical_lower_guid(implementation.get("componentGuid")):
+            return False
+        if type(implementation.get("runtimeType")) is not str:
+            return False
+        return all(
+            type(implementation.get(key)) is str or implementation.get(key) is None
+            for key in {
+                "runtimeAssemblyName", "runtimeAssemblyVersion", "runtimeAssemblyLocation"
+            }
+        )
+
+    def valid_candidate(candidate: Any) -> bool:
+        return _valid_gh_component_candidate(candidate, "ambiguity")
+
+    non_success = 0
+    for expected, item in zip(selectors, results):
+        if type(item) is not dict:
+            return malformed
+        selector = item.get("selector")
+        if (
+            type(selector) is not dict
+            or set(selector) != {"kind", "value"}
+            or selector.get("kind") != selector_kind
+            or selector.get("value") != expected
+        ):
+            return malformed
+        status = item.get("status")
+        if status == "invalid_guid" and selector_kind != "guid":
+            return malformed
+        if status == "success":
+            expected_keys = {"selector", "status", "provenance", "implementation", "params"} | proxy_fields
+            if (
+                set(item) != expected_keys
+                or not valid_proxy(item)
+                or not valid_provenance(item)
+                or not valid_implementation(item)
+                or (item["params"] is not None and type(item["params"]) is not dict)
+            ):
+                return malformed
+            continue
+
+        non_success += 1
+        error = item.get("error")
+        if status == "invalid_guid":
+            if set(item) != {"selector", "status", "error"} or error != "invalid_guid":
+                return malformed
+        elif status == "not_found":
+            expected_keys = {"selector", "status", "error"}
+            if selector_kind == "guid":
+                expected_keys.add("guid")
+            if (
+                set(item) != expected_keys
+                or error != "component_not_found"
+                or (selector_kind == "guid" and not _is_canonical_lower_guid(item.get("guid")))
+            ):
+                return malformed
+        elif status == "ambiguous_name":
+            candidates = item.get("candidates")
+            if (
+                selector_kind != "name"
+                or set(item) != {"selector", "status", "candidates"}
+                or type(candidates) is not list
+                or len(candidates) < 2
+                or not all(valid_candidate(candidate) for candidate in candidates)
+            ):
+                return malformed
+        elif status == "projection_failure":
+            if error == "proxy_projection_failed":
+                if not ({"selector", "status", "error"} <= set(item)):
+                    return malformed
+                if set(item) - {"selector", "status", "error", "guid"}:
+                    return malformed
+                if "guid" in item and not _is_canonical_lower_guid(item["guid"]):
+                    return malformed
+            elif error == "provenance_projection_failed":
+                if set(item) != {"selector", "status", "error"} | proxy_fields or not valid_proxy(item):
+                    return malformed
+            elif error == "implementation_projection_failed":
+                if (
+                    set(item) != {"selector", "status", "error", "provenance"} | proxy_fields
+                    or not valid_proxy(item)
+                    or not valid_provenance(item)
+                ):
+                    return malformed
+            else:
+                return malformed
+        elif status == "instantiation_failure":
+            if (
+                error != "component_instantiation_failed"
+                or set(item) != {"selector", "status", "error", "provenance"} | proxy_fields
+                or not valid_proxy(item)
+                or not valid_provenance(item)
+            ):
+                return malformed
+        else:
+            return malformed
+
+    if errors != non_success:
+        return malformed
+
+    projected = dict(data)
+    if selector_kind == "name":
+        projected["resolved"] = {
+            item["selector"]["value"]: item["guid"]
+            for item in results
+            if item["status"] == "success"
+        }
+        projected["unresolved"] = [
+            item["selector"]["value"]
+            for item in results
+            if item["status"] != "success"
+        ]
+    return {"success": True, "data": projected}
+
+
 async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle tool calls."""
     denial = deny_if_contained(name, DispatchOrigin.SERVER_DISPATCH)
@@ -15111,15 +15345,18 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "gh_library":
             # Build query string for GET request
             params = {}
-            if arguments.get("search"):
+            if "search" in arguments and arguments["search"] != "":
                 params["search"] = arguments["search"]
-            if arguments.get("category"):
+            if "category" in arguments and arguments["category"] != "":
                 params["category"] = arguments["category"]
             if arguments.get("limit"):
                 params["limit"] = arguments["limit"]
-            if arguments.get("exact"):
-                params["exact"] = True  # Server-side exact name matching
-            result = await call_rhino("/gh/library", "GET", params, port=port)
+            if "exact" in arguments:
+                params["exact"] = arguments["exact"]
+            result = _project_gh_library_result(
+                arguments,
+                await call_rhino("/gh/library", "GET", params, port=port),
+            )
 
         case "gh_categories":
             result = await call_rhino("/gh/categories", "GET", port=port)
@@ -18040,59 +18277,26 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                 result = {"success": False, "data": f"Structure query failed: {str(e)}\n{traceback.format_exc()}"}
 
         case "gh_batch_component_info":
-            # Resolve names to active GUIDs via UnifiedStore, then query batch endpoint
-            names = arguments.get("names", [])
-            if not names:
-                result = {"success": False, "data": "No names provided"}
+            try:
+                selector_kind, selectors, body = (
+                    _validate_gh_batch_component_info_arguments(arguments)
+                )
+            except ValueError as exc:
+                result = {
+                    "success": False,
+                    "data": {
+                        "error": "invalid_arguments",
+                        "name": name,
+                        "fields": [str(exc)],
+                    },
+                }
             else:
-                try:
-                    store = get_unified_store()
-
-                    guids_to_query = []
-                    name_to_guid = {}
-                    unresolved = []
-                    for n in names:
-                        guid = store.resolve_active_component_guid_by_name(n)
-                        if guid:
-                            guids_to_query.append(guid)
-                            name_to_guid[n] = guid
-                        else:
-                            unresolved.append(n)
-
-                    # For unresolved names, try library search
-                    for n in unresolved:
-                        lib_result = await call_rhino("/gh/library", "GET", {"search": n, "limit": 50}, port=port)
-                        if lib_result.get("success"):
-                            lib_data = lib_result.get("data", {})
-                            lib_comps = lib_data.get("components", [])
-                            for lc in lib_comps:
-                                if lc.get("name", "").lower() == n.lower():
-                                    guid = lc.get("guid", "")
-                                    if guid and not store.get_deprecated_component(guid):
-                                        guids_to_query.append(guid)
-                                        name_to_guid[n] = guid
-                                        break
-
-                    if not guids_to_query:
-                        result = {"success": False, "data": f"Could not resolve any names to GUIDs: {names}"}
-                    else:
-                        batch_result = await call_rhino(
-                            "/gh/batch-component-info", "POST",
-                            {"guids": guids_to_query}, port=port
-                        )
-                        if batch_result.get("success"):
-                            result = {
-                                "success": True,
-                                "data": {
-                                    "resolved": name_to_guid,
-                                    "unresolved": [n for n in names if n not in name_to_guid],
-                                    **batch_result.get("data", {})
-                                }
-                            }
-                        else:
-                            result = batch_result
-                except Exception as e:
-                    result = {"success": False, "data": f"Batch component info failed: {str(e)}"}
+                host_result = await call_rhino(
+                    "/gh/batch-component-info", "POST", body, port=port
+                )
+                result = _project_gh_batch_component_info_result(
+                    selector_kind, selectors, host_result
+                )
 
         case "gh_execute_intent":
             # Import the knowledge and execution components
@@ -20858,6 +21062,22 @@ async def call_tool(
     if name.startswith("rhino_director_"):
         return _project_tool_result({"success": False, "data": f"Unknown tool: {name}"},
                                     public_mcp=_public_mcp)
+
+    if name == "gh_batch_component_info":
+        try:
+            _validate_gh_batch_component_info_arguments(arguments)
+        except ValueError as exc:
+            return _project_tool_result(
+                {
+                    "success": False,
+                    "data": {
+                        "error": "invalid_arguments",
+                        "name": name,
+                        "fields": [str(exc)],
+                    },
+                },
+                public_mcp=_public_mcp,
+            )
 
     # Progressive-disclosure meta-tools are intercepted here — AFTER the readonly wall (so a
     # blocked meta-tool is refused like any other) and BEFORE _call_tool_dispatch (so they never

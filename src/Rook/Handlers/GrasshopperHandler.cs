@@ -5,6 +5,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Rook.InternalBridge;
 
@@ -4338,168 +4339,10 @@ namespace Rook.Handlers
             try
             {
                 var server = componentServer.Server!;
-
-                var proxiesProp = server.GetType().GetProperty("ObjectProxies");
-                var proxies = proxiesProp?.GetValue(server) as System.Collections.IEnumerable;
-
-                if (proxies == null)
-                    return new ApiResponse { Success = false, Data = "Could not retrieve proxies" };
-
-                var results = new List<object>();
-                var searchLower = search?.ToLowerInvariant();
-                int totalScanned = 0;
-                int obsoleteCount = 0;
-                int hiddenCount = 0;
-
-                foreach (var proxy in proxies)
-                {
-                    if (!audit && results.Count >= limit) break;
-
-                    var descProp = proxy.GetType().GetProperty("Desc");
-                    var desc = descProp?.GetValue(proxy);
-
-                    var nameProp = desc?.GetType().GetProperty("Name");
-                    var name = nameProp?.GetValue(desc)?.ToString() ?? "";
-
-                    var nicknameProp = desc?.GetType().GetProperty("NickName");
-                    var nickname = nicknameProp?.GetValue(desc)?.ToString();
-
-                    var descriptionProp = desc?.GetType().GetProperty("Description");
-                    var description = descriptionProp?.GetValue(desc)?.ToString();
-
-                    var categoryProp = desc?.GetType().GetProperty("Category");
-                    var componentCat = categoryProp?.GetValue(desc)?.ToString();
-
-                    var subcategoryProp = desc?.GetType().GetProperty("SubCategory");
-                    var componentSubCat = subcategoryProp?.GetValue(desc)?.ToString();
-
-                    var guidProp = proxy.GetType().GetProperty("Guid");
-                    var guid = guidProp?.GetValue(proxy)?.ToString();
-
-                    var obsoleteProp = proxy.GetType().GetProperty("Obsolete");
-                    var obsolete = obsoleteProp?.GetValue(proxy) as bool? ?? false;
-
-                    // Read Exposure from Desc (GH_Exposure flags enum)
-                    int exposure = 0;
-                    string exposureLabel = "unknown";
-                    if (audit)
-                    {
-                        var exposureProp = desc?.GetType().GetProperty("Exposure");
-                        if (exposureProp != null)
-                        {
-                            var exposureVal = exposureProp.GetValue(desc);
-                            if (exposureVal != null)
-                            {
-                                exposure = Convert.ToInt32(exposureVal);
-                                // Decode flags: primary=1, secondary=2, tertiary=4,
-                                // quarantine=8, hidden=16, obscure=32
-                                var flags = new List<string>();
-                                if ((exposure & 1) != 0) flags.Add("primary");
-                                if ((exposure & 2) != 0) flags.Add("secondary");
-                                if ((exposure & 4) != 0) flags.Add("tertiary");
-                                if ((exposure & 8) != 0) flags.Add("quarantine");
-                                if ((exposure & 16) != 0) flags.Add("hidden");
-                                if ((exposure & 32) != 0) flags.Add("obscure");
-                                exposureLabel = flags.Count > 0 ? string.Join("|", flags) : "none";
-                            }
-                        }
-
-                        totalScanned++;
-                        if (obsolete) obsoleteCount++;
-                        if ((exposure & 16) != 0) hiddenCount++;
-                    }
-
-                    // Filter by category if provided (matches category or subcategory)
-                    if (!string.IsNullOrEmpty(category))
-                    {
-                        var filterCatLower = category.ToLowerInvariant();
-                        var compCatLower = (componentCat ?? "").ToLowerInvariant();
-                        var compSubCatLower = (componentSubCat ?? "").ToLowerInvariant();
-                        var catMatches = compCatLower.Contains(filterCatLower) ||
-                                        compSubCatLower.Contains(filterCatLower);
-                        if (!catMatches) continue;
-                    }
-
-                    // Filter by search term if provided
-                    if (!string.IsNullOrEmpty(searchLower))
-                    {
-                        bool matches;
-                        if (exact)
-                        {
-                            // Exact mode: name must match exactly (case-insensitive)
-                            matches = name.ToLowerInvariant() == searchLower;
-                        }
-                        else
-                        {
-                            matches = name.ToLowerInvariant().Contains(searchLower) ||
-                                      (nickname?.ToLowerInvariant().Contains(searchLower) ?? false) ||
-                                      (description?.ToLowerInvariant().Contains(searchLower) ?? false);
-                        }
-                        if (!matches) continue;
-                    }
-
-                    // Skip obsolete unless in audit mode
-                    if (obsolete && !audit) continue;
-
-                    if (audit)
-                    {
-                        // In audit mode, only include deprecated/hidden components
-                        // to avoid exceeding the 1MB bridge response buffer.
-                        // Summary counts cover the full set.
-                        if (obsolete || (exposure & 16) != 0 || (exposure & 8) != 0)
-                        {
-                            results.Add(new
-                            {
-                                Name = name,
-                                NickName = nickname,
-                                Category = componentCat,
-                                SubCategory = componentSubCat,
-                                Guid = guid,
-                                Obsolete = obsolete,
-                                Exposure = exposure,
-                                ExposureLabel = exposureLabel
-                            });
-                        }
-                    }
-                    else
-                    {
-                        results.Add(new
-                        {
-                            Name = name,
-                            NickName = nickname,
-                            Description = description,
-                            Category = componentCat,
-                            SubCategory = componentSubCat,
-                            Guid = guid
-                        });
-                    }
-                }
-
                 if (audit)
-                {
-                    return new ApiResponse
-                    {
-                        Success = true,
-                        Data = new
-                        {
-                            TotalScanned = totalScanned,
-                            DeprecatedCount = results.Count,
-                            ObsoleteCount = obsoleteCount,
-                            HiddenCount = hiddenCount,
-                            Components = results
-                        }
-                    };
-                }
+                    return SearchLibraryAuditUnchanged(server, search, category, exact);
 
-                return new ApiResponse
-                {
-                    Success = true,
-                    Data = new
-                    {
-                        Count = results.Count,
-                        Components = results
-                    }
-                };
+                return SearchLibraryFromComponentServer(server, search, category, limit, exact);
             }
             catch (Exception ex)
             {
@@ -4509,6 +4352,402 @@ namespace Rook.Handlers
                     Data = $"SearchLibrary failed: {ex.Message}"
                 };
             }
+        }
+
+        internal ApiResponse SearchLibraryFromComponentServer(
+            object server,
+            string? search,
+            string? category,
+            int limit,
+            bool exact)
+        {
+            try
+            {
+                var proxySnapshot = ReadObjectProxySnapshot(server);
+                var hasSearch = !string.IsNullOrEmpty(search);
+                var hasCategory = !string.IsNullOrEmpty(category);
+                var candidates = new List<LibraryCandidate>();
+
+                if (hasSearch)
+                {
+                    var findObjects = RequireHostMethod(server.GetType(), "FindObjects", 4);
+                    var arguments = new object?[]
+                    {
+                        new[] { search! },
+                        proxySnapshot.Count,
+                        null,
+                        null
+                    };
+                    var returnValue = findObjects.Invoke(server, arguments);
+                    if (returnValue is not int returnedCount ||
+                        arguments[2] is not Array foundProxies ||
+                        arguments[3] is not Array foundScores ||
+                        returnedCount != foundProxies.Length ||
+                        returnedCount != foundScores.Length)
+                    {
+                        throw new InvalidOperationException("FindObjects returned an incomplete candidate projection.");
+                    }
+
+                    for (var index = 0; index < returnedCount; index++)
+                    {
+                        var proxy = foundProxies.GetValue(index)
+                            ?? throw new InvalidOperationException("FindObjects returned a null proxy.");
+                        var scoreValue = foundScores.GetValue(index);
+                        if (scoreValue is not double score || double.IsNaN(score) || double.IsInfinity(score))
+                            throw new InvalidOperationException("FindObjects returned an invalid native score.");
+                        candidates.Add(ProjectLibraryCandidate(
+                            proxy,
+                            score,
+                            exact ? "exact_name" : "native_search"));
+                    }
+                }
+                else
+                {
+                    foreach (var proxy in proxySnapshot)
+                        candidates.Add(ProjectLibraryCandidate(proxy, null, null));
+                }
+
+                var filtered = candidates
+                    .Where(candidate => !candidate.Obsolete && (candidate.Exposure & 16) == 0)
+                    .Where(candidate => !hasCategory ||
+                        ContainsOrdinalIgnoreCase(candidate.Category, category!) ||
+                        ContainsOrdinalIgnoreCase(candidate.SubCategory, category!))
+                    .Where(candidate => !hasSearch || !exact ||
+                        string.Equals(candidate.Name, search, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                var compareProxies = RequireHostMethod(server.GetType(), "CompareProxies", 2);
+                filtered.Sort((left, right) =>
+                {
+                    if (hasSearch)
+                    {
+                        var leftScore = left.NativeScore
+                            ?? throw new InvalidOperationException("Search candidate lacked a native score.");
+                        var rightScore = right.NativeScore
+                            ?? throw new InvalidOperationException("Search candidate lacked a native score.");
+                        var scoreComparison = rightScore.CompareTo(leftScore);
+                        if (scoreComparison != 0)
+                            return scoreComparison;
+                    }
+
+                    var proxyComparisonValue = compareProxies.Invoke(server, new[] { left.Proxy, right.Proxy });
+                    if (proxyComparisonValue is not int proxyComparison)
+                        throw new InvalidOperationException("CompareProxies returned a non-integer result.");
+                    return proxyComparison != 0
+                        ? proxyComparison
+                        : StringComparer.Ordinal.Compare(left.Guid, right.Guid);
+                });
+
+                var returned = filtered
+                    .Take(Math.Max(0, limit))
+                    .Select(candidate => CandidatePayload(
+                        candidate,
+                        hasSearch ? CandidatePayloadShape.Search : CandidatePayloadShape.Catalog))
+                    .ToList();
+
+                return new ApiResponse
+                {
+                    Success = true,
+                    Data = new
+                    {
+                        Count = returned.Count,
+                        ReturnedCount = returned.Count,
+                        TotalMatches = filtered.Count,
+                        Truncated = returned.Count < filtered.Count,
+                        Components = returned
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = $"SearchLibrary failed: {UnwrapInvocationException(ex).Message}"
+                };
+            }
+        }
+
+        private ApiResponse SearchLibraryAuditUnchanged(
+            object server,
+            string? search,
+            string? category,
+            bool exact)
+        {
+            var proxiesProp = server.GetType().GetProperty("ObjectProxies");
+            var proxies = proxiesProp?.GetValue(server) as System.Collections.IEnumerable;
+            if (proxies == null)
+                return new ApiResponse { Success = false, Data = "Could not retrieve proxies" };
+
+            var results = new List<object>();
+            var searchLower = search?.ToLowerInvariant();
+            var totalScanned = 0;
+            var obsoleteCount = 0;
+            var hiddenCount = 0;
+
+            foreach (var proxy in proxies)
+            {
+                var desc = proxy.GetType().GetProperty("Desc")?.GetValue(proxy);
+                var name = desc?.GetType().GetProperty("Name")?.GetValue(desc)?.ToString() ?? "";
+                var nickname = desc?.GetType().GetProperty("NickName")?.GetValue(desc)?.ToString();
+                var componentDescription = desc?.GetType().GetProperty("Description")?.GetValue(desc)?.ToString();
+                var componentCat = desc?.GetType().GetProperty("Category")?.GetValue(desc)?.ToString();
+                var componentSubCat = desc?.GetType().GetProperty("SubCategory")?.GetValue(desc)?.ToString();
+                var guid = proxy.GetType().GetProperty("Guid")?.GetValue(proxy)?.ToString();
+                var obsolete = proxy.GetType().GetProperty("Obsolete")?.GetValue(proxy) as bool? ?? false;
+
+                var exposure = ReadExposure(proxy);
+                var flags = new List<string>();
+                if ((exposure & 1) != 0) flags.Add("primary");
+                if ((exposure & 2) != 0) flags.Add("secondary");
+                if ((exposure & 4) != 0) flags.Add("tertiary");
+                if ((exposure & 8) != 0) flags.Add("quarantine");
+                if ((exposure & 16) != 0) flags.Add("hidden");
+                if ((exposure & 32) != 0) flags.Add("obscure");
+                var exposureLabel = flags.Count > 0 ? string.Join("|", flags) : "none";
+
+                totalScanned++;
+                if (obsolete) obsoleteCount++;
+                if ((exposure & 16) != 0) hiddenCount++;
+
+                if (category is { Length: > 0 })
+                {
+                    var filterCatLower = category.ToLowerInvariant();
+                    var catMatches = (componentCat ?? "").ToLowerInvariant().Contains(filterCatLower) ||
+                                     (componentSubCat ?? "").ToLowerInvariant().Contains(filterCatLower);
+                    if (!catMatches) continue;
+                }
+
+                if (!string.IsNullOrEmpty(searchLower))
+                {
+                    var matches = exact
+                        ? name.ToLowerInvariant() == searchLower
+                        : name.ToLowerInvariant().Contains(searchLower) ||
+                          (nickname?.ToLowerInvariant().Contains(searchLower) ?? false) ||
+                          (componentDescription?.ToLowerInvariant().Contains(searchLower) ?? false);
+                    if (!matches) continue;
+                }
+
+                if (obsolete || (exposure & 16) != 0 || (exposure & 8) != 0)
+                {
+                    results.Add(new
+                    {
+                        Name = name,
+                        NickName = nickname,
+                        Category = componentCat,
+                        SubCategory = componentSubCat,
+                        Guid = guid,
+                        Obsolete = obsolete,
+                        Exposure = exposure,
+                        ExposureLabel = exposureLabel
+                    });
+                }
+            }
+
+            return new ApiResponse
+            {
+                Success = true,
+                Data = new
+                {
+                    TotalScanned = totalScanned,
+                    DeprecatedCount = results.Count,
+                    ObsoleteCount = obsoleteCount,
+                    HiddenCount = hiddenCount,
+                    Components = results
+                }
+            };
+        }
+
+        private static List<object> ReadObjectProxySnapshot(object server)
+        {
+            var proxiesValue = RequireHostProperty(server, "ObjectProxies");
+            if (proxiesValue is not System.Collections.IEnumerable proxies)
+                throw new InvalidOperationException("ObjectProxies was not enumerable.");
+
+            var snapshot = new List<object>();
+            foreach (var proxy in proxies)
+                snapshot.Add(proxy ?? throw new InvalidOperationException("ObjectProxies contained null."));
+            return snapshot;
+        }
+
+        private static LibraryCandidate ProjectLibraryCandidate(
+            object proxy,
+            double? nativeScore,
+            string? matchSource)
+        {
+            var desc = RequireHostProperty(proxy, "Desc")
+                ?? throw new InvalidOperationException("Proxy Desc was null.");
+            var guidValue = RequireHostProperty(proxy, "Guid");
+            if (guidValue is not Guid guid)
+                throw new InvalidOperationException("Proxy Guid was not a GUID.");
+            var obsoleteValue = RequireHostProperty(proxy, "Obsolete");
+            if (obsoleteValue is not bool obsolete)
+                throw new InvalidOperationException("Proxy Obsolete was not boolean.");
+
+            return new LibraryCandidate
+            {
+                Proxy = proxy,
+                Name = RequireHostString(desc, "Name"),
+                NickName = ReadNullableHostString(desc, "NickName"),
+                Description = ReadNullableHostString(desc, "Description"),
+                Category = ReadNullableHostString(desc, "Category"),
+                SubCategory = ReadNullableHostString(desc, "SubCategory"),
+                Guid = guid.ToString("D").ToLowerInvariant(),
+                SourceKind = ReadSourceKind(proxy),
+                Obsolete = obsolete,
+                Exposure = ReadExposure(proxy),
+                NativeScore = nativeScore,
+                MatchSource = matchSource
+            };
+        }
+
+        private static object CandidatePayload(
+            LibraryCandidate candidate,
+            CandidatePayloadShape shape)
+        {
+            if (shape == CandidatePayloadShape.Search)
+            {
+                if (candidate.NativeScore == null ||
+                    candidate.MatchSource is not ("native_search" or "exact_name"))
+                    throw new InvalidOperationException("Search candidate lacked search evidence.");
+                return new
+                {
+                    candidate.Name,
+                    candidate.NickName,
+                    candidate.Description,
+                    candidate.Category,
+                    candidate.SubCategory,
+                    candidate.Guid,
+                    candidate.SourceKind,
+                    NativeScore = candidate.NativeScore!.Value,
+                    candidate.MatchSource
+                };
+            }
+
+            if (shape == CandidatePayloadShape.Ambiguity)
+            {
+                if (candidate.NativeScore != null || candidate.MatchSource != "exact_name")
+                    throw new InvalidOperationException("Ambiguity candidate had invalid match evidence.");
+                return new
+                {
+                    candidate.Name,
+                    candidate.NickName,
+                    candidate.Description,
+                    candidate.Category,
+                    candidate.SubCategory,
+                    candidate.Guid,
+                    candidate.SourceKind,
+                    candidate.NativeScore,
+                    candidate.MatchSource
+                };
+            }
+
+            if (shape == CandidatePayloadShape.Catalog)
+            {
+                if (candidate.NativeScore != null || candidate.MatchSource != null)
+                    throw new InvalidOperationException("Catalog candidate carried match evidence.");
+
+                return new
+                {
+                    candidate.Name,
+                    candidate.NickName,
+                    candidate.Description,
+                    candidate.Category,
+                    candidate.SubCategory,
+                    candidate.Guid,
+                    candidate.SourceKind
+                };
+            }
+
+            throw new ArgumentOutOfRangeException(nameof(shape), shape, "Unknown candidate payload shape.");
+        }
+
+        private static object? RequireHostProperty(object owner, string propertyName)
+        {
+            var property = owner.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance)
+                ?? throw new InvalidOperationException($"Required host property {propertyName} was missing.");
+            return property.GetValue(owner);
+        }
+
+        private static string RequireHostString(object owner, string propertyName)
+        {
+            var value = RequireHostProperty(owner, propertyName);
+            return value as string
+                ?? throw new InvalidOperationException($"Required host property {propertyName} was not a string.");
+        }
+
+        private static string? ReadNullableHostString(object owner, string propertyName)
+        {
+            var value = RequireHostProperty(owner, propertyName);
+            if (value == null || value is string)
+                return (string?)value;
+            throw new InvalidOperationException($"Host property {propertyName} was not a string or null.");
+        }
+
+        private static string ReadSourceKind(object proxy)
+        {
+            var value = RequireHostProperty(proxy, "Kind")
+                ?? throw new InvalidOperationException("Proxy Kind was null.");
+            if (!value.GetType().IsEnum)
+                throw new InvalidOperationException("Proxy Kind was not an enum.");
+            return value.ToString() switch
+            {
+                "CompiledObject" => "compiled",
+                "UserObject" => "user_object",
+                _ => throw new InvalidOperationException("Proxy Kind was unsupported.")
+            };
+        }
+
+        private static int ReadExposure(object proxy)
+        {
+            var value = RequireHostProperty(proxy, "Exposure")
+                ?? throw new InvalidOperationException("Proxy Exposure was null.");
+            var type = value.GetType();
+            if (!type.IsEnum)
+                throw new InvalidOperationException("Proxy Exposure was not an enum.");
+            return Convert.ToInt32(value);
+        }
+
+        private static MethodInfo RequireHostMethod(Type ownerType, string methodName, int parameterCount)
+        {
+            var matches = ownerType
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
+                .Where(method => method.Name == methodName && method.GetParameters().Length == parameterCount)
+                .ToArray();
+            return matches.Length == 1
+                ? matches[0]
+                : throw new InvalidOperationException($"Expected one host method {methodName}/{parameterCount}.");
+        }
+
+        private static bool ContainsOrdinalIgnoreCase(string? value, string search) =>
+            value?.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
+
+        private static Exception UnwrapInvocationException(Exception exception) =>
+            exception is TargetInvocationException { InnerException: not null } invocation
+                ? invocation.InnerException
+                : exception;
+
+        private sealed class LibraryCandidate
+        {
+            public object Proxy { get; init; } = null!;
+            public string Name { get; init; } = null!;
+            public string? NickName { get; init; }
+            public string? Description { get; init; }
+            public string? Category { get; init; }
+            public string? SubCategory { get; init; }
+            public string Guid { get; init; } = null!;
+            public string SourceKind { get; init; } = null!;
+            public bool Obsolete { get; init; }
+            public int Exposure { get; init; }
+            public double? NativeScore { get; init; }
+            public string? MatchSource { get; init; }
+        }
+
+        private enum CandidatePayloadShape
+        {
+            Catalog,
+            Search,
+            Ambiguity
         }
 
         /// <summary>
@@ -6302,9 +6541,8 @@ namespace Rook.Handlers
         #region Batch Component Info
 
         /// <summary>
-        /// POST /gh/batch-component-info - Get I/O params for multiple component type GUIDs at once.
-        /// Body: { "guids": ["guid1", "guid2", ...] }
-        /// Returns full metadata + I/O for each, without touching the canvas.
+        /// POST /gh/batch-component-info - Resolve names or GUIDs to source-specific metadata and I/O.
+        /// Body admits exactly one nonempty selector family: names or guids.
         /// </summary>
         public ApiResponse HandleBatchComponentInfo(string? body)
         {
@@ -6315,124 +6553,180 @@ namespace Rook.Handlers
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
 
-            var guids = new List<string>();
-            try
-            {
-                var args = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(body);
-                if (args != null && args.TryGetValue("guids", out var guidsEl) && guidsEl.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var g in guidsEl.EnumerateArray())
-                    {
-                        var guidStr = g.GetString();
-                        if (!string.IsNullOrEmpty(guidStr))
-                            guids.Add(guidStr);
-                    }
-                }
-            }
-            catch
-            {
-                return new ApiResponse { Success = false, Data = "Invalid JSON body" };
-            }
+            return HandleBatchComponentInfoFromServer(
+                componentServer.Server!,
+                body!,
+                CreateGrasshopperUserObject);
+        }
 
-            if (guids.Count == 0)
-                return new ApiResponse { Success = false, Data = "No guids provided" };
+        internal ApiResponse HandleBatchComponentInfoFromServer(
+            object server,
+            string body,
+            Func<string, object>? userObjectFactory = null)
+        {
+            if (!TryReadMetadataSelectors(body, out var selectorKind, out var selectors, out var requestError))
+                return new ApiResponse { Success = false, Data = requestError };
 
             try
             {
-                var server = componentServer.Server!;
-
-                // Get proxies for metadata lookup
-                var proxiesProp = server.GetType().GetProperty("ObjectProxies");
-                var proxies = proxiesProp?.GetValue(server) as System.Collections.IEnumerable;
-
-                // Build a guid→proxy lookup for metadata
-                var proxyMap = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
-                if (proxies != null)
+                var proxySnapshot = ReadObjectProxySnapshot(server);
+                var results = new List<Dictionary<string, object?>>();
+                foreach (var selectorValue in selectors)
                 {
-                    foreach (var proxy in proxies)
+                    var selector = MetadataSelector(selectorKind, selectorValue);
+                    if (selectorKind == "guid")
                     {
-                        var guidProp = proxy.GetType().GetProperty("Guid");
-                        var proxyGuid = guidProp?.GetValue(proxy)?.ToString();
-                        if (!string.IsNullOrEmpty(proxyGuid) && !proxyMap.ContainsKey(proxyGuid))
-                            proxyMap[proxyGuid] = proxy;
-                    }
-                }
-
-                var results = new List<object>();
-                int errors = 0;
-
-                foreach (var guidStr in guids)
-                {
-                    if (!Guid.TryParse(guidStr, out var componentGuid))
-                    {
-                        results.Add(new { Guid = guidStr, Error = "Invalid GUID format" });
-                        errors++;
-                        continue;
-                    }
-
-                    try
-                    {
-                        // Get metadata from proxy
-                        string? description = null;
-                        string? category = null;
-                        string? subCategory = null;
-                        string? proxyName = null;
-                        string? proxyNickName = null;
-
-                        if (proxyMap.TryGetValue(guidStr, out var proxy))
+                        if (!Guid.TryParse(selectorValue, out var guid))
                         {
-                            var descProp = proxy.GetType().GetProperty("Desc");
-                            var desc = descProp?.GetValue(proxy);
-                            if (desc != null)
-                            {
-                                proxyName = desc.GetType().GetProperty("Name")?.GetValue(desc)?.ToString();
-                                proxyNickName = desc.GetType().GetProperty("NickName")?.GetValue(desc)?.ToString();
-                                description = desc.GetType().GetProperty("Description")?.GetValue(desc)?.ToString();
-                                category = desc.GetType().GetProperty("Category")?.GetValue(desc)?.ToString();
-                                subCategory = desc.GetType().GetProperty("SubCategory")?.GetValue(desc)?.ToString();
-                            }
-                        }
-
-                        // Create temporary instance to read I/O params (proxy-first resolution)
-                        var component = CreateComponentFromGuid(server, componentGuid, null);
-
-                        if (component == null)
-                        {
-                            // Still return metadata even if we can't instantiate
-                            results.Add(new
-                            {
-                                Guid = guidStr,
-                                Name = proxyName,
-                                NickName = proxyNickName,
-                                Description = description,
-                                Category = category,
-                                SubCategory = subCategory,
-                                Params = (object?)null,
-                                Error = "Could not instantiate"
-                            });
-                            errors++;
+                            results.Add(MetadataFailure(selector, "invalid_guid", "invalid_guid"));
                             continue;
                         }
 
-                        var name = component.GetType().GetProperty("Name")?.GetValue(component)?.ToString() ?? proxyName;
-                        var nickname = component.GetType().GetProperty("NickName")?.GetValue(component)?.ToString() ?? proxyNickName;
-                        var paramsInfo = GetComponentParams(component);
-
-                        results.Add(new
+                        var canonicalGuid = guid.ToString("D").ToLowerInvariant();
+                        object? proxy = null;
+                        var duplicateGuid = false;
+                        var incompleteGuidScan = false;
+                        foreach (var candidateProxy in proxySnapshot)
                         {
-                            Guid = guidStr,
-                            Name = name,
-                            NickName = nickname,
-                            Description = description,
-                            Category = category,
-                            SubCategory = subCategory,
-                            Params = paramsInfo
-                        });
+                            try
+                            {
+                                var guidValue = RequireHostProperty(candidateProxy, "Guid");
+                                if (guidValue is not Guid candidateGuid)
+                                    throw new InvalidOperationException("Proxy Guid was not a GUID.");
+                                if (candidateGuid != guid)
+                                    continue;
+                                if (proxy != null)
+                                    duplicateGuid = true;
+                                else
+                                    proxy = candidateProxy;
+                            }
+                            catch
+                            {
+                                incompleteGuidScan = true;
+                            }
+                        }
+
+                        if (duplicateGuid || (proxy == null && incompleteGuidScan))
+                        {
+                            results.Add(MetadataFailure(
+                                selector,
+                                "projection_failure",
+                                "proxy_projection_failed",
+                                canonicalGuid));
+                            continue;
+                        }
+
+                        if (proxy == null)
+                        {
+                            results.Add(MetadataFailure(
+                                selector,
+                                "not_found",
+                                "component_not_found",
+                                canonicalGuid));
+                            continue;
+                        }
+
+                        results.Add(ProjectSelectedMetadata(
+                            server,
+                            selector,
+                            canonicalGuid,
+                            proxy,
+                            userObjectFactory));
+                        continue;
                     }
-                    catch (Exception ex)
+
+                    var matches = new List<object>();
+                    var incompleteNameScan = false;
+                    foreach (var proxy in proxySnapshot)
                     {
-                        results.Add(new { Guid = guidStr, Error = ex.Message });
-                        errors++;
+                        object desc;
+                        string name;
+                        try
+                        {
+                            desc = RequireHostProperty(proxy, "Desc")
+                                ?? throw new InvalidOperationException("Proxy Desc was null.");
+                            name = RequireHostString(desc, "Name");
+                        }
+                        catch
+                        {
+                            incompleteNameScan = true;
+                            continue;
+                        }
+
+                        if (!string.Equals(name, selectorValue, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        try
+                        {
+                            var obsolete = RequireHostProperty(proxy, "Obsolete");
+                            if (obsolete is not bool obsoleteValue)
+                                throw new InvalidOperationException("Proxy Obsolete was not boolean.");
+                            if (obsoleteValue)
+                                continue;
+                            var exposure = ReadExposure(proxy);
+                            if ((exposure & 16) == 0)
+                                matches.Add(proxy);
+                        }
+                        catch
+                        {
+                            incompleteNameScan = true;
+                        }
+                    }
+
+                    if (incompleteNameScan)
+                    {
+                        results.Add(MetadataFailure(
+                            selector,
+                            "projection_failure",
+                            "proxy_projection_failed"));
+                        continue;
+                    }
+
+                    if (matches.Count == 0)
+                    {
+                        results.Add(MetadataFailure(selector, "not_found", "component_not_found"));
+                        continue;
+                    }
+
+                    if (matches.Count > 1)
+                    {
+                        try
+                        {
+                            var candidates = matches
+                                .Select(proxy => ProjectLibraryCandidate(proxy, null, "exact_name"))
+                                .ToList();
+                            SortMetadataCandidates(server, candidates);
+                            var failure = MetadataFailure(selector, "ambiguous_name", error: null);
+                            failure["candidates"] = candidates
+                                .Select(candidate => CandidatePayload(
+                                    candidate,
+                                    CandidatePayloadShape.Ambiguity))
+                                .ToList();
+                            results.Add(failure);
+                        }
+                        catch
+                        {
+                            results.Add(MetadataFailure(selector, "projection_failure", "proxy_projection_failed"));
+                        }
+                        continue;
+                    }
+
+                    var selected = matches[0];
+                    try
+                    {
+                        var guidValue = RequireHostProperty(selected, "Guid");
+                        if (guidValue is not Guid selectedGuid)
+                            throw new InvalidOperationException("Proxy Guid was not a GUID.");
+                        results.Add(ProjectSelectedMetadata(
+                            server,
+                            selector,
+                            selectedGuid.ToString("D").ToLowerInvariant(),
+                            selected,
+                            userObjectFactory));
+                    }
+                    catch
+                    {
+                        results.Add(MetadataFailure(selector, "projection_failure", "proxy_projection_failed"));
                     }
                 }
 
@@ -6442,15 +6736,307 @@ namespace Rook.Handlers
                     Data = new
                     {
                         Count = results.Count,
-                        Errors = errors,
+                        Errors = results.Count(result => !Equals(result["status"], "success")),
                         Results = results
                     }
                 };
             }
             catch (Exception ex)
             {
-                return new ApiResponse { Success = false, Data = $"BatchComponentInfo failed: {ex.Message}" };
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = $"BatchComponentInfo failed: {UnwrapInvocationException(ex).Message}"
+                };
             }
+        }
+
+        private static bool TryReadMetadataSelectors(
+            string body,
+            out string selectorKind,
+            out List<string> selectors,
+            out string error)
+        {
+            selectorKind = "";
+            selectors = new List<string>();
+            error = "Invalid selector request";
+            try
+            {
+                using var document = JsonDocument.Parse(body);
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                    return false;
+
+                var hasNames = document.RootElement.TryGetProperty("names", out var names);
+                var hasGuids = document.RootElement.TryGetProperty("guids", out var guids);
+                if (hasNames == hasGuids)
+                    return false;
+
+                var selected = hasNames ? names : guids;
+                if (selected.ValueKind != JsonValueKind.Array || selected.GetArrayLength() == 0)
+                    return false;
+
+                foreach (var item in selected.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.String)
+                        return false;
+                    selectors.Add(item.GetString()!);
+                }
+
+                selectorKind = hasNames ? "name" : "guid";
+                error = "";
+                return true;
+            }
+            catch
+            {
+                error = "Invalid JSON body";
+                return false;
+            }
+        }
+
+        private Dictionary<string, object?> ProjectSelectedMetadata(
+            object server,
+            Dictionary<string, object?> selector,
+            string canonicalGuid,
+            object proxy,
+            Func<string, object>? userObjectFactory)
+        {
+            LibraryCandidate candidate;
+            try
+            {
+                candidate = ProjectLibraryCandidate(proxy, null, null);
+            }
+            catch
+            {
+                return MetadataFailure(selector, "projection_failure", "proxy_projection_failed", canonicalGuid);
+            }
+
+            var result = MetadataPrefix(selector, candidate);
+            object provenance;
+            object? userObject = null;
+            try
+            {
+                if (candidate.SourceKind == "compiled")
+                {
+                    provenance = ProjectCompiledProvenance(server, proxy);
+                }
+                else
+                {
+                    var projection = ProjectUserObjectProvenance(proxy, userObjectFactory);
+                    provenance = projection.Provenance;
+                    userObject = projection.UserObject;
+                }
+            }
+            catch
+            {
+                result["status"] = "projection_failure";
+                result["error"] = "provenance_projection_failed";
+                return result;
+            }
+
+            result["provenance"] = provenance;
+
+            object component;
+            try
+            {
+                var createInstance = RequireHostMethod(proxy.GetType(), "CreateInstance", 0);
+                component = createInstance.Invoke(proxy, null)
+                    ?? throw new InvalidOperationException("CreateInstance returned null.");
+            }
+            catch
+            {
+                result["status"] = "instantiation_failure";
+                result["error"] = "component_instantiation_failed";
+                return result;
+            }
+
+            try
+            {
+                result["implementation"] = ProjectImplementation(component, candidate.SourceKind, userObject);
+            }
+            catch
+            {
+                result["status"] = "projection_failure";
+                result["error"] = "implementation_projection_failed";
+                return result;
+            }
+
+            result["params"] = GetComponentParams(component);
+            result["status"] = "success";
+            return result;
+        }
+
+        private static object ProjectCompiledProvenance(object server, object proxy)
+        {
+            var libraryGuidValue = RequireHostProperty(proxy, "LibraryGuid");
+            if (libraryGuidValue is not Guid libraryGuid)
+                throw new InvalidOperationException("Proxy LibraryGuid was not a GUID.");
+            var findAssembly = server.GetType().GetMethod(
+                "FindAssembly",
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                types: new[] { typeof(Guid) },
+                modifiers: null)
+                ?? throw new InvalidOperationException("FindAssembly(Guid) was missing.");
+            var info = findAssembly.Invoke(server, new object[] { libraryGuid })
+                ?? throw new InvalidOperationException("FindAssembly(Guid) returned null.");
+            var assemblyValue = RequireHostProperty(info, "Assembly");
+            if (assemblyValue != null && assemblyValue is not Assembly)
+                throw new InvalidOperationException("Assembly was not a CLR assembly or null.");
+
+            return new
+            {
+                LibraryGuid = libraryGuid.ToString("D").ToLowerInvariant(),
+                LibraryName = ReadNullableHostString(info, "Name"),
+                LibraryVersion = ReadNullableHostString(info, "Version"),
+                AssemblyFullName = ((Assembly?)assemblyValue)?.FullName,
+                AssemblyVersion = ReadNullableHostString(info, "AssemblyVersion"),
+                AssemblyLocation = ReadNullableHostString(info, "Location")
+            };
+        }
+
+        private static UserObjectProjection ProjectUserObjectProvenance(
+            object proxy,
+            Func<string, object>? userObjectFactory)
+        {
+            var location = RequireHostString(proxy, "Location");
+            var userObject = (userObjectFactory ?? throw new InvalidOperationException("User-object factory unavailable."))(location)
+                ?? throw new InvalidOperationException("User-object construction returned null.");
+            var path = RequireHostString(userObject, "Path");
+            if (!string.Equals(
+                NormalizeWindowsPath(location),
+                NormalizeWindowsPath(path),
+                StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("User-object path did not match its selected proxy.");
+            }
+
+            var data = RequireHostProperty(userObject, "Data");
+            long? byteLength = null;
+            string? sha256 = null;
+            if (data != null)
+            {
+                if (data is not byte[] bytes)
+                    throw new InvalidOperationException("User-object Data was not byte[] or null.");
+                using var hash = SHA256.Create();
+                byteLength = bytes.LongLength;
+                sha256 = BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "");
+            }
+
+            return new UserObjectProjection
+            {
+                UserObject = userObject,
+                Provenance = new
+                {
+                    Path = path,
+                    ContentByteLength = byteLength,
+                    ContentSha256 = sha256
+                }
+            };
+        }
+
+        private static string NormalizeWindowsPath(string path) =>
+            Path.GetFullPath(path).Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+
+        private static object ProjectImplementation(object component, string sourceKind, object? userObject)
+        {
+            var componentGuidValue = RequireHostProperty(component, "ComponentGuid");
+            if (componentGuidValue is not Guid componentGuid)
+                throw new InvalidOperationException("ComponentGuid was not a GUID.");
+            var type = component.GetType();
+            var runtimeType = type.FullName
+                ?? throw new InvalidOperationException("Runtime type FullName was null.");
+            var assembly = type.Assembly;
+            var assemblyName = assembly.GetName();
+            string? baseGuid = null;
+            if (sourceKind == "user_object")
+            {
+                var baseGuidValue = RequireHostProperty(
+                    userObject ?? throw new InvalidOperationException("User object was missing."),
+                    "BaseGuid");
+                if (baseGuidValue is not Guid parsedBaseGuid)
+                    throw new InvalidOperationException("User-object BaseGuid was not a GUID.");
+                baseGuid = parsedBaseGuid.ToString("D").ToLowerInvariant();
+            }
+
+            return new
+            {
+                BaseGuid = baseGuid,
+                ComponentGuid = componentGuid.ToString("D").ToLowerInvariant(),
+                RuntimeType = runtimeType,
+                RuntimeAssemblyName = assemblyName.Name,
+                RuntimeAssemblyVersion = assemblyName.Version?.ToString(),
+                RuntimeAssemblyLocation = assembly.Location
+            };
+        }
+
+        private object CreateGrasshopperUserObject(string path)
+        {
+            var type = _ghAssembly?.GetType("Grasshopper.Kernel.GH_UserObject")
+                ?? throw new InvalidOperationException("Grasshopper GH_UserObject type was unavailable.");
+            var constructor = type.GetConstructor(new[] { typeof(string) })
+                ?? throw new InvalidOperationException("GH_UserObject(string) constructor was unavailable.");
+            return constructor.Invoke(new object[] { path });
+        }
+
+        private static Dictionary<string, object?> MetadataSelector(string kind, string value) =>
+            new()
+            {
+                ["kind"] = kind,
+                ["value"] = value
+            };
+
+        private static Dictionary<string, object?> MetadataFailure(
+            Dictionary<string, object?> selector,
+            string status,
+            string? error,
+            string? guid = null)
+        {
+            var result = new Dictionary<string, object?>
+            {
+                ["selector"] = selector,
+                ["status"] = status
+            };
+            if (guid != null)
+                result["guid"] = guid;
+            if (error != null)
+                result["error"] = error;
+            return result;
+        }
+
+        private static Dictionary<string, object?> MetadataPrefix(
+            Dictionary<string, object?> selector,
+            LibraryCandidate candidate) =>
+            new()
+            {
+                ["selector"] = selector,
+                ["status"] = "projection_failure",
+                ["guid"] = candidate.Guid,
+                ["name"] = candidate.Name,
+                ["nickName"] = candidate.NickName,
+                ["description"] = candidate.Description,
+                ["category"] = candidate.Category,
+                ["subCategory"] = candidate.SubCategory,
+                ["sourceKind"] = candidate.SourceKind
+            };
+
+        private static void SortMetadataCandidates(object server, List<LibraryCandidate> candidates)
+        {
+            var compareProxies = RequireHostMethod(server.GetType(), "CompareProxies", 2);
+            candidates.Sort((left, right) =>
+            {
+                var comparisonValue = compareProxies.Invoke(server, new[] { left.Proxy, right.Proxy });
+                if (comparisonValue is not int comparison)
+                    throw new InvalidOperationException("CompareProxies returned a non-integer result.");
+                return comparison != 0
+                    ? comparison
+                    : StringComparer.Ordinal.Compare(left.Guid, right.Guid);
+            });
+        }
+
+        private sealed class UserObjectProjection
+        {
+            public object UserObject { get; init; } = null!;
+            public object Provenance { get; init; } = null!;
         }
 
         #endregion

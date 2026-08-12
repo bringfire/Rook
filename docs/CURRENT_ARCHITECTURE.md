@@ -1,6 +1,6 @@
 # Current Architecture
 
-Updated: 2026-08-02
+Updated: 2026-08-10
 
 This file is the short canonical description of the live runtime architecture.
 
@@ -70,6 +70,16 @@ The companion is **internal** — not a separate public plugin surface.
 
 Everything else is native-owned.
 
+### Grasshopper component discovery and identity
+
+Grasshopper-native `FindObjects()` proposes ordinary component candidates. Proxy GUID
+and `sourceKind` own component-type identity, while the managed Grasshopper endpoint
+resolves one names-or-GUID batch against one live component-server view. Compiled and
+user-object provenance remain distinct. Python forwards the batch once, verifies ordered
+correlation, and adds compatibility summaries; knowledge does not alter authoritative
+discovery or metadata. After type selection, the existing `T*` and `C*` identities own
+graph execution.
+
 ## Runtime Capability Discovery
 
 `RookNative` exposes `GET /capabilities` as the public runtime capability discovery surface. The endpoint reports declared capability domains, current runtime state, reason codes, routes, operations, diagnostics, and evidence. It is descriptive in Phase 1: it does not move route ownership, change companion loading, change installer layout, or make the managed companion public.
@@ -89,6 +99,10 @@ Managed companion domain evidence is internal. The companion writes it to its ex
 | Key subsystems | Intent runtime, Knowledge stores, Agent system, Chat service, DSPy consolidation, Chirp manager |
 
 - Director is retired from MCP discovery, profiles, meta-tools, targeting, and internal-agent dispatch. Native `/director/*` routes and implementation modules remain temporarily preserved for disposition review; they are not a public or agent-callable capability.
+
+`rook_tools_call` validates the untrusted target argument object against the target's
+live top-level schema before re-entering dispatch. Unknown fields return
+`invalid_arguments` and do not contact the target.
 
 Future scene preview, timeline, rendering, and finalized-video export belongs in RookStudio. `rook2` remains a narrow Rhino connector/broker and is unchanged by this retirement.
 

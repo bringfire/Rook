@@ -145,6 +145,59 @@ def test_rook_tools_call_rejects_non_object_arguments(monkeypatch):
     assert "invalid_arguments" in text
 
 
+@pytest.mark.parametrize(
+    ("target", "arguments", "accepted"),
+    [
+        ("gh_library", {"query": "Series"}, "search"),
+        ("gh_batch_component_info", {"name": "Series"}, "names"),
+    ],
+)
+def test_rook_tools_call_rejects_unknown_target_fields_before_dispatch(
+    monkeypatch, target, arguments, accepted
+):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    dispatched = AsyncMock()
+    monkeypatch.setattr(server, "call_tool", dispatched)
+
+    result = asyncio.run(
+        server._handle_meta_tool(
+            "rook_tools_call",
+            {"name": target, "arguments": arguments},
+            server.Profile.FULL,
+        )
+    )
+    text = result[0].text
+    assert text.startswith("Error: ")
+    payload = json.loads(text.removeprefix("Error: "))
+
+    assert payload["error"] == "invalid_arguments"
+    assert payload["name"] == target
+    assert payload["fields"][0].startswith("unknown fields:")
+    assert accepted in payload["fields"][0]
+    dispatched.assert_not_awaited()
+
+
+def test_rook_tools_call_valid_target_arguments_dispatch_once_unchanged(monkeypatch):
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    dispatched = AsyncMock(
+        return_value=[server.TextContent(type="text", text="ok")]
+    )
+    monkeypatch.setattr(server, "call_tool", dispatched)
+    arguments = {"search": "Series", "exact": True, "limit": 5}
+
+    asyncio.run(
+        server._handle_meta_tool(
+            "rook_tools_call",
+            {"name": "gh_library", "arguments": arguments},
+            server.Profile.FULL,
+        )
+    )
+
+    dispatched.assert_awaited_once_with(
+        "gh_library", arguments, _public_mcp=False
+    )
+
+
 def test_rook_tools_ls_tolerates_malformed_depth(monkeypatch):
     # A non-int depth must fall back to the default, not raise int('nope').
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")

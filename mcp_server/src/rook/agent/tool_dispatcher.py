@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..bridge import call_rhino
 from ..gh_edit_contract import apply_gh_edit_contract
+from ..grasshopper_component_contract import project_gh_library_result
 from ..gh_status_contract import normalize_gh_status_result
 from ..tool_lifecycle import resolve_contained_tool
 from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
@@ -857,12 +858,14 @@ async def _local_gh_create_csharp_script(port: int | None = None, **kwargs) -> d
 
 def _transform_gh_library(args: dict) -> Tuple[str, str, dict]:
     params = {}
-    if args.get("search"):
+    if "search" in args and args["search"] != "":
         params["search"] = args["search"]
-    if args.get("category"):
+    if "category" in args and args["category"] != "":
         params["category"] = args["category"]
     if args.get("limit"):
         params["limit"] = args["limit"]
+    if "exact" in args:
+        params["exact"] = args["exact"]
     return "/gh/library", "GET", params
 
 
@@ -2045,7 +2048,10 @@ class ToolDispatcher:
                 # Transform returned an error (endpoint is None)
                 if endpoint is None:
                     return data  # data contains the error dict
-                return await call_rhino(endpoint, method, data, port)
+                result = await call_rhino(endpoint, method, data, port)
+                if name == "gh_library":
+                    result = project_gh_library_result(params, result)
+                return result
             except Exception as e:
                 logger.error(f"Transform failed for {name}: {e}")
                 return {"success": False, "data": f"Transform error: {e}"}

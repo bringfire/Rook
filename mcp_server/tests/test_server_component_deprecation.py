@@ -112,6 +112,11 @@ def patched_server(monkeypatch):
     monkeypatch.setattr(server, "should_inject", lambda _name, _result: False)
     monkeypatch.setattr(server, "_record_observation", lambda *args, **kwargs: None)
     monkeypatch.setattr(server, "get_phase_tracker", lambda: _DummyPhaseTracker())
+    monkeypatch.setattr(
+        server.targeting,
+        "policy_for_tool",
+        lambda _name: server.targeting.RhinoToolPolicy(False, "read"),
+    )
 
 
 @pytest.mark.asyncio
@@ -176,26 +181,54 @@ async def test_gh_edit_attaches_per_item_deprecation_warnings(monkeypatch, patch
 
 
 @pytest.mark.asyncio
-async def test_gh_batch_component_info_resolves_active_guid(monkeypatch, patched_server):
-    store = _make_store_with_area_notes()
+async def test_gh_batch_component_info_delegates_name_identity_once_to_managed_owner(
+    monkeypatch, patched_server
+):
+    identity = AsyncMock(side_effect=AssertionError("knowledge identity must not run"))
 
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
         assert route == "/gh/batch-component-info"
         assert method == "POST"
-        assert payload == {"guids": ["86b28a7e-94d9-4791-8306-e13e10d5f8d5"]}
+        assert payload == {"names": ["Area"]}
         return {
             "success": True,
             "data": {
-                "components": [
+                "count": 1,
+                "errors": 0,
+                "results": [
                     {
+                        "selector": {"kind": "name", "value": "Area"},
+                        "status": "success",
                         "guid": "86b28a7e-94d9-4791-8306-e13e10d5f8d5",
                         "name": "Area",
+                        "nickName": "Area",
+                        "description": "Computes area.",
+                        "category": "Surface",
+                        "subCategory": "Analysis",
+                        "sourceKind": "compiled",
+                        "provenance": {
+                            "libraryGuid": "86b28a7e-94d9-4791-8306-e13e10d5f8d6",
+                            "libraryName": "Grasshopper",
+                            "libraryVersion": "8.0",
+                            "assemblyFullName": "Grasshopper, Version=8.0.0.0",
+                            "assemblyVersion": "8.0.0.0",
+                            "assemblyLocation": "C:\\Grasshopper.dll",
+                        },
+                        "implementation": {
+                            "baseGuid": None,
+                            "componentGuid": "86b28a7e-94d9-4791-8306-e13e10d5f8d5",
+                            "runtimeType": "Grasshopper.Component_Area",
+                            "runtimeAssemblyName": "Grasshopper",
+                            "runtimeAssemblyVersion": "8.0.0.0",
+                            "runtimeAssemblyLocation": "C:\\Grasshopper.dll",
+                        },
+                        "params": None,
                     }
-                ]
+                ],
             },
         }
 
-    monkeypatch.setattr(server, "get_unified_store", lambda: store)
+    monkeypatch.setattr(server, "get_unified_store", identity)
     monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
 
     response = await server.call_tool("gh_batch_component_info", {"names": ["Area"]})
@@ -203,43 +236,7 @@ async def test_gh_batch_component_info_resolves_active_guid(monkeypatch, patched
 
     assert payload["resolved"] == {"Area": "86b28a7e-94d9-4791-8306-e13e10d5f8d5"}
     assert payload["unresolved"] == []
-
-
-@pytest.mark.asyncio
-async def test_gh_batch_component_info_library_fallback_skips_deprecated_exact_match(monkeypatch, patched_server):
-    store = _make_store_with_area_notes()
-    monkeypatch.setattr(store, "resolve_active_component_guid_by_name", lambda _name: None)
-
-    async def fake_call_rhino(route, method="GET", payload=None, port=None):
-        if route == "/gh/library":
-            assert method == "GET"
-            assert payload == {"search": "Area", "limit": 50}
-            return {
-                "success": True,
-                "data": {
-                    "components": [
-                        {"guid": "2e205f24-9279-47b2-b414-d06dcd0b21a7", "name": "Area"},
-                        {"guid": "86b28a7e-94d9-4791-8306-e13e10d5f8d5", "name": "Area"},
-                    ]
-                },
-            }
-        if route == "/gh/batch-component-info":
-            assert method == "POST"
-            assert payload == {"guids": ["86b28a7e-94d9-4791-8306-e13e10d5f8d5"]}
-            return {
-                "success": True,
-                "data": {"components": [{"guid": "86b28a7e-94d9-4791-8306-e13e10d5f8d5", "name": "Area"}]},
-            }
-        raise AssertionError(f"Unexpected route: {route}")
-
-    monkeypatch.setattr(server, "get_unified_store", lambda: store)
-    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
-
-    response = await server.call_tool("gh_batch_component_info", {"names": ["Area"]})
-    payload = json.loads(response[0].text)
-
-    assert payload["resolved"] == {"Area": "86b28a7e-94d9-4791-8306-e13e10d5f8d5"}
-    assert payload["unresolved"] == []
+    assert identity.await_count == 0
 
 
 @pytest.mark.asyncio
