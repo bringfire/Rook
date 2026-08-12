@@ -1027,7 +1027,7 @@ Normalize it with `Path.GetFullPath` and `OrdinalIgnoreCase`; require the exact 
 `net8.0/Rook.rhp` path. Refuse `net48`, `net7.0`, and root-level `Rook.rhp`. This evidence
 establishes deployed and selected startup inputs only; it makes no loaded-process claim.
 
-- [ ] **Step 5: Start one fresh Rhino process after deployment**
+- [x] **Step 5: Start one fresh Rhino process after deployment**
 
 Only now may the user start Rhino, open the disposable Rhino file, and open Rook Chat.
 Retain the exact panel-open line. Record the sole Rhino PID, `Win32_Process.CreationDate`,
@@ -1035,7 +1035,7 @@ executable path, deployment completion observation, registry path/hash, and the 
 equation `Rhino creation > deployment completion` in `rhino-start-custody.json`. Require
 that process to own the native listener discovered after startup. Do not call MCP.
 
-- [ ] **Step 6: Record and commit runtime custody**
+- [x] **Step 6: Record and commit runtime custody**
 
 Hash all three runtime artifacts into create-new `runtime/manifest.json`; append the
 manifest hash and closed facts to the ledger. Both later row evidence manifests must
@@ -1636,3 +1636,26 @@ deployment attempt; the preserved failed transcript must not be rewritten or reu
 
 Task 2 stops at Step 5. The user must start the one fresh Rhino process after this
 successful deployment before fresh-process custody can be recorded.
+
+### Task 2, Steps 5–6 — fresh Rhino runtime custody
+
+- The user started Rhino only after successful deployment and reported the exact panel
+  line `Rook Chat panel opened for document 268435457`.
+- The sole Rhino process is PID `40384`, parent PID `12404`, executable
+  `C:/Program Files/Rhino 8/System/Rhino.exe`, created at
+  `2026-08-12T00:34:58.9891660Z`, after deployment completion at
+  `2026-08-12T00:26:04.7537294Z`.
+- Native discovery reported the same PID and port `64480`; Windows reported exactly one
+  matching listener at `127.0.0.1:64480` owned by PID `40384`.
+- Managed discovery reported the same PID, runtime child `net8.0`, target framework
+  `.NETCoreApp,Version=v8.0`, and exact registered assembly path
+  `C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net8.0/Rook.rhp`.
+- Create-new `runtime/rhino-start-custody.json` has SHA-256
+  `1C51B2725E47546E9426498B93B41A77768D30741EF9F941F0C41FA818811E16`.
+- Create-new `runtime/manifest.json` binds the successful deployment transcript, Release
+  custody, and Rhino-start custody. Its SHA-256 is
+  `125740D5D53F8C8FAB913C07D92B6C15D9E0E847FCF7769EE53D34826D03489B`.
+- No MCP tool, snapshot, provider, model, or mutation call occurred. Control target and
+  initial-inspection evidence remain absent.
+
+Task 2 is complete. The same PID and creation identity are frozen for both rows.
