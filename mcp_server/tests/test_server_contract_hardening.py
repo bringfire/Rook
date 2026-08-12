@@ -1751,7 +1751,8 @@ async def test_chirp_create_non_deferred_reports_only_component_errors(
                 "data": {
                     "errors": [
                         {"guid": "chirp-guid", "errors": ["component failed"]}
-                    ]
+                    ],
+                    "warnings": [],
                 },
             }
         raise AssertionError(f"Unexpected route: {route}")
