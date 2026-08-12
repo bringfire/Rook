@@ -26,6 +26,11 @@ from mcp.server.stdio import stdio_server
 from mcp import types as mcp_types
 from mcp.types import Tool, TextContent
 
+from .gh_authoring_contract import (
+    GH_SCRIPT_LANGUAGE_CONFIGS as _GH_SCRIPT_LANGUAGE_CONFIGS,
+    model_facing_script_handoff,
+    resolved_script_handoff,
+)
 from .gh_edit_contract import apply_gh_edit_contract
 from .grasshopper_component_contract import (
     is_canonical_lower_guid as _is_canonical_lower_guid,
@@ -2362,51 +2367,7 @@ def _normalize_gh_guid_list(value: Any) -> list[str]:
     return []
 
 
-# Language config for the unified `gh_create_script` helper. Keyed on the
-# `language` discriminator accepted by the MCP tool. See the
-# 2026-04-21 gh-script-component-routing design-pass memo §PR-2.
-_GH_SCRIPT_LANGUAGE_CONFIGS: dict[str, dict[str, str]] = {
-    "python": {
-        # RhinoCode Python 3 Script component GUID
-        "guid": "719467e6-7cf5-4848-99b0-c5dd57e5442c",
-        "default_name": "Python 3 Script",
-        "component_label": "Python 3 Script",
-    },
-    "csharp": {
-        # RhinoCode C# Script component GUID
-        "guid": "b6ba1144-02d6-4a2d-b53c-ec62e290eeb7",
-        "default_name": "C# Script",
-        "component_label": "C# Script",
-    },
-}
-
 _GH_SCRIPT_VALID_LANGUAGES: tuple[str, ...] = tuple(_GH_SCRIPT_LANGUAGE_CONFIGS.keys())
-
-
-# Reverse map: fixed RhinoCode script-component GUID → (language, alias tool
-# name). Used by `_check_script_component_handoff` to refuse
-# `gh_execute_intent` resolutions that would silently bypass the
-# `gh_create_script` transactional create/set-pins/inject-code pipeline.
-# See 2026-04-21 gh-script-component-routing design-pass memo §PR-3.
-#
-# Narrow set: ONLY the two RhinoCode types that `gh_create_script` can
-# actually instantiate by fixed GUID. GH1-legacy types
-# (`GhPythonComponent`, `Component_CSNET_Script`) are deliberately
-# absent — the modern dedicated tools don't instantiate them, so a
-# handoff would be misleading. GUIDs stored lowercase; lookup lowercases
-# the input to match.
-_GH_SCRIPT_COMPONENT_CREATION_MAP: dict[str, dict[str, str]] = {
-    _GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"].lower(): {
-        "language": "python",
-        "tool": "gh_create_script",
-        "alias": "gh_create_python_script",
-    },
-    _GH_SCRIPT_LANGUAGE_CONFIGS["csharp"]["guid"].lower(): {
-        "language": "csharp",
-        "tool": "gh_create_script",
-        "alias": "gh_create_csharp_script",
-    },
-}
 
 
 class _GhScriptHandoffRequired(Exception):
@@ -2430,87 +2391,15 @@ class _GhScriptHandoffRequired(Exception):
 
 def _check_script_component_handoff(
     components: list[dict[str, Any]] | None,
+    request: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Return a structured handoff-required response if any resolved
-    component matches a modern-dedicated script-creation path, else None.
+    """Compatibility wrapper for the retired intent route's resolved list."""
 
-    Called by the `gh_execute_intent` case-arm on the final list of
-    components about to be dispatched — post-resolution (whether DSPy or
-    fallback), pre-dispatch. If the resolver (or fallback) selected a
-    RhinoCode Python 3 or C# Script component, `gh_execute_intent` would
-    otherwise create it via `/gh/create-component` and skip the
-    transactional create/set-pins/inject-code/check-errors pipeline that
-    `gh_create_script` provides. Refusing with a structured response
-    points the caller at the correct tool without auto-dispatching (the
-    caller supplies the `code` / `pins_in` / `pins_out` the intent
-    resolver doesn't produce).
-
-    Args:
-        components: Iterable of component-info dicts, each with a "guid"
-            key. Scans in order; first match wins. None / empty returns
-            None (no handoff needed).
-
-    Returns:
-        Structured handoff response dict on match, else None. Shape:
-            {
-                "success": False,
-                "data": <human-readable diagnostic string>,
-                "handoff_required": True,
-                "component_guid": <matched guid, lowercase>,
-                "recommended_tool": "gh_create_script",
-                "recommended_language": "python" | "csharp",
-                "alias_tool": "gh_create_python_script" | "gh_create_csharp_script",
-            }
-    """
-    if components is None:
-        return None
-    for comp in components:
-        if not isinstance(comp, dict):
-            continue
-        guid_raw = comp.get("guid")
-        if not isinstance(guid_raw, str) or not guid_raw:
-            continue
-        mapping = _GH_SCRIPT_COMPONENT_CREATION_MAP.get(guid_raw.lower())
-        if mapping is None:
-            continue
-        language = mapping["language"]
-        tool = mapping["tool"]
-        alias = mapping["alias"]
-        message = (
-            f"handoff_required: intent resolved to a {language} script "
-            f"component ({guid_raw}). Call "
-            f"{tool}(language=\"{language}\", ...) — not "
-            f"gh_execute_intent. The dedicated tool invokes the "
-            f"transactional create/set-pins/inject-code/check-errors "
-            f"pipeline that gh_execute_intent cannot replicate safely."
-        )
-        # Structured dict payload in `data` so the per-tool dispatcher
-        # can JSON-serialize it (call_tool formats dict-data on failure
-        # as `Error: {<json>}`). The `message` field carries the
-        # human-readable description; the sibling fields
-        # (handoff_required, component_guid, recommended_tool,
-        # recommended_language, alias_tool) are the structured
-        # machine-consumable markers.
-        #
-        # The top-level `_is_handoff` sentinel marks this result as a
-        # routing correction (NOT a true execution failure) so
-        # `_record_observation` can skip metrics recording and
-        # `call_tool`'s formatter can pop it before serialization,
-        # keeping it out of the response text. Precedent: `_metrics_extra`
-        # and `_injection_meta` use the same top-level-underscore convention.
-        return {
-            "success": False,
-            "_is_handoff": True,
-            "data": {
-                "handoff_required": True,
-                "message": message,
-                "component_guid": guid_raw.lower(),
-                "recommended_tool": tool,
-                "recommended_language": language,
-                "alias_tool": alias,
-            },
-        }
-    return None
+    return resolved_script_handoff(
+        "gh_execute_intent",
+        request or {},
+        components,
+    )
 
 
 def _summarize_gh_create_script_verification(errors_result: Any, component_guid: str) -> dict[str, Any]:
@@ -2618,6 +2507,8 @@ async def _execute_gh_create_script(
     port: int,
     *,
     tool_name: str = "gh_create_script",
+    defer_verification: bool = False,
+    verification_settle_seconds: float = 0.3,
 ) -> dict[str, Any]:
     """Create a Grasshopper script component (Python 3 or C#) in one transaction.
 
@@ -2756,15 +2647,32 @@ async def _execute_gh_create_script(
                 "data": f"Component created but script injection failed: {script_result.get('data')}",
             }
 
+        script_data = script_result.get("data")
+        if not isinstance(script_data, dict):
+            script_data = {}
+        verification_deferred = script_data.get("verification_deferred") is True
+
         # Step 4: Check for compilation errors (brief settle delay for GH solve).
-        await asyncio.sleep(0.3)
-        errors_result = await call_rhino(
-            "/gh/errors", "GET", {}, port=port,
-        )
-        verification_summary = _summarize_gh_create_script_verification(
-            errors_result,
-            component_guid,
-        )
+        # Chirp historically returns immediately when its inference-backed script
+        # write reports deferred verification. Dedicated gh_create_script calls
+        # keep their existing eager verification behavior.
+        if defer_verification and verification_deferred:
+            verification_summary = {
+                "component_errors": [],
+                "component_warnings": [],
+                "unrelated_error_count": None,
+                "unrelated_warning_count": None,
+                "unavailable_note": "Verification deferred by the Grasshopper script write.",
+            }
+        else:
+            await asyncio.sleep(verification_settle_seconds)
+            errors_result = await call_rhino(
+                "/gh/errors", "GET", {}, port=port,
+            )
+            verification_summary = _summarize_gh_create_script_verification(
+                errors_result,
+                component_guid,
+            )
         component_errors = verification_summary.get("component_errors")
         component_warnings = verification_summary.get("component_warnings")
 
@@ -2776,6 +2684,10 @@ async def _execute_gh_create_script(
             "name": name or config["default_name"],
             "code_length": len(full_script),
         }
+        if "verification_deferred" in script_data:
+            data["verification_deferred"] = verification_deferred
+        if "solve_scheduled" in script_data:
+            data["solve_scheduled"] = script_data["solve_scheduled"]
         if component_errors:
             data["compilation_errors"] = component_errors
             data["warning"] = "Component placed but has compilation errors"
@@ -2796,7 +2708,10 @@ async def _execute_gh_create_script(
             component_warnings=component_warnings,
             unrelated_error_count=verification_summary.get("unrelated_error_count"),
             unrelated_warning_count=verification_summary.get("unrelated_warning_count"),
-            verification_method="gh_errors",
+            verification_method=(
+                "none" if defer_verification and verification_deferred else "gh_errors"
+            ),
+            deferred=defer_verification and verification_deferred,
             unavailable_note=verification_summary.get("unavailable_note"),
         )
         return _gh_create_script_result_from_data(data)
@@ -13795,6 +13710,9 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
 
     # Work on a copy to avoid mutating caller's dict (important for agent retries)
     arguments = dict(arguments) if arguments else {}
+    handoff = model_facing_script_handoff(name, arguments)
+    if handoff is not None:
+        return handoff
     # Extract port parameter if present (for multi-instance support)
     port = arguments.pop("port", None) if arguments else None
 
@@ -15591,122 +15509,34 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                                         chirp_pin_defs_out,
                                     )
 
-                                # Step 2: Create a RhinoCode C# Script component (not the legacy GH1 one).
-                                # Using GUID directly — name "C# Script" can resolve to the legacy component.
-                                create_result = await call_rhino(
-                                    "/gh/create-component", "POST",
-                                    {"guid": "b6ba1144-02d6-4a2d-b53c-ec62e290eeb7", "x": cx, "y": cy},
-                                    port=port,
+                                display_name = chirp_result.get("name") or chirp_name
+                                result = await _execute_gh_create_script(
+                                    "csharp",
+                                    {
+                                        "code": script,
+                                        "name": display_name,
+                                        "pins_in": chirp_pin_defs_in,
+                                        "pins_out": chirp_pin_defs_out,
+                                        "x": cx,
+                                        "y": cy,
+                                    },
+                                    port,
+                                    tool_name="chirp_create",
+                                    defer_verification=not deterministic_only,
+                                    verification_settle_seconds=0.2,
                                 )
-                                if not create_result.get("success"):
-                                    result = {
-                                        "success": False,
-                                        "data": f"Failed to create C# Script component: {create_result.get('data')}",
-                                    }
-                                else:
-                                    # C# bridge serializes with camelCase — field is "guid" not "Guid"
-                                    cdata = create_result["data"]
-                                    component_guid = cdata.get("guid") or cdata.get("Guid")
-
-                                    # Step 3: Configure pins + NickName (must happen before script
-                                    # injection so RunScript params match the component's parameters)
-                                    display_name = chirp_result.get("name") or chirp_name
-                                    params_payload = {
-                                        "guid": str(component_guid),
-                                        "inputs": _gh_script_pin_defs_to_payload(chirp_pin_defs_in),
-                                        "outputs": _gh_script_pin_defs_to_payload(chirp_pin_defs_out),
-                                    }
-                                    if display_name:
-                                        params_payload["nick"] = display_name
-                                    params_result = await call_rhino(
-                                        "/gh/script-params", "POST",
-                                        params_payload,
-                                        port=port,
-                                    )
-                                    if not params_result.get("success"):
-                                        result = {
-                                            "success": False,
-                                            "data": f"Component created but pin config failed: {params_result.get('data')}",
-                                        }
-                                    else:
-                                        # Step 4: Inject the generated script
-                                        script_result = await call_rhino(
-                                            "/gh/script", "POST",
-                                            {"guid": str(component_guid), "script": script},
-                                            port=port,
-                                        )
-                                        if not script_result.get("success"):
-                                            result = {
-                                                "success": False,
-                                                "data": f"Component created but script injection failed: {script_result.get('data')}",
-                                            }
-                                        else:
-                                            script_data = script_result.get("data")
-                                            if not isinstance(script_data, dict):
-                                                script_data = {}
-                                            verification_deferred = (
-                                                script_data.get("verification_deferred")
-                                                is True
-                                            )
-                                            solve_scheduled = script_data.get(
-                                                "solve_scheduled"
-                                            )
-                                            data = {
-                                                "component_guid": str(component_guid),
-                                                "pins_in": chirp_pin_defs_in,
-                                                "pins_out": chirp_pin_defs_out,
-                                                "position": {"x": cx, "y": cy},
-                                                "signature": signature,
-                                                "category": chirp_result.get(
-                                                    "category", category
-                                                ),
-                                                "name": chirp_result.get(
-                                                    "name", chirp_name
-                                                ),
-                                                "verification_deferred": verification_deferred,
-                                                "solve_scheduled": solve_scheduled,
-                                            }
-
-                                            if (
-                                                verification_deferred
-                                                and not deterministic_only
-                                            ):
-                                                result = {
-                                                    "success": True,
-                                                    "data": data,
-                                                }
-                                            else:
-                                                # Small delay lets the GH solver process the new script.
-                                                await asyncio.sleep(0.2)
-                                                errors_result = await call_rhino(
-                                                    "/gh/errors",
-                                                    "GET",
-                                                    {},
-                                                    port=port,
-                                                )
-                                                component_errors = []
-                                                if errors_result.get("success"):
-                                                    edata = errors_result.get("data", {})
-                                                    for err in edata.get("errors", []):
-                                                        if err.get("guid") == str(
-                                                            component_guid
-                                                        ):
-                                                            component_errors = err.get(
-                                                                "errors", []
-                                                            )
-                                                            break
-
-                                                result = {
-                                                    "success": True,
-                                                    "data": data,
-                                                }
-                                                if component_errors:
-                                                    data["component_errors"] = (
-                                                        component_errors
-                                                    )
-                                                    data["warning"] = (
-                                                        "Component placed but has component errors"
-                                                    )
+                                data = result.get("data") if isinstance(result, dict) else None
+                                if isinstance(data, dict):
+                                    data["signature"] = signature
+                                    data["category"] = chirp_result.get("category", category)
+                                    data.setdefault("verification_deferred", False)
+                                    data.setdefault("solve_scheduled", None)
+                                    component_errors = data.pop("compilation_errors", None)
+                                    data.pop("message", None)
+                                    if component_errors:
+                                        data["component_errors"] = component_errors
+                                        data["warning"] = "Component placed but has component errors"
+                                        result = {"success": True, "data": data}
 
                     except Exception as e:
                         result = {"success": False, "data": f"chirp_create failed: {str(e)}"}
@@ -18577,7 +18407,8 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         # rook_docs/2026-04-21-gh-script-component-routing-
                         # design-pass.md §PR-3.
                         _handoff_response = _check_script_component_handoff(
-                            [comp for comp, _, _ in all_positioned]
+                            [comp for comp, _, _ in all_positioned],
+                            arguments,
                         )
                         if _handoff_response is not None:
                             raise _GhScriptHandoffRequired(_handoff_response)
@@ -21065,6 +20896,15 @@ async def call_tool(
     if name in META_TOOL_NAMES:
         return await _handle_meta_tool(name, arguments, _active_profile,
                                        _public_mcp=_public_mcp)
+
+    # Model-facing authoring admission owns the caller's original arguments.
+    # Apply it after containment/profile/meta enforcement but before Rhino
+    # routing or panel document-context enrichment. The dispatcher repeats the
+    # guard as defense in depth for internal callers that bypass call_tool().
+    handoff = model_facing_script_handoff(name, arguments)
+    if handoff is not None:
+        handoff.pop("_is_handoff", None)
+        return _project_tool_result(handoff, public_mcp=_public_mcp)
 
     if (
         name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS

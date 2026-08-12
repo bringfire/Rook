@@ -21,6 +21,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..bridge import call_rhino
+from ..gh_authoring_contract import model_facing_script_handoff
 from ..gh_edit_contract import apply_gh_edit_contract
 from ..grasshopper_component_contract import project_gh_library_result
 from ..gh_status_contract import normalize_gh_status_result
@@ -1998,6 +1999,10 @@ class ToolDispatcher:
             return {"success": False, "data": denial}
         self._call_count += 1
         params = dict(params) if params else {}
+        handoff = model_facing_script_handoff(name, params)
+        if handoff is not None:
+            handoff.pop("_is_handoff", None)
+            return handoff
         port = params.pop("port", None) or self._port
 
         result = await self._dispatch_inner(name, params, port)

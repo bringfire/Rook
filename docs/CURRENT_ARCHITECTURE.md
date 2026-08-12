@@ -80,6 +80,22 @@ correlation, and adds compatibility summaries; knowledge does not alter authorit
 discovery or metadata. After type selection, the existing `T*` and `C*` identities own
 graph execution.
 
+### Grasshopper authoring capability routing
+
+Model-facing ordinary component creation (`gh_edit` and the active exploration
+routes) applies one shared Python guard in canonical `call_tool()` after
+containment/profile/meta enforcement and before target resolution or panel
+document-context enrichment. Direct `ToolDispatcher` applies the same guard,
+and the lower dispatcher repeats it as defense in depth. Requests for
+the supported modern Python or C# script identities return a structured handoff
+to `gh_create_script` (or its language alias); name and GUID selectors use the
+same classifier. `chirp_create` also delegates its generated C# source to that
+canonical script helper. The internal `/gh/create-component` bridge primitive
+remains capability-neutral and is neither advertised nor directly dispatched to
+models. A closed AST-backed literal-call inventory fails when a new direct raw
+creation call is introduced without review; it does not claim to detect
+indirect or dynamically constructed calls.
+
 ## Runtime Capability Discovery
 
 `RookNative` exposes `GET /capabilities` as the public runtime capability discovery surface. The endpoint reports declared capability domains, current runtime state, reason codes, routes, operations, diagnostics, and evidence. It is descriptive in Phase 1: it does not move route ownership, change companion loading, change installer layout, or make the managed companion public.
