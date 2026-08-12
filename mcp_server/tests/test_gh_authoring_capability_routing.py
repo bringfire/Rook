@@ -477,8 +477,10 @@ async def test_chirp_delegates_generated_csharp_to_canonical_script_helper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     generated_script = "public class Script_Instance { }"
+    chirp_models = []
 
-    async def ensure_running():
+    async def ensure_running(model=None):
+        chirp_models.append(model)
         return {"running": True, "host": "127.0.0.1", "port": 8765}
 
     class FakeResponse:
@@ -589,6 +591,7 @@ async def test_chirp_delegates_generated_csharp_to_canonical_script_helper(
         "y": 400,
     }
     assert raw_calls == []
+    assert chirp_models == [None]
     assert result["success"] is True
     assert result["data"]["signature"] == "Build an XY grid"
     assert result["data"]["category"] == "interpreter"
