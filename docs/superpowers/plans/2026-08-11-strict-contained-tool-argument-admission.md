@@ -31,7 +31,7 @@
 - Produces: the same signature and existing error list, with deterministic unknown-field evidence first
 - Preserves: `server._handle_meta_tool()` and its existing `invalid_arguments` envelope
 
-- [ ] **Step 1: Add pure RED regressions for unknown fields**
+- [x] **Step 1: Add pure RED regressions for unknown fields**
 
 Add to `test_capability_index.py`:
 
@@ -68,19 +68,19 @@ def test_validate_arguments_unknown_error_precedes_existing_errors():
     ]
 ```
 
-- [ ] **Step 2: Run the pure tests and verify RED**
+- [x] **Step 2: Run the pure tests and verify RED**
 
 Run:
 
 ```powershell
 $env:PYTHONPATH = 'C:/UDEV/Rook/.worktrees/strict-contained-tool-argument-admission/mcp_server/src'
-& 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe' -m pytest `
+& 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
   mcp_server/tests/test_capability_index.py -q
 ```
 
 Expected: exactly the three new tests fail because unknown fields currently pass through.
 
-- [ ] **Step 3: Add contained-call RED regressions with zero target contact**
+- [x] **Step 3: Add contained-call RED regressions with zero target contact**
 
 Add to `test_rook_tools_meta.py`:
 
@@ -132,20 +132,20 @@ def test_rook_tools_call_valid_target_arguments_dispatch_once_unchanged(monkeypa
     dispatched.assert_awaited_once_with("gh_library", arguments)
 ```
 
-- [ ] **Step 4: Run contained-call tests and verify RED**
+- [x] **Step 4: Run contained-call tests and verify RED**
 
 Run:
 
 ```powershell
 $env:PYTHONPATH = 'C:/UDEV/Rook/.worktrees/strict-contained-tool-argument-admission/mcp_server/src'
-& 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe' -m pytest `
+& 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
   mcp_server/tests/test_rook_tools_meta.py `
   -k 'unknown_target_fields or valid_target_arguments' -q
 ```
 
 Expected: the unknown-field cases fail because the mocked target is awaited; the valid case passes or exposes only fixture details that must be corrected without changing its assertion.
 
-- [ ] **Step 5: Implement the minimal validator correction**
+- [x] **Step 5: Implement the minimal validator correction**
 
 At the start of `validate_arguments()` after `props` is computed, add:
 
@@ -161,13 +161,13 @@ At the start of `validate_arguments()` after `props` is computed, add:
 
 Do not change any server dispatch code or existing validation clauses.
 
-- [ ] **Step 6: Run focused GREEN tests**
+- [x] **Step 6: Run focused GREEN tests**
 
 Run:
 
 ```powershell
 $env:PYTHONPATH = 'C:/UDEV/Rook/.worktrees/strict-contained-tool-argument-admission/mcp_server/src'
-$python = 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe'
+$python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python -m pytest `
   mcp_server/tests/test_capability_index.py `
   mcp_server/tests/test_rook_tools_meta.py -q
@@ -175,13 +175,13 @@ $python = 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe'
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Run adjacent no-contact regression seams**
+- [x] **Step 7: Run adjacent no-contact regression seams**
 
 Run:
 
 ```powershell
 $env:PYTHONPATH = 'C:/UDEV/Rook/.worktrees/strict-contained-tool-argument-admission/mcp_server/src'
-$python = 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe'
+$python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python -m pytest `
   mcp_server/tests/test_capability_index.py `
   mcp_server/tests/test_rook_tools_meta.py `
@@ -193,12 +193,12 @@ $python = 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe'
 
 Expected: all tests pass with only previously documented warnings.
 
-- [ ] **Step 8: Verify source scope and compile**
+- [x] **Step 8: Verify source scope and compile**
 
 Run:
 
 ```powershell
-$python = 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe'
+$python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python -m py_compile `
   mcp_server/src/rook/capability_index.py `
   mcp_server/tests/test_capability_index.py `
@@ -210,7 +210,7 @@ git status --short
 
 Expected production scope: one modified production module; tests and approved documentation only.
 
-- [ ] **Step 9: Commit the implementation**
+- [x] **Step 9: Commit the implementation**
 
 ```powershell
 git add -- `
@@ -232,7 +232,7 @@ git commit -m 'fix: reject unknown contained tool arguments'
 - Consumes: approved Task 1 behavior and test evidence
 - Produces: durable architecture statement and verification ledger
 
-- [ ] **Step 1: Add one architecture sentence**
+- [x] **Step 1: Add one architecture sentence**
 
 In the progressive-disclosure gateway section of `CURRENT_ARCHITECTURE.md`, record:
 
@@ -242,19 +242,19 @@ top-level schema before re-entering dispatch; unknown fields return invalid_argu
 not contact the target.
 ```
 
-- [ ] **Step 2: Run the prescribed focused and adjacent seams again**
+- [x] **Step 2: Run the prescribed focused and adjacent seams again**
 
 Repeat Task 1 Steps 6–8 from the committed Task 1 state. Record exact pass counts, warning
 counts, production additions/deletions, and the final file scope under an execution ledger
 heading at the end of this plan.
 
-- [ ] **Step 3: Run a no-contact full Python regression suite**
+- [x] **Step 3: Run a no-contact full Python regression suite**
 
 Run:
 
 ```powershell
 $env:PYTHONPATH = 'C:/UDEV/Rook/.worktrees/strict-contained-tool-argument-admission/mcp_server/src'
-& 'C:/Users/bring/AppData/Local/Rook/venv/Scripts/python.exe' -m pytest `
+& 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
   mcp_server/tests -q
 ```
 
@@ -282,3 +282,23 @@ evidence, target, and assessment contracts unchanged. Change only the predeclare
 provider/model/reasoning fields required for the selected installed Nemotron model. Perform
 an inert provider-wire capture, freeze a fresh empty target, then execute exactly one model
 row with the same intent and one final operator snapshot. No Qwen rerun belongs to this task.
+
+## Execution Ledger
+
+- Baseline: exact `06534f371b173308179164189e54b722a34f8a24` in the isolated worktree.
+- RED: the three pure unknown-field cases failed because unknown keys were admitted; the
+  two contained-call cases reached the mocked target dispatcher.
+- Production: `capability_index.py` grew by 7 nonblank lines; no production lines were
+  deleted and no server dispatch code changed.
+- Focused GREEN: 69 passed, 11 existing warnings.
+- Adjacent GREEN: 411 passed, 11 existing warnings.
+- Compilation and `git diff --check`: passed.
+- Full-suite attempt: the environment-dependent repository-wide run reached 42% with
+  numerous failures outside the changed seam and was stopped. Fail-fast identified
+  `test_panel_lock_blocks_spawn_agent_before_background_task`; that exact failure was
+  independently reproduced at the unmodified `06534f37` baseline. No changed-seam test
+  failed.
+- Reproducible test interpreter: `C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe`;
+  the release runtime named in the initial plan does not contain pytest, so the plan
+  commands were corrected before reconciliation.
+- Implementation commit: `7fd48153` (`fix: reject unknown contained tool arguments`).
