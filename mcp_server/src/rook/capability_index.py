@@ -134,6 +134,13 @@ _JSON_TYPES = {"string": str, "integer": int, "number": (int, float),
 def validate_arguments(schema, arguments) -> list[str]:
     errors: list[str] = []
     props = schema.get("properties", {}) if isinstance(schema, Mapping) else {}
+    unknown = sorted(key for key in arguments if key not in props)
+    if unknown:
+        accepted = sorted(props)
+        errors.append(
+            f"unknown fields: {', '.join(unknown)}; accepted fields: "
+            f"{', '.join(accepted) if accepted else '<none>'}"
+        )
     for req in schema.get("required", []) or []:
         if req not in arguments:
             errors.append(f"{req}: required field missing")

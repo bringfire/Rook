@@ -177,3 +177,35 @@ def test_validate_arguments_rejects_bool_for_number_and_integer():
         {"type": "object", "properties": {"n": {"type": "integer"}}}, {"n": False}))
     # A real number still passes:
     assert validate_arguments({"type": "object", "properties": {"n": {"type": "number"}}}, {"n": 1.5}) == []
+
+
+def test_validate_arguments_rejects_unknown_fields_with_complete_accepted_list():
+    schema = {
+        "type": "object",
+        "properties": {
+            "search": {"type": "string"},
+            "limit": {"type": "integer"},
+            "exact": {"type": "boolean"},
+        },
+    }
+    assert validate_arguments(schema, {"zeta": 1, "query": "Series"}) == [
+        "unknown fields: query, zeta; accepted fields: exact, limit, search"
+    ]
+
+
+def test_validate_arguments_reports_no_accepted_fields_for_zero_argument_schema():
+    assert validate_arguments(
+        {"type": "object", "properties": {}}, {"query": "Series"}
+    ) == ["unknown fields: query; accepted fields: <none>"]
+
+
+def test_validate_arguments_unknown_error_precedes_existing_errors():
+    schema = {
+        "type": "object",
+        "required": ["limit"],
+        "properties": {"limit": {"type": "integer"}},
+    }
+    assert validate_arguments(schema, {"query": "Series"}) == [
+        "unknown fields: query; accepted fields: limit",
+        "limit: required field missing",
+    ]
