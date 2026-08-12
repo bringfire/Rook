@@ -990,7 +990,7 @@ MCP client/runtime processes. The deployment script must observe no full-deploy 
 do not terminate or bypass them from the operator. Authorization includes one standard
 build/deploy/registration and no target or model contact.
 
-- [ ] **Step 3: Run the exact Release deployment once and retain its transcript**
+- [x] **Step 3: Run the authorized Release deployment and retain every transcript**
 
 With `runtime/release-deployment.txt` absent, record UTC wall-clock start/completion
 observations outside the transcript and run only:
@@ -1007,7 +1007,7 @@ No `-PayloadOnly`, `-SkipBuild`, `-UseRepoVenv`, `-DevPythonRuntime`, `-AllowRun
 other mode flag is admitted. A failure consumes this deployment attempt and stops before
 Rhino start; do not edit, redeploy, or reuse the transcript.
 
-- [ ] **Step 4: Freeze exact source/deployed and registration custody**
+- [x] **Step 4: Freeze exact source/deployed and registration custody**
 
 Create `release-custody.json` once with the exact deployment start/completion
 observations, transcript hash, exit `0`, merge SHA, and source/deployed SHA-256 pairs for:
@@ -1597,3 +1597,42 @@ Task 2 stops at Step 2 for explicit authorization of the standard Release deploy
 Task 2 is stopped. A reviewed continuation must add the missing sealed-runtime staging
 precondition and assign a fresh transcript/evidence path before authorizing another
 deployment attempt; the preserved failed transcript must not be rewritten or reused.
+
+### Task 2, Steps 3–4 — sealed-runtime continuation and successful Release custody
+
+- The user authorized the required dependency staging, including package-registry contact,
+  and then gave full authority to complete the deployment continuation. Rhino and every
+  exact `python -m rook` process remained absent throughout staging and deployment.
+- The clean detached runtime lane staged CPython `3.11.9`, built the sealed release
+  wheelhouse for Rook `1.5.18` and Chirp `0.1.0`, and passed the repository validator:
+  `Python wheelhouse validation passed: 1.5.18 (103 wheels)`.
+- Generated manifest
+  `installer/runtime/python-runtime-manifest.json` has SHA-256
+  `3AF685BED5A63D1DFDDF08AC464F712F252EFF63FAEDFB7BFF767B81F450DF13`,
+  exact Rook SHA `06534f371b173308179164189e54b722a34f8a24`, and exact Chirp SHA
+  `74b5ab0ade00221628027cc47f9e28d2fe41b453`. Both source lanes remained clean.
+- A transcript-only wrapper error occurred before deployment-script entry because
+  `Tee-Object -LiteralPath` cannot be combined with `-Append`. Its create-new artifact is
+  preserved at `runtime/release-deployment-v2.txt`, SHA-256
+  `1D90EC8EBFCC1CFF34C8098EFBB46DF5669845354BE58F0125F82CE6CE9B286E`.
+  It contains only the start marker; no deployment action occurred under that wrapper.
+- The corrected create-new transcript used `Tee-Object -FilePath -Append`; the actual
+  standard Release command remained exactly
+  `deploy-local-testing.ps1 -Configuration Release`, with no prohibited mode flags.
+  Deployment ran from `2026-08-12T00:22:36.2448495Z` through
+  `2026-08-12T00:26:04.7537294Z` and exited `0`.
+- Successful transcript `runtime/release-deployment-v3.txt` has SHA-256
+  `4F1EA09A87683083F690F9338B011EC2D83611A6F1EF47BF6B027F0A4A2543B8`
+  and length `46643` bytes. The original failed transcript remains byte-identical at
+  SHA-256 `77BDA63C642D692948A26919F4609C21D0B6EDC651E0C08DB15B303DE7C63664`.
+- Source/deployed SHA-256 equality was established for `rook/server.py`, native
+  `RookNative.rhp`, and managed `net8.0/Rook.rhp`. The registry `FileName` resolves by
+  `Path.GetFullPath` plus `OrdinalIgnoreCase` to the exact deployed `net8.0/Rook.rhp`.
+- Create-new `runtime/release-custody.json` records those equations, the selected
+  registration, the successful transcript, and an explicit no-loaded-process claim. Its
+  SHA-256 is `B1D42FB5D7EF16DC9BEE8025F75237CB3A7A7A609B8C73626ECD4EAD101CC92A`.
+- Rhino and Rook MCP remain stopped. No target, snapshot, provider request, model call,
+  Grasshopper mutation, or final inspection occurred.
+
+Task 2 stops at Step 5. The user must start the one fresh Rhino process after this
+successful deployment before fresh-process custody can be recorded.
