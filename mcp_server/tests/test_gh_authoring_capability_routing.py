@@ -321,6 +321,158 @@ async def test_public_mcp_handoff_is_structured_error_without_private_marker(
 
 
 @pytest.mark.asyncio
+async def test_panel_locked_canonical_and_direct_handoffs_preserve_caller_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    request = _edit_with({"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]})
+
+    def fail_route_resolution(*_args, **_kwargs):
+        raise AssertionError("handoff attempted target resolution")
+
+    monkeypatch.setattr(targeting, "resolve_tool_route", fail_route_resolution)
+    try:
+        canonical = await server.call_tool("gh_edit", request, _public_mcp=True)
+        direct = await ToolDispatcher(port=9950).dispatch("gh_edit", request)
+    finally:
+        targeting.reset_targeting_state_for_tests()
+
+    assert canonical.structuredContent == direct
+    assert canonical.structuredContent["data"]["request"] == request
+    assert "documentSerialNumber" not in canonical.structuredContent["data"]["request"]
+    assert request == _edit_with({"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]})
+
+
+@pytest.mark.asyncio
+async def test_canonical_handoff_precedes_target_availability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    calls = []
+
+    def fail_route_resolution(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("target availability was consulted")
+
+    monkeypatch.setattr(targeting, "resolve_tool_route", fail_route_resolution)
+
+    result = await server.call_tool(
+        "gh_edit",
+        _edit_with({"name": GH_SCRIPT_LANGUAGE_CONFIGS["csharp"]["names"][0]}),
+        _public_mcp=True,
+    )
+
+    assert result.structuredContent["data"]["code"] == (
+        "script_component_requires_dedicated_tool"
+    )
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_profile_wall_precedes_script_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "readonly")
+    calls = []
+
+    def fail_if_classified(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("handoff ran before profile wall")
+
+    monkeypatch.setattr(server, "model_facing_script_handoff", fail_if_classified)
+
+    result = await server.call_tool(
+        "gh_edit",
+        _edit_with({"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]}),
+        _public_mcp=True,
+    )
+
+    assert result.structuredContent["data"] == {
+        "code": "tool_profile_blocked",
+        "tool": "gh_edit",
+        "profile": "readonly",
+    }
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_public_schema_validation_precedes_script_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    calls = []
+
+    def fail_if_classified(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("handoff ran before public schema validation")
+
+    monkeypatch.setattr(server, "model_facing_script_handoff", fail_if_classified)
+
+    result = await _public_call("gh_edit", {
+        "create": [{
+            "temp_id": "T1",
+            "guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"],
+        }],
+    })
+
+    assert result.isError is True
+    assert "validation error" in result.content[0].text.lower()
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_meta_dispatch_precedes_script_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    calls = []
+
+    def fail_if_classified(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("handoff ran before meta dispatch")
+
+    monkeypatch.setattr(server, "model_facing_script_handoff", fail_if_classified)
+
+    result = await server.call_tool(
+        "rook_tools_read",
+        {"name": "gh_edit"},
+        _public_mcp=True,
+    )
+
+    assert result.isError is False
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_containment_wall_precedes_script_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    calls = []
+
+    def fail_if_classified(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("handoff ran before containment wall")
+
+    monkeypatch.setattr(server, "model_facing_script_handoff", fail_if_classified)
+
+    result = await server.call_tool(
+        "gh_execute_intent",
+        {"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]},
+        _public_mcp=True,
+    )
+
+    assert result.structuredContent["data"]["code"] == "legacy_semantic_tool_contained"
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_chirp_delegates_generated_csharp_to_canonical_script_helper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

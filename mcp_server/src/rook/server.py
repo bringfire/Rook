@@ -20897,6 +20897,15 @@ async def call_tool(
         return await _handle_meta_tool(name, arguments, _active_profile,
                                        _public_mcp=_public_mcp)
 
+    # Model-facing authoring admission owns the caller's original arguments.
+    # Apply it after containment/profile/meta enforcement but before Rhino
+    # routing or panel document-context enrichment. The dispatcher repeats the
+    # guard as defense in depth for internal callers that bypass call_tool().
+    handoff = model_facing_script_handoff(name, arguments)
+    if handoff is not None:
+        handoff.pop("_is_handoff", None)
+        return _project_tool_result(handoff, public_mcp=_public_mcp)
+
     if (
         name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
         and not _interactive_command_learning_enabled()

@@ -55,6 +55,14 @@ One shared Python contract owner holds:
 The managed and native bridges gain no script GUID registry or policy. There is
 no copied schema, dispatch table, cache, or fallback.
 
+Canonical `call_tool()` applies the classifier after containment, profile,
+meta-tool, and public SDK schema enforcement, but before target resolution or
+panel document-context enrichment. The request retained in the handoff is
+therefore exactly the caller-supplied argument object. Direct `ToolDispatcher`
+applies the same classifier before bridge routing. `_call_tool_dispatch()`
+retains the guard as defense in depth for internal callers that bypass either
+public ingress.
+
 ## Supported Script Identities
 
 The policy is deliberately limited to the two types that `gh_create_script`
@@ -145,9 +153,10 @@ itself.
 - Fixed non-script support components created inside deep exploration are not
   caller-selected component identities and remain unchanged.
 
-A structural regression must enumerate literal production callers of
+A structural regression must inventory literal production callers of
 `/gh/create-component` and `/gh/edit`, correlate them with this classification,
-and fail when a new unclassified model-facing caller appears.
+and fail when a new unclassified literal caller appears. This is a literal-call
+inventory, not proof against indirect or dynamically constructed calls.
 
 ## Skill Contract
 
@@ -179,6 +188,9 @@ Test-first coverage must prove:
 - name and GUID produce the same recommended tool/language;
 - a mixed `gh_edit` batch refuses before one target call or partial mutation;
 - canonical MCP and direct ToolDispatcher expose the same handoff;
+- panel locking cannot enrich the retained request or preempt the handoff with
+  target-resolution failure;
+- containment and profile walls retain precedence over authoring admission;
 - `gh_explore_component`, `gh_explore_deep`, and `gh_investigate` refuse a
   selected script GUID before target dispatch;
 - `gh_explore_component(instanceGuid=...)` remains unchanged;
