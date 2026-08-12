@@ -130,6 +130,11 @@ nonempty. Repair requirements state semantic postconditions only, not tool
 calls or prescribed component topology.
 ```
 
+> **Post-execution disclosure:** The frozen prompt above contains an ordinal
+> mistake: `verdict` is the first field and is scalar. The intended array fields
+> are the second, third, and fifth fields. The disposable prompt and response
+> remain unchanged, and no retry or corrected-prompt call is authorized.
+
 Do not mention the known diagnosis, Series, or an expected verdict.
 
 - [ ] **Step 4: Create and statically inspect the one-call Prime operator**

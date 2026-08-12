@@ -51,7 +51,7 @@ api: openai-completions
 reasoning: medium
 tools: []
 maxRetries: 0
-provider dispatches: 1
+provider payloads observed in the artifact-producing invocation: 1
 assistant stopReason: stop
 content blocks: thinking, text
 ```
@@ -59,6 +59,13 @@ content blocks: thinking, text
 No Agent loop, IPython tool, skill, extension, MCP client, Rhino client,
 Grasshopper client, subprocess tool, or external provider was available to the
 Critic. The operator contained one `streamSimple` invocation and no retry loop.
+
+The operator's in-process hook required exactly one provider payload and
+`maxRetries=0`, so the retained successful invocation proves one payload and no
+SDK retry for that invocation. Its first create-new evidence guard occurs after
+`await stream.result()`. Therefore the retained files cannot forensically
+exclude a separate, unretained re-execution of the operator. This report does
+not claim experiment-wide one-shot custody.
 
 Observed usage was:
 
@@ -99,6 +106,14 @@ ValueError: evidence pointer authority
 No `critic-result.json` was created. The raw assistant and visible response
 remain retained; the response was not repaired, reinterpreted as admitted, or
 sent back to the model.
+
+The frozen prompt also contains an instruction defect. After listing `verdict`
+first, it says the “first, second, and fifth fields” are arrays. `verdict` is
+scalar; the intended array fields were the second, third, and fifth. Qwen still
+returned the intended field types, and the defect did not cause the observed
+pointer-authority refusal. It nevertheless prevents treating this as a
+perfectly unambiguous prompt qualification. The prompt remains unchanged and no
+corrected call was made.
 
 ## Qualification criteria
 
@@ -181,6 +196,9 @@ This experiment proves:
 This experiment does not prove:
 
 - that the proposed reusable boundary is ready to implement;
+- that experiment-wide one-shot custody can be reconstructed from the retained
+  artifacts;
+- that the frozen Critic prompt was internally unambiguous;
 - that Qwen can reliably produce the closed discrepancy grammar;
 - that Qwen understands Count-versus-interval cardinality from snapshots;
 - that a free-form Critic should become a permanent runtime judge;
