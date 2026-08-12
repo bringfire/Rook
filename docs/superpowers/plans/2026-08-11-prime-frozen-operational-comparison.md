@@ -1139,7 +1139,7 @@ rook_full.call("gh_snapshot", {"include_data": true, "max_preview_items": 3})
 
 No model, mutation, retry, second inspection, or fallback is part of this authorization.
 
-- [ ] **Step 5: Execute one initial inspection and freeze target A**
+- [x] **Step 5: Execute one initial inspection and freeze target A**
 
 Run the control kernel's `inspection.py initial`. If the exact empty predicate fails, preserve the request/result evidence, do not create `target.json`, and stop.
 
@@ -1148,7 +1148,7 @@ and exact encoded request/result row hashes. Add only target/initial entries to 
 phase-aware manifest and rerun the inert tests. Report the target SHA-256 and manifest
 SHA-256.
 
-- [ ] **Step 6: Record and commit target-A custody**
+- [x] **Step 6: Record and commit target-A custody**
 
 Append exact target/evidence hashes and the one-call budget to the ledger, then commit only the ledger:
 
@@ -1685,3 +1685,27 @@ successful deployment before fresh-process custody can be recorded.
   initial-inspection evidence remain absent.
 
 Task 2 is complete. The same PID and creation identity are frozen for both rows.
+
+### Task 3 — frozen control target A
+
+- Independent review approved target candidate PID `40384`, native port `64480`, Rhino
+  document serial `268435457`, and exactly one read-only initial `gh_snapshot`.
+- The control inspector made exactly one canonical call with arguments
+  `{"include_data":true,"max_preview_items":3}`. No model, retry, second inspection,
+  fallback, cleanup, or mutation occurred.
+- The retained snapshot returned `success=true`, epoch `1`, `components=[]`, `flows=[]`,
+  diagnostics total/errors/warnings `0/0/0`, with groups and relays absent and therefore
+  empty under the frozen predicate.
+- `control/operator/initial-inspection.jsonl` contains exactly the request and result rows,
+  SHA-256 `F429D14FD6C5D9B77523C9A6BA6129A18E140F390A8D9E82771887023D404B68`.
+- `control/operator/target.json` freezes the exact candidate and encoded row hashes,
+  SHA-256 `7160AD1D29D3E553FFBD4181CA6632F79C65B744EC23C6C57F719DDC18B24494`.
+- The phase-aware control manifest now contains the original 19 entries plus only target
+  and initial-inspection evidence. Its SHA-256 is
+  `6E2CD2C4A55B14FC30B062A81B1BA30F3C041DDB37213C21D9B28A4EAD10C2E8`.
+- The exact phase-current inert seam passed **62/62** after target creation. Prime JSONL,
+  stderr, process ledger, native session, final inspection, and model evidence remain
+  absent.
+
+Task 3 is complete and stops at the mandatory target-A/model review gate. No Opus or
+provider call is authorized by the initial snapshot approval.
