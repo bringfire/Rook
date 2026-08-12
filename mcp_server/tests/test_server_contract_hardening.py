@@ -1292,7 +1292,7 @@ async def test_gh_set_script_pins_typo_current_name_raises_structured_error(monk
 async def test_chirp_create_rejects_terminal_timeout_before_http_or_rhino(
     monkeypatch, patched_server
 ):
-    async def fake_ensure_chirp_running():
+    async def fake_ensure_chirp_running(_model=None):
         return {
             "running": False,
             "host": "127.0.0.1",
@@ -1343,8 +1343,141 @@ async def test_chirp_create_rejects_terminal_timeout_before_http_or_rhino(
 
 
 @pytest.mark.asyncio
+async def test_chirp_create_exposes_only_optional_model_provider_surface():
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    forbidden_tools = {"vertex_login", "vertex_connect", "oauth_login"}
+    assert forbidden_tools.isdisjoint(tools)
+
+    schema = tools["chirp_create"].inputSchema
+    assert schema["properties"]["model"] == {
+        "type": "string",
+        "description": "Optional explicit LiteLLM model identifier for this Chirp",
+    }
+    assert "model" not in schema["required"]
+    forbidden_fields = {"client", "credential", "token", "oauth"}
+    for tool in tools.values():
+        properties = (tool.inputSchema or {}).get("properties", {})
+        assert not {
+            name
+            for name in properties
+            if any(fragment in name.lower() for fragment in forbidden_fields)
+        }
+
+
+@pytest.mark.asyncio
+async def test_chirp_create_preserves_stable_vertex_admission_error(
+    monkeypatch,
+    patched_server,
+):
+    async def fake_ensure(model=None):
+        assert model == "vertex_ai/claude-sonnet"
+        return {
+            "running": False,
+            "host": "127.0.0.1",
+            "port": 0,
+            "error": (
+                "This release supports only Gemini publisher models on Vertex AI "
+                "(vertex_ai/gemini-*)."
+            ),
+            "error_code": "vertex_model_family_unsupported",
+        }
+
+    class _ForbiddenAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("unsupported model must reject before HTTP")
+
+    monkeypatch.setattr("rook.chirp_manager.ensure_chirp_running", fake_ensure)
+    monkeypatch.setattr(server.httpx, "AsyncClient", _ForbiddenAsyncClient)
+    monkeypatch.setattr(
+        server,
+        "call_rhino",
+        AsyncMock(side_effect=AssertionError("must reject before Rhino")),
+    )
+
+    payload = _decode_response(
+        await server.call_tool(
+            "chirp_create",
+            {
+                "pins_in": [{"name": "Input", "type": "string"}],
+                "pins_out": [{"name": "Result", "type": "string"}],
+                "signature": "input -> result",
+                "category": "classifier",
+                "model": "vertex_ai/claude-sonnet",
+            },
+        )
+    )
+
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "vertex_model_family_unsupported"
+    assert "Gemini publisher models" in payload["data"]["details"]
+
+
+@pytest.mark.asyncio
+async def test_chirp_create_preserves_generation_error_from_sidecar(
+    monkeypatch,
+    patched_server,
+):
+    class _StaleResponse:
+        status_code = 503
+        text = "redacted"
+
+        def json(self):
+            return {
+                "error": "vertex_restart_required",
+                "details": "Vertex authorization changed; restart managed Chirp.",
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, _url, json):
+            assert json["model"] == "vertex_ai/gemini-2.5-pro"
+            return _StaleResponse()
+
+    async def fake_ensure(_model=None):
+        return {"running": True, "host": "127.0.0.1", "port": 9123}
+
+    monkeypatch.setattr("rook.chirp_manager.ensure_chirp_running", fake_ensure)
+    monkeypatch.setattr(server.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(
+        server,
+        "call_rhino",
+        AsyncMock(side_effect=AssertionError("stale sidecar must reject before Rhino")),
+    )
+
+    payload = _decode_response(
+        await server.call_tool(
+            "chirp_create",
+            {
+                "pins_in": [{"name": "Input", "type": "string"}],
+                "pins_out": [{"name": "Result", "type": "string"}],
+                "signature": "input -> result",
+                "category": "classifier",
+                "model": "vertex_ai/gemini-2.5-pro",
+            },
+        )
+    )
+
+    assert payload == {
+        "success": False,
+        "data": {
+            "error": "vertex_restart_required",
+            "details": "Vertex authorization changed; restart managed Chirp.",
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_server):
     routes = []
+    admitted_models = []
 
     class _FakeChirpResponse:
         status_code = 200
@@ -1371,9 +1504,11 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
         async def post(self, url, json):
             assert json["pins_in"] == ["Brief:string"]
             assert json["pins_out"] == ["Span:float"]
+            assert json["model"] == "vertex_ai/gemini-2.5-pro"
             return _FakeChirpResponse()
 
-    async def fake_ensure_chirp_running():
+    async def fake_ensure_chirp_running(model=None):
+        admitted_models.append(model)
         return {"running": True, "host": "127.0.0.1", "port": 9123}
 
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
@@ -1440,6 +1575,7 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
             }],
             "signature": "brief -> span",
             "category": "planner",
+            "model": "vertex_ai/gemini-2.5-pro",
         },
     )
     payload = _decode_response(response)
@@ -1465,6 +1601,7 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
     assert payload["data"]["pins_out"][0]["description"] == "Candidate spans"
     assert payload["data"]["verification_deferred"] is True
     assert payload["data"]["solve_scheduled"] is True
+    assert admitted_models == ["vertex_ai/gemini-2.5-pro"]
     assert "component_errors" not in payload["data"]
     assert "/gh/errors" not in routes
 
@@ -1511,7 +1648,7 @@ async def test_chirp_create_deterministic_only_uses_host_compatible_script_witho
             assert json["deterministic_only"] is True
             return _FakeChirpResponse()
 
-    async def fake_ensure_chirp_running():
+    async def fake_ensure_chirp_running(_model=None):
         return {"running": True, "host": "127.0.0.1", "port": 9123}
 
     async def fake_call_rhino(route, method="GET", payload=None, port=None):
@@ -1598,7 +1735,7 @@ async def test_chirp_create_non_deferred_reports_only_component_errors(
             assert json["signature"] == "input -> result"
             return _FakeChirpResponse()
 
-    async def fake_ensure_chirp_running():
+    async def fake_ensure_chirp_running(_model=None):
         return {"running": True, "host": "127.0.0.1", "port": 9123}
 
     async def fake_call_rhino(route, method="GET", payload=None, port=None):

@@ -18,6 +18,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 
 import litellm
 
+from ...providers.vertex_auth import VertexAuthError, apply_vertex_litellm_arguments
 from . import model_status
 from .conversation_store import Conversation
 # execution_policy verification (needs_verification + annotate_result) is now
@@ -995,6 +996,11 @@ class ChatRunner:
             resolution = await model_status.resolve_allowed_model_override(model_override)
         except model_status.ModelOverrideUnavailable as exc:
             return {"success": False, "data": exc.to_payload()}
+        except VertexAuthError as exc:
+            return {
+                "success": False,
+                "data": {"error": exc.public_message, "code": exc.code},
+            }
 
         reason = params.get("reason") or ""
         staged = conversation.stage_model_override(
@@ -1097,6 +1103,10 @@ class ChatRunner:
                     )
                     if conversation.api_base:
                         llm_kwargs["api_base"] = conversation.api_base
+                    llm_kwargs = apply_vertex_litellm_arguments(
+                        conversation.model,
+                        llm_kwargs,
+                    )
                     stream = await litellm.acompletion(**llm_kwargs)
                     async for chunk in stream:
                         if not chunk.choices:

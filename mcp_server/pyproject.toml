@@ -11,6 +11,7 @@ dependencies = [
     "dspy>=2.6.0",
     "python-dotenv>=1.0.0",
     "litellm==1.89.4",
+    "google-auth==2.56.3",
     "aiohttp>=3.9.0",
     "networkx>=3.2",
     "jsonschema==4.26.0",
