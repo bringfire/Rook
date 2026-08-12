@@ -5,6 +5,10 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $TestRoot)
 $RuntimeConfigPath = Join-Path $RepoRoot 'installer\python-runtime\python-runtime.json'
 $RuntimeStager = Join-Path $RepoRoot 'scripts\python-runtime\stage-rook-python-runtime.ps1'
 $WheelhouseBuilder = Join-Path $RepoRoot 'scripts\python-runtime\build-rook-python-wheelhouse.ps1'
+$WheelhouseValidator = Join-Path $RepoRoot 'scripts\validate-python-wheelhouse.ps1'
+$StagedRuntimeRoot = Join-Path $RepoRoot 'installer\runtime'
+$GoogleAuthVersion = '2.56.3'
+$GoogleAuthWheelSha256 = '8EC438808F813AD034535000261EED1067475D229D05BBF4216E78C3F2362E53'
 
 function Assert-True {
     param([bool]$Condition, [string]$Message)
@@ -144,6 +148,69 @@ function Test-OcrDependencyIsNotDefaultRuntimeDependency {
     Assert-Contains -Text $content -Expected 'pytesseract>=0.3.10' -Message 'OCR optional extra must contain pytesseract.'
 }
 
+function Test-GoogleAuthReleaseDependencyIsExactlyPinned {
+    $pyprojectPath = Join-Path $RepoRoot 'mcp_server\pyproject.toml'
+    $lockPath = Join-Path $RepoRoot 'mcp_server\uv.lock'
+    $pyproject = Get-Content -LiteralPath $pyprojectPath -Raw
+    $uvLock = Get-Content -LiteralPath $lockPath -Raw
+    $builder = Get-Content -LiteralPath $WheelhouseBuilder -Raw
+    $validator = Get-Content -LiteralPath $WheelhouseValidator -Raw
+
+    $directPins = @([regex]::Matches($pyproject, '(?m)^\s*"google-auth==2\.56\.3",\s*$'))
+    Assert-True -Condition ($directPins.Count -eq 1) -Message 'Rook must declare exactly one google-auth==2.56.3 direct dependency.'
+
+    $packageBlocks = @([regex]::Matches($uvLock, '(?ms)^\[\[package\]\]\r?\nname = "google-auth"\r?\nversion = "([^"]+)".*?(?=^\[\[package\]\]|\z)'))
+    Assert-True -Condition ($packageBlocks.Count -eq 1) -Message 'uv.lock must contain exactly one google-auth package record.'
+    Assert-True -Condition ($packageBlocks[0].Groups[1].Value -eq $GoogleAuthVersion) -Message 'uv.lock must resolve google-auth 2.56.3.'
+    Assert-Contains -Text $packageBlocks[0].Value -Expected "hash = `"sha256:$($GoogleAuthWheelSha256.ToLowerInvariant())`"" -Message 'uv.lock must retain the admitted google-auth wheel hash.'
+
+    Assert-Contains -Text $builder -Expected "if (Test-Path -LiteralPath `$wheelhouse) { Remove-Item -LiteralPath `$wheelhouse -Recurse -Force }" -Message 'Wheelhouse generation must begin from an exact empty payload.'
+    Assert-Contains -Text $builder -Expected '''--package'', "rook-mcp==$Version", ''--output'', $lockRook' -Message 'Builder must generate the Rook lock from the sealed Rook wheel.'
+    Assert-Contains -Text $builder -Expected '''--package'', ''chirp==0.1.0'', ''--output'', $lockChirp' -Message 'Builder must generate the Chirp lock from the sealed Chirp wheel.'
+    Assert-Contains -Text $builder -Expected 'lines.append(f"{name}=={version} --hash=sha256:{digest}")' -Message 'Generated locks must bind each package to its staged wheel hash.'
+    Assert-Contains -Text $builder -Expected 'wheels = $wheelMetadata.wheels' -Message 'The manifest must own the staged wheel inventory.'
+    Assert-Contains -Text $validator -Expected '$manifest.wheelhouse.wheels' -Message 'The validator must derive its expected inventory from the manifest.'
+    Assert-Contains -Text $validator -Expected '$diskWheels.Count' -Message 'The validator must report the actual manifest-reconciled wheel count.'
+    Assert-NotContains -Text $validator -Expected '103 wheels' -Message 'The release guard must not freeze a historical wheel count.'
+}
+
+function Test-StagedGoogleAuthPayloadWhenPresent {
+    $manifestPath = Join-Path $StagedRuntimeRoot 'python-runtime-manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        Write-Host 'Staged google-auth payload check deferred until the release payload exists.'
+        return
+    }
+
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $wheelhouse = Join-Path $StagedRuntimeRoot 'python-wheelhouse'
+    $manifestRecords = @($manifest.wheelhouse.wheels | Where-Object {
+        (([string]$_.project -replace '[-_.]+', '-').ToLowerInvariant()) -eq 'google-auth'
+    })
+    Assert-True -Condition ($manifestRecords.Count -eq 1) -Message 'Manifest must contain exactly one google-auth wheel.'
+    $record = $manifestRecords[0]
+    Assert-True -Condition ([string]$record.version -eq $GoogleAuthVersion) -Message 'Manifest google-auth version mismatch.'
+    Assert-True -Condition ([string]$record.sha256 -eq $GoogleAuthWheelSha256) -Message 'Manifest google-auth hash mismatch.'
+
+    $googleWheels = @(Get-ChildItem -LiteralPath $wheelhouse -Filter 'google_auth-*.whl' -File)
+    Assert-True -Condition ($googleWheels.Count -eq 1) -Message 'Wheelhouse must contain exactly one google-auth wheel version.'
+    Assert-True -Condition ($googleWheels[0].Name -eq [string]$record.file) -Message 'Manifest and disk google-auth wheel names must match.'
+    Assert-True -Condition ((Get-FileHash -LiteralPath $googleWheels[0].FullName -Algorithm SHA256).Hash -eq $GoogleAuthWheelSha256) -Message 'Staged google-auth wheel hash mismatch.'
+
+    $diskWheelCount = @(Get-ChildItem -LiteralPath $wheelhouse -Filter '*.whl' -File).Count
+    $manifestWheelCount = @($manifest.wheelhouse.wheels).Count
+    Assert-True -Condition ($diskWheelCount -eq $manifestWheelCount) -Message 'Wheelhouse total must equal the manifest-derived wheel count.'
+
+    foreach ($lockName in @('rook', 'chirp')) {
+        $lockRelativePath = [string]$manifest.lockfiles.$lockName.path
+        $lockPath = Join-Path $RepoRoot $lockRelativePath
+        $lockContent = Get-Content -LiteralPath $lockPath -Raw
+        $matches = @([regex]::Matches($lockContent, '(?im)^\s*google-auth==2\.56\.3\s+--hash=sha256:([0-9a-f]{64})\s*$'))
+        Assert-True -Condition ($matches.Count -eq 1) -Message "$lockName lock must contain exactly one google-auth==2.56.3 record."
+        Assert-True -Condition ($matches[0].Groups[1].Value.ToUpperInvariant() -eq $GoogleAuthWheelSha256) -Message "$lockName lock google-auth hash mismatch."
+        Assert-True -Condition (-not [regex]::IsMatch($lockContent, '(?im)^\s*google-auth==(?!2\.56\.3\b)')) -Message "$lockName lock contains another google-auth version."
+    }
+}
+
 Test-PythonRuntimeConfigIsPinned
 Test-PythonRuntimeStagerExistsAndNeverRunsAtInstallTime
 Test-PythonRuntimeStagerStagesRuntimeIntoTempRoots
@@ -151,5 +218,7 @@ Test-WheelhouseBuilderExists
 Test-WheelhouseBuilderEnforcesReleaseContracts
 Test-McpDependencyIsExactlyPinned
 Test-OcrDependencyIsNotDefaultRuntimeDependency
+Test-GoogleAuthReleaseDependencyIsExactlyPinned
+Test-StagedGoogleAuthPayloadWhenPresent
 
 Write-Host 'Python runtime packaging guard tests passed.'
