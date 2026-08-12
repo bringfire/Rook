@@ -1070,22 +1070,48 @@ entire runtime chain before any MCP contact.
 - Consumes: reviewed control non-target row, exact PID/port/document candidate, and `inspection.py run_initial()`.
 - Produces: complete target A identity and updated manifest; performs exactly one canonical `gh_snapshot` and no model call.
 
-- [ ] **Step 1: Reverify the approved inert package before asking for a target**
+- [x] **Step 1: Reverify the approved inert package before asking for a target**
 
-Rerun all Task 1 inert tests and hashes. Verify all runtime-custody hashes and require the
+Rerun all phase-applicable Task 1 inert tests and hashes. Exclude only
+`ArtifactParityTests.test_runtime_deployment_and_rhino_start_artifacts_are_absent`: its
+Task-1-only absence assertion is superseded by Task 2's reviewed runtime custody. Run the
+exact 62-test seam with:
+
+```powershell
+$Python = 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/control/kernel-venv/Scripts/python.exe'
+$Test = 'C:/Users/bring/AppData/Local/Temp/prime-rook-operational-comparison-v2/operator/test_comparison.py'
+$Code = @'
+import importlib.util, unittest
+spec = importlib.util.spec_from_file_location("comparison_tests", r"C:\Users\bring\AppData\Local\Temp\prime-rook-operational-comparison-v2\operator\test_comparison.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+def flatten(suite):
+    for item in suite:
+        yield from flatten(item) if isinstance(item, unittest.TestSuite) else (item,)
+excluded = "comparison_tests.ArtifactParityTests.test_runtime_deployment_and_rhino_start_artifacts_are_absent"
+tests = [test for test in flatten(unittest.defaultTestLoader.loadTestsFromModule(module)) if test.id() != excluded]
+if len(tests) != 62:
+    raise SystemExit(f"expected 62 phase-current tests, got {len(tests)}")
+result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(tests))
+raise SystemExit(0 if result.wasSuccessful() else 1)
+'@
+& $Python -c $Code
+```
+
+Verify all runtime-custody hashes and require the
 same live Rhino PID and `CreationDate` recorded after deployment. Require
 `control/operator/target.json`, both initial/final inspection files, Prime stdout/stderr,
 process ledger, and every session artifact to be absent. Any runtime drift stops; do not
 deploy or restart.
 
-- [ ] **Step 2: Stop for explicit target-A contact authorization**
+- [x] **Step 2: Stop for explicit target-A contact authorization**
 
 Inside the already frozen Rhino process, the operator creates a fresh empty disposable
 Grasshopper document, activates its Rhino document, opens/reopens Rook Chat, and supplies
 the exact panel line. Starting another Rhino process is not admitted. This step authorizes
 no snapshot by itself.
 
-- [ ] **Step 3: Corroborate target A without MCP contact**
+- [x] **Step 3: Corroborate target A without MCP contact**
 
 Use the current native discovery record and Windows listener table to establish exact
 positive `processId`, `nativePort`, listener owner, and Rhino
@@ -1103,7 +1129,7 @@ and Windows listener owner. Confirm that target and all live evidence remain abs
 On-disk hashes without fresh-process correlation do not pass. Review does not authorize
 contact.
 
-- [ ] **Step 4: Obtain explicit authorization for exactly one initial snapshot**
+- [x] **Step 4: Obtain explicit authorization for exactly one initial snapshot**
 
 State the complete target candidate and exact call:
 
