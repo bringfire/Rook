@@ -354,6 +354,7 @@ def test_public_surface_is_exact_and_module_has_no_runtime_owners():
     assert acceptance.__all__ == (
         "canonical_json_bytes",
         "append_source_event",
+        "append_canonical_gateway_source_event",
         "seal_prime_source_log",
         "seal_direct_source_log",
         "normalize_authoring_trace",
@@ -383,6 +384,101 @@ def test_canonical_json_bytes_are_strict_sorted_compact_utf8_with_one_lf():
         acceptance.canonical_json_bytes({"bad": float("nan")})
 
 
+def test_public_gateway_appender_owns_sequence_and_mutation_projection(tmp_path):
+    source_path = tmp_path / "source.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+    receipt = _receipt()
+    expected = _event(
+        0,
+        "gh_edit",
+        classification="terminal",
+        commit_status="committed",
+        receipt=receipt,
+        arguments={"epoch": 1, "create": []},
+    )
+
+    actual = acceptance.append_canonical_gateway_source_event(
+        source_path,
+        "gh_edit",
+        {"epoch": 1, "create": []},
+        result=expected["result"],
+    )
+
+    assert actual == expected
+    rows = [json.loads(line) for line in source_path.read_text().splitlines()]
+    assert rows == [
+        {
+            "schema": "rook.gh_authoring_source_log:v1",
+            "row_emitter": "prime_rook_adapter",
+        },
+        expected,
+    ]
+
+
+def test_public_gateway_appender_owns_exception_projection(tmp_path):
+    source_path = tmp_path / "source.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+    error = RuntimeError("boom")
+
+    actual = acceptance.append_canonical_gateway_source_event(
+        source_path,
+        "gh_edit",
+        {"epoch": 1},
+        exception=error,
+    )
+
+    assert actual == {
+        "sequence": 0,
+        "ingress": "canonical_gateway",
+        "target": "gh_edit",
+        "arguments": {"epoch": 1},
+        "result": None,
+        "exception": {"type": "builtins.RuntimeError", "message": "boom"},
+        "dispatch": {"status": "unknown", "target_call_count": None},
+        "mutation": {
+            "classification": "unknown",
+            "commit_status": "unknown",
+            "commit_evidence": None,
+            "solve_readiness_receipt": None,
+        },
+    }
+
+
+def test_public_gateway_appender_refuses_non_prime_source_owner(tmp_path):
+    source_path = tmp_path / "source.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "direct_transaction_wrapper",
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="invalid_gateway_source_owner"):
+        acceptance.append_canonical_gateway_source_event(
+            source_path,
+            "gh_snapshot",
+            {},
+            result={"success": True, "data": {}},
+        )
+    assert len(source_path.read_text().splitlines()) == 1
+
+
 def test_append_and_prime_seal_require_complete_runtime_custody(tmp_path):
     source_path = tmp_path / "source.jsonl"
     runtime_path = tmp_path / "runtime.jsonl"
@@ -408,6 +504,193 @@ def test_append_and_prime_seal_require_complete_runtime_custody(tmp_path):
     assert closure["source_event_count"] == 1
     assert closure["final_source_sequence"] == 0
     assert acceptance.normalize_authoring_trace(source_path, runtime_path)["events"] == [event]
+
+
+def _retained_prime_housekeeping_suffix() -> list[dict]:
+    state = {
+        "role": "custom",
+        "customType": "ipython_state",
+        "content": "<ipython_state>\nretained kernel state\n</ipython_state>",
+        "display": False,
+        "timestamp": 1786621406964,
+    }
+    return [
+        {"type": "message_start", "message": state},
+        {"type": "message_end", "message": state},
+        {
+            "type": "compaction_end",
+            "reason": "threshold",
+            "result": {
+                "summary": "retained summary",
+                "firstKeptEntryId": "7429c411",
+                "tokensBefore": 112121,
+                "details": {"readFiles": [], "modifiedFiles": []},
+            },
+            "aborted": False,
+            "willRetry": False,
+        },
+    ]
+
+
+def test_prime_seal_accepts_agent_end_as_final_semantic_event_with_retained_suffix(tmp_path):
+    source_path = tmp_path / "source.jsonl"
+    runtime_path = tmp_path / "runtime.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+    runtime_rows = [
+        {"type": "message"},
+        {"type": "agent_end"},
+        *_retained_prime_housekeeping_suffix(),
+    ]
+    runtime_payload = b"".join(
+        acceptance.canonical_json_bytes(row) for row in runtime_rows
+    )
+    runtime_path.write_bytes(runtime_payload)
+
+    closure = acceptance.seal_prime_source_log(
+        source_path,
+        runtime_path,
+        {
+            "terminated": True,
+            "stdout_eof": True,
+            "owned_child_pids": [],
+            "exit_code": 0,
+        },
+    )
+
+    assert closure["terminal_marker"] == "agent_end"
+    assert closure["runtime_log_sha256"] == hashlib.sha256(
+        runtime_payload
+    ).hexdigest().upper()
+
+
+def test_prime_runtime_preserves_valid_noncanonical_jsonl_bytes(tmp_path):
+    source_path = tmp_path / "source.jsonl"
+    runtime_path = tmp_path / "runtime.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+    runtime_payload = b'{"type": "agent_end", "messages": []}\n'
+    runtime_path.write_bytes(runtime_payload)
+
+    closure = acceptance.seal_prime_source_log(
+        source_path,
+        runtime_path,
+        {
+            "terminated": True,
+            "stdout_eof": True,
+            "owned_child_pids": [],
+            "exit_code": 0,
+        },
+    )
+
+    assert closure["runtime_log_sha256"] == hashlib.sha256(
+        runtime_payload
+    ).hexdigest().upper()
+    assert acceptance.normalize_authoring_trace(source_path, runtime_path)[
+        "source_closure"
+    ] == closure
+
+
+@pytest.mark.parametrize(
+    "runtime_payload",
+    [
+        b'{"type":"agent_end","type":"agent_end"}\n',
+        b'\xef\xbb\xbf{"type":"agent_end"}\n',
+        b'{"type":"agent_end"}',
+        b'{"type":"agent_end"}\n\n',
+        b'{"type":NaN}\n',
+        b'{"type":"message","value":1e999}\n{"type":"agent_end"}\n',
+    ],
+)
+def test_prime_runtime_still_refuses_malformed_or_ambiguous_jsonl(
+    tmp_path, runtime_payload
+):
+    source_path = tmp_path / "source.jsonl"
+    runtime_path = tmp_path / "runtime.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+    runtime_path.write_bytes(runtime_payload)
+
+    with pytest.raises(ValueError):
+        acceptance.seal_prime_source_log(
+            source_path,
+            runtime_path,
+            {
+                "terminated": True,
+                "stdout_eof": True,
+                "owned_child_pids": [],
+                "exit_code": 0,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "hostile_suffix",
+    [
+        [{"type": "turn_start"}],
+        [{"type": "message_start", "message": {"role": "assistant"}}],
+        [{"type": "message_end", "message": {"role": "user"}}],
+        [{"type": "tool_execution_start", "toolName": "ipython"}],
+        [{"type": "tool_execution_end", "toolName": "ipython"}],
+        [{"type": "mutation", "target": "gh_edit"}],
+        [{"type": "unknown_housekeeping"}],
+        [{"type": "agent_end"}],
+        [_retained_prime_housekeeping_suffix()[0]],
+        [
+            _retained_prime_housekeeping_suffix()[0],
+            _retained_prime_housekeeping_suffix()[1]
+            | {"message": {"role": "custom", "customType": "ipython_state"}},
+        ],
+    ],
+)
+def test_prime_seal_refuses_hostile_or_unclosed_post_terminal_suffix(
+    tmp_path, hostile_suffix
+):
+    source_path = tmp_path / "source.jsonl"
+    runtime_path = tmp_path / "runtime.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+    runtime_rows = [{"type": "agent_end"}, *hostile_suffix]
+    runtime_path.write_bytes(
+        b"".join(acceptance.canonical_json_bytes(row) for row in runtime_rows)
+    )
+
+    with pytest.raises(ValueError, match="invalid_prime_terminal_marker"):
+        acceptance.seal_prime_source_log(
+            source_path,
+            runtime_path,
+            {
+                "terminated": True,
+                "stdout_eof": True,
+                "owned_child_pids": [],
+                "exit_code": 0,
+            },
+        )
+    assert b'"type":"closure"' not in source_path.read_bytes()
 
 
 @pytest.mark.parametrize(

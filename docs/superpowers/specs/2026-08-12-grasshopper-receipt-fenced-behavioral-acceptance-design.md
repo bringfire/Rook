@@ -525,14 +525,24 @@ trailing LF but excluding the closure row to avoid circularity.
 For Prime, the reviewed `rook_full.search/read/call` adapter wrapper emits each
 capability row: it captures exact Python arguments at function ingress and the
 exact parsed `{success,data}` value or raised exception at function egress
-before returning control to model code. It never emits the closure. Prime's
+before returning control to model code. The adapter imports
+`rook.gh_behavioral_acceptance` through that package identity and calls the
+public `append_canonical_gateway_source_event()` owner; it does not load the
+module anonymously, call a private classifier, or duplicate event projection.
+It never emits the closure. Prime's
 `--mode json` stdout JSONL is the separate runtime log. The outer Prime
 transaction launcher observes process termination and stdout EOF, requires
-exactly one final `agent_end`, requires all qualification-owned adapter/kernel
-children to have exited, hashes both now-immutable logs, and only then appends
-the closure row. Cancellation, forced termination, missing EOF, missing/finally
-nonfinal `agent_end`, or lingering owned children leaves the source log
-unclosed. The Prime native session file and Rhino native session recorder are
+exactly one `agent_end` as the final semantic event, requires all
+qualification-owned adapter/kernel children to have exited, hashes both
+now-immutable logs, and only then appends the closure row. After `agent_end`,
+the only admitted physical suffix is either empty or the exact closed Prime
+housekeeping sequence `message_start(ipython_state)`,
+`message_end(ipython_state)`, `compaction_end`; the paired state messages must
+be identical and every suffix row is included in `runtime_log_sha256`. Any
+later user, assistant, tool-execution, mutation, unknown, malformed, or second
+terminal event leaves the source log unclosed. Cancellation, forced
+termination, missing EOF, missing semantic terminal, or lingering owned
+children likewise leaves it unclosed. The Prime native session file and Rhino native session recorder are
 corroborating evidence only; neither owns this trace and neither can substitute
 for the adapter rows or `agent_end` stream.
 
@@ -1466,10 +1476,11 @@ failure, or converted into a guessed snapshot.
   envelopes, dispatch counts, route classification, or commit evidence.
 - Prime adapter source rows capture exact `rook_full` function ingress and
   parsed egress; the separate Prime JSON event stream supplies exactly one
-  final `agent_end`. Rhino native session evidence cannot substitute for
+  final semantic `agent_end` and its optional closed housekeeping suffix. Rhino native session evidence cannot substitute for
   either. A direct caller wrapper closes only after `transaction_closed`.
 - The Prime adapter cannot write its own closure. Only the outer launcher may
-  close after process termination, stdout EOF, final `agent_end`, and zero
+  close after process termination, stdout EOF, final semantic `agent_end`, its
+  optional closed housekeeping suffix, and zero
   lingering owned children. A premature adapter closure refuses.
 - The direct transaction runtime log has the exact one-row versioned shape,
   count, terminal marker, serialization, and hash; a call after closure

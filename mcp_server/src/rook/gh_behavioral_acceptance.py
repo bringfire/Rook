@@ -18,6 +18,7 @@ from .mcp_tool_profiles import PUBLIC_READONLY_TOOL_NAMES
 __all__ = (
     "canonical_json_bytes",
     "append_source_event",
+    "append_canonical_gateway_source_event",
     "seal_prime_source_log",
     "seal_direct_source_log",
     "normalize_authoring_trace",
@@ -149,6 +150,13 @@ def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _strict_json_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"nonfinite_json:{value}")
+    return parsed
+
+
 def _strict_json_line(line: bytes) -> Any:
     if line.startswith(b"\xef\xbb\xbf"):
         raise ValueError("utf8_bom_forbidden")
@@ -160,6 +168,7 @@ def _strict_json_line(line: bytes) -> Any:
         return json.loads(
             text,
             object_pairs_hook=_reject_duplicates,
+            parse_float=_strict_json_float,
             parse_constant=lambda value: (_ for _ in ()).throw(
                 ValueError(f"nonfinite_json:{value}")
             ),
@@ -200,6 +209,21 @@ def _read_jsonl(path: Path) -> tuple[bytes, list[Any], list[bytes]]:
     values = [_strict_json_line(line[:-1]) for line in raw_lines]
     if any(canonical_json_bytes(value) != line for value, line in zip(values, raw_lines)):
         raise ValueError("noncanonical_jsonl")
+    return payload, values, raw_lines
+
+
+def _read_prime_runtime_jsonl(path: Path) -> tuple[bytes, list[Any], list[bytes]]:
+    """Read Prime-owned JSONL strictly without rewriting its byte representation."""
+
+    payload = Path(path).read_bytes()
+    if payload.startswith(b"\xef\xbb\xbf"):
+        raise ValueError("utf8_bom_forbidden")
+    if payload and not payload.endswith(b"\n"):
+        raise ValueError("missing_final_lf")
+    raw_lines = payload.splitlines(keepends=True)
+    if any(not line.endswith(b"\n") or line.strip() == b"" for line in raw_lines):
+        raise ValueError("invalid_jsonl_row")
+    values = [_strict_json_line(line[:-1]) for line in raw_lines]
     return payload, values, raw_lines
 
 
@@ -544,6 +568,138 @@ def append_source_event(path: Path, event: dict[str, Any]) -> None:
         os.fsync(stream.fileno())
 
 
+def append_canonical_gateway_source_event(
+    source_path: Path,
+    target: str,
+    arguments: dict[str, Any],
+    *,
+    result: dict[str, Any] | None = None,
+    exception: Exception | None = None,
+) -> dict[str, Any]:
+    """Construct, classify, and append one Prime canonical-gateway event."""
+
+    if not isinstance(target, str) or not target or type(arguments) is not dict:
+        raise ValueError("invalid_gateway_event_input")
+    if (result is None) == (exception is None):
+        raise ValueError("invalid_gateway_event_outcome")
+    if result is not None and not _valid_result(result):
+        raise ValueError("invalid_gateway_event_result")
+    if exception is not None and not isinstance(exception, Exception):
+        raise ValueError("invalid_gateway_event_exception")
+
+    header, events, _ = _open_source(Path(source_path))
+    if header["row_emitter"] != "prime_rook_adapter":
+        raise ValueError("invalid_gateway_source_owner")
+    if exception is not None:
+        event = {
+            "sequence": len(events),
+            "ingress": "canonical_gateway",
+            "target": target,
+            "arguments": arguments,
+            "result": None,
+            "exception": _exception_value(exception),
+            "dispatch": {"status": "unknown", "target_call_count": None},
+            "mutation": _unknown_mutation(),
+        }
+    else:
+        assert result is not None
+        event = {
+            "sequence": len(events),
+            "ingress": "canonical_gateway",
+            "target": target,
+            "arguments": arguments,
+            "result": result,
+            "exception": None,
+            "dispatch": {"status": "dispatched", "target_call_count": 1},
+            "mutation": _unknown_mutation(),
+        }
+        data = result["data"]
+        if result["success"] is False and type(data) is dict:
+            code = data.get("code") if isinstance(data.get("code"), str) else data.get("error")
+            if isinstance(code, str) and code in _ZERO_DISPATCH_REFUSALS:
+                event["dispatch"] = {
+                    "status": "refused_before_dispatch",
+                    "target_call_count": 0,
+                }
+        event["mutation"] = _expected_mutation(event)
+
+    append_source_event(Path(source_path), event)
+    return event
+
+
+def _valid_ipython_state_message(row: Any, event_type: str) -> bool:
+    if type(row) is not dict or set(row) != {"type", "message"} or row["type"] != event_type:
+        return False
+    message = row["message"]
+    return (
+        type(message) is dict
+        and set(message)
+        == {"role", "customType", "content", "display", "timestamp"}
+        and message["role"] == "custom"
+        and message["customType"] == "ipython_state"
+        and isinstance(message["content"], str)
+        and message["content"].startswith("<ipython_state>\n")
+        and message["content"].endswith("\n</ipython_state>")
+        and message["display"] is False
+        and _is_int(message["timestamp"], minimum=1)
+    )
+
+
+def _valid_compaction_end(row: Any) -> bool:
+    if (
+        type(row) is not dict
+        or set(row) != {"type", "reason", "result", "aborted", "willRetry"}
+        or row["type"] != "compaction_end"
+        or not isinstance(row["reason"], str)
+        or not row["reason"]
+        or row["aborted"] is not False
+        or row["willRetry"] is not False
+    ):
+        return False
+    result = row["result"]
+    if (
+        type(result) is not dict
+        or set(result)
+        != {"summary", "firstKeptEntryId", "tokensBefore", "details"}
+        or not isinstance(result["summary"], str)
+        or not isinstance(result["firstKeptEntryId"], str)
+        or not result["firstKeptEntryId"]
+        or not _is_int(result["tokensBefore"], minimum=0)
+    ):
+        return False
+    details = result["details"]
+    return (
+        type(details) is dict
+        and set(details) == {"readFiles", "modifiedFiles"}
+        and type(details["readFiles"]) is list
+        and type(details["modifiedFiles"]) is list
+        and all(isinstance(value, str) for value in details["readFiles"])
+        and all(isinstance(value, str) for value in details["modifiedFiles"])
+    )
+
+
+def _valid_prime_semantic_terminal(runtime_rows: list[Any]) -> bool:
+    terminal_indices = [
+        index
+        for index, row in enumerate(runtime_rows)
+        if type(row) is dict and row.get("type") == "agent_end"
+    ]
+    if len(terminal_indices) != 1:
+        return False
+    suffix = runtime_rows[terminal_indices[0] + 1 :]
+    if not suffix:
+        return True
+    if len(suffix) != 3:
+        return False
+    start, end, compaction = suffix
+    return (
+        _valid_ipython_state_message(start, "message_start")
+        and _valid_ipython_state_message(end, "message_end")
+        and start["message"] == end["message"]
+        and _valid_compaction_end(compaction)
+    )
+
+
 def _closure(
     header: dict[str, Any],
     events: list[dict[str, Any]],
@@ -595,9 +751,10 @@ def seal_prime_source_log(
         raise ValueError("prime_children_lingering")
     if type(process_state["exit_code"]) is not int:
         raise ValueError("invalid_exit_code")
-    runtime_payload, runtime_rows, _ = _read_jsonl(Path(runtime_log_path))
-    terminal_indices = [index for index, row in enumerate(runtime_rows) if type(row) is dict and row.get("type") == "agent_end"]
-    if terminal_indices != [len(runtime_rows) - 1]:
+    runtime_payload, runtime_rows, _ = _read_prime_runtime_jsonl(
+        Path(runtime_log_path)
+    )
+    if not _valid_prime_semantic_terminal(runtime_rows):
         raise ValueError("invalid_prime_terminal_marker")
     source_payload = b"".join(source_lines)
     closure = _closure(header, events, source_payload, runtime_payload)
@@ -645,12 +802,17 @@ def normalize_authoring_trace(source_path: Path, runtime_log_path: Path) -> dict
     """Validate both retained raw logs and return their closed normalized trace."""
 
     source_payload, source_rows, source_lines = _read_jsonl(Path(source_path))
-    runtime_payload, runtime_rows, _ = _read_jsonl(Path(runtime_log_path))
     if len(source_rows) < 2:
         raise ValueError("source_log_unclosed")
     header = source_rows[0]
     if type(header) is not dict or set(header) != {"schema", "row_emitter"} or header["schema"] != _SOURCE_SCHEMA:
         raise ValueError("invalid_source_header")
+    if header["row_emitter"] == "prime_rook_adapter":
+        runtime_payload, runtime_rows, _ = _read_prime_runtime_jsonl(
+            Path(runtime_log_path)
+        )
+    else:
+        runtime_payload, runtime_rows, _ = _read_jsonl(Path(runtime_log_path))
     closure_row = source_rows[-1]
     if type(closure_row) is not dict or set(closure_row) != {"type", "source_closure"} or closure_row["type"] != "closure":
         raise ValueError("source_log_unclosed")
@@ -658,8 +820,7 @@ def normalize_authoring_trace(source_path: Path, runtime_log_path: Path) -> dict
     source_hashed_payload = b"".join(source_lines[:-1])
     closure = _validate_closure(closure_row["source_closure"], header, events, source_hashed_payload, runtime_payload)
     if header["row_emitter"] == "prime_rook_adapter":
-        terminals = [index for index, row in enumerate(runtime_rows) if type(row) is dict and row.get("type") == "agent_end"]
-        if terminals != [len(runtime_rows) - 1]:
+        if not _valid_prime_semantic_terminal(runtime_rows):
             raise ValueError("invalid_prime_terminal_marker")
     elif header["row_emitter"] == "direct_transaction_wrapper":
         if runtime_rows != [{"schema": _DIRECT_RUNTIME_SCHEMA, "source_event_count": len(events), "terminal_marker": "transaction_closed"}]:

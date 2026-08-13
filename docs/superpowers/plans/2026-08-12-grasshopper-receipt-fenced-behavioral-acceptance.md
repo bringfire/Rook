@@ -385,6 +385,7 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDe
 ```python
 canonical_json_bytes(value) -> bytes
 append_source_event(path, event) -> None
+append_canonical_gateway_source_event(path, target, arguments, *, result=None, exception=None) -> dict
 seal_prime_source_log(source_path, runtime_log_path, process_state) -> dict
 seal_direct_source_log(source_path, runtime_log_path) -> dict
 normalize_authoring_trace(source_path, runtime_log_path) -> dict
@@ -394,13 +395,13 @@ evaluate_behavioral_probe(artifact, authoring_trace, probe_trace) -> dict
 ```
 
 - [x] Implementations may use private dataclasses/helpers, but no class or function may open transport, resolve target, launch process, call a model, retry, or mutate outside the injected executor.
-- [x] The exact source closure owner remains outside the row emitter: Prime adapter emits rows; outer launcher seals only after process termination, stdout EOF, one final `agent_end`, and all owned child exits. The module merely exposes strict primitives those owners call.
+- [x] The exact source closure owner remains outside the row emitter: Prime adapter emits rows; outer launcher seals only after process termination, stdout EOF, one final semantic `agent_end`, its optional exact closed `ipython_state`/`compaction_end` housekeeping suffix, and all owned child exits. The complete runtime stream remains hashed. The module merely exposes strict primitives those owners call.
 
 ### Step 2: Write canonical serialization and source-custody tests
 
 - [x] Require strict UTF-8 without BOM, sorted keys, no insignificant whitespace, and one trailing LF.
 - [x] Reject duplicate JSON keys, extra keys, reordered/gapped/duplicate sequences, events after closure, mismatched counts, bad hashes, nonfinal terminal marker, and valid prefixes without closure.
-- [x] For Prime closure, test missing/duplicate/nonfinal `agent_end`, missing EOF, nonterminated process, and lingering owned children.
+- [x] For Prime closure, test missing/duplicate/non-semantic-final `agent_end`, the exact retained closed housekeeping suffix, hostile post-terminal user/assistant/tool/mutation/unknown rows, missing EOF, nonterminated process, and lingering owned children.
 - [x] For direct closure, require exactly one canonical `rook.gh_direct_transaction_runtime:v1` row and exact count equality; any post-marker call invalidates custody.
 - [x] Record Python exceptions as exact module plus qualname and exact `str(exc)`, including empty strings.
 - [x] Assert `CancelledError`, `KeyboardInterrupt`, `SystemExit`, and other `BaseException` paths remain unclosed.
