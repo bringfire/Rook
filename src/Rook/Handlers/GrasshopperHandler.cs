@@ -7267,21 +7267,32 @@ namespace Rook.Handlers
                 }
             }
 
-            var notReady = EnsureGrasshopperReadyForEdit("gh_snapshot");
-            if (notReady != null)
-                return notReady;
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
-
+            GrasshopperContext gh;
             GhFencedReadGate? readinessGate = null;
             if (fenced)
             {
+                gh = GetGrasshopper();
+                if (!gh.Success)
+                    return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
+
                 var gate = _solveReceiptRegistry.CheckFencedRead(readinessReceiptId!, gh.Document!);
                 if (!gate.Allowed)
                     return ReadinessFenceFailure(gate);
                 readinessGate = gate;
+
+                var notReady = EnsureGrasshopperReadyForEdit("gh_snapshot");
+                if (notReady != null)
+                    return notReady;
+            }
+            else
+            {
+                var notReady = EnsureGrasshopperReadyForEdit("gh_snapshot");
+                if (notReady != null)
+                    return notReady;
+
+                gh = GetGrasshopper();
+                if (!gh.Success)
+                    return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
             }
 
             try

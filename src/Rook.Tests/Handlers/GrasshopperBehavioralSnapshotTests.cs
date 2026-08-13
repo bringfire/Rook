@@ -103,7 +103,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void FencedSnapshot_WrongDocumentAndExpiredReceiptReadNoSnapshotData()
+        public void FencedSnapshot_WrongDocumentPendingExpiryAndTerminalEvictionReadNoSnapshotData()
         {
             var originalDocument = new FakeDocument();
             var wrongDocument = new FakeDocument { OnObjectsRead = () => throw new InvalidOperationException("data read") };
@@ -120,6 +120,21 @@ namespace Rook.Tests.Handlers
             Assert.Equal(0, wrongDocument.ObjectsReadCount);
 
             var now = TimeSpan.Zero;
+            var pendingRegistry = new GhSolveReceiptRegistry(monotonicNow: () => now);
+            var pendingDocument = new FakeDocument { OnObjectsRead = () => throw new InvalidOperationException("data read") };
+            var pendingReceipt = pendingRegistry.IssueMutation(pendingDocument).Receipt!;
+            now = TimeSpan.FromMinutes(10);
+            var pendingHandler = CreateHandler(pendingDocument, pendingRegistry);
+
+            var pendingExpiredResponse = pendingHandler.TakeSnapshot(FencedBody(pendingReceipt.ReceiptId, 3));
+
+            Assert.False(pendingExpiredResponse.Success);
+            Assert.Equal(
+                "readiness_receipt_expired",
+                Element(pendingExpiredResponse.Data).GetProperty("error").GetString());
+            Assert.Equal(0, pendingDocument.ObjectsReadCount);
+
+            now = TimeSpan.Zero;
             var expiringRegistry = new GhSolveReceiptRegistry(monotonicNow: () => now);
             var expiringDocument = new FakeDocument { OnObjectsRead = () => throw new InvalidOperationException("data read") };
             var expiringReceipt = ReadyReceipt(expiringRegistry, expiringDocument);
@@ -286,7 +301,7 @@ namespace Rook.Tests.Handlers
         {
             ActiveCanvasProperty.SetValue(null, new FakeCanvas(document));
             return new GrasshopperHandler(
-                bridgeCore: new ReadyCore(),
+                bridgeCore: new ReadyCore((FakeDocument)document),
                 runningAsRhinoInside: () => false,
                 solveReceiptRegistry: registry,
                 solutionLifecycleAdapter: new GhSolutionLifecycleAdapter(),
@@ -313,8 +328,14 @@ namespace Rook.Tests.Handlers
 
         private sealed class ReadyCore : IGrasshopperCore
         {
-            public BridgeResult<GrasshopperStatusDto> GetStatus() =>
-                BridgeResult<GrasshopperStatusDto>.Ok(new GrasshopperStatusDto
+            private readonly FakeDocument _document;
+
+            public ReadyCore(FakeDocument document) => _document = document;
+
+            public BridgeResult<GrasshopperStatusDto> GetStatus()
+            {
+                _ = _document.Objects.Count;
+                return BridgeResult<GrasshopperStatusDto>.Ok(new GrasshopperStatusDto
                 {
                     Available = true,
                     HasActiveCanvas = true,
@@ -322,6 +343,7 @@ namespace Rook.Tests.Handlers
                     CanvasVisible = true,
                     ReadyForEdit = true,
                 });
+            }
 
             public BridgeResult<GrasshopperDocumentInfoDto> GetDocumentInfo() =>
                 BridgeResult<GrasshopperDocumentInfoDto>.Ok(new GrasshopperDocumentInfoDto());
