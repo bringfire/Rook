@@ -1,6 +1,6 @@
 # Grasshopper Receipt-Fenced Behavioral Acceptance
 
-**Status:** Approved design, pending independent specification review
+**Status:** Approved design, amended after independent specification review
 **Date:** 2026-08-12
 **Baseline:** `bca57582f2f3fa18c72760ff8f068268ed9c11e9`
 **Related authoring-routing merge:** `bc5c0b153e1f5828314032c07949d8674e7c0dae`
@@ -203,6 +203,33 @@ The existing wire schema remains authoritative:
 
 No new receipt schema or Python-generated receipt ID is introduced.
 
+Receipt correlation is intentionally two-stage because the authoring response
+is produced before Grasshopper necessarily enters or completes the scheduled
+solution:
+
+```text
+authoring result
+-> authoritative receipt_id
+-> authoritative document_session_id
+-> authoritative mutation_epoch
+-> solution_run_epoch and completed_solution_run_epoch may be null or pre-run
+
+terminal gh_wait_for_solve_readiness result
+-> same receipt_id
+-> same document_session_id
+-> same mutation_epoch
+-> authoritative final solution_run_epoch
+-> authoritative final completed_solution_run_epoch
+
+fenced gh_snapshot readiness_fence
+-> exact identity and epoch equality with the terminal wait receipt
+```
+
+The evaluator must not require the authoring-result lifecycle epochs to equal
+the terminal values. It requires identity/session/mutation equality across all
+three phases, treats the terminal wait receipt as the lifecycle authority, and
+requires the fenced snapshot to echo that terminal value exactly.
+
 Every covered terminal model-facing result exposes the managed parsed value at
 the same path:
 
@@ -305,6 +332,42 @@ The required next `gh_update_script` call writes source and owns the terminal
 receipt. A pin-only pipeline, a failed source write, or a partially completed
 script pipeline without a final managed receipt is `incomplete`.
 
+Every composite script-helper failure after admission uses this closed data
+shape rather than collapsing committed facts into an error string:
+
+```json
+{
+  "error": "script_pipeline_incomplete",
+  "phase": "component_creation",
+  "committed_preparatory": {
+    "component_created": false,
+    "pins_configured": false
+  },
+  "component": {
+    "guid": null,
+    "short_id": null
+  },
+  "final_write": {
+    "dispatched": false,
+    "success": null
+  },
+  "solve_readiness_receipt": null,
+  "script_receipt": null
+}
+```
+
+The object has exactly the keys shown. `phase` is exactly one of
+`component_creation`, `pin_configuration`, `source_write`,
+`solve_readiness`, or `post_write_verification`. The two committed flags and
+`final_write.dispatched` are booleans. `final_write.success` is null before
+dispatch and otherwise the exact boolean returned by the final managed write.
+Known component identities are nonblank exact host strings; unknown identities
+are null. `solve_readiness_receipt` is null until the final managed source
+write returns that field and otherwise is its exact parsed JSON value.
+`script_receipt` is null until the existing Python summary is constructed and
+otherwise retains that exact object. Later helper failure must not erase any
+earlier committed fact, component identity, or final-write receipt.
+
 Python wrappers for all script helpers must propagate the managed
 `solve_readiness_receipt` parsed JSON value without rebuilding, reinterpreting,
 nesting, or renaming it:
@@ -327,19 +390,130 @@ solve_readiness_receipt
 
 Neither object may contain or masquerade as the other.
 
+Post-write verification never uses a fixed sleep. If a helper requests eager
+verification, it calls `gh_wait_for_solve_readiness` with the exact captured
+managed receipt and proceeds only after a ready terminal result. A timeout or
+terminal non-ready result produces the closed `solve_readiness` failure above.
+If eager verification is disabled, the helper returns the receipt and defers
+verification without sleeping. Existing helper delays are removed rather than
+reclassified as readiness evidence.
+
 ## Latest-Terminal Trace Admission
 
 Behavioral acceptance consumes the complete retained model/tool trace, not a
 receipt copied out of context.
 
-For canonical gateway use, the trace record is interpreted as the target name
-and arguments inside `rook_tools_call`; `rook_tools_search` and
-`rook_tools_read` remain discovery observations. Direct-dispatch records use
-their direct tool names. Both paths must yield the same ordered route view.
+The evaluator accepts one closed projection, not provider-specific event logs:
+
+```json
+{
+  "schema": "rook.gh_authoring_trace:v1",
+  "events": [
+    {
+      "sequence": 0,
+      "ingress": "canonical_gateway",
+      "target": "gh_edit",
+      "arguments": {},
+      "result": {"success": true, "data": {}},
+      "dispatch": {
+        "status": "dispatched",
+        "target_call_count": 1
+      },
+      "mutation": {
+        "classification": "terminal",
+        "commit_status": "committed",
+        "commit_evidence": {},
+        "solve_readiness_receipt": {}
+      }
+    }
+  ]
+}
+```
+
+The top-level object has exactly `schema` and `events`. Each event has exactly
+the seven keys shown. `sequence` is a zero-based integer; values are contiguous
+and strictly increasing in observed dispatch order. `ingress` is exactly
+`canonical_gateway`, `direct_dispatch`, or `operator_probe`. `target` is the
+exact admitted model-facing or operator tool name. `arguments` is the exact
+caller-supplied JSON object before target routing or panel-lock enrichment.
+Duplicate JSON keys, non-object arguments, gaps, duplicates, or reordered
+events make the trace invalid.
+
+`result` has exactly `success` and `data`, where `success` is a boolean and
+`data` is the exact normalized internal data value. Canonical MCP input uses
+the target and arguments inside the admitted `rook_tools_call` envelope and
+the target's structured `{success,data}` result. Direct dispatch uses its
+direct name, exact parameters, and plain internal `{success,data}` result.
+Operator probes use their retained exact request and internal result. Text-only
+MCP output, a meta-tool result without its correlated target event, or any
+normalization that cannot establish those exact values makes the trace
+invalid. `rook_tools_search` and `rook_tools_read` are observational discovery
+events and may be omitted from this authoring projection; an admitted
+`rook_tools_call` target may not be omitted.
+
+`dispatch` has exactly `status` and `target_call_count`. Status is
+`dispatched`, `refused_before_dispatch`, or `unknown`. Its count is respectively
+the integer `1`, the integer `0`, or null. It is derived from retained runtime
+dispatch evidence, not inferred from success text. A covered mutation event
+with `unknown` dispatch is ineligible. A refusal is admissible after the latest
+terminal mutation only when status is `refused_before_dispatch` and the
+retained result is a recognized containment, profile, schema, or routing
+refusal.
+
+`mutation` has exactly `classification`, `commit_status`, `commit_evidence`,
+and `solve_readiness_receipt`. Classification is `observational`, `terminal`,
+`preparatory`, `legacy`, or `unknown`. Commit status is `none`, `committed`, or
+`unknown`. `commit_evidence` is the exact route-specific object below or null.
+The receipt is the exact result field for a terminal route or null; it is never
+copied from a later wait result.
+
+The closed route projection table is:
+
+| Event | Classification | Commit evidence |
+|---|---|---|
+| covered terminal route with completed terminal phase | `terminal` | exact route-specific facts below |
+| composite terminal-capable helper stopped after preparatory host mutation | `preparatory` | exact closed script-pipeline facts |
+| `gh_set_script_pins` | `preparatory` | `{"success":<bool>,"target_dispatched":<bool>}` |
+| public Grasshopper mutation outside the covered route table | `legacy` | `{"success":<bool>,"target_dispatched":<bool>}` |
+| current readonly-profile Grasshopper tool, readiness read/wait, or fenced snapshot | `observational` | null |
+| unrecognized or malformed Grasshopper event | `unknown` | null |
+
+Covered terminal commit evidence is exact and route-owned:
+
+- `gh_edit` uses exactly `created`, `deleted`, `values_set`, `connected`,
+  `disconnected`, and `groups_changed`, copied as nonnegative integers from
+  `edit_summary`. Commit is `committed` exactly when the first five sum above
+  zero; group-only or zero-commit is `none`; missing/malformed counts are
+  `unknown`.
+- `gh_set_value` and direct `gh_set_script` source writes add exactly
+  `{"solve_relevant_mutation_committed":<bool>}` to their managed result.
+  Missing/malformed evidence is `unknown`.
+- Composite script helpers use exactly the closed script-pipeline facts above.
+  Commit is `committed` only when the final source write reports its managed
+  commit boolean and exact receipt. Preparatory creation or pins without that
+  final write remain `preparatory`, not a successful terminal commit.
+
+The Python acceptance owner encodes the trace for custody as the exact result
+of `json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True,
+separators=(",", ":")) + "\n"`, then strict UTF-8 without BOM.
+`authoring_trace_sha256` is uppercase SHA-256 over those exact bytes. The
+runtime-specific projector must retain its source event hashes separately;
+this schema does not claim that canonical and direct raw logs are
+byte-identical.
+
+The operator-owned behavioral sequence uses the same event object contract in
+`{"schema":"rook.gh_probe_trace:v1","events":[...]}`. Every ingress is
+`operator_probe`; the events are exactly the baseline wait and fenced snapshot
+followed by, for each control in artifact order, one `gh_set_value`
+perturbation, one wait, one fenced snapshot, one `gh_set_value` restoration,
+one wait, and one fenced snapshot. No retry, omitted event, extra mutation, or
+additional snapshot is admitted. `probe_trace_sha256` uses the same canonical
+byte and hash equation.
 
 The admission algorithm is:
 
-1. Parse the complete retained trace fail-closed.
+1. Parse and validate the complete `rook.gh_authoring_trace:v1` artifact
+   fail-closed.
 2. Identify every covered terminal route result and its committed-mutation
    evidence.
 3. Select the latest covered result with a positive solve-relevant commit.
@@ -353,8 +527,10 @@ The admission algorithm is:
 6. Allow later calls that are observational under the existing public readonly
    profile, plus `gh_solve_readiness` and
    `gh_wait_for_solve_readiness`.
-7. Require the wait result and fenced snapshot to echo the selected receipt's
-   identity and lifecycle epochs exactly.
+7. Require the selected authoring result, terminal wait result, and fenced
+   snapshot to satisfy the two-stage correlation equation: authoring identity,
+   document session, and mutation epoch match; the fence exactly matches the
+   terminal wait receipt's lifecycle epochs.
 
 Unknown, malformed, truncated, or unclassified later Grasshopper calls make
 admission `incomplete`; they are never assumed harmless. This is conservative
@@ -403,9 +579,10 @@ No helper may precompute snapshot data before `CheckFencedRead()`. The native
 proxy continues to forward the request body unchanged; it does not inspect or
 reimplement the fence.
 
-### Successful response addition
+### Successful response additions
 
-A fenced success retains the existing snapshot fields and adds exactly:
+A fenced success retains the existing snapshot fields and adds exactly the
+following two root fields:
 
 ```json
 {
@@ -415,12 +592,57 @@ A fenced success retains the existing snapshot fields and adds exactly:
     "mutation_epoch": 7,
     "solution_run_epoch": 12,
     "completed_solution_run_epoch": 12
-  }
+  },
+  "behavioral_point_outputs": [
+    {
+      "component_id": "C7",
+      "output_index": 0,
+      "output_name": "P",
+      "count": 3,
+      "complete": true,
+      "points": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+      "error": null
+    }
+  ]
 }
 ```
 
-All values come from the allowed managed receipt. An unfenced snapshot omits
-`readiness_fence` entirely.
+All fence values come from the terminal receipt admitted by
+`CheckFencedRead()`. An unfenced snapshot omits both additions entirely and
+retains its current string-preview behavior.
+
+`behavioral_point_outputs` is the fenced-only typed evidence channel. Each
+entry has exactly the seven keys shown. `component_id` is the existing exact
+snapshot short ID, `output_index` is a zero-based nonnegative integer, and
+`output_name` is the exact host string, including an empty string when the host
+returns one. Entries are ordered by existing component order and then output
+index.
+
+The managed callback obtains each item from volatile data only after the fence
+succeeds. A point item is admitted only when its host `Value` is an actual
+`Rhino.Geometry.Point3d`; the three `X`, `Y`, and `Z` values must be finite
+JSON numbers. No `ToString()`, culture-sensitive parse, rounding, arbitrary
+conversion, or reflection-object serialization may supply a coordinate.
+`count` is the exact nonnegative host `DataCount`. `points` retains typed
+coordinate triples in host enumeration order up to the request's exact
+`max_preview_items` bound.
+
+`complete` is true exactly when `count <= max_preview_items`, enumeration
+produces exactly `count` items, and every item is a finite `Point3d`. When
+false, `error` is exactly the first applicable token in this precedence:
+
+```text
+data_unavailable
+-> count_mismatch
+-> truncated
+-> non_point_item
+-> nonfinite_coordinate
+```
+
+When complete, `error` is null. An output with no observed point item is not
+projected as a point output. A missing candidate, an incomplete entry, or more
+than one eligible terminal point output therefore cannot earn behavioral
+success.
 
 Pending, superseded, solver-locked, document-replaced, stale-solution,
 unknown, expired, evicted, or process-restarted receipts preserve the existing
@@ -441,16 +663,33 @@ canvas control using the artifact's exact role selector. Missing, duplicate,
 malformed, nonadjustable, or out-of-domain controls yield `incomplete` or the
 criterion-specific `fail` defined by the artifact; they never trigger a guess.
 
-The output selector must resolve exactly one terminal point output with a
-complete count and complete point multiset. Truncated previews, multiple
-eligible terminal point outputs, unknown data, or non-point values yield
+An admitted numeric control is exactly an existing snapshot component with a
+nonblank `C[1-9][0-9]*` short ID, exact nickname selected by the artifact, and
+this closed value object:
+
+```json
+{"type":"slider","val":0.0,"min":-10.0,"max":10.0}
+```
+
+The value object has exactly `type`, `val`, `min`, and `max`; `type` is
+`slider`; the other values are finite JSON numbers and not booleans;
+`min < max`; and `min <= val <= max`. Integer roles additionally require
+mathematically integral `val`, `min`, `max`, and probe values. Missing, extra,
+null, nonnumeric, nonfinite, inverted-range, or out-of-range values make
+control binding incomplete.
+
+The output selector must resolve exactly one terminal point output from
+`behavioral_point_outputs` with `complete=true`, exact count, and complete
+typed point multiset. Existing string previews are observational only and
+never enter the evaluator. Truncated typed output, multiple eligible terminal
+point outputs, unknown data, or non-point values yield
 `unproven`/`incomplete` as specified by the criterion. They never earn pass.
 
-`terminal_points` means one point-typed output for which no retained flow uses
+`terminal_points` means one typed point output for which no retained flow uses
 that exact component-output pair as a source. The snapshot request uses the
 artifact's positive bounded `max_preview_items`. Completeness requires the
-reported output count to equal the retained preview length and the preview to
-contain that many valid points. A count larger than the bound is incomplete;
+reported output count to equal the typed point-array length and the array to
+contain that many valid point triples. A count larger than the bound is incomplete;
 the evaluator does not issue a second read with a larger bound.
 
 ### One-control-at-a-time perturbation
@@ -474,6 +713,14 @@ record exact baseline value
 Exactly one perturbation receipt and one restoration receipt are required per
 control. The restoration is a new terminal mutation and therefore must use a
 new receipt; the perturbation receipt cannot be reused.
+
+The perturbation snapshot must show the target control's same component ID,
+role nickname, minimum, and maximum, with `val` exactly equal to the frozen
+probe value. Every other bound control must retain the same component ID,
+nickname, minimum, maximum, and value as the immediately preceding restored
+baseline. The restoration snapshot must return every bound control to those
+exact baseline fields and values. Any mismatch makes the probe incomplete;
+output changes alone do not prove that only one control changed.
 
 No second control may be perturbed until restoration is proven. A failed
 dispatch, missing receipt, non-ready wait, refused snapshot, incomplete output,
@@ -595,6 +842,19 @@ Exact schema validation rejects duplicate JSON keys, extra keys, duplicate
 roles, duplicate criterion IDs, unsupported selectors, incompatible role
 types, nonfinite numbers, or unknown predicates.
 
+Role IDs match `[A-Za-z][A-Za-z0-9_]{0,63}`. Criterion IDs match
+`[a-z][a-z0-9_]{0,63}`. Selector values and `intent` are actual JSON strings,
+not coerced values; after trimming they must be nonblank, while the retained
+value remains byte-for-byte the caller's string. JSON booleans never satisfy a
+numeric field. All counts and integer-role values remain within signed 32-bit
+range so managed control dispatch and Python evaluation share one closed
+domain.
+
+Before model contact the acceptance artifact is written with the exact Python
+canonical serializer defined for traces. `acceptance_sha256` is uppercase
+SHA-256 over those exact bytes. A noncanonical or hash-mismatched artifact is
+invalid rather than silently normalized.
+
 The v1 predicate vocabulary is deliberately small:
 
 | Predicate | Evidence |
@@ -645,7 +905,11 @@ The deterministic result is closed:
       "criterion_id": "no_runtime_errors",
       "status": "pass",
       "failure_ids": [],
-      "evidence_refs": ["baseline", "perturbation:StartX"]
+      "evidence_refs": [
+        "baseline",
+        "perturbation:StartX",
+        "restoration:StartX"
+      ]
     }
   ],
   "probe": {
@@ -687,6 +951,15 @@ The result object has exactly `schema`, `status`, `criteria`, `probe`, and
 Evidence references are exact phase IDs (`baseline`, `perturbation:<role>`, or
 `restoration:<role>`) whose retained snapshots contain the observed values.
 
+Criterion objects appear in artifact order and each artifact criterion appears
+exactly once. `criterion_id` is the exact artifact ID. `failure_ids` is exactly
+`[]` for pass and exactly `[criterion_id]` for fail or unproven; it is never an
+open diagnostic vocabulary. `evidence_refs` is an ordered, duplicate-free
+array of exact phase IDs in execution order. It includes every phase actually
+read for the predicate. Predicates evaluated on every admitted phase therefore
+include baseline, each perturbation, and each restoration. A reference to an
+absent, later, or unread phase makes the result invalid.
+
 `probe.status` is `complete` or `incomplete`. `baseline` is null until admitted,
 and otherwise has exactly the two shown string fields. Every successfully
 bound control appears at most once in artifact order; `complete` requires every
@@ -696,13 +969,47 @@ shown. `source` has exactly the three uppercase SHA-256 fields shown. Partial
 results accumulate monotonically; an incomplete later phase does not erase
 earlier retained evidence.
 
+Every receipt ID is an actual nonblank string retained exactly; its syntax is
+opaque to Python. Component IDs match `C[1-9][0-9]*`. Roles match the artifact.
+Original and probe values are finite JSON numbers, never booleans or null.
+`restored` is exactly true whenever a restoration object exists; false is not
+a complete restoration. All SHA-256 values match `[0-9A-F]{64}`. Nullability is
+limited to `baseline`, `perturbation`, `restoration`, and `probe.error` exactly
+as described; no other displayed field accepts null.
+
+Each snapshot hash is over one exact canonical evidence object:
+
+```json
+{
+  "schema": "rook.gh_fenced_snapshot_evidence:v1",
+  "request": {
+    "include_data": true,
+    "max_preview_items": 100,
+    "readiness_receipt_id": "opaque"
+  },
+  "result": {"success": true, "data": {}}
+}
+```
+
+The request has exactly the three keys shown and exact artifact bound. The
+result has exactly `success` and `data`; only `success=true` can be admitted.
+Its fence receipt must equal the request and correlated terminal wait receipt.
+The evidence object uses the same canonical UTF-8/sorted-key/no-whitespace/LF
+serialization defined for traces. `snapshot_sha256` is uppercase SHA-256 over
+those exact bytes. `acceptance_sha256`, `authoring_trace_sha256`, and
+`probe_trace_sha256` use their respective canonical source bytes already
+defined; source hashes cannot be computed from reconstructed or pretty-printed
+objects.
+
 `probe.error` is null or exactly one of:
 
 ```text
 artifact_invalid
 authoring_trace_invalid
+probe_trace_invalid
 latest_terminal_receipt_missing
 later_unfenced_mutation
+receipt_correlation_failed
 baseline_wait_failed
 baseline_snapshot_failed
 control_binding_failed
@@ -712,6 +1019,7 @@ perturbation_dispatch_failed
 perturbation_receipt_invalid
 perturbation_wait_failed
 perturbation_snapshot_failed
+perturbation_control_mismatch
 restoration_dispatch_failed
 restoration_receipt_invalid
 restoration_wait_failed
@@ -848,13 +1156,19 @@ failure, or converted into a guessed snapshot.
 - A group-only edit does not request a solve or return a ready receipt.
 - Reservation failure causes zero mutation.
 - Pending, stale-solution, superseded, solver-locked, document-replaced,
-  unknown, missing, evicted, and process-restarted receipts refuse fenced
+  unknown, expired, missing, evicted, and process-restarted receipts refuse fenced
   snapshots with no data read.
 - A hostile snapshot fake proves `CheckFencedRead()` occurs before the first
   object, topology, diagnostic, value, or output-data access in the same
   callback.
-- A successful fenced snapshot retains exact receipt/session/mutation/solution
+- A successful authoring result may retain null/pre-run lifecycle epochs; the
+  terminal wait supplies final epochs, and a successful fenced snapshot
+  matches that wait exactly while all phases retain identity/session/mutation
   correlation.
+- Fenced typed point projection accepts only finite host `Point3d` values,
+  reports exact counts/completeness, and rejects truncation, count mismatch,
+  mixed/non-point items, and nonfinite coordinates without consulting string
+  previews.
 - An unfenced snapshot retains its existing JSON shape.
 
 ### Script propagation tests
@@ -866,16 +1180,28 @@ failure, or converted into a guessed snapshot.
   remain observational.
 - Pin preparation alone is nonterminal.
 - Failed or partial script pipelines without the final source-write receipt are
-  incomplete.
+  incomplete and retain the exact closed phase/commit/component/write object.
 - `gh_create_script`, both aliases, `gh_update_script`, and `chirp_create`
   preserve the exact managed receipt parsed JSON value.
 - `script_receipt` and `solve_readiness_receipt` remain distinct siblings.
 - Canonical MCP and direct `ToolDispatcher` expose identical receipt values and
   failure behavior.
+- Post-write verification waits on the captured solve-readiness receipt or is
+  explicitly deferred; no fixed sleep can authorize errors, snapshots, or
+  completion.
 
 ### Trace and evaluator tests
 
-- The latest covered terminal route receipt is admitted.
+- Canonical gateway, direct dispatch, and operator records project to the
+  exact closed trace event schema without losing caller arguments, result
+  envelopes, dispatch counts, route classification, or commit evidence.
+- Noncontiguous/duplicate sequences, duplicate JSON keys, text-only target
+  results, unknown dispatch, malformed commit evidence, extra events, and
+  canonical/direct substitution all fail closed.
+- Canonical trace serialization and uppercase SHA-256 are stable across key
+  order and reject nonfinite numbers or noncanonical source custody.
+- The latest covered terminal route receipt is admitted using the exact
+  route-specific positive-commit equation.
 - A later successful preparatory or legacy mutation refuses the older receipt.
 - A later covered terminal mutation replaces the eligible receipt.
 - An unclassified later Grasshopper call fails closed.
@@ -884,10 +1210,18 @@ failure, or converted into a guessed snapshot.
 - Each behavioral control requires exactly one perturbation receipt and one
   restoration receipt.
 - A perturbation receipt cannot fence the restoration snapshot.
-- Every control changes alone; a second simultaneous change refuses.
+- An admitted control has the exact slider value shape, finite ordered range,
+  and role-appropriate integral constraints.
+- Every control changes alone: the target exactly reaches its frozen probe,
+  all other bound controls remain equal to the preceding restored baseline,
+  and a second simultaneous change refuses.
 - Restoration mismatch or any missing/failed call yields `incomplete`.
-- Truncated point previews cannot establish complete count, sequence, or
-  Cartesian-product predicates.
+- Existing string previews, truncated typed points, or incomplete typed data
+  cannot establish complete count, sequence, or Cartesian-product predicates.
+- Criterion results retain exact ordered phase references including every
+  restoration phase used by diagnostics or other all-phase predicates;
+  failure IDs, identifiers, nullability, and hash inputs obey the closed
+  result contract.
 - Unknown predicates refuse the artifact. Unknown components cannot supply
   static causal semantics, but a complete behavioral probe may still establish
   a topology-neutral predicate without identifying those components.
