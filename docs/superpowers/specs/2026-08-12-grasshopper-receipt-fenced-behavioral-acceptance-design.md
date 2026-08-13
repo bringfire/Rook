@@ -349,7 +349,8 @@ shape rather than collapsing committed facts into an error string:
   },
   "final_write": {
     "dispatched": false,
-    "success": null
+    "success": null,
+    "solve_relevant_mutation_committed": null
   },
   "solve_readiness_receipt": null,
   "script_receipt": null
@@ -359,14 +360,25 @@ shape rather than collapsing committed facts into an error string:
 The object has exactly the keys shown. `phase` is exactly one of
 `component_creation`, `pin_configuration`, `source_write`,
 `solve_readiness`, or `post_write_verification`. The two committed flags and
-`final_write.dispatched` are booleans. `final_write.success` is null before
-dispatch and otherwise the exact boolean returned by the final managed write.
+`final_write.dispatched` are booleans. `final_write.success` and
+`final_write.solve_relevant_mutation_committed` are null before dispatch and
+otherwise are the exact booleans returned by the final managed write. Success
+never substitutes for commitment: a failed final write may still report a
+committed source mutation, and a successful zero-commit response may not claim
+one.
 Known component identities are nonblank exact host strings; unknown identities
 are null. `solve_readiness_receipt` is null until the final managed source
 write returns that field and otherwise is its exact parsed JSON value.
 `script_receipt` is null until the existing Python summary is constructed and
 otherwise retains that exact object. Later helper failure must not erase any
 earlier committed fact, component identity, or final-write receipt.
+
+Successful composite helpers expose the same exact
+`solve_relevant_mutation_committed` boolean alongside their
+`solve_readiness_receipt` and existing `script_receipt`. Failure phases after
+the final write copy both fields from that managed response. A missing,
+malformed, or contradictory managed commit field makes the pipeline result
+incomplete; Python never derives it from the top-level success value.
 
 Python wrappers for all script helpers must propagate the managed
 `solve_readiness_receipt` parsed JSON value without rebuilding, reinterpreting,
@@ -408,6 +420,15 @@ The evaluator accepts one closed projection, not provider-specific event logs:
 ```json
 {
   "schema": "rook.gh_authoring_trace:v1",
+  "source_closure": {
+    "schema": "rook.gh_authoring_source_closure:v1",
+    "owner": "runtime_session",
+    "source_event_count": 1,
+    "final_source_sequence": 0,
+    "source_log_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "terminal_marker": "agent_end",
+    "closed": true
+  },
   "events": [
     {
       "sequence": 0,
@@ -430,9 +451,32 @@ The evaluator accepts one closed projection, not provider-specific event logs:
 }
 ```
 
-The top-level object has exactly `schema` and `events`. Each event has exactly
-the seven keys shown. `sequence` is a zero-based integer; values are contiguous
-and strictly increasing in observed dispatch order. `ingress` is exactly
+The top-level object has exactly `schema`, `source_closure`, and `events`.
+`source_closure` has exactly the seven shown fields. Its schema is the displayed
+literal, owner is `runtime_session` or `operator_transaction`, event count is a
+nonnegative integer, final sequence is null exactly when the count is zero and
+otherwise equals count minus one, the hash matches `[0-9A-F]{64}`, and `closed`
+is exactly true. `terminal_marker` is `agent_end` for Prime or
+`transaction_closed` for a caller-owned direct transaction and must be the
+exact final semantic event in the hashed source. The hash is over the exact
+retained source-log bytes, not the normalized projection.
+
+The existing runtime/session owner emits the closure only after its terminal
+event is durably retained. For Prime that owner is the native session record
+ending in exactly one final `agent_end`; for ChatRunner/direct dispatch it is
+the calling conversation or transaction owner. `ToolDispatcher` remains
+recorder-free and cannot by itself qualify a trace. If its caller cannot emit a
+closed source record, acceptance is incomplete. The acceptance owner receives
+the exact source bytes, verifies their hash and terminal marker, and reruns the
+reviewed source normalizer; a self-reported closure or projection without the
+source bytes is invalid.
+
+Each event has exactly the seven keys shown. `sequence` is the zero-based
+source capability-event number; values are contiguous and strictly increasing
+through `final_source_sequence`. `len(events)` must equal
+`source_event_count`. A missing final event, valid prefix, duplicated event, or
+event after the terminal marker therefore invalidates authoring custody.
+`ingress` is exactly
 `canonical_gateway`, `direct_dispatch`, or `operator_probe`. `target` is the
 exact admitted model-facing or operator tool name. `arguments` is the exact
 caller-supplied JSON object before target routing or panel-lock enrichment.
@@ -447,9 +491,11 @@ direct name, exact parameters, and plain internal `{success,data}` result.
 Operator probes use their retained exact request and internal result. Text-only
 MCP output, a meta-tool result without its correlated target event, or any
 normalization that cannot establish those exact values makes the trace
-invalid. `rook_tools_search` and `rook_tools_read` are observational discovery
-events and may be omitted from this authoring projection; an admitted
-`rook_tools_call` target may not be omitted.
+invalid. Every source capability invocation is projected. `rook_tools_search`
+and `rook_tools_read` become observational events; an admitted
+`rook_tools_call` is projected as its correlated target event. A model-runtime
+code cell whose possible capability invocations cannot be fully classified by
+the reviewed normalizer makes the trace invalid rather than disappearing.
 
 `dispatch` has exactly `status` and `target_call_count`. Status is
 `dispatched`, `refused_before_dispatch`, or `unknown`. Its count is respectively
@@ -480,18 +526,23 @@ The closed route projection table is:
 
 Covered terminal commit evidence is exact and route-owned:
 
-- `gh_edit` uses exactly `created`, `deleted`, `values_set`, `connected`,
-  `disconnected`, and `groups_changed`, copied as nonnegative integers from
-  `edit_summary`. Commit is `committed` exactly when the first five sum above
-  zero; group-only or zero-commit is `none`; missing/malformed counts are
-  `unknown`.
+- `gh_edit` uses exactly `created`, `deleted`, `values_set`, `connected`, and
+  `disconnected`, copied as nonnegative integers from `edit_summary`. Commit is
+  `committed` exactly when those five sum above zero; group-only or zero-commit
+  is `none`; missing/malformed counts are `unknown`. Group-only classification
+  also requires the exact caller `groups` array and zero five-counter result;
+  no new `edit_summary` field is introduced merely for trace projection.
 - `gh_set_value` and direct `gh_set_script` source writes add exactly
   `{"solve_relevant_mutation_committed":<bool>}` to their managed result.
   Missing/malformed evidence is `unknown`.
-- Composite script helpers use exactly the closed script-pipeline facts above.
-  Commit is `committed` only when the final source write reports its managed
-  commit boolean and exact receipt. Preparatory creation or pins without that
-  final write remain `preparatory`, not a successful terminal commit.
+- Composite script helpers use exactly
+  `{"component":{"guid":<string|null>,"short_id":<string|null>},
+  "final_write":{"dispatched":<bool>,"success":<bool|null>,
+  "solve_relevant_mutation_committed":<bool|null>}}`, copied from the closed
+  success/failure fields. Commit is `committed` only when the final source
+  write reports its managed commit boolean true and exact receipt. Preparatory
+  creation or pins without that final write remain `preparatory`, not a
+  successful terminal commit.
 
 The Python acceptance owner encodes the trace for custody as the exact result
 of `json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True,
@@ -501,14 +552,31 @@ runtime-specific projector must retain its source event hashes separately;
 this schema does not claim that canonical and direct raw logs are
 byte-identical.
 
-The operator-owned behavioral sequence uses the same event object contract in
-`{"schema":"rook.gh_probe_trace:v1","events":[...]}`. Every ingress is
-`operator_probe`; the events are exactly the baseline wait and fenced snapshot
-followed by, for each control in artifact order, one `gh_set_value`
-perturbation, one wait, one fenced snapshot, one `gh_set_value` restoration,
-one wait, and one fenced snapshot. No retry, omitted event, extra mutation, or
-additional snapshot is admitted. `probe_trace_sha256` uses the same canonical
-byte and hash equation.
+The operator-owned behavioral sequence uses the same event object contract in:
+
+```json
+{
+  "schema": "rook.gh_probe_trace:v1",
+  "termination": {"status": "complete", "error": null},
+  "events": []
+}
+```
+
+The top-level object has exactly those three keys. Every ingress is
+`operator_probe`. Termination status is `complete` or `failed`. Error is null
+exactly for complete and otherwise is one exact nonnull `probe.error` token.
+
+The expected full sequence is the baseline wait and fenced snapshot followed
+by, for each control in artifact order, one `gh_set_value` perturbation, one
+wait, one fenced snapshot, one `gh_set_value` restoration, one wait, and one
+fenced snapshot. A complete trace equals that sequence exactly. A failed trace
+is the exact contiguous prefix through the first failed event, or through the
+last successful event when deterministic local validation fails before the
+next dispatch. Its termination error must match that boundary, and no event
+may follow it. A retry, skipped middle event, second failure, extra mutation,
+or additional snapshot is invalid. Thus fail-fast evidence remains a valid
+monotonic prefix while only the full sequence can yield `probe.status=complete`.
+`probe_trace_sha256` uses the same canonical byte and hash equation.
 
 The admission algorithm is:
 
@@ -555,6 +623,14 @@ prior candidate and becomes the only eligible receipt.
 
 Omission preserves current unfenced snapshot behavior and response shape.
 An empty or whitespace-only value is invalid.
+
+When `readiness_receipt_id` is present, `include_data` must be explicitly true
+and `max_preview_items` must be a JSON integer in `1..1000` (not a boolean).
+Missing/false data inclusion, zero, a negative value, an oversized value, or a
+nonnumeric bound is a request validation failure before fence or snapshot
+access. Fenced topology-only reads are deliberately not introduced in this
+slice. Without a readiness receipt, existing `include_data` defaults and bounds
+remain unchanged.
 
 A nonempty request body must be a valid JSON object. Malformed or non-object
 JSON fails before snapshot extraction. This is a deliberate fail-closed raw
@@ -633,11 +709,16 @@ false, `error` is exactly the first applicable token in this precedence:
 
 ```text
 data_unavailable
--> count_mismatch
 -> truncated
+-> count_mismatch
 -> non_point_item
 -> nonfinite_coordinate
 ```
+
+`truncated` applies whenever `count > max_preview_items`. `count_mismatch` is
+considered only when `count <= max_preview_items` and full enumeration still
+does not yield exactly `count` items, so ordinary truncation cannot be
+misreported as a projection defect.
 
 When complete, `error` is null. An output with no observed point item is not
 projected as a point output. A missing candidate, an incomplete entry, or more
@@ -731,18 +812,75 @@ from compromised probe evidence.
 ### Restoration equality
 
 Restoration compares a closed normalized semantic projection, not incidental
-serialization order or canvas display coordinates. The projection contains:
+serialization order or canvas display coordinates:
 
-- bound control IDs, roles, values, minima, and maxima;
-- component instance IDs and component-type GUIDs;
-- flows;
-- selected terminal output identity, complete point count, and complete
-  normalized point multiset;
-- diagnostics errors and warnings; and
-- fence correlation epochs.
+```json
+{
+  "schema": "rook.gh_behavioral_snapshot_projection:v1",
+  "controls": [
+    {
+      "role": "StartX",
+      "component_id": "C1",
+      "type": "NumberSlider",
+      "nickname": "Start X",
+      "value": {"type": "slider", "val": 0.0, "min": -10.0, "max": 10.0}
+    }
+  ],
+  "components": [
+    {
+      "component_id": "C1",
+      "type": "NumberSlider",
+      "nickname": "Start X",
+      "component_type_guid": null
+    }
+  ],
+  "flows": [],
+  "groups": [],
+  "relays": [],
+  "terminal_output": {
+    "component_id": "C7",
+    "output_index": 0,
+    "output_name": "P",
+    "count": 3,
+    "points": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
+  },
+  "diagnostics": {
+    "total": 7,
+    "errors": 0,
+    "warnings": 0,
+    "error_ids": [],
+    "warning_ids": []
+  }
+}
+```
 
-Fence receipt IDs and solution run epochs naturally differ after restoration
-and are compared for internal validity, not equality to the baseline IDs.
+The object and every nested object have exactly the shown keys. Controls are
+in artifact order and use the admitted closed slider shape. Components are
+ordered by numeric short ID and use existing snapshot `type`; nickname is the
+exact existing `nick`, or existing `name` when `nick` is absent, or null when
+neither is an actual string. `component_type_guid` is the canonical lowercase
+D-format value from existing `componentGuid` or null for simple params and
+other entries that do not expose it. No GUID is fabricated for a slider.
+
+Flows are exact strings sorted by ordinal value. A group element has exactly
+`id`, `nick`, `description`, `colour`, and `members`; the first four values
+are strings or actual host null, and members is an ordinal-sorted short-ID
+array. Groups are sorted by numeric group ID. Relays are ordinal-sorted exact
+IDs. The terminal output is
+the admitted complete typed point output with points sorted
+lexicographically by numeric `x`, then `y`, then `z`. Diagnostics copy exact
+nonnegative counts and normalize absent/null ID arrays to sorted arrays.
+Invalid IDs, GUIDs, types, counts, strings, arrays, duplicate values where
+uniqueness is required, or any projection exception makes the phase
+incomplete.
+
+Fence receipt IDs and solution epochs are deliberately absent from this
+restoration-equality object because each restoration owns new values. Every
+phase's fence is validated separately against its terminal wait receipt before
+this projection is built. Baseline and restoration must have byte-identical
+canonical projections under the trace serializer; perturbation uses the same
+shape for control-isolation and criterion evaluation but is not equal to the
+baseline by construction.
 
 ## Frozen Acceptance Artifact
 
@@ -1063,7 +1201,7 @@ The expected production owners are limited to:
 | `src/Rook/Handlers/GrasshopperHandler.cs` | `gh_edit`, script-write receipt production, and atomic fenced snapshot |
 | `mcp_server/src/rook/server.py` | public schemas, exact script-receipt propagation, canonical dispatch |
 | `mcp_server/src/rook/agent/tool_dispatcher.py` | direct-dispatch parity through the same helpers |
-| one small pure Python behavioral-acceptance module | artifact validation, trace admission, probe orchestration through an injected executor, and deterministic predicates |
+| one small pure Python behavioral-acceptance module | artifact validation, reviewed source normalization and closure checks, trace admission, probe orchestration through an injected executor, and deterministic predicates |
 
 The existing `scripts/grasshopper_point_row_acceptance.py` may become a thin
 compatibility CLI over the common module or be retired after its authentic
@@ -1075,6 +1213,8 @@ The acceptance module receives an injected async tool executor. It does not
 construct a model, open an MCP transport, resolve a Rhino target, retry a call,
 or own process lifecycle. Canonical and direct paths are exercised by their
 existing dispatch owners and must expose equivalent receipts/results.
+Source-normalizer functions live in this same module; they verify caller-owned
+retained bytes and never become a runtime recorder or session owner.
 
 No fifth model-facing API, evaluator service, persistent registry, database,
 or campaign runner is introduced.
@@ -1086,8 +1226,10 @@ or campaign runner is introduced.
 - `gh_edit` retains its current structural snapshot, `edit_summary`, partial
   errors, T*/C* identity correlation, and short-ID epoch behavior. The managed
   receipt is additive.
-- `gh_set_value`, readiness status/wait, and fenced `gh_inspect_output` retain
-  their existing receipt schemas.
+- `gh_set_value` and script-source writes add the exact managed
+  `solve_relevant_mutation_committed` boolean while preserving their existing
+  fields. Readiness status/wait and fenced `gh_inspect_output` retain their
+  existing receipt schemas.
 - Python `script_receipt` is unchanged.
 - `gh_create_script` aliases remain exact delegates.
 - `gh_set_script_pins` remains callable and preparatory.
@@ -1169,6 +1311,8 @@ failure, or converted into a guessed snapshot.
   reports exact counts/completeness, and rejects truncation, count mismatch,
   mixed/non-point items, and nonfinite coordinates without consulting string
   previews.
+- A fenced request with omitted/false `include_data` or an invalid/nonpositive
+  preview bound fails before fence and data access.
 - An unfenced snapshot retains its existing JSON shape.
 
 ### Script propagation tests
@@ -1181,6 +1325,9 @@ failure, or converted into a guessed snapshot.
 - Pin preparation alone is nonterminal.
 - Failed or partial script pipelines without the final source-write receipt are
   incomplete and retain the exact closed phase/commit/component/write object.
+- A failed managed final write with a committed source mutation retains
+  `solve_relevant_mutation_committed=true` and its exact receipt; success and
+  commitment are independently tested.
 - `gh_create_script`, both aliases, `gh_update_script`, and `chirp_create`
   preserve the exact managed receipt parsed JSON value.
 - `script_receipt` and `solve_readiness_receipt` remain distinct siblings.
@@ -1195,9 +1342,16 @@ failure, or converted into a guessed snapshot.
 - Canonical gateway, direct dispatch, and operator records project to the
   exact closed trace event schema without losing caller arguments, result
   envelopes, dispatch counts, route classification, or commit evidence.
+- A source closure with an incorrect hash/count/final sequence, missing or
+  nonfinal runtime terminal marker, valid-prefix truncation, or unclosed direct
+  dispatcher caller refuses admission. Direct dispatch with a caller-owned
+  valid closure remains equivalent after normalization.
 - Noncontiguous/duplicate sequences, duplicate JSON keys, text-only target
   results, unknown dispatch, malformed commit evidence, extra events, and
   canonical/direct substitution all fail closed.
+- A fail-fast probe retains the exact prefix and specific terminal error; a
+  middle omission or any event after failure invalidates the probe trace. Only
+  the complete finite sequence may report complete.
 - Canonical trace serialization and uppercase SHA-256 are stable across key
   order and reject nonfinite numbers or noncanonical source custody.
 - The latest covered terminal route receipt is admitted using the exact
@@ -1216,6 +1370,10 @@ failure, or converted into a guessed snapshot.
   all other bound controls remain equal to the preceding restored baseline,
   and a second simultaneous change refuses.
 - Restoration mismatch or any missing/failed call yields `incomplete`.
+- Baseline/restoration equality uses the exact closed behavioral projection;
+  slider identity relies on existing type/short-ID fields rather than a
+  fabricated component GUID, and diagnostics/groups/relays have deterministic
+  null and ordering rules.
 - Existing string previews, truncated typed points, or incomplete typed data
   cannot establish complete count, sequence, or Cartesian-product predicates.
 - Criterion results retain exact ordered phase references including every
@@ -1236,11 +1394,13 @@ failure, or converted into a guessed snapshot.
 ### Structural boundary tests
 
 - No second receipt registry, scheduler, sleep/poll readiness loop, or
-  task-specific evaluator appears.
+  task-specific evaluator appears. ToolDispatcher gains no session recorder;
+  caller-owned source closure remains mandatory.
 - Literal script helper routes retain one final `/gh/script` receipt source.
 - Native proxy forwarding remains body-transparent.
 - Existing T*/C*, flow, edit, discovery, and Python script-receipt contracts do
-  not change except for the approved additive receipt/fence fields.
+  not change except for the approved additive receipt, commit, fenced typed
+  evidence, and closed script-pipeline failure fields.
 
 ## Alternatives Considered
 
@@ -1282,6 +1442,8 @@ This design does not prove or provide:
 
 - protection from unobserved out-of-band Grasshopper mutations;
 - registry-wide invalidation for every legacy route;
+- acceptance from a runtime or direct-dispatch caller that cannot retain and
+  close its complete source trace;
 - universal semantic understanding of arbitrary Grasshopper definitions;
 - automatic role discovery without reviewed selectors;
 - completeness when output previews are truncated;
@@ -1313,9 +1475,10 @@ The implementation is ready for live qualification only when inert tests prove:
 
 ```text
 latest-terminal-route custody
++ source-log closure and complete normalized authoring trace
 + exact managed receipt propagation
 + managed wait
-+ same-callback fence-before-read snapshot
++ same-callback fence-before-read typed snapshot
 + one-receipt perturbation and one-receipt restoration
 + deterministic artifact evaluation
 ```
