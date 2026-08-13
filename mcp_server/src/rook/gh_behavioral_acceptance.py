@@ -11,6 +11,8 @@ from pathlib import Path
 import re
 from typing import Any, Awaitable, Callable
 
+from .mcp_tool_profiles import PUBLIC_READONLY_TOOL_NAMES
+
 
 __all__ = (
     "canonical_json_bytes",
@@ -110,6 +112,31 @@ _SCRIPT_TERMINAL_TARGETS = {
     "gh_update_script",
     "chirp_create",
 }
+_OBSERVATIONAL_TARGETS = frozenset(PUBLIC_READONLY_TOOL_NAMES) | {
+    "gh_solve_readiness",
+    "gh_wait_for_solve_readiness",
+}
+_ZERO_DISPATCH_REFUSALS = {
+    "active_rhino_instance_unavailable",
+    "invalid_arguments",
+    "invalid_requested_port",
+    "invalid_session_id",
+    "legacy_semantic_tool_contained",
+    "meta_recursion_forbidden",
+    "multiple_rhino_instances",
+    "not_mcp_dispatchable",
+    "panel_target_config_error",
+    "panel_target_locked",
+    "panel_target_stale",
+    "requested_port_not_discovered",
+    "rhino_session_not_found",
+    "rhino_target_error",
+    "rhino_target_unavailable",
+    "selector_conflict",
+    "session_not_targetable",
+    "tool_profile_blocked",
+    "unknown_or_non_dispatchable",
+}
 
 
 def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -184,11 +211,12 @@ def _is_int(value: Any, *, minimum: int = 0, maximum: int | None = None) -> bool
 
 
 def _is_number(value: Any) -> bool:
-    return (
-        not isinstance(value, bool)
-        and isinstance(value, (int, float))
-        and math.isfinite(value)
-    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _valid_result(value: Any) -> bool:
@@ -230,101 +258,178 @@ def _valid_composite_commit_evidence(value: Any) -> bool:
     )
 
 
-def _validate_mutation_projection(event: dict[str, Any]) -> None:
-    mutation = event["mutation"]
-    classification = mutation["classification"]
-    commit_status = mutation["commit_status"]
-    evidence = mutation["commit_evidence"]
-    receipt = mutation["solve_readiness_receipt"]
-    target = event["target"]
-    result_data = event["result"]["data"] if event["result"] is not None else None
+def _unknown_mutation() -> dict[str, Any]:
+    return {
+        "classification": "unknown",
+        "commit_status": "unknown",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
+    }
 
-    if classification == "observational":
-        terminal_only = {
-            "gh_edit",
-            "gh_set_value",
-            "gh_set_script",
-            "gh_set_script_pins",
-        } | _SCRIPT_TERMINAL_TARGETS
-        if target in terminal_only and not (
-            target == "gh_set_script" and "script" not in event["arguments"]
-        ):
-            raise ValueError("terminal_route_marked_observational")
-        if commit_status != "none" or evidence is not None or receipt is not None:
-            raise ValueError("invalid_observational_projection")
-        return
-    if classification == "unknown":
-        if commit_status != "unknown" or evidence is not None or receipt is not None:
-            raise ValueError("invalid_unknown_projection")
-        return
-    if classification == "legacy":
-        if (
-            commit_status not in {"none", "committed", "unknown"}
-            or type(evidence) is not dict
-            or set(evidence) != {"success", "target_dispatched"}
-            or type(evidence["success"]) is not bool
-            or type(evidence["target_dispatched"]) is not bool
-            or receipt is not None
-        ):
-            raise ValueError("invalid_legacy_projection")
-        return
+
+def _observational_mutation() -> dict[str, Any]:
+    return {
+        "classification": "observational",
+        "commit_status": "none",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
+    }
+
+
+def _result_receipt(data: Any) -> tuple[dict[str, Any] | None, bool]:
+    if type(data) is not dict:
+        return None, True
+    raw = data.get("solve_readiness_receipt")
+    if raw is None:
+        return None, True
+    return (raw, True) if _valid_receipt(raw) else (None, False)
+
+
+def _recognized_zero_dispatch_refusal(event: dict[str, Any]) -> bool:
+    result = event["result"]
+    if (
+        event["dispatch"]
+        != {"status": "refused_before_dispatch", "target_call_count": 0}
+        or type(result) is not dict
+        or result.get("success") is not False
+        or type(result.get("data")) is not dict
+    ):
+        return False
+    data = result["data"]
+    code = data.get("code") if isinstance(data.get("code"), str) else data.get("error")
+    return isinstance(code, str) and code in _ZERO_DISPATCH_REFUSALS
+
+
+def _composite_evidence(event: dict[str, Any], data: dict[str, Any]) -> dict[str, Any] | None:
+    if data.get("error") == "script_pipeline_incomplete":
+        evidence = {
+            "component": data.get("component"),
+            "final_write": data.get("final_write"),
+        }
+        return evidence if _valid_composite_commit_evidence(evidence) else None
+    if "solve_relevant_mutation_committed" not in data:
+        return None
+    committed = data["solve_relevant_mutation_committed"]
+    if committed is not None and type(committed) is not bool:
+        return None
+    component_guid = data.get("component_guid", data.get("guid"))
+    if component_guid is not None and not isinstance(component_guid, str):
+        return None
+    requested = event["arguments"].get("guid")
+    short_id = requested if isinstance(requested, str) and _COMPONENT_ID.fullmatch(requested) else None
+    return {
+        "component": {"guid": component_guid, "short_id": short_id},
+        "final_write": {
+            "dispatched": True,
+            "success": event["result"]["success"],
+            "solve_relevant_mutation_committed": committed,
+        },
+    }
+
+
+def _expected_mutation(event: dict[str, Any]) -> dict[str, Any]:
+    if event["exception"] is not None or event["dispatch"]["status"] == "unknown":
+        return _unknown_mutation()
+    if event["dispatch"]["status"] == "refused_before_dispatch":
+        return _observational_mutation() if _recognized_zero_dispatch_refusal(event) else _unknown_mutation()
+    target = event["target"]
+    result = event["result"]
+    if type(result) is not dict:
+        return _unknown_mutation()
+    data = result["data"]
+    if target == "gh_set_script" and "script" not in event["arguments"]:
+        return _observational_mutation()
+    if target in _OBSERVATIONAL_TARGETS:
+        return _observational_mutation()
     if target == "gh_set_script_pins":
-        if (
-            classification != "preparatory"
-            or commit_status != "none"
-            or type(evidence) is not dict
-            or set(evidence) != {"success", "target_dispatched"}
-            or type(evidence["success"]) is not bool
-            or type(evidence["target_dispatched"]) is not bool
-            or receipt is not None
-        ):
-            raise ValueError("invalid_pin_projection")
-        return
+        return {
+            "classification": "preparatory",
+            "commit_status": "none",
+            "commit_evidence": {
+                "success": result["success"],
+                "target_dispatched": True,
+            },
+            "solve_readiness_receipt": None,
+        }
     if target == "gh_edit":
-        if classification != "terminal":
-            raise ValueError("invalid_edit_projection")
-        if evidence is None:
-            if commit_status != "unknown" or receipt is not None:
-                raise ValueError("invalid_edit_projection")
-            return
-        if type(evidence) is not dict or set(evidence) != {
-            "created", "deleted", "values_set", "connected", "disconnected"
-        } or any(not _is_int(value) for value in evidence.values()):
-            raise ValueError("invalid_edit_projection")
-        committed = sum(evidence.values()) > 0
-        if commit_status != ("committed" if committed else "none") or (committed != (receipt is not None)):
-            raise ValueError("invalid_edit_projection")
-    elif target in {"gh_set_value", "gh_set_script"}:
+        summary = data.get("edit_summary") if type(data) is dict else None
+        keys = {"created", "deleted", "values_set", "connected", "disconnected"}
         if (
-            classification != "terminal"
-            or type(evidence) is not dict
-            or set(evidence) != {"solve_relevant_mutation_committed"}
-            or (
-                evidence["solve_relevant_mutation_committed"] is not None
-                and type(evidence["solve_relevant_mutation_committed"]) is not bool
-            )
+            type(summary) is not dict
+            or not keys <= set(summary)
+            or any(not _is_int(summary[key]) for key in keys)
         ):
-            raise ValueError("invalid_direct_terminal_projection")
-        committed = evidence["solve_relevant_mutation_committed"]
-        expected_status = "unknown" if committed is None else "committed" if committed else "none"
-        if commit_status != expected_status or ((committed is True) != (receipt is not None)):
-            raise ValueError("invalid_direct_terminal_projection")
-    elif target in _SCRIPT_TERMINAL_TARGETS:
-        if classification not in {"terminal", "preparatory"} or not _valid_composite_commit_evidence(evidence):
-            raise ValueError("invalid_script_projection")
-        committed = evidence["final_write"]["solve_relevant_mutation_committed"] is True
-        if classification == "terminal":
-            raw_committed = evidence["final_write"]["solve_relevant_mutation_committed"]
-            expected_status = "unknown" if raw_committed is None else "committed" if raw_committed else "none"
-            if commit_status != expected_status or (committed != (receipt is not None)):
-                raise ValueError("invalid_script_projection")
-        elif commit_status != "none" or receipt is not None or committed:
-            raise ValueError("invalid_script_projection")
-    else:
-        raise ValueError("unrecognized_mutation_projection")
-    if receipt is not None:
-        if type(result_data) is not dict or result_data.get("solve_readiness_receipt") != receipt:
-            raise ValueError("receipt_not_owned_by_result")
+            return _unknown_mutation()
+        receipt, receipt_valid = _result_receipt(data)
+        if not receipt_valid:
+            return _unknown_mutation()
+        evidence = {key: summary[key] for key in keys}
+        committed = sum(evidence.values()) > 0
+        return {
+            "classification": "terminal",
+            "commit_status": "committed" if committed else "none",
+            "commit_evidence": evidence,
+            "solve_readiness_receipt": receipt,
+        }
+    if target in {"gh_set_value", "gh_set_script"}:
+        if type(data) is not dict or "solve_relevant_mutation_committed" not in data:
+            return _unknown_mutation()
+        committed = data["solve_relevant_mutation_committed"]
+        if committed is not None and type(committed) is not bool:
+            return _unknown_mutation()
+        receipt, receipt_valid = _result_receipt(data)
+        if not receipt_valid:
+            return _unknown_mutation()
+        return {
+            "classification": "terminal",
+            "commit_status": (
+                "unknown" if committed is None else "committed" if committed else "none"
+            ),
+            "commit_evidence": {
+                "solve_relevant_mutation_committed": committed
+            },
+            "solve_readiness_receipt": receipt,
+        }
+    if target in _SCRIPT_TERMINAL_TARGETS:
+        if type(data) is not dict:
+            return _unknown_mutation()
+        evidence = _composite_evidence(event, data)
+        receipt, receipt_valid = _result_receipt(data)
+        if evidence is None or not receipt_valid:
+            return _unknown_mutation()
+        final_write = evidence["final_write"]
+        if final_write["dispatched"] is not True:
+            return {
+                "classification": "preparatory",
+                "commit_status": "none",
+                "commit_evidence": evidence,
+                "solve_readiness_receipt": receipt,
+            }
+        committed = final_write["solve_relevant_mutation_committed"]
+        return {
+            "classification": "terminal",
+            "commit_status": (
+                "unknown" if committed is None else "committed" if committed else "none"
+            ),
+            "commit_evidence": evidence,
+            "solve_readiness_receipt": receipt,
+        }
+    if target.startswith("gh_"):
+        return {
+            "classification": "legacy",
+            "commit_status": "committed" if result["success"] else "unknown",
+            "commit_evidence": {
+                "success": result["success"],
+                "target_dispatched": True,
+            },
+            "solve_readiness_receipt": None,
+        }
+    return _unknown_mutation()
+
+
+def _validate_mutation_projection(event: dict[str, Any]) -> None:
+    if event["mutation"] != _expected_mutation(event):
+        raise ValueError("mutation_projection_mismatch")
 
 
 def _validate_event(value: Any, sequence: int, *, probe: bool = False) -> dict[str, Any]:
@@ -754,6 +859,10 @@ def _valid_receipt(value: Any, *, ready: bool | None = None) -> bool:
     return True
 
 
+def _valid_issued_receipt(value: Any) -> bool:
+    return _valid_receipt(value) and value["status"] in {"pending", "ready"}
+
+
 def _validate_authoring_trace(value: Any) -> dict[str, Any]:
     if type(value) is not dict or set(value) != {"schema", "source_closure", "events"} or value["schema"] != _TRACE_SCHEMA:
         raise ValueError("authoring_trace_invalid")
@@ -841,25 +950,7 @@ def _operator_event(
             },
         }
     assert result is not None
-    if target == "gh_set_value":
-        data = result.get("data") if _valid_result(result) else None
-        committed = data.get("solve_relevant_mutation_committed") if type(data) is dict else None
-        receipt = data.get("solve_readiness_receipt") if type(data) is dict else None
-        commit_status = "committed" if committed is True else "none" if committed is False else "unknown"
-        mutation = {
-            "classification": "terminal",
-            "commit_status": commit_status,
-            "commit_evidence": {"solve_relevant_mutation_committed": committed},
-            "solve_readiness_receipt": receipt,
-        }
-    else:
-        mutation = {
-            "classification": "observational",
-            "commit_status": "none",
-            "commit_evidence": None,
-            "solve_readiness_receipt": None,
-        }
-    return {
+    event = {
         "sequence": sequence,
         "ingress": "operator_probe",
         "target": target,
@@ -867,8 +958,10 @@ def _operator_event(
         "result": result,
         "exception": None,
         "dispatch": {"status": "dispatched", "target_call_count": 1},
-        "mutation": mutation,
+        "mutation": _unknown_mutation(),
     }
+    event["mutation"] = _expected_mutation(event)
+    return event
 
 
 def _ready_wait_outcome(
@@ -1006,7 +1099,13 @@ def _terminal_output(data: dict[str, Any], bound: int) -> dict[str, Any] | None:
             continue
         if not isinstance(output["output_name"], str) or output["complete"] is not True or output["error"] is not None:
             return None
-        if not _is_int(output["count"]) or output["count"] > bound or type(output["points"]) is not list or len(output["points"]) != output["count"]:
+        if (
+            not _is_int(output["count"], minimum=1)
+            or output["count"] > bound
+            or type(output["points"]) is not list
+            or not output["points"]
+            or len(output["points"]) != output["count"]
+        ):
             return None
         points: list[list[int | float]] = []
         for point in output["points"]:
@@ -1070,15 +1169,21 @@ def _snapshot_projection(
             }
         )
     components.sort(key=lambda item: _numeric_id(item["component_id"], _COMPONENT_ID))
-    if any(not isinstance(flow, str) or _FLOW.fullmatch(flow) is None for flow in flows) or len(set(flows)) != len(flows):
+    if terminal_output["component_id"] not in seen_component_ids:
         return None
     projected_groups: list[dict[str, Any]] = []
+    seen_group_ids: set[str] = set()
     for group in groups:
         if type(group) is not dict:
             return None
         group_id = group.get("id")
-        if not isinstance(group_id, str) or _GROUP_ID.fullmatch(group_id) is None:
+        if (
+            not isinstance(group_id, str)
+            or _GROUP_ID.fullmatch(group_id) is None
+            or group_id in seen_group_ids
+        ):
             return None
+        seen_group_ids.add(group_id)
         projected = {
             "id": group_id,
             "nick": group.get("nick"),
@@ -1093,7 +1198,26 @@ def _snapshot_projection(
         projected["members"] = sorted(projected["members"])
         projected_groups.append(projected)
     projected_groups.sort(key=lambda item: _numeric_id(item["id"], _GROUP_ID))
-    if any(not isinstance(relay, str) or not relay for relay in relays) or len(set(relays)) != len(relays):
+    if (
+        any(
+            not isinstance(relay, str) or _COMPONENT_ID.fullmatch(relay) is None
+            for relay in relays
+        )
+        or len(set(relays)) != len(relays)
+    ):
+        return None
+    admitted_flow_ids = seen_component_ids | set(relays)
+    if len(set(flows)) != len(flows):
+        return None
+    for flow in flows:
+        match = _FLOW.fullmatch(flow) if isinstance(flow, str) else None
+        if (
+            match is None
+            or match.group(1) not in admitted_flow_ids
+            or match.group(3) not in admitted_flow_ids
+        ):
+            return None
+    if seen_component_ids & set(relays):
         return None
     expected_diag_keys = {"total", "errors", "warnings"}
     if not expected_diag_keys <= set(diagnostics):
@@ -1186,15 +1310,17 @@ async def run_behavioral_probe(
         return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": error}, "events": []}
     assert issued_receipt is not None
     events: list[dict[str, Any]] = []
+    malformed_executor_result = False
 
     async def call(name: str, arguments: dict[str, Any], error_token: str) -> dict[str, Any] | None:
+        nonlocal malformed_executor_result
         try:
             result = await executor(name, arguments)
         except Exception as exc:
             events.append(_operator_event(len(events), name, arguments, exception=exc))
             return None
         if not _valid_result(result):
-            events.append(_operator_event(len(events), name, arguments, exception=ValueError("invalid_executor_result")))
+            malformed_executor_result = True
             return None
         events.append(_operator_event(len(events), name, arguments, result=result))
         return result
@@ -1207,7 +1333,7 @@ async def run_behavioral_probe(
         wait_arguments = {"readiness_receipt_id": receipt["receipt_id"], "timeout_ms": 10_000}
         wait_result = await call("gh_wait_for_solve_readiness", wait_arguments, wait_error)
         if wait_result is None:
-            return None, wait_error
+            return None, "probe_trace_invalid" if malformed_executor_result else wait_error
         ready_receipt, wait_outcome = _ready_wait_outcome(wait_result, receipt)
         if ready_receipt is None:
             return None, "receipt_correlation_failed" if wait_outcome == "receipt_correlation_failed" else wait_error
@@ -1218,7 +1344,7 @@ async def run_behavioral_probe(
         }
         snapshot_result = await call("gh_snapshot", snapshot_arguments, snapshot_error)
         if snapshot_result is None:
-            return None, snapshot_error
+            return None, "probe_trace_invalid" if malformed_executor_result else snapshot_error
         if snapshot_result["success"] is not True:
             return None, snapshot_error
         evidence, evidence_error = _snapshot_evidence(artifact, ready_receipt, snapshot_result)
@@ -1250,11 +1376,13 @@ async def run_behavioral_probe(
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "probe_value_invalid"}, "events": events}
         set_arguments = {"component": baseline_control["component_id"], "value": probe_value}
         set_result = await call("gh_set_value", set_arguments, "perturbation_dispatch_failed")
-        if set_result is None or set_result["success"] is not True:
+        if set_result is None:
+            return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "probe_trace_invalid" if malformed_executor_result else "perturbation_dispatch_failed"}, "events": events}
+        if set_result["success"] is not True:
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "perturbation_dispatch_failed"}, "events": events}
         data = set_result["data"]
         perturb_receipt = data.get("solve_readiness_receipt") if type(data) is dict else None
-        if type(data) is not dict or data.get("solve_relevant_mutation_committed") is not True or not _valid_receipt(perturb_receipt):
+        if type(data) is not dict or data.get("solve_relevant_mutation_committed") is not True or not _valid_issued_receipt(perturb_receipt):
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "perturbation_receipt_invalid"}, "events": events}
         if perturb_receipt["receipt_id"] in used_receipt_ids:
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "perturbation_receipt_invalid"}, "events": events}
@@ -1276,14 +1404,16 @@ async def run_behavioral_probe(
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "perturbation_control_mismatch"}, "events": events}
         restore_arguments = {"component": baseline_control["component_id"], "value": original}
         restore_result = await call("gh_set_value", restore_arguments, "restoration_dispatch_failed")
-        if restore_result is None or restore_result["success"] is not True:
+        if restore_result is None:
+            return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "probe_trace_invalid" if malformed_executor_result else "restoration_dispatch_failed"}, "events": events}
+        if restore_result["success"] is not True:
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "restoration_dispatch_failed"}, "events": events}
         restore_data = restore_result["data"]
         restore_receipt = restore_data.get("solve_readiness_receipt") if type(restore_data) is dict else None
         if (
             type(restore_data) is not dict
             or restore_data.get("solve_relevant_mutation_committed") is not True
-            or not _valid_receipt(restore_receipt)
+            or not _valid_issued_receipt(restore_receipt)
             or restore_receipt["receipt_id"] in used_receipt_ids
         ):
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "restoration_receipt_invalid"}, "events": events}
@@ -1421,8 +1551,10 @@ def _parse_complete_probe(
         perturb_issued = perturb_data.get("solve_readiness_receipt")
         restore_issued = restore_data.get("solve_readiness_receipt")
         if (
-            not _valid_receipt(perturb_issued)
-            or not _valid_receipt(restore_issued)
+            perturb_data.get("solve_relevant_mutation_committed") is not True
+            or restore_data.get("solve_relevant_mutation_committed") is not True
+            or not _valid_issued_receipt(perturb_issued)
+            or not _valid_issued_receipt(restore_issued)
             or perturb_issued["receipt_id"] in used_receipt_ids
             or restore_issued["receipt_id"] in used_receipt_ids
             or perturb_issued["receipt_id"] == restore_issued["receipt_id"]
@@ -1524,108 +1656,183 @@ def _retained_probe_prefix(
     authoring_trace: dict[str, Any],
     trace: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Project only fully correlated phases from an unsuccessful trace prefix."""
+    """Authenticate the exact first failure and retain only completed phases."""
 
+    if trace["termination"]["status"] != "failed":
+        raise ValueError("probe_trace_invalid")
     result = {
         "status": "incomplete",
         "baseline": None,
         "controls": [],
-        "error": trace["termination"]["error"] or "probe_trace_invalid",
+        "error": trace["termination"]["error"],
     }
     phases: list[dict[str, Any]] = []
     events = trace["events"]
+    cursor = 0
+
+    def finish(error: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        if trace["termination"]["error"] != error or cursor != len(events):
+            raise ValueError("probe_trace_invalid")
+        result["error"] = error
+        return result, phases
+
+    def call(
+        target: str,
+        arguments: dict[str, Any],
+        failure: str,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        nonlocal cursor
+        if cursor == len(events):
+            return None, "probe_trace_invalid"
+        event = events[cursor]
+        if event["target"] != target or event["arguments"] != arguments:
+            raise ValueError("probe_trace_invalid")
+        cursor += 1
+        if event["exception"] is not None:
+            return None, failure
+        event_result = event["result"]
+        if not _valid_result(event_result) or event_result["success"] is not True:
+            return None, failure
+        return event_result, None
+
+    def wait_and_snapshot(
+        issued_receipt: dict[str, Any],
+        wait_failure: str,
+        snapshot_failure: str,
+    ) -> tuple[tuple[dict[str, Any], str, dict[str, Any]] | None, str | None]:
+        wait_result, failure = call(
+            "gh_wait_for_solve_readiness",
+            {
+                "readiness_receipt_id": issued_receipt["receipt_id"],
+                "timeout_ms": 10_000,
+            },
+            wait_failure,
+        )
+        if wait_result is None:
+            return None, failure
+        ready, wait_outcome = _ready_wait_outcome(wait_result, issued_receipt)
+        if ready is None:
+            return None, (
+                "receipt_correlation_failed"
+                if wait_outcome == "receipt_correlation_failed"
+                else wait_failure
+            )
+        snapshot_result, failure = call(
+            "gh_snapshot",
+            {
+                "include_data": True,
+                "max_preview_items": artifact["output"]["max_preview_items"],
+                "readiness_receipt_id": ready["receipt_id"],
+            },
+            snapshot_failure,
+        )
+        if snapshot_result is None:
+            return None, failure
+        evidence, evidence_error = _snapshot_evidence(
+            artifact, ready, snapshot_result
+        )
+        if evidence is None:
+            return None, (
+                snapshot_failure
+                if evidence_error == "projection_failed"
+                else evidence_error
+            )
+        projection, snapshot_hash = evidence
+        return (projection, snapshot_hash, ready), None
+
     issued, admission_error = _latest_terminal_receipt(authoring_trace)
-    if admission_error is not None or issued is None or len(events) < 2:
-        return result, phases
-    wait_event, snapshot_event = events[0], events[1]
-    expected_wait = {"readiness_receipt_id": issued["receipt_id"], "timeout_ms": 10_000}
-    wait_result = _successful_event_result(wait_event)
-    snapshot_result = _successful_event_result(snapshot_event)
-    if wait_event["target"] != "gh_wait_for_solve_readiness" or wait_event["arguments"] != expected_wait or wait_result is None:
-        return result, phases
-    ready = _correlated_ready_wait(wait_result, issued)
-    if ready is None or snapshot_event["target"] != "gh_snapshot" or snapshot_result is None:
-        return result, phases
-    expected_snapshot = {
-        "include_data": True,
-        "max_preview_items": artifact["output"]["max_preview_items"],
-        "readiness_receipt_id": ready["receipt_id"],
+    if admission_error is not None or issued is None:
+        raise ValueError("probe_trace_invalid")
+    baseline, failure = wait_and_snapshot(
+        issued, "baseline_wait_failed", "baseline_snapshot_failed"
+    )
+    if baseline is None:
+        return finish(failure or "probe_trace_invalid")
+    baseline_projection, baseline_hash, baseline_ready = baseline
+    baseline_bytes = canonical_json_bytes(baseline_projection)
+    baseline_controls = {
+        control["role"]: control for control in baseline_projection["controls"]
     }
-    if snapshot_event["arguments"] != expected_snapshot:
-        return result, phases
-    baseline_evidence, _ = _snapshot_evidence(artifact, ready, snapshot_result)
-    if baseline_evidence is None:
-        return result, phases
-    baseline_projection, baseline_hash = baseline_evidence
     result["baseline"] = {
-        "readiness_receipt_id": ready["receipt_id"],
+        "readiness_receipt_id": baseline_ready["receipt_id"],
         "snapshot_sha256": baseline_hash,
     }
     phases.append(
         {
             "id": "baseline",
             "projection": baseline_projection,
-            "readiness_receipt_id": ready["receipt_id"],
+            "readiness_receipt_id": baseline_ready["receipt_id"],
             "snapshot_sha256": baseline_hash,
         }
     )
-    baseline_controls = {control["role"]: control for control in baseline_projection["controls"]}
-    cursor = 2
     used_receipt_ids = {issued["receipt_id"]}
+
     for definition in artifact["controls"]:
         role = definition["role"]
-        control = baseline_controls[role]
+        control = baseline_controls.get(role)
+        if control is None:
+            return finish("control_binding_failed")
+        original = control["value"]["val"]
+        probe_value = definition["probe_value"]
+        if (
+            not control["value"]["min"] <= probe_value <= control["value"]["max"]
+            or probe_value == original
+            or (definition["value_kind"] == "integer" and type(probe_value) is not int)
+        ):
+            return finish("probe_value_invalid")
+
         control_result = {
             "role": role,
             "component_id": control["component_id"],
-            "original_value": control["value"]["val"],
-            "probe_value": definition["probe_value"],
+            "original_value": original,
+            "probe_value": probe_value,
             "perturbation": None,
             "restoration": None,
         }
         result["controls"].append(control_result)
-        if cursor >= len(events):
-            return result, phases
-        set_event = events[cursor]
-        if set_event["target"] != "gh_set_value" or set_event["arguments"] != {
-            "component": control["component_id"],
-            "value": definition["probe_value"],
-        }:
-            return result, phases
-        set_result = _successful_event_result(set_event)
-        if set_result is None or type(set_result["data"]) is not dict:
-            return result, phases
-        perturb_issued = set_result["data"].get("solve_readiness_receipt")
+
+        set_result, failure = call(
+            "gh_set_value",
+            {"component": control["component_id"], "value": probe_value},
+            "perturbation_dispatch_failed",
+        )
+        if set_result is None:
+            return finish(failure or "probe_trace_invalid")
+        data = set_result["data"]
+        perturb_issued = (
+            data.get("solve_readiness_receipt") if type(data) is dict else None
+        )
         if (
-            not _valid_receipt(perturb_issued)
+            type(data) is not dict
+            or data.get("solve_relevant_mutation_committed") is not True
+            or not _valid_issued_receipt(perturb_issued)
             or perturb_issued["receipt_id"] in used_receipt_ids
-            or len(events) < cursor + 3
         ):
-            return result, phases
+            return finish("perturbation_receipt_invalid")
         used_receipt_ids.add(perturb_issued["receipt_id"])
-        perturb_wait, perturb_snapshot = events[cursor + 1], events[cursor + 2]
-        perturb_wait_result = _successful_event_result(perturb_wait)
-        perturb_snapshot_result = _successful_event_result(perturb_snapshot)
-        if perturb_wait_result is None or perturb_snapshot_result is None:
-            return result, phases
-        perturb_ready = _correlated_ready_wait(perturb_wait_result, perturb_issued)
-        if (
-            perturb_ready is None
-            or perturb_wait["target"] != "gh_wait_for_solve_readiness"
-            or perturb_wait["arguments"] != {"readiness_receipt_id": perturb_issued["receipt_id"], "timeout_ms": 10_000}
-            or perturb_snapshot["target"] != "gh_snapshot"
-            or perturb_snapshot["arguments"]
-            != {
-                "include_data": True,
-                "max_preview_items": artifact["output"]["max_preview_items"],
-                "readiness_receipt_id": perturb_ready["receipt_id"],
-            }
-        ):
-            return result, phases
-        perturb_evidence, _ = _snapshot_evidence(artifact, perturb_ready, perturb_snapshot_result)
-        if perturb_evidence is None:
-            return result, phases
-        perturb_projection, perturb_hash = perturb_evidence
+        perturbed, failure = wait_and_snapshot(
+            perturb_issued,
+            "perturbation_wait_failed",
+            "perturbation_snapshot_failed",
+        )
+        if perturbed is None:
+            return finish(failure or "probe_trace_invalid")
+        perturb_projection, perturb_hash, perturb_ready = perturbed
+        expected_controls = {
+            key: (
+                candidate | {"value": candidate["value"] | {"val": probe_value}}
+                if key == role
+                else candidate
+            )
+            for key, candidate in baseline_controls.items()
+        }
+        observed_controls = {
+            candidate["role"]: candidate
+            for candidate in perturb_projection["controls"]
+        }
+        if observed_controls != expected_controls:
+            return finish("perturbation_control_mismatch")
+
         control_result["perturbation"] = {
             "readiness_receipt_id": perturb_ready["receipt_id"],
             "snapshot_sha256": perturb_hash,
@@ -1638,51 +1845,38 @@ def _retained_probe_prefix(
                 "snapshot_sha256": perturb_hash,
             }
         )
-        cursor += 3
-        if cursor >= len(events):
-            return result, phases
-        restore_event = events[cursor]
-        if restore_event["target"] != "gh_set_value" or restore_event["arguments"] != {
-            "component": control["component_id"],
-            "value": control["value"]["val"],
-        }:
-            return result, phases
-        restore_result = _successful_event_result(restore_event)
-        if restore_result is None or type(restore_result["data"]) is not dict:
-            return result, phases
-        restore_issued = restore_result["data"].get("solve_readiness_receipt")
+
+        restore_result, failure = call(
+            "gh_set_value",
+            {"component": control["component_id"], "value": original},
+            "restoration_dispatch_failed",
+        )
+        if restore_result is None:
+            return finish(failure or "probe_trace_invalid")
+        restore_data = restore_result["data"]
+        restore_issued = (
+            restore_data.get("solve_readiness_receipt")
+            if type(restore_data) is dict
+            else None
+        )
         if (
-            not _valid_receipt(restore_issued)
+            type(restore_data) is not dict
+            or restore_data.get("solve_relevant_mutation_committed") is not True
+            or not _valid_issued_receipt(restore_issued)
             or restore_issued["receipt_id"] in used_receipt_ids
-            or len(events) < cursor + 3
         ):
-            return result, phases
+            return finish("restoration_receipt_invalid")
         used_receipt_ids.add(restore_issued["receipt_id"])
-        restore_wait, restore_snapshot = events[cursor + 1], events[cursor + 2]
-        restore_wait_result = _successful_event_result(restore_wait)
-        restore_snapshot_result = _successful_event_result(restore_snapshot)
-        if restore_wait_result is None or restore_snapshot_result is None:
-            return result, phases
-        restore_ready = _correlated_ready_wait(restore_wait_result, restore_issued)
-        if (
-            restore_ready is None
-            or restore_wait["target"] != "gh_wait_for_solve_readiness"
-            or restore_wait["arguments"] != {"readiness_receipt_id": restore_issued["receipt_id"], "timeout_ms": 10_000}
-            or restore_snapshot["target"] != "gh_snapshot"
-            or restore_snapshot["arguments"]
-            != {
-                "include_data": True,
-                "max_preview_items": artifact["output"]["max_preview_items"],
-                "readiness_receipt_id": restore_ready["receipt_id"],
-            }
-        ):
-            return result, phases
-        restore_evidence, _ = _snapshot_evidence(artifact, restore_ready, restore_snapshot_result)
-        if restore_evidence is None:
-            return result, phases
-        restore_projection, restore_hash = restore_evidence
-        if canonical_json_bytes(restore_projection) != canonical_json_bytes(baseline_projection):
-            return result, phases
+        restored, failure = wait_and_snapshot(
+            restore_issued,
+            "restoration_wait_failed",
+            "restoration_snapshot_failed",
+        )
+        if restored is None:
+            return finish(failure or "probe_trace_invalid")
+        restore_projection, restore_hash, restore_ready = restored
+        if canonical_json_bytes(restore_projection) != baseline_bytes:
+            return finish("restoration_mismatch")
         control_result["restoration"] = {
             "readiness_receipt_id": restore_ready["receipt_id"],
             "snapshot_sha256": restore_hash,
@@ -1696,8 +1890,8 @@ def _retained_probe_prefix(
                 "snapshot_sha256": restore_hash,
             }
         )
-        cursor += 3
-    return result, phases
+
+    raise ValueError("probe_trace_invalid")
 
 
 def _phase_control_values(phase: dict[str, Any]) -> dict[str, int | float]:
@@ -1861,6 +2055,13 @@ def evaluate_behavioral_probe(
     """Evaluate one complete retained probe without topology-specific rules."""
 
     try:
+        canonical_json_bytes(artifact)
+        canonical_json_bytes(authoring_trace)
+        canonical_json_bytes(probe_trace)
+    except (TypeError, ValueError):
+        raise ValueError("input_not_canonical_json") from None
+
+    try:
         artifact = validate_acceptance_artifact(artifact)
     except (TypeError, ValueError):
         return _incomplete_evaluation(artifact if type(artifact) is dict else {}, authoring_trace, probe_trace, "artifact_invalid")
@@ -1877,9 +2078,15 @@ def evaluate_behavioral_probe(
         return _incomplete_evaluation(artifact, trace, probe, admission_error)
     parsed = _parse_complete_probe(artifact, trace, probe)
     if parsed is None:
-        error = probe["termination"]["error"] or "probe_trace_invalid"
-        retained_probe, retained_phases = _retained_probe_prefix(artifact, trace, probe)
-        retained_probe["error"] = error
+        try:
+            retained_probe, retained_phases = _retained_probe_prefix(
+                artifact, trace, probe
+            )
+        except ValueError:
+            return _incomplete_evaluation(
+                artifact, trace, probe, "probe_trace_invalid"
+            )
+        error = retained_probe["error"]
         return _incomplete_evaluation(
             artifact,
             trace,

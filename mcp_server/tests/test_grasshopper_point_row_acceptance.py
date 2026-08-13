@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
 import sys
 
@@ -14,6 +16,14 @@ from rook.gh_behavioral_acceptance import canonical_json_bytes
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = ROOT / "scripts" / "grasshopper_point_row_acceptance.py"
 ACCEPTANCE_PATH = ROOT / "scripts" / "grasshopper_point_row_acceptance.json"
+FIXTURE_ROOT = (
+    ROOT
+    / "mcp_server"
+    / "tests"
+    / "fixtures"
+    / "grasshopper_behavioral_acceptance"
+)
+LEGACY_EVALUATIONS_PATH = FIXTURE_ROOT / "legacy-evaluations.json"
 
 
 def _evaluator():
@@ -57,30 +67,15 @@ def _common_result(statuses: dict[str, str]) -> dict:
     }
 
 
-def _retained_legacy_evaluation(*, opus: bool) -> dict:
-    if opus:
-        return {
-            "snapshot_sha256": "BD25176EC4C7AF7C7A4559C87F97FA4F092FB394E0D30D38A57D5529FAC92F48",
-            "criteria": {
-                "adjustable_controls_present": {"status": "pass", "missing": []},
-                "point_count_equals_count": {"status": "pass"},
-                "first_x_equals_start": {"status": "pass"},
-                "successive_x_difference_equals_step": {"status": "pass"},
-                "all_yz_zero": {"status": "pass"},
-                "no_runtime_errors": {"status": "pass"},
-            },
-        }
-    return {
-        "snapshot_sha256": "4B3E44B853D7EEC44D6052D2C4442BEB4CEE46BD3E728C14781FCDDB43C87AE8",
-        "criteria": {
-            "adjustable_controls_present": {"status": "fail", "missing": ["Step"]},
-            "point_count_equals_count": {"status": "fail"},
-            "first_x_equals_start": {"status": "unproven"},
-            "successive_x_difference_equals_step": {"status": "unproven"},
-            "all_yz_zero": {"status": "pass"},
-            "no_runtime_errors": {"status": "pass"},
-        },
-    }
+def _retained_legacy_evaluation(case: str) -> dict:
+    payload = LEGACY_EVALUATIONS_PATH.read_bytes()
+    value = json.loads(payload.decode("utf-8"))
+    assert payload == canonical_json_bytes(value)
+    assert value["schema"] == "rook.gh_legacy_point_row_evidence:v1"
+    retained = value["cases"][case]
+    snapshot = (FIXTURE_ROOT / retained["snapshot_file"]).read_bytes()
+    assert hashlib.sha256(snapshot).hexdigest().upper() == retained["snapshot_sha256"]
+    return retained
 
 
 def _common_result_from_retained_legacy(value: dict) -> dict:
@@ -142,7 +137,7 @@ def test_frozen_artifact_is_canonical_closed_and_preserves_exact_intent():
 
 
 def test_authentic_opus_expectation_maps_to_six_passes():
-    retained = _retained_legacy_evaluation(opus=True)
+    retained = _retained_legacy_evaluation("opus")
     assert retained["snapshot_sha256"] == "BD25176EC4C7AF7C7A4559C87F97FA4F092FB394E0D30D38A57D5529FAC92F48"
     report = _evaluator().compatibility_report(
         _common_result_from_retained_legacy(retained)
@@ -154,7 +149,7 @@ def test_authentic_opus_expectation_maps_to_six_passes():
 
 
 def test_authentic_qwen_expectation_fails_exactly_step_and_cardinality():
-    retained = _retained_legacy_evaluation(opus=False)
+    retained = _retained_legacy_evaluation("qwen")
     assert retained["snapshot_sha256"] == "4B3E44B853D7EEC44D6052D2C4442BEB4CEE46BD3E728C14781FCDDB43C87AE8"
     report = _evaluator().compatibility_report(
         _common_result_from_retained_legacy(retained)

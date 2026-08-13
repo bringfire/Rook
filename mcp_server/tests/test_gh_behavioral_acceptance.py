@@ -71,7 +71,7 @@ def _event(
         "chirp_create",
     }:
         evidence = {
-            "component": {"guid": "component-guid", "short_id": "C9"},
+            "component": {"guid": "component-guid", "short_id": None},
             "final_write": {
                 "dispatched": commit_status == "committed",
                 "success": True if commit_status == "committed" else None,
@@ -80,7 +80,35 @@ def _event(
         }
     else:
         evidence = {"success": True, "target_dispatched": True}
+        if classification == "legacy" and commit_status == "none":
+            commit_status = "committed"
     result_data = {} if data is None else data
+    if data is None and target == "gh_edit" and isinstance(evidence, dict):
+        result_data = {"edit_summary": dict(evidence)}
+    elif (
+        data is None
+        and target in {"gh_set_value", "gh_set_script"}
+        and isinstance(evidence, dict)
+        and "solve_relevant_mutation_committed" in evidence
+    ):
+        result_data = {
+            "solve_relevant_mutation_committed": evidence[
+                "solve_relevant_mutation_committed"
+            ]
+        }
+    elif data is None and target in {
+        "gh_create_script",
+        "gh_create_python_script",
+        "gh_create_csharp_script",
+        "gh_update_script",
+        "chirp_create",
+    }:
+        result_data = {
+            "component_guid": evidence["component"]["guid"],
+            "solve_relevant_mutation_committed": evidence["final_write"][
+                "solve_relevant_mutation_committed"
+            ],
+        }
     if receipt is not None:
         assert isinstance(result_data, dict)
         result_data = result_data | {"solve_readiness_receipt": receipt}
@@ -773,9 +801,9 @@ def test_failed_mutation_result_remains_a_valid_monotonic_probe_prefix():
     probe = asyncio.run(acceptance.run_behavioral_probe(_artifact(), trace, RefusingSet()))
     assert probe["termination"] == {"status": "failed", "error": "perturbation_dispatch_failed"}
     assert probe["events"][-1]["mutation"] == {
-        "classification": "terminal",
+        "classification": "unknown",
         "commit_status": "unknown",
-        "commit_evidence": {"solve_relevant_mutation_committed": None},
+        "commit_evidence": None,
         "solve_readiness_receipt": None,
     }
     evaluation = acceptance.evaluate_behavioral_probe(_artifact(), trace, probe)
@@ -921,6 +949,48 @@ def test_evaluator_independently_rejects_cross_talk_in_retained_complete_trace()
     result = acceptance.evaluate_behavioral_probe(_artifact(), trace, probe)
     assert result["status"] == "incomplete"
     assert result["probe"]["error"] == "probe_trace_invalid"
+
+
+def test_complete_probe_cannot_claim_a_noncommitted_or_nonpending_set_receipt():
+    issued = _receipt()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+    complete = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, _Executor())
+    )
+    noncommitted = json.loads(json.dumps(complete))
+    set_event = noncommitted["events"][2]
+    set_event["result"]["data"]["solve_relevant_mutation_committed"] = False
+    set_event["mutation"] = {
+        "classification": "terminal",
+        "commit_status": "none",
+        "commit_evidence": {"solve_relevant_mutation_committed": False},
+        "solve_readiness_receipt": set_event["result"]["data"][
+            "solve_readiness_receipt"
+        ],
+    }
+    assert acceptance.evaluate_behavioral_probe(
+        _artifact(), trace, noncommitted
+    )["probe"]["error"] == "probe_trace_invalid"
+
+    class SupersededSet(_Executor):
+        async def __call__(self, name: str, arguments: dict) -> dict:
+            result = await super().__call__(name, arguments)
+            if name == "gh_set_value":
+                result["data"]["solve_readiness_receipt"]["status"] = "superseded"
+            return result
+
+    refused = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, SupersededSet())
+    )
+    assert refused["termination"]["error"] == "perturbation_receipt_invalid"
 
 
 def test_probe_refuses_receipt_reuse_across_distinct_mutations():
@@ -1069,3 +1139,407 @@ def test_generic_cartesian_and_product_predicates_pass_without_topology_names():
     wrong = acceptance.evaluate_behavioral_probe(artifact, authoring, wrong_probe)
     assert wrong["status"] == "fail"
     assert [item["status"] for item in wrong["criteria"]] == ["pass", "fail"]
+
+
+def test_route_owned_projection_rejects_observational_legacy_mutation_and_false_edit_summary():
+    issued = _receipt()
+    later_connect = _event(1, "gh_connect", classification="observational")
+    spoofed_edit = _event(
+        0,
+        "gh_edit",
+        classification="terminal",
+        commit_status="committed",
+        receipt=issued,
+    )
+    spoofed_edit["result"]["data"]["edit_summary"] = {
+        "created": 0,
+        "deleted": 0,
+        "values_set": 0,
+        "connected": 0,
+        "disconnected": 0,
+    }
+    for trace in (
+        _trace(
+            _event(
+                0,
+                "gh_edit",
+                classification="terminal",
+                commit_status="committed",
+                receipt=issued,
+            ),
+            later_connect,
+        ),
+        _trace(spoofed_edit),
+    ):
+        probe = asyncio.run(
+            acceptance.run_behavioral_probe(_artifact(), trace, _Executor())
+        )
+        assert probe["termination"]["error"] == "authoring_trace_invalid"
+
+
+def test_direct_terminal_projection_is_correlated_and_retains_nonready_receipt():
+    issued = _receipt()
+    false_receipt = _receipt("no-commit", mutation_epoch=2, status="unknown")
+    event = _event(
+        1,
+        "gh_set_value",
+        classification="terminal",
+        commit_status="none",
+        receipt=false_receipt,
+        data={"solve_relevant_mutation_committed": False},
+    )
+    event["mutation"]["commit_evidence"] = {
+        "solve_relevant_mutation_committed": False
+    }
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        ),
+        event,
+    )
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, _Executor())
+    )
+    assert probe["termination"]["error"] == "later_unfenced_mutation"
+
+    spoofed = json.loads(json.dumps(event))
+    spoofed["result"]["data"]["solve_relevant_mutation_committed"] = True
+    spoofed_probe = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), _trace(spoofed), _Executor())
+    )
+    assert spoofed_probe["termination"]["error"] == "authoring_trace_invalid"
+
+
+@pytest.mark.parametrize(
+    ("committed", "commit_status"),
+    [(False, "none"), (None, "unknown")],
+)
+def test_failed_direct_result_retains_exact_commit_fact_and_receipt(
+    committed, commit_status
+):
+    issued = _receipt()
+    later_receipt = _receipt(
+        f"direct-{commit_status}", mutation_epoch=2, status="unknown"
+    )
+    event = _event(
+        1,
+        "gh_set_value",
+        classification="terminal",
+        commit_status=commit_status,
+        receipt=later_receipt,
+        data={"solve_relevant_mutation_committed": committed},
+    )
+    event["result"]["success"] = False
+    event["mutation"]["commit_evidence"] = {
+        "solve_relevant_mutation_committed": committed
+    }
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(
+            _artifact(),
+            _trace(
+                _event(
+                    0,
+                    "gh_edit",
+                    classification="terminal",
+                    commit_status="committed",
+                    receipt=issued,
+                ),
+                event,
+            ),
+            _Executor(),
+        )
+    )
+    assert probe["termination"]["error"] == "later_unfenced_mutation"
+
+
+def test_recognized_zero_dispatch_refusal_is_observational_but_unknown_refusal_is_not():
+    issued = _receipt()
+    refused = _event(1, "gh_connect", classification="observational")
+    refused["result"] = {
+        "success": False,
+        "data": {
+            "error": "invalid_arguments",
+            "name": "gh_connect",
+            "fields": ["target: required"],
+        },
+    }
+    refused["dispatch"] = {
+        "status": "refused_before_dispatch",
+        "target_call_count": 0,
+    }
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        ),
+        refused,
+    )
+    assert asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, _Executor())
+    )["termination"] == {"status": "complete", "error": None}
+
+    unrecognized = json.loads(json.dumps(refused))
+    unrecognized["result"]["data"]["error"] = "mystery_refusal"
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(
+            _artifact(),
+            _trace(trace["events"][0], unrecognized),
+            _Executor(),
+        )
+    )
+    assert probe["termination"]["error"] == "authoring_trace_invalid"
+
+
+def test_empty_point_multiset_is_incomplete_and_never_vacuously_passes():
+    issued = _receipt()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+
+    class EmptyOutput(_Executor):
+        async def __call__(self, name: str, arguments: dict) -> dict:
+            result = await super().__call__(name, arguments)
+            if name == "gh_snapshot":
+                output = result["data"]["behavioral_point_outputs"][0]
+                output["count"] = 0
+                output["points"] = []
+            return result
+
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, EmptyOutput())
+    )
+    assert probe["termination"] == {
+        "status": "failed",
+        "error": "output_incomplete",
+    }
+    result = acceptance.evaluate_behavioral_probe(_artifact(), trace, probe)
+    assert result["status"] == "incomplete"
+    assert all(item["status"] == "unproven" for item in result["criteria"])
+
+
+def test_oversized_json_integer_is_rejected_without_projection_exception():
+    issued = _receipt()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+
+    class OversizedCoordinate(_Executor):
+        async def __call__(self, name: str, arguments: dict) -> dict:
+            result = await super().__call__(name, arguments)
+            if name == "gh_snapshot":
+                result["data"]["behavioral_point_outputs"][0]["points"][0][0] = (
+                    10**1000
+                )
+            return result
+
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, OversizedCoordinate())
+    )
+    assert probe["termination"] == {
+        "status": "failed",
+        "error": "output_incomplete",
+    }
+
+
+def test_failed_probe_must_match_exact_first_failure_boundary():
+    issued = _receipt()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+    complete = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, _Executor())
+    )
+    forged = json.loads(json.dumps(complete))
+    forged["termination"] = {
+        "status": "failed",
+        "error": "restoration_dispatch_failed",
+    }
+    result = acceptance.evaluate_behavioral_probe(_artifact(), trace, forged)
+    assert result["status"] == "incomplete"
+    assert result["probe"]["error"] == "probe_trace_invalid"
+    assert result["probe"]["controls"] == []
+
+    class FailingExecutor(_Executor):
+        async def __call__(self, name: str, arguments: dict) -> dict:
+            if name == "gh_set_value":
+                raise RuntimeError("real failure")
+            return await super().__call__(name, arguments)
+
+    actual_failure = asyncio.run(
+        acceptance.run_behavioral_probe(
+            _artifact(),
+            trace,
+            FailingExecutor(),
+        )
+    )
+    wrong_token = json.loads(json.dumps(actual_failure))
+    wrong_token["termination"]["error"] = "restoration_dispatch_failed"
+    assert acceptance.evaluate_behavioral_probe(
+        _artifact(), trace, wrong_token
+    )["probe"]["error"] == "probe_trace_invalid"
+def test_malformed_executor_return_is_not_fabricated_as_an_exception():
+    issued = _receipt()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+
+    async def malformed(name: str, arguments: dict):
+        return []
+
+    malformed_probe = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, malformed)
+    )
+    assert malformed_probe["termination"] == {
+        "status": "failed",
+        "error": "probe_trace_invalid",
+    }
+    assert malformed_probe["events"] == []
+
+    async def raised(name: str, arguments: dict):
+        raise ValueError("invalid_executor_result")
+
+    raised_probe = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, raised)
+    )
+    assert raised_probe["termination"]["error"] == "baseline_wait_failed"
+    assert raised_probe["events"][0]["exception"] == {
+        "type": "builtins.ValueError",
+        "message": "invalid_executor_result",
+    }
+
+
+@pytest.mark.parametrize("which", ["artifact", "authoring", "probe"])
+def test_noncanonical_public_inputs_have_one_explicit_failure(which):
+    issued = _receipt()
+    artifact = _artifact()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(artifact, trace, _Executor())
+    )
+    values = {"artifact": artifact, "authoring": trace, "probe": probe}
+    values[which] = json.loads(json.dumps(values[which]))
+    values[which]["noncanonical"] = float("nan")
+    with pytest.raises(ValueError, match="^input_not_canonical_json$"):
+        acceptance.evaluate_behavioral_probe(
+            values["artifact"], values["authoring"], values["probe"]
+        )
+
+
+def test_duplicate_group_ids_make_snapshot_projection_incomplete():
+    issued = _receipt()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+
+    class DuplicateGroups(_Executor):
+        async def __call__(self, name: str, arguments: dict) -> dict:
+            result = await super().__call__(name, arguments)
+            if name == "gh_snapshot":
+                group = {
+                    "id": "G1",
+                    "nick": "Group",
+                    "description": "duplicate",
+                    "colour": "#FFFFFF",
+                    "members": ["C1"],
+                }
+                result["data"]["groups"] = [group, dict(group)]
+            return result
+
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, DuplicateGroups())
+    )
+    assert probe["termination"] == {
+        "status": "failed",
+        "error": "baseline_snapshot_failed",
+    }
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "invalid_relay",
+        "missing_output_component",
+        "missing_flow_source",
+        "missing_flow_target",
+    ],
+)
+def test_projected_references_must_name_existing_component_short_ids(defect):
+    issued = _receipt()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+
+    class BrokenReference(_Executor):
+        async def __call__(self, name: str, arguments: dict) -> dict:
+            result = await super().__call__(name, arguments)
+            if name == "gh_snapshot":
+                if defect == "invalid_relay":
+                    result["data"]["relays"] = ["not-a-short-id"]
+                elif defect == "missing_output_component":
+                    result["data"]["behavioral_point_outputs"][0][
+                        "component_id"
+                    ] = "C999"
+                elif defect == "missing_flow_source":
+                    result["data"]["flows"][0] = "C999.O0>C4.I0"
+                else:
+                    result["data"]["flows"][0] = "C1.O0>C999.I0"
+            return result
+
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(_artifact(), trace, BrokenReference())
+    )
+    assert probe["termination"] == {
+        "status": "failed",
+        "error": "baseline_snapshot_failed",
+    }
