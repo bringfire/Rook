@@ -277,6 +277,42 @@ If a mutation commits but schedule or lifecycle correlation fails, the receipt
 is returned with the existing truthful `solver_locked` or `unknown` status and
 reason. It cannot authorize a snapshot.
 
+### Direct post-reservation failure shape
+
+`gh_set_value` and direct `gh_set_script` source writes retain their existing
+pre-validation and pre-reservation failure strings. Once receipt reservation
+succeeds, any failure returns object data with exactly:
+
+```json
+{
+  "error": "set_value_failed",
+  "message": "exact host exception message",
+  "solve_relevant_mutation_committed": true,
+  "solve_readiness_receipt": {}
+}
+```
+
+`error` is exactly `set_value_failed` or `set_script_failed` for its owner.
+`message` is the exact nonblank managed exception message. The commit value is
+true when the value/source mutator returned successfully before the later
+failure, false when the owner knows no mutation occurred, and null only when a
+throwing host mutator leaves commitment unknowable. The receipt is the exact
+managed object after reservation/finalization, or null only when receipt
+projection itself failed. Null commit or receipt makes the route incomplete.
+
+On known commit, the catch path requests the one post-mutation solve if it was
+not already requested, finalizes the exact receipt, and returns it. On known
+zero commit, it finalizes terminal non-ready with
+`no_solve_relevant_mutation_committed`. On unknown commitment, it finalizes
+terminal `unknown` with exact reason `mutation_commit_unknown`; it never claims
+readiness. Success responses from both routes add
+`solve_relevant_mutation_committed=true` and the exact receipt.
+
+Changing post-reservation direct failures from string data to this object is a
+deliberate bounded compatibility correction. Failure text remains in
+`message`; pre-reservation errors and all unrelated routes keep their current
+shape.
+
 ### `gh_edit` commitment rules
 
 `gh_edit` tracks solve-relevant commits independently of top-level success:
@@ -422,10 +458,11 @@ The evaluator accepts one closed projection, not provider-specific event logs:
   "schema": "rook.gh_authoring_trace:v1",
   "source_closure": {
     "schema": "rook.gh_authoring_source_closure:v1",
-    "owner": "runtime_session",
+    "owner": "prime_rook_adapter",
     "source_event_count": 1,
     "final_source_sequence": 0,
     "source_log_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "runtime_log_sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
     "terminal_marker": "agent_end",
     "closed": true
   },
@@ -436,6 +473,7 @@ The evaluator accepts one closed projection, not provider-specific event logs:
       "target": "gh_edit",
       "arguments": {},
       "result": {"success": true, "data": {}},
+      "exception": null,
       "dispatch": {
         "status": "dispatched",
         "target_call_count": 1
@@ -452,26 +490,47 @@ The evaluator accepts one closed projection, not provider-specific event logs:
 ```
 
 The top-level object has exactly `schema`, `source_closure`, and `events`.
-`source_closure` has exactly the seven shown fields. Its schema is the displayed
-literal, owner is `runtime_session` or `operator_transaction`, event count is a
-nonnegative integer, final sequence is null exactly when the count is zero and
-otherwise equals count minus one, the hash matches `[0-9A-F]{64}`, and `closed`
-is exactly true. `terminal_marker` is `agent_end` for Prime or
-`transaction_closed` for a caller-owned direct transaction and must be the
-exact final semantic event in the hashed source. The hash is over the exact
-retained source-log bytes, not the normalized projection.
+`source_closure` has exactly the eight shown fields. Its schema is the displayed
+literal; owner is `prime_rook_adapter` or `direct_transaction_wrapper`; event
+count is a nonnegative integer; final sequence is null exactly when the count
+is zero and otherwise equals count minus one; both hashes match
+`[0-9A-F]{64}`; and `closed` is exactly true. `terminal_marker` is `agent_end`
+for Prime or `transaction_closed` for a caller-owned direct transaction and
+must be the exact final semantic event in the hashed runtime log.
 
-The existing runtime/session owner emits the closure only after its terminal
-event is durably retained. For Prime that owner is the native session record
-ending in exactly one final `agent_end`; for ChatRunner/direct dispatch it is
-the calling conversation or transaction owner. `ToolDispatcher` remains
-recorder-free and cannot by itself qualify a trace. If its caller cannot emit a
-closed source record, acceptance is incomplete. The acceptance owner receives
-the exact source bytes, verifies their hash and terminal marker, and reruns the
-reviewed source normalizer; a self-reported closure or projection without the
-source bytes is invalid.
+The accepted raw capability source format is
+`rook.gh_authoring_source_log:v1`: strict UTF-8 JSONL without BOM. Its first
+row has exactly `schema` and `owner`; schema is the displayed literal and owner
+is one of the two closed values above. Each following row before closure is one
+exact event object shown below, serialized with the canonical Python
+serializer. The final row is exactly
+`{"type":"closure","source_closure":<the object above>}`.
+`source_log_sha256` is computed over the header and event rows, including each
+trailing LF but excluding the closure row to avoid circularity.
+`runtime_log_sha256` is over the complete exact runtime-owned log bytes.
 
-Each event has exactly the seven keys shown. `sequence` is the zero-based
+For Prime, the reviewed `rook_full.search/read/call` adapter wrapper owns each
+capability row: it captures exact Python arguments at function ingress and the
+exact parsed `{success,data}` value or raised exception at function egress
+before returning control to model code. Prime's `--mode json` stdout JSONL is
+the separate runtime log; it must contain exactly one final `agent_end`. The
+Prime native session file and Rhino native session recorder are corroborating
+evidence only; neither owns this trace and neither can substitute for the
+adapter rows or `agent_end` stream.
+
+For direct `ToolDispatcher` use, an explicit caller-owned transaction wrapper
+performs the same ingress/egress capture and appends a final
+`transaction_closed` event after no further calls are possible.
+`ToolDispatcher` remains recorder-free and cannot by itself qualify a trace.
+Current Prime or ChatRunner evidence without the corresponding wrapper log
+fails closed until that caller integration exists.
+
+The acceptance owner receives both exact raw logs, verifies both hashes and
+the runtime terminal marker, validates the source-log closure, and reruns the
+reviewed normalizer. A self-reported closure or projection without those bytes
+is invalid.
+
+Each event has exactly the eight keys shown. `sequence` is the zero-based
 source capability-event number; values are contiguous and strictly increasing
 through `final_source_sequence`. `len(events)` must equal
 `source_event_count`. A missing final event, valid prefix, duplicated event, or
@@ -483,8 +542,15 @@ caller-supplied JSON object before target routing or panel-lock enrichment.
 Duplicate JSON keys, non-object arguments, gaps, duplicates, or reordered
 events make the trace invalid.
 
-`result` has exactly `success` and `data`, where `success` is a boolean and
-`data` is the exact normalized internal data value. Canonical MCP input uses
+Exactly one of `result` and `exception` is nonnull. A result has exactly
+`success` and `data`, where `success` is a boolean and `data` is the exact
+normalized internal data value. An exception has exactly `type` and `message`,
+both exact strings, with nonblank `type`; its dispatch status is `unknown`, its
+target call count is null, and mutation classification/commit status are both
+`unknown`. Any exception event establishes complete custody but makes
+behavioral admission incomplete; it can never prove zero dispatch or mutation.
+
+Canonical MCP input uses
 the target and arguments inside the admitted `rook_tools_call` envelope and
 the target's structured `{success,data}` result. Direct dispatch uses its
 direct name, exact parameters, and plain internal `{success,data}` result.
@@ -570,12 +636,15 @@ The expected full sequence is the baseline wait and fenced snapshot followed
 by, for each control in artifact order, one `gh_set_value` perturbation, one
 wait, one fenced snapshot, one `gh_set_value` restoration, one wait, and one
 fenced snapshot. A complete trace equals that sequence exactly. A failed trace
-is the exact contiguous prefix through the first failed event, or through the
-last successful event when deterministic local validation fails before the
-next dispatch. Its termination error must match that boundary, and no event
-may follow it. A retry, skipped middle event, second failure, extra mutation,
-or additional snapshot is invalid. Thus fail-fast evidence remains a valid
-monotonic prefix while only the full sequence can yield `probe.status=complete`.
+is the exact contiguous prefix through the first failed result or exception
+event, or through the last successful event when deterministic local
+validation fails before the next dispatch. The injected-executor wrapper must
+catch an exception long enough to append the closed exception event and then
+stop; it does not fabricate a host result or retry. Its termination error must
+match that boundary, and no event may follow it. A retry, skipped middle event,
+second failure, extra mutation, or additional snapshot is invalid. Thus
+fail-fast evidence remains a valid monotonic prefix while only the full
+sequence can yield `probe.status=complete`.
 `probe_trace_sha256` uses the same canonical byte and hash equation.
 
 The admission algorithm is:
@@ -1201,7 +1270,8 @@ The expected production owners are limited to:
 | `src/Rook/Handlers/GrasshopperHandler.cs` | `gh_edit`, script-write receipt production, and atomic fenced snapshot |
 | `mcp_server/src/rook/server.py` | public schemas, exact script-receipt propagation, canonical dispatch |
 | `mcp_server/src/rook/agent/tool_dispatcher.py` | direct-dispatch parity through the same helpers |
-| one small pure Python behavioral-acceptance module | artifact validation, reviewed source normalization and closure checks, trace admission, probe orchestration through an injected executor, and deterministic predicates |
+| one small pure Python behavioral-acceptance module | artifact validation, caller trace-sink/wrapper primitives, reviewed source normalization and closure checks, trace admission, probe orchestration through an injected executor, and deterministic predicates |
+| required caller integration: reviewed Prime `rook_full` adapter or ChatRunner transaction boundary | emit exact capability source rows and close them only after the separate runtime log reaches `agent_end` or `transaction_closed`; current callers without the wrapper fail closed; no new model-facing tool |
 
 The existing `scripts/grasshopper_point_row_acceptance.py` may become a thin
 compatibility CLI over the common module or be retired after its authentic
@@ -1230,6 +1300,10 @@ or campaign runner is introduced.
   `solve_relevant_mutation_committed` boolean while preserving their existing
   fields. Readiness status/wait and fenced `gh_inspect_output` retain their
   existing receipt schemas.
+- Post-reservation `gh_set_value` and direct script-write failures intentionally
+  change from string data to the closed object above so committed state and
+  receipt evidence survive; their pre-reservation failure strings remain
+  unchanged.
 - Python `script_receipt` is unchanged.
 - `gh_create_script` aliases remain exact delegates.
 - `gh_set_script_pins` remains callable and preparatory.
@@ -1297,6 +1371,10 @@ failure, or converted into a guessed snapshot.
 - A zero-commit edit cannot return a ready receipt.
 - A group-only edit does not request a solve or return a ready receipt.
 - Reservation failure causes zero mutation.
+- Direct `gh_set_value` and script-write exceptions after reservation retain
+  the exact closed failure object. Known committed, known zero-commit, unknown
+  commitment, and receipt-projection failure cases preserve their distinct
+  boolean/null and terminal-reason equations.
 - Pending, stale-solution, superseded, solver-locked, document-replaced,
   unknown, expired, missing, evicted, and process-restarted receipts refuse fenced
   snapshots with no data read.
@@ -1342,6 +1420,14 @@ failure, or converted into a guessed snapshot.
 - Canonical gateway, direct dispatch, and operator records project to the
   exact closed trace event schema without losing caller arguments, result
   envelopes, dispatch counts, route classification, or commit evidence.
+- Prime adapter source rows capture exact `rook_full` function ingress and
+  parsed egress; the separate Prime JSON event stream supplies exactly one
+  final `agent_end`. Rhino native session evidence cannot substitute for
+  either. A direct caller wrapper closes only after `transaction_closed`.
+- Missing adapter/wrapper rows, a missing runtime log, hash mismatch, or a
+  self-reported projection without both raw sources fails closed.
+- A caller/executor exception is retained as the closed exception event with
+  unknown dispatch/mutation and yields incomplete without retry.
 - A source closure with an incorrect hash/count/final sequence, missing or
   nonfinal runtime terminal marker, valid-prefix truncation, or unclosed direct
   dispatcher caller refuses admission. Direct dispatch with a caller-owned
