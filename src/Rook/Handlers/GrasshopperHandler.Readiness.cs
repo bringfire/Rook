@@ -168,13 +168,31 @@ namespace Rook.Handlers
             string error,
             string message,
             bool? solveRelevantMutationCommitted,
-            GhSolveReadinessReceipt? receipt) => new
+            GhSolveReadinessReceipt? receipt,
+            Func<GhSolveReadinessReceipt, object>? receiptProjector = null)
         {
-            error,
-            message,
-            solve_relevant_mutation_committed = solveRelevantMutationCommitted,
-            solve_readiness_receipt = receipt is null ? null : ReceiptSnapshot(receipt),
-        };
+            object? projectedReceipt = null;
+            if (receipt is not null)
+            {
+                try
+                {
+                    projectedReceipt = (receiptProjector ?? ReceiptSnapshot)(receipt);
+                }
+                catch
+                {
+                    // The post-reservation failure contract retains committed facts
+                    // even when projecting the otherwise-authentic receipt fails.
+                }
+            }
+
+            return new
+            {
+                error,
+                message,
+                solve_relevant_mutation_committed = solveRelevantMutationCommitted,
+                solve_readiness_receipt = projectedReceipt,
+            };
+        }
 
         internal void MarkSetValueMutationFailed(string receiptId)
         {

@@ -7991,6 +7991,7 @@ namespace Rook.Handlers
             GhSolveReadinessReceipt? readinessReceipt = null;
             GhScheduleResult? scheduleResult = null;
             bool postMutationSolveAttempted = false;
+            bool mutationCommitUnknown = false;
 
             bool HasNonEmptyArray(string key) =>
                 args.TryGetValue(key, out var value) &&
@@ -8084,6 +8085,7 @@ namespace Rook.Handlers
                         }
                         catch (Exception ex)
                         {
+                            mutationCommitUnknown = true;
                             errors.Add($"Create exception: {ex.Message}");
                         }
                     }
@@ -8159,9 +8161,25 @@ namespace Rook.Handlers
                     {
                         try
                         {
-                            var removeMethod = targetInput.GetType().GetMethod("RemoveSource",
-                                new[] { gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param")! });
-                            removeMethod?.Invoke(targetInput, new[] { sourceOutput });
+                            var paramType = gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param");
+                            var removeMethod = paramType is null
+                                ? null
+                                : targetInput.GetType().GetMethod("RemoveSource", new[] { paramType });
+                            if (removeMethod is null)
+                            {
+                                errors.Add($"disconnect '{flowStr}': RemoveSource mutator unavailable");
+                                continue;
+                            }
+
+                            try
+                            {
+                                removeMethod.Invoke(targetInput, new[] { sourceOutput });
+                            }
+                            catch
+                            {
+                                mutationCommitUnknown = true;
+                                throw;
+                            }
                             disconnected++;
                             AddDirty(targetInput);
                         }
@@ -8183,7 +8201,7 @@ namespace Rook.Handlers
 
                     // First pass: collect objects to delete (for undo recording BEFORE removal)
                     var deletedObjects = new List<object>();
-                    var deletedAttrs = new List<object>();
+                    var deletedAttrs = new List<(object attributes, string shortId)>();
 
                     foreach (var item in deleteEl.EnumerateArray())
                     {
@@ -8209,7 +8227,11 @@ namespace Rook.Handlers
                         if (attributes != null)
                         {
                             deletedObjects.Add(obj);
-                            deletedAttrs.Add(attributes);
+                            deletedAttrs.Add((attributes, shortId));
+                        }
+                        else
+                        {
+                            errors.Add($"Delete: object '{shortId}' has no attributes");
                         }
                     }
 
@@ -8226,10 +8248,24 @@ namespace Rook.Handlers
                     }
 
                     // Second pass: actually remove the objects
-                    foreach (var attributes in deletedAttrs)
+                    foreach (var (attributes, shortId) in deletedAttrs)
                     {
-                        removeMethod?.Invoke(gh.Document, new object[] { attributes, true });
-                        deleted++;
+                        if (removeMethod is null)
+                        {
+                            errors.Add($"Delete: RemoveObject mutator unavailable for '{shortId}'");
+                            continue;
+                        }
+
+                        try
+                        {
+                            removeMethod.Invoke(gh.Document, new object[] { attributes, true });
+                            deleted++;
+                        }
+                        catch (Exception ex)
+                        {
+                            mutationCommitUnknown = true;
+                            errors.Add($"Delete '{shortId}' exception: {ex.Message}");
+                        }
                     }
                 }
 
@@ -8238,6 +8274,7 @@ namespace Rook.Handlers
                 {
                     foreach (var item in setValEl.EnumerateArray())
                     {
+                        var itemCommitted = false;
                         try
                         {
                             var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
@@ -8259,16 +8296,49 @@ namespace Rook.Handlers
                             catch { /* undo recording is best-effort */ }
 
                             var typeName = obj.GetType().Name;
+                            var requestedMutableField = false;
+
+                            void MarkItemCommitted()
+                            {
+                                if (!itemCommitted)
+                                {
+                                    valuesSet++;
+                                    itemCommitted = true;
+                                    AddDirty(obj);
+                                }
+                            }
+
+                            void SetRequiredProperty(object target, string propertyName, object? value)
+                            {
+                                var property = target.GetType().GetProperty(propertyName);
+                                if (property is null)
+                                {
+                                    errors.Add($"set_values '{id}': {propertyName} mutator unavailable");
+                                    return;
+                                }
+
+                                try
+                                {
+                                    property.SetValue(target, value);
+                                }
+                                catch
+                                {
+                                    if (!itemCommitted)
+                                        mutationCommitUnknown = true;
+                                    throw;
+                                }
+
+                                MarkItemCommitted();
+                            }
 
                             // NickName — works on any component type (base class property)
                             if (item.TryGetProperty("nick", out var nickEl2))
                             {
+                                requestedMutableField = true;
                                 var nickVal = nickEl2.GetString();
                                 if (nickVal != null)
                                 {
-                                    obj.GetType().GetProperty("NickName")?.SetValue(obj, nickVal);
-                                    valuesSet++;
-                                    AddDirty(obj);
+                                    SetRequiredProperty(obj, "NickName", nickVal);
                                 }
                             }
 
@@ -8284,33 +8354,45 @@ namespace Rook.Handlers
                                     // Set max before min to avoid transient min>max state
                                     // when expanding range upward (e.g. [0,10] → [20,30])
                                     if (item.TryGetProperty("max", out var maxEl))
-                                        sliderType.GetProperty("Maximum")?.SetValue(slider, maxEl.GetDecimal());
+                                    {
+                                        requestedMutableField = true;
+                                        SetRequiredProperty(slider, "Maximum", maxEl.GetDecimal());
+                                    }
                                     if (item.TryGetProperty("min", out var minEl))
-                                        sliderType.GetProperty("Minimum")?.SetValue(slider, minEl.GetDecimal());
+                                    {
+                                        requestedMutableField = true;
+                                        SetRequiredProperty(slider, "Minimum", minEl.GetDecimal());
+                                    }
                                     if (item.TryGetProperty("value", out var valEl2))
-                                        sliderType.GetProperty("Value")?.SetValue(slider, valEl2.GetDecimal());
-                                    valuesSet++;
-                                    AddDirty(obj);
+                                    {
+                                        requestedMutableField = true;
+                                        SetRequiredProperty(slider, "Value", valEl2.GetDecimal());
+                                    }
+                                }
+                                else
+                                {
+                                    errors.Add($"set_values '{id}': Slider object unavailable");
                                 }
                             }
                             else if (typeName == "GH_Panel")
                             {
                                 if (item.TryGetProperty("value", out var valEl2))
                                 {
-                                    obj.GetType().GetProperty("UserText")?.SetValue(obj, valEl2.GetString());
-                                    valuesSet++;
-                                    AddDirty(obj);
+                                    requestedMutableField = true;
+                                    SetRequiredProperty(obj, "UserText", valEl2.GetString());
                                 }
                             }
                             else if (typeName == "GH_BooleanToggle")
                             {
                                 if (item.TryGetProperty("value", out var valEl2))
                                 {
-                                    obj.GetType().GetProperty("Value")?.SetValue(obj, valEl2.GetBoolean());
-                                    valuesSet++;
-                                    AddDirty(obj);
+                                    requestedMutableField = true;
+                                    SetRequiredProperty(obj, "Value", valEl2.GetBoolean());
                                 }
                             }
+
+                            if (!requestedMutableField)
+                                errors.Add($"set_values '{id}': no mutable fields supplied");
                         }
                         catch (Exception ex)
                         {
@@ -8373,9 +8455,25 @@ namespace Rook.Handlers
                     {
                         try
                         {
-                            var addMethod = targetInput.GetType().GetMethod("AddSource",
-                                new[] { gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param")! });
-                            addMethod?.Invoke(targetInput, new[] { sourceOutput });
+                            var paramType = gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param");
+                            var addMethod = paramType is null
+                                ? null
+                                : targetInput.GetType().GetMethod("AddSource", new[] { paramType });
+                            if (addMethod is null)
+                            {
+                                errors.Add($"connect '{flowStr}': AddSource mutator unavailable");
+                                continue;
+                            }
+
+                            try
+                            {
+                                addMethod.Invoke(targetInput, new[] { sourceOutput });
+                            }
+                            catch
+                            {
+                                mutationCommitUnknown = true;
+                                throw;
+                            }
                             connected++;
                             AddDirty(targetInput);
                         }
@@ -8433,7 +8531,9 @@ namespace Rook.Handlers
                 {
                     readinessReceipt = changedObjects
                         ? FinalizeMutationReceipt(readinessReceiptId, solveResult)
-                        : FinalizeNoCommitReceipt(readinessReceiptId);
+                        : mutationCommitUnknown
+                            ? FinalizeUnknownCommitReceipt(readinessReceiptId)
+                            : FinalizeNoCommitReceipt(readinessReceiptId);
                 }
 
                 var editSummary = new
@@ -8480,26 +8580,26 @@ namespace Rook.Handlers
                 else if (snapshotResult.Success)
                 {
                     // Snapshot returned non-dictionary data, wrap it
-                    snapshotResult.Data = new
+                    var wrappedSuccess = new Dictionary<string, object?>
                     {
-                        snapshot = snapshotResult.Data,
-                        edit_summary = editSummary,
-                        solve_readiness_receipt = readinessReceipt is null
-                            ? null
-                            : ReceiptSnapshot(readinessReceipt),
+                        ["snapshot"] = snapshotResult.Data,
+                        ["edit_summary"] = editSummary,
                     };
+                    if (readinessReceipt is not null)
+                        wrappedSuccess["solve_readiness_receipt"] = ReceiptSnapshot(readinessReceipt);
+                    snapshotResult.Data = wrappedSuccess;
                 }
                 else
                 {
                     var snapshotFailure = snapshotResult.Data;
-                    snapshotResult.Data = new
+                    var wrappedFailure = new Dictionary<string, object?>
                     {
-                        snapshot_failure = snapshotFailure,
-                        edit_summary = editSummary,
-                        solve_readiness_receipt = readinessReceipt is null
-                            ? null
-                            : ReceiptSnapshot(readinessReceipt),
+                        ["snapshot_failure"] = snapshotFailure,
+                        ["edit_summary"] = editSummary,
                     };
+                    if (readinessReceipt is not null)
+                        wrappedFailure["solve_readiness_receipt"] = ReceiptSnapshot(readinessReceipt);
+                    snapshotResult.Data = wrappedFailure;
                 }
 
                 return snapshotResult;
@@ -8510,12 +8610,20 @@ namespace Rook.Handlers
                     standaloneRestore = solveSuspension.Restore();
 
                 var solveRelevantCommitCount = created + deleted + valuesSet + connected + disconnected;
-                var solveRelevantMutationCommitted = solveRelevantCommitCount > 0;
+                bool? solveRelevantMutationCommitted = solveRelevantCommitCount > 0
+                    ? true
+                    : mutationCommitUnknown
+                        ? null
+                        : false;
                 if (readinessReceiptId is not null && readinessReceipt is null)
                 {
-                    if (!solveRelevantMutationCommitted)
+                    if (solveRelevantMutationCommitted == false)
                     {
                         readinessReceipt = FinalizeNoCommitReceipt(readinessReceiptId);
+                    }
+                    else if (solveRelevantMutationCommitted is null)
+                    {
+                        readinessReceipt = FinalizeUnknownCommitReceipt(readinessReceiptId);
                     }
                     else if (scheduleResult.HasValue)
                     {
@@ -8559,7 +8667,7 @@ namespace Rook.Handlers
                         !standaloneRestore.Value.Succeeded
                             ? GhScheduleFailureCode.StandaloneSolverRestoreFailed
                             : null,
-                    VerificationDeferred = solveRelevantMutationCommitted,
+                    VerificationDeferred = solveRelevantMutationCommitted == true,
                     Warnings = standaloneRestore.HasValue &&
                         standaloneRestore.Value.Attempted &&
                         !standaloneRestore.Value.Succeeded
@@ -8599,19 +8707,16 @@ namespace Rook.Handlers
                         : null,
                 };
 
-                return new ApiResponse
+                var failureData = new Dictionary<string, object?>
                 {
-                    Success = false,
-                    Data = new
-                    {
-                        error = "apply_edit_failed",
-                        message = ex.Message,
-                        edit_summary = failureSummary,
-                        solve_readiness_receipt = readinessReceipt is null
-                            ? null
-                            : ReceiptSnapshot(readinessReceipt),
-                    },
+                    ["error"] = "apply_edit_failed",
+                    ["message"] = ex.Message,
+                    ["edit_summary"] = failureSummary,
                 };
+                if (readinessReceipt is not null)
+                    failureData["solve_readiness_receipt"] = ReceiptSnapshot(readinessReceipt);
+
+                return new ApiResponse { Success = false, Data = failureData };
             }
         }
 

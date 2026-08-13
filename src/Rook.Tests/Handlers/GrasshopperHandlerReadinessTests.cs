@@ -300,6 +300,33 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void DirectMutationFailureData_ProjectionFailureRetainsCommittedFactsWithNullReceipt()
+        {
+            var receipt = new GhSolveReadinessReceipt(
+                "receipt-projection",
+                "session-projection",
+                1,
+                null,
+                0,
+                GhSolveReadinessStatus.Pending,
+                null,
+                null,
+                DateTimeOffset.UtcNow,
+                null);
+
+            var data = Element(GrasshopperHandler.DirectMutationFailureData(
+                "set_script_failed",
+                "after commit",
+                true,
+                receipt,
+                receiptProjector: _ => throw new InvalidOperationException("projection failed")));
+
+            Assert.Equal("set_script_failed", data.GetProperty("error").GetString());
+            Assert.True(data.GetProperty("solve_relevant_mutation_committed").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("solve_readiness_receipt").ValueKind);
+        }
+
+        [Fact]
         public void WaitResponses_UseOnlyReadyTimeoutOrTerminalAndIncludeReceipt()
         {
             var document = new FakeDocument();
@@ -605,6 +632,10 @@ namespace Rook.Tests.Handlers
             var assemblyName = new AssemblyName("Grasshopper");
             var assembly = AppDomain.CurrentDomain.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run);
             var module = assembly.DefineDynamicModule("Grasshopper");
+            module.DefineType(
+                "Grasshopper.Kernel.IGH_Param",
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract)
+                .CreateType();
             var type = module.DefineType(
                 "Grasshopper.Instances",
                 TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);

@@ -77,8 +77,8 @@ namespace Rook.Tests.Handlers
                 "else if (snapshotResult.Success)",
                 "var snapshotFailure = snapshotResult.Data",
                 "return snapshotResult");
-            Assert.Contains("snapshot_failure = snapshotFailure", method);
-            Assert.Contains("edit_summary = editSummary", method);
+            Assert.Contains("[\"snapshot_failure\"] = snapshotFailure", method);
+            Assert.Contains("[\"edit_summary\"] = editSummary", method);
             Assert.Contains("standalone_restore_attempted = standaloneRestore.Value.Attempted", method);
             Assert.Contains("standalone_restore_succeeded = standaloneRestore.Value.Succeeded", method);
             Assert.Contains("observed_document_enabled = standaloneRestore.Value.ObservedDocumentEnabled", method);

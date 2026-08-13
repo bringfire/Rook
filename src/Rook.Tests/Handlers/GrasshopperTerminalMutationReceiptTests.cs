@@ -196,6 +196,50 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void SetScript_NullLegacySourceAfterReservationIsKnownZeroCommit()
+        {
+            var component = new FakeLegacyScriptComponent(Guid.NewGuid());
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document);
+
+            var response = handler.SetScript(JsonSerializer.Serialize(new
+            {
+                guid = component.InstanceGuid,
+                script = "print('not written')",
+            }));
+
+            Assert.False(response.Success);
+            var data = Element(response.Data);
+            Assert.False(data.GetProperty("solve_relevant_mutation_committed").GetBoolean());
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void SetScript_ThrowingSourceMutatorAfterReservationIsUnknownCommit()
+        {
+            var component = new FakeScriptComponent(Guid.NewGuid()) { ThrowOnSetSource = true };
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document);
+
+            var response = handler.SetScript(JsonSerializer.Serialize(new
+            {
+                guid = component.InstanceGuid,
+                script = "print('unknown')",
+            }));
+
+            Assert.False(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("solve_relevant_mutation_committed").ValueKind);
+            Assert.Equal(
+                "mutation_commit_unknown",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
         public void SetScript_ReadRemainsObservationalAndReceiptFree()
         {
             var component = new FakeScriptComponent(Guid.NewGuid());
@@ -240,6 +284,334 @@ namespace Rook.Tests.Handlers
             Assert.Equal("unknown", receipt.GetProperty("status").GetString());
             Assert.Equal("no_solve_relevant_mutation_committed", receipt.GetProperty("reason").GetString());
             Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_ValidatedSliderItemWithoutMutationFieldsIsZeroCommit()
+        {
+            var slider = new GH_NumberSlider(Guid.NewGuid());
+            var document = new FakeDocument(slider);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                set_values = new[] { new { id = "C1" } },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("values_set").GetInt32());
+            Assert.Contains(
+                "no mutable fields",
+                data.GetProperty("edit_summary").GetProperty("errors")[0].GetString());
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_RangeCommitBeforeThrowingValueRetainsCommitAndSchedulesOnce()
+        {
+            var slider = new GH_NumberSlider(Guid.NewGuid());
+            slider.TypedSlider!.ThrowOnValueSet = true;
+            var document = new FakeDocument(slider);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                set_values = new[] { new { id = "C1", max = 20m, value = 7m } },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(20m, slider.TypedSlider.Maximum);
+            Assert.Equal(1, data.GetProperty("edit_summary").GetProperty("values_set").GetInt32());
+            Assert.NotEqual(JsonValueKind.Null, data.GetProperty("edit_summary").GetProperty("errors").ValueKind);
+            Assert.Equal("pending", data.GetProperty("solve_readiness_receipt").GetProperty("status").GetString());
+            Assert.Equal(1, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_FirstThrowingValueMutatorProducesUnknownCommitWithoutSchedule()
+        {
+            var slider = new GH_NumberSlider(Guid.NewGuid());
+            slider.TypedSlider!.ThrowOnValueSet = true;
+            var document = new FakeDocument(slider);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                set_values = new[] { new { id = "C1", value = 7m } },
+            }));
+
+            Assert.True(response.Success);
+            var receipt = Element(response.Data).GetProperty("solve_readiness_receipt");
+            Assert.Equal("unknown", receipt.GetProperty("status").GetString());
+            Assert.Equal("mutation_commit_unknown", receipt.GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_ReservationCapacityRefusalMutatesNothing()
+        {
+            var registry = new GhSolveReceiptRegistry();
+            var slider = new GH_NumberSlider(Guid.NewGuid());
+            var document = new FakeDocument(slider);
+            var handler = CreateHandler(document, registry: registry);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+            registry.ReplaceDocument(document);
+            var capacityDocuments = new List<object>();
+            for (var i = 0; i < 64; i++)
+            {
+                var capacityDocument = new object();
+                capacityDocuments.Add(capacityDocument);
+                Assert.True(registry.IssueMutation(capacityDocument).Issued);
+            }
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                set_values = new[] { new { id = "C1", value = 9m } },
+            }));
+
+            Assert.False(response.Success);
+            Assert.Equal(0m, slider.TypedSlider!.Value);
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_DeleteCommitsOnceAndReturnsReceipt()
+        {
+            var component = new FakeDeletableComponent(Guid.NewGuid());
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document);
+            var snapshot = Element(handler.TakeSnapshot(null).Data);
+            var epoch = snapshot.GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                delete = new[] { "C1" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(1, data.GetProperty("edit_summary").GetProperty("deleted").GetInt32());
+            Assert.Empty(document.Objects);
+            Assert.Equal("pending", data.GetProperty("solve_readiness_receipt").GetProperty("status").GetString());
+            Assert.Equal(1, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_ConnectAndDisconnectEachCountOnlyConfirmedMutatorReturn()
+        {
+            var source = CreateDynamicParam(Guid.NewGuid());
+            var target = CreateDynamicParam(Guid.NewGuid());
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var connectedResponse = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                connect = new[] { "C1.O0>C2.I0" },
+            }));
+
+            Assert.True(connectedResponse.Success);
+            var connectedData = Element(connectedResponse.Data);
+            Assert.Equal(1, connectedData.GetProperty("edit_summary").GetProperty("connected").GetInt32());
+            Assert.Equal(1, GetDynamicParamCount(target, "AddCalls"));
+            Assert.Equal("pending", connectedData.GetProperty("solve_readiness_receipt").GetProperty("status").GetString());
+
+            epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+            var disconnectedResponse = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                disconnect = new[] { "C1.O0>C2.I0" },
+            }));
+
+            Assert.True(disconnectedResponse.Success);
+            var disconnectedData = Element(disconnectedResponse.Data);
+            Assert.Equal(1, disconnectedData.GetProperty("edit_summary").GetProperty("disconnected").GetInt32());
+            Assert.Equal(1, GetDynamicParamCount(target, "RemoveCalls"));
+            Assert.Equal("pending", disconnectedData.GetProperty("solve_readiness_receipt").GetProperty("status").GetString());
+            Assert.Equal(2, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_MissingConnectMutatorIsZeroCommitInsteadOfPhantomCommit()
+        {
+            var source = new FakeSimpleParam(Guid.NewGuid());
+            var target = new FakeSimpleParam(Guid.NewGuid());
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                connect = new[] { "C1.O0>C2.I0" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("connected").GetInt32());
+            Assert.Contains("AddSource mutator unavailable", data.GetProperty("edit_summary").GetProperty("errors")[0].GetString());
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_MissingDisconnectMutatorIsZeroCommitInsteadOfPhantomCommit()
+        {
+            var source = new FakeSimpleParam(Guid.NewGuid());
+            var target = new FakeSimpleParam(Guid.NewGuid());
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                disconnect = new[] { "C1.O0>C2.I0" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("disconnected").GetInt32());
+            Assert.Contains("RemoveSource mutator unavailable", data.GetProperty("edit_summary").GetProperty("errors")[0].GetString());
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_MissingDeleteMutatorIsZeroCommitInsteadOfPhantomCommit()
+        {
+            var component = new FakeDeletableComponent(Guid.NewGuid());
+            var document = new FakeDocumentWithoutRemove(component);
+            var handler = CreateHandler(document);
+            var snapshot = Element(handler.TakeSnapshot(null).Data);
+            var epoch = snapshot.GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                delete = new[] { "C1" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("deleted").GetInt32());
+            Assert.Contains("RemoveObject mutator unavailable", data.GetProperty("edit_summary").GetProperty("errors")[0].GetString());
+            Assert.Single(document.Objects);
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_UnavailableCreatePrimitiveDoesNotManufactureCommit()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document);
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch = 0,
+                create = new[] { new { temp_id = "T1", name = "Unavailable" } },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("created").GetInt32());
+            Assert.NotEqual(JsonValueKind.Null, data.GetProperty("edit_summary").GetProperty("errors").ValueKind);
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_MutatingGroupDeleteOmitsReceipt()
+        {
+            var group = new GH_Group(Guid.NewGuid());
+            var document = new FakeDocument(group);
+            var handler = CreateHandler(document);
+            var snapshot = Element(handler.TakeSnapshot(null).Data);
+            var epoch = snapshot.GetProperty("epoch").GetInt32();
+            var groupId = snapshot.GetProperty("components")[0].GetProperty("id").GetString();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                groups = new[] { new { action = "delete", id = groupId } },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Empty(document.Objects);
+            Assert.False(data.TryGetProperty("solve_readiness_receipt", out _));
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_GroupOnlySnapshotFailureWrapperOmitsReceipt()
+        {
+            var group = new GH_Group(Guid.NewGuid());
+            var document = new FakeDocument(group);
+            var handler = CreateHandler(document);
+            var snapshot = Element(handler.TakeSnapshot(null).Data);
+            var epoch = snapshot.GetProperty("epoch").GetInt32();
+            var groupId = snapshot.GetProperty("components")[0].GetProperty("id").GetString();
+            document.ThrowOnObjectsReadAt = document.ObjectsReadCount + 2;
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                groups = new[] { new { action = "delete", id = groupId } },
+            }));
+
+            Assert.False(response.Success);
+            var data = Element(response.Data);
+            Assert.Empty(document.ObjectsWithoutObservation);
+            Assert.True(data.TryGetProperty("snapshot_failure", out _));
+            Assert.False(data.TryGetProperty("solve_readiness_receipt", out _));
+        }
+
+        [Fact]
+        public void ApplyEdit_GroupOnlyOuterFailureOmitsReceipt()
+        {
+            var group = new GH_Group(Guid.NewGuid());
+            var document = new FakeDocument(group);
+            var handler = CreateHandler(document);
+            var snapshot = Element(handler.TakeSnapshot(null).Data);
+            var epoch = snapshot.GetProperty("epoch").GetInt32();
+            var groupId = snapshot.GetProperty("components")[0].GetProperty("id").GetString();
+            ((FakeCanvas)ActiveCanvasProperty.GetValue(null)!).ThrowOnRefresh = true;
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                groups = new[] { new { action = "delete", id = groupId } },
+            }));
+
+            Assert.False(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal("apply_edit_failed", data.GetProperty("error").GetString());
+            Assert.Empty(document.ObjectsWithoutObservation);
+            Assert.False(data.TryGetProperty("solve_readiness_receipt", out _));
         }
 
         [Fact]
@@ -360,15 +732,17 @@ namespace Rook.Tests.Handlers
         }
 
         private static GrasshopperHandler CreateHandler(
-            FakeDocument document,
-            bool globalSolutionsEnabled = true)
+            object document,
+            bool globalSolutionsEnabled = true,
+            GhSolveReceiptRegistry? registry = null,
+            bool throwOnRefresh = false)
         {
             FakeDocument.EnableSolutions = globalSolutionsEnabled;
-            ActiveCanvasProperty.SetValue(null, new FakeCanvas(document));
+            ActiveCanvasProperty.SetValue(null, new FakeCanvas(document) { ThrowOnRefresh = throwOnRefresh });
             return new GrasshopperHandler(
                 bridgeCore: new ReadyCore(),
                 runningAsRhinoInside: () => false,
-                solveReceiptRegistry: new GhSolveReceiptRegistry(),
+                solveReceiptRegistry: registry ?? new GhSolveReceiptRegistry(),
                 solutionLifecycleAdapter: new GhSolutionLifecycleAdapter(),
                 canvasDocumentLifecycleAdapter: new GhCanvasDocumentLifecycleAdapter());
         }
@@ -383,6 +757,20 @@ namespace Rook.Tests.Handlers
                 ?.GetProperty("ActiveCanvas", BindingFlags.Public | BindingFlags.Static);
             if (existing != null)
             {
+                var grasshopperAssembly = existing.DeclaringType!.Assembly;
+                var existingModule = (grasshopperAssembly as AssemblyBuilder)?.GetDynamicModule("Grasshopper");
+                if (existingModule != null)
+                {
+                    var paramInterface = grasshopperAssembly.GetType("Grasshopper.Kernel.IGH_Param");
+                    if (paramInterface is null)
+                    {
+                        DefineGrasshopperParamTypes(existingModule);
+                    }
+                    else if (grasshopperAssembly.GetType("Grasshopper.Tests.ReceiptParam") is null)
+                    {
+                        DefineGrasshopperReceiptParam(existingModule, paramInterface);
+                    }
+                }
                 return existing;
             }
 
@@ -390,6 +778,7 @@ namespace Rook.Tests.Handlers
                 new AssemblyName("Grasshopper"),
                 AssemblyBuilderAccess.Run);
             var module = assembly.DefineDynamicModule("Grasshopper");
+            DefineGrasshopperParamTypes(module);
             var type = module.DefineType(
                 "Grasshopper.Instances",
                 TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
@@ -416,6 +805,122 @@ namespace Rook.Tests.Handlers
             property.SetSetMethod(setter);
             return type.CreateType()!.GetProperty("ActiveCanvas", BindingFlags.Public | BindingFlags.Static)!;
         }
+
+        private static void DefineGrasshopperParamTypes(ModuleBuilder module)
+        {
+            var paramInterface = module.DefineType(
+                "Grasshopper.Kernel.IGH_Param",
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract)
+                .CreateType()!;
+            DefineGrasshopperReceiptParam(module, paramInterface);
+        }
+
+        private static Type DefineGrasshopperReceiptParam(ModuleBuilder module, Type paramInterface)
+        {
+            var type = module.DefineType(
+                "Grasshopper.Tests.ReceiptParam",
+                TypeAttributes.Public | TypeAttributes.Class);
+            type.AddInterfaceImplementation(paramInterface);
+
+            var guidField = type.DefineField("_instanceGuid", typeof(Guid), FieldAttributes.Private);
+            var addCallsField = type.DefineField("_addCalls", typeof(int), FieldAttributes.Private);
+            var removeCallsField = type.DefineField("_removeCalls", typeof(int), FieldAttributes.Private);
+            var constructor = type.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                new[] { typeof(Guid) });
+            var constructorIl = constructor.GetILGenerator();
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Ldarg_1);
+            constructorIl.Emit(OpCodes.Stfld, guidField);
+            constructorIl.Emit(OpCodes.Ret);
+
+            DefineReadOnlyProperty(type, "InstanceGuid", typeof(Guid), guidField);
+            DefineReadOnlyProperty(type, "AddCalls", typeof(int), addCallsField);
+            DefineReadOnlyProperty(type, "RemoveCalls", typeof(int), removeCallsField);
+            DefineNullProperty(type, "Sources");
+            DefineNullProperty(type, "Recipients");
+            DefineCountingMethod(type, "AddSource", paramInterface, addCallsField);
+            DefineCountingMethod(type, "RemoveSource", paramInterface, removeCallsField);
+            var expire = type.DefineMethod("ExpireSolution", MethodAttributes.Public, typeof(void), new[] { typeof(bool) });
+            var expireIl = expire.GetILGenerator();
+            expireIl.Emit(OpCodes.Ret);
+            return type.CreateType()!;
+        }
+
+        private static void DefineReadOnlyProperty(
+            TypeBuilder type,
+            string name,
+            Type propertyType,
+            FieldBuilder field)
+        {
+            var property = type.DefineProperty(name, PropertyAttributes.None, propertyType, Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                $"get_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                propertyType,
+                Type.EmptyTypes);
+            var il = getter.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, field);
+            il.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
+        }
+
+        private static void DefineNullProperty(TypeBuilder type, string name)
+        {
+            var property = type.DefineProperty(name, PropertyAttributes.None, typeof(object), Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                $"get_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(object),
+                Type.EmptyTypes);
+            var il = getter.GetILGenerator();
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
+        }
+
+        private static void DefineCountingMethod(
+            TypeBuilder type,
+            string name,
+            Type paramInterface,
+            FieldBuilder counter)
+        {
+            var method = type.DefineMethod(name, MethodAttributes.Public, typeof(void), new[] { paramInterface });
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, counter);
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Stfld, counter);
+            il.Emit(OpCodes.Ret);
+        }
+
+        private static object CreateDynamicParam(Guid guid)
+        {
+            var grasshopperAssembly = AppDomain.CurrentDomain.GetAssemblies()
+                .Single(assembly => assembly.GetName().Name == "Grasshopper");
+            var type = grasshopperAssembly.GetType("Grasshopper.Tests.ReceiptParam");
+            if (type is null)
+            {
+                var paramInterface = grasshopperAssembly.GetType("Grasshopper.Kernel.IGH_Param")
+                    ?? throw new InvalidOperationException("Grasshopper.Kernel.IGH_Param test type is unavailable");
+                var assembly = AppDomain.CurrentDomain.DefineDynamicAssembly(
+                    new AssemblyName($"Rook.Tests.ReceiptParam.{Guid.NewGuid():N}"),
+                    AssemblyBuilderAccess.Run);
+                type = DefineGrasshopperReceiptParam(
+                    assembly.DefineDynamicModule("ReceiptParam"),
+                    paramInterface);
+            }
+            return Activator.CreateInstance(type, guid)!;
+        }
+
+        private static int GetDynamicParamCount(object param, string propertyName) =>
+            (int)param.GetType().GetProperty(propertyName)!.GetValue(param)!;
 
         private sealed class ReadyCore : IGrasshopperCore
         {
@@ -456,9 +961,14 @@ namespace Rook.Tests.Handlers
             public FakeCanvas(object document) => Document = document;
 
             public object? Document { get; private set; }
+            public bool ThrowOnRefresh { get; set; }
             public event EventHandler<FakeCanvasDocumentChangedEventArgs>? DocumentChanged;
 
-            public void Refresh() { }
+            public void Refresh()
+            {
+                if (ThrowOnRefresh)
+                    throw new InvalidOperationException("refresh failed after group mutation");
+            }
         }
 
         public sealed class FakeSolutionEventArgs : EventArgs
@@ -469,25 +979,33 @@ namespace Rook.Tests.Handlers
 
         public sealed class FakeDocument
         {
-            private readonly IReadOnlyList<object> _objects;
+            private readonly List<object> _objects;
 
-            public FakeDocument(params object[] objects) => _objects = objects;
+            public FakeDocument(params object[] objects) => _objects = objects.ToList();
 
             public static bool EnableSolutions { get; set; } = true;
             public bool Enabled { get; set; } = true;
             public bool ThrowOnObjectsRead { get; set; }
+            public int? ThrowOnObjectsReadAt { get; set; }
+            public int ObjectsReadCount { get; private set; }
             public IReadOnlyList<object> Objects
             {
                 get
                 {
+                    ObjectsReadCount++;
                     if (ThrowOnObjectsRead)
                     {
                         throw new InvalidOperationException("objects unavailable before reservation");
+                    }
+                    if (ThrowOnObjectsReadAt == ObjectsReadCount)
+                    {
+                        throw new InvalidOperationException("objects unavailable during structural snapshot");
                     }
 
                     return _objects;
                 }
             }
+            public IReadOnlyList<object> ObjectsWithoutObservation => _objects;
             public int ScheduleCount { get; private set; }
             public bool ThrowOnSchedule { get; set; }
             public FakeUndoUtil UndoUtil { get; } = new();
@@ -502,6 +1020,23 @@ namespace Rook.Tests.Handlers
                     throw new InvalidOperationException("schedule acceptance unknown");
                 }
             }
+
+            public void RemoveObject(FakeAttributes attributes, bool update)
+            {
+                _objects.Remove(attributes.Owner);
+            }
+        }
+
+        public sealed class FakeDocumentWithoutRemove
+        {
+            public FakeDocumentWithoutRemove(params object[] objects) => Objects = objects.ToList();
+            public bool Enabled { get; set; } = true;
+            public IReadOnlyList<object> Objects { get; }
+            public int ScheduleCount { get; private set; }
+            public FakeUndoUtil UndoUtil { get; } = new();
+            public event EventHandler<FakeSolutionEventArgs>? SolutionStart;
+            public event EventHandler<FakeSolutionEventArgs>? SolutionEnd;
+            public void ScheduleSolution(int delayMs) => ScheduleCount++;
         }
 
         public sealed class FakeUndoUtil
@@ -530,6 +1065,49 @@ namespace Rook.Tests.Handlers
                     throw new InvalidOperationException("expire failed after commit");
                 }
             }
+        }
+
+        public sealed class FakeAttributes
+        {
+            public FakeAttributes(object owner) => Owner = owner;
+            public object Owner { get; }
+        }
+
+        public sealed class FakeDeletableComponent
+        {
+            public FakeDeletableComponent(Guid instanceGuid)
+            {
+                InstanceGuid = instanceGuid;
+                Attributes = new FakeAttributes(this);
+            }
+
+            public Guid InstanceGuid { get; }
+            public FakeAttributes Attributes { get; }
+            public void ExpireSolution(bool recompute) { }
+        }
+
+        public sealed class FakeSimpleParam
+        {
+            public FakeSimpleParam(Guid instanceGuid) => InstanceGuid = instanceGuid;
+            public Guid InstanceGuid { get; }
+            public object? Sources => null;
+            public object? Recipients => null;
+            public void ExpireSolution(bool recompute) { }
+        }
+
+        public sealed class GH_Group
+        {
+            public GH_Group(Guid instanceGuid)
+            {
+                InstanceGuid = instanceGuid;
+                Attributes = new FakeAttributes(this);
+            }
+
+            public Guid InstanceGuid { get; }
+            public string NickName { get; set; } = "Group";
+            public string Description { get; set; } = string.Empty;
+            public FakeAttributes Attributes { get; }
+            public IEnumerable<Guid> ObjectIDs() => Array.Empty<Guid>();
         }
 
         public sealed class MissingValueSlider
@@ -581,8 +1159,17 @@ namespace Rook.Tests.Handlers
             public Guid InstanceGuid { get; }
             public string Source { get; private set; } = string.Empty;
             public bool ThrowOnExpire { get; set; }
+            public bool ThrowOnSetSource { get; set; }
 
-            public void SetSource(string source) => Source = source;
+            public void SetSource(string source)
+            {
+                if (ThrowOnSetSource)
+                {
+                    throw new InvalidOperationException("source mutation failed");
+                }
+
+                Source = source;
+            }
 
             public bool TryGetSource(out string source)
             {
@@ -597,6 +1184,13 @@ namespace Rook.Tests.Handlers
                     throw new InvalidOperationException("expire failed after script commit");
                 }
             }
+        }
+
+        public sealed class FakeLegacyScriptComponent
+        {
+            public FakeLegacyScriptComponent(Guid instanceGuid) => InstanceGuid = instanceGuid;
+            public Guid InstanceGuid { get; }
+            public object? ScriptSource => null;
         }
     }
 }
