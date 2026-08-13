@@ -1,6 +1,6 @@
 # Grasshopper Receipt-Fenced Behavioral Acceptance
 
-**Status:** Approved design, amended after independent specification review
+**Status:** Approved design, amended after independent specification and integration review
 **Date:** 2026-08-12
 **Baseline:** `bca57582f2f3fa18c72760ff8f068268ed9c11e9`
 **Related authoring-routing merge:** `bc5c0b153e1f5828314032c07949d8674e7c0dae`
@@ -42,6 +42,15 @@ The retained point-row and XY-grid experiments established four facts:
 4. Repeating task-specific evaluators is not sustainable. The point-row and
    grid slices shared control binding, perturbation, restoration, terminal
    point extraction, diagnostics, and simple numeric predicates.
+
+The bounded v1 vocabulary does **not** express the original four-control
+`Rows`, `Columns`, `X Spacing`, and `Y Spacing` XY-grid specimen. Its reviewed
+Cartesian sequence predicate requires explicit start, step, and count roles
+for each axis; the topology-neutral six-control Cartesian test qualifies that
+predicate only. It must not be represented as acceptance of the retained
+four-control grid intent. That intent remains outside v1 until a separately
+reviewed reusable primitive is justified; this amendment does not expand the
+vocabulary.
 
 The current product already contains the correct lifecycle authority:
 
@@ -878,12 +887,12 @@ For each declared control, in artifact order:
 
 ```text
 record exact baseline value
--> gh_set_value(control, one frozen probe value)
+-> gh_set_value(guid=bound component short ID, value=one frozen probe value)
 -> require one exact managed perturbation receipt
 -> gh_wait_for_solve_readiness(perturbation receipt)
 -> gh_snapshot(readiness_receipt_id=perturbation receipt)
 -> evaluate the complete observed effect
--> gh_set_value(control, exact original value)
+-> gh_set_value(guid=bound component short ID, value=exact original value)
 -> require one exact managed restoration receipt
 -> gh_wait_for_solve_readiness(restoration receipt)
 -> gh_snapshot(readiness_receipt_id=restoration receipt)
@@ -1019,6 +1028,10 @@ The top-level object has exactly `schema`, `intent`, `numeric_tolerance`,
 `numeric_tolerance` is a finite nonnegative JSON number used only for observed
 point-coordinate comparisons. Counts, selector identities, control values,
 receipt correlation, and restoration remain exact.
+
+Numeric comparison preserves integer identity before applying tolerance. In
+particular, distinct JSON integers such as `2**53` and `2**53 + 1` cannot
+collapse through binary floating-point conversion at zero tolerance.
 
 Each control has exactly `role`, `selector`, `value_kind`, and `probe_value`.
 `selector` is exactly

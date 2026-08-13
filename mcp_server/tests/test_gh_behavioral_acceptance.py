@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 
 from rook import gh_behavioral_acceptance as acceptance
+from rook import server
+from rook.learning import gh_knowledge
 
 
 SHA_A = "A" * 64
@@ -330,7 +332,8 @@ class _Executor:
             )
             return _snapshot_result(ready, self.values)
         if name == "gh_set_value":
-            component = arguments["component"]
+            assert set(arguments) == {"guid", "value"}
+            component = arguments["guid"]
             role = {"C1": "Start", "C2": "Step", "C3": "Count"}[component]
             self.values[role] = arguments["value"]
             self.issued += 1
@@ -766,6 +769,18 @@ def test_complete_probe_uses_exact_fenced_sequence_and_restores_each_control():
     ]
     assert executor.values == {"Start": 0.0, "Step": 1.0, "Count": 3}
     assert len({event["mutation"]["solve_readiness_receipt"]["receipt_id"] for event in probe["events"] if event["target"] == "gh_set_value"}) == 6
+    assert [
+        arguments
+        for name, arguments in executor.calls
+        if name == "gh_set_value"
+    ] == [
+        {"guid": "C1", "value": 2.0},
+        {"guid": "C1", "value": 0.0},
+        {"guid": "C2", "value": 2.0},
+        {"guid": "C2", "value": 1.0},
+        {"guid": "C3", "value": 4},
+        {"guid": "C3", "value": 3},
+    ]
 
     result = acceptance.evaluate_behavioral_probe(_artifact(), trace, probe)
     assert result["status"] == "pass"
@@ -785,6 +800,72 @@ def test_probe_stops_after_executor_exception_and_records_exact_exception():
     probe = asyncio.run(acceptance.run_behavioral_probe(_artifact(), trace, Exploding()))
     assert probe["termination"] == {"status": "failed", "error": "baseline_snapshot_failed"}
     assert probe["events"][-1]["exception"] == {"type": "builtins.RuntimeError", "message": ""}
+
+
+def test_probe_set_value_arguments_reach_canonical_managed_boundary_unchanged(
+    monkeypatch,
+):
+    issued = _receipt()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+    executor = _Executor()
+    managed_calls: list[tuple[str, str, dict, int | None]] = []
+
+    monkeypatch.setattr(gh_knowledge, "gh_query_operation", lambda *_: {"gotchas": []})
+    monkeypatch.setattr(server, "_check_for_gh_correction", lambda *_: None)
+
+    async def no_record(**_kwargs):
+        return None
+
+    monkeypatch.setattr(server, "_record_gh_to_session", no_record)
+
+    async def managed(route, method="GET", payload=None, port=None, **_kwargs):
+        assert route == "/gh/value"
+        assert method == "POST"
+        assert type(payload) is dict and set(payload) == {"guid", "value"}
+        managed_calls.append((route, method, dict(payload), port))
+        role = {"C1": "Start", "C2": "Step", "C3": "Count"}[payload["guid"]]
+        executor.values[role] = payload["value"]
+        executor.issued += 1
+        executor.pending = _receipt(
+            f"receipt-{executor.issued}", mutation_epoch=executor.issued
+        )
+        return {
+            "success": True,
+            "data": {
+                "solve_relevant_mutation_committed": True,
+                "solve_readiness_receipt": executor.pending,
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", managed)
+
+    async def canonical(name: str, arguments: dict) -> dict:
+        if name == "gh_set_value":
+            return await server._call_tool_dispatch(
+                name, arguments | {"port": 6011}
+            )
+        return await executor(name, arguments)
+
+    probe = asyncio.run(acceptance.run_behavioral_probe(_artifact(), trace, canonical))
+
+    assert probe["termination"] == {"status": "complete", "error": None}
+    assert [call[2] for call in managed_calls] == [
+        {"guid": "C1", "value": 2.0},
+        {"guid": "C1", "value": 0.0},
+        {"guid": "C2", "value": 2.0},
+        {"guid": "C2", "value": 1.0},
+        {"guid": "C3", "value": 4},
+        {"guid": "C3", "value": 3},
+    ]
+    assert all(call[3] == 6011 for call in managed_calls)
 
 
 def test_failed_mutation_result_remains_a_valid_monotonic_probe_prefix():
@@ -853,7 +934,7 @@ def test_probe_refuses_control_cross_talk_and_compromised_restoration():
     class CrossTalk(_Executor):
         async def __call__(self, name: str, arguments: dict) -> dict:
             result = await super().__call__(name, arguments)
-            if name == "gh_set_value" and arguments["component"] == "C1" and arguments["value"] == 2.0:
+            if name == "gh_set_value" and arguments["guid"] == "C1" and arguments["value"] == 2.0:
                 self.values["Step"] = 9.0
             return result
 
@@ -1116,7 +1197,8 @@ def test_generic_cartesian_and_product_predicates_pass_without_topology_names():
 
         async def __call__(self, name: str, arguments: dict) -> dict:
             if name == "gh_set_value":
-                self.values[self.ids[arguments["component"]]] = arguments["value"]
+                assert set(arguments) == {"guid", "value"}
+                self.values[self.ids[arguments["guid"]]] = arguments["value"]
                 self.issued += 1
                 self.pending = _receipt(f"grid-{self.issued}", mutation_epoch=self.issued)
                 return {"success": True, "data": {"solve_relevant_mutation_committed": True, "solve_readiness_receipt": self.pending}}
@@ -1358,6 +1440,62 @@ def test_oversized_json_integer_is_rejected_without_projection_exception():
         "status": "failed",
         "error": "output_incomplete",
     }
+
+
+def test_zero_tolerance_does_not_collapse_distinct_large_json_integers():
+    issued = _receipt()
+    trace = _trace(
+        _event(
+            0,
+            "gh_edit",
+            classification="terminal",
+            commit_status="committed",
+            receipt=issued,
+        )
+    )
+    artifact = _artifact()
+    artifact["numeric_tolerance"] = 0
+    artifact["criteria"] = [
+        {
+            "id": "large_y_exact",
+            "predicate": "axis_equals_constant",
+            "arguments": {"axis": "y", "value": 2**53},
+        }
+    ]
+
+    class DistinctLargeInteger(_Executor):
+        async def __call__(self, name: str, arguments: dict) -> dict:
+            result = await super().__call__(name, arguments)
+            if name == "gh_snapshot":
+                for point in result["data"]["behavioral_point_outputs"][0][
+                    "points"
+                ]:
+                    point[1] = 2**53 + 1
+            return result
+
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(artifact, trace, DistinctLargeInteger())
+    )
+    result = acceptance.evaluate_behavioral_probe(artifact, trace, probe)
+
+    assert probe["termination"] == {"status": "complete", "error": None}
+    assert result["status"] == "fail"
+    assert result["criteria"] == [
+        {
+            "criterion_id": "large_y_exact",
+            "status": "fail",
+            "failure_ids": ["large_y_exact"],
+            "evidence_refs": [
+                "baseline",
+                "perturbation:Start",
+                "restoration:Start",
+                "perturbation:Step",
+                "restoration:Step",
+                "perturbation:Count",
+                "restoration:Count",
+            ],
+        }
+    ]
 
 
 def test_failed_probe_must_match_exact_first_failure_boundary():

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make deterministic Grasshopper behavioral acceptance consume only snapshots atomically fenced by the latest terminal managed solve receipt, then express point-row and XY-grid acceptance through one small reviewed artifact/evaluator contract.
+**Goal:** Make deterministic Grasshopper behavioral acceptance consume only snapshots atomically fenced by the latest terminal managed solve receipt, then express point-row and the reviewed six-control Cartesian predicate set through one small artifact/evaluator contract. The original four-control `Rows`/`Columns`/`X Spacing`/`Y Spacing` specimen remains outside v1.
 
 **Architecture:** The existing managed solve-readiness registry remains the only lifecycle and fence authority. Covered authoring routes expose its exact receipt, `gh_snapshot` checks that receipt and extracts data inside one managed callback, Python preserves receipts and caller-owned traces without inventing lifecycle state, and one pure module validates artifacts, traces, probes, and deterministic predicates through an injected executor.
 
@@ -549,6 +549,16 @@ git diff --name-only a77720bf0e566d055b127c919f46cdff0db6ed4b -- `
 - [x] Obtain final independent review of exact scope, complete verification output, contract parity, and architecture wording.
 - [x] Stop after review. Push/PR/merge, Release deployment, runtime verification, and any live behavioral qualification require separate authorization and are not part of this plan.
 
+## Post-Task 5 Integration Repair
+
+- [x] Replace probe and retained-trace `gh_set_value.component` arguments with the canonical `guid` field.
+- [x] Make the fake executor reject the incorrect field and add a canonical-dispatch vertical proving exact `guid` arguments reach `/gh/value`.
+- [x] Replace lossy float-coerced numeric comparison with integer-safe rational comparison and causally distinguish `2**53` from `2**53 + 1` at zero tolerance.
+- [x] Make the public fenced-`gh_snapshot` schema require `include_data=true` and `max_preview_items` in `1..1000`; describe receipts as products of terminal value, edit, or script-authoring mutations.
+- [x] Record that the retained four-control XY-grid intent is not expressible by the frozen v1 vocabulary; do not add another predicate or domain.
+- [x] Run the complete prescribed no-contact seams, compile, and inspect the exact diff.
+- [ ] Commit the bounded repair and obtain independent review before any deployment or live contact.
+
 ## Execution Ledger
 
 During implementation, append only factual observations here: baseline counts, per-task commit hashes, independent review verdicts, final test counts, and any approved deviation. Do not use this section to change behavior without amending the specification first.
@@ -598,3 +608,7 @@ During implementation, append only factual observations here: baseline counts, p
 - Task 5 extensibility audit found no point-row/grid control names, component names, witness names, or component GUID constants in the common module. The existing topology-neutral Cartesian/product test expresses a second XY-grid intent through artifact data and an unknown producer type without changing production code. Unknown predicates refuse the closed artifact, while missing/incomplete typed evidence remains incomplete/unproven. The semantic vocabulary is frozen; no third output domain or cosmetic module split was added.
 - Task 5 protected-surface audit found exactly one new production Python module, no dependency-file change, no native `RookNative` delta, no profile/containment-owner change, no raw `/gh/create-component` delta, and no T*/C* identity delta. The reviewed script-receipt and Chirp-helper diffs preserve their distinct existing owners; no model/provider implementation changed.
 - Task 5 final independent review of `b589c124` found no P0-P2 issues, independently reproduced 3785/3785 managed and 184/184 focused Python tests, compilation and diff checks, the exact ownership/extensibility audit, the unchanged-baseline broad-suite mismatch, protected-surface custody, a clean worktree, and no live contact. Its sole P3 was the stale Task 4 review checkbox corrected in this closure commit.
+- Post-Task 5 integration review found that the behavioral probe and retained-trace parser used the nonexistent `gh_set_value.component` field, exact numeric comparison coerced large integers through `float`, and the public fenced-snapshot schema/receipt descriptions lagged the managed contract. The review also bounded the original four-control XY-grid specimen outside v1 rather than authorizing vocabulary growth.
+- Post-Task 5 RED reproduced all four boundaries: the strict fake and canonical managed vertical refused `component`, `2**53` and `2**53 + 1` falsely passed at zero tolerance, and the advertised snapshot/receipt schemas admitted or described the wrong contract.
+- Post-Task 5 GREEN sends exact `{"guid": <short ID>, "value": <number>}` arguments for perturbation and restoration, validates those exact retained events on complete and failed prefixes, preserves integer identity with exact rational arithmetic, and makes the conditional public schema match managed fenced admission. The common module is now 2,153 physical/2,000 nonblank lines; no predicate, output domain, task constant, transport owner, dependency, or production module was added.
+- Post-Task 5 verification passed 187/187 prescribed Python tests with 11 existing DSPy warnings, Python compilation, 3785/3785 managed tests under the absent no-deploy target, static scans, and `git diff --check`. Test-created knowledge counters were restored exactly. No Rhino, Grasshopper, MCP, model, provider, deployment, or live-target contact occurred.

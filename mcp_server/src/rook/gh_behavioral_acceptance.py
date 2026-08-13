@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from fractions import Fraction
 import hashlib
 import itertools
 import json
@@ -1374,7 +1375,7 @@ async def run_behavioral_probe(
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "probe_value_invalid"}, "events": events}
         if definition["value_kind"] == "integer" and type(probe_value) is not int:
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "probe_value_invalid"}, "events": events}
-        set_arguments = {"component": baseline_control["component_id"], "value": probe_value}
+        set_arguments = {"guid": baseline_control["component_id"], "value": probe_value}
         set_result = await call("gh_set_value", set_arguments, "perturbation_dispatch_failed")
         if set_result is None:
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "probe_trace_invalid" if malformed_executor_result else "perturbation_dispatch_failed"}, "events": events}
@@ -1402,7 +1403,7 @@ async def run_behavioral_probe(
         }
         if perturbed_controls != expected_controls:
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "perturbation_control_mismatch"}, "events": events}
-        restore_arguments = {"component": baseline_control["component_id"], "value": original}
+        restore_arguments = {"guid": baseline_control["component_id"], "value": original}
         restore_result = await call("gh_set_value", restore_arguments, "restoration_dispatch_failed")
         if restore_result is None:
             return {"schema": _PROBE_SCHEMA, "termination": {"status": "failed", "error": "probe_trace_invalid" if malformed_executor_result else "restoration_dispatch_failed"}, "events": events}
@@ -1531,9 +1532,9 @@ def _parse_complete_probe(
             return None
         assert set_event is not None and wait_event is not None and snapshot_event is not None
         assert restore_event is not None and restore_wait_event is not None and restore_snapshot_event is not None
-        if set_event["arguments"] != {"component": baseline_control["component_id"], "value": definition["probe_value"]}:
+        if set_event["arguments"] != {"guid": baseline_control["component_id"], "value": definition["probe_value"]}:
             return None
-        if restore_event["arguments"] != {"component": baseline_control["component_id"], "value": original}:
+        if restore_event["arguments"] != {"guid": baseline_control["component_id"], "value": original}:
             return None
         perturb_result = _successful_event_result(set_event)
         perturb_wait_result = _successful_event_result(wait_event)
@@ -1793,7 +1794,7 @@ def _retained_probe_prefix(
 
         set_result, failure = call(
             "gh_set_value",
-            {"component": control["component_id"], "value": probe_value},
+            {"guid": control["component_id"], "value": probe_value},
             "perturbation_dispatch_failed",
         )
         if set_result is None:
@@ -1848,7 +1849,7 @@ def _retained_probe_prefix(
 
         restore_result, failure = call(
             "gh_set_value",
-            {"component": control["component_id"], "value": original},
+            {"guid": control["component_id"], "value": original},
             "restoration_dispatch_failed",
         )
         if restore_result is None:
@@ -1934,17 +1935,29 @@ def _applicable_phases(criterion: dict[str, Any], phases: list[dict[str, Any]]) 
     ]
 
 
-def _close_enough(left: float | int, right: float | int, tolerance: float | int) -> bool:
-    return abs(float(left) - float(right)) <= float(tolerance)
+def _close_enough(
+    left: float | int | Fraction,
+    right: float | int | Fraction,
+    tolerance: float | int,
+) -> bool:
+    return abs(Fraction(left) - Fraction(right)) <= Fraction(tolerance)
 
 
-def _sequence_values(arguments: dict[str, Any], values: dict[str, int | float]) -> list[float] | None:
+def _is_integral_number(value: Any) -> bool:
+    return type(value) is int or (type(value) is float and value.is_integer())
+
+
+def _sequence_values(
+    arguments: dict[str, Any], values: dict[str, int | float]
+) -> list[Fraction] | None:
     count = values[arguments["count_role"]]
-    if isinstance(count, bool) or not float(count).is_integer() or not 0 <= count <= 2**31 - 1:
+    if not _is_integral_number(count) or not 0 <= count <= 2**31 - 1:
         return None
     start = values[arguments["start_role"]]
     step = values[arguments["step_role"]]
-    return [float(start) + index * float(step) for index in range(int(count))]
+    return [
+        Fraction(start) + index * Fraction(step) for index in range(int(count))
+    ]
 
 
 def _predicate_passes(
@@ -1963,12 +1976,14 @@ def _predicate_passes(
         return projection["diagnostics"]["errors"] == arguments["value"]
     if predicate == "point_count_equals_control":
         expected = values[arguments["role"]]
-        return float(expected).is_integer() and projection["terminal_output"]["count"] == int(expected)
+        return _is_integral_number(expected) and projection["terminal_output"][
+            "count"
+        ] == int(expected)
     if predicate == "point_count_equals_product":
         product = 1
         for role in arguments["roles"]:
             value = values[role]
-            if not float(value).is_integer():
+            if not _is_integral_number(value):
                 return None
             product *= int(value)
         return projection["terminal_output"]["count"] == product
@@ -1978,21 +1993,21 @@ def _predicate_passes(
         return all(_close_enough(point[index], arguments["value"], tolerance) for point in points)
     if predicate == "axis_values_equal_sequence":
         count_value = values[arguments["count_role"]]
-        if not float(count_value).is_integer() or int(count_value) != len(points):
+        if not _is_integral_number(count_value) or int(count_value) != len(points):
             return False
         expected = _sequence_values(arguments, values)
         if expected is None:
             return None
         index = axis_index[arguments["axis"]]
-        observed = sorted(float(point[index]) for point in points)
+        observed = sorted(point[index] for point in points)
         expected = sorted(expected)
         return len(observed) == len(expected) and all(_close_enough(left, right, tolerance) for left, right in zip(observed, expected))
     if predicate == "axes_form_cartesian_product":
-        sequences: list[tuple[int, list[float]]] = []
+        sequences: list[tuple[int, list[Fraction]]] = []
         expected_count = 1
         for sequence in arguments["sequences"]:
             count_value = values[sequence["count_role"]]
-            if not float(count_value).is_integer():
+            if not _is_integral_number(count_value):
                 return None
             expected_count *= int(count_value)
             if expected_count > len(points):
@@ -2004,7 +2019,9 @@ def _predicate_passes(
         if expected_count != len(points):
             return False
         expected_tuples = sorted(itertools.product(*(sequence for _, sequence in sequences)))
-        observed_tuples = sorted(tuple(float(point[index]) for index, _ in sequences) for point in points)
+        observed_tuples = sorted(
+            tuple(point[index] for index, _ in sequences) for point in points
+        )
         return len(observed_tuples) == len(expected_tuples) and all(
             all(_close_enough(left, right, tolerance) for left, right in zip(observed, expected))
             for observed, expected in zip(observed_tuples, expected_tuples)

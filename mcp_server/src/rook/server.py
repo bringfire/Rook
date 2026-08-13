@@ -8526,10 +8526,29 @@ Use gh_snapshot to understand the canvas, then gh_edit to apply ordered batch mu
                     "readiness_receipt_id": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional solve-readiness receipt that fences this snapshot to the admitted solved state."
+                        "description": (
+                            "Optional solve-readiness receipt that fences this snapshot to the "
+                            "admitted solved state. When present, include_data=true and "
+                            "max_preview_items in 1..1000 are required."
+                        )
                     }
                 },
-                "required": []
+                "required": [],
+                "allOf": [
+                    {
+                        "if": {"required": ["readiness_receipt_id"]},
+                        "then": {
+                            "required": ["include_data", "max_preview_items"],
+                            "properties": {
+                                "include_data": {"const": True},
+                                "max_preview_items": {
+                                    "minimum": 1,
+                                    "maximum": 1000,
+                                },
+                            },
+                        },
+                    }
+                ],
             }
         ),
         Tool(
@@ -10674,7 +10693,10 @@ Example: Inspect sphere output:
                     "readiness_receipt_id": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Opaque solve readiness receipt ID returned by gh_set_value."
+                        "description": (
+                            "Opaque solve readiness receipt ID returned by terminal "
+                            "gh_set_value, gh_edit, or script-authoring mutations."
+                        )
                     }
                 },
                 "required": ["guid"]
@@ -10689,7 +10711,10 @@ Example: Inspect sphere output:
                     "readiness_receipt_id": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Opaque solve readiness receipt ID returned by gh_set_value.",
+                        "description": (
+                            "Opaque solve readiness receipt ID returned by terminal "
+                            "gh_set_value, gh_edit, or script-authoring mutations."
+                        ),
                     }
                 },
                 "required": ["readiness_receipt_id"],
@@ -10704,7 +10729,10 @@ Example: Inspect sphere output:
                     "readiness_receipt_id": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Opaque solve readiness receipt ID returned by gh_set_value.",
+                        "description": (
+                            "Opaque solve readiness receipt ID returned by terminal "
+                            "gh_set_value, gh_edit, or script-authoring mutations."
+                        ),
                     },
                     "timeout_ms": {
                         "type": "integer",
