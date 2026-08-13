@@ -1,6 +1,8 @@
 import pytest
 
 from rook import server
+from rook.agent import tool_dispatcher as dispatcher_module
+from rook.agent.tool_dispatcher import ToolDispatcher
 
 
 @pytest.mark.asyncio
@@ -9,6 +11,7 @@ async def test_readiness_tools_advertise_exact_inputs():
 
     readiness = tools["gh_solve_readiness"]
     wait = tools["gh_wait_for_solve_readiness"]
+    snapshot = tools["gh_snapshot"]
 
     assert readiness.inputSchema["required"] == ["readiness_receipt_id"]
     assert readiness.inputSchema["properties"]["readiness_receipt_id"] == {
@@ -24,6 +27,43 @@ async def test_readiness_tools_advertise_exact_inputs():
         "maximum": 300_000,
         "description": "Maximum managed wait in milliseconds.",
     }
+    assert snapshot.inputSchema["properties"]["readiness_receipt_id"] == {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional solve-readiness receipt that fences this snapshot to the admitted solved state.",
+    }
+
+
+@pytest.mark.asyncio
+async def test_snapshot_preserves_exact_fenced_request_through_canonical_and_direct_dispatch(
+    monkeypatch,
+):
+    request = {
+        "readiness_receipt_id": "opaque",
+        "include_data": True,
+        "max_preview_items": 17,
+    }
+    calls = []
+
+    async def fake_server_call(route, method="GET", payload=None, port=None, **kwargs):
+        calls.append(("canonical", route, method, payload, port))
+        return {"success": True, "data": {"source": "canonical"}}
+
+    async def fake_direct_call(route, method="GET", payload=None, port=None, **kwargs):
+        calls.append(("direct", route, method, payload, port))
+        return {"success": True, "data": {"source": "direct"}}
+
+    monkeypatch.setattr(server, "call_rhino", fake_server_call)
+    canonical = await server._call_tool_dispatch("gh_snapshot", {**request, "port": 6011})
+    monkeypatch.setattr(dispatcher_module, "call_rhino", fake_direct_call)
+    direct = await ToolDispatcher(port=6011).dispatch("gh_snapshot", dict(request))
+
+    assert canonical["success"] is True
+    assert direct["success"] is True
+    assert calls == [
+        ("canonical", "/gh/snapshot", "POST", request, 6011),
+        ("direct", "/gh/snapshot", "POST", request, 6011),
+    ]
 
 
 @pytest.mark.asyncio

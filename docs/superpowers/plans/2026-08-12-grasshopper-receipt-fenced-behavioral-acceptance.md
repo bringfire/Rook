@@ -295,7 +295,7 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDe
 
 - [x] Run the complete managed suite, compilation, and whitespace checks.
 - [x] Commit only Task 2 changes.
-- [ ] Stop for mandatory independent review. Do not begin Python propagation until same-callback fence-before-read ordering and unfenced compatibility are approved.
+- [x] Stop for mandatory independent review. Do not begin Python propagation until same-callback fence-before-read ordering and unfenced compatibility are approved.
 
 ---
 
@@ -312,43 +312,43 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDe
 
 ### Step 1: Write failing schema and propagation tests
 
-- [ ] Assert `gh_snapshot` publicly admits optional `readiness_receipt_id` and preserves the exact fenced request through canonical and direct dispatch.
-- [ ] Add one exact managed terminal receipt fixture and assert identity, session, mutation, and nullable pre-run epochs pass through unchanged.
-- [ ] Add success and failure coverage for:
+- [x] Assert `gh_snapshot` publicly admits optional `readiness_receipt_id` and preserves the exact fenced request through canonical and direct dispatch.
+- [x] Add one exact managed terminal receipt fixture and assert identity, session, mutation, and nullable pre-run epochs pass through unchanged.
+- [x] Add success and failure coverage for:
   - `gh_create_script`;
   - `gh_create_python_script`;
   - `gh_create_csharp_script`;
   - `gh_update_script`;
   - `chirp_create`.
-- [ ] Assert `solve_readiness_receipt` is a sibling of, never nested inside, `script_receipt`.
-- [ ] Assert aliases retain object equality and do not rebuild or rename receipt fields.
+- [x] Assert `solve_readiness_receipt` is a sibling of, never nested inside, `script_receipt`.
+- [x] Assert aliases retain object equality and do not rebuild or rename receipt fields.
 
 ### Step 2: Replace fixed settle timing with receipt readiness
 
-- [ ] Remove `_await_gh_solve_settle` and `verification_settle_seconds` from script verification paths rather than treating them as evidence.
-- [ ] After the final `/gh/script` write, require exact booleans `solve_relevant_mutation_committed` and exact managed `solve_readiness_receipt`.
-- [ ] For eager verification, call existing `gh_wait_for_solve_readiness` with the exact receipt ID and proceed only on a ready terminal result.
-- [ ] For deferred verification, return the captured receipt immediately without sleeping.
-- [ ] A missing, malformed, contradictory, timed-out, or terminal non-ready receipt returns the closed `script_pipeline_incomplete` object with phase `solve_readiness`.
+- [x] Remove `_await_gh_solve_settle` and `verification_settle_seconds` from script verification paths rather than treating them as evidence.
+- [x] After the final `/gh/script` write, require exact booleans `solve_relevant_mutation_committed` and exact managed `solve_readiness_receipt`.
+- [x] For eager verification, call existing `gh_wait_for_solve_readiness` with the exact receipt ID and proceed only on a ready terminal result.
+- [x] For deferred verification, return the captured receipt immediately without sleeping.
+- [x] A missing, malformed, contradictory, timed-out, or terminal non-ready receipt returns the closed `script_pipeline_incomplete` object with phase `solve_readiness`.
 
 ### Step 3: Implement monotonic composite failure data
 
-- [ ] Add one private constructor in `server.py` for the exact closed script-pipeline failure object; do not create another module.
-- [ ] At every phase, carry forward exact committed preparatory flags, known component identity, final-write dispatch/success/commit values, exact managed receipt, and existing Python `script_receipt`.
-- [ ] Do not erase a final managed receipt if post-write verification fails.
-- [ ] Do not infer commit from top-level success.
-- [ ] Keep `gh_set_script_pins` receipt-free and preparatory.
+- [x] Add one private constructor in `server.py` for the exact closed script-pipeline failure object; do not create another module.
+- [x] At every phase, carry forward exact committed preparatory flags, known component identity, final-write dispatch/success/commit values, exact managed receipt, and existing Python `script_receipt`.
+- [x] Do not erase a final managed receipt if post-write verification fails.
+- [x] Do not infer commit from top-level success.
+- [x] Keep `gh_set_script_pins` receipt-free and preparatory.
 
 ### Step 4: Preserve canonical/direct parity
 
-- [ ] Ensure canonical `_call_tool_dispatch` and direct `ToolDispatcher` reach the same helpers and return equivalent receipt/result shapes.
-- [ ] Keep profile, containment, schema, target routing, and script-authoring handoff precedence unchanged.
-- [ ] Assert each helper makes one final source-write target call and no hidden replay.
-- [ ] Assert `chirp_create` preserves the same managed receipt from its final shared script helper.
+- [x] Ensure canonical `_call_tool_dispatch` and direct `ToolDispatcher` reach the same helpers and return equivalent receipt/result shapes.
+- [x] Keep profile, containment, schema, target routing, and script-authoring handoff precedence unchanged.
+- [x] Assert each helper makes one final source-write target call and no hidden replay.
+- [x] Assert `chirp_create` preserves the same managed receipt from its final shared script helper.
 
 ### Step 5: Verify and review Task 3
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
@@ -359,7 +359,7 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDe
   -q
 ```
 
-- [ ] Run Python compilation and a static scan proving no script verification call site uses `_await_gh_solve_settle`, `verification_settle_seconds`, or a fixed `asyncio.sleep` as readiness evidence.
+- [x] Run Python compilation and a static scan proving no script verification call site uses `_await_gh_solve_settle`, `verification_settle_seconds`, or a fixed `asyncio.sleep` as readiness evidence.
 - [ ] Commit only Task 3 changes.
 - [ ] Stop for mandatory independent review. Do not build the evaluator until every covered Python route retains the managed receipt exactly and direct/canonical parity is approved.
 
@@ -573,3 +573,6 @@ During implementation, append only factual observations here: baseline counts, p
 - Task 2 independent review of `e625a06c` reproduced 111/111 focused and 3785/3785 complete managed tests, then refused Task 3 because fenced `TakeSnapshot` called the production readiness owner before `CheckFencedRead`; that readiness owner enumerates `document.Objects`. The review also found that the existing 16-minute ready-receipt test covered terminal eviction rather than the distinct pending-expiry fence status.
 - Task 2 repair resolves the active document without enumerating data, checks the fence, and only after an allowed gate runs the readiness owner and snapshot extraction. The unfenced order is unchanged. The hostile readiness fake now reads `Objects`, so every refused receipt causally proves zero readiness and extraction reads; a pending receipt at its exact ten-minute boundary proves `readiness_receipt_expired`, while the retained 16-minute ready case proves terminal eviction.
 - Task 2 repaired verification: 111/111 focused tests passed. The first complete managed run hit only the known order-sensitive `ReconstructionJobLedgerTests.List_AppliesLimitNewestFirst` failure at 3784/3785; the immediate unchanged rerun passed 3785/3785. The multi-target build compiled net48, net7.0, and net8.0 with 268 warnings and 0 errors. The complete Task 2 production delta is 309 additions and 52 deletions across the same two production owners; `git diff --check` passed. No Rhino/MCP contact or deployment occurred.
+- Task 2 repaired independent review of `e3b67d9e` found no P0-P3 issues, independently reproduced 111/111 focused and 3785/3785 complete managed tests plus the three-target build, and approved Task 3.
+- Task 3 RED/GREEN: the initial Python seam failed 24 tests at every absent boundary. After implementation and adversarial additions, the prescribed four-file seam passed 99/99, and the existing RookChat creation contract passed 30/30 separately. Exact receipt validation, eager ready-wait correlation, deferred no-sleep return, monotonic composite failures, fenced snapshot argument parity, script aliases, updates, and Chirp canonical/direct receipt preservation are causally covered.
+- Task 3 static verification: all modified Python sources/tests compile; the two script helper ASTs contain no sleep or retired settle call; `_await_gh_solve_settle` and `verification_settle_seconds` are absent from both production owners; `git diff --check` passed. No Rhino/MCP contact or deployment occurred.

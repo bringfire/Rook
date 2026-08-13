@@ -857,6 +857,17 @@ async def _local_gh_create_csharp_script(port: int | None = None, **kwargs) -> d
     )
 
 
+async def _local_chirp_create(port: int | None = None, **kwargs) -> dict:
+    """Delegate direct dispatch to Chirp's single canonical orchestration owner."""
+
+    from ..server import _call_tool_dispatch
+
+    arguments = dict(kwargs)
+    if port is not None:
+        arguments["port"] = port
+    return await _call_tool_dispatch("chirp_create", arguments)
+
+
 def _transform_gh_library(args: dict) -> Tuple[str, str, dict]:
     params = {}
     if "search" in args and args["search"] != "":
@@ -1314,6 +1325,7 @@ def build_local_tools() -> Dict[str, Any]:
     tools["gh_create_script"] = _local_gh_create_script
     tools["gh_create_python_script"] = _local_gh_create_python_script
     tools["gh_create_csharp_script"] = _local_gh_create_csharp_script
+    tools["chirp_create"] = _local_chirp_create
 
     # --- scene_project_bim_relationships (Python-side BIM relationship projection) ---
     try:

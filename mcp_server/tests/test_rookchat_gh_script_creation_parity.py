@@ -1,5 +1,3 @@
-from unittest.mock import AsyncMock
-
 import pytest
 
 
@@ -79,16 +77,48 @@ async def test_python_create_path_is_not_csharp_preflighted(monkeypatch):
     from rook import server
 
     calls = []
+    receipt = {
+        "schema": "rook.gh_solve_readiness_receipt:v1",
+        "receipt_id": "python-create-receipt",
+        "document_session_id": "session-1",
+        "mutation_epoch": 1,
+        "solution_run_epoch": None,
+        "completed_solution_run_epoch": 0,
+        "status": "pending",
+        "reason": None,
+        "completion_signal": None,
+        "issued_at": "2026-08-12T12:00:00+00:00",
+        "completed_at": None,
+    }
 
-    async def fake_call_rhino(endpoint, method, data=None, port=None):
+    async def fake_call_rhino(endpoint, method, data=None, port=None, **_kwargs):
         calls.append((endpoint, method, data))
         if endpoint == "/gh/create-component":
             return {"success": True, "data": {"guid": "python-guid"}}
+        if endpoint == "/gh/script":
+            return {"success": True, "data": {
+                "solve_relevant_mutation_committed": True,
+                "solve_readiness_receipt": receipt,
+            }}
+        if endpoint == "/gh/wait-for-solve-readiness":
+            ready = dict(receipt)
+            ready.update({
+                "solution_run_epoch": 1,
+                "completed_solution_run_epoch": 1,
+                "status": "ready",
+                "completion_signal": "solution_end",
+                "completed_at": "2026-08-12T12:00:01+00:00",
+            })
+            return {"success": True, "data": {
+                "schema": "rook.gh_solve_readiness_wait_result:v1",
+                "wait_status": "ready",
+                "receipt": ready,
+            }}
+        if endpoint == "/gh/errors":
+            return {"success": True, "data": {"errors": [], "warnings": []}}
         return {"success": True, "data": {}}
 
     monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
-    monkeypatch.setattr(server.asyncio, "sleep", AsyncMock())
-
     result = await server._execute_gh_create_script(
         "python",
         {

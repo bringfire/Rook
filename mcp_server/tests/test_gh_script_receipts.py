@@ -270,6 +270,13 @@ def test_build_script_receipt_warning_only_verification_is_usable():
     assert receipt["artifact_status"] == "usable"
 
 
+def test_python_script_receipt_does_not_masquerade_as_managed_solve_readiness():
+    receipt = build_script_receipt(**_base_receipt_kwargs())
+
+    assert "solve_readiness_receipt" not in receipt
+    assert receipt.get("schema") != "rook.gh_solve_readiness_receipt:v1"
+
+
 def test_build_script_receipt_omits_requested_guid_when_not_useful():
     receipt = build_script_receipt(
         **_base_receipt_kwargs(
