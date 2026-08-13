@@ -293,7 +293,8 @@ succeeds, any failure returns object data with exactly:
 ```
 
 `error` is exactly `set_value_failed` or `set_script_failed` for its owner.
-`message` is the exact nonblank managed exception message. The commit value is
+`message` is the exact managed `Exception.Message`, including an empty string;
+no fallback or fabricated text is permitted. The commit value is
 true when the value/source mutator returned successfully before the later
 failure, false when the owner knows no mutation occurred, and null only when a
 throwing host mutator leaves commitment unknowable. The receipt is the exact
@@ -458,7 +459,8 @@ The evaluator accepts one closed projection, not provider-specific event logs:
   "schema": "rook.gh_authoring_trace:v1",
   "source_closure": {
     "schema": "rook.gh_authoring_source_closure:v1",
-    "owner": "prime_rook_adapter",
+    "owner": "prime_transaction_launcher",
+    "row_emitter": "prime_rook_adapter",
     "source_event_count": 1,
     "final_source_sequence": 0,
     "source_log_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -490,37 +492,59 @@ The evaluator accepts one closed projection, not provider-specific event logs:
 ```
 
 The top-level object has exactly `schema`, `source_closure`, and `events`.
-`source_closure` has exactly the eight shown fields. Its schema is the displayed
-literal; owner is `prime_rook_adapter` or `direct_transaction_wrapper`; event
-count is a nonnegative integer; final sequence is null exactly when the count
-is zero and otherwise equals count minus one; both hashes match
+`source_closure` has exactly the nine shown fields. Its schema is the displayed
+literal; owner is `prime_transaction_launcher` or
+`direct_transaction_wrapper`; `row_emitter` is respectively
+`prime_rook_adapter` or `direct_transaction_wrapper`; event count is a
+nonnegative integer; final sequence is null exactly when the count is zero and
+otherwise equals count minus one; both hashes match
 `[0-9A-F]{64}`; and `closed` is exactly true. `terminal_marker` is `agent_end`
 for Prime or `transaction_closed` for a caller-owned direct transaction and
 must be the exact final semantic event in the hashed runtime log.
 
 The accepted raw capability source format is
 `rook.gh_authoring_source_log:v1`: strict UTF-8 JSONL without BOM. Its first
-row has exactly `schema` and `owner`; schema is the displayed literal and owner
-is one of the two closed values above. Each following row before closure is one
-exact event object shown below, serialized with the canonical Python
-serializer. The final row is exactly
+row has exactly `schema` and `row_emitter`; schema is the displayed literal and
+row emitter is one of the two closed values above. Each following row before
+closure is one exact event object shown below, serialized with the canonical
+Python serializer. The final row is exactly
 `{"type":"closure","source_closure":<the object above>}`.
 `source_log_sha256` is computed over the header and event rows, including each
 trailing LF but excluding the closure row to avoid circularity.
 `runtime_log_sha256` is over the complete exact runtime-owned log bytes.
 
-For Prime, the reviewed `rook_full.search/read/call` adapter wrapper owns each
+For Prime, the reviewed `rook_full.search/read/call` adapter wrapper emits each
 capability row: it captures exact Python arguments at function ingress and the
 exact parsed `{success,data}` value or raised exception at function egress
-before returning control to model code. Prime's `--mode json` stdout JSONL is
-the separate runtime log; it must contain exactly one final `agent_end`. The
-Prime native session file and Rhino native session recorder are corroborating
-evidence only; neither owns this trace and neither can substitute for the
-adapter rows or `agent_end` stream.
+before returning control to model code. It never emits the closure. Prime's
+`--mode json` stdout JSONL is the separate runtime log. The outer Prime
+transaction launcher observes process termination and stdout EOF, requires
+exactly one final `agent_end`, requires all qualification-owned adapter/kernel
+children to have exited, hashes both now-immutable logs, and only then appends
+the closure row. Cancellation, forced termination, missing EOF, missing/finally
+nonfinal `agent_end`, or lingering owned children leaves the source log
+unclosed. The Prime native session file and Rhino native session recorder are
+corroborating evidence only; neither owns this trace and neither can substitute
+for the adapter rows or `agent_end` stream.
 
 For direct `ToolDispatcher` use, an explicit caller-owned transaction wrapper
-performs the same ingress/egress capture and appends a final
-`transaction_closed` event after no further calls are possible.
+performs the same ingress/egress capture. After the calling transaction has
+irreversibly stopped admitting calls, it writes a separate direct runtime log
+containing exactly one canonical JSONL row:
+
+```json
+{
+  "schema": "rook.gh_direct_transaction_runtime:v1",
+  "source_event_count": 1,
+  "terminal_marker": "transaction_closed"
+}
+```
+
+That row uses the canonical serializer and trailing LF. The wrapper hashes it
+as `runtime_log_sha256`, hashes the immutable source header/event rows, and
+requires its count to equal both the closure count and retained event length,
+then appends the source closure. Any attempted call after the terminal marker
+is a caller contract violation and invalidates custody.
 `ToolDispatcher` remains recorder-free and cannot by itself qualify a trace.
 Current Prime or ChatRunner evidence without the corresponding wrapper log
 fails closed until that caller integration exists.
@@ -545,9 +569,15 @@ events make the trace invalid.
 Exactly one of `result` and `exception` is nonnull. A result has exactly
 `success` and `data`, where `success` is a boolean and `data` is the exact
 normalized internal data value. An exception has exactly `type` and `message`,
-both exact strings, with nonblank `type`; its dispatch status is `unknown`, its
-target call count is null, and mutation classification/commit status are both
-`unknown`. Any exception event establishes complete custody but makes
+both exact strings. For a Python exception, `type` is exactly
+`exc.__class__.__module__ + "." + exc.__class__.__qualname__` and must be
+nonblank; `message` is exactly `str(exc)`, including an empty string. The
+wrapper records subclasses of `Exception` only. `asyncio.CancelledError`,
+`KeyboardInterrupt`, `SystemExit`, and any other `BaseException` leave the
+transaction unclosed and therefore incomplete. An exception event's dispatch
+status is `unknown`, its target call count is null, and mutation
+classification/commit status are both `unknown`. Any exception event
+establishes complete custody but makes
 behavioral admission incomplete; it can never prove zero dispatch or mutation.
 
 Canonical MCP input uses
@@ -1271,7 +1301,8 @@ The expected production owners are limited to:
 | `mcp_server/src/rook/server.py` | public schemas, exact script-receipt propagation, canonical dispatch |
 | `mcp_server/src/rook/agent/tool_dispatcher.py` | direct-dispatch parity through the same helpers |
 | one small pure Python behavioral-acceptance module | artifact validation, caller trace-sink/wrapper primitives, reviewed source normalization and closure checks, trace admission, probe orchestration through an injected executor, and deterministic predicates |
-| required caller integration: reviewed Prime `rook_full` adapter or ChatRunner transaction boundary | emit exact capability source rows and close them only after the separate runtime log reaches `agent_end` or `transaction_closed`; current callers without the wrapper fail closed; no new model-facing tool |
+| required row-emitter integration: reviewed Prime `rook_full` adapter or direct transaction wrapper | emit exact capability source rows at function/dispatch ingress and egress; never self-close a Prime run; current callers without the wrapper fail closed; no new model-facing tool |
+| required closure integration: outer Prime transaction launcher or direct transaction wrapper | after stdout/process/owned-child termination or direct transaction closure, emit the versioned runtime terminal log, hash both immutable raw logs, and append the exact closure row |
 
 The existing `scripts/grasshopper_point_row_acceptance.py` may become a thin
 compatibility CLI over the common module or be retired after its authentic
@@ -1424,10 +1455,18 @@ failure, or converted into a guessed snapshot.
   parsed egress; the separate Prime JSON event stream supplies exactly one
   final `agent_end`. Rhino native session evidence cannot substitute for
   either. A direct caller wrapper closes only after `transaction_closed`.
+- The Prime adapter cannot write its own closure. Only the outer launcher may
+  close after process termination, stdout EOF, final `agent_end`, and zero
+  lingering owned children. A premature adapter closure refuses.
+- The direct transaction runtime log has the exact one-row versioned shape,
+  count, terminal marker, serialization, and hash; a call after closure
+  invalidates it.
 - Missing adapter/wrapper rows, a missing runtime log, hash mismatch, or a
   self-reported projection without both raw sources fails closed.
 - A caller/executor exception is retained as the closed exception event with
-  unknown dispatch/mutation and yields incomplete without retry.
+  deterministic module-qualified Python type and exact possibly-empty message,
+  unknown dispatch/mutation, and incomplete status without retry. Cancellation
+  and other `BaseException` paths leave the transaction unclosed.
 - A source closure with an incorrect hash/count/final sequence, missing or
   nonfinal runtime terminal marker, valid-prefix truncation, or unclosed direct
   dispatcher caller refuses admission. Direct dispatch with a caller-owned
