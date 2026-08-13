@@ -2238,7 +2238,7 @@ def _script_pipeline_incomplete(
     final_write_dispatched: bool,
     final_write_success: bool | None,
     solve_relevant_mutation_committed: bool | None,
-    solve_readiness_receipt: dict[str, Any] | None,
+    solve_readiness_receipt: Any,
     script_receipt: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Construct the sole closed failure shape for admitted script pipelines."""
@@ -2277,20 +2277,21 @@ def _script_pipeline_incomplete(
 
 def _script_write_evidence(
     result: Any,
-) -> tuple[bool | None, bool | None, dict[str, Any] | None]:
-    """Read exact success, commit, and managed receipt facts without inference."""
+) -> tuple[bool | None, bool | None, Any, dict[str, Any] | None]:
+    """Separate exact returned evidence from its admitted managed authority."""
 
     success = result.get("success") if type(result) is dict else None
     if type(success) is not bool:
         success = None
     data = result.get("data") if type(result) is dict else None
     if type(data) is not dict:
-        return success, None, None
+        return success, None, None, None
     committed = data.get("solve_relevant_mutation_committed")
     if type(committed) is not bool:
         committed = None
-    receipt = _validated_solve_readiness_receipt(data.get("solve_readiness_receipt"))
-    return success, committed, receipt
+    raw_receipt = data.get("solve_readiness_receipt")
+    admitted_receipt = _validated_solve_readiness_receipt(raw_receipt)
+    return success, committed, raw_receipt, admitted_receipt
 
 
 async def _wait_for_gh_solve_readiness(
@@ -2353,7 +2354,7 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
     final_write_dispatched = False
     final_write_success: bool | None = None
     final_write_committed: bool | None = None
-    solve_receipt: dict[str, Any] | None = None
+    solve_receipt: Any = None
     script_receipt: dict[str, Any] | None = None
 
     def incomplete(phase: str) -> dict[str, Any]:
@@ -2424,15 +2425,17 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             {"guid": guid, "script": prepared["source"]},
             port=port,
         )
-        final_write_success, final_write_committed, solve_receipt = _script_write_evidence(
-            write_result
-        )
-        if (
-            final_write_success is not True
-            or final_write_committed is not True
-            or solve_receipt is None
-        ):
+        (
+            final_write_success,
+            final_write_committed,
+            solve_receipt,
+            admitted_solve_receipt,
+        ) = _script_write_evidence(write_result)
+        if final_write_success is not True or final_write_committed is not True:
             return incomplete("source_write")
+        if admitted_solve_receipt is None:
+            return incomplete("solve_readiness")
+        solve_receipt = admitted_solve_receipt
         write_data = write_result.get("data", {})
         resolved_guid = _gh_update_script_resolved_guid(
             caller_guid=guid,
@@ -2453,10 +2456,13 @@ async def _execute_gh_update_script(arguments: dict[str, Any], port: int) -> dic
             verification_method = "none"
             error_summary = _empty_gh_update_script_error_summary()
         else:
-            wait_result = await _wait_for_gh_solve_readiness(
-                solve_receipt["receipt_id"],
-                port,
-            )
+            try:
+                wait_result = await _wait_for_gh_solve_readiness(
+                    solve_receipt["receipt_id"],
+                    port,
+                )
+            except Exception:
+                return incomplete("solve_readiness")
             if _validated_ready_wait_receipt(wait_result, solve_receipt) is None:
                 return incomplete("solve_readiness")
             error_summary = _summarize_gh_update_script_errors(
@@ -2801,7 +2807,7 @@ async def _execute_gh_create_script(
     final_write_dispatched = False
     final_write_success: bool | None = None
     final_write_committed: bool | None = None
-    solve_receipt: dict[str, Any] | None = None
+    solve_receipt: Any = None
     script_receipt: dict[str, Any] | None = None
 
     def incomplete(phase: str) -> dict[str, Any]:
@@ -2899,15 +2905,17 @@ async def _execute_gh_create_script(
             {"guid": component_guid, "script": full_script},
             port=port,
         )
-        final_write_success, final_write_committed, solve_receipt = _script_write_evidence(
-            script_result
-        )
-        if (
-            final_write_success is not True
-            or final_write_committed is not True
-            or solve_receipt is None
-        ):
+        (
+            final_write_success,
+            final_write_committed,
+            solve_receipt,
+            admitted_solve_receipt,
+        ) = _script_write_evidence(script_result)
+        if final_write_success is not True or final_write_committed is not True:
             return incomplete("source_write")
+        if admitted_solve_receipt is None:
+            return incomplete("solve_readiness")
+        solve_receipt = admitted_solve_receipt
 
         script_data = script_result["data"]
         # Step 4: verify only after the managed receipt reaches a ready state.
@@ -2922,10 +2930,13 @@ async def _execute_gh_create_script(
                 "unavailable_note": "Verification deferred by the Grasshopper script write.",
             }
         else:
-            wait_result = await _wait_for_gh_solve_readiness(
-                solve_receipt["receipt_id"],
-                port,
-            )
+            try:
+                wait_result = await _wait_for_gh_solve_readiness(
+                    solve_receipt["receipt_id"],
+                    port,
+                )
+            except Exception:
+                return incomplete("solve_readiness")
             if _validated_ready_wait_receipt(wait_result, solve_receipt) is None:
                 return incomplete("solve_readiness")
             errors_result = await call_rhino(
@@ -13980,6 +13991,180 @@ def _project_gh_batch_component_info_result(
     return {"success": True, "data": projected}
 
 
+async def _execute_chirp_create(
+    arguments: dict[str, Any],
+    port: int | None,
+) -> tuple[dict[str, Any], bool, bool]:
+    """Run Chirp generation and script creation without recording or metrics."""
+
+    terminal_chirp_failure = False
+    signature = arguments.get("signature")
+    category = arguments.get("category")
+    chirp_name = arguments.get("name")
+    chirp_model = arguments.get("model")
+    deterministic_code = arguments.get("deterministic_code")
+    deterministic_only = bool(arguments.get("deterministic_only"))
+    cx = arguments.get("x", 200)
+    cy = arguments.get("y", 200)
+
+    if not arguments.get("pins_in") or not arguments.get("pins_out") or not signature:
+        return (
+            {"success": False, "data": "Missing required parameters: pins_in, pins_out, signature"},
+            terminal_chirp_failure,
+            deterministic_only,
+        )
+    if not category:
+        return (
+            {
+                "success": False,
+                "data": (
+                    "Missing required parameter: category. Must be one of: "
+                    "planner, interpreter, critic, narrator, classifier, gate, editor"
+                ),
+            },
+            terminal_chirp_failure,
+            deterministic_only,
+        )
+
+    from rook.chirp_manager import ensure_chirp_running
+
+    chirp_status = await ensure_chirp_running(chirp_model)
+    if not chirp_status["running"]:
+        error_code = chirp_status.get("error_code")
+        if isinstance(error_code, str):
+            return (
+                {
+                    "success": False,
+                    "data": {
+                        "error": error_code,
+                        "details": chirp_status["error"],
+                    },
+                },
+                True,
+                deterministic_only,
+            )
+        return (
+            {"success": False, "data": chirp_status["error"]},
+            terminal_chirp_failure,
+            deterministic_only,
+        )
+
+    chirp_host = chirp_status.get("host", "127.0.0.1")
+    chirp_port = chirp_status["port"]
+    try:
+        pin_defs_in = _normalize_gh_script_pins(
+            arguments.get("pins_in", []),
+            default_optional=True,
+        )
+        pin_defs_out = _normalize_gh_script_pins(arguments.get("pins_out", []))
+        chirp_payload = {
+            "pins_in": _gh_script_pin_defs_to_signature_strings(pin_defs_in),
+            "pins_out": _gh_script_pin_defs_to_signature_strings(pin_defs_out),
+            "signature": signature,
+            "category": category,
+            "port": chirp_port,
+        }
+        if chirp_name:
+            chirp_payload["name"] = chirp_name
+        if "model" in arguments:
+            chirp_payload["model"] = chirp_model
+        if deterministic_code:
+            chirp_payload["deterministic_code"] = deterministic_code
+        if deterministic_only:
+            chirp_payload["deterministic_only"] = True
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as chirp_client:
+            chirp_resp = await chirp_client.post(
+                f"http://{chirp_host}:{chirp_port}/chirp/create",
+                json=chirp_payload,
+            )
+            if chirp_resp.status_code != 200:
+                error_data = chirp_resp.json()
+                error_code = error_data.get("error")
+                if isinstance(error_code, str) and error_code.startswith("vertex_"):
+                    return (
+                        {
+                            "success": False,
+                            "data": {
+                                "error": error_code,
+                                "details": error_data.get("details", chirp_resp.text),
+                            },
+                        },
+                        True,
+                        deterministic_only,
+                    )
+                return (
+                    {
+                        "success": False,
+                        "data": (
+                            "Chirp script generation failed: "
+                            f"{error_data.get('details', chirp_resp.text)}"
+                        ),
+                    },
+                    terminal_chirp_failure,
+                    deterministic_only,
+                )
+
+            chirp_result = chirp_resp.json()
+            script = chirp_result["script"]
+            chirp_pin_defs_in = _normalize_gh_script_pins(
+                chirp_result.get("pins_in", []),
+                default_optional=True,
+            )
+            chirp_pin_defs_out = _normalize_gh_script_pins(
+                chirp_result.get("pins_out", [])
+            )
+            chirp_pin_defs_in = _merge_gh_script_pin_metadata(
+                chirp_pin_defs_in,
+                pin_defs_in,
+            )
+            chirp_pin_defs_out = _merge_gh_script_pin_metadata(
+                chirp_pin_defs_out,
+                pin_defs_out,
+            )
+            if deterministic_only:
+                script = _build_gh_csharp_wrapper(
+                    deterministic_code or "",
+                    chirp_pin_defs_in,
+                    chirp_pin_defs_out,
+                )
+
+            display_name = chirp_result.get("name") or chirp_name
+            result = await _execute_gh_create_script(
+                "csharp",
+                {
+                    "code": script,
+                    "name": display_name,
+                    "pins_in": chirp_pin_defs_in,
+                    "pins_out": chirp_pin_defs_out,
+                    "x": cx,
+                    "y": cy,
+                },
+                port,
+                tool_name="chirp_create",
+                defer_verification=not deterministic_only,
+            )
+            data = result.get("data") if isinstance(result, dict) else None
+            if result.get("success") is True and isinstance(data, dict):
+                data["signature"] = signature
+                data["category"] = chirp_result.get("category", category)
+                data.setdefault("verification_deferred", False)
+                data.setdefault("solve_scheduled", None)
+                component_errors = data.pop("compilation_errors", None)
+                data.pop("message", None)
+                if component_errors:
+                    data["component_errors"] = component_errors
+                    data["warning"] = "Component placed but has component errors"
+                    result = {"success": True, "data": data}
+            return result, terminal_chirp_failure, deterministic_only
+    except Exception as exc:
+        return (
+            {"success": False, "data": f"chirp_create failed: {str(exc)}"},
+            terminal_chirp_failure,
+            deterministic_only,
+        )
+
+
 async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle tool calls."""
     denial = deny_if_contained(name, DispatchOrigin.SERVER_DISPATCH)
@@ -15699,147 +15884,10 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             )
 
         case "chirp_create":
-            terminal_chirp_failure = False
-            signature = arguments.get("signature")
-            category = arguments.get("category")
-            chirp_name = arguments.get("name")
-            chirp_model = arguments.get("model")
-            deterministic_code = arguments.get("deterministic_code")
-            deterministic_only = bool(arguments.get("deterministic_only"))
-            cx = arguments.get("x", 200)
-            cy = arguments.get("y", 200)
-
-            if not arguments.get("pins_in") or not arguments.get("pins_out") or not signature:
-                result = {"success": False, "data": "Missing required parameters: pins_in, pins_out, signature"}
-            elif not category:
-                result = {"success": False, "data": "Missing required parameter: category. Must be one of: planner, interpreter, critic, narrator, classifier, gate, editor"}
-            else:
-                # Ensure Chirp adapter is running (auto-start if needed)
-                from rook.chirp_manager import ensure_chirp_running
-                chirp_status = await ensure_chirp_running(chirp_model)
-                if not chirp_status["running"]:
-                    error_code = chirp_status.get("error_code")
-                    if isinstance(error_code, str):
-                        terminal_chirp_failure = True
-                        result = {
-                            "success": False,
-                            "data": {
-                                "error": error_code,
-                                "details": chirp_status["error"],
-                            },
-                        }
-                    else:
-                        result = {"success": False, "data": chirp_status["error"]}
-                else:
-                    chirp_host = chirp_status.get("host", "127.0.0.1")
-                    chirp_port = chirp_status["port"]
-                    try:
-                        pin_defs_in = _normalize_gh_script_pins(
-                            arguments.get("pins_in", []),
-                            default_optional=True,
-                        )
-                        pin_defs_out = _normalize_gh_script_pins(arguments.get("pins_out", []))
-
-                        # Step 1: Call Chirp adapter to generate the C# script
-                        chirp_payload = {
-                            "pins_in": _gh_script_pin_defs_to_signature_strings(pin_defs_in),
-                            "pins_out": _gh_script_pin_defs_to_signature_strings(pin_defs_out),
-                            "signature": signature,
-                            "category": category,
-                            "port": chirp_port,
-                        }
-                        if chirp_name:
-                            chirp_payload["name"] = chirp_name
-                        if "model" in arguments:
-                            chirp_payload["model"] = chirp_model
-                        if deterministic_code:
-                            chirp_payload["deterministic_code"] = deterministic_code
-                        if deterministic_only:
-                            chirp_payload["deterministic_only"] = True
-
-                        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as chirp_client:
-                            chirp_resp = await chirp_client.post(
-                                f"http://{chirp_host}:{chirp_port}/chirp/create",
-                                json=chirp_payload,
-                            )
-                            if chirp_resp.status_code != 200:
-                                error_data = chirp_resp.json()
-                                error_code = error_data.get("error")
-                                if (
-                                    isinstance(error_code, str)
-                                    and error_code.startswith("vertex_")
-                                ):
-                                    terminal_chirp_failure = True
-                                    result = {
-                                        "success": False,
-                                        "data": {
-                                            "error": error_code,
-                                            "details": error_data.get(
-                                                "details", chirp_resp.text
-                                            ),
-                                        },
-                                    }
-                                else:
-                                    result = {
-                                        "success": False,
-                                        "data": f"Chirp script generation failed: {error_data.get('details', chirp_resp.text)}",
-                                    }
-                            else:
-                                chirp_result = chirp_resp.json()
-                                script = chirp_result["script"]
-                                chirp_pin_defs_in = _normalize_gh_script_pins(
-                                    chirp_result.get("pins_in", []),
-                                    default_optional=True,
-                                )
-                                chirp_pin_defs_out = _normalize_gh_script_pins(
-                                    chirp_result.get("pins_out", [])
-                                )
-                                chirp_pin_defs_in = _merge_gh_script_pin_metadata(
-                                    chirp_pin_defs_in,
-                                    pin_defs_in,
-                                )
-                                chirp_pin_defs_out = _merge_gh_script_pin_metadata(
-                                    chirp_pin_defs_out,
-                                    pin_defs_out,
-                                )
-                                if deterministic_only:
-                                    script = _build_gh_csharp_wrapper(
-                                        deterministic_code or "",
-                                        chirp_pin_defs_in,
-                                        chirp_pin_defs_out,
-                                    )
-
-                                display_name = chirp_result.get("name") or chirp_name
-                                result = await _execute_gh_create_script(
-                                    "csharp",
-                                    {
-                                        "code": script,
-                                        "name": display_name,
-                                        "pins_in": chirp_pin_defs_in,
-                                        "pins_out": chirp_pin_defs_out,
-                                        "x": cx,
-                                        "y": cy,
-                                    },
-                                    port,
-                                    tool_name="chirp_create",
-                                    defer_verification=not deterministic_only,
-                                )
-                                data = result.get("data") if isinstance(result, dict) else None
-                                if result.get("success") is True and isinstance(data, dict):
-                                    data["signature"] = signature
-                                    data["category"] = chirp_result.get("category", category)
-                                    data.setdefault("verification_deferred", False)
-                                    data.setdefault("solve_scheduled", None)
-                                    component_errors = data.pop("compilation_errors", None)
-                                    data.pop("message", None)
-                                    if component_errors:
-                                        data["component_errors"] = component_errors
-                                        data["warning"] = "Component placed but has component errors"
-                                        result = {"success": True, "data": data}
-
-                    except Exception as e:
-                        result = {"success": False, "data": f"chirp_create failed: {str(e)}"}
-
+            result, terminal_chirp_failure, deterministic_only = await _execute_chirp_create(
+                arguments,
+                port,
+            )
             result_data = result.get("data") if isinstance(result, dict) else None
             deferred_inference_creation = (
                 not deterministic_only

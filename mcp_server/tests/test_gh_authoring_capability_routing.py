@@ -616,7 +616,7 @@ async def test_chirp_delegates_generated_csharp_to_canonical_script_helper(
 
 
 @pytest.mark.asyncio
-async def test_direct_chirp_create_delegates_to_canonical_owner_without_rebuilding_receipt(monkeypatch):
+async def test_direct_chirp_create_uses_shared_owner_without_rebuilding_receipt(monkeypatch):
     managed_receipt = _solve_receipt("chirp-direct")
     owned_result = {"success": True, "data": {
         "component_guid": "component-guid",
@@ -626,14 +626,14 @@ async def test_direct_chirp_create_delegates_to_canonical_owner_without_rebuildi
     }}
     calls = []
 
-    async def fake_dispatch(name, arguments, port=None, **kwargs):
-        calls.append((name, dict(arguments), port))
-        return owned_result
+    async def fake_execute(arguments, port):
+        calls.append((dict(arguments), port))
+        return owned_result, False, False
 
     async def prompt_idle(*args, **kwargs):
         return {"success": True, "data": {"active": False}}
 
-    monkeypatch.setattr(server, "_call_tool_dispatch", fake_dispatch)
+    monkeypatch.setattr(server, "_execute_chirp_create", fake_execute)
     monkeypatch.setattr(dispatcher_module, "call_rhino", prompt_idle)
     dispatcher = ToolDispatcher(
         port=6011,
@@ -642,7 +642,7 @@ async def test_direct_chirp_create_delegates_to_canonical_owner_without_rebuildi
 
     result = await dispatcher.dispatch("chirp_create", {"signature": "Grid"})
 
-    assert calls == [("chirp_create", {"signature": "Grid", "port": 6011}, None)]
+    assert calls == [({"signature": "Grid"}, 6011)]
     assert result["data"]["solve_readiness_receipt"] is managed_receipt
 
 
@@ -714,6 +714,40 @@ async def test_chirp_preserves_closed_script_pipeline_failure_without_decoration
         "solve_readiness_receipt",
         "script_receipt",
     }
+    assert result["data"]["solve_readiness_receipt"] is managed_receipt
+
+
+@pytest.mark.asyncio
+async def test_direct_deterministic_chirp_is_recorder_free(monkeypatch):
+    managed_receipt = _solve_receipt("direct-deterministic")
+
+    async def fake_execute(arguments, port):
+        assert arguments["deterministic_only"] is True
+        return ({"success": True, "data": {
+            "component_guid": "component-guid",
+            "solve_relevant_mutation_committed": True,
+            "solve_readiness_receipt": managed_receipt,
+        }}, False, True)
+
+    async def forbidden_record(**kwargs):
+        raise AssertionError("direct ToolDispatcher entered the canonical recorder")
+
+    async def prompt_idle(*args, **kwargs):
+        return {"success": True, "data": {"active": False}}
+
+    monkeypatch.setattr(server, "_execute_chirp_create", fake_execute)
+    monkeypatch.setattr(server, "_record_gh_to_session", forbidden_record)
+    monkeypatch.setattr(dispatcher_module, "call_rhino", prompt_idle)
+
+    result = await ToolDispatcher(
+        port=6011,
+        local_tools=dispatcher_module.build_local_tools(),
+    ).dispatch("chirp_create", {
+        "signature": "Grid",
+        "deterministic_only": True,
+    })
+
+    assert result["success"] is True
     assert result["data"]["solve_readiness_receipt"] is managed_receipt
 
 

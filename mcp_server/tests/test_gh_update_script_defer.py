@@ -256,7 +256,8 @@ async def test_create_script_waits_on_exact_final_receipt_without_sleep(monkeypa
         (True, None, None, "source_write"),
         (True, False, _receipt(), "source_write"),
         (False, True, _receipt(), "source_write"),
-        (True, True, {**_receipt(), "schema": "wrong"}, "source_write"),
+        (True, True, None, "solve_readiness"),
+        (True, True, {**_receipt(), "schema": "wrong"}, "solve_readiness"),
     ],
 )
 async def test_create_script_final_write_failures_are_monotonic_and_never_wait(
@@ -301,8 +302,7 @@ async def test_create_script_final_write_failures_are_monotonic_and_never_wait(
     assert data["final_write"]["dispatched"] is True
     assert data["final_write"]["success"] is write_success
     assert data["final_write"]["solve_relevant_mutation_committed"] is commit_value
-    if server._validated_solve_readiness_receipt(receipt_value) is receipt_value:
-        assert data["solve_readiness_receipt"] is receipt_value
+    assert data["solve_readiness_receipt"] is receipt_value
     assert calls == ["/gh/create-component", "/gh/script-params", "/gh/script"]
 
 
@@ -408,6 +408,38 @@ async def test_create_script_wait_refusal_retains_final_receipt_without_error_po
 
 
 @pytest.mark.asyncio
+async def test_create_script_wait_exception_is_solve_readiness_and_stops(monkeypatch):
+    pending = _receipt()
+    calls = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None, **kwargs):
+        calls.append(route)
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "component-guid"}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {}}
+        if route == "/gh/script":
+            return {"success": True, "data": {
+                "solve_relevant_mutation_committed": True,
+                "solve_readiness_receipt": pending,
+            }}
+        if route == "/gh/wait-for-solve-readiness":
+            raise TimeoutError("wait transport timed out")
+        raise AssertionError("post-wait read is forbidden")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    result = await server._execute_gh_create_script(
+        "python",
+        {"code": "A = 1", "pins_in": [], "pins_out": ["A:int"]},
+        6011,
+    )
+
+    assert result["data"]["phase"] == "solve_readiness"
+    assert result["data"]["solve_readiness_receipt"] is pending
+    assert calls[-1] == "/gh/wait-for-solve-readiness"
+
+
+@pytest.mark.asyncio
 async def test_create_script_post_write_failure_retains_both_receipts(monkeypatch):
     pending = _receipt()
 
@@ -478,3 +510,78 @@ async def test_update_script_uses_one_final_write_waits_and_preserves_receipt(mo
         "/gh/wait-for-solve-readiness",
         "/gh/errors",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("receipt_value", [None, "malformed-receipt"])
+async def test_update_script_receipt_admission_failure_retains_raw_value(
+    monkeypatch,
+    receipt_value,
+):
+    calls = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None, **kwargs):
+        calls.append(route)
+        if route == "/gh/script" and payload == {"guid": "C1"}:
+            return {"success": True, "data": {
+                "Type": "GhPythonComponent",
+                "guid": "component-guid",
+            }}
+        if route == "/gh/component":
+            return {"success": True, "data": {
+                "guid": "component-guid",
+                "Params": {"Inputs": [], "Outputs": []},
+            }}
+        if route == "/gh/script" and "script" in payload:
+            return {"success": True, "data": {
+                "solve_relevant_mutation_committed": True,
+                "solve_readiness_receipt": receipt_value,
+            }}
+        raise AssertionError("receipt refusal must stop contact")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    result = await server._execute_gh_update_script(
+        {"guid": "C1", "code": "A = 2", "language": "python"},
+        6011,
+    )
+
+    assert result["data"]["phase"] == "solve_readiness"
+    assert result["data"]["solve_readiness_receipt"] is receipt_value
+    assert calls[-1] == "/gh/script"
+
+
+@pytest.mark.asyncio
+async def test_update_script_wait_exception_is_solve_readiness_and_stops(monkeypatch):
+    pending = _receipt(receipt_id="update-wait-exception")
+    calls = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None, **kwargs):
+        calls.append(route)
+        if route == "/gh/script" and payload == {"guid": "C1"}:
+            return {"success": True, "data": {
+                "Type": "GhPythonComponent",
+                "guid": "component-guid",
+            }}
+        if route == "/gh/component":
+            return {"success": True, "data": {
+                "guid": "component-guid",
+                "Params": {"Inputs": [], "Outputs": []},
+            }}
+        if route == "/gh/script" and "script" in payload:
+            return {"success": True, "data": {
+                "solve_relevant_mutation_committed": True,
+                "solve_readiness_receipt": pending,
+            }}
+        if route == "/gh/wait-for-solve-readiness":
+            raise TimeoutError("wait transport timed out")
+        raise AssertionError("post-wait read is forbidden")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    result = await server._execute_gh_update_script(
+        {"guid": "C1", "code": "A = 2", "language": "python"},
+        6011,
+    )
+
+    assert result["data"]["phase"] == "solve_readiness"
+    assert result["data"]["solve_readiness_receipt"] is pending
+    assert calls[-1] == "/gh/wait-for-solve-readiness"

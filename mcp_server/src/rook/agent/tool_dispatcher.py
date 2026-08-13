@@ -858,14 +858,12 @@ async def _local_gh_create_csharp_script(port: int | None = None, **kwargs) -> d
 
 
 async def _local_chirp_create(port: int | None = None, **kwargs) -> dict:
-    """Delegate direct dispatch to Chirp's single canonical orchestration owner."""
+    """Use Chirp's shared orchestration without canonical recording side effects."""
 
-    from ..server import _call_tool_dispatch
+    from ..server import _execute_chirp_create
 
-    arguments = dict(kwargs)
-    if port is not None:
-        arguments["port"] = port
-    return await _call_tool_dispatch("chirp_create", arguments)
+    result, _, _ = await _execute_chirp_create(dict(kwargs), port)
+    return result
 
 
 def _transform_gh_library(args: dict) -> Tuple[str, str, dict]:
