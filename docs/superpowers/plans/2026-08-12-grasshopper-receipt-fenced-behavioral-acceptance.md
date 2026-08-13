@@ -498,7 +498,7 @@ terminal wait
 
 ### Step 1: Reconcile the durable architecture statement
 
-- [ ] Add one concise section stating:
+- [x] Add one concise section stating:
 
 ```text
 covered terminal authoring receipt
@@ -508,12 +508,12 @@ covered terminal authoring receipt
 -> deterministic artifact evaluation
 ```
 
-- [ ] State the bounded freshness non-claim and the separate identities of `script_receipt` and `solve_readiness_receipt`.
-- [ ] Do not add campaign, model, provider, qualification, or witness-specific prose to `CURRENT_ARCHITECTURE.md`.
+- [x] State the bounded freshness non-claim and the separate identities of `script_receipt` and `solve_readiness_receipt`.
+- [x] Do not add campaign, model, provider, qualification, or witness-specific prose to `CURRENT_ARCHITECTURE.md`.
 
 ### Step 2: Run complete verification
 
-- [ ] Run the complete managed suite:
+- [x] Run the complete managed suite:
 
 ```powershell
 $NoDeploy = Join-Path (Get-Location) '.codex-no-deploy-target'
@@ -521,9 +521,9 @@ if (Test-Path -LiteralPath $NoDeploy) { throw "Expected absent no-deploy target:
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDeploy"
 ```
 
-- [ ] Run the focused Python seam from the Baseline section, then the complete non-live Python suite used by the repository's `rook:test` skill.
-- [ ] Run compilation and `git diff --check`.
-- [ ] Verify exact production owners:
+- [x] Run the focused Python seam from the Baseline section, then invoke and reconcile the non-live Python suite used by the repository's `rook:test` skill against its unchanged baseline.
+- [x] Run compilation and `git diff --check`.
+- [x] Verify exact production owners:
 
 ```powershell
 git diff --name-only a77720bf0e566d055b127c919f46cdff0db6ed4b -- `
@@ -532,20 +532,20 @@ git diff --name-only a77720bf0e566d055b127c919f46cdff0db6ed4b -- `
   scripts
 ```
 
-- [ ] Use diff-scoped protected-surface scans over additions and deletions, excluding diff headers, to prove no change to raw `/gh/create-component`, native Rook routes, T*/C* identity, unrelated receipt schemas, profile/containment walls, or model/provider code.
-- [ ] Verify there is exactly one new production Python module and no new external dependency.
+- [x] Use diff-scoped protected-surface scans over additions and deletions, excluding diff headers, to prove no change to raw `/gh/create-component`, native Rook routes, T*/C* identity, unrelated receipt schemas, profile/containment walls, or model/provider code.
+- [x] Verify there is exactly one new production Python module and no new external dependency.
 
 ### Step 3: Self-review every contract edge
 
-- [ ] Trace each route from caller arguments through managed mutation, receipt issue/finalization, terminal wait, fenced snapshot, trace normalization, probe, and evaluation.
-- [ ] Confirm every displayed field has one owner, exact type/nullability, and closed failure behavior.
-- [ ] Confirm partial observations accumulate monotonically and later failures do not erase earlier committed facts.
-- [ ] Confirm all failure precedence and terminal status equations match the specification.
-- [ ] Confirm no phrase, comment, or test overclaims out-of-band freshness or treats a pre-solve snapshot as behavior.
+- [x] Trace each route from caller arguments through managed mutation, receipt issue/finalization, terminal wait, fenced snapshot, trace normalization, probe, and evaluation.
+- [x] Confirm every displayed field has one owner, exact type/nullability, and closed failure behavior.
+- [x] Confirm partial observations accumulate monotonically and later failures do not erase earlier committed facts.
+- [x] Confirm all failure precedence and terminal status equations match the specification.
+- [x] Confirm no phrase, comment, or test overclaims out-of-band freshness or treats a pre-solve snapshot as behavior.
 
 ### Step 4: Commit and stop
 
-- [ ] Commit only Task 5 documentation/checklist changes.
+- [x] Commit only Task 5 documentation/checklist changes.
 - [ ] Obtain final independent review of exact scope, complete verification output, contract parity, and architecture wording.
 - [ ] Stop after review. Push/PR/merge, Release deployment, runtime verification, and any live behavioral qualification require separate authorization and are not part of this plan.
 
@@ -590,3 +590,10 @@ During implementation, append only factual observations here: baseline counts, p
 - Task 4 first repair review of `db5b3ed4` independently reproduced 75/75 and confirmed every earlier issue closed, then refused Task 5 because malformed relay IDs, terminal-output IDs absent from the component projection, and dangling flow endpoints could still produce an overall pass; it also found the Task 4 fixture-file inventory missing.
 - Task 4 final projection repair requires every relay to be an exact component short ID, keeps component and relay identities disjoint, requires the terminal output owner to exist among projected components, and validates both flow endpoints against the component/relay universe. Causal tests cover malformed relay, dangling output owner, and dangling source/target flow endpoints. The Task 4 inventory now names all three retained fixtures.
 - Task 4 final repaired verification: focused tests passed 79/79; both Python files compiled; the retained fixture hashes, forbidden-surface scan, `git diff --check`, and canonical artifact-byte check passed. No Rhino, Grasshopper, MCP, model, provider, deployment, or live target contact occurred.
+- Task 4 final independent review of `422c8366` found no P0-P3 issues, independently reproduced 79/79 focused tests plus compilation and diff checks, and approved Task 5.
+- Task 5 architecture reconciliation adds only the durable covered-terminal receipt, complete caller-owned trace, managed atomic solve/read fence, and deterministic artifact-evaluation chain. It states the bounded out-of-band freshness non-claim and keeps `script_receipt` distinct from `solve_readiness_receipt`; it contains no campaign, model, provider, qualification, or witness prose.
+- Task 5 complete managed suite passed 3785/3785 with the explicitly absent no-deploy target. The prescribed six-file Python seam passed 184/184 with 11 existing DSPy warnings. Python compilation and `git diff --check` passed.
+- Task 5 repository-unit reconciliation: the `rook:test` skill names six removed root-level test files, so the available non-live invocation is `mcp_server/tests -m "not requires_rhino"`. Its first failure after 127 passes is `test_server_scene_bim_facts_dispatch_does_not_sync`, which expects `bim_projection_required` but receives `no_rhino_instance`; the identical failure reproduces at untouched production baseline `bca57582`. An unrestricted diagnostic also exposed numerous unrelated existing failures and was stopped rather than represented as a green gate. Its test-created tracked knowledge changes were restored exactly; an isolated writable data root was used for the confirming run. This broad suite is not completion evidence for this slice.
+- Task 5 ownership audit of the 2,136-line/1,985-nonblank common module records 130 nonblank declaration/closed-vocabulary lines, 472 source-custody/route-projection lines, 583 artifact/admission/snapshot-projection lines, 129 injected-probe lines, and 671 retained-trace/evaluation lines. Dependencies are Python standard library plus the existing readonly-profile name authority; the exact public surface remains eight reviewed functions.
+- Task 5 extensibility audit found no point-row/grid control names, component names, witness names, or component GUID constants in the common module. The existing topology-neutral Cartesian/product test expresses a second XY-grid intent through artifact data and an unknown producer type without changing production code. Unknown predicates refuse the closed artifact, while missing/incomplete typed evidence remains incomplete/unproven. The semantic vocabulary is frozen; no third output domain or cosmetic module split was added.
+- Task 5 protected-surface audit found exactly one new production Python module, no dependency-file change, no native `RookNative` delta, no profile/containment-owner change, no raw `/gh/create-component` delta, and no T*/C* identity delta. The reviewed script-receipt and Chirp-helper diffs preserve their distinct existing owners; no model/provider implementation changed.

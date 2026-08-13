@@ -96,6 +96,29 @@ models. A closed AST-backed literal-call inventory fails when a new direct raw
 creation call is introduced without review; it does not claim to detect
 indirect or dynamically constructed calls.
 
+### Grasshopper solve-fenced behavioral acceptance
+
+Covered terminal authoring routes retain the managed
+`solve_readiness_receipt` for each confirmed solve-relevant commit. Behavioral
+acceptance combines the latest eligible receipt in a complete caller-owned
+authoring trace with a managed atomic solve/read fence, then evaluates the
+resulting typed snapshot through a closed deterministic acceptance artifact:
+
+```text
+covered terminal authoring receipt
++ complete caller-owned trace custody
++ managed atomic solve/read fence
+-> behaviorally admissible snapshot
+-> deterministic artifact evaluation
+```
+
+Freshness is bounded to mutations present in the closed trace and the managed
+receipt fence; it does not claim protection from unobserved out-of-band
+changes. A later retained preparatory or legacy mutation invalidates an older
+receipt until a newer covered terminal commit supplies one. Script helpers keep
+the existing Python `script_receipt` for script-pipeline evidence and the
+managed `solve_readiness_receipt` for solve/read authority as distinct values.
+
 ## Runtime Capability Discovery
 
 `RookNative` exposes `GET /capabilities` as the public runtime capability discovery surface. The endpoint reports declared capability domains, current runtime state, reason codes, routes, operations, diagnostics, and evidence. It is descriptive in Phase 1: it does not move route ownership, change companion loading, change installer layout, or make the managed companion public.
