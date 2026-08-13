@@ -360,8 +360,8 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDe
 ```
 
 - [x] Run Python compilation and a static scan proving no script verification call site uses `_await_gh_solve_settle`, `verification_settle_seconds`, or a fixed `asyncio.sleep` as readiness evidence.
-- [ ] Commit only Task 3 changes.
-- [ ] Stop for mandatory independent review. Do not build the evaluator until every covered Python route retains the managed receipt exactly and direct/canonical parity is approved.
+- [x] Commit only Task 3 changes.
+- [x] Stop for mandatory independent review. Do not build the evaluator until every covered Python route retains the managed receipt exactly and direct/canonical parity is approved.
 
 ---
 
@@ -377,7 +377,7 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDe
 
 ### Step 1: Define the small public Python surface in tests
 
-- [ ] Keep the module surface closed to these responsibilities:
+- [x] Keep the module surface closed to these responsibilities:
 
 ```python
 canonical_json_bytes(value) -> bytes
@@ -390,25 +390,25 @@ run_behavioral_probe(artifact, authoring_trace, executor) -> dict
 evaluate_behavioral_probe(artifact, authoring_trace, probe_trace) -> dict
 ```
 
-- [ ] Implementations may use private dataclasses/helpers, but no class or function may open transport, resolve target, launch process, call a model, retry, or mutate outside the injected executor.
-- [ ] The exact source closure owner remains outside the row emitter: Prime adapter emits rows; outer launcher seals only after process termination, stdout EOF, one final `agent_end`, and all owned child exits. The module merely exposes strict primitives those owners call.
+- [x] Implementations may use private dataclasses/helpers, but no class or function may open transport, resolve target, launch process, call a model, retry, or mutate outside the injected executor.
+- [x] The exact source closure owner remains outside the row emitter: Prime adapter emits rows; outer launcher seals only after process termination, stdout EOF, one final `agent_end`, and all owned child exits. The module merely exposes strict primitives those owners call.
 
 ### Step 2: Write canonical serialization and source-custody tests
 
-- [ ] Require strict UTF-8 without BOM, sorted keys, no insignificant whitespace, and one trailing LF.
-- [ ] Reject duplicate JSON keys, extra keys, reordered/gapped/duplicate sequences, events after closure, mismatched counts, bad hashes, nonfinal terminal marker, and valid prefixes without closure.
-- [ ] For Prime closure, test missing/duplicate/nonfinal `agent_end`, missing EOF, nonterminated process, and lingering owned children.
-- [ ] For direct closure, require exactly one canonical `rook.gh_direct_transaction_runtime:v1` row and exact count equality; any post-marker call invalidates custody.
-- [ ] Record Python exceptions as exact module plus qualname and exact `str(exc)`, including empty strings.
-- [ ] Assert `CancelledError`, `KeyboardInterrupt`, `SystemExit`, and other `BaseException` paths remain unclosed.
+- [x] Require strict UTF-8 without BOM, sorted keys, no insignificant whitespace, and one trailing LF.
+- [x] Reject duplicate JSON keys, extra keys, reordered/gapped/duplicate sequences, events after closure, mismatched counts, bad hashes, nonfinal terminal marker, and valid prefixes without closure.
+- [x] For Prime closure, test missing/duplicate/nonfinal `agent_end`, missing EOF, nonterminated process, and lingering owned children.
+- [x] For direct closure, require exactly one canonical `rook.gh_direct_transaction_runtime:v1` row and exact count equality; any post-marker call invalidates custody.
+- [x] Record Python exceptions as exact module plus qualname and exact `str(exc)`, including empty strings.
+- [x] Assert `CancelledError`, `KeyboardInterrupt`, `SystemExit`, and other `BaseException` paths remain unclosed.
 
 ### Step 3: Write latest-terminal admission tests
 
-- [ ] Normalize canonical gateway, direct dispatch, and operator probe rows into exact `rook.gh_authoring_trace:v1` events.
-- [ ] Require receipt identity/session/mutation equality between authoring result, terminal wait, and fenced snapshot; use the terminal wait as lifecycle epoch authority.
-- [ ] Admit only the receipt owned by the latest covered terminal mutation in the complete retained trace.
-- [ ] Refuse if any later preparatory or legacy mutation appears.
-- [ ] Cover:
+- [x] Normalize canonical gateway, direct dispatch, and operator probe rows into exact `rook.gh_authoring_trace:v1` events.
+- [x] Require receipt identity/session/mutation equality between authoring result, terminal wait, and fenced snapshot; use the terminal wait as lifecycle epoch authority.
+- [x] Admit only the receipt owned by the latest covered terminal mutation in the complete retained trace.
+- [x] Refuse if any later preparatory or legacy mutation appears.
+- [x] Cover:
   - latest terminal `gh_edit` with positive commit;
   - committed partial `gh_edit`;
   - zero/group-only edit;
@@ -417,17 +417,17 @@ evaluate_behavioral_probe(artifact, authoring_trace, probe_trace) -> dict
   - later legacy mutation;
   - pending, stale, superseded, locked, replaced-document, and unknown receipts;
   - refusal of `gh_edit` embedded structural snapshot.
-- [ ] State in test names that unobserved out-of-band mutation is outside the claim.
+- [x] State in test names that unobserved out-of-band mutation is outside the claim.
 
 ### Step 4: Validate the closed acceptance artifact
 
-- [ ] Strictly validate exact top-level, control, output, criterion, and argument keys.
-- [ ] Reject booleans as numbers, nonfinite values, invalid IDs, duplicate roles/criteria, unknown predicates, unsupported selector kinds, incompatible role kinds, and noncanonical bytes/hash.
-- [ ] Implement exactly the v1 predicate vocabulary from the specification; do not add grid- or point-row-specific branches.
+- [x] Strictly validate exact top-level, control, output, criterion, and argument keys.
+- [x] Reject booleans as numbers, nonfinite values, invalid IDs, duplicate roles/criteria, unknown predicates, unsupported selector kinds, incompatible role kinds, and noncanonical bytes/hash.
+- [x] Implement exactly the v1 predicate vocabulary from the specification; do not add grid- or point-row-specific branches.
 
 ### Step 5: Implement fenced probe orchestration
 
-- [ ] Call the injected executor only for the reviewed sequence:
+- [x] Call the injected executor only for the reviewed sequence:
 
 ```text
 terminal wait
@@ -441,32 +441,32 @@ terminal wait
      one fenced snapshot
 ```
 
-- [ ] Emit exact `rook.gh_probe_trace:v1` rows for every call and stop at the first failed dispatch, receipt, wait, snapshot, output, control-isolation, or restoration check.
-- [ ] Require exactly one perturbation receipt and one distinct restoration receipt per control.
-- [ ] Perturb one control at a time and verify all other bound controls remain exact.
-- [ ] Restore the exact original slider value and require byte-identical canonical normalized projection after each restoration.
-- [ ] Never issue a second read with a larger bound, retry a call, repair the canvas, or continue after compromised restoration.
+- [x] Emit exact `rook.gh_probe_trace:v1` rows for every call and stop at the first failed dispatch, receipt, wait, snapshot, output, control-isolation, or restoration check.
+- [x] Require exactly one perturbation receipt and one distinct restoration receipt per control.
+- [x] Perturb one control at a time and verify all other bound controls remain exact.
+- [x] Restore the exact original slider value and require byte-identical canonical normalized projection after each restoration.
+- [x] Never issue a second read with a larger bound, retry a call, repair the canvas, or continue after compromised restoration.
 
 ### Step 6: Implement projection and predicates
 
-- [ ] Build exact `rook.gh_behavioral_snapshot_projection:v1` from admitted fenced data only.
-- [ ] Bind controls by unique exact nickname and closed slider shape.
-- [ ] Select exactly one complete terminal point output; unknown, multiple, truncated, nonpoint, or missing evidence remains incomplete/unproven.
-- [ ] Evaluate expected finite point multisets for sequence and Cartesian predicates with exact multiplicity/count and the artifact's numeric tolerance only for coordinates.
-- [ ] Derive the exact `rook.gh_behavioral_evaluation:v1` result and failure precedence; no score or majority vote.
+- [x] Build exact `rook.gh_behavioral_snapshot_projection:v1` from admitted fenced data only.
+- [x] Bind controls by unique exact nickname and closed slider shape.
+- [x] Select exactly one complete terminal point output; unknown, multiple, truncated, nonpoint, or missing evidence remains incomplete/unproven.
+- [x] Evaluate expected finite point multisets for sequence and Cartesian predicates with exact multiplicity/count and the artifact's numeric tolerance only for coordinates.
+- [x] Derive the exact `rook.gh_behavioral_evaluation:v1` result and failure precedence; no score or majority vote.
 
 ### Step 7: Migrate the point-row compatibility CLI
 
-- [ ] Replace independent point-row evaluation logic with calls into `rook.gh_behavioral_acceptance`.
-- [ ] Convert `scripts/grasshopper_point_row_acceptance.json` to the closed artifact schema without changing the reviewed intent or acceptance meaning.
-- [ ] Retain authentic fixture expectations:
+- [x] Replace independent point-row evaluation logic with calls into `rook.gh_behavioral_acceptance`.
+- [x] Convert `scripts/grasshopper_point_row_acceptance.json` to the closed artifact schema without changing the reviewed intent or acceptance meaning.
+- [x] Retain authentic fixture expectations:
   - Opus evidence passes all six reviewed criteria.
   - Qwen evidence fails exactly `adjustable_step_present` and `point_count_equals_count` under the compatibility report mapping.
-- [ ] Ensure unfamiliar/unsupported topology remains incomplete or unproven rather than guessed.
+- [x] Ensure unfamiliar/unsupported topology remains incomplete or unproven rather than guessed.
 
 ### Step 8: Verify and review Task 4
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
@@ -479,8 +479,8 @@ terminal wait
   scripts/grasshopper_point_row_acceptance.py
 ```
 
-- [ ] Run a source scan proving the module has no MCP transport construction, model/provider import, process launch, retry loop, target resolution, sleep-based readiness, or task-specific component GUID/name.
-- [ ] Report nonblank production additions. Stop if this module grows beyond the reviewed responsibilities or recreates a second evaluator authority.
+- [x] Run a source scan proving the module has no MCP transport construction, model/provider import, process launch, retry loop, target resolution, sleep-based readiness, or task-specific component GUID/name.
+- [x] Report nonblank production additions. Stop if this module grows beyond the reviewed responsibilities or recreates a second evaluator authority.
 - [ ] Commit only Task 4 changes.
 - [ ] Stop for mandatory independent review before documentation reconciliation.
 
@@ -579,3 +579,7 @@ During implementation, append only factual observations here: baseline counts, p
 - Task 3 independent review of `7c7cb676` reproduced 99/99 prescribed tests and 30/30 RookChat parity tests, then refused Task 4 because receipt admission failures erased malformed returned evidence and used the `source_write` phase, thrown readiness waits were mislabeled `post_write_verification`, and direct Chirp entered canonical recording/metrics machinery.
 - Task 3 repair separates raw returned receipt evidence from validated managed authority, assigns committed receipt-admission failures and all wait failures to `solve_readiness`, and extracts one shared recorder-free Chirp orchestration helper used by canonical and direct dispatch. Canonical alone owns session recording; direct deterministic Chirp is causally guarded against recorder entry.
 - Task 3 repaired verification: 105/105 prescribed tests and 30/30 existing RookChat creation-parity tests passed. Python compilation, exact one-final-write/no-sleep AST checks, and `git diff --check` passed. No Rhino/MCP contact or deployment occurred.
+- Task 4 RED/GREEN: the new common-module tests first failed at import because no behavioral-acceptance owner existed. The final focused seam passes 61/61 and covers canonical source closure, exact Prime/direct terminal custody, route-owned mutation classification, latest-terminal selection, same-receipt wait/fence correlation, one-control-at-a-time perturbation, distinct mutation receipts, restoration equality, monotonic failure prefixes, every reviewed generic predicate, and thin point-row compatibility mapping.
+- Task 4 authentic compatibility anchors: the retained Opus snapshot `BD25176EC4C7AF7C7A4559C87F97FA4F092FB394E0D30D38A57D5529FAC92F48` maps to six passes; the retained Qwen snapshot `4B3E44B853D7EEC44D6052D2C4442BEB4CEE46BD3E728C14781FCDDB43C87AE8` maps to exactly `adjustable_step_present` and `point_count_equals_count` failures, with unsupported X causality remaining unproven.
+- Task 4 production boundary: `gh_behavioral_acceptance.py` has 1,803 nonblank lines and the compatibility CLI has 158. The module exposes only the eight reviewed pure functions; it has no transport construction, target resolution, model/provider import, process launch, retry loop, sleep readiness, or task-specific component GUID/name. The size implements the approved closed trace, receipt, projection, probe, and seven-predicate contracts in one owner rather than adding a second evaluator or another production module.
+- Task 4 verification: focused tests passed 61/61; both Python files compiled; the forbidden-surface scan, `git diff --check`, and canonical artifact-byte check passed. No Rhino, Grasshopper, MCP, model, provider, deployment, or live target contact occurred.
