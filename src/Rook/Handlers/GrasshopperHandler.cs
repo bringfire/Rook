@@ -7208,6 +7208,65 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse TakeSnapshot(string? body)
         {
+            bool includeData = true;
+            int maxPreviewItems = 3;
+            string? readinessReceiptId = null;
+            var fenced = false;
+            if (!string.IsNullOrEmpty(body))
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(body);
+                    if (document.RootElement.ValueKind != JsonValueKind.Object)
+                        return new ApiResponse { Success = false, Data = "Invalid gh_snapshot request body" };
+
+                    var json = document.RootElement;
+                    fenced = json.TryGetProperty("readiness_receipt_id", out var receiptElement);
+                    if (fenced)
+                    {
+                        if (receiptElement.ValueKind != JsonValueKind.String)
+                            return ReadinessIssueFailure("readiness_receipt_id_invalid");
+                        readinessReceiptId = receiptElement.GetString();
+                        if (string.IsNullOrWhiteSpace(readinessReceiptId))
+                            return ReadinessIssueFailure("readiness_receipt_id_invalid");
+
+                        if (!json.TryGetProperty("include_data", out var fencedIncludeData) ||
+                            fencedIncludeData.ValueKind != JsonValueKind.True)
+                        {
+                            return ReadinessIssueFailure("readiness_snapshot_request_invalid");
+                        }
+                        includeData = true;
+
+                        if (!json.TryGetProperty("max_preview_items", out var fencedMaxPreview) ||
+                            fencedMaxPreview.ValueKind != JsonValueKind.Number ||
+                            !fencedMaxPreview.TryGetInt32(out maxPreviewItems) ||
+                            maxPreviewItems < 1 ||
+                            maxPreviewItems > 1000)
+                        {
+                            return ReadinessIssueFailure("readiness_snapshot_request_invalid");
+                        }
+                    }
+                    else
+                    {
+                        if (json.TryGetProperty("include_data", out var incData) &&
+                            incData.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                        {
+                            includeData = incData.GetBoolean();
+                        }
+                        if (json.TryGetProperty("max_preview_items", out var maxPrev) &&
+                            maxPrev.ValueKind == JsonValueKind.Number &&
+                            maxPrev.TryGetInt32(out var legacyMaxPreview))
+                        {
+                            maxPreviewItems = legacyMaxPreview;
+                        }
+                    }
+                }
+                catch (JsonException)
+                {
+                    return new ApiResponse { Success = false, Data = "Invalid gh_snapshot request body" };
+                }
+            }
+
             var notReady = EnsureGrasshopperReadyForEdit("gh_snapshot");
             if (notReady != null)
                 return notReady;
@@ -7216,23 +7275,13 @@ namespace Rook.Handlers
             if (!gh.Success)
                 return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
 
-            // Parse options
-            bool includeData = true;
-            int maxPreviewItems = 3;
-            if (!string.IsNullOrEmpty(body))
+            GhFencedReadGate? readinessGate = null;
+            if (fenced)
             {
-                try
-                {
-                    var json = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(body);
-                    if (json != null)
-                    {
-                        if (json.TryGetValue("include_data", out var incData))
-                            includeData = incData.GetBoolean();
-                        if (json.TryGetValue("max_preview_items", out var maxPrev))
-                            maxPreviewItems = maxPrev.GetInt32();
-                    }
-                }
-                catch { }
+                var gate = _solveReceiptRegistry.CheckFencedRead(readinessReceiptId!, gh.Document!);
+                if (!gate.Allowed)
+                    return ReadinessFenceFailure(gate);
+                readinessGate = gate;
             }
 
             try
@@ -7273,6 +7322,7 @@ namespace Rook.Handlers
                 var warningIds = new List<string>();
                 int errorCount = 0;
                 int warningCount = 0;
+                var behavioralPointOutputs = fenced ? new List<object>() : null;
 
                 // Build a set of relay GUIDs for flow traversal
                 var relayGuids = new HashSet<Guid>();
@@ -7413,7 +7463,16 @@ namespace Rook.Handlers
                         else
                         {
                             // Build regular component entry
-                            var entry = BuildComponentEntry(obj, shortId, typeName, pos, errors, warnings, includeData, maxPreviewItems);
+                            var entry = BuildComponentEntry(
+                                obj,
+                                shortId,
+                                typeName,
+                                pos,
+                                errors,
+                                warnings,
+                                includeData,
+                                maxPreviewItems,
+                                behavioralPointOutputs);
                             if (entry != null) components.Add(entry);
 
                             // Extract flows from this component's input params
@@ -7473,6 +7532,19 @@ namespace Rook.Handlers
                     error_ids = errorIds.Count > 0 ? errorIds : null,
                     warning_ids = warningIds.Count > 0 ? warningIds : null
                 };
+
+                if (readinessGate?.Receipt is GhSolveReadinessReceipt receipt)
+                {
+                    snapshot["readiness_fence"] = new
+                    {
+                        readiness_receipt_id = receipt.ReceiptId,
+                        document_session_id = receipt.DocumentSessionId,
+                        mutation_epoch = receipt.MutationEpoch,
+                        solution_run_epoch = receipt.SolutionRunEpoch,
+                        completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
+                    };
+                    snapshot["behavioral_point_outputs"] = behavioralPointOutputs!;
+                }
 
                 return new ApiResponse { Success = true, Data = snapshot };
             }
@@ -7585,7 +7657,7 @@ namespace Rook.Handlers
 
         private object? BuildComponentEntry(object obj, string shortId, string typeName,
             float[]? pos, List<string> errors, List<string> warnings,
-            bool includeData, int maxPreviewItems)
+            bool includeData, int maxPreviewItems, List<object>? behavioralPointOutputs = null)
         {
             var name = obj.GetType().GetProperty("Name")?.GetValue(obj)?.ToString();
             var nick = obj.GetType().GetProperty("NickName")?.GetValue(obj)?.ToString();
@@ -7632,8 +7704,14 @@ namespace Rook.Handlers
                 var paramsServer = paramsProp.GetValue(obj);
                 if (paramsServer != null)
                 {
-                    var inputs = ExtractParams(paramsServer, true, includeData, maxPreviewItems);
-                    var outputs = ExtractParams(paramsServer, false, includeData, maxPreviewItems);
+                    var inputs = ExtractParams(paramsServer, true, includeData, maxPreviewItems, null, null);
+                    var outputs = ExtractParams(
+                        paramsServer,
+                        false,
+                        includeData,
+                        maxPreviewItems,
+                        shortId,
+                        behavioralPointOutputs);
 
                     if (inputs != null && ((List<object>)inputs).Count > 0)
                         entry["inputs"] = inputs;
@@ -7649,7 +7727,9 @@ namespace Rook.Handlers
         }
 
         private List<object>? ExtractParams(object paramsServer, bool isInput,
-            bool includeData, int maxPreviewItems)
+            bool includeData, int maxPreviewItems,
+            string? componentShortId = null,
+            List<object>? behavioralPointOutputs = null)
         {
             try
             {
@@ -7709,9 +7789,24 @@ namespace Rook.Handlers
                         // Include data preview for outputs
                         if (includeData)
                         {
-                            var dataPreview = ExtractDataPreview(param, maxPreviewItems);
-                            if (dataPreview != null)
-                                entry["data"] = dataPreview;
+                            if (behavioralPointOutputs is not null && componentShortId is not null)
+                            {
+                                var projection = ExtractFencedOutputData(
+                                    param,
+                                    maxPreviewItems,
+                                    componentShortId,
+                                    idx);
+                                if (projection.LegacyPreview != null)
+                                    entry["data"] = projection.LegacyPreview;
+                                if (projection.BehavioralPointOutput != null)
+                                    behavioralPointOutputs.Add(projection.BehavioralPointOutput);
+                            }
+                            else
+                            {
+                                var dataPreview = ExtractDataPreview(param, maxPreviewItems);
+                                if (dataPreview != null)
+                                    entry["data"] = dataPreview;
+                            }
                         }
                     }
 
@@ -7777,6 +7872,149 @@ namespace Rook.Handlers
             }
             catch { return null; }
         }
+
+        private sealed class FencedOutputProjection
+        {
+            public object? LegacyPreview { get; init; }
+            public object? BehavioralPointOutput { get; init; }
+        }
+
+        private FencedOutputProjection ExtractFencedOutputData(
+            object param,
+            int maxItems,
+            string componentShortId,
+            int outputIndex)
+        {
+            try
+            {
+                var volatileData = param.GetType().GetProperty("VolatileData")?.GetValue(param);
+                if (volatileData == null)
+                    return new FencedOutputProjection();
+
+                if (volatileData.GetType().GetProperty("DataCount")?.GetValue(volatileData) is not int dataCount ||
+                    dataCount < 0)
+                {
+                    return new FencedOutputProjection();
+                }
+
+                var isEmpty = volatileData.GetType().GetProperty("IsEmpty")?.GetValue(volatileData) as bool? ?? true;
+                if (isEmpty)
+                    return new FencedOutputProjection();
+
+                var pathCount = volatileData.GetType().GetProperty("PathCount")?.GetValue(volatileData) as int? ?? 0;
+                var structure = pathCount == 1 && dataCount == 1
+                    ? "single"
+                    : pathCount == 1
+                        ? "list"
+                        : "tree";
+                var legacy = new Dictionary<string, object?>
+                {
+                    ["structure"] = structure,
+                    ["count"] = dataCount,
+                };
+                if (structure == "tree")
+                    legacy["paths"] = pathCount;
+
+                var allDataMethod = volatileData.GetType().GetMethod("AllData", new[] { typeof(bool) });
+                var allData = allDataMethod?.Invoke(volatileData, new object[] { false })
+                    as System.Collections.IEnumerable;
+                if (allData == null)
+                    return new FencedOutputProjection { LegacyPreview = legacy };
+
+                var preview = new List<string>();
+                var points = new List<double[]>();
+                var observedCount = 0;
+                var sawPoint = false;
+                var sawNonPoint = false;
+                var sawNonfinitePoint = false;
+                var dataUnavailable = false;
+                var enumerator = allData.GetEnumerator();
+                try
+                {
+                    while (observedCount < maxItems && enumerator.MoveNext())
+                    {
+                        var item = enumerator.Current;
+                        var value = item?.GetType().GetProperty("Value")?.GetValue(item);
+                        preview.Add(value?.ToString() ?? item?.ToString() ?? "null");
+                        observedCount++;
+
+                        if (value is Rhino.Geometry.Point3d point)
+                        {
+                            sawPoint = true;
+                            if (IsFinite(point.X) && IsFinite(point.Y) && IsFinite(point.Z))
+                            {
+                                points.Add(new[] { point.X, point.Y, point.Z });
+                            }
+                            else
+                            {
+                                sawNonfinitePoint = true;
+                            }
+                        }
+                        else
+                        {
+                            sawNonPoint = true;
+                        }
+                    }
+                    if (dataCount <= maxItems &&
+                        observedCount == maxItems &&
+                        enumerator.MoveNext())
+                    {
+                        observedCount++;
+                    }
+                }
+                catch
+                {
+                    dataUnavailable = true;
+                }
+                finally
+                {
+                    try { (enumerator as IDisposable)?.Dispose(); }
+                    catch { dataUnavailable = true; }
+                }
+
+                if (preview.Count > 0)
+                    legacy["preview"] = preview;
+
+                if (!sawPoint ||
+                    param.GetType().GetProperty("Name")?.GetValue(param) is not string outputName)
+                {
+                    return new FencedOutputProjection { LegacyPreview = legacy };
+                }
+
+                string? error = dataUnavailable
+                    ? "data_unavailable"
+                    : dataCount > maxItems
+                        ? "truncated"
+                        : observedCount != dataCount
+                            ? "count_mismatch"
+                            : sawNonPoint
+                                ? "non_point_item"
+                                : sawNonfinitePoint
+                                    ? "nonfinite_coordinate"
+                                    : null;
+
+                return new FencedOutputProjection
+                {
+                    LegacyPreview = legacy,
+                    BehavioralPointOutput = new Dictionary<string, object?>
+                    {
+                        ["component_id"] = componentShortId,
+                        ["output_index"] = outputIndex,
+                        ["output_name"] = outputName,
+                        ["count"] = dataCount,
+                        ["complete"] = error is null,
+                        ["points"] = points,
+                        ["error"] = error,
+                    },
+                };
+            }
+            catch
+            {
+                return new FencedOutputProjection();
+            }
+        }
+
+        private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
 
         /// <summary>
         /// Extract flow strings from a regular component's input params.

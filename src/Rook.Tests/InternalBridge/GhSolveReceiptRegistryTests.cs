@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -115,6 +116,25 @@ namespace Rook.Tests.InternalBridge
             Assert.True(gate.Allowed);
             Assert.Null(gate.Error);
             Assert.Equal(1, gate.Receipt!.SolutionRunEpoch);
+        }
+
+        [Fact]
+        public void FencedReadObserver_ReceivesExactOwnedGateOncePerCheck()
+        {
+            var observed = new List<GhFencedReadGate>();
+            var registry = new GhSolveReceiptRegistry(fencedReadObserver: gate => observed.Add(gate));
+            var receipt = IssueScheduled(registry, DocumentA);
+
+            var pending = registry.CheckFencedRead(receipt.ReceiptId, DocumentA);
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionEnd(DocumentA);
+            var ready = registry.CheckFencedRead(receipt.ReceiptId, DocumentA);
+
+            Assert.Equal(2, observed.Count);
+            Assert.Same(pending, observed[0]);
+            Assert.Same(ready, observed[1]);
+            Assert.False(observed[0].Allowed);
+            Assert.True(observed[1].Allowed);
         }
 
         [Fact]

@@ -228,7 +228,7 @@ alongside existing success fields.
 - [x] Run the complete managed suite.
 - [x] Run `git diff --check` and report production additions/deletions.
 - [x] Commit only Task 1 changes.
-- [ ] Stop for mandatory independent review. Do not begin Task 2 until receipt ownership, partial-commit custody, and zero/group-only behavior are approved.
+- [x] Stop for mandatory independent review. Do not begin Task 2 until receipt ownership, partial-commit custody, and zero/group-only behavior are approved.
 
 ---
 
@@ -242,8 +242,8 @@ alongside existing success fields.
 
 ### Step 1: Write failing fence-order tests
 
-- [ ] Build a hostile snapshot fixture whose first data/property/output read records an event or throws unless the fence gate has already succeeded.
-- [ ] Add a successful ordering assertion:
+- [x] Build a hostile snapshot fixture whose first data/property/output read records an event or throws unless the fence gate has already succeeded.
+- [x] Add a successful ordering assertion:
 
 ```text
 managed callback entered
@@ -253,38 +253,38 @@ managed callback entered
 -> callback returns
 ```
 
-- [ ] Add pending, stale, superseded, solver-locked, replaced-document, unknown-receipt, and wrong-document tests that assert zero snapshot data reads.
-- [ ] Add a test proving `CheckFencedRead()` and extraction occur in the same callback rather than two queued callbacks.
+- [x] Add pending, stale, superseded, solver-locked, replaced-document, unknown-receipt, and wrong-document tests that assert zero snapshot data reads.
+- [x] Add a test proving `CheckFencedRead()` and extraction occur in the same callback rather than two queued callbacks.
 
 ### Step 2: Implement the closed fenced request
 
-- [ ] Extend `TakeSnapshot` parsing so `readiness_receipt_id` is optional for legacy calls but, when present, must be a nonblank actual string.
-- [ ] Require `include_data=true` and integer `max_preview_items` in `1..1000` for fenced calls.
-- [ ] Enter one managed callback, call `_solveReceiptRegistry.CheckFencedRead(receiptId, gh.Document!)`, refuse on any non-ready gate, and only then read snapshot state.
-- [ ] Return exact root `readiness_fence` correlation with receipt ID, document session, mutation epoch, solution run epoch, and completed solution run epoch.
-- [ ] Keep unfenced response keys and string previews byte-shape compatible.
+- [x] Extend `TakeSnapshot` parsing so `readiness_receipt_id` is optional for legacy calls but, when present, must be a nonblank actual string.
+- [x] Require `include_data=true` and integer `max_preview_items` in `1..1000` for fenced calls.
+- [x] Enter one managed callback, call `_solveReceiptRegistry.CheckFencedRead(receiptId, gh.Document!)`, refuse on any non-ready gate, and only then read snapshot state.
+- [x] Return exact root `readiness_fence` correlation with receipt ID, document session, mutation epoch, solution run epoch, and completed solution run epoch.
+- [x] Keep unfenced response keys and string previews byte-shape compatible.
 
 ### Step 3: Add fenced-only typed point outputs
 
-- [ ] During the same fenced callback, inspect output volatile data without solving, recomputing, or a second target call.
-- [ ] Emit `behavioral_point_outputs` only for fenced requests.
-- [ ] Admit only runtime values that are actual `Rhino.Geometry.Point3d` and whose X/Y/Z are finite.
-- [ ] Retain component short ID, output index/name, exact total count, `complete`, and point triples.
-- [ ] Set `complete=false` when count exceeds `max_preview_items`, any value is not a Point3d, any coordinate is nonfinite, or projection is incomplete.
-- [ ] Never parse `ToString()` output and never use string previews for typed acceptance.
+- [x] During the same fenced callback, inspect output volatile data without solving, recomputing, or a second target call.
+- [x] Emit `behavioral_point_outputs` only for fenced requests.
+- [x] Admit only runtime values that are actual `Rhino.Geometry.Point3d` and whose X/Y/Z are finite.
+- [x] Retain component short ID, output index/name, exact total count, `complete`, and point triples.
+- [x] Set `complete=false` when count exceeds `max_preview_items`, any value is not a Point3d, any coordinate is nonfinite, or projection is incomplete.
+- [x] Never parse `ToString()` output and never use string previews for typed acceptance.
 
 ### Step 4: Add compatibility and causal tests
 
-- [ ] Assert the successful fence exactly matches a ready terminal wait receipt.
-- [ ] Assert every refusal reads no component, flow, diagnostic, preview, or point output.
-- [ ] Assert mixed/nonpoint and nonfinite output is retained as incomplete, never coerced.
-- [ ] Assert truncation is truthful and no second read occurs.
-- [ ] Assert a normal unfenced snapshot has the existing exact key shape and no `readiness_fence` or `behavioral_point_outputs`.
-- [ ] Assert the `gh_edit` embedded snapshot does not contain fenced additions and is not accepted by any managed behavioral helper.
+- [x] Assert the successful fence exactly matches a ready terminal wait receipt.
+- [x] Assert every refusal reads no component, flow, diagnostic, preview, or point output.
+- [x] Assert mixed/nonpoint and nonfinite output is retained as incomplete, never coerced.
+- [x] Assert truncation is truthful and no second read occurs.
+- [x] Assert a normal unfenced snapshot has the existing exact key shape and no `readiness_fence` or `behavioral_point_outputs`.
+- [x] Assert the `gh_edit` embedded snapshot does not contain fenced additions and is not accepted by any managed behavioral helper.
 
 ### Step 5: Verify and review Task 2
 
-- [ ] Run:
+- [x] Run:
 
 ```powershell
 $NoDeploy = Join-Path (Get-Location) '.codex-no-deploy-target'
@@ -293,7 +293,7 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDe
   "FullyQualifiedName~GhSolveReceiptRegistryTests|FullyQualifiedName~GrasshopperHandlerReadinessTests|FullyQualifiedName~GrasshopperTerminalMutationReceiptTests|FullyQualifiedName~GrasshopperBehavioralSnapshotTests"
 ```
 
-- [ ] Run the complete managed suite, compilation, and whitespace checks.
+- [x] Run the complete managed suite, compilation, and whitespace checks.
 - [ ] Commit only Task 2 changes.
 - [ ] Stop for mandatory independent review. Do not begin Python propagation until same-callback fence-before-read ordering and unfenced compatibility are approved.
 
@@ -566,3 +566,7 @@ During implementation, append only factual observations here: baseline counts, p
 - Task 1 repair review of `00d70584` reproduced 106/106 focused and 3765/3765 complete managed tests and confirmed every earlier issue closed, then identified that the real Rhino 8 `GH_Document.AddObject` and `RemoveObject` methods return Boolean and the code still counted a returned `false` as a commit. The two causal false-return tests failed RED with manufactured counts of one.
 - Task 1 final host-return repair requires exact Boolean `true` before create/delete count advancement; `false` retains an operation error and zero commit, while a thrown or non-Boolean return remains unknown. Boolean `true` and `false` are causally covered for both routes.
 - Task 1 final verification: 109/109 focused and 3768/3768 complete managed tests passed; net48, net7.0, and net8.0 compiled with 268 warnings and 0 errors. The complete Task 1 production delta is 582 additions and 91 deletions across the same three production owners; `git diff --check` passed. No Rhino/MCP contact or deployment occurred.
+- Task 1 final independent review of `713ac187` found no P0-P3 issues, independently reproduced 109/109 focused and 3768/3768 complete managed tests, and approved Task 2.
+- Task 2 RED/GREEN: the new fenced-snapshot test first failed to compile because the registry did not expose an owning-boundary fence observation; after implementation, the Task 2 focused seam passed 111/111. Hostile tests prove fence-before-object/output reads on one thread and zero data reads for invalid, pending, stale, superseded, locked, replaced, wrong-document, unknown, expired, missing/evicted/process-restarted receipts.
+- Task 2 typed evidence: one volatile-data acquisition supplies both the compatible string preview and fenced typed projection. Only finite host `Point3d` values enter coordinate triples; truncation, count mismatch, mixed values, nonfinite coordinates, and data-access failure retain closed incomplete reasons, while all-nonpoint outputs are omitted.
+- Task 2 complete managed suite: 3785/3785 passed on the first guarded run. The multi-target build compiled net48, net7.0, and net8.0 with 268 warnings and 0 errors. Task 2 production delta before commit is 298 additions and 52 deletions across `GrasshopperHandler.cs` and `GhSolveReceiptRegistry.cs`; `git diff --check` passed. No Rhino/MCP contact or deployment occurred.
