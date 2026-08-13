@@ -410,6 +410,31 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void ApplyEdit_DeleteFalseReturnDoesNotManufactureCommit()
+        {
+            var component = new FakeDeletableComponent(Guid.NewGuid());
+            var document = new FakeDocument(component) { RemoveResult = false };
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                delete = new[] { "C1" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("deleted").GetInt32());
+            Assert.Contains("returned false", data.GetProperty("edit_summary").GetProperty("errors")[0].GetString());
+            Assert.Single(document.Objects);
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
         public void ApplyEdit_ConnectAndDisconnectEachCountOnlyConfirmedMutatorReturn()
         {
             var source = CreateDynamicParam(Guid.NewGuid());
@@ -537,6 +562,50 @@ namespace Rook.Tests.Handlers
             var data = Element(response.Data);
             Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("created").GetInt32());
             Assert.NotEqual(JsonValueKind.Null, data.GetProperty("edit_summary").GetProperty("errors").ValueKind);
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_SuccessfulCreateCountsConfirmedAddAndReturnsReceipt()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document);
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch = 0,
+                create = new[] { new { temp_id = "T1", type = "slider" } },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(1, data.GetProperty("edit_summary").GetProperty("created").GetInt32());
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("edit_summary").GetProperty("errors").ValueKind);
+            Assert.Equal("pending", data.GetProperty("solve_readiness_receipt").GetProperty("status").GetString());
+            Assert.Single(document.Objects);
+            Assert.Equal(1, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_CreateFalseReturnDoesNotManufactureCommit()
+        {
+            var document = new FakeDocument { AddResult = false };
+            var handler = CreateHandler(document);
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch = 0,
+                create = new[] { new { temp_id = "T1", type = "slider" } },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("created").GetInt32());
+            Assert.NotEqual(JsonValueKind.Null, data.GetProperty("edit_summary").GetProperty("errors").ValueKind);
+            Assert.Empty(document.Objects);
             Assert.Equal(
                 "no_solve_relevant_mutation_committed",
                 data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
@@ -770,6 +839,10 @@ namespace Rook.Tests.Handlers
                     {
                         DefineGrasshopperReceiptParam(existingModule, paramInterface);
                     }
+                    if (grasshopperAssembly.GetType("Grasshopper.Kernel.Special.GH_NumberSlider") is null)
+                    {
+                        DefineGrasshopperNumberSlider(existingModule);
+                    }
                 }
                 return existing;
             }
@@ -813,6 +886,33 @@ namespace Rook.Tests.Handlers
                 TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract)
                 .CreateType()!;
             DefineGrasshopperReceiptParam(module, paramInterface);
+            DefineGrasshopperNumberSlider(module);
+        }
+
+        private static Type DefineGrasshopperNumberSlider(ModuleBuilder module)
+        {
+            var type = module.DefineType(
+                "Grasshopper.Kernel.Special.GH_NumberSlider",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var guidField = type.DefineField("_instanceGuid", typeof(Guid), FieldAttributes.Private);
+            var nickField = type.DefineField("_nickName", typeof(string), FieldAttributes.Private);
+            var constructor = type.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                Type.EmptyTypes);
+            var constructorIl = constructor.GetILGenerator();
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Call, typeof(Guid).GetMethod(nameof(Guid.NewGuid), BindingFlags.Public | BindingFlags.Static)!);
+            constructorIl.Emit(OpCodes.Stfld, guidField);
+            constructorIl.Emit(OpCodes.Ret);
+            DefineReadOnlyProperty(type, "InstanceGuid", typeof(Guid), guidField);
+            DefineReadWriteProperty(type, "NickName", typeof(string), nickField);
+            DefineNullProperty(type, "Slider");
+            var expire = type.DefineMethod("ExpireSolution", MethodAttributes.Public, typeof(void), new[] { typeof(bool) });
+            expire.GetILGenerator().Emit(OpCodes.Ret);
+            return type.CreateType()!;
         }
 
         private static Type DefineGrasshopperReceiptParam(ModuleBuilder module, Type paramInterface)
@@ -881,6 +981,36 @@ namespace Rook.Tests.Handlers
             il.Emit(OpCodes.Ldnull);
             il.Emit(OpCodes.Ret);
             property.SetGetMethod(getter);
+        }
+
+        private static void DefineReadWriteProperty(
+            TypeBuilder type,
+            string name,
+            Type propertyType,
+            FieldBuilder field)
+        {
+            var property = type.DefineProperty(name, PropertyAttributes.None, propertyType, Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                $"get_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                propertyType,
+                Type.EmptyTypes);
+            var getterIl = getter.GetILGenerator();
+            getterIl.Emit(OpCodes.Ldarg_0);
+            getterIl.Emit(OpCodes.Ldfld, field);
+            getterIl.Emit(OpCodes.Ret);
+            var setter = type.DefineMethod(
+                $"set_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(void),
+                new[] { propertyType });
+            var setterIl = setter.GetILGenerator();
+            setterIl.Emit(OpCodes.Ldarg_0);
+            setterIl.Emit(OpCodes.Ldarg_1);
+            setterIl.Emit(OpCodes.Stfld, field);
+            setterIl.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
+            property.SetSetMethod(setter);
         }
 
         private static void DefineCountingMethod(
@@ -1008,6 +1138,8 @@ namespace Rook.Tests.Handlers
             public IReadOnlyList<object> ObjectsWithoutObservation => _objects;
             public int ScheduleCount { get; private set; }
             public bool ThrowOnSchedule { get; set; }
+            public bool AddResult { get; set; } = true;
+            public bool RemoveResult { get; set; } = true;
             public FakeUndoUtil UndoUtil { get; } = new();
             public event EventHandler<FakeSolutionEventArgs>? SolutionStart;
             public event EventHandler<FakeSolutionEventArgs>? SolutionEnd;
@@ -1021,9 +1153,18 @@ namespace Rook.Tests.Handlers
                 }
             }
 
-            public void RemoveObject(FakeAttributes attributes, bool update)
+            public bool RemoveObject(FakeAttributes attributes, bool update)
             {
-                _objects.Remove(attributes.Owner);
+                if (RemoveResult)
+                    _objects.Remove(attributes.Owner);
+                return RemoveResult;
+            }
+
+            public bool AddObject(object component, bool update)
+            {
+                if (AddResult)
+                    _objects.Add(component);
+                return AddResult;
             }
         }
 

@@ -636,6 +636,7 @@ namespace Rook.Tests.Handlers
                 "Grasshopper.Kernel.IGH_Param",
                 TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract)
                 .CreateType();
+            DefineGrasshopperNumberSlider(module);
             var type = module.DefineType(
                 "Grasshopper.Instances",
                 TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
@@ -661,6 +662,87 @@ namespace Rook.Tests.Handlers
             property.SetGetMethod(getter);
             property.SetSetMethod(setter);
             return type.CreateType()!.GetProperty("ActiveCanvas", BindingFlags.Public | BindingFlags.Static)!;
+        }
+
+        private static void DefineGrasshopperNumberSlider(ModuleBuilder module)
+        {
+            var type = module.DefineType(
+                "Grasshopper.Kernel.Special.GH_NumberSlider",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var guidField = type.DefineField("_instanceGuid", typeof(Guid), FieldAttributes.Private);
+            var nickField = type.DefineField("_nickName", typeof(string), FieldAttributes.Private);
+            var constructor = type.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                Type.EmptyTypes);
+            var constructorIl = constructor.GetILGenerator();
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Call, typeof(Guid).GetMethod(nameof(Guid.NewGuid), BindingFlags.Public | BindingFlags.Static)!);
+            constructorIl.Emit(OpCodes.Stfld, guidField);
+            constructorIl.Emit(OpCodes.Ret);
+            DefineReadOnlyProperty(type, "InstanceGuid", typeof(Guid), guidField);
+            DefineReadWriteProperty(type, "NickName", typeof(string), nickField);
+            DefineNullProperty(type, "Slider");
+            var expire = type.DefineMethod("ExpireSolution", MethodAttributes.Public, typeof(void), new[] { typeof(bool) });
+            expire.GetILGenerator().Emit(OpCodes.Ret);
+            type.CreateType();
+        }
+
+        private static void DefineReadOnlyProperty(TypeBuilder type, string name, Type propertyType, FieldBuilder field)
+        {
+            var property = type.DefineProperty(name, PropertyAttributes.None, propertyType, Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                $"get_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                propertyType,
+                Type.EmptyTypes);
+            var il = getter.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, field);
+            il.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
+        }
+
+        private static void DefineReadWriteProperty(TypeBuilder type, string name, Type propertyType, FieldBuilder field)
+        {
+            var property = type.DefineProperty(name, PropertyAttributes.None, propertyType, Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                $"get_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                propertyType,
+                Type.EmptyTypes);
+            var getterIl = getter.GetILGenerator();
+            getterIl.Emit(OpCodes.Ldarg_0);
+            getterIl.Emit(OpCodes.Ldfld, field);
+            getterIl.Emit(OpCodes.Ret);
+            var setter = type.DefineMethod(
+                $"set_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(void),
+                new[] { propertyType });
+            var setterIl = setter.GetILGenerator();
+            setterIl.Emit(OpCodes.Ldarg_0);
+            setterIl.Emit(OpCodes.Ldarg_1);
+            setterIl.Emit(OpCodes.Stfld, field);
+            setterIl.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
+            property.SetSetMethod(setter);
+        }
+
+        private static void DefineNullProperty(TypeBuilder type, string name)
+        {
+            var property = type.DefineProperty(name, PropertyAttributes.None, typeof(object), Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                $"get_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(object),
+                Type.EmptyTypes);
+            var il = getter.GetILGenerator();
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
         }
 
         private sealed class ReadyCore : IGrasshopperCore

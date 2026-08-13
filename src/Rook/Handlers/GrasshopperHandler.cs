@@ -6376,10 +6376,13 @@ namespace Rook.Handlers
                 throw new InvalidOperationException("AddObject method not found on GH_Document");
 
             var paramCount = addMethod.GetParameters().Length;
-            if (paramCount == 3)
-                addMethod.Invoke(document, new object[] { component, true, -1 });
-            else
-                addMethod.Invoke(document, new object[] { component, true });
+            var addResult = paramCount == 3
+                ? addMethod.Invoke(document, new object[] { component, true, -1 })
+                : addMethod.Invoke(document, new object[] { component, true });
+            if (addResult is not bool added)
+                throw new InvalidOperationException("GH_Document.AddObject returned a non-Boolean result");
+            if (!added)
+                return null;
 
             // Return the GUID
             var guidProp = component.GetType().GetProperty("InstanceGuid");
@@ -8258,7 +8261,18 @@ namespace Rook.Handlers
 
                         try
                         {
-                            removeMethod.Invoke(gh.Document, new object[] { attributes, true });
+                            var removeResult = removeMethod.Invoke(gh.Document, new object[] { attributes, true });
+                            if (removeResult is not bool removed)
+                            {
+                                mutationCommitUnknown = true;
+                                errors.Add($"Delete '{shortId}': RemoveObject returned a non-Boolean result");
+                                continue;
+                            }
+                            if (!removed)
+                            {
+                                errors.Add($"Delete '{shortId}': RemoveObject returned false");
+                                continue;
+                            }
                             deleted++;
                         }
                         catch (Exception ex)
