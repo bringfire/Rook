@@ -355,6 +355,7 @@ def test_public_surface_is_exact_and_module_has_no_runtime_owners():
         "canonical_json_bytes",
         "append_source_event",
         "append_canonical_gateway_source_event",
+        "append_canonical_gateway_error_source_event",
         "seal_prime_source_log",
         "seal_direct_source_log",
         "normalize_authoring_trace",
@@ -455,6 +456,122 @@ def test_public_gateway_appender_owns_exception_projection(tmp_path):
             "commit_evidence": None,
             "solve_readiness_receipt": None,
         },
+    }
+
+
+def test_gateway_error_appender_records_exact_structured_failure_result(tmp_path):
+    source_path = tmp_path / "source.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+    result = {
+        "success": False,
+        "data": {
+            "error": "unknown_or_non_dispatchable",
+            "name": "gh_canvas/gh_edit",
+        },
+    }
+
+    event = acceptance.append_canonical_gateway_error_source_event(
+        source_path,
+        "rook_tools_read",
+        {"name": "gh_canvas/gh_edit"},
+        exception=RuntimeError("legacy text remains an exception"),
+        structured_content=result,
+    )
+
+    assert event["result"] is result
+    assert event["exception"] is None
+    assert event["dispatch"] == {
+        "status": "refused_before_dispatch",
+        "target_call_count": 0,
+    }
+    assert event["mutation"] == {
+        "classification": "observational",
+        "commit_status": "none",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
+    }
+    rows = [json.loads(line) for line in source_path.read_text().splitlines()]
+    assert rows[1]["result"] == result
+
+
+@pytest.mark.parametrize(
+    "structured_content",
+    [
+        None,
+        [],
+        {"success": False},
+        {"success": False, "data": {}, "extra": True},
+        {"success": 0, "data": {}},
+        {"success": True, "data": {}},
+    ],
+)
+def test_gateway_error_appender_records_untrusted_evidence_as_exception_unknown(
+    tmp_path, structured_content
+):
+    source_path = tmp_path / "source.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+    error = RuntimeError("authentic call failure")
+
+    event = acceptance.append_canonical_gateway_error_source_event(
+        source_path,
+        "gh_edit",
+        {"epoch": 1},
+        exception=error,
+        structured_content=structured_content,
+    )
+
+    assert event["result"] is None
+    assert event["exception"] == {
+        "type": "builtins.RuntimeError",
+        "message": "authentic call failure",
+    }
+    assert event["dispatch"] == {"status": "unknown", "target_call_count": None}
+    assert event["mutation"] == {
+        "classification": "unknown",
+        "commit_status": "unknown",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
+    }
+
+
+def test_failed_observational_result_without_known_refusal_is_unknown(tmp_path):
+    source_path = tmp_path / "source.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+
+    event = acceptance.append_canonical_gateway_source_event(
+        source_path,
+        "rook_tools_read",
+        {"name": "gh_edit"},
+        result={"success": False, "data": {"error": "mystery_refusal"}},
+    )
+
+    assert event["dispatch"] == {"status": "dispatched", "target_call_count": 1}
+    assert event["mutation"] == {
+        "classification": "unknown",
+        "commit_status": "unknown",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
     }
 
 
@@ -964,6 +1081,145 @@ def test_partial_gh_edit_with_confirmed_commit_and_receipt_is_terminal_evidence(
     executor = _Executor()
     probe = asyncio.run(acceptance.run_behavioral_probe(_artifact(), _trace(event), executor))
     assert probe["termination"] == {"status": "complete", "error": None}
+
+
+def test_structured_failures_reconstruct_gate_b_and_select_latest_receipt(tmp_path):
+    source_path = tmp_path / "source.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+    partial_receipt = _receipt("partial", mutation_epoch=1)
+    latest_receipt = _receipt("latest", mutation_epoch=2)
+    failed_read = acceptance.append_canonical_gateway_error_source_event(
+        source_path,
+        "rook_tools_read",
+        {"name": "gh_canvas/gh_edit"},
+        exception=RuntimeError("legacy read text"),
+        structured_content={
+            "success": False,
+            "data": {
+                "error": "unknown_or_non_dispatchable",
+                "name": "gh_canvas/gh_edit",
+            },
+        },
+    )
+    partial_result = {
+        "success": False,
+        "data": {
+            "edit_summary": {
+                "created": 9,
+                "deleted": 0,
+                "values_set": 0,
+                "connected": 3,
+                "disconnected": 0,
+            },
+            "solve_readiness_receipt": partial_receipt,
+            "errors": ["later operation failed"],
+        },
+    }
+    partial = acceptance.append_canonical_gateway_error_source_event(
+        source_path,
+        "gh_edit",
+        {"epoch": 1, "create": [{"temp_id": "T1", "name": "Panel"}]},
+        exception=RuntimeError("legacy partial edit text"),
+        structured_content=partial_result,
+    )
+    latest = acceptance.append_canonical_gateway_source_event(
+        source_path,
+        "gh_edit",
+        {"epoch": 2, "connect": ["C1.O0>C2.I0"]},
+        result={
+            "success": True,
+            "data": {
+                "edit_summary": {
+                    "created": 3,
+                    "deleted": 0,
+                    "values_set": 0,
+                    "connected": 7,
+                    "disconnected": 0,
+                },
+                "solve_readiness_receipt": latest_receipt,
+            },
+        },
+    )
+    snapshot = acceptance.append_canonical_gateway_source_event(
+        source_path,
+        "gh_snapshot",
+        {},
+        result={"success": True, "data": {"components": []}},
+    )
+
+    assert failed_read["mutation"]["classification"] == "observational"
+    assert partial["result"] is partial_result
+    assert partial["mutation"]["commit_status"] == "committed"
+    assert partial["mutation"]["commit_evidence"] == {
+        "created": 9,
+        "deleted": 0,
+        "values_set": 0,
+        "connected": 3,
+        "disconnected": 0,
+    }
+    assert partial["mutation"]["solve_readiness_receipt"] is partial_receipt
+    assert latest["mutation"]["solve_readiness_receipt"] is latest_receipt
+    assert snapshot["mutation"]["classification"] == "observational"
+
+    executor = _Executor()
+    executor.pending = latest_receipt
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(
+            _artifact(),
+            _trace(failed_read, partial, latest, snapshot),
+            executor,
+        )
+    )
+    assert probe["termination"] == {"status": "complete", "error": None}
+    assert executor.calls[0] == (
+        "gh_wait_for_solve_readiness",
+        {"readiness_receipt_id": "latest", "timeout_ms": 10_000},
+    )
+
+
+def test_unknown_mutation_before_latest_terminal_blocks_without_probe_calls():
+    unknown = _event(
+        0,
+        "gh_edit",
+        classification="unknown",
+        commit_status="unknown",
+        data={"error": "mutation failed without structured commit evidence"},
+    )
+    unknown["result"]["success"] = False
+    unknown["mutation"] = {
+        "classification": "unknown",
+        "commit_status": "unknown",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
+    }
+    latest_receipt = _receipt("latest", mutation_epoch=2)
+    terminal = _event(
+        1,
+        "gh_edit",
+        classification="terminal",
+        commit_status="committed",
+        receipt=latest_receipt,
+    )
+    executor = _Executor()
+    executor.pending = latest_receipt
+
+    probe = asyncio.run(
+        acceptance.run_behavioral_probe(
+            _artifact(),
+            _trace(unknown, terminal),
+            executor,
+        )
+    )
+
+    assert probe["termination"]["error"] == "authoring_trace_invalid"
+    assert executor.calls == []
 
 
 def test_gh_edit_embedded_snapshot_cannot_substitute_for_terminal_receipt():
@@ -1580,11 +1836,14 @@ def test_direct_terminal_projection_is_correlated_and_retains_nonready_receipt()
 
 
 @pytest.mark.parametrize(
-    ("committed", "commit_status"),
-    [(False, "none"), (None, "unknown")],
+    ("committed", "commit_status", "expected_error"),
+    [
+        (False, "none", "later_unfenced_mutation"),
+        (None, "unknown", "authoring_trace_invalid"),
+    ],
 )
 def test_failed_direct_result_retains_exact_commit_fact_and_receipt(
-    committed, commit_status
+    committed, commit_status, expected_error
 ):
     issued = _receipt()
     later_receipt = _receipt(
@@ -1618,7 +1877,7 @@ def test_failed_direct_result_retains_exact_commit_fact_and_receipt(
             _Executor(),
         )
     )
-    assert probe["termination"]["error"] == "later_unfenced_mutation"
+    assert probe["termination"]["error"] == expected_error
 
 
 def test_recognized_zero_dispatch_refusal_is_observational_but_unknown_refusal_is_not():

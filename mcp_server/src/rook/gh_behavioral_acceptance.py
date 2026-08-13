@@ -19,6 +19,7 @@ __all__ = (
     "canonical_json_bytes",
     "append_source_event",
     "append_canonical_gateway_source_event",
+    "append_canonical_gateway_error_source_event",
     "seal_prime_source_log",
     "seal_direct_source_log",
     "normalize_authoring_trace",
@@ -364,6 +365,8 @@ def _expected_mutation(event: dict[str, Any]) -> dict[str, Any]:
     data = result["data"]
     if target == "gh_set_script" and "script" not in event["arguments"]:
         return _observational_mutation()
+    if result["success"] is False and target in _OBSERVATIONAL_TARGETS:
+        return _unknown_mutation()
     if target in _OBSERVATIONAL_TARGETS:
         return _observational_mutation()
     if target == "gh_set_script_pins":
@@ -625,6 +628,33 @@ def append_canonical_gateway_source_event(
 
     append_source_event(Path(source_path), event)
     return event
+
+
+def append_canonical_gateway_error_source_event(
+    source_path: Path,
+    target: str,
+    arguments: dict[str, Any],
+    *,
+    exception: Exception,
+    structured_content: Any,
+) -> dict[str, Any]:
+    """Record authentic structured MCP failure evidence or fail closed."""
+
+    if not isinstance(exception, Exception):
+        raise ValueError("invalid_gateway_event_exception")
+    if _valid_result(structured_content) and structured_content["success"] is False:
+        return append_canonical_gateway_source_event(
+            source_path,
+            target,
+            arguments,
+            result=structured_content,
+        )
+    return append_canonical_gateway_source_event(
+        source_path,
+        target,
+        arguments,
+        exception=exception,
+    )
 
 
 def _valid_ipython_state_message(row: Any, event_type: str) -> bool:
@@ -1059,9 +1089,14 @@ def _latest_terminal_receipt(trace: dict[str, Any]) -> tuple[dict[str, Any] | No
     selected: dict[str, Any] | None = None
     selected_index = -1
     for index, event in enumerate(trace["events"]):
-        if event["exception"] is not None:
-            return None, "authoring_trace_invalid"
         mutation = event["mutation"]
+        if (
+            event["exception"] is not None
+            or event["dispatch"]["status"] == "unknown"
+            or mutation["classification"] == "unknown"
+            or mutation["commit_status"] == "unknown"
+        ):
+            return None, "authoring_trace_invalid"
         if mutation["classification"] == "terminal" and mutation["commit_status"] == "committed":
             receipt = mutation["solve_readiness_receipt"]
             if not _valid_receipt(receipt):
