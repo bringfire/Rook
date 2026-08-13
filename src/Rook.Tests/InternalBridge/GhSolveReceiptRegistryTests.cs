@@ -334,6 +334,30 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void NoSolveRelevantMutation_MarksReceiptUnknownWithExactReason()
+        {
+            var registry = CreateRegistry();
+            var receipt = registry.IssueMutation(DocumentA).Receipt!;
+
+            var terminal = registry.MarkNoSolveRelevantMutation(receipt.ReceiptId);
+
+            Assert.Equal(GhSolveReadinessStatus.Unknown, terminal.Status);
+            Assert.Equal("no_solve_relevant_mutation_committed", terminal.Reason);
+        }
+
+        [Fact]
+        public void UnknownMutationCommit_MarksReceiptUnknownWithExactReason()
+        {
+            var registry = CreateRegistry();
+            var receipt = registry.IssueMutation(DocumentA).Receipt!;
+
+            var terminal = registry.MarkMutationCommitUnknown(receipt.ReceiptId);
+
+            Assert.Equal(GhSolveReadinessStatus.Unknown, terminal.Status);
+            Assert.Equal("mutation_commit_unknown", terminal.Reason);
+        }
+
+        [Fact]
         public void MutationFailure_CannotLeakPendingReceipt()
         {
             var registry = CreateRegistry();

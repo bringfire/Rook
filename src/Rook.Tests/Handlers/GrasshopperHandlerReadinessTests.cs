@@ -224,6 +224,82 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void SharedMutationHelpers_IssueAndFinalizeTheExistingReceiptSchema()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+
+            var issue = handler.BeginMutationReceipt(document, canvas);
+            var finalized = handler.FinalizeMutationReceipt(issue.Receipt!.ReceiptId, ScheduledOutcome());
+
+            Assert.True(issue.Issued);
+            Assert.Equal(issue.Receipt.ReceiptId, finalized.ReceiptId);
+            Assert.Equal(issue.Receipt.DocumentSessionId, finalized.DocumentSessionId);
+            Assert.Equal(issue.Receipt.MutationEpoch, finalized.MutationEpoch);
+            Assert.Equal(GhSolveReadinessStatus.Pending, finalized.Status);
+        }
+
+        [Fact]
+        public void SharedMutationHelpers_FinalizeKnownZeroAndUnknownCommitWithoutScheduling()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+
+            var noCommit = handler.BeginMutationReceipt(document, canvas).Receipt!;
+            var noCommitTerminal = handler.FinalizeNoCommitReceipt(noCommit.ReceiptId);
+            var unknown = handler.BeginMutationReceipt(document, canvas).Receipt!;
+            var unknownTerminal = handler.FinalizeUnknownCommitReceipt(unknown.ReceiptId);
+
+            Assert.Equal(GhSolveReadinessStatus.Unknown, noCommitTerminal.Status);
+            Assert.Equal("no_solve_relevant_mutation_committed", noCommitTerminal.Reason);
+            Assert.Equal(GhSolveReadinessStatus.Unknown, unknownTerminal.Status);
+            Assert.Equal("mutation_commit_unknown", unknownTerminal.Reason);
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void PostReservationFailure_WithPriorScheduleFinalizesWithoutSchedulingAgain()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+            var receipt = handler.BeginMutationReceipt(document, canvas).Receipt!;
+            var fallbackScheduleCalls = 0;
+
+            var terminal = handler.FinalizePostReservationFailureReceipt(
+                receipt.ReceiptId,
+                solveRelevantMutationCommitted: true,
+                priorScheduleResult: ScheduledOutcome(),
+                scheduleCommittedMutation: () =>
+                {
+                    fallbackScheduleCalls++;
+                    return ScheduledOutcome();
+                });
+
+            Assert.NotNull(terminal);
+            Assert.Equal(GhSolveReadinessStatus.Pending, terminal!.Status);
+            Assert.Equal(0, fallbackScheduleCalls);
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void DirectMutationFailureData_PreservesExactEmptyMessageAndClosedShape()
+        {
+            var data = Element(GrasshopperHandler.DirectMutationFailureData(
+                "set_script_failed",
+                string.Empty,
+                solveRelevantMutationCommitted: null,
+                receipt: null));
+
+            Assert.Equal(
+                new[] { "error", "message", "solve_relevant_mutation_committed", "solve_readiness_receipt" },
+                data.EnumerateObject().Select(item => item.Name).ToArray());
+            Assert.Equal("set_script_failed", data.GetProperty("error").GetString());
+            Assert.Equal(string.Empty, data.GetProperty("message").GetString());
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("solve_relevant_mutation_committed").ValueKind);
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("solve_readiness_receipt").ValueKind);
+        }
+
+        [Fact]
         public void WaitResponses_UseOnlyReadyTimeoutOrTerminalAndIncludeReceipt()
         {
             var document = new FakeDocument();
@@ -402,7 +478,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void MutationException_TerminatesReservedReceiptAsUnknown()
+        public void ThrowingMutationWithUnknownCommit_TerminatesReservedReceiptAsUnknown()
         {
             var nextId = 0;
             var registry = new GhSolveReceiptRegistry(idFactory: () => "id-" + ++nextId);
@@ -417,7 +493,7 @@ namespace Rook.Tests.Handlers
             var lookup = registry.Get("id-2");
             Assert.True(lookup.Found);
             Assert.Equal(GhSolveReadinessStatus.Unknown, lookup.Receipt!.Status);
-            Assert.Equal("mutation_failed", lookup.Receipt.Reason);
+            Assert.Equal("mutation_commit_unknown", lookup.Receipt.Reason);
         }
 
         private static void AssertFenceFailure(

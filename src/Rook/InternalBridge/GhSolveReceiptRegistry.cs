@@ -127,6 +127,15 @@ namespace Rook.InternalBridge
         internal GhSolveReadinessReceipt MarkMutationFailed(string receiptId) =>
             MarkPendingTerminal(receiptId, GhSolveReadinessStatus.Unknown, "mutation_failed");
 
+        internal GhSolveReadinessReceipt MarkNoSolveRelevantMutation(string receiptId) =>
+            MarkPendingTerminal(
+                receiptId,
+                GhSolveReadinessStatus.Unknown,
+                "no_solve_relevant_mutation_committed");
+
+        internal GhSolveReadinessReceipt MarkMutationCommitUnknown(string receiptId) =>
+            MarkPendingTerminal(receiptId, GhSolveReadinessStatus.Unknown, "mutation_commit_unknown");
+
         internal GhSolveReadinessReceipt MarkSolverLocked(string receiptId) =>
             MarkPendingTerminal(receiptId, GhSolveReadinessStatus.SolverLocked, "solver_locked");
 

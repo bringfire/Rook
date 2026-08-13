@@ -530,6 +530,9 @@ namespace Rook.Handlers
             decimal? minValue = null;
             decimal? maxValue = null;
             string? readinessReceiptId = null;
+            bool? solveRelevantMutationCommitted = false;
+            object? mutationTarget = null;
+            GhScheduleResult? scheduleResult = null;
 
             try
             {
@@ -571,6 +574,7 @@ namespace Rook.Handlers
                         if (!issue.Issued)
                             return ReadinessIssueFailure(issue.Error!);
                         readinessReceiptId = issue.Receipt!.ReceiptId;
+                        mutationTarget = obj;
 
                         // Record generic undo after reservation and before changing the slider.
                         try
@@ -584,17 +588,54 @@ namespace Rook.Handlers
                         // Set min/max first if provided (must be set before value)
                         if (minValue.HasValue)
                         {
-                            sliderType.GetProperty("Minimum")?.SetValue(slider, minValue.Value);
+                            var minimumProperty = sliderType.GetProperty("Minimum")
+                                ?? throw new InvalidOperationException("Slider minimum property unavailable");
+                            try
+                            {
+                                minimumProperty.SetValue(slider, minValue.Value);
+                                solveRelevantMutationCommitted = true;
+                            }
+                            catch
+                            {
+                                if (solveRelevantMutationCommitted != true)
+                                    solveRelevantMutationCommitted = null;
+                                throw;
+                            }
                         }
                         if (maxValue.HasValue)
                         {
-                            sliderType.GetProperty("Maximum")?.SetValue(slider, maxValue.Value);
+                            var maximumProperty = sliderType.GetProperty("Maximum")
+                                ?? throw new InvalidOperationException("Slider maximum property unavailable");
+                            try
+                            {
+                                maximumProperty.SetValue(slider, maxValue.Value);
+                                solveRelevantMutationCommitted = true;
+                            }
+                            catch
+                            {
+                                if (solveRelevantMutationCommitted != true)
+                                    solveRelevantMutationCommitted = null;
+                                throw;
+                            }
                         }
 
                         // Set the value
-                        sliderType.GetProperty("Value")?.SetValue(slider, newValue);
+                        var valueProperty = sliderType.GetProperty("Value")
+                            ?? throw new InvalidOperationException("Slider value property unavailable");
+                        try
+                        {
+                            valueProperty.SetValue(slider, newValue);
+                            solveRelevantMutationCommitted = true;
+                        }
+                        catch
+                        {
+                            if (solveRelevantMutationCommitted != true)
+                                solveRelevantMutationCommitted = null;
+                            throw;
+                        }
 
-                        var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                        scheduleResult = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                        var solveOutcome = scheduleResult.Value;
                         var receipt = FinalizeSetValueReceipt(readinessReceiptId, solveOutcome);
                         RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
@@ -612,6 +653,7 @@ namespace Rook.Handlers
                                 NewValue = newValue,
                                 Min = actualMin,
                                 Max = actualMax,
+                                solve_relevant_mutation_committed = true,
                                 solve_readiness_receipt = ReceiptSnapshot(receipt)
                             }
                         };
@@ -636,6 +678,7 @@ namespace Rook.Handlers
                     if (!issue.Issued)
                         return ReadinessIssueFailure(issue.Error!);
                     readinessReceiptId = issue.Receipt!.ReceiptId;
+                    mutationTarget = obj;
 
                     // Record generic undo after reservation and before changing the panel.
                     try
@@ -646,9 +689,21 @@ namespace Rook.Handlers
                     }
                     catch { /* undo recording is best-effort */ }
 
-                    userTextProp?.SetValue(obj, newContent);
+                    if (userTextProp is null)
+                        throw new InvalidOperationException("Panel value property unavailable");
+                    try
+                    {
+                        userTextProp.SetValue(obj, newContent);
+                        solveRelevantMutationCommitted = true;
+                    }
+                    catch
+                    {
+                        solveRelevantMutationCommitted = null;
+                        throw;
+                    }
 
-                    var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    scheduleResult = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    var solveOutcome = scheduleResult.Value;
                     var receipt = FinalizeSetValueReceipt(readinessReceiptId, solveOutcome);
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
@@ -660,6 +715,7 @@ namespace Rook.Handlers
                             Guid = guid,
                             Type = "panel",
                             NewValue = newContent,
+                            solve_relevant_mutation_committed = true,
                             solve_readiness_receipt = ReceiptSnapshot(receipt)
                         }
                     };
@@ -674,6 +730,7 @@ namespace Rook.Handlers
                     if (!issue.Issued)
                         return ReadinessIssueFailure(issue.Error!);
                     readinessReceiptId = issue.Receipt!.ReceiptId;
+                    mutationTarget = obj;
 
                     // Record generic undo after reservation and before changing the toggle.
                     try
@@ -684,9 +741,21 @@ namespace Rook.Handlers
                     }
                     catch { /* undo recording is best-effort */ }
 
-                    valueProp?.SetValue(obj, newValue);
+                    if (valueProp is null)
+                        throw new InvalidOperationException("Toggle value property unavailable");
+                    try
+                    {
+                        valueProp.SetValue(obj, newValue);
+                        solveRelevantMutationCommitted = true;
+                    }
+                    catch
+                    {
+                        solveRelevantMutationCommitted = null;
+                        throw;
+                    }
 
-                    var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    scheduleResult = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    var solveOutcome = scheduleResult.Value;
                     var receipt = FinalizeSetValueReceipt(readinessReceiptId, solveOutcome);
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
@@ -698,6 +767,7 @@ namespace Rook.Handlers
                             Guid = guid,
                             Type = "toggle",
                             NewValue = newValue,
+                            solve_relevant_mutation_committed = true,
                             solve_readiness_receipt = ReceiptSnapshot(receipt)
                         }
                     };
@@ -711,16 +781,34 @@ namespace Rook.Handlers
             }
             catch (Exception ex)
             {
-                if (readinessReceiptId is not null)
+                if (readinessReceiptId is null)
                 {
-                    try { MarkSetValueMutationFailed(readinessReceiptId); }
-                    catch { /* Preserve the existing SetValue failure response. */ }
+                    return new ApiResponse
+                    {
+                        Success = false,
+                        Data = $"SetValue failed: {ex.Message}",
+                    };
                 }
+
+                var receipt = FinalizePostReservationFailureReceipt(
+                    readinessReceiptId,
+                    solveRelevantMutationCommitted,
+                    priorScheduleResult: scheduleResult,
+                    scheduleCommittedMutation: mutationTarget is null
+                        ? null
+                        : () => RequestPostMutationSolve(
+                            gh.Document!,
+                            mutationTarget,
+                            requestSolve: true));
 
                 return new ApiResponse
                 {
                     Success = false,
-                    Data = $"SetValue failed: {ex.Message}"
+                    Data = DirectMutationFailureData(
+                        "set_value_failed",
+                        ex.Message,
+                        solveRelevantMutationCommitted,
+                        receipt),
                 };
             }
         }
@@ -747,6 +835,10 @@ namespace Rook.Handlers
 
             string? guid = null;
             string? script = null;
+            string? readinessReceiptId = null;
+            bool? solveRelevantMutationCommitted = false;
+            object? mutationTarget = null;
+            GhScheduleResult? scheduleResult = null;
 
             try
             {
@@ -822,6 +914,12 @@ namespace Rook.Handlers
                 else
                 {
                     // --- WRITE ---
+                    var issue = BeginMutationReceipt(gh.Document!, gh.Canvas!);
+                    if (!issue.Issued)
+                        return ReadinessIssueFailure(issue.Error!);
+                    readinessReceiptId = issue.Receipt!.ReceiptId;
+                    mutationTarget = obj;
+
                     // Record generic undo BEFORE changing script
                     try
                     {
@@ -843,7 +941,16 @@ namespace Rook.Handlers
 
                     if (isRhinoCode && setSourceMethod != null)
                     {
-                        setSourceMethod.Invoke(obj, new object[] { script });
+                        try
+                        {
+                            setSourceMethod.Invoke(obj, new object[] { script });
+                            solveRelevantMutationCommitted = true;
+                        }
+                        catch
+                        {
+                            solveRelevantMutationCommitted = null;
+                            throw;
+                        }
                     }
                     else if (isGh1Script)
                     {
@@ -853,7 +960,16 @@ namespace Rook.Handlers
                             var codeProp = sourceObj.GetType().GetProperty("ScriptCode");
                             if (codeProp != null && codeProp.CanWrite)
                             {
-                                codeProp.SetValue(sourceObj, script);
+                                try
+                                {
+                                    codeProp.SetValue(sourceObj, script);
+                                    solveRelevantMutationCommitted = true;
+                                }
+                                catch
+                                {
+                                    solveRelevantMutationCommitted = null;
+                                    throw;
+                                }
                             }
                             else
                             {
@@ -861,19 +977,30 @@ namespace Rook.Handlers
                                 var codeField = sourceObj.GetType().GetField("ScriptCode",
                                     System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
                                 if (codeField != null)
-                                    codeField.SetValue(sourceObj, script);
+                                {
+                                    try
+                                    {
+                                        codeField.SetValue(sourceObj, script);
+                                        solveRelevantMutationCommitted = true;
+                                    }
+                                    catch
+                                    {
+                                        solveRelevantMutationCommitted = null;
+                                        throw;
+                                    }
+                                }
                                 else
-                                    return new ApiResponse { Success = false, Data = $"Cannot set script on {typeName}: ScriptCode not writable" };
+                                    throw new InvalidOperationException($"Cannot set script on {typeName}: ScriptCode not writable");
                             }
                         }
                         else
                         {
-                            return new ApiResponse { Success = false, Data = $"ScriptSource is null on {typeName}" };
+                            throw new InvalidOperationException($"ScriptSource is null on {typeName}");
                         }
                     }
                     else
                     {
-                        return new ApiResponse { Success = false, Data = $"SetSource not available on {typeName}" };
+                        throw new InvalidOperationException($"SetSource not available on {typeName}");
                     }
 
                     // Mark dirty without recompute before restoring metadata. Scheduling
@@ -912,11 +1039,13 @@ namespace Rook.Handlers
                     // Repaint only, then request exactly one asynchronous solve after
                     // all response-authoritative metadata has been restored.
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
-                    var solveResult = RequestPostMutationSolve(
+                    scheduleResult = RequestPostMutationSolve(
                         gh.Document!,
                         new[] { obj },
                         requestSolve: true,
                         expireDirtyObjects: false);
+                    var solveResult = scheduleResult.Value;
+                    var receipt = FinalizeMutationReceipt(readinessReceiptId, solveResult);
 
                     return new ApiResponse
                     {
@@ -943,17 +1072,44 @@ namespace Rook.Handlers
                             solver_locked = solveResult.SolverLocked,
                             solver_state_known = solveResult.SolverStateKnown,
                             verification_deferred = solveResult.VerificationDeferred,
-                            solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray()
+                            solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray(),
+                            solve_relevant_mutation_committed = true,
+                            solve_readiness_receipt = ReceiptSnapshot(receipt)
                         }
                     };
                 }
             }
             catch (Exception ex)
             {
+                if (readinessReceiptId is null)
+                {
+                    return new ApiResponse
+                    {
+                        Success = false,
+                        Data = $"SetScript failed: {ex.Message}",
+                    };
+                }
+
+                var receipt = FinalizePostReservationFailureReceipt(
+                    readinessReceiptId,
+                    solveRelevantMutationCommitted,
+                    priorScheduleResult: scheduleResult,
+                    scheduleCommittedMutation: mutationTarget is null
+                        ? null
+                        : () => RequestPostMutationSolve(
+                            gh.Document!,
+                            new[] { mutationTarget },
+                            requestSolve: true,
+                            expireDirtyObjects: false));
+
                 return new ApiResponse
                 {
                     Success = false,
-                    Data = $"SetScript failed: {ex.Message}"
+                    Data = DirectMutationFailureData(
+                        "set_script_failed",
+                        ex.Message,
+                        solveRelevantMutationCommitted,
+                        receipt),
                 };
             }
         }
@@ -7831,6 +7987,29 @@ namespace Rook.Handlers
             var tempIdMap = new Dictionary<string, Guid>();
             int created = 0, deleted = 0, valuesSet = 0, connected = 0, disconnected = 0;
             var dirtyObjects = new List<object>();
+            string? readinessReceiptId = null;
+            GhSolveReadinessReceipt? readinessReceipt = null;
+            GhScheduleResult? scheduleResult = null;
+            bool postMutationSolveAttempted = false;
+
+            bool HasNonEmptyArray(string key) =>
+                args.TryGetValue(key, out var value) &&
+                value.ValueKind == JsonValueKind.Array &&
+                value.GetArrayLength() > 0;
+
+            var solveRelevantMutationRequested =
+                HasNonEmptyArray("create") ||
+                HasNonEmptyArray("delete") ||
+                HasNonEmptyArray("set_values") ||
+                HasNonEmptyArray("connect") ||
+                HasNonEmptyArray("disconnect");
+            if (solveRelevantMutationRequested)
+            {
+                var issue = BeginMutationReceipt(gh.Document!, gh.Canvas!);
+                if (!issue.Issued)
+                    return ReadinessIssueFailure(issue.Error!);
+                readinessReceiptId = issue.Receipt!.ReceiptId;
+            }
 
             void AddDirty(object? candidate)
             {
@@ -8226,7 +8405,8 @@ namespace Rook.Handlers
                 // Phase 7: Mark changed objects dirty, but do not schedule yet. The
                 // response snapshot must be captured before any scheduled Chirp solve
                 // can monopolize the UI thread and trip the native callback timeout.
-                var changedObjects = valuesSet > 0 || connected > 0 || disconnected > 0 || created > 0 || deleted > 0;
+                var solveRelevantCommitCount = created + deleted + valuesSet + connected + disconnected;
+                var changedObjects = solveRelevantCommitCount > 0;
                 ExpirePostMutationDirtyObjects(dirtyObjects);
                 RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
@@ -8240,13 +8420,21 @@ namespace Rook.Handlers
                 // then request exactly one positive-delay schedule.
                 const int postEditSolveDelayMs = 1;
                 standaloneRestore = solveSuspension.Restore();
-                var solveResult = RequestPostMutationSolve(
+                postMutationSolveAttempted = changedObjects;
+                scheduleResult = RequestPostMutationSolve(
                     gh.Document!,
                     dirtyObjects,
                     requestSolve: changedObjects,
                     delayMs: postEditSolveDelayMs,
                     expireDirtyObjects: false,
                     standaloneRestore: standaloneRestore);
+                var solveResult = scheduleResult.Value;
+                if (readinessReceiptId is not null)
+                {
+                    readinessReceipt = changedObjects
+                        ? FinalizeMutationReceipt(readinessReceiptId, solveResult)
+                        : FinalizeNoCommitReceipt(readinessReceiptId);
+                }
 
                 var editSummary = new
                 {
@@ -8286,6 +8474,8 @@ namespace Rook.Handlers
                 if (snapshotResult.Success && snapshotResult.Data is Dictionary<string, object?> snapData)
                 {
                     snapData["edit_summary"] = editSummary;
+                    if (readinessReceipt is not null)
+                        snapData["solve_readiness_receipt"] = ReceiptSnapshot(readinessReceipt);
                 }
                 else if (snapshotResult.Success)
                 {
@@ -8293,7 +8483,10 @@ namespace Rook.Handlers
                     snapshotResult.Data = new
                     {
                         snapshot = snapshotResult.Data,
-                        edit_summary = editSummary
+                        edit_summary = editSummary,
+                        solve_readiness_receipt = readinessReceipt is null
+                            ? null
+                            : ReceiptSnapshot(readinessReceipt),
                     };
                 }
                 else
@@ -8303,6 +8496,9 @@ namespace Rook.Handlers
                     {
                         snapshot_failure = snapshotFailure,
                         edit_summary = editSummary,
+                        solve_readiness_receipt = readinessReceipt is null
+                            ? null
+                            : ReceiptSnapshot(readinessReceipt),
                     };
                 }
 
@@ -8313,41 +8509,109 @@ namespace Rook.Handlers
                 if (!standaloneRestore.HasValue && solveSuspension != null)
                     standaloneRestore = solveSuspension.Restore();
 
-                if (standaloneRestore.HasValue &&
-                    standaloneRestore.Value.Attempted &&
-                    !standaloneRestore.Value.Succeeded)
+                var solveRelevantCommitCount = created + deleted + valuesSet + connected + disconnected;
+                var solveRelevantMutationCommitted = solveRelevantCommitCount > 0;
+                if (readinessReceiptId is not null && readinessReceipt is null)
                 {
-                    var registration = new GhDocumentLifecycle().InspectRegistration(gh.Document!);
-                    return new ApiResponse
+                    if (!solveRelevantMutationCommitted)
                     {
-                        Success = false,
-                        Data = new
-                        {
-                            error = "apply_edit_failed",
-                            message = ex.Message,
-                            schedule_classification = GhScheduleWire.ToWire(
-                                GhScheduleClassification.SolveNotRequested),
-                            schedule_acceptance = GhScheduleWire.ToWire(
-                                GhScheduleAcceptance.NotAttempted),
-                            schedule_failure_code = GhScheduleWire.ToWire(
-                                GhScheduleFailureCode.StandaloneSolverRestoreFailed),
-                            solve_scheduled = false,
-                            registration_known = registration.Known,
-                            document_registered = registration.Known
-                                ? registration.Registered
-                                : (bool?)null,
-                            solve_warnings = new[]
+                        readinessReceipt = FinalizeNoCommitReceipt(readinessReceiptId);
+                    }
+                    else if (scheduleResult.HasValue)
+                    {
+                        readinessReceipt = FinalizeMutationReceipt(readinessReceiptId, scheduleResult.Value);
+                    }
+                    else if (postMutationSolveAttempted)
+                    {
+                        readinessReceipt = FinalizePostReservationFailureReceipt(
+                            readinessReceiptId,
+                            solveRelevantMutationCommitted: true);
+                    }
+                    else
+                    {
+                        readinessReceipt = FinalizePostReservationFailureReceipt(
+                            readinessReceiptId,
+                            solveRelevantMutationCommitted: true,
+                            scheduleCommittedMutation: () =>
                             {
-                                GhScheduleWire.ToWire(GhScheduleWarning.StandaloneRestoreFailed),
-                            },
-                            standalone_restore_attempted = true,
-                            standalone_restore_succeeded = false,
-                            observed_document_enabled = standaloneRestore.Value.ObservedDocumentEnabled,
-                        },
-                    };
+                                postMutationSolveAttempted = true;
+                                scheduleResult = RequestPostMutationSolve(
+                                    gh.Document!,
+                                    dirtyObjects,
+                                    requestSolve: true,
+                                    delayMs: 1,
+                                    expireDirtyObjects: false,
+                                    standaloneRestore: standaloneRestore);
+                                return scheduleResult.Value;
+                            });
+                    }
                 }
 
-                return new ApiResponse { Success = false, Data = $"ApplyEdit failed: {ex.Message}" };
+                var registration = new GhDocumentLifecycle().InspectRegistration(gh.Document!);
+                var effectiveSchedule = scheduleResult ?? new GhScheduleResult
+                {
+                    RegistrationKnown = registration.Known,
+                    DocumentRegistered = registration.Known ? registration.Registered : (bool?)null,
+                    ScheduleClassification = GhScheduleClassification.SolveNotRequested,
+                    ScheduleAcceptance = GhScheduleAcceptance.NotAttempted,
+                    ScheduleFailureCode = standaloneRestore.HasValue &&
+                        standaloneRestore.Value.Attempted &&
+                        !standaloneRestore.Value.Succeeded
+                            ? GhScheduleFailureCode.StandaloneSolverRestoreFailed
+                            : null,
+                    VerificationDeferred = solveRelevantMutationCommitted,
+                    Warnings = standaloneRestore.HasValue &&
+                        standaloneRestore.Value.Attempted &&
+                        !standaloneRestore.Value.Succeeded
+                            ? new[] { GhScheduleWarning.StandaloneRestoreFailed }
+                            : Array.Empty<GhScheduleWarning>(),
+                };
+                var failureSummary = new
+                {
+                    created,
+                    deleted,
+                    values_set = valuesSet,
+                    connected,
+                    disconnected,
+                    schedule_classification = GhScheduleWire.ToWire(effectiveSchedule.ScheduleClassification),
+                    schedule_acceptance = GhScheduleWire.ToWire(effectiveSchedule.ScheduleAcceptance),
+                    schedule_failure_code = effectiveSchedule.ScheduleFailureCode.HasValue
+                        ? GhScheduleWire.ToWire(effectiveSchedule.ScheduleFailureCode.Value)
+                        : null,
+                    solve_scheduled = effectiveSchedule.SolveScheduled,
+                    registration_known = effectiveSchedule.RegistrationKnown,
+                    document_registered = effectiveSchedule.DocumentRegistered,
+                    solver_locked = effectiveSchedule.SolverLocked,
+                    solver_state_known = effectiveSchedule.SolverStateKnown,
+                    verification_deferred = effectiveSchedule.VerificationDeferred,
+                    solve_warnings = effectiveSchedule.Warnings.Select(GhScheduleWire.ToWire).ToArray(),
+                    standalone_restore_attempted = standaloneRestore?.Attempted ?? false,
+                    standalone_restore_succeeded = standaloneRestore?.Succeeded,
+                    observed_document_enabled = standaloneRestore?.ObservedDocumentEnabled,
+                    errors = errors.Count > 0 ? errors : null,
+                    temp_id_map = tempIdMap.Count > 0
+                        ? tempIdMap.ToDictionary(
+                            kv => kv.Key,
+                            kv => _idRegistry.ResolveReverse(kv.Value) ?? kv.Value.ToString())
+                        : null,
+                    instance_guids = tempIdMap.Count > 0
+                        ? tempIdMap.ToDictionary(kv => kv.Key, kv => kv.Value.ToString())
+                        : null,
+                };
+
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = new
+                    {
+                        error = "apply_edit_failed",
+                        message = ex.Message,
+                        edit_summary = failureSummary,
+                        solve_readiness_receipt = readinessReceipt is null
+                            ? null
+                            : ReceiptSnapshot(readinessReceipt),
+                    },
+                };
             }
         }
 

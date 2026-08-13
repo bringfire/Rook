@@ -102,7 +102,9 @@ git diff --check
 The broad no-contact verification commands are:
 
 ```powershell
-dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release
+$NoDeploy = Join-Path (Get-Location) '.codex-no-deploy-target'
+if (Test-Path -LiteralPath $NoDeploy) { throw "Expected absent no-deploy target: $NoDeploy" }
+dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDeploy"
 
 & 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe' -m pytest `
   mcp_server/tests/test_gh_solve_readiness_tools.py `
@@ -135,28 +137,30 @@ No live-smoke test is part of this plan. Files named `*_live_*` are excluded unl
 
 ### Step 1: Freeze current adjacent behavior
 
-- [ ] Run the focused baseline and retain its exact counts:
+- [x] Run the focused baseline and retain its exact counts:
 
 ```powershell
-dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release --filter `
+$NoDeploy = Join-Path (Get-Location) '.codex-no-deploy-target'
+if (Test-Path -LiteralPath $NoDeploy) { throw "Expected absent no-deploy target: $NoDeploy" }
+dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDeploy" --filter `
   "FullyQualifiedName~GhSolveReceiptRegistryTests|FullyQualifiedName~GrasshopperHandlerReadinessTests|FullyQualifiedName~GhEditSolvePathSourceTests|FullyQualifiedName~GhSolvePolicyTests|FullyQualifiedName~NoSyncExpireInScriptPathTests"
 ```
 
-- [ ] Read the current `SetValue`, `SetScript`, and `ApplyEdit` paths end to end. Record the exact first mutation, solve scheduling, solver-ownership restoration, and response-construction points in this plan's execution ledger section.
+- [x] Read the current `SetValue`, `SetScript`, and `ApplyEdit` paths end to end. Record the exact first mutation, solve scheduling, solver-ownership restoration, and response-construction points in this plan's execution ledger section.
 
 ### Step 2: Write failing registry/helper tests
 
-- [ ] Add tests proving one shared issue helper reserves before mutation and returns the existing exact receipt identity/session/mutation fields.
-- [ ] Add tests for finalization after schedule outcomes `scheduled`, `solver_locked`, and `unknown` without changing the existing schema.
-- [ ] Add tests for terminal non-ready reasons:
+- [x] Add tests proving one shared issue helper reserves before mutation and returns the existing exact receipt identity/session/mutation fields.
+- [x] Add tests for finalization after schedule outcomes `scheduled`, `solver_locked`, and `unknown` without changing the existing schema.
+- [x] Add tests for terminal non-ready reasons:
   - `no_solve_relevant_mutation_committed`
   - `mutation_commit_unknown`
-- [ ] Add tests proving an issued receipt remains available when later response projection fails.
-- [ ] Run the focused tests and confirm the new cases fail for missing shared behavior, not test-fixture errors.
+- [x] Add tests proving an issued receipt remains available when later response projection fails.
+- [x] Run the focused tests and confirm the new cases fail for missing shared behavior, not test-fixture errors.
 
 ### Step 3: Implement shared managed helpers
 
-- [ ] In `GrasshopperHandler.Readiness.cs`, extract the current set-value behavior into shared helpers with this responsibility split:
+- [x] In `GrasshopperHandler.Readiness.cs`, extract the current set-value behavior into shared helpers with this responsibility split:
 
 ```csharp
 BeginMutationReceipt(document, canvas)
@@ -173,13 +177,13 @@ FinalizeUnknownCommit(receiptId)
     -> terminal unknown / mutation_commit_unknown
 ```
 
-- [ ] Keep `BeginSetValueReceipt`, `FinalizeSetValueReceipt`, and `MarkSetValueMutationFailed` as thin compatibility delegates if existing tests or source callers require their names.
-- [ ] Do not add receipt-ID syntax validation, Python-owned epochs, or another scheduling path.
+- [x] Keep `BeginSetValueReceipt`, `FinalizeSetValueReceipt`, and `MarkSetValueMutationFailed` as thin compatibility delegates if existing tests or source callers require their names.
+- [x] Do not add receipt-ID syntax validation, Python-owned epochs, or another scheduling path.
 
 ### Step 4: Make direct set-value and set-script writes receipt-complete
 
-- [ ] Preserve pre-validation and pre-reservation failure strings exactly.
-- [ ] On success after reservation, return:
+- [x] Preserve pre-validation and pre-reservation failure strings exactly.
+- [x] On success after reservation, return:
 
 ```json
 {
@@ -189,41 +193,41 @@ FinalizeUnknownCommit(receiptId)
 ```
 
 alongside existing success fields.
-- [ ] On any post-reservation exception, return the closed object with exact `error`, exact possibly-empty `Exception.Message`, tri-state `solve_relevant_mutation_committed`, and the exact receipt or null as specified.
-- [ ] If the mutator completed before a later failure, schedule once if still needed and finalize the same receipt.
-- [ ] If commitment is known false, finalize `no_solve_relevant_mutation_committed`; if unknowable, finalize `mutation_commit_unknown`.
-- [ ] Ensure script reads (`gh_set_script` without `script`) issue no receipt and remain observational.
+- [x] On any post-reservation exception, return the closed object with exact `error`, exact possibly-empty `Exception.Message`, tri-state `solve_relevant_mutation_committed`, and the exact receipt or null as specified.
+- [x] If the mutator completed before a later failure, schedule once if still needed and finalize the same receipt.
+- [x] If commitment is known false, finalize `no_solve_relevant_mutation_committed`; if unknowable, finalize `mutation_commit_unknown`.
+- [x] Ensure script reads (`gh_set_script` without `script`) issue no receipt and remain observational.
 
 ### Step 5: Make `gh_edit` commitment conditional and monotonic
 
-- [ ] Add one explicit solve-relevant commit count using only created, deleted, values-set, connected, and disconnected operations.
-- [ ] Reserve before the first solve-relevant edit mutation owned by the route.
-- [ ] Preserve per-operation errors and committed counts through later failures.
-- [ ] A positive count schedules exactly once after restoring solver ownership, finalizes the exact receipt, and exposes it at `result.data.solve_readiness_receipt` even on partial failure.
-- [ ] A zero-commit edit does not schedule merely to manufacture readiness; if a receipt was reserved, finalize it non-ready.
-- [ ] A group-only edit keeps its current behavior, has no ready receipt, and cannot qualify as terminal acceptance evidence.
-- [ ] Leave the embedded structural snapshot in place for compatibility but label it pre-solve in comments and never route it to the evaluator.
+- [x] Add one explicit solve-relevant commit count using only created, deleted, values-set, connected, and disconnected operations.
+- [x] Reserve before the first solve-relevant edit mutation owned by the route.
+- [x] Preserve per-operation errors and committed counts through later failures.
+- [x] A positive count schedules exactly once after restoring solver ownership, finalizes the exact receipt, and exposes it at `result.data.solve_readiness_receipt` even on partial failure.
+- [x] A zero-commit edit does not schedule merely to manufacture readiness; if a receipt was reserved, finalize it non-ready.
+- [x] A group-only edit keeps its current behavior, has no ready receipt, and cannot qualify as terminal acceptance evidence.
+- [x] Leave the embedded structural snapshot in place for compatibility but label it pre-solve in comments and never route it to the evaluator.
 
 ### Step 6: Add causal route tests
 
-- [ ] Cover successful `gh_set_value` and source-writing `gh_set_script` with exact managed receipts.
-- [ ] Cover throwing mutators before commit, after known commit, and with unknown commitment; assert exact object shapes and maybe-empty messages.
-- [ ] Cover `gh_edit`:
+- [x] Cover successful `gh_set_value` and source-writing `gh_set_script` with exact managed receipts.
+- [x] Cover throwing mutators before commit, after known commit, and with unknown commitment; assert exact object shapes and maybe-empty messages.
+- [x] Cover `gh_edit`:
   - full success with solve-relevant commits;
   - partial success after at least one commit;
   - exception after a commit;
   - zero-commit;
   - group-only;
   - schedule locked/unknown.
-- [ ] Assert partial results never lose earlier committed counts or receipt identity.
-- [ ] Assert a positive committed edit schedules once and a group-only/zero-commit edit schedules zero times.
+- [x] Assert partial results never lose earlier committed counts or receipt identity.
+- [x] Assert a positive committed edit schedules once and a group-only/zero-commit edit schedules zero times.
 
 ### Step 7: Verify and review Task 1
 
-- [ ] Run the focused command from Step 1 plus the new test class.
-- [ ] Run the complete managed suite.
-- [ ] Run `git diff --check` and report production additions/deletions.
-- [ ] Commit only Task 1 changes.
+- [x] Run the focused command from Step 1 plus the new test class.
+- [x] Run the complete managed suite.
+- [x] Run `git diff --check` and report production additions/deletions.
+- [x] Commit only Task 1 changes.
 - [ ] Stop for mandatory independent review. Do not begin Task 2 until receipt ownership, partial-commit custody, and zero/group-only behavior are approved.
 
 ---
@@ -283,7 +287,9 @@ managed callback entered
 - [ ] Run:
 
 ```powershell
-dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release --filter `
+$NoDeploy = Join-Path (Get-Location) '.codex-no-deploy-target'
+if (Test-Path -LiteralPath $NoDeploy) { throw "Expected absent no-deploy target: $NoDeploy" }
+dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDeploy" --filter `
   "FullyQualifiedName~GhSolveReceiptRegistryTests|FullyQualifiedName~GrasshopperHandlerReadinessTests|FullyQualifiedName~GrasshopperTerminalMutationReceiptTests|FullyQualifiedName~GrasshopperBehavioralSnapshotTests"
 ```
 
@@ -507,7 +513,9 @@ covered terminal authoring receipt
 - [ ] Run the complete managed suite:
 
 ```powershell
-dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release
+$NoDeploy = Join-Path (Get-Location) '.codex-no-deploy-target'
+if (Test-Path -LiteralPath $NoDeploy) { throw "Expected absent no-deploy target: $NoDeploy" }
+dotnet test src/Rook.Tests/Rook.Tests.csproj -c Release -p:RhinoPluginDir="$NoDeploy"
 ```
 
 - [ ] Run the focused Python seam from the Baseline section, then the complete non-live Python suite used by the repository's `rook:test` skill.
@@ -541,3 +549,12 @@ git diff --name-only a77720bf0e566d055b127c919f46cdff0db6ed4b -- `
 ## Execution Ledger
 
 During implementation, append only factual observations here: baseline counts, per-task commit hashes, independent review verdicts, final test counts, and any approved deviation. Do not use this section to change behavior without amending the specification first.
+
+- Task 1 baseline: the original focused command passed 68/68. Its existing Release build target copied the net48 companion payload before this plan's no-deploy guard was added; no Rhino/MCP call or restart occurred, and the running net8 payload remained locked by Rhino. Every later managed command uses an explicitly absent `RhinoPluginDir`.
+- Task 1 RED/GREEN: focused receipt/edit/script seam passed 86/86 with the no-deploy guard.
+- Task 1 complete managed suite: the first guarded run hit the known order-sensitive `ReconstructionJobLedgerTests.List_AppliesLimitNewestFirst` failure at 3744/3745; the immediate unchanged rerun passed 3745/3745.
+- Task 1 route phase audit: `SetValue` reserves after target/type/value validation and before the first `Minimum`/`Maximum`/`Value` setter, then schedules after the last committed setter and projects the receipt in the terminal response. `SetScript` reserves after target/capability/read-vs-write validation and before `SetSource`/`ScriptCode`, then schedules after dirty expiration and pin-description restoration before projecting the receipt. `ApplyEdit` reserves after epoch/admitted-array inspection and before solve suspension or the first route mutation; after mutations it restores standalone solver ownership, captures only the compatibility pre-solve structural snapshot, requests one solve when the five-field commit count is positive, and projects the same receipt in success or failure data.
+- Task 1 final focused seam: 90/90 passed, including clean committed edit, partial/exceptional edit, zero/group-only edit, solver-locked scheduling, and unknown schedule acceptance.
+- Task 1 final complete managed suite: the first guarded run again hit only `ReconstructionJobLedgerTests.List_AppliesLimitNewestFirst` at 3748/3749; the immediate unchanged rerun passed 3749/3749.
+- Task 1 multi-target managed build: net48, net7.0, and net8.0 compiled with 268 warnings and 0 errors using the absent no-deploy target.
+- Task 1 production delta before commit: 420 additions and 57 deletions across `GhSolveReceiptRegistry.cs`, `GrasshopperHandler.Readiness.cs`, and `GrasshopperHandler.cs`; `git diff --check` passed.
