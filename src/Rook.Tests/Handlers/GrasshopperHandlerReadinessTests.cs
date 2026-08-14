@@ -224,6 +224,109 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void SharedMutationHelpers_IssueAndFinalizeTheExistingReceiptSchema()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+
+            var issue = handler.BeginMutationReceipt(document, canvas);
+            var finalized = handler.FinalizeMutationReceipt(issue.Receipt!.ReceiptId, ScheduledOutcome());
+
+            Assert.True(issue.Issued);
+            Assert.Equal(issue.Receipt.ReceiptId, finalized.ReceiptId);
+            Assert.Equal(issue.Receipt.DocumentSessionId, finalized.DocumentSessionId);
+            Assert.Equal(issue.Receipt.MutationEpoch, finalized.MutationEpoch);
+            Assert.Equal(GhSolveReadinessStatus.Pending, finalized.Status);
+        }
+
+        [Fact]
+        public void SharedMutationHelpers_FinalizeKnownZeroAndUnknownCommitWithoutScheduling()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+
+            var noCommit = handler.BeginMutationReceipt(document, canvas).Receipt!;
+            var noCommitTerminal = handler.FinalizeNoCommitReceipt(noCommit.ReceiptId);
+            var unknown = handler.BeginMutationReceipt(document, canvas).Receipt!;
+            var unknownTerminal = handler.FinalizeUnknownCommitReceipt(unknown.ReceiptId);
+
+            Assert.Equal(GhSolveReadinessStatus.Unknown, noCommitTerminal.Status);
+            Assert.Equal("no_solve_relevant_mutation_committed", noCommitTerminal.Reason);
+            Assert.Equal(GhSolveReadinessStatus.Unknown, unknownTerminal.Status);
+            Assert.Equal("mutation_commit_unknown", unknownTerminal.Reason);
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void PostReservationFailure_WithPriorScheduleFinalizesWithoutSchedulingAgain()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+            var receipt = handler.BeginMutationReceipt(document, canvas).Receipt!;
+            var fallbackScheduleCalls = 0;
+
+            var terminal = handler.FinalizePostReservationFailureReceipt(
+                receipt.ReceiptId,
+                solveRelevantMutationCommitted: true,
+                priorScheduleResult: ScheduledOutcome(),
+                scheduleCommittedMutation: () =>
+                {
+                    fallbackScheduleCalls++;
+                    return ScheduledOutcome();
+                });
+
+            Assert.NotNull(terminal);
+            Assert.Equal(GhSolveReadinessStatus.Pending, terminal!.Status);
+            Assert.Equal(0, fallbackScheduleCalls);
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void DirectMutationFailureData_PreservesExactEmptyMessageAndClosedShape()
+        {
+            var data = Element(GrasshopperHandler.DirectMutationFailureData(
+                "set_script_failed",
+                string.Empty,
+                solveRelevantMutationCommitted: null,
+                receipt: null));
+
+            Assert.Equal(
+                new[] { "error", "message", "solve_relevant_mutation_committed", "solve_readiness_receipt" },
+                data.EnumerateObject().Select(item => item.Name).ToArray());
+            Assert.Equal("set_script_failed", data.GetProperty("error").GetString());
+            Assert.Equal(string.Empty, data.GetProperty("message").GetString());
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("solve_relevant_mutation_committed").ValueKind);
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("solve_readiness_receipt").ValueKind);
+        }
+
+        [Fact]
+        public void DirectMutationFailureData_ProjectionFailureRetainsCommittedFactsWithNullReceipt()
+        {
+            var receipt = new GhSolveReadinessReceipt(
+                "receipt-projection",
+                "session-projection",
+                1,
+                null,
+                0,
+                GhSolveReadinessStatus.Pending,
+                null,
+                null,
+                DateTimeOffset.UtcNow,
+                null);
+
+            var data = Element(GrasshopperHandler.DirectMutationFailureData(
+                "set_script_failed",
+                "after commit",
+                true,
+                receipt,
+                receiptProjector: _ => throw new InvalidOperationException("projection failed")));
+
+            Assert.Equal("set_script_failed", data.GetProperty("error").GetString());
+            Assert.True(data.GetProperty("solve_relevant_mutation_committed").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, data.GetProperty("solve_readiness_receipt").ValueKind);
+        }
+
+        [Fact]
         public void WaitResponses_UseOnlyReadyTimeoutOrTerminalAndIncludeReceipt()
         {
             var document = new FakeDocument();
@@ -402,7 +505,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void MutationException_TerminatesReservedReceiptAsUnknown()
+        public void ThrowingMutationWithUnknownCommit_TerminatesReservedReceiptAsUnknown()
         {
             var nextId = 0;
             var registry = new GhSolveReceiptRegistry(idFactory: () => "id-" + ++nextId);
@@ -417,7 +520,7 @@ namespace Rook.Tests.Handlers
             var lookup = registry.Get("id-2");
             Assert.True(lookup.Found);
             Assert.Equal(GhSolveReadinessStatus.Unknown, lookup.Receipt!.Status);
-            Assert.Equal("mutation_failed", lookup.Receipt.Reason);
+            Assert.Equal("mutation_commit_unknown", lookup.Receipt.Reason);
         }
 
         private static void AssertFenceFailure(
@@ -529,6 +632,11 @@ namespace Rook.Tests.Handlers
             var assemblyName = new AssemblyName("Grasshopper");
             var assembly = AppDomain.CurrentDomain.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run);
             var module = assembly.DefineDynamicModule("Grasshopper");
+            module.DefineType(
+                "Grasshopper.Kernel.IGH_Param",
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract)
+                .CreateType();
+            DefineGrasshopperNumberSlider(module);
             var type = module.DefineType(
                 "Grasshopper.Instances",
                 TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
@@ -554,6 +662,87 @@ namespace Rook.Tests.Handlers
             property.SetGetMethod(getter);
             property.SetSetMethod(setter);
             return type.CreateType()!.GetProperty("ActiveCanvas", BindingFlags.Public | BindingFlags.Static)!;
+        }
+
+        private static void DefineGrasshopperNumberSlider(ModuleBuilder module)
+        {
+            var type = module.DefineType(
+                "Grasshopper.Kernel.Special.GH_NumberSlider",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var guidField = type.DefineField("_instanceGuid", typeof(Guid), FieldAttributes.Private);
+            var nickField = type.DefineField("_nickName", typeof(string), FieldAttributes.Private);
+            var constructor = type.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                Type.EmptyTypes);
+            var constructorIl = constructor.GetILGenerator();
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Call, typeof(Guid).GetMethod(nameof(Guid.NewGuid), BindingFlags.Public | BindingFlags.Static)!);
+            constructorIl.Emit(OpCodes.Stfld, guidField);
+            constructorIl.Emit(OpCodes.Ret);
+            DefineReadOnlyProperty(type, "InstanceGuid", typeof(Guid), guidField);
+            DefineReadWriteProperty(type, "NickName", typeof(string), nickField);
+            DefineNullProperty(type, "Slider");
+            var expire = type.DefineMethod("ExpireSolution", MethodAttributes.Public, typeof(void), new[] { typeof(bool) });
+            expire.GetILGenerator().Emit(OpCodes.Ret);
+            type.CreateType();
+        }
+
+        private static void DefineReadOnlyProperty(TypeBuilder type, string name, Type propertyType, FieldBuilder field)
+        {
+            var property = type.DefineProperty(name, PropertyAttributes.None, propertyType, Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                $"get_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                propertyType,
+                Type.EmptyTypes);
+            var il = getter.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, field);
+            il.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
+        }
+
+        private static void DefineReadWriteProperty(TypeBuilder type, string name, Type propertyType, FieldBuilder field)
+        {
+            var property = type.DefineProperty(name, PropertyAttributes.None, propertyType, Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                $"get_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                propertyType,
+                Type.EmptyTypes);
+            var getterIl = getter.GetILGenerator();
+            getterIl.Emit(OpCodes.Ldarg_0);
+            getterIl.Emit(OpCodes.Ldfld, field);
+            getterIl.Emit(OpCodes.Ret);
+            var setter = type.DefineMethod(
+                $"set_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(void),
+                new[] { propertyType });
+            var setterIl = setter.GetILGenerator();
+            setterIl.Emit(OpCodes.Ldarg_0);
+            setterIl.Emit(OpCodes.Ldarg_1);
+            setterIl.Emit(OpCodes.Stfld, field);
+            setterIl.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
+            property.SetSetMethod(setter);
+        }
+
+        private static void DefineNullProperty(TypeBuilder type, string name)
+        {
+            var property = type.DefineProperty(name, PropertyAttributes.None, typeof(object), Type.EmptyTypes);
+            var getter = type.DefineMethod(
+                $"get_{name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(object),
+                Type.EmptyTypes);
+            var il = getter.GetILGenerator();
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Ret);
+            property.SetGetMethod(getter);
         }
 
         private sealed class ReadyCore : IGrasshopperCore

@@ -62,7 +62,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void SetScript_ExpiresThenRestoresMetadataBeforeExactlyOneScheduleInvocation()
+        public void SetScript_ExpiresThenRestoresMetadataBeforeOneSuccessOrFailureSchedulePath()
         {
             var source = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
             var method = MethodSource(source, "public ApiResponse SetScript", "private static string? GetParamAccessString");
@@ -71,10 +71,12 @@ namespace Rook.Tests.Handlers
                 "ExpirePostMutationDirtyObjects(new[] { obj })",
                 "ApplyPinDescriptions(",
                 "RefreshCanvas(gh.Canvas!, scheduleSolution: false)",
-                "var solveResult = RequestPostMutationSolve(",
+                "scheduleResult = RequestPostMutationSolve(",
+                "var solveResult = scheduleResult.Value",
                 "return new ApiResponse");
             Assert.Contains("expireDirtyObjects: false", method);
-            Assert.Equal(1, Count(method, "RequestPostMutationSolve("));
+            Assert.Equal(2, Count(method, "RequestPostMutationSolve("));
+            Assert.Contains("FinalizePostReservationFailureReceipt(", method);
         }
 
         private static string ProductionSource(string root)

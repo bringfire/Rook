@@ -37,7 +37,7 @@ namespace Rook.Handlers
             }
         }
 
-        internal GhReadinessIssueResult BeginSetValueReceipt(object document, object canvas)
+        internal GhReadinessIssueResult BeginMutationReceipt(object document, object canvas)
         {
             lock (_readinessSync)
             {
@@ -56,7 +56,10 @@ namespace Rook.Handlers
             }
         }
 
-        internal GhSolveReadinessReceipt FinalizeSetValueReceipt(string receiptId, GhScheduleResult solveResult)
+        internal GhReadinessIssueResult BeginSetValueReceipt(object document, object canvas) =>
+            BeginMutationReceipt(document, canvas);
+
+        internal GhSolveReadinessReceipt FinalizeMutationReceipt(string receiptId, GhScheduleResult solveResult)
         {
             lock (_readinessSync)
             {
@@ -84,6 +87,111 @@ namespace Rook.Handlers
                 _solveReceiptRegistry.MarkLifecycleUnavailable(receiptId, reason);
                 return GetRequiredReceipt(receiptId);
             }
+        }
+
+        internal GhSolveReadinessReceipt FinalizeSetValueReceipt(string receiptId, GhScheduleResult solveResult) =>
+            FinalizeMutationReceipt(receiptId, solveResult);
+
+        internal GhSolveReadinessReceipt FinalizeNoCommitReceipt(string receiptId)
+        {
+            lock (_readinessSync)
+            {
+                _receiptLifecycleFailures.Remove(receiptId);
+                return _solveReceiptRegistry.MarkNoSolveRelevantMutation(receiptId);
+            }
+        }
+
+        internal GhSolveReadinessReceipt FinalizeUnknownCommitReceipt(string receiptId)
+        {
+            lock (_readinessSync)
+            {
+                _receiptLifecycleFailures.Remove(receiptId);
+                return _solveReceiptRegistry.MarkMutationCommitUnknown(receiptId);
+            }
+        }
+
+        internal GhSolveReadinessReceipt? FinalizePostReservationFailureReceipt(
+            string receiptId,
+            bool? solveRelevantMutationCommitted,
+            GhScheduleResult? priorScheduleResult = null,
+            Func<GhScheduleResult>? scheduleCommittedMutation = null)
+        {
+            try
+            {
+                if (solveRelevantMutationCommitted == true)
+                {
+                    if (priorScheduleResult.HasValue)
+                    {
+                        return FinalizeMutationReceipt(receiptId, priorScheduleResult.Value);
+                    }
+
+                    if (scheduleCommittedMutation is null)
+                    {
+                        lock (_readinessSync)
+                        {
+                            _receiptLifecycleFailures.Remove(receiptId);
+                            _solveReceiptRegistry.MarkLifecycleUnavailable(
+                                receiptId,
+                                "schedule_invocation_failed");
+                            return GetRequiredReceipt(receiptId);
+                        }
+                    }
+
+                    return FinalizeMutationReceipt(receiptId, scheduleCommittedMutation());
+                }
+
+                return solveRelevantMutationCommitted == false
+                    ? FinalizeNoCommitReceipt(receiptId)
+                    : FinalizeUnknownCommitReceipt(receiptId);
+            }
+            catch
+            {
+                try
+                {
+                    lock (_readinessSync)
+                    {
+                        _receiptLifecycleFailures.Remove(receiptId);
+                        _solveReceiptRegistry.MarkLifecycleUnavailable(
+                            receiptId,
+                            "schedule_invocation_failed");
+                        return GetRequiredReceipt(receiptId);
+                    }
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        internal static object DirectMutationFailureData(
+            string error,
+            string message,
+            bool? solveRelevantMutationCommitted,
+            GhSolveReadinessReceipt? receipt,
+            Func<GhSolveReadinessReceipt, object>? receiptProjector = null)
+        {
+            object? projectedReceipt = null;
+            if (receipt is not null)
+            {
+                try
+                {
+                    projectedReceipt = (receiptProjector ?? ReceiptSnapshot)(receipt);
+                }
+                catch
+                {
+                    // The post-reservation failure contract retains committed facts
+                    // even when projecting the otherwise-authentic receipt fails.
+                }
+            }
+
+            return new
+            {
+                error,
+                message,
+                solve_relevant_mutation_committed = solveRelevantMutationCommitted,
+                solve_readiness_receipt = projectedReceipt,
+            };
         }
 
         internal void MarkSetValueMutationFailed(string receiptId)

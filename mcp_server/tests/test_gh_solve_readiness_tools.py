@@ -1,6 +1,9 @@
 import pytest
+from jsonschema import Draft202012Validator
 
 from rook import server
+from rook.agent import tool_dispatcher as dispatcher_module
+from rook.agent.tool_dispatcher import ToolDispatcher
 
 
 @pytest.mark.asyncio
@@ -9,12 +12,19 @@ async def test_readiness_tools_advertise_exact_inputs():
 
     readiness = tools["gh_solve_readiness"]
     wait = tools["gh_wait_for_solve_readiness"]
+    snapshot = tools["gh_snapshot"]
+    inspect = tools["gh_inspect_output"]
+
+    receipt_description = (
+        "Opaque solve readiness receipt ID returned by terminal gh_set_value, "
+        "gh_edit, or script-authoring mutations."
+    )
 
     assert readiness.inputSchema["required"] == ["readiness_receipt_id"]
     assert readiness.inputSchema["properties"]["readiness_receipt_id"] == {
         "type": "string",
         "minLength": 1,
-        "description": "Opaque solve readiness receipt ID returned by gh_set_value.",
+        "description": receipt_description,
     }
     assert wait.inputSchema["required"] == ["readiness_receipt_id"]
     assert wait.inputSchema["properties"]["timeout_ms"] == {
@@ -24,6 +34,99 @@ async def test_readiness_tools_advertise_exact_inputs():
         "maximum": 300_000,
         "description": "Maximum managed wait in milliseconds.",
     }
+    assert snapshot.inputSchema["properties"]["readiness_receipt_id"] == {
+        "type": "string",
+        "minLength": 1,
+        "description": (
+            "Optional solve-readiness receipt that fences this snapshot to the "
+            "admitted solved state. When present, include_data=true and "
+            "max_preview_items in 1..1000 are required."
+        ),
+    }
+    assert inspect.inputSchema["properties"]["readiness_receipt_id"][
+        "description"
+    ] == receipt_description
+    assert wait.inputSchema["properties"]["readiness_receipt_id"][
+        "description"
+    ] == receipt_description
+
+
+@pytest.mark.asyncio
+async def test_fenced_snapshot_schema_requires_data_and_bounded_preview():
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    schema = tools["gh_snapshot"].inputSchema
+    validator = Draft202012Validator(schema)
+
+    assert list(validator.iter_errors({})) == []
+    assert list(
+        validator.iter_errors(
+            {"include_data": False, "max_preview_items": 0}
+        )
+    ) == []
+    assert list(
+        validator.iter_errors(
+            {
+                "readiness_receipt_id": "opaque",
+                "include_data": True,
+                "max_preview_items": 1000,
+            }
+        )
+    ) == []
+    for invalid in (
+        {"readiness_receipt_id": "opaque"},
+        {
+            "readiness_receipt_id": "opaque",
+            "include_data": False,
+            "max_preview_items": 3,
+        },
+        {
+            "readiness_receipt_id": "opaque",
+            "include_data": True,
+        },
+        {
+            "readiness_receipt_id": "opaque",
+            "include_data": True,
+            "max_preview_items": 0,
+        },
+        {
+            "readiness_receipt_id": "opaque",
+            "include_data": True,
+            "max_preview_items": 1001,
+        },
+    ):
+        assert list(validator.iter_errors(invalid)), invalid
+
+
+@pytest.mark.asyncio
+async def test_snapshot_preserves_exact_fenced_request_through_canonical_and_direct_dispatch(
+    monkeypatch,
+):
+    request = {
+        "readiness_receipt_id": "opaque",
+        "include_data": True,
+        "max_preview_items": 17,
+    }
+    calls = []
+
+    async def fake_server_call(route, method="GET", payload=None, port=None, **kwargs):
+        calls.append(("canonical", route, method, payload, port))
+        return {"success": True, "data": {"source": "canonical"}}
+
+    async def fake_direct_call(route, method="GET", payload=None, port=None, **kwargs):
+        calls.append(("direct", route, method, payload, port))
+        return {"success": True, "data": {"source": "direct"}}
+
+    monkeypatch.setattr(server, "call_rhino", fake_server_call)
+    canonical = await server._call_tool_dispatch("gh_snapshot", {**request, "port": 6011})
+    monkeypatch.setattr(dispatcher_module, "call_rhino", fake_direct_call)
+    direct = await ToolDispatcher(port=6011).dispatch("gh_snapshot", dict(request))
+
+    assert canonical["success"] is True
+    assert direct["success"] is True
+    assert calls == [
+        ("canonical", "/gh/snapshot", "POST", request, 6011),
+        ("direct", "/gh/snapshot", "POST", request, 6011),
+    ]
 
 
 @pytest.mark.asyncio

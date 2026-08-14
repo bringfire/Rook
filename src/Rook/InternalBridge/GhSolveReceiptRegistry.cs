@@ -69,6 +69,7 @@ namespace Rook.InternalBridge
         private readonly Func<string> _idFactory;
         private readonly Func<DateTimeOffset> _utcNow;
         private readonly Action? _beforeWaiterReacquire;
+        private readonly Action<GhFencedReadGate>? _fencedReadObserver;
         private readonly Dictionary<string, ReceiptEntry> _entries = new(StringComparer.Ordinal);
         private readonly Dictionary<object, DocumentSession> _sessions = new(ObjectReferenceComparer.Instance);
         private long _nextInsertionOrder;
@@ -78,12 +79,14 @@ namespace Rook.InternalBridge
             Func<TimeSpan>? monotonicNow = null,
             Func<string>? idFactory = null,
             Func<DateTimeOffset>? utcNow = null,
-            Action? beforeWaiterReacquire = null)
+            Action? beforeWaiterReacquire = null,
+            Action<GhFencedReadGate>? fencedReadObserver = null)
         {
             _monotonicNow = monotonicNow ?? GetMonotonicNow;
             _idFactory = idFactory ?? CreateSecureId;
             _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
             _beforeWaiterReacquire = beforeWaiterReacquire;
+            _fencedReadObserver = fencedReadObserver;
         }
 
         internal GhReadinessIssueResult IssueMutation(object document)
@@ -126,6 +129,15 @@ namespace Rook.InternalBridge
 
         internal GhSolveReadinessReceipt MarkMutationFailed(string receiptId) =>
             MarkPendingTerminal(receiptId, GhSolveReadinessStatus.Unknown, "mutation_failed");
+
+        internal GhSolveReadinessReceipt MarkNoSolveRelevantMutation(string receiptId) =>
+            MarkPendingTerminal(
+                receiptId,
+                GhSolveReadinessStatus.Unknown,
+                "no_solve_relevant_mutation_committed");
+
+        internal GhSolveReadinessReceipt MarkMutationCommitUnknown(string receiptId) =>
+            MarkPendingTerminal(receiptId, GhSolveReadinessStatus.Unknown, "mutation_commit_unknown");
 
         internal GhSolveReadinessReceipt MarkSolverLocked(string receiptId) =>
             MarkPendingTerminal(receiptId, GhSolveReadinessStatus.SolverLocked, "solver_locked");
@@ -327,43 +339,48 @@ namespace Rook.InternalBridge
 
         internal GhFencedReadGate CheckFencedRead(string receiptId, object activeDocument)
         {
+            GhFencedReadGate gate;
             lock (_sync)
             {
                 Purge(_monotonicNow());
                 if (!_entries.TryGetValue(receiptId, out var entry))
                 {
-                    return new GhFencedReadGate(false, null, NotFoundError);
+                    gate = new GhFencedReadGate(false, null, NotFoundError);
                 }
-
-                var receipt = entry.Receipt;
-                if (receipt.Status != GhSolveReadinessStatus.Ready)
+                else
                 {
-                    return new GhFencedReadGate(false, receipt, FenceErrorFor(receipt));
+                    var receipt = entry.Receipt;
+                    if (receipt.Status != GhSolveReadinessStatus.Ready)
+                    {
+                        gate = new GhFencedReadGate(false, receipt, FenceErrorFor(receipt));
+                    }
+                    else if (activeDocument is null ||
+                        !_sessions.TryGetValue(activeDocument, out var session) ||
+                        session.SessionId != receipt.DocumentSessionId)
+                    {
+                        gate = new GhFencedReadGate(false, receipt, "readiness_receipt_document_replaced");
+                    }
+                    else if (session.MutationEpoch != receipt.MutationEpoch)
+                    {
+                        gate = new GhFencedReadGate(false, receipt, "readiness_receipt_superseded");
+                    }
+                    else if (!receipt.SolutionRunEpoch.HasValue ||
+                        receipt.CompletedSolutionRunEpoch != receipt.SolutionRunEpoch.Value ||
+                        session.CompletedSolutionRunEpoch != receipt.SolutionRunEpoch.Value ||
+                        session.SolutionRunEpoch != receipt.SolutionRunEpoch.Value ||
+                        session.ActiveSolutionRunEpoch.HasValue)
+                    {
+                        gate = new GhFencedReadGate(false, receipt, "readiness_receipt_stale_solution_run");
+                    }
+                    else
+                    {
+                        gate = new GhFencedReadGate(true, receipt, null);
+                    }
                 }
-
-                if (activeDocument is null ||
-                    !_sessions.TryGetValue(activeDocument, out var session) ||
-                    session.SessionId != receipt.DocumentSessionId)
-                {
-                    return new GhFencedReadGate(false, receipt, "readiness_receipt_document_replaced");
-                }
-
-                if (session.MutationEpoch != receipt.MutationEpoch)
-                {
-                    return new GhFencedReadGate(false, receipt, "readiness_receipt_superseded");
-                }
-
-                if (!receipt.SolutionRunEpoch.HasValue ||
-                    receipt.CompletedSolutionRunEpoch != receipt.SolutionRunEpoch.Value ||
-                    session.CompletedSolutionRunEpoch != receipt.SolutionRunEpoch.Value ||
-                    session.SolutionRunEpoch != receipt.SolutionRunEpoch.Value ||
-                    session.ActiveSolutionRunEpoch.HasValue)
-                {
-                    return new GhFencedReadGate(false, receipt, "readiness_receipt_stale_solution_run");
-                }
-
-                return new GhFencedReadGate(true, receipt, null);
             }
+
+            _fencedReadObserver?.Invoke(gate);
+            return gate;
         }
 
         internal void ReplaceDocument(object? newDocument)

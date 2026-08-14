@@ -29,6 +29,22 @@ def _edit_with(selector: dict[str, str]) -> dict:
     }
 
 
+def _solve_receipt(receipt_id: str = "script-receipt") -> dict[str, object]:
+    return {
+        "schema": "rook.gh_solve_readiness_receipt:v1",
+        "receipt_id": receipt_id,
+        "document_session_id": "session-1",
+        "mutation_epoch": 3,
+        "solution_run_epoch": None,
+        "completed_solution_run_epoch": 2,
+        "status": "pending",
+        "reason": None,
+        "completion_signal": None,
+        "issued_at": "2026-08-12T12:00:00+00:00",
+        "completed_at": None,
+    }
+
+
 async def _public_call(name: str, arguments: dict):
     handler = server.mcp.request_handlers[mcp_types.CallToolRequest]
     request = mcp_types.CallToolRequest(
@@ -508,6 +524,7 @@ async def test_chirp_delegates_generated_csharp_to_canonical_script_helper(
             return FakeResponse()
 
     helper_calls = []
+    managed_receipt = _solve_receipt()
 
     async def fake_create_script(
         language,
@@ -516,7 +533,6 @@ async def test_chirp_delegates_generated_csharp_to_canonical_script_helper(
         *,
         tool_name="gh_create_script",
         defer_verification=False,
-        verification_settle_seconds=0.3,
     ):
         helper_calls.append((
             language,
@@ -524,13 +540,14 @@ async def test_chirp_delegates_generated_csharp_to_canonical_script_helper(
             port,
             tool_name,
             defer_verification,
-            verification_settle_seconds,
         ))
         return {
             "success": True,
             "data": {
                 "component_guid": "11111111-1111-4111-8111-111111111111",
                 "compilation_errors": ["sentinel compile error"],
+                "solve_relevant_mutation_committed": True,
+                "solve_readiness_receipt": managed_receipt,
             },
         }
 
@@ -566,13 +583,11 @@ async def test_chirp_delegates_generated_csharp_to_canonical_script_helper(
         port,
         tool_name,
         defer_verification,
-        verification_settle_seconds,
     ) = helper_calls[0]
     assert language == "csharp"
     assert port is None
     assert tool_name == "chirp_create"
     assert defer_verification is True
-    assert verification_settle_seconds == 0.2
     assert arguments == {
         "code": generated_script,
         "name": "Grid Worker",
@@ -597,6 +612,143 @@ async def test_chirp_delegates_generated_csharp_to_canonical_script_helper(
     assert result["data"]["category"] == "interpreter"
     assert result["data"]["component_errors"] == ["sentinel compile error"]
     assert "compilation_errors" not in result["data"]
+    assert result["data"]["solve_readiness_receipt"] is managed_receipt
+
+
+@pytest.mark.asyncio
+async def test_direct_chirp_create_uses_shared_owner_without_rebuilding_receipt(monkeypatch):
+    managed_receipt = _solve_receipt("chirp-direct")
+    owned_result = {"success": True, "data": {
+        "component_guid": "component-guid",
+        "solve_relevant_mutation_committed": True,
+        "solve_readiness_receipt": managed_receipt,
+        "script_receipt": {"schema": "rook.gh_script_receipt:v1"},
+    }}
+    calls = []
+
+    async def fake_execute(arguments, port):
+        calls.append((dict(arguments), port))
+        return owned_result, False, False
+
+    async def prompt_idle(*args, **kwargs):
+        return {"success": True, "data": {"active": False}}
+
+    monkeypatch.setattr(server, "_execute_chirp_create", fake_execute)
+    monkeypatch.setattr(dispatcher_module, "call_rhino", prompt_idle)
+    dispatcher = ToolDispatcher(
+        port=6011,
+        local_tools=dispatcher_module.build_local_tools(),
+    )
+
+    result = await dispatcher.dispatch("chirp_create", {"signature": "Grid"})
+
+    assert calls == [({"signature": "Grid"}, 6011)]
+    assert result["data"]["solve_readiness_receipt"] is managed_receipt
+
+
+@pytest.mark.asyncio
+async def test_chirp_preserves_closed_script_pipeline_failure_without_decoration(monkeypatch):
+    managed_receipt = _solve_receipt("chirp-failure")
+    failure = server._script_pipeline_incomplete(
+        "solve_readiness",
+        component_created=True,
+        pins_configured=True,
+        component_guid="component-guid",
+        component_short_id=None,
+        final_write_dispatched=True,
+        final_write_success=True,
+        solve_relevant_mutation_committed=True,
+        solve_readiness_receipt=managed_receipt,
+        script_receipt=None,
+    )
+
+    async def ensure_running(model=None):
+        return {"running": True, "host": "127.0.0.1", "port": 8765}
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "script": "public class Script_Instance { }",
+                "pins_in": [{"name": "Rows", "type": "int", "access": "item"}],
+                "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json):
+            return FakeResponse()
+
+    async def fake_create_script(*args, **kwargs):
+        return failure
+
+    async def record_noop(**kwargs):
+        return None
+
+    monkeypatch.setattr("rook.chirp_manager.ensure_chirp_running", ensure_running)
+    monkeypatch.setattr(server.httpx, "AsyncClient", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setattr(server, "_execute_gh_create_script", fake_create_script)
+    monkeypatch.setattr(server, "_record_gh_to_session", record_noop)
+
+    result = await server._call_tool_dispatch("chirp_create", {
+        "signature": "Build an XY grid",
+        "category": "interpreter",
+        "pins_in": [{"name": "Rows", "type": "int", "access": "item"}],
+        "pins_out": [{"name": "Points", "type": "Point3d", "access": "list"}],
+    })
+
+    assert result is failure
+    assert set(result["data"]) == {
+        "error",
+        "phase",
+        "committed_preparatory",
+        "component",
+        "final_write",
+        "solve_readiness_receipt",
+        "script_receipt",
+    }
+    assert result["data"]["solve_readiness_receipt"] is managed_receipt
+
+
+@pytest.mark.asyncio
+async def test_direct_deterministic_chirp_is_recorder_free(monkeypatch):
+    managed_receipt = _solve_receipt("direct-deterministic")
+
+    async def fake_execute(arguments, port):
+        assert arguments["deterministic_only"] is True
+        return ({"success": True, "data": {
+            "component_guid": "component-guid",
+            "solve_relevant_mutation_committed": True,
+            "solve_readiness_receipt": managed_receipt,
+        }}, False, True)
+
+    async def forbidden_record(**kwargs):
+        raise AssertionError("direct ToolDispatcher entered the canonical recorder")
+
+    async def prompt_idle(*args, **kwargs):
+        return {"success": True, "data": {"active": False}}
+
+    monkeypatch.setattr(server, "_execute_chirp_create", fake_execute)
+    monkeypatch.setattr(server, "_record_gh_to_session", forbidden_record)
+    monkeypatch.setattr(dispatcher_module, "call_rhino", prompt_idle)
+
+    result = await ToolDispatcher(
+        port=6011,
+        local_tools=dispatcher_module.build_local_tools(),
+    ).dispatch("chirp_create", {
+        "signature": "Grid",
+        "deterministic_only": True,
+    })
+
+    assert result["success"] is True
+    assert result["data"]["solve_readiness_receipt"] is managed_receipt
 
 
 def _match_case_name(pattern: ast.pattern) -> str | None:
@@ -681,8 +833,9 @@ async def test_canonical_script_creation_preserves_four_input_request(
         {"name": "Points", "type": "Point3d", "access": "list", "optional": False},
     ]
     calls = []
+    managed_receipt = _solve_receipt("canonical-create")
 
-    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None, **_kwargs):
         calls.append((route, method, payload, port))
         if route == "/gh/create-component":
             assert payload == {
@@ -702,19 +855,33 @@ async def test_canonical_script_creation_preserves_four_input_request(
         if route == "/gh/script":
             assert code in payload["script"]
             assert "private void RunScript(" in payload["script"]
-            return {"success": True, "data": {"guid": "script-instance"}}
+            return {"success": True, "data": {
+                "guid": "script-instance",
+                "solve_relevant_mutation_committed": True,
+                "solve_readiness_receipt": managed_receipt,
+            }}
+        if route == "/gh/wait-for-solve-readiness":
+            ready = dict(managed_receipt)
+            ready.update({
+                "solution_run_epoch": 4,
+                "completed_solution_run_epoch": 4,
+                "status": "ready",
+                "completion_signal": "solution_end",
+                "completed_at": "2026-08-12T12:00:01+00:00",
+            })
+            return {"success": True, "data": {
+                "schema": "rook.gh_solve_readiness_wait_result:v1",
+                "wait_status": "ready",
+                "receipt": ready,
+            }}
         if route == "/gh/errors":
             return {"success": True, "data": {"errors": [], "warnings": []}}
         raise AssertionError(f"unexpected route: {route}")
-
-    async def no_sleep(_seconds):
-        return None
 
     async def record_noop(**_kwargs):
         return None
 
     monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
-    monkeypatch.setattr(server.asyncio, "sleep", no_sleep)
     monkeypatch.setattr(server, "_record_gh_to_session", record_noop)
 
     result = await server._call_tool_dispatch("gh_create_script", {
@@ -734,8 +901,10 @@ async def test_canonical_script_creation_preserves_four_input_request(
         "/gh/create-component",
         "/gh/script-params",
         "/gh/script",
+        "/gh/wait-for-solve-readiness",
         "/gh/errors",
     ]
+    assert result["data"]["solve_readiness_receipt"] is managed_receipt
 
 
 @pytest.mark.asyncio
@@ -749,6 +918,93 @@ async def test_canonical_script_tool_is_readable_through_progressive_disclosure(
 
     assert record["name"] == "gh_create_script"
     assert "language" in record["input_schema"]["properties"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "expected_language"),
+    [
+        ("gh_create_script", {"language": "python", "code": "A = 1"}, "python"),
+        ("gh_create_python_script", {"code": "A = 1"}, "python"),
+        ("gh_create_csharp_script", {"code": "A = 1;"}, "csharp"),
+    ],
+)
+async def test_script_creation_aliases_preserve_managed_receipt_in_canonical_and_direct_paths(
+    monkeypatch,
+    tool_name,
+    arguments,
+    expected_language,
+):
+    managed_receipt = _solve_receipt(f"{tool_name}-receipt")
+    helper_calls = []
+
+    async def fake_execute(language, helper_arguments, port, *, tool_name="gh_create_script", defer_verification=False):
+        helper_calls.append((language, dict(helper_arguments), port, tool_name, defer_verification))
+        return {"success": True, "data": {
+            "component_guid": "component-guid",
+            "solve_relevant_mutation_committed": True,
+            "solve_readiness_receipt": managed_receipt,
+            "script_receipt": {"schema": "rook.gh_script_receipt:v1"},
+        }}
+
+    async def record_noop(**kwargs):
+        return None
+
+    async def prompt_idle(*args, **kwargs):
+        return {"success": True, "data": {"active": False}}
+
+    monkeypatch.setattr(server, "_execute_gh_create_script", fake_execute)
+    monkeypatch.setattr(server, "_record_gh_to_session", record_noop)
+    monkeypatch.setattr(dispatcher_module, "call_rhino", prompt_idle)
+
+    canonical = await server._call_tool_dispatch(tool_name, {**arguments, "port": 6011})
+    direct = await ToolDispatcher(
+        port=6011,
+        local_tools=dispatcher_module.build_local_tools(),
+    ).dispatch(tool_name, dict(arguments))
+
+    assert canonical["data"]["solve_readiness_receipt"] is managed_receipt
+    assert direct["data"]["solve_readiness_receipt"] is managed_receipt
+    assert all(call[0] == expected_language for call in helper_calls)
+    assert all(call[3] == tool_name for call in helper_calls)
+    assert len(helper_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_update_script_preserves_same_failure_object_in_canonical_and_direct_paths(monkeypatch):
+    managed_receipt = _solve_receipt("update-failure")
+    failure = server._script_pipeline_incomplete(
+        "source_write",
+        component_created=False,
+        pins_configured=False,
+        component_guid="component-guid",
+        component_short_id="C1",
+        final_write_dispatched=True,
+        final_write_success=False,
+        solve_relevant_mutation_committed=True,
+        solve_readiness_receipt=managed_receipt,
+        script_receipt=None,
+    )
+
+    async def fake_update(arguments, port):
+        return failure
+
+    async def record_noop(**kwargs):
+        return None
+
+    monkeypatch.setattr(server, "_execute_gh_update_script", fake_update)
+    monkeypatch.setattr(server, "_record_gh_to_session", record_noop)
+
+    arguments = {"guid": "C1", "code": "A = 2"}
+    canonical = await server._call_tool_dispatch("gh_update_script", {**arguments, "port": 6011})
+    direct = await ToolDispatcher(
+        port=6011,
+        local_tools=dispatcher_module.build_local_tools(),
+    ).dispatch("gh_update_script", dict(arguments))
+
+    assert canonical is failure
+    assert direct is failure
+    assert canonical["data"]["solve_readiness_receipt"] is managed_receipt
 
 
 def test_execute_skill_routes_creation_by_capability() -> None:

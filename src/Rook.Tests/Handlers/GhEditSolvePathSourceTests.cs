@@ -70,14 +70,15 @@ namespace Rook.Tests.Handlers
 
             AssertOrder(method,
                 "standaloneRestore = solveSuspension.Restore()",
-                "var solveResult = RequestPostMutationSolve(",
+                "scheduleResult = RequestPostMutationSolve(",
+                "var solveResult = scheduleResult.Value",
                 "var editSummary = new",
                 "if (snapshotResult.Success && snapshotResult.Data is Dictionary",
                 "else if (snapshotResult.Success)",
                 "var snapshotFailure = snapshotResult.Data",
                 "return snapshotResult");
-            Assert.Contains("snapshot_failure = snapshotFailure", method);
-            Assert.Contains("edit_summary = editSummary", method);
+            Assert.Contains("[\"snapshot_failure\"] = snapshotFailure", method);
+            Assert.Contains("[\"edit_summary\"] = editSummary", method);
             Assert.Contains("standalone_restore_attempted = standaloneRestore.Value.Attempted", method);
             Assert.Contains("standalone_restore_succeeded = standaloneRestore.Value.Succeeded", method);
             Assert.Contains("observed_document_enabled = standaloneRestore.Value.ObservedDocumentEnabled", method);
@@ -102,9 +103,10 @@ namespace Rook.Tests.Handlers
         {
             var source = ReadSource("src", "Rook", "Handlers", "GrasshopperHandler.cs");
             var method = ApplyEditSource(source);
-            var failure = method.Substring(method.IndexOf("error = \"apply_edit_failed\"", StringComparison.Ordinal));
+            var failure = method.Substring(method.IndexOf("catch (Exception ex)", StringComparison.Ordinal));
 
             Assert.Contains("GhScheduleClassification.SolveNotRequested", failure);
+            Assert.Contains("FinalizePostReservationFailureReceipt(", failure);
             Assert.DoesNotContain("GhScheduleClassification.AsyncScheduleRequested", failure);
         }
 

@@ -530,6 +530,9 @@ namespace Rook.Handlers
             decimal? minValue = null;
             decimal? maxValue = null;
             string? readinessReceiptId = null;
+            bool? solveRelevantMutationCommitted = false;
+            object? mutationTarget = null;
+            GhScheduleResult? scheduleResult = null;
 
             try
             {
@@ -571,6 +574,7 @@ namespace Rook.Handlers
                         if (!issue.Issued)
                             return ReadinessIssueFailure(issue.Error!);
                         readinessReceiptId = issue.Receipt!.ReceiptId;
+                        mutationTarget = obj;
 
                         // Record generic undo after reservation and before changing the slider.
                         try
@@ -584,17 +588,54 @@ namespace Rook.Handlers
                         // Set min/max first if provided (must be set before value)
                         if (minValue.HasValue)
                         {
-                            sliderType.GetProperty("Minimum")?.SetValue(slider, minValue.Value);
+                            var minimumProperty = sliderType.GetProperty("Minimum")
+                                ?? throw new InvalidOperationException("Slider minimum property unavailable");
+                            try
+                            {
+                                minimumProperty.SetValue(slider, minValue.Value);
+                                solveRelevantMutationCommitted = true;
+                            }
+                            catch
+                            {
+                                if (solveRelevantMutationCommitted != true)
+                                    solveRelevantMutationCommitted = null;
+                                throw;
+                            }
                         }
                         if (maxValue.HasValue)
                         {
-                            sliderType.GetProperty("Maximum")?.SetValue(slider, maxValue.Value);
+                            var maximumProperty = sliderType.GetProperty("Maximum")
+                                ?? throw new InvalidOperationException("Slider maximum property unavailable");
+                            try
+                            {
+                                maximumProperty.SetValue(slider, maxValue.Value);
+                                solveRelevantMutationCommitted = true;
+                            }
+                            catch
+                            {
+                                if (solveRelevantMutationCommitted != true)
+                                    solveRelevantMutationCommitted = null;
+                                throw;
+                            }
                         }
 
                         // Set the value
-                        sliderType.GetProperty("Value")?.SetValue(slider, newValue);
+                        var valueProperty = sliderType.GetProperty("Value")
+                            ?? throw new InvalidOperationException("Slider value property unavailable");
+                        try
+                        {
+                            valueProperty.SetValue(slider, newValue);
+                            solveRelevantMutationCommitted = true;
+                        }
+                        catch
+                        {
+                            if (solveRelevantMutationCommitted != true)
+                                solveRelevantMutationCommitted = null;
+                            throw;
+                        }
 
-                        var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                        scheduleResult = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                        var solveOutcome = scheduleResult.Value;
                         var receipt = FinalizeSetValueReceipt(readinessReceiptId, solveOutcome);
                         RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
@@ -612,6 +653,7 @@ namespace Rook.Handlers
                                 NewValue = newValue,
                                 Min = actualMin,
                                 Max = actualMax,
+                                solve_relevant_mutation_committed = true,
                                 solve_readiness_receipt = ReceiptSnapshot(receipt)
                             }
                         };
@@ -636,6 +678,7 @@ namespace Rook.Handlers
                     if (!issue.Issued)
                         return ReadinessIssueFailure(issue.Error!);
                     readinessReceiptId = issue.Receipt!.ReceiptId;
+                    mutationTarget = obj;
 
                     // Record generic undo after reservation and before changing the panel.
                     try
@@ -646,9 +689,21 @@ namespace Rook.Handlers
                     }
                     catch { /* undo recording is best-effort */ }
 
-                    userTextProp?.SetValue(obj, newContent);
+                    if (userTextProp is null)
+                        throw new InvalidOperationException("Panel value property unavailable");
+                    try
+                    {
+                        userTextProp.SetValue(obj, newContent);
+                        solveRelevantMutationCommitted = true;
+                    }
+                    catch
+                    {
+                        solveRelevantMutationCommitted = null;
+                        throw;
+                    }
 
-                    var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    scheduleResult = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    var solveOutcome = scheduleResult.Value;
                     var receipt = FinalizeSetValueReceipt(readinessReceiptId, solveOutcome);
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
@@ -660,6 +715,7 @@ namespace Rook.Handlers
                             Guid = guid,
                             Type = "panel",
                             NewValue = newContent,
+                            solve_relevant_mutation_committed = true,
                             solve_readiness_receipt = ReceiptSnapshot(receipt)
                         }
                     };
@@ -674,6 +730,7 @@ namespace Rook.Handlers
                     if (!issue.Issued)
                         return ReadinessIssueFailure(issue.Error!);
                     readinessReceiptId = issue.Receipt!.ReceiptId;
+                    mutationTarget = obj;
 
                     // Record generic undo after reservation and before changing the toggle.
                     try
@@ -684,9 +741,21 @@ namespace Rook.Handlers
                     }
                     catch { /* undo recording is best-effort */ }
 
-                    valueProp?.SetValue(obj, newValue);
+                    if (valueProp is null)
+                        throw new InvalidOperationException("Toggle value property unavailable");
+                    try
+                    {
+                        valueProp.SetValue(obj, newValue);
+                        solveRelevantMutationCommitted = true;
+                    }
+                    catch
+                    {
+                        solveRelevantMutationCommitted = null;
+                        throw;
+                    }
 
-                    var solveOutcome = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    scheduleResult = RequestPostMutationSolve(gh.Document!, obj, requestSolve: true);
+                    var solveOutcome = scheduleResult.Value;
                     var receipt = FinalizeSetValueReceipt(readinessReceiptId, solveOutcome);
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
@@ -698,6 +767,7 @@ namespace Rook.Handlers
                             Guid = guid,
                             Type = "toggle",
                             NewValue = newValue,
+                            solve_relevant_mutation_committed = true,
                             solve_readiness_receipt = ReceiptSnapshot(receipt)
                         }
                     };
@@ -711,16 +781,34 @@ namespace Rook.Handlers
             }
             catch (Exception ex)
             {
-                if (readinessReceiptId is not null)
+                if (readinessReceiptId is null)
                 {
-                    try { MarkSetValueMutationFailed(readinessReceiptId); }
-                    catch { /* Preserve the existing SetValue failure response. */ }
+                    return new ApiResponse
+                    {
+                        Success = false,
+                        Data = $"SetValue failed: {ex.Message}",
+                    };
                 }
+
+                var receipt = FinalizePostReservationFailureReceipt(
+                    readinessReceiptId,
+                    solveRelevantMutationCommitted,
+                    priorScheduleResult: scheduleResult,
+                    scheduleCommittedMutation: mutationTarget is null
+                        ? null
+                        : () => RequestPostMutationSolve(
+                            gh.Document!,
+                            mutationTarget,
+                            requestSolve: true));
 
                 return new ApiResponse
                 {
                     Success = false,
-                    Data = $"SetValue failed: {ex.Message}"
+                    Data = DirectMutationFailureData(
+                        "set_value_failed",
+                        ex.Message,
+                        solveRelevantMutationCommitted,
+                        receipt),
                 };
             }
         }
@@ -747,6 +835,10 @@ namespace Rook.Handlers
 
             string? guid = null;
             string? script = null;
+            string? readinessReceiptId = null;
+            bool? solveRelevantMutationCommitted = false;
+            object? mutationTarget = null;
+            GhScheduleResult? scheduleResult = null;
 
             try
             {
@@ -822,6 +914,12 @@ namespace Rook.Handlers
                 else
                 {
                     // --- WRITE ---
+                    var issue = BeginMutationReceipt(gh.Document!, gh.Canvas!);
+                    if (!issue.Issued)
+                        return ReadinessIssueFailure(issue.Error!);
+                    readinessReceiptId = issue.Receipt!.ReceiptId;
+                    mutationTarget = obj;
+
                     // Record generic undo BEFORE changing script
                     try
                     {
@@ -843,7 +941,16 @@ namespace Rook.Handlers
 
                     if (isRhinoCode && setSourceMethod != null)
                     {
-                        setSourceMethod.Invoke(obj, new object[] { script });
+                        try
+                        {
+                            setSourceMethod.Invoke(obj, new object[] { script });
+                            solveRelevantMutationCommitted = true;
+                        }
+                        catch
+                        {
+                            solveRelevantMutationCommitted = null;
+                            throw;
+                        }
                     }
                     else if (isGh1Script)
                     {
@@ -853,7 +960,16 @@ namespace Rook.Handlers
                             var codeProp = sourceObj.GetType().GetProperty("ScriptCode");
                             if (codeProp != null && codeProp.CanWrite)
                             {
-                                codeProp.SetValue(sourceObj, script);
+                                try
+                                {
+                                    codeProp.SetValue(sourceObj, script);
+                                    solveRelevantMutationCommitted = true;
+                                }
+                                catch
+                                {
+                                    solveRelevantMutationCommitted = null;
+                                    throw;
+                                }
                             }
                             else
                             {
@@ -861,19 +977,30 @@ namespace Rook.Handlers
                                 var codeField = sourceObj.GetType().GetField("ScriptCode",
                                     System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
                                 if (codeField != null)
-                                    codeField.SetValue(sourceObj, script);
+                                {
+                                    try
+                                    {
+                                        codeField.SetValue(sourceObj, script);
+                                        solveRelevantMutationCommitted = true;
+                                    }
+                                    catch
+                                    {
+                                        solveRelevantMutationCommitted = null;
+                                        throw;
+                                    }
+                                }
                                 else
-                                    return new ApiResponse { Success = false, Data = $"Cannot set script on {typeName}: ScriptCode not writable" };
+                                    throw new InvalidOperationException($"Cannot set script on {typeName}: ScriptCode not writable");
                             }
                         }
                         else
                         {
-                            return new ApiResponse { Success = false, Data = $"ScriptSource is null on {typeName}" };
+                            throw new InvalidOperationException($"ScriptSource is null on {typeName}");
                         }
                     }
                     else
                     {
-                        return new ApiResponse { Success = false, Data = $"SetSource not available on {typeName}" };
+                        throw new InvalidOperationException($"SetSource not available on {typeName}");
                     }
 
                     // Mark dirty without recompute before restoring metadata. Scheduling
@@ -912,11 +1039,13 @@ namespace Rook.Handlers
                     // Repaint only, then request exactly one asynchronous solve after
                     // all response-authoritative metadata has been restored.
                     RefreshCanvas(gh.Canvas!, scheduleSolution: false);
-                    var solveResult = RequestPostMutationSolve(
+                    scheduleResult = RequestPostMutationSolve(
                         gh.Document!,
                         new[] { obj },
                         requestSolve: true,
                         expireDirtyObjects: false);
+                    var solveResult = scheduleResult.Value;
+                    var receipt = FinalizeMutationReceipt(readinessReceiptId, solveResult);
 
                     return new ApiResponse
                     {
@@ -943,17 +1072,44 @@ namespace Rook.Handlers
                             solver_locked = solveResult.SolverLocked,
                             solver_state_known = solveResult.SolverStateKnown,
                             verification_deferred = solveResult.VerificationDeferred,
-                            solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray()
+                            solve_warnings = solveResult.Warnings.Select(GhScheduleWire.ToWire).ToArray(),
+                            solve_relevant_mutation_committed = true,
+                            solve_readiness_receipt = ReceiptSnapshot(receipt)
                         }
                     };
                 }
             }
             catch (Exception ex)
             {
+                if (readinessReceiptId is null)
+                {
+                    return new ApiResponse
+                    {
+                        Success = false,
+                        Data = $"SetScript failed: {ex.Message}",
+                    };
+                }
+
+                var receipt = FinalizePostReservationFailureReceipt(
+                    readinessReceiptId,
+                    solveRelevantMutationCommitted,
+                    priorScheduleResult: scheduleResult,
+                    scheduleCommittedMutation: mutationTarget is null
+                        ? null
+                        : () => RequestPostMutationSolve(
+                            gh.Document!,
+                            new[] { mutationTarget },
+                            requestSolve: true,
+                            expireDirtyObjects: false));
+
                 return new ApiResponse
                 {
                     Success = false,
-                    Data = $"SetScript failed: {ex.Message}"
+                    Data = DirectMutationFailureData(
+                        "set_script_failed",
+                        ex.Message,
+                        solveRelevantMutationCommitted,
+                        receipt),
                 };
             }
         }
@@ -6220,10 +6376,13 @@ namespace Rook.Handlers
                 throw new InvalidOperationException("AddObject method not found on GH_Document");
 
             var paramCount = addMethod.GetParameters().Length;
-            if (paramCount == 3)
-                addMethod.Invoke(document, new object[] { component, true, -1 });
-            else
-                addMethod.Invoke(document, new object[] { component, true });
+            var addResult = paramCount == 3
+                ? addMethod.Invoke(document, new object[] { component, true, -1 })
+                : addMethod.Invoke(document, new object[] { component, true });
+            if (addResult is not bool added)
+                throw new InvalidOperationException("GH_Document.AddObject returned a non-Boolean result");
+            if (!added)
+                return null;
 
             // Return the GUID
             var guidProp = component.GetType().GetProperty("InstanceGuid");
@@ -7049,31 +7208,91 @@ namespace Rook.Handlers
         /// </summary>
         public ApiResponse TakeSnapshot(string? body)
         {
-            var notReady = EnsureGrasshopperReadyForEdit("gh_snapshot");
-            if (notReady != null)
-                return notReady;
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
-
-            // Parse options
             bool includeData = true;
             int maxPreviewItems = 3;
+            string? readinessReceiptId = null;
+            var fenced = false;
             if (!string.IsNullOrEmpty(body))
             {
                 try
                 {
-                    var json = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(body);
-                    if (json != null)
+                    using var document = JsonDocument.Parse(body);
+                    if (document.RootElement.ValueKind != JsonValueKind.Object)
+                        return new ApiResponse { Success = false, Data = "Invalid gh_snapshot request body" };
+
+                    var json = document.RootElement;
+                    fenced = json.TryGetProperty("readiness_receipt_id", out var receiptElement);
+                    if (fenced)
                     {
-                        if (json.TryGetValue("include_data", out var incData))
+                        if (receiptElement.ValueKind != JsonValueKind.String)
+                            return ReadinessIssueFailure("readiness_receipt_id_invalid");
+                        readinessReceiptId = receiptElement.GetString();
+                        if (string.IsNullOrWhiteSpace(readinessReceiptId))
+                            return ReadinessIssueFailure("readiness_receipt_id_invalid");
+
+                        if (!json.TryGetProperty("include_data", out var fencedIncludeData) ||
+                            fencedIncludeData.ValueKind != JsonValueKind.True)
+                        {
+                            return ReadinessIssueFailure("readiness_snapshot_request_invalid");
+                        }
+                        includeData = true;
+
+                        if (!json.TryGetProperty("max_preview_items", out var fencedMaxPreview) ||
+                            fencedMaxPreview.ValueKind != JsonValueKind.Number ||
+                            !fencedMaxPreview.TryGetInt32(out maxPreviewItems) ||
+                            maxPreviewItems < 1 ||
+                            maxPreviewItems > 1000)
+                        {
+                            return ReadinessIssueFailure("readiness_snapshot_request_invalid");
+                        }
+                    }
+                    else
+                    {
+                        if (json.TryGetProperty("include_data", out var incData) &&
+                            incData.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                        {
                             includeData = incData.GetBoolean();
-                        if (json.TryGetValue("max_preview_items", out var maxPrev))
-                            maxPreviewItems = maxPrev.GetInt32();
+                        }
+                        if (json.TryGetProperty("max_preview_items", out var maxPrev) &&
+                            maxPrev.ValueKind == JsonValueKind.Number &&
+                            maxPrev.TryGetInt32(out var legacyMaxPreview))
+                        {
+                            maxPreviewItems = legacyMaxPreview;
+                        }
                     }
                 }
-                catch { }
+                catch (JsonException)
+                {
+                    return new ApiResponse { Success = false, Data = "Invalid gh_snapshot request body" };
+                }
+            }
+
+            GrasshopperContext gh;
+            GhFencedReadGate? readinessGate = null;
+            if (fenced)
+            {
+                gh = GetGrasshopper();
+                if (!gh.Success)
+                    return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
+
+                var gate = _solveReceiptRegistry.CheckFencedRead(readinessReceiptId!, gh.Document!);
+                if (!gate.Allowed)
+                    return ReadinessFenceFailure(gate);
+                readinessGate = gate;
+
+                var notReady = EnsureGrasshopperReadyForEdit("gh_snapshot");
+                if (notReady != null)
+                    return notReady;
+            }
+            else
+            {
+                var notReady = EnsureGrasshopperReadyForEdit("gh_snapshot");
+                if (notReady != null)
+                    return notReady;
+
+                gh = GetGrasshopper();
+                if (!gh.Success)
+                    return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
             }
 
             try
@@ -7114,6 +7333,7 @@ namespace Rook.Handlers
                 var warningIds = new List<string>();
                 int errorCount = 0;
                 int warningCount = 0;
+                var behavioralPointOutputs = fenced ? new List<object>() : null;
 
                 // Build a set of relay GUIDs for flow traversal
                 var relayGuids = new HashSet<Guid>();
@@ -7254,7 +7474,16 @@ namespace Rook.Handlers
                         else
                         {
                             // Build regular component entry
-                            var entry = BuildComponentEntry(obj, shortId, typeName, pos, errors, warnings, includeData, maxPreviewItems);
+                            var entry = BuildComponentEntry(
+                                obj,
+                                shortId,
+                                typeName,
+                                pos,
+                                errors,
+                                warnings,
+                                includeData,
+                                maxPreviewItems,
+                                behavioralPointOutputs);
                             if (entry != null) components.Add(entry);
 
                             // Extract flows from this component's input params
@@ -7314,6 +7543,19 @@ namespace Rook.Handlers
                     error_ids = errorIds.Count > 0 ? errorIds : null,
                     warning_ids = warningIds.Count > 0 ? warningIds : null
                 };
+
+                if (readinessGate?.Receipt is GhSolveReadinessReceipt receipt)
+                {
+                    snapshot["readiness_fence"] = new
+                    {
+                        readiness_receipt_id = receipt.ReceiptId,
+                        document_session_id = receipt.DocumentSessionId,
+                        mutation_epoch = receipt.MutationEpoch,
+                        solution_run_epoch = receipt.SolutionRunEpoch,
+                        completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
+                    };
+                    snapshot["behavioral_point_outputs"] = behavioralPointOutputs!;
+                }
 
                 return new ApiResponse { Success = true, Data = snapshot };
             }
@@ -7426,7 +7668,7 @@ namespace Rook.Handlers
 
         private object? BuildComponentEntry(object obj, string shortId, string typeName,
             float[]? pos, List<string> errors, List<string> warnings,
-            bool includeData, int maxPreviewItems)
+            bool includeData, int maxPreviewItems, List<object>? behavioralPointOutputs = null)
         {
             var name = obj.GetType().GetProperty("Name")?.GetValue(obj)?.ToString();
             var nick = obj.GetType().GetProperty("NickName")?.GetValue(obj)?.ToString();
@@ -7473,8 +7715,14 @@ namespace Rook.Handlers
                 var paramsServer = paramsProp.GetValue(obj);
                 if (paramsServer != null)
                 {
-                    var inputs = ExtractParams(paramsServer, true, includeData, maxPreviewItems);
-                    var outputs = ExtractParams(paramsServer, false, includeData, maxPreviewItems);
+                    var inputs = ExtractParams(paramsServer, true, includeData, maxPreviewItems, null, null);
+                    var outputs = ExtractParams(
+                        paramsServer,
+                        false,
+                        includeData,
+                        maxPreviewItems,
+                        shortId,
+                        behavioralPointOutputs);
 
                     if (inputs != null && ((List<object>)inputs).Count > 0)
                         entry["inputs"] = inputs;
@@ -7490,7 +7738,9 @@ namespace Rook.Handlers
         }
 
         private List<object>? ExtractParams(object paramsServer, bool isInput,
-            bool includeData, int maxPreviewItems)
+            bool includeData, int maxPreviewItems,
+            string? componentShortId = null,
+            List<object>? behavioralPointOutputs = null)
         {
             try
             {
@@ -7550,9 +7800,24 @@ namespace Rook.Handlers
                         // Include data preview for outputs
                         if (includeData)
                         {
-                            var dataPreview = ExtractDataPreview(param, maxPreviewItems);
-                            if (dataPreview != null)
-                                entry["data"] = dataPreview;
+                            if (behavioralPointOutputs is not null && componentShortId is not null)
+                            {
+                                var projection = ExtractFencedOutputData(
+                                    param,
+                                    maxPreviewItems,
+                                    componentShortId,
+                                    idx);
+                                if (projection.LegacyPreview != null)
+                                    entry["data"] = projection.LegacyPreview;
+                                if (projection.BehavioralPointOutput != null)
+                                    behavioralPointOutputs.Add(projection.BehavioralPointOutput);
+                            }
+                            else
+                            {
+                                var dataPreview = ExtractDataPreview(param, maxPreviewItems);
+                                if (dataPreview != null)
+                                    entry["data"] = dataPreview;
+                            }
                         }
                     }
 
@@ -7618,6 +7883,149 @@ namespace Rook.Handlers
             }
             catch { return null; }
         }
+
+        private sealed class FencedOutputProjection
+        {
+            public object? LegacyPreview { get; init; }
+            public object? BehavioralPointOutput { get; init; }
+        }
+
+        private FencedOutputProjection ExtractFencedOutputData(
+            object param,
+            int maxItems,
+            string componentShortId,
+            int outputIndex)
+        {
+            try
+            {
+                var volatileData = param.GetType().GetProperty("VolatileData")?.GetValue(param);
+                if (volatileData == null)
+                    return new FencedOutputProjection();
+
+                if (volatileData.GetType().GetProperty("DataCount")?.GetValue(volatileData) is not int dataCount ||
+                    dataCount < 0)
+                {
+                    return new FencedOutputProjection();
+                }
+
+                var isEmpty = volatileData.GetType().GetProperty("IsEmpty")?.GetValue(volatileData) as bool? ?? true;
+                if (isEmpty)
+                    return new FencedOutputProjection();
+
+                var pathCount = volatileData.GetType().GetProperty("PathCount")?.GetValue(volatileData) as int? ?? 0;
+                var structure = pathCount == 1 && dataCount == 1
+                    ? "single"
+                    : pathCount == 1
+                        ? "list"
+                        : "tree";
+                var legacy = new Dictionary<string, object?>
+                {
+                    ["structure"] = structure,
+                    ["count"] = dataCount,
+                };
+                if (structure == "tree")
+                    legacy["paths"] = pathCount;
+
+                var allDataMethod = volatileData.GetType().GetMethod("AllData", new[] { typeof(bool) });
+                var allData = allDataMethod?.Invoke(volatileData, new object[] { false })
+                    as System.Collections.IEnumerable;
+                if (allData == null)
+                    return new FencedOutputProjection { LegacyPreview = legacy };
+
+                var preview = new List<string>();
+                var points = new List<double[]>();
+                var observedCount = 0;
+                var sawPoint = false;
+                var sawNonPoint = false;
+                var sawNonfinitePoint = false;
+                var dataUnavailable = false;
+                var enumerator = allData.GetEnumerator();
+                try
+                {
+                    while (observedCount < maxItems && enumerator.MoveNext())
+                    {
+                        var item = enumerator.Current;
+                        var value = item?.GetType().GetProperty("Value")?.GetValue(item);
+                        preview.Add(value?.ToString() ?? item?.ToString() ?? "null");
+                        observedCount++;
+
+                        if (value is Rhino.Geometry.Point3d point)
+                        {
+                            sawPoint = true;
+                            if (IsFinite(point.X) && IsFinite(point.Y) && IsFinite(point.Z))
+                            {
+                                points.Add(new[] { point.X, point.Y, point.Z });
+                            }
+                            else
+                            {
+                                sawNonfinitePoint = true;
+                            }
+                        }
+                        else
+                        {
+                            sawNonPoint = true;
+                        }
+                    }
+                    if (dataCount <= maxItems &&
+                        observedCount == maxItems &&
+                        enumerator.MoveNext())
+                    {
+                        observedCount++;
+                    }
+                }
+                catch
+                {
+                    dataUnavailable = true;
+                }
+                finally
+                {
+                    try { (enumerator as IDisposable)?.Dispose(); }
+                    catch { dataUnavailable = true; }
+                }
+
+                if (preview.Count > 0)
+                    legacy["preview"] = preview;
+
+                if (!sawPoint ||
+                    param.GetType().GetProperty("Name")?.GetValue(param) is not string outputName)
+                {
+                    return new FencedOutputProjection { LegacyPreview = legacy };
+                }
+
+                string? error = dataUnavailable
+                    ? "data_unavailable"
+                    : dataCount > maxItems
+                        ? "truncated"
+                        : observedCount != dataCount
+                            ? "count_mismatch"
+                            : sawNonPoint
+                                ? "non_point_item"
+                                : sawNonfinitePoint
+                                    ? "nonfinite_coordinate"
+                                    : null;
+
+                return new FencedOutputProjection
+                {
+                    LegacyPreview = legacy,
+                    BehavioralPointOutput = new Dictionary<string, object?>
+                    {
+                        ["component_id"] = componentShortId,
+                        ["output_index"] = outputIndex,
+                        ["output_name"] = outputName,
+                        ["count"] = dataCount,
+                        ["complete"] = error is null,
+                        ["points"] = points,
+                        ["error"] = error,
+                    },
+                };
+            }
+            catch
+            {
+                return new FencedOutputProjection();
+            }
+        }
+
+        private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
 
         /// <summary>
         /// Extract flow strings from a regular component's input params.
@@ -7831,6 +8239,30 @@ namespace Rook.Handlers
             var tempIdMap = new Dictionary<string, Guid>();
             int created = 0, deleted = 0, valuesSet = 0, connected = 0, disconnected = 0;
             var dirtyObjects = new List<object>();
+            string? readinessReceiptId = null;
+            GhSolveReadinessReceipt? readinessReceipt = null;
+            GhScheduleResult? scheduleResult = null;
+            bool postMutationSolveAttempted = false;
+            bool mutationCommitUnknown = false;
+
+            bool HasNonEmptyArray(string key) =>
+                args.TryGetValue(key, out var value) &&
+                value.ValueKind == JsonValueKind.Array &&
+                value.GetArrayLength() > 0;
+
+            var solveRelevantMutationRequested =
+                HasNonEmptyArray("create") ||
+                HasNonEmptyArray("delete") ||
+                HasNonEmptyArray("set_values") ||
+                HasNonEmptyArray("connect") ||
+                HasNonEmptyArray("disconnect");
+            if (solveRelevantMutationRequested)
+            {
+                var issue = BeginMutationReceipt(gh.Document!, gh.Canvas!);
+                if (!issue.Issued)
+                    return ReadinessIssueFailure(issue.Error!);
+                readinessReceiptId = issue.Receipt!.ReceiptId;
+            }
 
             void AddDirty(object? candidate)
             {
@@ -7905,6 +8337,7 @@ namespace Rook.Handlers
                         }
                         catch (Exception ex)
                         {
+                            mutationCommitUnknown = true;
                             errors.Add($"Create exception: {ex.Message}");
                         }
                     }
@@ -7980,9 +8413,25 @@ namespace Rook.Handlers
                     {
                         try
                         {
-                            var removeMethod = targetInput.GetType().GetMethod("RemoveSource",
-                                new[] { gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param")! });
-                            removeMethod?.Invoke(targetInput, new[] { sourceOutput });
+                            var paramType = gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param");
+                            var removeMethod = paramType is null
+                                ? null
+                                : targetInput.GetType().GetMethod("RemoveSource", new[] { paramType });
+                            if (removeMethod is null)
+                            {
+                                errors.Add($"disconnect '{flowStr}': RemoveSource mutator unavailable");
+                                continue;
+                            }
+
+                            try
+                            {
+                                removeMethod.Invoke(targetInput, new[] { sourceOutput });
+                            }
+                            catch
+                            {
+                                mutationCommitUnknown = true;
+                                throw;
+                            }
                             disconnected++;
                             AddDirty(targetInput);
                         }
@@ -8004,7 +8453,7 @@ namespace Rook.Handlers
 
                     // First pass: collect objects to delete (for undo recording BEFORE removal)
                     var deletedObjects = new List<object>();
-                    var deletedAttrs = new List<object>();
+                    var deletedAttrs = new List<(object attributes, string shortId)>();
 
                     foreach (var item in deleteEl.EnumerateArray())
                     {
@@ -8030,7 +8479,11 @@ namespace Rook.Handlers
                         if (attributes != null)
                         {
                             deletedObjects.Add(obj);
-                            deletedAttrs.Add(attributes);
+                            deletedAttrs.Add((attributes, shortId));
+                        }
+                        else
+                        {
+                            errors.Add($"Delete: object '{shortId}' has no attributes");
                         }
                     }
 
@@ -8047,10 +8500,35 @@ namespace Rook.Handlers
                     }
 
                     // Second pass: actually remove the objects
-                    foreach (var attributes in deletedAttrs)
+                    foreach (var (attributes, shortId) in deletedAttrs)
                     {
-                        removeMethod?.Invoke(gh.Document, new object[] { attributes, true });
-                        deleted++;
+                        if (removeMethod is null)
+                        {
+                            errors.Add($"Delete: RemoveObject mutator unavailable for '{shortId}'");
+                            continue;
+                        }
+
+                        try
+                        {
+                            var removeResult = removeMethod.Invoke(gh.Document, new object[] { attributes, true });
+                            if (removeResult is not bool removed)
+                            {
+                                mutationCommitUnknown = true;
+                                errors.Add($"Delete '{shortId}': RemoveObject returned a non-Boolean result");
+                                continue;
+                            }
+                            if (!removed)
+                            {
+                                errors.Add($"Delete '{shortId}': RemoveObject returned false");
+                                continue;
+                            }
+                            deleted++;
+                        }
+                        catch (Exception ex)
+                        {
+                            mutationCommitUnknown = true;
+                            errors.Add($"Delete '{shortId}' exception: {ex.Message}");
+                        }
                     }
                 }
 
@@ -8059,6 +8537,7 @@ namespace Rook.Handlers
                 {
                     foreach (var item in setValEl.EnumerateArray())
                     {
+                        var itemCommitted = false;
                         try
                         {
                             var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
@@ -8080,16 +8559,49 @@ namespace Rook.Handlers
                             catch { /* undo recording is best-effort */ }
 
                             var typeName = obj.GetType().Name;
+                            var requestedMutableField = false;
+
+                            void MarkItemCommitted()
+                            {
+                                if (!itemCommitted)
+                                {
+                                    valuesSet++;
+                                    itemCommitted = true;
+                                    AddDirty(obj);
+                                }
+                            }
+
+                            void SetRequiredProperty(object target, string propertyName, object? value)
+                            {
+                                var property = target.GetType().GetProperty(propertyName);
+                                if (property is null)
+                                {
+                                    errors.Add($"set_values '{id}': {propertyName} mutator unavailable");
+                                    return;
+                                }
+
+                                try
+                                {
+                                    property.SetValue(target, value);
+                                }
+                                catch
+                                {
+                                    if (!itemCommitted)
+                                        mutationCommitUnknown = true;
+                                    throw;
+                                }
+
+                                MarkItemCommitted();
+                            }
 
                             // NickName — works on any component type (base class property)
                             if (item.TryGetProperty("nick", out var nickEl2))
                             {
+                                requestedMutableField = true;
                                 var nickVal = nickEl2.GetString();
                                 if (nickVal != null)
                                 {
-                                    obj.GetType().GetProperty("NickName")?.SetValue(obj, nickVal);
-                                    valuesSet++;
-                                    AddDirty(obj);
+                                    SetRequiredProperty(obj, "NickName", nickVal);
                                 }
                             }
 
@@ -8105,33 +8617,45 @@ namespace Rook.Handlers
                                     // Set max before min to avoid transient min>max state
                                     // when expanding range upward (e.g. [0,10] → [20,30])
                                     if (item.TryGetProperty("max", out var maxEl))
-                                        sliderType.GetProperty("Maximum")?.SetValue(slider, maxEl.GetDecimal());
+                                    {
+                                        requestedMutableField = true;
+                                        SetRequiredProperty(slider, "Maximum", maxEl.GetDecimal());
+                                    }
                                     if (item.TryGetProperty("min", out var minEl))
-                                        sliderType.GetProperty("Minimum")?.SetValue(slider, minEl.GetDecimal());
+                                    {
+                                        requestedMutableField = true;
+                                        SetRequiredProperty(slider, "Minimum", minEl.GetDecimal());
+                                    }
                                     if (item.TryGetProperty("value", out var valEl2))
-                                        sliderType.GetProperty("Value")?.SetValue(slider, valEl2.GetDecimal());
-                                    valuesSet++;
-                                    AddDirty(obj);
+                                    {
+                                        requestedMutableField = true;
+                                        SetRequiredProperty(slider, "Value", valEl2.GetDecimal());
+                                    }
+                                }
+                                else
+                                {
+                                    errors.Add($"set_values '{id}': Slider object unavailable");
                                 }
                             }
                             else if (typeName == "GH_Panel")
                             {
                                 if (item.TryGetProperty("value", out var valEl2))
                                 {
-                                    obj.GetType().GetProperty("UserText")?.SetValue(obj, valEl2.GetString());
-                                    valuesSet++;
-                                    AddDirty(obj);
+                                    requestedMutableField = true;
+                                    SetRequiredProperty(obj, "UserText", valEl2.GetString());
                                 }
                             }
                             else if (typeName == "GH_BooleanToggle")
                             {
                                 if (item.TryGetProperty("value", out var valEl2))
                                 {
-                                    obj.GetType().GetProperty("Value")?.SetValue(obj, valEl2.GetBoolean());
-                                    valuesSet++;
-                                    AddDirty(obj);
+                                    requestedMutableField = true;
+                                    SetRequiredProperty(obj, "Value", valEl2.GetBoolean());
                                 }
                             }
+
+                            if (!requestedMutableField)
+                                errors.Add($"set_values '{id}': no mutable fields supplied");
                         }
                         catch (Exception ex)
                         {
@@ -8194,9 +8718,25 @@ namespace Rook.Handlers
                     {
                         try
                         {
-                            var addMethod = targetInput.GetType().GetMethod("AddSource",
-                                new[] { gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param")! });
-                            addMethod?.Invoke(targetInput, new[] { sourceOutput });
+                            var paramType = gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param");
+                            var addMethod = paramType is null
+                                ? null
+                                : targetInput.GetType().GetMethod("AddSource", new[] { paramType });
+                            if (addMethod is null)
+                            {
+                                errors.Add($"connect '{flowStr}': AddSource mutator unavailable");
+                                continue;
+                            }
+
+                            try
+                            {
+                                addMethod.Invoke(targetInput, new[] { sourceOutput });
+                            }
+                            catch
+                            {
+                                mutationCommitUnknown = true;
+                                throw;
+                            }
                             connected++;
                             AddDirty(targetInput);
                         }
@@ -8226,7 +8766,8 @@ namespace Rook.Handlers
                 // Phase 7: Mark changed objects dirty, but do not schedule yet. The
                 // response snapshot must be captured before any scheduled Chirp solve
                 // can monopolize the UI thread and trip the native callback timeout.
-                var changedObjects = valuesSet > 0 || connected > 0 || disconnected > 0 || created > 0 || deleted > 0;
+                var solveRelevantCommitCount = created + deleted + valuesSet + connected + disconnected;
+                var changedObjects = solveRelevantCommitCount > 0;
                 ExpirePostMutationDirtyObjects(dirtyObjects);
                 RefreshCanvas(gh.Canvas!, scheduleSolution: false);
 
@@ -8240,13 +8781,23 @@ namespace Rook.Handlers
                 // then request exactly one positive-delay schedule.
                 const int postEditSolveDelayMs = 1;
                 standaloneRestore = solveSuspension.Restore();
-                var solveResult = RequestPostMutationSolve(
+                postMutationSolveAttempted = changedObjects;
+                scheduleResult = RequestPostMutationSolve(
                     gh.Document!,
                     dirtyObjects,
                     requestSolve: changedObjects,
                     delayMs: postEditSolveDelayMs,
                     expireDirtyObjects: false,
                     standaloneRestore: standaloneRestore);
+                var solveResult = scheduleResult.Value;
+                if (readinessReceiptId is not null)
+                {
+                    readinessReceipt = changedObjects
+                        ? FinalizeMutationReceipt(readinessReceiptId, solveResult)
+                        : mutationCommitUnknown
+                            ? FinalizeUnknownCommitReceipt(readinessReceiptId)
+                            : FinalizeNoCommitReceipt(readinessReceiptId);
+                }
 
                 var editSummary = new
                 {
@@ -8286,24 +8837,32 @@ namespace Rook.Handlers
                 if (snapshotResult.Success && snapshotResult.Data is Dictionary<string, object?> snapData)
                 {
                     snapData["edit_summary"] = editSummary;
+                    if (readinessReceipt is not null)
+                        snapData["solve_readiness_receipt"] = ReceiptSnapshot(readinessReceipt);
                 }
                 else if (snapshotResult.Success)
                 {
                     // Snapshot returned non-dictionary data, wrap it
-                    snapshotResult.Data = new
+                    var wrappedSuccess = new Dictionary<string, object?>
                     {
-                        snapshot = snapshotResult.Data,
-                        edit_summary = editSummary
+                        ["snapshot"] = snapshotResult.Data,
+                        ["edit_summary"] = editSummary,
                     };
+                    if (readinessReceipt is not null)
+                        wrappedSuccess["solve_readiness_receipt"] = ReceiptSnapshot(readinessReceipt);
+                    snapshotResult.Data = wrappedSuccess;
                 }
                 else
                 {
                     var snapshotFailure = snapshotResult.Data;
-                    snapshotResult.Data = new
+                    var wrappedFailure = new Dictionary<string, object?>
                     {
-                        snapshot_failure = snapshotFailure,
-                        edit_summary = editSummary,
+                        ["snapshot_failure"] = snapshotFailure,
+                        ["edit_summary"] = editSummary,
                     };
+                    if (readinessReceipt is not null)
+                        wrappedFailure["solve_readiness_receipt"] = ReceiptSnapshot(readinessReceipt);
+                    snapshotResult.Data = wrappedFailure;
                 }
 
                 return snapshotResult;
@@ -8313,41 +8872,114 @@ namespace Rook.Handlers
                 if (!standaloneRestore.HasValue && solveSuspension != null)
                     standaloneRestore = solveSuspension.Restore();
 
-                if (standaloneRestore.HasValue &&
-                    standaloneRestore.Value.Attempted &&
-                    !standaloneRestore.Value.Succeeded)
+                var solveRelevantCommitCount = created + deleted + valuesSet + connected + disconnected;
+                bool? solveRelevantMutationCommitted = solveRelevantCommitCount > 0
+                    ? true
+                    : mutationCommitUnknown
+                        ? null
+                        : false;
+                if (readinessReceiptId is not null && readinessReceipt is null)
                 {
-                    var registration = new GhDocumentLifecycle().InspectRegistration(gh.Document!);
-                    return new ApiResponse
+                    if (solveRelevantMutationCommitted == false)
                     {
-                        Success = false,
-                        Data = new
-                        {
-                            error = "apply_edit_failed",
-                            message = ex.Message,
-                            schedule_classification = GhScheduleWire.ToWire(
-                                GhScheduleClassification.SolveNotRequested),
-                            schedule_acceptance = GhScheduleWire.ToWire(
-                                GhScheduleAcceptance.NotAttempted),
-                            schedule_failure_code = GhScheduleWire.ToWire(
-                                GhScheduleFailureCode.StandaloneSolverRestoreFailed),
-                            solve_scheduled = false,
-                            registration_known = registration.Known,
-                            document_registered = registration.Known
-                                ? registration.Registered
-                                : (bool?)null,
-                            solve_warnings = new[]
+                        readinessReceipt = FinalizeNoCommitReceipt(readinessReceiptId);
+                    }
+                    else if (solveRelevantMutationCommitted is null)
+                    {
+                        readinessReceipt = FinalizeUnknownCommitReceipt(readinessReceiptId);
+                    }
+                    else if (scheduleResult.HasValue)
+                    {
+                        readinessReceipt = FinalizeMutationReceipt(readinessReceiptId, scheduleResult.Value);
+                    }
+                    else if (postMutationSolveAttempted)
+                    {
+                        readinessReceipt = FinalizePostReservationFailureReceipt(
+                            readinessReceiptId,
+                            solveRelevantMutationCommitted: true);
+                    }
+                    else
+                    {
+                        readinessReceipt = FinalizePostReservationFailureReceipt(
+                            readinessReceiptId,
+                            solveRelevantMutationCommitted: true,
+                            scheduleCommittedMutation: () =>
                             {
-                                GhScheduleWire.ToWire(GhScheduleWarning.StandaloneRestoreFailed),
-                            },
-                            standalone_restore_attempted = true,
-                            standalone_restore_succeeded = false,
-                            observed_document_enabled = standaloneRestore.Value.ObservedDocumentEnabled,
-                        },
-                    };
+                                postMutationSolveAttempted = true;
+                                scheduleResult = RequestPostMutationSolve(
+                                    gh.Document!,
+                                    dirtyObjects,
+                                    requestSolve: true,
+                                    delayMs: 1,
+                                    expireDirtyObjects: false,
+                                    standaloneRestore: standaloneRestore);
+                                return scheduleResult.Value;
+                            });
+                    }
                 }
 
-                return new ApiResponse { Success = false, Data = $"ApplyEdit failed: {ex.Message}" };
+                var registration = new GhDocumentLifecycle().InspectRegistration(gh.Document!);
+                var effectiveSchedule = scheduleResult ?? new GhScheduleResult
+                {
+                    RegistrationKnown = registration.Known,
+                    DocumentRegistered = registration.Known ? registration.Registered : (bool?)null,
+                    ScheduleClassification = GhScheduleClassification.SolveNotRequested,
+                    ScheduleAcceptance = GhScheduleAcceptance.NotAttempted,
+                    ScheduleFailureCode = standaloneRestore.HasValue &&
+                        standaloneRestore.Value.Attempted &&
+                        !standaloneRestore.Value.Succeeded
+                            ? GhScheduleFailureCode.StandaloneSolverRestoreFailed
+                            : null,
+                    VerificationDeferred = solveRelevantMutationCommitted == true,
+                    Warnings = standaloneRestore.HasValue &&
+                        standaloneRestore.Value.Attempted &&
+                        !standaloneRestore.Value.Succeeded
+                            ? new[] { GhScheduleWarning.StandaloneRestoreFailed }
+                            : Array.Empty<GhScheduleWarning>(),
+                };
+                var failureSummary = new
+                {
+                    created,
+                    deleted,
+                    values_set = valuesSet,
+                    connected,
+                    disconnected,
+                    schedule_classification = GhScheduleWire.ToWire(effectiveSchedule.ScheduleClassification),
+                    schedule_acceptance = GhScheduleWire.ToWire(effectiveSchedule.ScheduleAcceptance),
+                    schedule_failure_code = effectiveSchedule.ScheduleFailureCode.HasValue
+                        ? GhScheduleWire.ToWire(effectiveSchedule.ScheduleFailureCode.Value)
+                        : null,
+                    solve_scheduled = effectiveSchedule.SolveScheduled,
+                    registration_known = effectiveSchedule.RegistrationKnown,
+                    document_registered = effectiveSchedule.DocumentRegistered,
+                    solver_locked = effectiveSchedule.SolverLocked,
+                    solver_state_known = effectiveSchedule.SolverStateKnown,
+                    verification_deferred = effectiveSchedule.VerificationDeferred,
+                    solve_warnings = effectiveSchedule.Warnings.Select(GhScheduleWire.ToWire).ToArray(),
+                    standalone_restore_attempted = standaloneRestore?.Attempted ?? false,
+                    standalone_restore_succeeded = standaloneRestore?.Succeeded,
+                    observed_document_enabled = standaloneRestore?.ObservedDocumentEnabled,
+                    errors = errors.Count > 0 ? errors : null,
+                    temp_id_map = tempIdMap.Count > 0
+                        ? tempIdMap.ToDictionary(
+                            kv => kv.Key,
+                            kv => _idRegistry.ResolveReverse(kv.Value) ?? kv.Value.ToString())
+                        : null,
+                    instance_guids = tempIdMap.Count > 0
+                        ? tempIdMap.ToDictionary(kv => kv.Key, kv => kv.Value.ToString())
+                        : null,
+                };
+
+                var failureData = new Dictionary<string, object?>
+                {
+                    ["error"] = "apply_edit_failed",
+                    ["message"] = ex.Message,
+                    ["edit_summary"] = failureSummary,
+                };
+                if (readinessReceipt is not null)
+                    failureData["solve_readiness_receipt"] = ReceiptSnapshot(readinessReceipt);
+
+                return new ApiResponse { Success = false, Data = failureData };
             }
         }
 
