@@ -60,10 +60,14 @@ Four handoffs are presently unqualified:
    vocabulary label does not prove exact type, precision, evidence,
    completeness, error, and budget behavior for that operation.
 
-The first evidence slice qualifies only item 1 using disposable, local-only
-Constructor and independent Reviewer sessions. It must not be used to infer
-items 2–4. None of the seven production stages in the companion plan is
-authorized by this architecture hypothesis.
+The retained V1/V2 evidence qualifies one narrower fact: a Constructor can
+consume an exact compiler diagnostic and return a reference-closed replacement
+artifact. It does not qualify item 1 because the V2 Reviewer lacked the shared
+expression semantic contract and produced a semantic false negative. Phase A
+below therefore qualifies the machine-decidable subset of item 4 before any
+new Reviewer call. Phase B later returns to item 1 using compiler-valid cases.
+Neither phase may be used to infer items 2 or 3. None of the seven production
+stages in the companion plan is authorized by this architecture hypothesis.
 
 ## Non-Goals
 
@@ -753,6 +757,65 @@ A symbolic role has exactly:
 geometry_collection | external_evidence` in v1.
 Role IDs are task-local labels. They do not authorize code branches.
 
+`kind` identifies the binding mechanism. `valueType` identifies the semantic
+meaning made available to the expression compiler. Neither substitutes for
+the other. The shared semantic manifest owns their compatibility; the
+contract schema admits only a lexical type reference, and the compiler
+refuses an incompatible pair.
+
+The typed contract schema defines `roleId` once as
+`^[a-z][A-Za-z0-9]*$` with a maximum of 64 characters. Role declarations,
+requirement references, claim references, evidence references, expression
+references, and bindings all reuse that exact schema definition. No reference
+site admits a broader string grammar than the declaration site.
+
+The bounded Phase A qualification admits exactly:
+
+| `kind` | admitted `valueType` | expression-visible field |
+|---|---|---|
+| `grasshopper_number_control` | `integer` | `value: integer` |
+| `grasshopper_number_control` | `finite_scalar` | `value: finite_scalar` |
+| `grasshopper_output` | `collection<point3>` | `value: collection<point3>` |
+
+`geometry_collection` and `external_evidence` remain valid production role
+kinds but are unavailable in Phase A. Using an unavailable kind produces
+`unsupported`; using an admitted kind with a non-admitted `valueType`, an
+unknown field, or an incompatible binding produces `invalid`. Phase A must
+not infer a type from the role description, evidence request, claim text, or
+task-specific role ID.
+
+A `role` expression returns an internal
+`role_ref<kind,valueType>`. It never silently unwraps a control or output.
+The exact field `value` projects the declared semantic value. Thus the point
+count expression is:
+
+```json
+{
+  "op": "equal",
+  "args": [
+    {
+      "op": "collection_count",
+      "args": [
+        {
+          "op": "field",
+          "source": {"op":"role","role":"points"},
+          "name": "value"
+        }
+      ]
+    },
+    {
+      "op": "field",
+      "source": {"op":"role","role":"countControl"},
+      "name": "value"
+    }
+  ]
+}
+```
+
+Comparing `collection_count(points)` directly with a control role reference is
+a compile-time type error. This projection rule is shared by the Constructor,
+Reviewer, and deterministic validator; none may redefine it in prose.
+
 ### Actor binding
 
 The Actor supplies a separate witness binding after implementation:
@@ -898,6 +961,116 @@ budget cost, and error rule in the trusted vocabulary manifest. Unknown
 operations refuse compilation before Prime, Rook host, Rhino, or Grasshopper
 contact.
 
+### Shared semantic manifest
+
+There is exactly one versioned, canonical-JSON semantic manifest for a sealed
+language version. Constructor input, Reviewer input, schema validation, type
+checking, compilation, and evaluation all cite the same manifest ID, byte
+length, and SHA-256. A prose summary is explanatory only and cannot add or
+change semantics.
+
+The manifest contains these exact top-level sections:
+
+```text
+schema
+id
+version
+types
+roleKinds
+fields
+operations
+quantifiers
+authorityCompatibility
+precisionRules
+errorRules
+budgetRules
+```
+
+Every `roleKinds` entry contains:
+
+```text
+id
+availability
+allowedValueTypes
+bindingType
+availableFields
+unavailableOutcome
+incompatibleOutcome
+```
+
+Every field entry contains:
+
+```text
+sourceTypePattern
+name
+resultTypeExpression
+availability
+missingBehavior
+errorBehavior
+budgetCost
+```
+
+Every operation entry contains:
+
+```text
+op
+availability
+arity
+inputTypePatterns
+outputTypeExpression
+precision
+missingBehavior
+unsupportedBehavior
+errorBehavior
+budgetCost
+```
+
+An operation ID present with `availability=unavailable` compiles to
+`unsupported`. An operation ID absent from the manifest is
+`invalid/operation_unknown`; malformed syntax is `invalid/schema`. The same
+distinction applies to known-unavailable versus unknown role kinds. This keeps
+an honest capability gap separate from an open or fabricated contract.
+
+Phase A `valueType` is not free-form text. It is exactly `integer`,
+`finite_scalar`, `point3`, or the one-level constructor
+`collection<point3>`. `role_ref<kind,valueType>` is an internal compiler type
+and can never appear in contract JSON. Nested collections, unions, aliases,
+implicit numeric widening, and task-defined types are unavailable in Phase A.
+
+The Phase A operation subset is exact:
+
+| Operation | Input | Output | Required semantics |
+|---|---|---|---|
+| `literal` | declared `integer` or `finite_scalar` literal | declared type | integers remain exact; scalars must be finite |
+| `role` | admitted role ID | `role_ref<kind,valueType>` | no implicit value projection |
+| `field` | admitted role reference plus `value`, or `point3` plus `x`, `y`, or `z` | manifest-declared field type | missing/inapplicable field is compile-time `invalid` |
+| `current_item` | one in-scope quantifier binder | binder element type | unbound, shadowed, or out-of-scope name is `invalid` |
+| `collection_count` | `collection<T>` | `integer` | exact retained complete count only; incomplete runtime evidence is `unproven` |
+| `coordinate` | `point3` plus `x`, `y`, or `z` | `finite_scalar` | no collection broadcasting |
+| `equal` | identical exact-comparable types | `boolean3` | allowed only for `integer`, `enum`, `string`, and `identifier` in Phase A |
+| `approx_equal` | identical numeric types plus explicit finite nonnegative absolute and relative tolerances | `boolean3` | no default or inferred tolerance |
+| `and` | 2 through 8 `boolean3` values | `boolean3` | strong Kleene logic |
+| `for_all` | `collection<T>`, one lexical binder, and a `boolean3` body | `boolean3` | evaluates once per admitted item; empty is `true`; incomplete collection is `unproven` |
+
+The manifest also freezes:
+
+- maximum raw contract bytes: 131,072;
+- maximum expression nodes: 128;
+- maximum expression depth: 16;
+- maximum quantifier depth: 4;
+- maximum operation cost and collection visits as trusted policy values in the
+  manifest, never caller-raised values;
+- exact integers without float conversion;
+- finite scalar admission only;
+- missing, unsupported, runtime-error, truncation, and insufficient-precision
+  propagation to `unproven`; and
+- schema, reference, type, authority, binder, nonfinite, and budget violations
+  as compiler `invalid`.
+
+Phase A exercises compilation only; it does not invent runtime values for
+these operations. A later evaluator must consume the same manifest rather
+than duplicate the signatures in code.
+
 ### Derived macros
 
 Reviewed macros are canonical source-to-source lowering only. They add no
@@ -986,7 +1159,7 @@ A claim has exactly:
     "op": "equal",
     "args": [
       {"op":"collection_count","args":[{"op":"role","role":"points"}]},
-      {"op":"field","source":{"op":"role","role":"countControl"},"name":"integerValue"}
+      {"op":"field","source":{"op":"role","role":"countControl"},"name":"value"}
     ]
   }
 }
@@ -1000,6 +1173,22 @@ judgment_allowed
 judgment_required
 user_required
 ```
+
+The manifest owns this exact authority/expression compatibility matrix:
+
+| Authority | Expression | Deterministic result | Additional authority |
+|---|---|---|---|
+| `deterministic_required` | required, compiled type `boolean3` | `false` fails; `unproven` routes for admissible evidence or remains unresolved; `true` satisfies | none |
+| `judgment_allowed` | required, compiled type `boolean3` | `false` cannot be overridden; `true` satisfies; only `unproven` may route to attributed judgment | judgment is optional and bounded |
+| `judgment_required` | optional; when present it must compile to `boolean3` | an expressed `false` cannot be overridden; `true` does not remove the judgment requirement | attributed judgment is always required |
+| `user_required` | optional; when present it must compile to `boolean3` | an expressed `false` cannot be overridden; `true` does not remove the user decision | explicit correlated user decision is always required |
+
+A null expression under `deterministic_required` or `judgment_allowed` is
+compiler `invalid`. A model cannot use `user_required` to claim that an
+implemented property exists; it denotes a material user decision or approval.
+Changing authority or expression changes the contract hash. Reviewer judgment
+cannot repair an incompatible authority/expression pair because that pair is
+rejected before review.
 
 Claim IDs are reporting and correlation labels only. Changing an ID without
 changing the expression does not change execution. Changing the expression
@@ -1348,6 +1537,114 @@ not added to Prime.
 - uncertain/malformed judgment;
 - material weakening requires a new contract hash and approval;
 - no score collapses individual claims.
+
+## Pre-Implementation Semantic Boundary Qualification
+
+No production router, Prime adapter, role profile, or live workflow may be
+implemented from this specification until the shared semantic boundary passes
+two separately reviewed phases.
+
+### Phase A: compiler qualification without a model
+
+Phase A creates exactly one canonical semantic manifest, one typed contract
+schema, one deterministic validator/compiler seam, one coherent point-row
+artifact, and one isolated mutation corpus. The Constructor prompt template,
+Reviewer prompt template, validator, and corpus all consume the same manifest
+bytes and retain its hash. No Ollama, hosted model, Prime, Rook, Rhino, or
+Grasshopper contact is permitted.
+
+All Phase A implementation is disposable offline qualification code. It does
+not add `acceptance_expression.py`, alter `validation_kernel`, expose a tool,
+or start any production-router task. Passing Phase A authorizes only a later
+Phase B design review.
+
+The coherent point-row artifact uses these roles:
+
+| Role | Kind | Value type |
+|---|---|---|
+| `startControl` | `grasshopper_number_control` | `finite_scalar` |
+| `stepControl` | `grasshopper_number_control` | `finite_scalar` |
+| `countControl` | `grasshopper_number_control` | `integer` |
+| `points` | `grasshopper_output` | `collection<point3>` |
+
+It demonstrates only compiler coherence:
+
+- point count equals the projected integer value of `countControl`;
+- every point Y is approximately zero through explicit `for_all`;
+- every point Z is approximately zero through explicit `for_all`; and
+- the indexed Start/Step relationship remains explicitly unresolved because
+  the Phase A subset has no indexed-access operation.
+
+Compiler coherence is not intent adequacy. An omitted or weakened requirement
+may still compile and is reserved for Phase B review.
+
+Each mutation changes exactly one mechanically decidable property and must
+fail for its own stable compiler diagnostic:
+
+| Mutation | Required compiler result |
+|---|---|
+| undeclared role reference | `invalid/reference_unknown` |
+| incompatible role kind and `valueType` | `invalid/role_type_incompatible` |
+| direct scalar comparison with an unprojected control role | `invalid/type_mismatch` |
+| `coordinate` applied to `collection<point3>` without `for_all` | `invalid/type_mismatch` |
+| unbound, shadowed, or out-of-scope quantifier variable | `invalid/binder_invalid` |
+| null expression under `deterministic_required` | `invalid/authority_expression_incompatible` |
+| null expression under `judgment_allowed` | `invalid/authority_expression_incompatible` |
+| floating comparison without explicit admitted tolerances | `invalid/tolerance_required` |
+| nonfinite literal or tolerance | `invalid/nonfinite` |
+| AST node, depth, quantifier, or work-cost limit exceeded | `invalid/budget_exceeded` |
+
+Each hostile fixture differs from the coherent fixture by exactly the named
+mechanical mutation. Tests execute the real parser/type checker, require the
+exact diagnostic, and prove that a mechanically invalid artifact produces no
+Reviewer request. This is compiler behavior evidence, not source-text
+presence checking.
+
+Phase A is complete only when:
+
+- every participant input cites the identical semantic-manifest hash;
+- the coherent artifact compiles;
+- every isolated mechanical mutation refuses causally;
+- unknown operations and unavailable role kinds return `unsupported` only
+  where the manifest explicitly says so;
+- the validator contains no point-row claim-ID or role-ID branch; and
+- an independent no-contact review reproduces the corpus.
+
+### Phase B: residual Reviewer qualification
+
+Phase B is designed and authorized only after Phase A passes independently.
+It uses compiler-valid artifacts exclusively. Mechanical defects never reach
+the Reviewer.
+
+The Reviewer receives:
+
+- the exact original intent;
+- the exact compiler-accepted artifact and hash;
+- the exact shared semantic manifest and hash;
+- the admitted evidence vocabulary;
+- the residual-review authority contract; and
+- its closed response schema.
+
+It does not receive Constructor reasoning or mutation labels. Each case uses a
+fresh no-shared-context Reviewer session.
+
+The later controlled corpus contains one semantically coherent artifact and
+isolated compiler-valid mutations for:
+
+- omission of a material requirement;
+- an invented material assumption;
+- material weakening of a requirement or tolerance;
+- misrouting a material choice away from required user authority; and
+- suppressing or mischaracterizing a material unresolved semantic risk.
+
+Reviewer ownership is limited to requirement coverage, assumption honesty,
+material weakening, authority meaning that depends on user intent, and
+unresolved semantic risk. It cannot approve a compiler-invalid artifact,
+change an expression, add an operation, or reinterpret a deterministic result.
+
+No grid, helix, live Grasshopper workflow, or production-router implementation
+is admitted by either phase. Phase A qualifies the compiler boundary. Phase B
+later qualifies residual semantic sensitivity.
 
 ## Delivery Sequence
 
