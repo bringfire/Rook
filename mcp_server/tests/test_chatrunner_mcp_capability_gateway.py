@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ast
+import copy
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -56,6 +58,72 @@ def _decode_retained_tool_content(content: str):
         return json.loads(content)
     except json.JSONDecodeError:
         return ast.literal_eval(content)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "endpoint", "method", "native_data"),
+    [
+        ("gh_edit", {"epoch": 0}, "/gh/edit", "POST", ({"epoch": 0}, {"epoch": 0})),
+        ("gh_snapshot", {}, "/gh/snapshot", "POST", (None, {})),
+        ("gh_status", {}, "/gh/status", "GET", (None, None)),
+        ("gh_errors", {}, "/gh/errors", "GET", (None, {})),
+    ],
+)
+async def test_authoritative_grasshopper_results_match_direct_and_gateway_without_hints(
+    monkeypatch,
+    tool_name,
+    arguments,
+    endpoint,
+    method,
+    native_data,
+):
+    from rook import server as rook_server
+    from rook.agent import tool_dispatcher as dispatcher_module
+    from rook.agent.tool_dispatcher import ToolDispatcher
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    rook_server._reset_capability_index_cache()
+    monkeypatch.setattr(
+        rook_server.targeting,
+        "policy_for_tool",
+        lambda _name: SimpleNamespace(requires_rhino=False),
+    )
+    native = {"success": True, "data": {"sentinel": tool_name}}
+    target_calls = []
+
+    async def fake_call_rhino(endpoint, method="GET", data=None, port=None):
+        target_calls.append((endpoint, method, copy.deepcopy(data), port))
+        return copy.deepcopy(native)
+
+    async def forbidden_injection(*_args, **_kwargs):
+        raise AssertionError("knowledge injection reached authoritative result")
+
+    monkeypatch.setattr(rook_server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(dispatcher_module, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(rook_server, "inject_knowledge", forbidden_injection)
+    monkeypatch.setattr(rook_server, "_record_gh_to_session", AsyncMock())
+    monkeypatch.setattr(rook_server, "_record_observation", lambda *_args: None)
+
+    direct_arguments = copy.deepcopy(arguments)
+    gateway_arguments = copy.deepcopy(arguments)
+    direct = await ToolDispatcher().dispatch(tool_name, direct_arguments)
+    canonical = await rook_server.call_tool(
+        "rook_tools_call",
+        {"name": tool_name, "arguments": gateway_arguments},
+        _public_mcp=True,
+    )
+
+    assert direct_arguments == arguments
+    assert gateway_arguments == arguments
+    assert canonical.structuredContent == direct
+    assert direct["data"]["sentinel"] == tool_name
+    assert "knowledge_hint" not in direct["data"]
+    assert "gotchas" not in direct["data"]
+    assert target_calls == [
+        (endpoint, method, native_data[0], None),
+        (endpoint, method, native_data[1], None),
+    ]
 
 
 def test_default_chat_service_runner_receives_real_scope_bound_gateway(
