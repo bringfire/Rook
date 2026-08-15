@@ -7,6 +7,7 @@ _TEMP_ID = re.compile(r"T[A-Za-z0-9_]{1,63}")
 _COMPONENT_ID = re.compile(r"C[1-9][0-9]*")
 _PORT_INDEX = re.compile(r"[+-]?[0-9]+")
 _INT32_WHITESPACE = " \t\r\n\v\f"
+_INT32_MAX_TEXT = "2147483647"
 
 MUTATION_COUNT_KEYS = (
     "created",
@@ -20,6 +21,24 @@ MUTATION_COUNT_KEYS = (
     "grouped",
     "ungrouped",
 )
+
+
+def _parse_nonnegative_int32(text):
+    value = text.strip(_INT32_WHITESPACE)
+    if not _PORT_INDEX.fullmatch(value):
+        return None
+    negative = value.startswith("-")
+    digits = value[1:] if value[:1] in "+-" else value
+    significant = digits.lstrip("0")
+    if not significant:
+        return 0
+    if negative:
+        return None
+    if len(significant) > len(_INT32_MAX_TEXT):
+        return None
+    if len(significant) == len(_INT32_MAX_TEXT) and significant > _INT32_MAX_TEXT:
+        return None
+    return int(significant)
 
 
 def _parse_flow_ids(flow):
@@ -40,18 +59,9 @@ def _parse_flow_ids(flow):
     if len(target_ref) < 2 or target_ref[0] not in "Ii":
         return None
 
-    source_index = source_ref[1:].strip(_INT32_WHITESPACE)
-    target_index = target_ref[1:].strip(_INT32_WHITESPACE)
-    if not _PORT_INDEX.fullmatch(source_index) or not _PORT_INDEX.fullmatch(target_index):
-        return None
-    try:
-        source_number = int(source_index)
-        target_number = int(target_index)
-    except ValueError:
-        return None
-    if not (0 <= source_number <= 2_147_483_647):
-        return None
-    if not (0 <= target_number <= 2_147_483_647):
+    source_number = _parse_nonnegative_int32(source_ref[1:])
+    target_number = _parse_nonnegative_int32(target_ref[1:])
+    if source_number is None or target_number is None:
         return None
     return source[0], target[0]
 

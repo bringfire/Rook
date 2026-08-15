@@ -21,11 +21,16 @@ def test_descriptive_temp_ids_are_admitted_without_mutating_request(temp_id):
     assert request == original
 
 
-def test_flow_port_indices_preserve_managed_ascii_whitespace_compatibility():
-    request = {
-        "epoch": 3,
-        "connect": ["C1.O \t\r\n\v\f+1 \t\r\n\v\f>C2.I 0 "],
-    }
+@pytest.mark.parametrize(
+    "flow",
+    [
+        "C1.O \t\r\n\v\f+1 \t\r\n\v\f>C2.I 0 ",
+        f"C1.O{'0' * 5000}>C2.I0",
+        "C1.O-000>C2.I+000",
+    ],
+)
+def test_flow_port_indices_preserve_managed_numeric_compatibility(flow):
+    request = {"epoch": 3, "connect": [flow]}
 
     assert admit_gh_edit_request(request) is None
 

@@ -285,6 +285,7 @@ async def test_non_script_gh_edit_keeps_one_unchanged_target_dispatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = _edit_with({"guid": "fbac3e32-f100-4292-8692-77240a42fd1a"})
+    request["connect"] = [f"C1.O{'0' * 5000}>T1.I0"]
     native_result = {
         "success": True,
         "data": {"edit_summary": {"created": 1, "errors": []}},
