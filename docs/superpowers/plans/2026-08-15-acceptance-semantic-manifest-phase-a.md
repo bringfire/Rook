@@ -13,7 +13,11 @@
 - Authoritative specification baseline exactly `35f8f68f8f98eb7f825dc78d5b1a7a29d42d1be1`.
 - Authoritative specification exactly `docs/superpowers/specs/2026-08-15-rook-prime-acceptance-workflow-router-design.md` at that baseline.
 - At execution, that baseline must be an ancestor of clean `HEAD`; the only path changed after it may be this Phase A plan, and the specification blob must remain byte-identical.
-- Disposable root exactly `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator`.
+- Disposable root exactly `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator`.
+- V1 and V2 are preserved byte-for-byte as rejected evidence lanes. V1 exposed
+  root-ownership drift; V2 exposed manifest-authority, repository-custody,
+  budget, mutation-diff, and manifest-audit gaps during mandatory independent
+  review. Neither lane authorizes Phase B.
 - If that root already exists, stop. Do not delete, overwrite, repair, or reuse it.
 - Use exactly `C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe`; record its version and SHA-256 before qualification.
 - Add no production module, endpoint, schema, tool, router, profile, evaluator behavior, or dependency.
@@ -34,19 +38,19 @@
 
 | File | Responsibility |
 |---|---|
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/phase_a.py` | Strict JSON ownership, manifest admission, static compiler, marked-example extraction, mutation application, qualification sealing, and audit |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/test_phase_a.py` | All causal Phase A tests; no network, model, host, or production imports |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/semantic-manifest.json` | The one canonical semantic authority for types, roles, fields, operations, quantifiers, authorities, precision, errors, and budgets |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/contract.schema.json` | Closed typed contract shape; references the manifest ID/hash but does not redefine operation semantics |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/point-row.valid.json` | One coherent compiler-only point-row contract |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/mutation-corpus.json` | Ordered one-change mechanical mutations and their exact expected diagnostics |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/run.ps1` | One no-contact test, qualify, and audit entry point |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/authoritative-spec.md` | Exact byte copy of the authoritative specification at the pinned baseline |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/participant-inputs.json` | Generated proof that Constructor template, Reviewer template, validator, and corpus consume identical manifest bytes/hash |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/execution-ledger.json` | Generated baseline, interpreter, source-spec, no-contact boundary, and artifact identities |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/source-manifest.json` | Generated exact size/hash inventory of every frozen input and source |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/qualification-result.json` | Generated closed result containing valid examples, coherent compilation, and every mutation outcome |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/evidence-manifest.json` | Generated exact size/hash inventory of the retained qualification evidence |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/phase_a.py` | Strict JSON ownership, manifest admission, static compiler, marked-example extraction, mutation application, qualification sealing, and audit |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/test_phase_a.py` | All causal Phase A tests; no network, model, host, or production imports |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/semantic-manifest.json` | The one canonical semantic authority for types, roles, fields, operations, quantifiers, authorities, precision, errors, and budgets |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/contract.schema.json` | Closed typed contract shape; references the manifest ID/hash but does not redefine operation semantics |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/point-row.valid.json` | One coherent compiler-only point-row contract |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/mutation-corpus.json` | Ordered one-change mechanical mutations and their exact expected diagnostics |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/run.ps1` | One no-contact test, prepare, qualify, and audit entry point |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/authoritative-spec.md` | Exact byte copy of the authoritative specification at the pinned baseline |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/participant-inputs.json` | Generated proof that Constructor template, Reviewer template, validator, and corpus consume identical manifest bytes/hash |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/execution-ledger.json` | Generated, independently derived baseline, interpreter, source-spec, no-contact boundary, and artifact identities |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/source-manifest.json` | Generated exact size/hash inventory of every frozen input and source |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/qualification-result.json` | Generated closed result containing valid examples, coherent compilation, and every mutation outcome |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/evidence-manifest.json` | Generated exact size/hash inventory of the retained qualification evidence |
 
 All reusable behavior remains in the single disposable `phase_a.py` because it
 has one qualification owner and will not ship. Split nothing into production
@@ -61,7 +65,7 @@ claim-ID or role-ID dispatch to the compiler.
 - Create: every disposable file in the ownership map above
 - Read only: `docs/superpowers/specs/2026-08-15-rook-prime-acceptance-workflow-router-design.md`
 - Modify: none outside the disposable root
-- Test: `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator/test_phase_a.py`
+- Test: `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/test_phase_a.py`
 
 **Interfaces:**
 - Produces: `strict_loads(raw: bytes | str) -> object` with duplicate-key, nonfinite, invalid UTF-8, and trailing-data refusal.
@@ -79,7 +83,7 @@ claim-ID or role-ID dispatch to the compiler.
 First prove the root is new:
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
 if (Test-Path -LiteralPath $root) {
   throw "Disposable Phase A root already exists: $root"
 }
@@ -123,7 +127,7 @@ test_result_and_evidence_manifests_audit_exactly
 - [ ] **Step 2: Run the RED suite and retain the expected missing-owner failure.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" -v
 if ($LASTEXITCODE -eq 0) { throw 'RED suite unexpectedly passed' }
@@ -349,10 +353,19 @@ ID uniqueness, availability value, type reference, strict integer budget, and
 cross-reference before returning immutable owned tables. It must not contain
 special handling for any task role or claim ID.
 
+The versioned manifest is immutable. `load_manifest()` verifies its exact
+canonical SHA-256 against the compiler's pinned Phase A manifest identity.
+The compiler obtains operation arity, input patterns, output type, and work
+cost from each admitted manifest entry; field result types come only from the
+selected field entry. The digest seal owns precision, missing, unsupported,
+and error metadata that compile-only Phase A cannot execute. Causal tests
+mutate each operation field independently and require refusal, while
+owned-entry tests prove the four compile-relevant fields control compilation.
+
 - [ ] **Step 6: Run the strict-JSON and manifest-only tests to GREEN.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" `
   StrictJsonTests ManifestContractTests -v
@@ -399,6 +412,11 @@ out-of-scope, or shadowing binders are `invalid/binder_invalid`. Missing either
 approximate tolerance is `invalid/tolerance_required`. No Python exception
 text enters result evidence.
 
+Caller-supplied `CompileBudget` values are optional lower ceilings only.
+Every provided value is a strict positive integer with booleans refused. A
+value above its manifest ceiling is `invalid/budget_override`; it is never
+silently admitted or clamped upward.
+
 `compile_claim()` applies the four-row authority matrix before accepting the
 expression's compiled `boolean3` type. `compile_contract()` validates the
 closed schema, unique role/claim IDs, vocabulary ID/hash, required claim set,
@@ -409,7 +427,7 @@ ordered outcome per claim only for `compiled`; the first deterministic
 - [ ] **Step 8: Run compiler and authority tests to GREEN.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" `
   ExpressionCompilerTests AuthorityCompatibilityTests -v
@@ -437,7 +455,7 @@ missing close marker. None may reach a successful qualification.
 - [ ] **Step 10: Prove every marked valid example and the coherent fixture compile.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" `
   SpecificationExampleTests -v
@@ -463,6 +481,16 @@ verify specification baseline ancestry, exact one-plan delta, and clean worktree
 -> encode source-manifest.json over the complete frozen source set
 -> flush/fsync each new artifact
 ```
+
+Repository custody is derived, never accepted as CLI evidence. `prepare()`
+receives only the repository root, exact baseline, exact specification path,
+and pinned Python path. A fixed-argument, `shell=False` local Git runner
+derives HEAD, ancestry, changed paths, porcelain status, baseline and working
+specification blob IDs, and exact baseline blob bytes. Any mismatch refuses
+before the first generated write. Tests inject a hostile fake runner and prove
+that callers cannot assert clean status, ancestry, HEAD, path scope, or blob
+identity. `subprocess` is permitted only inside this Git custody owner; all
+network/model/Prime/Rook/Rhino/Grasshopper surfaces remain absent.
 
 `qualify()` performs this order:
 
@@ -521,18 +549,28 @@ result object. It performs no writes.
 
 - [ ] **Step 12: Add causal corpus, custody, and prohibited-surface tests.**
 
-For each corpus case, assert the base still compiles, the mutated artifact has
-the expected exact status/code/path, and reversing the one mutation restores
-the base hash. Add mutations to the test itself proving a wrong expected code,
-second changed pointer, open result key, changed participant hash, changed
-manifest byte, changed specification example, post-result evidence edit, and
-missing evidence entry all refuse.
+For each corpus case, assert the base still compiles, independently diff the
+base and mutated structures to the declared JSON pointer, require exactly that
+one changed site, and reconstruct the base from the retained pre-mutation
+value to recover its exact hash. The raw-token case independently proves one
+selected byte-token replacement and exact byte reversal. No helper may return
+`1` merely because the corpus declares a pointer. Add mutations to the test
+itself proving a wrong expected code, second changed pointer, open result key,
+changed participant hash, changed manifest byte, changed specification
+example, post-result evidence edit, and missing evidence entry all refuse.
+
+`verify_file_manifest()` requires the exact expected schema. `audit()`
+requires strict canonical bytes for both manifests before checking membership,
+size, and hash. Fabricated schemas or trailing bytes refuse even if every entry
+still matches.
 
 Parse `phase_a.py` and `run.ps1` to prohibit network/model/host surfaces. The
 closed forbidden set includes Python imports/calls `socket`, `urllib`,
-`requests`, `httpx`, `aiohttp`, `subprocess`, `ollama`, `anthropic`, `openai`,
+`requests`, `httpx`, `aiohttp`, `ollama`, `anthropic`, `openai`,
 `rook`, and PowerShell tokens `Invoke-WebRequest`, `Invoke-RestMethod`,
 `Start-Process`, `rook_tools_`, `/execute`, `/gh/`, `localhost`, and `http`.
+The AST test permits `subprocess` only inside the fixed Git custody function
+and requires list arguments, `shell=False`, and executable token `git`.
 This is a no-contact surface proof, not an OS sandbox claim.
 
 Assert `phase_a.py` contains none of these task-local dispatch strings:
@@ -552,7 +590,7 @@ Static data and tests may contain them; compiler source may not.
 - [ ] **Step 13: Run the complete inert suite and require GREEN.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" -v
 if ($LASTEXITCODE -ne 0) { throw 'Complete Phase A inert suite failed' }
@@ -586,19 +624,23 @@ test_phase_a.py
 ```
 
 Re-run the complete suite after freezing. Do not change any listed file after
-`source-manifest.json` is written. A required correction creates a fresh V2
-disposable root; it does not amend frozen V1 bytes.
+`source-manifest.json` is written. A required correction creates a fresh
+successor disposable root; it does not amend frozen V1, V2, or V3 bytes.
 
 - [ ] **Step 15: Add and run the one operator entry point.**
 
 `run.ps1` accepts no target, model, endpoint, or credential arguments. It has
-one `-Mode test|qualify|audit` parameter and invokes only the pinned repository
-Python. Execute:
+one `-Mode test|prepare|qualify|audit` parameter and invokes only the pinned
+repository Python. Prepare supplies fixed repository, baseline, specification,
+and Python paths; all claimed repository facts are derived by the Python
+custody owner. Execute:
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
 & pwsh -NoProfile -File "$root/run.ps1" -Mode test
 if ($LASTEXITCODE -ne 0) { throw 'Phase A test mode failed' }
+& pwsh -NoProfile -File "$root/run.ps1" -Mode prepare
+if ($LASTEXITCODE -ne 0) { throw 'Phase A prepare failed' }
 & pwsh -NoProfile -File "$root/run.ps1" -Mode qualify
 if ($LASTEXITCODE -ne 0) { throw 'Phase A qualification failed' }
 & pwsh -NoProfile -File "$root/run.ps1" -Mode audit
@@ -623,7 +665,7 @@ git -C 'C:/UDEV/Rook/.worktrees/acceptance-workflow-router-design' status --shor
 git -C 'C:/UDEV/Rook/.worktrees/acceptance-workflow-router-design' diff --check
 Get-ChildItem Env: | Where-Object Name -Match 'ANTHROPIC|OPENAI|OLLAMA' |
   Select-Object Name
-Get-ChildItem 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v1/operator' -Recurse -File |
+Get-ChildItem 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator' -Recurse -File |
   Sort-Object FullName |
   Get-FileHash -Algorithm SHA256
 ```
