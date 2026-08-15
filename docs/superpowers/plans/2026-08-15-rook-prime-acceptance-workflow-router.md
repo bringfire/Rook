@@ -1,6 +1,26 @@
-# Rook–Prime Acceptance Workflow Router Implementation Plan
+# Rook–Prime Acceptance Workflow Router North Star Staging Map
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Status:** North Star architecture hypothesis — not implementation-ready and
+not authorized for execution.
+
+This file preserves the proposed seven-stage decomposition so later evidence
+can confirm, amend, split, or reject it. It is not an executable implementation
+plan. No checkbox below may begin until the relevant authority handoff has been
+independently qualified and this document has been rewritten from that
+evidence. In particular, the first required slice is the separate offline
+qualification of:
+
+```text
+user intent
+-> proposed acceptance artifact
+-> independent adequacy review
+```
+
+That slice changes documentation and disposable artifacts only. It does not
+implement a router, compiler, evaluator, Prime adapter, profile, persistence
+owner, or live qualification.
 
 **Goal:** Build a durable Rook-owned workflow router that uses Prime for role-separated model sessions, compiles task-local acceptance contracts into one generic deterministic evaluator, survives interruption without replaying mutations, and emits final statuses only through a deterministic Policy Gate.
 

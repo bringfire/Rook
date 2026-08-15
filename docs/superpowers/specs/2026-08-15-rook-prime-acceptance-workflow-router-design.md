@@ -1,6 +1,6 @@
 # Rook–Prime Acceptance Workflow Router
 
-**Status:** Implementation-ready production contract
+**Status:** North Star architecture hypothesis — not implementation-ready
 **Date:** 2026-08-15
 **Baseline:** `4a2adfa39657118924d57468b77ec0aa1c4b8991`
 **Qualified Prime runtime:** `27b5be22cf0e0e81e324a59ebabbb41edfee6ec0`
@@ -31,6 +31,39 @@ The router contains no Grasshopper task noun, preferred topology, model prompt,
 or domain-specific acceptance branch. Task meaning is supplied as a bounded,
 content-addressed declarative contract. The router validates and routes closed
 outcomes; it does not become another agent framework.
+
+## Qualification Status
+
+This document describes the intended ownership and routing direction. It does
+not establish that the declared boundaries are effective. Production work is
+blocked until evidence qualifies each handoff at the boundary that owns it.
+
+The governing qualification invariant is:
+
+> A declared boundary is not an effective boundary until its owner, admission
+> rule, and causal handoff are mechanically demonstrated.
+
+Four handoffs are presently unqualified:
+
+1. **Generated contract -> independently admitted meaning.** No retained
+   comparison yet proves that a Constructor can cover user intent honestly and
+   that a separate Reviewer can detect omissions, invented assumptions,
+   unsupported evidence, authority mistakes, vacuous claims, and material
+   weakening.
+2. **Prime protocol/configuration -> effective role runtime.** RPC/ACP features
+   and declared role profiles do not prove that a live top-level session
+   receives exactly the intended model, context, tools, and authority.
+3. **Persisted dispatch -> exclusive live worker ownership.** An append-only
+   intent and CAS design do not prove that only one worker can own and complete
+   the correlated external operation across crashes and restarts.
+4. **Operation name -> fully defined deterministic semantics.** A closed
+   vocabulary label does not prove exact type, precision, evidence,
+   completeness, error, and budget behavior for that operation.
+
+The first evidence slice qualifies only item 1 using disposable, local-only
+Constructor and independent Reviewer sessions. It must not be used to infer
+items 2–4. None of the seven production stages in the companion plan is
+authorized by this architecture hypothesis.
 
 ## Non-Goals
 
