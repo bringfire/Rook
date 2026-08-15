@@ -589,6 +589,16 @@ namespace Rook.Tests.Handlers
             "/groups/0/members/0",
             "invalid_component_reference",
             "N2")]
+        [InlineData(
+            "{\"epoch\":0,\"connect\":[\"C1.O\\u00A01>C2.I0\"]}",
+            "/connect/0",
+            "invalid_flow",
+            "C1.O\u00A01>C2.I0")]
+        [InlineData(
+            "{\"epoch\":0,\"connect\":[\"C1.O\\u00851>C2.I0\"]}",
+            "/connect/0",
+            "invalid_flow",
+            "C1.O\u00851>C2.I0")]
         public void ApplyEdit_InvalidReferencesRefuseBeforeGrasshopperAccessOrMutation(
             string body,
             string expectedPath,

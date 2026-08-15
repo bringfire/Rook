@@ -99,9 +99,13 @@ async def test_authoritative_grasshopper_results_match_direct_and_gateway_withou
     async def forbidden_injection(*_args, **_kwargs):
         raise AssertionError("knowledge injection reached authoritative result")
 
+    def forbidden_store():
+        raise AssertionError("knowledge store reached authoritative result")
+
     monkeypatch.setattr(rook_server, "call_rhino", fake_call_rhino)
     monkeypatch.setattr(dispatcher_module, "call_rhino", fake_call_rhino)
     monkeypatch.setattr(rook_server, "inject_knowledge", forbidden_injection)
+    monkeypatch.setattr(rook_server, "get_unified_store", forbidden_store)
     monkeypatch.setattr(rook_server, "_record_gh_to_session", AsyncMock())
     monkeypatch.setattr(rook_server, "_record_observation", lambda *_args: None)
 

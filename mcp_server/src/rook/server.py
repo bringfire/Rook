@@ -153,25 +153,6 @@ _recent_failures: dict[str, dict] = {}
 _FAILURE_EXPIRY_MINUTES = 30  # Failures older than this are ignored
 
 
-def _attach_deprecation_warnings(result: dict[str, Any], warnings: list[dict[str, Any]]) -> dict[str, Any]:
-    """Attach deprecation warnings to a tool result without changing success semantics."""
-    if not warnings:
-        return result
-
-    merged = dict(result)
-    data = merged.get("data")
-    if isinstance(data, dict):
-        data = dict(data)
-        data["deprecation_warnings"] = warnings
-    else:
-        data = {
-            "result": data,
-            "deprecation_warnings": warnings,
-        }
-    merged["data"] = data
-    return merged
-
-
 def _merge_issue_lists(*issue_lists: Any) -> list[str]:
     merged: list[str] = []
     for issues in issue_lists:
@@ -15729,11 +15710,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             if "epoch" not in arguments:
                 result = {"success": False, "data": "Missing required parameter: epoch"}
             else:
-                deprecation_warnings = get_unified_store().check_deprecation_warnings(
-                    arguments.get("create", [])
-                )
                 result = await call_rhino("/gh/edit", "POST", arguments, port=port)
-                result = _attach_deprecation_warnings(result, deprecation_warnings)
                 result = apply_gh_edit_contract(result, strict_partial_success=True)
                 # Record to session history
                 if result.get("success") or result.get("partial_success"):

@@ -6,6 +6,7 @@ GH_EDIT_TEMP_ID_PATTERN = r"^T[A-Za-z0-9_]{1,63}$"
 _TEMP_ID = re.compile(r"T[A-Za-z0-9_]{1,63}")
 _COMPONENT_ID = re.compile(r"C[1-9][0-9]*")
 _PORT_INDEX = re.compile(r"[+-]?[0-9]+")
+_INT32_WHITESPACE = " \t\r\n\v\f"
 
 MUTATION_COUNT_KEYS = (
     "created",
@@ -39,8 +40,8 @@ def _parse_flow_ids(flow):
     if len(target_ref) < 2 or target_ref[0] not in "Ii":
         return None
 
-    source_index = source_ref[1:].strip()
-    target_index = target_ref[1:].strip()
+    source_index = source_ref[1:].strip(_INT32_WHITESPACE)
+    target_index = target_ref[1:].strip(_INT32_WHITESPACE)
     if not _PORT_INDEX.fullmatch(source_index) or not _PORT_INDEX.fullmatch(target_index):
         return None
     try:

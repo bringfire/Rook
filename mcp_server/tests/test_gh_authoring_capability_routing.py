@@ -391,8 +391,39 @@ async def test_canonical_handoff_precedes_target_availability(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("flow", "expected_issue"),
+    [
+        (
+            "N1.O0>TActorSetControl.I0",
+            {
+                "path": "/connect/0",
+                "code": "invalid_component_reference",
+                "value": "N1",
+            },
+        ),
+        (
+            "C1.O\u00a01>TActorSetControl.I0",
+            {
+                "path": "/connect/0",
+                "code": "invalid_flow",
+                "value": "C1.O\u00a01>TActorSetControl.I0",
+            },
+        ),
+        (
+            "C1.O\u00851>TActorSetControl.I0",
+            {
+                "path": "/connect/0",
+                "code": "invalid_flow",
+                "value": "C1.O\u00851>TActorSetControl.I0",
+            },
+        ),
+    ],
+)
 async def test_invalid_gh_edit_references_refuse_before_canonical_or_direct_target_contact(
     monkeypatch: pytest.MonkeyPatch,
+    flow: str,
+    expected_issue: dict,
 ) -> None:
     monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
     targeting.reset_targeting_state_for_tests()
@@ -401,7 +432,7 @@ async def test_invalid_gh_edit_references_refuse_before_canonical_or_direct_targ
         "create": [
             {"temp_id": "TActorSetControl", "type": "slider", "pos": [100, 200]}
         ],
-        "connect": ["N1.O0>TActorSetControl.I0"],
+        "connect": [flow],
     }
     calls = []
 
@@ -427,13 +458,7 @@ async def test_invalid_gh_edit_references_refuse_before_canonical_or_direct_targ
         "success": False,
         "data": {
             "error": "gh_edit_admission_failed",
-            "issues": [
-                {
-                    "path": "/connect/0",
-                    "code": "invalid_component_reference",
-                    "value": "N1",
-                }
-            ],
+            "issues": [expected_issue],
         },
     }
     assert calls == []

@@ -21,6 +21,15 @@ def test_descriptive_temp_ids_are_admitted_without_mutating_request(temp_id):
     assert request == original
 
 
+def test_flow_port_indices_preserve_managed_ascii_whitespace_compatibility():
+    request = {
+        "epoch": 3,
+        "connect": ["C1.O \t\r\n\v\f+1 \t\r\n\v\f>C2.I 0 "],
+    }
+
+    assert admit_gh_edit_request(request) is None
+
+
 @pytest.mark.parametrize(
     "temp_id",
     [None, 1, "T", "t1", "N1", "T-hyphen", "T1\n", "T" + ("A" * 64)],
@@ -107,6 +116,8 @@ def test_duplicate_and_invalid_references_refuse_in_fixed_semantic_order():
         "C1.Ox>C2.I0",
         "C1.O2147483648>C2.I0",
         f"C1.O{'9' * 5000}>C2.I0",
+        "C1.O\u00a01>C2.I0",
+        "C1.O\u00851>C2.I0",
     ],
 )
 def test_malformed_flows_refuse_before_reference_resolution(flow):

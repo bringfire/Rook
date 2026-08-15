@@ -130,8 +130,11 @@ The refusal data is closed:
 ```
 
 The data object has exactly `error` and `issues`. Each issue has exactly `path`,
-`code`, and `value`. `path` is an RFC 6901 JSON Pointer to the caller-owned field;
-`value` is the exact caller value; and `code` is one of:
+`code`, and `value`. `path` is an RFC 6901 JSON Pointer to the caller-owned field.
+For `invalid_flow`, `value` is the exact caller flow value. For a component-reference
+issue inside a syntactically complete flow, `value` is the exact unnormalized component
+token extracted from that flow while `path` identifies the containing flow field. For
+all other issues, `value` is the exact caller value at `path`. `code` is one of:
 
 ```text
 invalid_temp_id
@@ -204,6 +207,11 @@ The existing skips remain unchanged:
 gh_library
 gh_batch_component_info
 ```
+
+Canonical `gh_edit` also stops consulting `UnifiedStore.check_deprecation_warnings()`
+and stops decorating its result with `deprecation_warnings`; that canonical-only path
+would otherwise violate exact parity with direct dispatch even after universal injection
+was skipped. Explicit knowledge capabilities remain available and unchanged.
 
 For both direct dispatch and canonical gateway dispatch, the capability's original
 arguments, success classification, data value, mutation receipt, solve-readiness
