@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Rook.InternalBridge;
 
 namespace Rook.Handlers
@@ -29,6 +30,12 @@ namespace Rook.Handlers
         private Assembly? _ghAssembly;
         private readonly object _lock = new();
         private readonly ShortIdRegistry _idRegistry = new();
+        private static readonly Regex GhEditTempIdRegex = new(
+            @"\AT[A-Za-z0-9_]{1,63}\z",
+            RegexOptions.CultureInvariant);
+        private static readonly Regex GhEditComponentIdRegex = new(
+            @"\AC[1-9][0-9]*\z",
+            RegexOptions.CultureInvariant);
 
         public GrasshopperHandler()
             : this(null, () => Rhino.Runtime.HostUtils.RunningAsRhinoInside, null, null, null)
@@ -8195,14 +8202,6 @@ namespace Rook.Handlers
             if (string.IsNullOrEmpty(body))
                 return new ApiResponse { Success = false, Data = "Missing body" };
 
-            var notReady = EnsureGrasshopperReadyForEdit("gh_edit");
-            if (notReady != null)
-                return notReady;
-
-            var gh = GetGrasshopper();
-            if (!gh.Success)
-                return GrasshopperNotReadyResponse("gh_edit", null, gh.Error);
-
             Dictionary<string, JsonElement>? args;
             try
             {
@@ -8214,6 +8213,18 @@ namespace Rook.Handlers
             {
                 return new ApiResponse { Success = false, Data = $"Invalid JSON: {ex.Message}" };
             }
+
+            var admissionFailure = ValidateEditAdmission(args);
+            if (admissionFailure != null)
+                return admissionFailure;
+
+            var notReady = EnsureGrasshopperReadyForEdit("gh_edit");
+            if (notReady != null)
+                return notReady;
+
+            var gh = GetGrasshopper();
+            if (!gh.Success)
+                return GrasshopperNotReadyResponse("gh_edit", null, gh.Error);
 
             // Validate epoch
             if (!args.TryGetValue("epoch", out var epochEl))
@@ -8981,6 +8992,186 @@ namespace Rook.Handlers
 
                 return new ApiResponse { Success = false, Data = failureData };
             }
+        }
+
+        private ApiResponse? ValidateEditAdmission(Dictionary<string, JsonElement> args)
+        {
+            var issues = new List<Dictionary<string, object?>>();
+            var declared = new HashSet<string>(StringComparer.Ordinal);
+
+            void AddIssue(string path, string code, object? value)
+            {
+                issues.Add(new Dictionary<string, object?>
+                {
+                    ["path"] = path,
+                    ["code"] = code,
+                    ["value"] = value,
+                });
+            }
+
+            object? Retain(JsonElement value) =>
+                value.ValueKind == JsonValueKind.Undefined ? null : value.Clone();
+
+            void ScanReference(string path, object? value)
+            {
+                if (value is string text && GhEditTempIdRegex.IsMatch(text))
+                {
+                    if (!declared.Contains(text))
+                        AddIssue(path, "unresolved_temp_reference", text);
+                    return;
+                }
+                if (value is string componentId && GhEditComponentIdRegex.IsMatch(componentId))
+                    return;
+                AddIssue(path, "invalid_component_reference", value);
+            }
+
+            if (args.TryGetValue("create", out var createElement))
+            {
+                if (createElement.ValueKind != JsonValueKind.Array)
+                {
+                    AddIssue("/create", "invalid_temp_id", Retain(createElement));
+                }
+                else
+                {
+                    var index = 0;
+                    foreach (var item in createElement.EnumerateArray())
+                    {
+                        var path = $"/create/{index}/temp_id";
+                        JsonElement tempElement = default;
+                        var hasTemp = item.ValueKind == JsonValueKind.Object &&
+                            item.TryGetProperty("temp_id", out tempElement);
+                        var value = hasTemp && tempElement.ValueKind == JsonValueKind.String
+                            ? tempElement.GetString()
+                            : null;
+                        if (value == null || !GhEditTempIdRegex.IsMatch(value))
+                        {
+                            AddIssue(path, "invalid_temp_id", hasTemp ? Retain(tempElement) : null);
+                        }
+                        else if (!declared.Add(value))
+                        {
+                            AddIssue(path, "duplicate_temp_id", value);
+                        }
+                        index++;
+                    }
+                }
+            }
+
+            void ScanFlows(string field)
+            {
+                if (!args.TryGetValue(field, out var flows))
+                    return;
+                if (flows.ValueKind != JsonValueKind.Array)
+                {
+                    AddIssue($"/{field}", "invalid_flow", Retain(flows));
+                    return;
+                }
+
+                var index = 0;
+                foreach (var item in flows.EnumerateArray())
+                {
+                    var path = $"/{field}/{index}";
+                    var flow = item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+                    if (flow == null)
+                    {
+                        AddIssue(path, "invalid_flow", Retain(item));
+                        index++;
+                        continue;
+                    }
+                    try
+                    {
+                        var (sourceId, _, targetId, _) = ParseFlowString(flow);
+                        ScanReference(path, sourceId);
+                        ScanReference(path, targetId);
+                    }
+                    catch
+                    {
+                        AddIssue(path, "invalid_flow", flow);
+                    }
+                    index++;
+                }
+            }
+
+            ScanFlows("disconnect");
+
+            if (args.TryGetValue("set_values", out var setValues))
+            {
+                if (setValues.ValueKind != JsonValueKind.Array)
+                {
+                    AddIssue("/set_values", "invalid_component_reference", Retain(setValues));
+                }
+                else
+                {
+                    var index = 0;
+                    foreach (var item in setValues.EnumerateArray())
+                    {
+                        JsonElement idElement = default;
+                        var hasId = item.ValueKind == JsonValueKind.Object &&
+                            item.TryGetProperty("id", out idElement);
+                        object? value = hasId && idElement.ValueKind == JsonValueKind.String
+                            ? idElement.GetString()
+                            : hasId ? Retain(idElement) : null;
+                        ScanReference($"/set_values/{index}/id", value);
+                        index++;
+                    }
+                }
+            }
+
+            ScanFlows("connect");
+
+            if (args.TryGetValue("groups", out var groups))
+            {
+                if (groups.ValueKind != JsonValueKind.Array)
+                {
+                    AddIssue("/groups", "invalid_component_reference", Retain(groups));
+                }
+                else
+                {
+                    var groupIndex = 0;
+                    foreach (var group in groups.EnumerateArray())
+                    {
+                        if (group.ValueKind != JsonValueKind.Object ||
+                            !group.TryGetProperty("members", out var members))
+                        {
+                            groupIndex++;
+                            continue;
+                        }
+                        if (members.ValueKind != JsonValueKind.Array)
+                        {
+                            AddIssue(
+                                $"/groups/{groupIndex}/members",
+                                "invalid_component_reference",
+                                Retain(members));
+                            groupIndex++;
+                            continue;
+                        }
+
+                        var memberIndex = 0;
+                        foreach (var member in members.EnumerateArray())
+                        {
+                            object? value = member.ValueKind == JsonValueKind.String
+                                ? member.GetString()
+                                : Retain(member);
+                            ScanReference(
+                                $"/groups/{groupIndex}/members/{memberIndex}",
+                                value);
+                            memberIndex++;
+                        }
+                        groupIndex++;
+                    }
+                }
+            }
+
+            if (issues.Count == 0)
+                return null;
+            return new ApiResponse
+            {
+                Success = false,
+                Data = new Dictionary<string, object?>
+                {
+                    ["error"] = "gh_edit_admission_failed",
+                    ["issues"] = issues,
+                },
+            };
         }
 
         /// <summary>

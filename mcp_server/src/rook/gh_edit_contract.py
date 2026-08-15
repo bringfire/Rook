@@ -43,7 +43,11 @@ def _parse_flow_ids(flow):
     target_index = target_ref[1:].strip()
     if not _PORT_INDEX.fullmatch(source_index) or not _PORT_INDEX.fullmatch(target_index):
         return None
-    if int(source_index) < 0 or int(target_index) < 0:
+    source_number = int(source_index)
+    target_number = int(target_index)
+    if not (0 <= source_number <= 2_147_483_647):
+        return None
+    if not (0 <= target_number <= 2_147_483_647):
         return None
     return source[0], target[0]
 

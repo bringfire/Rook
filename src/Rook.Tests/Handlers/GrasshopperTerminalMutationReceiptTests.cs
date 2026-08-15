@@ -277,7 +277,7 @@ namespace Rook.Tests.Handlers
             var document = new FakeDocument();
             var handler = CreateHandler(document);
 
-            var response = handler.ApplyEdit("{\"epoch\":0,\"set_values\":[{\"id\":\"missing\",\"value\":1}]}");
+            var response = handler.ApplyEdit("{\"epoch\":0,\"set_values\":[{\"id\":\"C999\",\"value\":1}]}");
 
             Assert.True(response.Success);
             var receipt = Element(response.Data).GetProperty("solve_readiness_receipt");
@@ -568,6 +568,89 @@ namespace Rook.Tests.Handlers
             Assert.Equal(0, document.ScheduleCount);
         }
 
+        [Theory]
+        [InlineData(
+            "{\"epoch\":0,\"create\":[{\"temp_id\":\"TActorSetControl\",\"type\":\"slider\"}],\"connect\":[\"N1.O0>TActorSetControl.I0\"]}",
+            "/connect/0",
+            "invalid_component_reference",
+            "N1")]
+        [InlineData(
+            "{\"epoch\":0,\"create\":[{\"temp_id\":\"T_CLEAN\",\"type\":\"slider\"},{\"temp_id\":\"T_CLEAN\",\"type\":\"panel\"}]}",
+            "/create/1/temp_id",
+            "duplicate_temp_id",
+            "T_CLEAN")]
+        [InlineData(
+            "{\"epoch\":0,\"set_values\":[{\"id\":\"TABSENT\",\"value\":2}]}",
+            "/set_values/0/id",
+            "unresolved_temp_reference",
+            "TABSENT")]
+        [InlineData(
+            "{\"epoch\":0,\"groups\":[{\"action\":\"create\",\"members\":[\"N2\"]}]}",
+            "/groups/0/members/0",
+            "invalid_component_reference",
+            "N2")]
+        public void ApplyEdit_InvalidReferencesRefuseBeforeGrasshopperAccessOrMutation(
+            string body,
+            string expectedPath,
+            string expectedCode,
+            string expectedValue)
+        {
+            var core = new ReadyCore();
+            var document = new FakeDocument { ThrowOnObjectsRead = true };
+            var handler = CreateHandler(document, bridgeCore: core);
+
+            var response = handler.ApplyEdit(body);
+
+            Assert.False(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(
+                new[] { "error", "issues" },
+                data.EnumerateObject().Select(property => property.Name).ToArray());
+            Assert.Equal("gh_edit_admission_failed", data.GetProperty("error").GetString());
+            var issue = Assert.Single(data.GetProperty("issues").EnumerateArray());
+            Assert.Equal(
+                new[] { "path", "code", "value" },
+                issue.EnumerateObject().Select(property => property.Name).ToArray());
+            Assert.Equal(expectedPath, issue.GetProperty("path").GetString());
+            Assert.Equal(expectedCode, issue.GetProperty("code").GetString());
+            Assert.Equal(expectedValue, issue.GetProperty("value").GetString());
+            Assert.Equal(0, core.StatusCallCount);
+            Assert.Equal(0, document.ObjectsReadCount);
+            Assert.Equal(0, document.ScheduleCount);
+            Assert.Empty(document.ObjectsWithoutObservation);
+        }
+
+        [Fact]
+        public void ApplyEdit_DescriptiveTempIdPreservesCorrelationAndReceipt()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document);
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch = 0,
+                create = new[] { new { temp_id = "TActorSetControl", type = "slider" } },
+                set_values = new[] { new { id = "TActorSetControl", value = 3m } },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            var summary = data.GetProperty("edit_summary");
+            Assert.Equal(1, summary.GetProperty("created").GetInt32());
+            Assert.True(summary.GetProperty("temp_id_map").TryGetProperty("TActorSetControl", out _));
+            Assert.True(summary.GetProperty("instance_guids").TryGetProperty("TActorSetControl", out _));
+            var errors = summary.GetProperty("errors");
+            if (errors.ValueKind == JsonValueKind.Array)
+            {
+                Assert.DoesNotContain(
+                    errors.EnumerateArray().Select(error => error.GetString()),
+                    error => error?.Contains("unknown ID") == true);
+            }
+            Assert.Equal("pending", data.GetProperty("solve_readiness_receipt").GetProperty("status").GetString());
+            Assert.Single(document.Objects);
+            Assert.Equal(1, document.ScheduleCount);
+        }
+
         [Fact]
         public void ApplyEdit_SuccessfulCreateCountsConfirmedAddAndReturnsReceipt()
         {
@@ -697,7 +780,7 @@ namespace Rook.Tests.Handlers
                 set_values = new object[]
                 {
                     new { id = "C1", value = 7m },
-                    new { id = "missing", value = 9m },
+                    new { id = "C999", value = 9m },
                 },
             }));
 
@@ -804,12 +887,13 @@ namespace Rook.Tests.Handlers
             object document,
             bool globalSolutionsEnabled = true,
             GhSolveReceiptRegistry? registry = null,
-            bool throwOnRefresh = false)
+            bool throwOnRefresh = false,
+            ReadyCore? bridgeCore = null)
         {
             FakeDocument.EnableSolutions = globalSolutionsEnabled;
             ActiveCanvasProperty.SetValue(null, new FakeCanvas(document) { ThrowOnRefresh = throwOnRefresh });
             return new GrasshopperHandler(
-                bridgeCore: new ReadyCore(),
+                bridgeCore: bridgeCore ?? new ReadyCore(),
                 runningAsRhinoInside: () => false,
                 solveReceiptRegistry: registry ?? new GhSolveReceiptRegistry(),
                 solutionLifecycleAdapter: new GhSolutionLifecycleAdapter(),
@@ -1054,8 +1138,12 @@ namespace Rook.Tests.Handlers
 
         private sealed class ReadyCore : IGrasshopperCore
         {
-            public BridgeResult<GrasshopperStatusDto> GetStatus() =>
-                BridgeResult<GrasshopperStatusDto>.Ok(new GrasshopperStatusDto
+            public int StatusCallCount { get; private set; }
+
+            public BridgeResult<GrasshopperStatusDto> GetStatus()
+            {
+                StatusCallCount++;
+                return BridgeResult<GrasshopperStatusDto>.Ok(new GrasshopperStatusDto
                 {
                     Available = true,
                     HasActiveCanvas = true,
@@ -1063,6 +1151,7 @@ namespace Rook.Tests.Handlers
                     CanvasVisible = true,
                     ReadyForEdit = true,
                 });
+            }
 
             public BridgeResult<GrasshopperDocumentInfoDto> GetDocumentInfo() =>
                 BridgeResult<GrasshopperDocumentInfoDto>.Ok(new GrasshopperDocumentInfoDto());
