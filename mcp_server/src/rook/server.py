@@ -31,7 +31,11 @@ from .gh_authoring_contract import (
     model_facing_script_handoff,
     resolved_script_handoff,
 )
-from .gh_edit_contract import apply_gh_edit_contract
+from .gh_edit_contract import (
+    GH_EDIT_TEMP_ID_PATTERN,
+    admit_gh_edit_request,
+    apply_gh_edit_contract,
+)
 from .grasshopper_component_contract import (
     is_canonical_lower_guid as _is_canonical_lower_guid,
     project_gh_library_result as _project_gh_library_result,
@@ -8584,7 +8588,13 @@ Create entry types:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "temp_id": {"type": "string", "description": "Temporary ID (T1, T2, ...) for referencing in connect/groups"},
+                                "temp_id": {
+                                    "type": "string",
+                                    "pattern": GH_EDIT_TEMP_ID_PATTERN,
+                                    "minLength": 2,
+                                    "maxLength": 64,
+                                    "description": "Temporary ID (T1, T2, ...) for referencing in connect/groups",
+                                },
                                 "guid": {"type": "string", "description": "Component type GUID"},
                                 "name": {"type": "string", "description": "Component name (alternative to guid)"},
                                 "type": {"type": "string", "description": "Special type: 'slider', 'panel', 'toggle'"},
@@ -14209,6 +14219,10 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
     handoff = model_facing_script_handoff(name, arguments)
     if handoff is not None:
         return handoff
+    if name == "gh_edit":
+        admission = admit_gh_edit_request(arguments)
+        if admission is not None:
+            return admission
     # Extract port parameter if present (for multi-instance support)
     port = arguments.pop("port", None) if arguments else None
 
@@ -21269,6 +21283,10 @@ async def call_tool(
     if handoff is not None:
         handoff.pop("_is_handoff", None)
         return _project_tool_result(handoff, public_mcp=_public_mcp)
+    if name == "gh_edit":
+        admission = admit_gh_edit_request(arguments)
+        if admission is not None:
+            return _project_tool_result(admission, public_mcp=_public_mcp)
 
     if (
         name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS

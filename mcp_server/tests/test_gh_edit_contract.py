@@ -1,4 +1,118 @@
-from rook.gh_edit_contract import apply_gh_edit_contract
+import copy
+
+import pytest
+
+from rook.gh_edit_contract import admit_gh_edit_request, apply_gh_edit_contract
+
+
+@pytest.mark.parametrize("temp_id", ["T1", "TActorSetControl", "T_CLEAN"])
+def test_descriptive_temp_ids_are_admitted_without_mutating_request(temp_id):
+    request = {
+        "epoch": 3,
+        "create": [{"temp_id": temp_id, "type": "slider"}],
+        "disconnect": ["C1.o00>C2.i01"],
+        "set_values": [{"id": temp_id, "value": 2}],
+        "connect": [f"{temp_id}.O0>C1.I0"],
+        "groups": [{"action": "create", "members": [temp_id, "C1"]}],
+    }
+    original = copy.deepcopy(request)
+
+    assert admit_gh_edit_request(request) is None
+    assert request == original
+
+
+@pytest.mark.parametrize(
+    "temp_id",
+    [None, 1, "T", "t1", "N1", "T-hyphen", "T1\n", "T" + ("A" * 64)],
+)
+def test_invalid_declared_temp_ids_refuse_with_exact_value(temp_id):
+    request = {
+        "epoch": 3,
+        "create": [{"temp_id": temp_id, "type": "slider"}],
+    }
+
+    result = admit_gh_edit_request(request)
+
+    assert result == {
+        "success": False,
+        "data": {
+            "error": "gh_edit_admission_failed",
+            "issues": [
+                {
+                    "path": "/create/0/temp_id",
+                    "code": "invalid_temp_id",
+                    "value": temp_id,
+                }
+            ],
+        },
+    }
+
+
+def test_duplicate_and_invalid_references_refuse_in_fixed_semantic_order():
+    request = {
+        "epoch": 3,
+        "create": [
+            {"temp_id": "T_CLEAN", "type": "slider"},
+            {"temp_id": "T_CLEAN", "type": "panel"},
+        ],
+        "disconnect": ["TUNKNOWN.O0>C1.I0"],
+        "set_values": [{"id": "N1", "value": 2}],
+        "connect": ["T_CLEAN.O0>TABSENT.I0"],
+        "groups": [{"action": "create", "members": ["N2"]}],
+    }
+
+    result = admit_gh_edit_request(request)
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "gh_edit_admission_failed"
+    assert result["data"]["issues"] == [
+        {
+            "path": "/create/1/temp_id",
+            "code": "duplicate_temp_id",
+            "value": "T_CLEAN",
+        },
+        {
+            "path": "/disconnect/0",
+            "code": "unresolved_temp_reference",
+            "value": "TUNKNOWN",
+        },
+        {
+            "path": "/set_values/0/id",
+            "code": "invalid_component_reference",
+            "value": "N1",
+        },
+        {
+            "path": "/connect/0",
+            "code": "unresolved_temp_reference",
+            "value": "TABSENT",
+        },
+        {
+            "path": "/groups/0/members/0",
+            "code": "invalid_component_reference",
+            "value": "N2",
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    "flow",
+    [
+        None,
+        1,
+        "C1.O0-C2.I0",
+        "C1.O0>C2.I0>C3.I0",
+        "C1.X0>C2.I0",
+        "C1.O0>C2.X0",
+        "C1.O-1>C2.I0",
+        "C1.Ox>C2.I0",
+    ],
+)
+def test_malformed_flows_refuse_before_reference_resolution(flow):
+    result = admit_gh_edit_request({"epoch": 3, "connect": [flow]})
+
+    assert result["data"]["issues"] == [
+        {"path": "/connect/0", "code": "invalid_flow", "value": flow}
+    ]
 
 
 def test_no_mutation_edit_errors_become_failure_without_partial_success():

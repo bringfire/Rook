@@ -391,6 +391,72 @@ async def test_canonical_handoff_precedes_target_availability(
 
 
 @pytest.mark.asyncio
+async def test_invalid_gh_edit_references_refuse_before_canonical_or_direct_target_contact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    targeting.reset_targeting_state_for_tests()
+    request = {
+        "epoch": 7,
+        "create": [
+            {"temp_id": "TActorSetControl", "type": "slider", "pos": [100, 200]}
+        ],
+        "connect": ["N1.O0>TActorSetControl.I0"],
+    }
+    calls = []
+
+    def fail_route_resolution(*args, **kwargs):
+        calls.append(("route", args, kwargs))
+        raise AssertionError("target resolution occurred")
+
+    async def fail_if_dispatched(*args, **kwargs):
+        calls.append(("dispatch", args, kwargs))
+        raise AssertionError("target dispatch occurred")
+
+    monkeypatch.setattr(targeting, "resolve_tool_route", fail_route_resolution)
+    monkeypatch.setattr(server, "call_rhino", fail_if_dispatched)
+    monkeypatch.setattr(dispatcher_module, "call_rhino", fail_if_dispatched)
+    try:
+        canonical = await server.call_tool("gh_edit", request, _public_mcp=True)
+        direct = await ToolDispatcher(port=9950).dispatch("gh_edit", request)
+    finally:
+        targeting.reset_targeting_state_for_tests()
+
+    assert canonical.structuredContent == direct
+    assert direct == {
+        "success": False,
+        "data": {
+            "error": "gh_edit_admission_failed",
+            "issues": [
+                {
+                    "path": "/connect/0",
+                    "code": "invalid_component_reference",
+                    "value": "N1",
+                }
+            ],
+        },
+    }
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_gh_edit_temp_id_schema_exposes_the_shared_closed_grammar() -> None:
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    temp_id = (
+        tools["gh_edit"]
+        .inputSchema["properties"]["create"]["items"]["properties"]["temp_id"]
+    )
+
+    assert temp_id == {
+        "type": "string",
+        "pattern": "^T[A-Za-z0-9_]{1,63}$",
+        "minLength": 2,
+        "maxLength": 64,
+        "description": "Temporary ID (T1, T2, ...) for referencing in connect/groups",
+    }
+
+
+@pytest.mark.asyncio
 async def test_profile_wall_precedes_script_handoff(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

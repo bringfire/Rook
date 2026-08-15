@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..bridge import call_rhino
 from ..gh_authoring_contract import model_facing_script_handoff
-from ..gh_edit_contract import apply_gh_edit_contract
+from ..gh_edit_contract import admit_gh_edit_request, apply_gh_edit_contract
 from ..grasshopper_component_contract import project_gh_library_result
 from ..gh_status_contract import normalize_gh_status_result
 from ..tool_lifecycle import resolve_contained_tool
@@ -2013,6 +2013,10 @@ class ToolDispatcher:
         if handoff is not None:
             handoff.pop("_is_handoff", None)
             return handoff
+        if name == "gh_edit":
+            admission = admit_gh_edit_request(params)
+            if admission is not None:
+                return admission
         port = params.pop("port", None) or self._port
 
         result = await self._dispatch_inner(name, params, port)
