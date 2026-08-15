@@ -106,6 +106,7 @@ def test_duplicate_and_invalid_references_refuse_in_fixed_semantic_order():
         "C1.O-1>C2.I0",
         "C1.Ox>C2.I0",
         "C1.O2147483648>C2.I0",
+        f"C1.O{'9' * 5000}>C2.I0",
     ],
 )
 def test_malformed_flows_refuse_before_reference_resolution(flow):
