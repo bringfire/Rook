@@ -19,35 +19,13 @@ The governing invariant is:
 
 | Handoff | What the package declares | Evidence still required |
 |---|---|---|
-| generated contract -> independently admitted meaning | symbolic roles, claims, authority, and evidence can represent intent | a fresh Constructor artifact plus a separate no-shared-context Reviewer that detects meaningful semantic defects |
+| generated contract -> independently admitted meaning | symbolic roles, claims, authority, and evidence can represent intent | after Phase A, compiler-valid cases reviewed by fresh, fully informed Reviewers that detect meaningful semantic defects |
 | Prime protocol/configuration -> effective role runtime | separate top-level sessions and profiles enforce roles | wire/runtime evidence proving exact model, context, tools, authority, terminal lifecycle, and session separation |
 | persisted dispatch -> exclusive live worker ownership | ledger intent, CAS, and reconciliation prevent duplicate work | crash/race evidence proving one live owner and no repeated consumed mutation |
-| operation name -> fully defined deterministic semantics | a closed vocabulary can compile generic claims | exact type, precision, evidence, completeness, error, and budget semantics with causal tests for each operation |
+| operation name -> fully defined deterministic semantics | one shared typed manifest can compile generic claims | Phase A exact type, field, operation, quantifier, authority, precision, error, and budget semantics with causal mutation tests |
 
 These are independent qualifications. Success at one does not transfer to the
 others.
-
-## First Evidence Slice
-
-The only authorized next slice is offline and disposable:
-
-```text
-three authentic retained intents
--> three fresh Qwen3.8 Acceptance Constructor calls
--> mechanical artifact validation only
--> three separate fresh Qwen3.8 Acceptance Reviewer calls
--> attributed adequacy findings
-```
-
-It permits at most six local model calls and no retry, repair, tuning, fallback,
-provider/network access, Rhino, Grasshopper, Rook MCP, deployment, or product
-change. Constructor and Reviewer artifacts are experiment data, not shipped
-schemas or a new framework.
-
-The slice reports requirement coverage, assumption honesty, evidence
-feasibility, authority allocation, mechanically knowable expression/schema
-validity, and reviewer defect detection independently. Semantic adequacy
-remains attributed judgment.
 
 ## Consequence
 
@@ -56,7 +34,7 @@ North Star, but no production stage is authorized until the first handoff is
 qualified and the resulting evidence identifies the smallest justified next
 slice.
 
-## First Qualification Result
+## Retained Qualification Results
 
 The frozen offline qualification stopped correctly after its first local model
 call. The point-row Constructor produced a closed JSON shape but referenced
@@ -78,6 +56,52 @@ This directly confirms the governing invariant: output shape and declared
 ownership do not establish effective semantic custody. The evidence-led report
 is `docs/superpowers/reports/2026-08-15-acceptance-contract-handoff-offline-qualification.md`.
 
-No production slice is justified. A separately frozen follow-up must first
-test whether a bounded Constructor continuation can consume the exact reference
-diagnostic and produce an admitted artifact for a fresh independent Reviewer.
+The separately frozen V2 continuation then established:
+
+```text
+exact compiler reference diagnostic
+-> same-session Constructor continuation
+-> complete replacement artifact
+-> unchanged mechanical validation: pass
+```
+
+That is a qualified bounded repair for this mechanical defect class. The fresh
+Reviewer session also passed transport, closed-envelope, and mechanical result
+validation, but returned `adequate` with no findings despite material semantic
+weaknesses. Its request omitted the expression semantic contract supplied to
+the Constructor, and its retained reasoning explicitly assumed the operations
+were valid. The correct result is therefore:
+
+```text
+Constructor reference repair              qualified
+Reviewer transport and envelope validity  qualified
+Reviewer semantic sensitivity              failed on this specimen
+Reviewer failure causally confounded        yes; semantic contract omitted
+```
+
+The evidence-led report is
+`docs/superpowers/reports/2026-08-15-acceptance-contract-handoff-continuation-qualification.md`.
+
+## Current Authorized Boundary
+
+No production slice or new model call is justified. The only authorized next
+slice is disposable Phase A compiler qualification without live contact:
+
+```text
+one shared semantic manifest
+-> one typed contract schema
+-> one deterministic validator/compiler seam
+-> one coherent point-row artifact
+-> isolated mechanically invalid mutations
+-> mandatory independent no-contact review
+```
+
+Phase A must establish role-kind and `valueType` compatibility, field
+availability, operation signatures, quantifier binding, the four exact
+authority modes, and precision/error/budget behavior. It must also strict-parse
+and compile every specification JSON example explicitly marked valid. No
+Constructor, Reviewer, Prime, Ollama, Rook, Rhino, Grasshopper, deployment, or
+production-router work is admitted.
+
+Only an independently approved Phase A result may justify designing the later
+Phase B Reviewer qualification with compiler-valid semantic mutations.

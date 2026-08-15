@@ -789,6 +789,7 @@ A `role` expression returns an internal
 The exact field `value` projects the declared semantic value. Thus the point
 count expression is:
 
+<!-- phase-a-valid-json id=point-count-expression kind=expression -->
 ```json
 {
   "op": "equal",
@@ -811,6 +812,7 @@ count expression is:
   ]
 }
 ```
+<!-- /phase-a-valid-json -->
 
 Comparing `collection_count(points)` directly with a control role reference is
 a compile-time type error. This projection rule is shared by the Constructor,
@@ -1151,6 +1153,7 @@ workflow `incomplete`, not an ordinary criterion result.
 
 A claim has exactly:
 
+<!-- phase-a-valid-json id=point-count-claim kind=claim -->
 ```json
 {
   "id": "point_count_equals_count",
@@ -1158,12 +1161,22 @@ A claim has exactly:
   "expression": {
     "op": "equal",
     "args": [
-      {"op":"collection_count","args":[{"op":"role","role":"points"}]},
+      {
+        "op": "collection_count",
+        "args": [
+          {
+            "op": "field",
+            "source": {"op":"role","role":"points"},
+            "name": "value"
+          }
+        ]
+      },
       {"op":"field","source":{"op":"role","role":"countControl"},"name":"value"}
     ]
   }
 }
 ```
+<!-- /phase-a-valid-json -->
 
 `authority` is exactly:
 
@@ -1603,6 +1616,11 @@ presence checking.
 Phase A is complete only when:
 
 - every participant input cites the identical semantic-manifest hash;
+- every specification JSON example enclosed by
+  `<!-- phase-a-valid-json id=... kind=expression|claim -->` and
+  `<!-- /phase-a-valid-json -->` has a unique ID, strict-parses, and compiles
+  under the coherent point-row role environment; an unclosed marker, duplicate
+  ID, parse failure, or compile failure refuses Phase A;
 - the coherent artifact compiles;
 - every isolated mechanical mutation refuses causally;
 - unknown operations and unavailable role kinds return `unsupported` only
