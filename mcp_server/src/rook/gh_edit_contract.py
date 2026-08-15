@@ -1,3 +1,14 @@
+import copy
+import re
+
+
+GH_EDIT_TEMP_ID_PATTERN = r"^T[A-Za-z0-9_]{1,63}$"
+_TEMP_ID = re.compile(r"T[A-Za-z0-9_]{1,63}")
+_COMPONENT_ID = re.compile(r"C[1-9][0-9]*")
+_PORT_INDEX = re.compile(r"[+-]?[0-9]+")
+_INT32_WHITESPACE = " \t\r\n\v\f"
+_INT32_MAX_TEXT = "2147483647"
+
 MUTATION_COUNT_KEYS = (
     "created",
     "deleted",
@@ -10,6 +21,148 @@ MUTATION_COUNT_KEYS = (
     "grouped",
     "ungrouped",
 )
+
+
+def _parse_nonnegative_int32(text):
+    value = text.strip(_INT32_WHITESPACE)
+    if not _PORT_INDEX.fullmatch(value):
+        return None
+    negative = value.startswith("-")
+    digits = value[1:] if value[:1] in "+-" else value
+    significant = digits.lstrip("0")
+    if not significant:
+        return 0
+    if negative:
+        return None
+    if len(significant) > len(_INT32_MAX_TEXT):
+        return None
+    if len(significant) == len(_INT32_MAX_TEXT) and significant > _INT32_MAX_TEXT:
+        return None
+    return int(significant)
+
+
+def _parse_flow_ids(flow):
+    if not isinstance(flow, str):
+        return None
+    parts = flow.split(">")
+    if len(parts) != 2:
+        return None
+    source = parts[0].split(".")
+    target = parts[1].split(".")
+    if len(source) != 2 or len(target) != 2:
+        return None
+
+    source_ref = source[1]
+    target_ref = target[1]
+    if len(source_ref) < 2 or source_ref[0] not in "Oo":
+        return None
+    if len(target_ref) < 2 or target_ref[0] not in "Ii":
+        return None
+
+    source_number = _parse_nonnegative_int32(source_ref[1:])
+    target_number = _parse_nonnegative_int32(target_ref[1:])
+    if source_number is None or target_number is None:
+        return None
+    return source[0], target[0]
+
+
+def _issue(path, code, value):
+    return {"path": path, "code": code, "value": copy.deepcopy(value)}
+
+
+def _reference_issue(path, value, declared):
+    if isinstance(value, str) and _TEMP_ID.fullmatch(value):
+        if value in declared:
+            return None
+        return _issue(path, "unresolved_temp_reference", value)
+    if isinstance(value, str) and _COMPONENT_ID.fullmatch(value):
+        return None
+    return _issue(path, "invalid_component_reference", value)
+
+
+def admit_gh_edit_request(arguments):
+    """Return one closed pre-dispatch refusal or None without mutating arguments."""
+    issues = []
+    declared = set()
+
+    create = arguments.get("create", []) if isinstance(arguments, dict) else []
+    if not isinstance(create, list):
+        issues.append(_issue("/create", "invalid_temp_id", create))
+        create = []
+    for index, item in enumerate(create):
+        value = item.get("temp_id") if isinstance(item, dict) else None
+        path = f"/create/{index}/temp_id"
+        if not isinstance(value, str) or not _TEMP_ID.fullmatch(value):
+            issues.append(_issue(path, "invalid_temp_id", value))
+            continue
+        if value in declared:
+            issues.append(_issue(path, "duplicate_temp_id", value))
+            continue
+        declared.add(value)
+
+    def scan_flows(field):
+        values = arguments.get(field, []) if isinstance(arguments, dict) else []
+        if not isinstance(values, list):
+            issues.append(_issue(f"/{field}", "invalid_flow", values))
+            return
+        for index, flow in enumerate(values):
+            path = f"/{field}/{index}"
+            endpoints = _parse_flow_ids(flow)
+            if endpoints is None:
+                issues.append(_issue(path, "invalid_flow", flow))
+                continue
+            for component_id in endpoints:
+                issue = _reference_issue(path, component_id, declared)
+                if issue is not None:
+                    issues.append(issue)
+
+    scan_flows("disconnect")
+
+    set_values = arguments.get("set_values", []) if isinstance(arguments, dict) else []
+    if not isinstance(set_values, list):
+        issues.append(_issue("/set_values", "invalid_component_reference", set_values))
+    else:
+        for index, item in enumerate(set_values):
+            value = item.get("id") if isinstance(item, dict) else None
+            issue = _reference_issue(f"/set_values/{index}/id", value, declared)
+            if issue is not None:
+                issues.append(issue)
+
+    scan_flows("connect")
+
+    groups = arguments.get("groups", []) if isinstance(arguments, dict) else []
+    if not isinstance(groups, list):
+        issues.append(_issue("/groups", "invalid_component_reference", groups))
+    else:
+        for group_index, group in enumerate(groups):
+            if not isinstance(group, dict) or "members" not in group:
+                continue
+            members = group["members"]
+            if not isinstance(members, list):
+                issues.append(_issue(
+                    f"/groups/{group_index}/members",
+                    "invalid_component_reference",
+                    members,
+                ))
+                continue
+            for member_index, value in enumerate(members):
+                issue = _reference_issue(
+                    f"/groups/{group_index}/members/{member_index}",
+                    value,
+                    declared,
+                )
+                if issue is not None:
+                    issues.append(issue)
+
+    if not issues:
+        return None
+    return {
+        "success": False,
+        "data": {
+            "error": "gh_edit_admission_failed",
+            "issues": issues,
+        },
+    }
 
 
 def _merge_unique(*issue_lists):

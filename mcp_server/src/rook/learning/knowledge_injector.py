@@ -80,13 +80,14 @@ _WRAPPED_TOOLS = frozenset({
     # No individual GH tools need dedicated wrappers anymore.
 })
 
-# Meta-tools that should never get injection (they ARE the knowledge).
+# Meta-tools and authoritative Grasshopper results that should never get injection.
 _SKIP_TOOLS = frozenset({
     "knowledge_query", "rhino_knowledge_query", "gh_knowledge_query", "knowledge_record",
     "gh_knowledge_reload", "gh_record_learning",
     "rhino_command_knowledge", "rhino_command_knowledge_reload",
     "rhino_command_observations",
     "gh_library", "gh_batch_component_info",
+    "gh_edit", "gh_snapshot", "gh_status", "gh_errors",
 })
 
 

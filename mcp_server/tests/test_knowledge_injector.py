@@ -81,15 +81,29 @@ class TestShouldInject:
         assert should_inject("some_other_tool", result) is True
 
     @pytest.mark.parametrize(
-        "tool_name", ["gh_library", "gh_batch_component_info"]
+        "tool_name",
+        [
+            "gh_edit",
+            "gh_snapshot",
+            "gh_status",
+            "gh_errors",
+            "gh_library",
+            "gh_batch_component_info",
+        ],
     )
-    def test_authoritative_component_identity_tools_never_inject(
+    def test_authoritative_grasshopper_tools_never_inject(
         self, tool_name
     ):
         result = {"success": True, "data": {"components": []}}
 
         assert tool_name in _SKIP_TOOLS
         assert should_inject(tool_name, result) is False
+
+    def test_unrelated_grasshopper_result_remains_eligible(self):
+        result = {"success": True, "data": {"sentinel": "gh_move"}}
+
+        assert "gh_move" not in _SKIP_TOOLS
+        assert should_inject("gh_move", result) is True
 
 
 # -------------------------------------------------------------------------
