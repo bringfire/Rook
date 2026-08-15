@@ -621,6 +621,39 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void ApplyEdit_AdmissionCollectsAllIssuesInClosedSemanticOrder()
+        {
+            const string body = "{\"epoch\":0,\"create\":[{\"temp_id\":\"T_OK\",\"type\":\"slider\"},{\"temp_id\":\"T_OK\",\"type\":\"panel\"},{\"temp_id\":\"N1\",\"type\":\"panel\"}],\"disconnect\":[\"TABSENT.O0>C1.I0\"],\"set_values\":[{\"id\":\"N3\",\"value\":2}],\"connect\":[\"bad\"],\"groups\":[{\"action\":\"create\",\"members\":[\"TABSENT\",\"N4\"]}]}";
+            var core = new ReadyCore();
+            var document = new FakeDocument { ThrowOnObjectsRead = true };
+            var handler = CreateHandler(document, bridgeCore: core);
+
+            var response = handler.ApplyEdit(body);
+
+            Assert.False(response.Success);
+            var issues = Element(response.Data).GetProperty("issues").EnumerateArray().ToArray();
+            Assert.Equal(
+                new[]
+                {
+                    ("/create/1/temp_id", "duplicate_temp_id", "T_OK"),
+                    ("/create/2/temp_id", "invalid_temp_id", "N1"),
+                    ("/disconnect/0", "unresolved_temp_reference", "TABSENT"),
+                    ("/set_values/0/id", "invalid_component_reference", "N3"),
+                    ("/connect/0", "invalid_flow", "bad"),
+                    ("/groups/0/members/0", "unresolved_temp_reference", "TABSENT"),
+                    ("/groups/0/members/1", "invalid_component_reference", "N4"),
+                },
+                issues.Select(issue => (
+                    issue.GetProperty("path").GetString()!,
+                    issue.GetProperty("code").GetString()!,
+                    issue.GetProperty("value").GetString()!)).ToArray());
+            Assert.Equal(0, core.StatusCallCount);
+            Assert.Equal(0, document.ObjectsReadCount);
+            Assert.Equal(0, document.ScheduleCount);
+            Assert.Empty(document.ObjectsWithoutObservation);
+        }
+
+        [Fact]
         public void ApplyEdit_DescriptiveTempIdPreservesCorrelationAndReceipt()
         {
             var document = new FakeDocument();
