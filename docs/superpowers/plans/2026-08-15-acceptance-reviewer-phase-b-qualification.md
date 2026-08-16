@@ -26,6 +26,7 @@
 - Every Reviewer request has exactly one system message and one user message. The `tools` field is absent.
 - Run all later cases after semantic misses, false positives, `uncertain`, or malformed Reviewer artifacts. Stop only for public custody drift, model/runtime identity drift, an unclosed prior call prefix, provider transport/runtime failure, or evidence-write failure.
 - Public and private source manifests are independent. The public collector has no private-root parameter, import, path, digest, case meaning, expected category, or expected affected-ID tuple.
+- Each source manifest inventories every frozen sibling in its own bundle except itself. Its own SHA-256 is retained externally in `precontact-review.json`, this plan's execution ledger, and the explicit authorization; self-hashing is forbidden.
 - All writes are create-new, strict UTF-8, flushed, and `fsync`ed. Never overwrite a retained source or evidence artifact.
 - No aggregate score is permitted. Each case reports response admission, sensitivity, restraint, and residual recognition independently.
 - Passing qualifies only the frozen corpus and Qwen3.8:27b Reviewer configuration. It does not authorize production implementation.
@@ -49,7 +50,8 @@
 | `public/model-identity.json` | Frozen Ollama executable, tag manifest, digests, sizes, and blob-presence custody |
 | `public/execution-order.json` | Exact opaque order `c04,c01,c06,c02,c05,c03` |
 | `public/cases/phaseb.c01.json` through `phaseb.c06.json` | One control and five blinded compiler-valid artifacts |
-| `public/collector.py` | Public-only validation, request construction, runtime custody, one-call execution, prefix sealing, and public audit |
+| `public/protocol.py` | The one oracle-free owner for strict parsing, canonicalization, response-schema validation, and response-consistency validation |
+| `public/collector.py` | Public-only request construction, runtime custody, one-call execution, prefix sealing, and public audit; consumes `protocol.py` |
 | `public/test_phase_b_public.py` | Public contract, request, runtime, and evidence-custody causal tests with fake transport |
 | `public/run-public.ps1` | `test | prepare | execute | audit-prefix` entry point; never reads private files |
 | `public/source-manifest.json` | Frozen public source size/hash inventory; absent until prepare |
@@ -77,11 +79,11 @@ custody. Repository changes remain documentation-only.
 - Modify: none outside the new disposable root
 
 **Interfaces:**
-- Produces: `strict_loads(raw: bytes | str) -> object` with duplicate-key, nonfinite, invalid-UTF-8, and trailing-data refusal.
-- Produces: `canonical_bytes(value: object) -> bytes` and `sha256_bytes(raw: bytes) -> str`.
+- Produces in `public/protocol.py`: `strict_loads(raw: bytes | str) -> object` with duplicate-key, nonfinite, invalid-UTF-8, and trailing-data refusal.
+- Produces in `public/protocol.py`: `canonical_bytes(value: object) -> bytes` and `sha256_bytes(raw: bytes) -> str`.
+- Produces in `public/protocol.py`: `validate_response_contract(raw: bytes, schema: object) -> object`; strict/schema defects raise `ResponseContractFailure`.
+- Produces in `public/protocol.py`: `validate_response_consistency(response: object, case: object, request_identity: RequestIdentity) -> object`; cross-field defects raise `ResponseConsistencyFailure`.
 - Produces: `canonical_diff(control: object, sibling: object) -> tuple[DiffRecord, ...]` where `DiffRecord` contains exact RFC 6901 pointer, operation, old value presence/value, and new value presence/value.
-- Produces: `validate_response_contract(raw: bytes, schema: object) -> object`; strict/schema defects raise `ResponseContractFailure`.
-- Produces: `validate_response_consistency(response: object, case: object, request_identity: RequestIdentity) -> object`; cross-field defects raise `ResponseConsistencyFailure`.
 - Produces: `adjudicate_case(case_record: object, oracle_case: object) -> CaseAdjudication` with independent response, sensitivity, restraint, and residual outcomes.
 - Produces: `adjudicate_campaign(public_root: Path, private_root: Path, evidence_root: Path) -> dict[str, object]` without provider or host contact.
 
@@ -94,8 +96,8 @@ New-Item -ItemType Directory -Path "$root/public/cases" -Force | Out-Null
 New-Item -ItemType Directory -Path "$root/private" -Force | Out-Null
 ```
 
-`test_phase_b_public.py` imports `collector` and `phase_a`. Its initial named
-tests are:
+`test_phase_b_public.py` imports `collector`, `protocol`, and `phase_a`. Its
+initial named tests are:
 
 ```text
 test_exact_v4_compiler_manifest_and_schema_hashes
@@ -107,6 +109,7 @@ test_response_schema_refuses_uncertain_with_material
 test_response_schema_refuses_empty_or_out_of_domain_citations
 test_requirement_registry_owns_start_step_count_and_adjustability
 test_case_names_and_execution_order_are_opaque
+test_protocol_is_the_only_response_admission_owner
 ```
 
 `test_phase_b_private.py` imports `adjudicator`. Its initial named tests are:
@@ -219,17 +222,27 @@ stringifying values. Escape RFC 6901 `~` as `~0` and `/` as `~1`. Require
 `/contractId` plus only the exact case-specific pointer set in the
 specification. Write the complete old/new values to `structural-diff.json`.
 
-- [ ] **Step 7: Implement closed response admission and adjudication.**
+- [ ] **Step 7: Implement the one public protocol owner and private adjudication.**
 
-Use `jsonschema.Draft202012Validator`; do not duplicate schema enums in Python.
-After schema admission, enforce exact request case/hash correlation, unique
-finding IDs, unique residual claim IDs, current-artifact claim citations,
+Create `public/protocol.py`. It alone uses
+`jsonschema.Draft202012Validator`; do not duplicate schema enums or response
+admission logic in `collector.py` or `adjudicator.py`. After schema admission,
+it enforces exact request case/hash correlation, unique finding IDs, unique
+residual claim IDs, current-artifact claim citations,
 judgment-required/null/disclosed residual ownership, and no finding/residual
 claim overlap.
 
 The admitted response reads defects only from `findings` and honest limitations
 only from `acknowledgedResiduals`. Neither array may be inferred from prose,
 provider reasoning, or the disposition field.
+
+`collector.py` imports the public protocol owner and records its exact
+classification. `private/adjudicator.py` imports the same public module and
+consumes that classification; it may compare an admitted response with the
+private oracle but may not parse, validate, or reclassify the response itself.
+AST/source tests must refuse a second `Draft202012Validator`, duplicate-key
+hook, nonfinite parser, or response-consistency implementation outside
+`public/protocol.py`.
 
 Return exactly one response classification:
 
@@ -276,7 +289,8 @@ Expected: every named test passes; no model, network, or host evidence exists.
 **Interfaces:**
 - Produces: `verify_public_manifest(public_root: Path) -> ManifestRecord`.
 - Produces: `verify_model_identity(public_root: Path) -> ModelIdentity` using filesystem/process evidence without inference.
-- Produces: `build_request(public_root: Path, case_id: str) -> bytes`.
+- Produces: `build_user_message(public_root: Path, case_id: str) -> str` from exact frozen inputs.
+- Produces: `build_wire_payload(public_root: Path, case_id: str) -> bytes` with the exact Ollama field names and values.
 - Produces: `execute_case(public_root: Path, evidence_root: Path, case_id: str, transport: Transport) -> CasePrefix`.
 - Produces: `run_campaign(public_root: Path, evidence_root: Path, transport: Transport) -> CampaignPrefix`.
 - Produces: `audit_prefix(public_root: Path, evidence_root: Path) -> CampaignPrefix`.
@@ -288,6 +302,8 @@ Add exact public tests:
 ```text
 test_collector_source_has_no_private_or_oracle_owner
 test_request_has_two_messages_and_no_tools
+test_request_wire_shape_and_snake_case_options_are_exact
+test_request_wire_has_think_medium_and_keep_alive
 test_requests_share_prompt_settings_manifest_vocabulary_authority_and_schema
 test_requests_differ_only_by_case_identity_artifact_and_hash
 test_request_bytes_exclude_oracle_digest_meaning_and_expected_tuple
@@ -342,6 +358,40 @@ Use exactly:
 `execution-order.json` is exactly the six opaque IDs in the specification's
 order. Reject duplicate, missing, extra, or reordered IDs.
 
+The internal settings file is configuration input only. The effective compact
+UTF-8 `/api/chat` request payload is constructed exactly as:
+
+```python
+payload = {
+    "model": "qwen3.8:27b",
+    "messages": [
+        {
+            "role": "system",
+            "content": load_text(public_root / "reviewer-system.txt"),
+        },
+        {
+            "role": "user",
+            "content": build_user_message(public_root, case_id),
+        },
+    ],
+    "stream": False,
+    "think": "medium",
+    "keep_alive": "5m",
+    "options": {
+        "seed": 2026081502,
+        "temperature": 0.0,
+        "top_p": 0.9,
+        "num_ctx": 32768,
+        "num_predict": 8192,
+    },
+}
+wire_bytes = canonical_bytes(payload)
+```
+
+No camelCase setting name reaches the wire. Fake-transport tests compare the
+complete decoded payload and causally refuse missing, renamed, defaulted,
+duplicated, or extra wire fields.
+
 - [ ] **Step 4: Implement request construction without private inputs.**
 
 `build_request` receives only `public_root` and `case_id`. It strict-loads and
@@ -375,8 +425,9 @@ sizes, and blob presence. Require the endpoint scheme/host/port/path exactly
 
 For each case, write the exact request before contact; call the injected
 transport once; retain exact status/headers/body; extract only
-`message.content`; strict-parse and schema/consistency validate it; then append
-one terminal call-ledger event. Flush/fsync every file before advancing.
+`message.content`; pass it once through `public.protocol` for strict parsing and
+schema/consistency validation; then append one terminal call-ledger event.
+Flush/fsync every file before advancing.
 
 Schema/semantic outcomes continue to the next case. Transport/runtime,
 identity, public custody, or evidence-write failures close an incomplete prefix
@@ -458,8 +509,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Public prepare failed' }
 ```
 
 Require create-new `model-identity.json` and `source-manifest.json`. Immediately
-rehash every entry independently and require no unlisted public file except
-Python bytecode caches, which must be excluded from execution and manifests.
+rehash every entry independently. The public manifest inventories every frozen
+public sibling except `source-manifest.json` itself. Require no other unlisted
+public file except Python bytecode caches, which must be excluded from execution
+and manifests. Retain the public manifest's own SHA-256 only in
+`precontact-review.json`, this plan's execution ledger, and the later explicit
+authorization.
 
 - [ ] **Step 3: Complete the human category/diff review and freeze private custody.**
 
@@ -483,6 +538,11 @@ $root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1'
 & pwsh -NoProfile -File "$root/private/run-private.ps1" -Mode prepare
 if ($LASTEXITCODE -ne 0) { throw 'Private prepare failed' }
 ```
+
+The private manifest follows the identical non-self-referential rule: it
+inventories every frozen private sibling except its own
+`source-manifest.json`. Its own SHA-256 is retained externally beside the
+public manifest hash.
 
 - [ ] **Step 4: Perform one complete independent no-contact review.**
 
@@ -590,8 +650,29 @@ manifest hashes, all independent outcomes, complete telemetry, failures, and
 nonclaims. State whether sensitivity and restraint were observed only for this
 frozen corpus/configuration.
 
-The architecture status records Phase B as passed, failed, or incomplete. It
-must not authorize the production router automatically.
+The architecture status records exactly one of the three campaign statuses
+below. It must not authorize the production router automatically.
+
+The final campaign status is deterministic and exactly one of:
+
+```text
+qualified_on_corpus
+  all six calls have complete admitted terminal evidence
+  and every required sensitivity, restraint, and residual outcome passes
+
+not_qualified_on_corpus
+  all six calls have complete terminal evidence
+  and at least one required sensitivity, restraint, or residual outcome fails
+
+incomplete
+  the six-case evidence prefix is incomplete for any reason
+```
+
+`response_contract_invalid`, `response_consistency_invalid`, or
+`reviewer_uncertain` is a completed case outcome when its request and terminal
+provider response are durably retained. Such an outcome therefore contributes
+to `not_qualified_on_corpus`, not `incomplete`. Missing terminal evidence,
+transport/runtime stop, or failed durable custody yields `incomplete`.
 
 - [ ] **Step 6: Verify documentation and commit exactly two files.**
 
