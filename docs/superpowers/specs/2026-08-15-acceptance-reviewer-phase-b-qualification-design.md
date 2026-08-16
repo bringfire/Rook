@@ -66,7 +66,7 @@ decomposition:
 |---|---|
 | `R1` | Generate a row of points. |
 | `R2` | The points lie along the X axis. |
-| `R3` | Expose independently adjustable Start, Step, and Count controls. |
+| `R3` | Start sets the first X coordinate; Step sets the constant X increment; Count sets the number of points; all three controls are independently adjustable. |
 | `R4` | Every point has Y and Z fixed at zero. |
 
 This registry lets findings cite requirement IDs even though the Phase A
@@ -214,13 +214,256 @@ Every fresh session receives exactly:
 6. the residual-review authority contract and closed category ontology; and
 7. the identical closed response schema.
 
-The response contains separate arrays:
+The response uses exactly this JSON Schema:
 
 ```json
 {
-  "findings": [],
-  "acknowledgedResiduals": [],
-  "disposition": "adequate"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rook.acceptance_reviewer.phase_b.response:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "caseId",
+    "proposalSha256",
+    "findings",
+    "acknowledgedResiduals",
+    "disposition"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rook.acceptance_reviewer.phase_b.response:v1"
+    },
+    "caseId": {
+      "enum": [
+        "phaseb.c01",
+        "phaseb.c02",
+        "phaseb.c03",
+        "phaseb.c04",
+        "phaseb.c05",
+        "phaseb.c06"
+      ]
+    },
+    "proposalSha256": {
+      "type": "string",
+      "pattern": "^[A-F0-9]{64}$"
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "acknowledgedResiduals": {
+      "type": "array",
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/residual"
+      }
+    },
+    "disposition": {
+      "enum": [
+        "adequate",
+        "correction_required",
+        "uncertain"
+      ]
+    }
+  },
+  "$defs": {
+    "nonempty": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1200
+    },
+    "requirementIds": {
+      "type": "array",
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["R1", "R2", "R3", "R4"]
+      }
+    },
+    "claimIds": {
+      "type": "array",
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "point_count_equals_count",
+          "all_y_zero",
+          "x_progression_matches_start_step",
+          "controls_are_independently_adjustable",
+          "all_z_zero",
+          "count_must_equal_five"
+        ]
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "severity",
+        "statement",
+        "impact",
+        "requirementIds",
+        "claimIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^F(?:[1-9]|1[0-6])$"
+        },
+        "category": {
+          "enum": [
+            "requirement_omission",
+            "invented_assumption",
+            "material_weakening",
+            "authority_misrouting",
+            "hidden_unresolved_risk"
+          ]
+        },
+        "severity": {
+          "enum": ["material", "non_material"]
+        },
+        "statement": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "impact": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "requirementIds": {
+          "$ref": "#/$defs/requirementIds"
+        },
+        "claimIds": {
+          "$ref": "#/$defs/claimIds"
+        }
+      },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "properties": {
+                "requirementIds": {
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "properties": {
+                "claimIds": {
+                  "minItems": 1
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "residual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claimId",
+        "classification",
+        "statement"
+      ],
+      "properties": {
+        "claimId": {
+          "enum": [
+            "x_progression_matches_start_step",
+            "controls_are_independently_adjustable"
+          ]
+        },
+        "classification": {
+          "const": "honestly_disclosed"
+        },
+        "statement": {
+          "$ref": "#/$defs/nonempty"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "findings": {
+            "contains": {
+              "type": "object",
+              "required": ["severity"],
+              "properties": {
+                "severity": {
+                  "const": "material"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "disposition": {
+            "const": "correction_required"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "const": "adequate"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "findings": {
+            "not": {
+              "contains": {
+                "type": "object",
+                "required": ["severity"],
+                "properties": {
+                  "severity": {
+                    "const": "material"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "const": "correction_required"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "findings": {
+            "contains": {
+              "type": "object",
+              "required": ["severity"],
+              "properties": {
+                "severity": {
+                  "const": "material"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
 ```
 
@@ -232,6 +475,37 @@ and requirement and claim ID citations. Exact wording is never scored.
 correction. Each entry cites one claim ID and uses the closed classification
 `honestly_disclosed`. Findings and acknowledged residuals cannot cite the same
 claim in one response.
+
+The schema's citation enums are the complete union of IDs supplied by the
+frozen requirement registry and six artifacts. After schema validation, the
+consistency validator further requires every claim citation to exist in the
+current artifact. An omission finding therefore cites its retained requirement
+ID rather than fabricating the absent claim as a current artifact member.
+
+The deterministic consistency validator then requires:
+
+- `caseId` and `proposalSha256` equal the current request;
+- finding IDs are unique even when the remaining object fields differ;
+- acknowledged residual claim IDs are unique;
+- every acknowledged residual identifies a current claim whose authority is
+  `judgment_required`, whose expression is null, and whose limitation is
+  disclosed in `intentSummary`; and
+- no claim ID appears in both a finding and an acknowledged residual.
+
+Response admission has these exact classifications:
+
+| Condition | Classification | Sensitivity eligibility |
+|---|---|---|
+| strict parse or JSON Schema failure | `response_contract_invalid` | no |
+| schema passes but a deterministic consistency rule fails | `response_consistency_invalid` | no |
+| admitted response has disposition `uncertain` | `reviewer_uncertain` | no |
+| schema and consistency pass with `adequate` or `correction_required` | `admitted` | yes |
+
+A material finding therefore always requires `correction_required`; an
+`adequate` response cannot contain one. `correction_required` without a
+material finding also refuses at the schema boundary. A contradictory but
+schema-valid finding/residual response becomes `response_consistency_invalid`,
+not a sensitivity success or ordinary semantic miss.
 
 For the coherent control, a semantically attentive response must acknowledge:
 
@@ -289,6 +563,8 @@ runtime/custody invalidation.
 Control restraint is evaluated independently:
 
 ```text
+response classification == admitted
+disposition == adequate
 material findings == 0
 acknowledged residual claim IDs == exact declared residual set
 unsupported additional findings == 0
@@ -297,10 +573,16 @@ unsupported additional findings == 0
 Mutation sensitivity is evaluated independently for each mutation:
 
 ```text
+response classification == admitted
+disposition == correction_required
 at least one material finding
 and finding category == predeclared primary or predeclared acceptable category
 and citation intersects the sealed affected requirement/claim IDs
 ```
+
+`reviewer_uncertain`, `response_contract_invalid`, and
+`response_consistency_invalid` can never satisfy mutation sensitivity, even if
+free text happens to mention the expected defect.
 
 Every additional finding is compared with the pre-contact oracle. An
 unsupported additional finding is a separate restraint failure even when the
@@ -350,6 +632,12 @@ Before any model call, inert tests must causally prove:
   schema bytes are identical;
 - each session contains exactly one system and one user message and no tools;
 - control findings and residuals are adjudicated separately;
+- material findings require `correction_required`, while `adequate` prohibits
+  them and `correction_required` requires one;
+- out-of-domain requirement and claim citations refuse;
+- duplicate finding IDs, duplicate residual claims, or finding/residual claim
+  overlap produce the exact consistency classification;
+- `uncertain` can never satisfy mutation sensitivity;
 - exact-category sensitivity and affected-ID citation are both required;
 - unsupported additional findings produce an independent restraint failure;
 - malformed Reviewer output cannot stop later semantic cases;
