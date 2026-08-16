@@ -1050,7 +1050,7 @@ The Phase A operation subset is exact:
 | `collection_count` | `collection<T>` | `integer` | exact retained complete count only; incomplete runtime evidence is `unproven` |
 | `coordinate` | `point3` plus `x`, `y`, or `z` | `finite_scalar` | no collection broadcasting |
 | `equal` | identical exact-comparable types | `boolean3` | allowed only for `integer`, `enum`, `string`, and `identifier` in Phase A |
-| `approx_equal` | identical numeric types plus explicit finite nonnegative absolute and relative tolerances | `boolean3` | no default or inferred tolerance |
+| `approx_equal` | identical numeric types plus explicit `finite_scalar` nonnegative literal absolute and relative tolerances | `boolean3` | both tolerances are literal-only; no role, field, binder, computed expression, default, or inferred tolerance |
 | `and` | 2 through 8 `boolean3` values | `boolean3` | strong Kleene logic |
 | `for_all` | `collection<T>`, one lexical binder, and a `boolean3` body | `boolean3` | evaluates once per admitted item; empty is `true`; incomplete collection is `unproven` |
 
@@ -1064,6 +1064,10 @@ The manifest also freezes:
   manifest, never caller-raised values;
 - exact integers without float conversion;
 - finite scalar admission only;
+- `approx_equal` tolerance inputs use the manifest pattern
+  `finite_nonnegative_literal`; a finite negative literal is
+  `invalid/tolerance_negative`, while any nonliteral tolerance expression is
+  `invalid/tolerance_source_invalid`;
 - missing, unsupported, runtime-error, truncation, and insufficient-precision
   propagation to `unproven`; and
 - schema, reference, type, authority, binder, nonfinite, and budget violations
@@ -1604,6 +1608,8 @@ fail for its own stable compiler diagnostic:
 | null expression under `deterministic_required` | `invalid/authority_expression_incompatible` |
 | null expression under `judgment_allowed` | `invalid/authority_expression_incompatible` |
 | floating comparison without explicit admitted tolerances | `invalid/tolerance_required` |
+| negative finite absolute or relative tolerance literal | `invalid/tolerance_negative` |
+| nonliteral absolute or relative tolerance source | `invalid/tolerance_source_invalid` |
 | nonfinite literal or tolerance | `invalid/nonfinite` |
 | AST node, depth, quantifier, or work-cost limit exceeded | `invalid/budget_exceeded` |
 
