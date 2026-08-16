@@ -10,14 +10,15 @@
 
 ## Global Constraints
 
-- Authoritative specification baseline exactly `35f8f68f8f98eb7f825dc78d5b1a7a29d42d1be1`.
+- Authoritative specification baseline exactly `4ec4929d8a351b022d8735c8bb9340d1968f63f0`.
 - Authoritative specification exactly `docs/superpowers/specs/2026-08-15-rook-prime-acceptance-workflow-router-design.md` at that baseline.
 - At execution, that baseline must be an ancestor of clean `HEAD`; the only path changed after it may be this Phase A plan, and the specification blob must remain byte-identical.
-- Disposable root exactly `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator`.
-- V1 and V2 are preserved byte-for-byte as rejected evidence lanes. V1 exposed
-  root-ownership drift; V2 exposed manifest-authority, repository-custody,
-  budget, mutation-diff, and manifest-audit gaps during mandatory independent
-  review. Neither lane authorizes Phase B.
+- Disposable root exactly `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator`.
+- V1, V2, and V3 are preserved byte-for-byte as rejected evidence lanes. V1
+  exposed root-ownership drift; V2 exposed manifest-authority,
+  repository-custody, budget, mutation-diff, and manifest-audit gaps; V3
+  exposed a hidden literal-only tolerance rule and an inaccurate negative
+  tolerance diagnostic. None authorizes Phase B.
 - If that root already exists, stop. Do not delete, overwrite, repair, or reuse it.
 - Use exactly `C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe`; record its version and SHA-256 before qualification.
 - Add no production module, endpoint, schema, tool, router, profile, evaluator behavior, or dependency.
@@ -38,19 +39,19 @@
 
 | File | Responsibility |
 |---|---|
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/phase_a.py` | Strict JSON ownership, manifest admission, static compiler, marked-example extraction, mutation application, qualification sealing, and audit |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/test_phase_a.py` | All causal Phase A tests; no network, model, host, or production imports |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/semantic-manifest.json` | The one canonical semantic authority for types, roles, fields, operations, quantifiers, authorities, precision, errors, and budgets |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/contract.schema.json` | Closed typed contract shape; references the manifest ID/hash but does not redefine operation semantics |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/point-row.valid.json` | One coherent compiler-only point-row contract |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/mutation-corpus.json` | Ordered one-change mechanical mutations and their exact expected diagnostics |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/run.ps1` | One no-contact test, prepare, qualify, and audit entry point |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/authoritative-spec.md` | Exact byte copy of the authoritative specification at the pinned baseline |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/participant-inputs.json` | Generated proof that Constructor template, Reviewer template, validator, and corpus consume identical manifest bytes/hash |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/execution-ledger.json` | Generated, independently derived baseline, interpreter, source-spec, no-contact boundary, and artifact identities |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/source-manifest.json` | Generated exact size/hash inventory of every frozen input and source |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/qualification-result.json` | Generated closed result containing valid examples, coherent compilation, and every mutation outcome |
-| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/evidence-manifest.json` | Generated exact size/hash inventory of the retained qualification evidence |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/phase_a.py` | Strict JSON ownership, manifest admission, static compiler, marked-example extraction, mutation application, qualification sealing, and audit |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/test_phase_a.py` | All causal Phase A tests; no network, model, host, or production imports |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/semantic-manifest.json` | The one canonical semantic authority for types, roles, fields, operations, quantifiers, authorities, precision, errors, and budgets |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/contract.schema.json` | Closed typed contract shape; references the manifest ID/hash but does not redefine operation semantics |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/point-row.valid.json` | One coherent compiler-only point-row contract |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/mutation-corpus.json` | Ordered one-change mechanical mutations and their exact expected diagnostics |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/run.ps1` | One no-contact test, prepare, qualify, and audit entry point |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/authoritative-spec.md` | Exact byte copy of the authoritative specification at the pinned baseline |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/participant-inputs.json` | Generated proof that Constructor template, Reviewer template, validator, and corpus consume identical manifest bytes/hash |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/execution-ledger.json` | Generated, independently derived baseline, interpreter, source-spec, no-contact boundary, and artifact identities |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/source-manifest.json` | Generated exact size/hash inventory of every frozen input and source |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/qualification-result.json` | Generated closed result containing valid examples, coherent compilation, and every mutation outcome |
+| `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/evidence-manifest.json` | Generated exact size/hash inventory of the retained qualification evidence |
 
 All reusable behavior remains in the single disposable `phase_a.py` because it
 has one qualification owner and will not ship. Split nothing into production
@@ -65,7 +66,7 @@ claim-ID or role-ID dispatch to the compiler.
 - Create: every disposable file in the ownership map above
 - Read only: `docs/superpowers/specs/2026-08-15-rook-prime-acceptance-workflow-router-design.md`
 - Modify: none outside the disposable root
-- Test: `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator/test_phase_a.py`
+- Test: `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator/test_phase_a.py`
 
 **Interfaces:**
 - Produces: `strict_loads(raw: bytes | str) -> object` with duplicate-key, nonfinite, invalid UTF-8, and trailing-data refusal.
@@ -83,7 +84,7 @@ claim-ID or role-ID dispatch to the compiler.
 First prove the root is new:
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator'
 if (Test-Path -LiteralPath $root) {
   throw "Disposable Phase A root already exists: $root"
 }
@@ -127,7 +128,7 @@ test_result_and_evidence_manifests_audit_exactly
 - [ ] **Step 2: Run the RED suite and retain the expected missing-owner failure.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" -v
 if ($LASTEXITCODE -eq 0) { throw 'RED suite unexpectedly passed' }
@@ -191,6 +192,20 @@ but unavailable entries so `unsupported` is causally distinguishable from
 `availability`, `arity`, `inputTypePatterns`, `outputTypeExpression`,
 `precision`, `missingBehavior`, `unsupportedBehavior`, `errorBehavior`, and
 `budgetCost`.
+
+The `approx_equal` entry uses exact input patterns:
+
+```text
+same_numeric
+same_numeric
+finite_nonnegative_literal
+finite_nonnegative_literal
+```
+
+The shared pattern means a `finite_scalar` literal whose value is finite and
+greater than or equal to zero. A negative finite literal is
+`invalid/tolerance_negative`; any role, field, binder, or computed expression
+at either tolerance position is `invalid/tolerance_source_invalid`.
 
 `authorityCompatibility` is exactly:
 
@@ -292,6 +307,10 @@ null deterministic_required expression        invalid/authority_expression_incom
 null judgment_allowed expression              invalid/authority_expression_incompatible
 missing approximate absolute tolerance        invalid/tolerance_required
 missing approximate relative tolerance        invalid/tolerance_required
+negative absolute tolerance literal            invalid/tolerance_negative
+negative relative tolerance literal            invalid/tolerance_negative
+nonliteral absolute tolerance source            invalid/tolerance_source_invalid
+nonliteral relative tolerance source            invalid/tolerance_source_invalid
 nonfinite literal token 1e999                 invalid/nonfinite
 expression node limit exceeded                invalid/budget_exceeded
 expression depth limit exceeded               invalid/budget_exceeded
@@ -365,7 +384,7 @@ owned-entry tests prove the four compile-relevant fields control compilation.
 - [ ] **Step 6: Run the strict-JSON and manifest-only tests to GREEN.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" `
   StrictJsonTests ManifestContractTests -v
@@ -427,7 +446,7 @@ ordered outcome per claim only for `compiled`; the first deterministic
 - [ ] **Step 8: Run compiler and authority tests to GREEN.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" `
   ExpressionCompilerTests AuthorityCompatibilityTests -v
@@ -455,7 +474,7 @@ missing close marker. None may reach a successful qualification.
 - [ ] **Step 10: Prove every marked valid example and the coherent fixture compile.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" `
   SpecificationExampleTests -v
@@ -590,7 +609,7 @@ Static data and tests may contain them; compiler source may not.
 - [ ] **Step 13: Run the complete inert suite and require GREEN.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/test_phase_a.py" -v
 if ($LASTEXITCODE -ne 0) { throw 'Complete Phase A inert suite failed' }
@@ -602,7 +621,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Phase A compilation failed' }
 
 Run `phase_a.py prepare`. It copies the exact authoritative specification bytes
 into `authoritative-spec.md` and asserts its SHA-256 equals the specification
-blob at baseline `35f8f68f8f98eb7f825dc78d5b1a7a29d42d1be1`. It records the exact execution
+blob at baseline `4ec4929d8a351b022d8735c8bb9340d1968f63f0`. It records the exact execution
 HEAD, baseline ancestry, exact post-baseline path list, clean-worktree status, Python
 path/version/hash, specification source path/hash, manifest ID/hash/bytes, and
 no-contact caps in `execution-ledger.json`.
@@ -636,7 +655,7 @@ and Python paths; all claimed repository facts are derived by the Python
 custody owner. Execute:
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator'
 & pwsh -NoProfile -File "$root/run.ps1" -Mode test
 if ($LASTEXITCODE -ne 0) { throw 'Phase A test mode failed' }
 & pwsh -NoProfile -File "$root/run.ps1" -Mode prepare
@@ -652,7 +671,7 @@ must match these regular languages:
 
 ```text
 PHASE_A_QUALIFICATION_OK result=[0-9A-F]{64} evidence=[0-9A-F]{64}
-PHASE_A_AUDIT_OK examples=2 mutations=19
+PHASE_A_AUDIT_OK examples=2 mutations=23
 ```
 
 Do not retry a failed qualification after it writes result evidence. Preserve
@@ -665,7 +684,7 @@ git -C 'C:/UDEV/Rook/.worktrees/acceptance-workflow-router-design' status --shor
 git -C 'C:/UDEV/Rook/.worktrees/acceptance-workflow-router-design' diff --check
 Get-ChildItem Env: | Where-Object Name -Match 'ANTHROPIC|OPENAI|OLLAMA' |
   Select-Object Name
-Get-ChildItem 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v3/operator' -Recurse -File |
+Get-ChildItem 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator' -Recurse -File |
   Sort-Object FullName |
   Get-FileHash -Algorithm SHA256
 ```
@@ -689,7 +708,7 @@ all four authority rows
 precision, error, and budget refusal
 both marked valid specification examples compiling
 coherent point-row fixture compiling
-all 19 isolated mutations returning exact outcomes
+all 23 isolated mutations returning exact outcomes
 zero task-local compiler dispatch
 zero model/provider/Prime/Rook/Rhino/Grasshopper/network surface
 source and evidence manifest hashes
