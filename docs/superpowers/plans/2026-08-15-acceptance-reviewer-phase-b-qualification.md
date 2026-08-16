@@ -96,8 +96,9 @@ New-Item -ItemType Directory -Path "$root/public/cases" -Force | Out-Null
 New-Item -ItemType Directory -Path "$root/private" -Force | Out-Null
 ```
 
-`test_phase_b_public.py` imports `collector`, `protocol`, and `phase_a`. Its
-initial named tests are:
+`test_phase_b_public.py` initially imports only `protocol` and `phase_a`.
+Task 2 adds the `collector` import when that owner enters scope. Its initial
+named tests are:
 
 ```text
 test_exact_v4_compiler_manifest_and_schema_hashes
