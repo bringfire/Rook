@@ -22,7 +22,6 @@ The governing invariant is:
 | generated contract -> independently admitted meaning | symbolic roles, claims, authority, and evidence can represent intent | after Phase A, compiler-valid cases reviewed by fresh, fully informed Reviewers that detect meaningful semantic defects |
 | Prime protocol/configuration -> effective role runtime | separate top-level sessions and profiles enforce roles | wire/runtime evidence proving exact model, context, tools, authority, terminal lifecycle, and session separation |
 | persisted dispatch -> exclusive live worker ownership | ledger intent, CAS, and reconciliation prevent duplicate work | crash/race evidence proving one live owner and no repeated consumed mutation |
-| operation name -> fully defined deterministic semantics | one shared typed manifest can compile generic claims | Phase A exact type, field, operation, quantifier, authority, precision, error, and budget semantics with causal mutation tests |
 
 These are independent qualifications. Success at one does not transfer to the
 others.
@@ -82,26 +81,42 @@ Reviewer failure causally confounded        yes; semantic contract omitted
 The evidence-led report is
 `docs/superpowers/reports/2026-08-15-acceptance-contract-handoff-continuation-qualification.md`.
 
-## Current Authorized Boundary
-
-No production slice or new model call is justified. The only authorized next
-slice is disposable Phase A compiler qualification without live contact:
+The offline Phase A V4 successor then qualified the shared deterministic
+compiler boundary:
 
 ```text
-one shared semantic manifest
--> one typed contract schema
--> one deterministic validator/compiler seam
--> one coherent point-row artifact
--> isolated mechanically invalid mutations
--> mandatory independent no-contact review
+shared semantic manifest
+-> typed schema and compiler
+-> coherent artifact and marked-valid examples compile
+-> 23 isolated mechanical mutations refuse causally
 ```
 
-Phase A must establish role-kind and `valueType` compatibility, field
-availability, operation signatures, quantifier binding, the four exact
-authority modes, and precision/error/budget behavior. It must also strict-parse
-and compile every specification JSON example explicitly marked valid. No
-Constructor, Reviewer, Prime, Ollama, Rook, Rhino, Grasshopper, deployment, or
-production-router work is admitted.
+This closes the former `operation name -> fully defined deterministic
+semantics` handoff for the frozen Phase A vocabulary. In particular,
+`approx_equal` tolerances are now manifest-owned finite, nonnegative numeric
+literals; negative and nonliteral sources have distinct exact diagnostics.
+The fresh suite passed **48/48** tests and the artifact audit reproduced
+`PHASE_A_AUDIT_OK examples=2 mutations=23`, with zero model or live contact.
 
-Only an independently approved Phase A result may justify designing the later
-Phase B Reviewer qualification with compiler-valid semantic mutations.
+The retained evidence report is
+`docs/superpowers/reports/2026-08-15-acceptance-semantic-manifest-phase-a-qualification.md`.
+
+## Current Authorized Boundary
+
+Phase A is complete. It does not authorize production router implementation.
+The smallest justified next slice is a separately reviewed Phase B Reviewer
+qualification using compiler-valid artifacts only:
+
+```text
+same shared semantic contract
+-> compiler-valid coherent artifact
+-> isolated compiler-valid semantic mutations
+-> fresh fully informed Reviewer sessions
+-> residual semantic-sensitivity assessment
+```
+
+Phase B must not repeat mechanically invalid cases already owned by the
+compiler. It should test residual requirement coverage, invented assumptions,
+material weakening, and unresolved semantic risk. Runtime evaluation,
+evidence collection, policy routing, deployment, and production implementation
+remain outside this boundary.
