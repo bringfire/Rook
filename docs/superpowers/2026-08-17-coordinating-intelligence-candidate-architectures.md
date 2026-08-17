@@ -493,6 +493,9 @@ While the Prime goal remains active, the integration owner verifies every
 pre-terminal condition it can establish:
 
 - the source trace prefix is authentic and gap-free;
+- every admitted Rook call is correlated to a persisted IPython tool result on
+  the same session branch, with transport quiescence persisted before that
+  tool result; detached or late-quiescing calls remain recovery-required;
 - if target mutation occurred, the latest relevant terminal mutation has an
   eligible ready receipt and the final observation is fenced to it;
 - if no target mutation occurred, the trace establishes that read-only path and

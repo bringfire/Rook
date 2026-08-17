@@ -68,6 +68,8 @@ The design guarantees recovery from:
 - a lost host response after a successful terminal record;
 - a process exit after transport quiesces but before the corresponding IPython
   tool result is persisted;
+- detached Python work that begins or quiesces after its originating IPython
+  execution becomes idle;
 - stale, duplicate, cross-goal, or cross-generation cooperative protocol calls; and
 - adapter, transport, or evidence-recorder failures on the unmodified adapter path.
 
@@ -328,8 +330,14 @@ The adapter builds transport configuration from that retained target identity af
 admission; it does not reread mutable environment values after the awaited begin request.
 
 The IPython tool-call and kernel-execution identities come from Prime's execution context,
-not from model-supplied host-request fields. Prime must extend the typed host-handler context
-to expose those existing host-owned identities.
+not from model-supplied host-request fields. Prime must extend the IPython execute options and
+typed host-handler context to expose those existing host-owned identities.
+
+Lease `begin` requires a currently active IPython execution. The generic host bridge may
+continue attributing other detached host requests to the last cell for existing Prime
+features, but dispatch admission does not accept that fallback. A begin request received
+after the originating execution becomes idle refuses with `execution_not_active` and enters
+transport zero times.
 
 ### Transport quiescence
 
@@ -379,8 +387,24 @@ state marker, not a substitute for the persisted tool result.
 Prime must persist the tool result before `lease_observed`. If observation-marker
 persistence fails, the gate enters `recovery_required`. On rehydration, Prime may reconcile a
 quiesced lease only from the exact persisted tool result with the same host-owned
-`ipythonToolCallId` and compatible kernel execution. It then persists an idempotent
-observation marker before reopening the gate.
+`ipythonToolCallId` and kernel execution identity when all these ordering equations hold:
+
+```text
+lease_opened session entry
+  is an ancestor of
+lease_quiesced session entry
+  is an ancestor of
+matching IPython toolResult session entry
+```
+
+Session-branch ancestry and persisted entry order are authoritative. Wall-clock timestamps
+are not used to infer causality. Prime then persists an idempotent observation marker before
+reopening the gate.
+
+A matching tool result that precedes `lease_quiesced` is not delivery evidence for that
+lease. The lease remains `recovery_required` even if its tool-call and kernel-execution
+identities match. The retained source event must be reintroduced during current-state
+orientation, and the original transport is never replayed.
 
 If the process exits after `lease_quiesced` but before the matching tool result persists,
 rehydration is `recovery_required`. The retained source event must be reintroduced during
@@ -388,7 +412,9 @@ current-state orientation before any new dispatch; the original transport is nev
 
 Every Rook call in one cell has its own lease and descriptor but shares the host-owned
 IPython tool-call identity. The cell is observed only when all its admitted leases are
-quiesced and its tool result is persisted. Any still-open lease keeps the gate fail-closed.
+quiesced before its tool result is persisted. If the tool result arrives while any matching
+lease is still open, Prime persists the tool result normally but marks that execution
+`recovery_required`; later quiescence cannot retroactively convert it to observed.
 
 Consequently, pre-completion authorization cannot occur in the same IPython cell as the last
 Rook call. The model must receive a subsequent turn whose context includes the persisted
@@ -527,7 +553,8 @@ authoritative for both goal completion and gate closure so those facts cannot di
 | Open, no unresolved lease or authorization | Active | Open | Continue normally |
 | Open lease without matching quiescence | Active | `recovery_required` | Orient current state; never replay transport |
 | Quiesced lease without matching persisted IPython tool result | Active | `recovery_required` | Reintroduce retained source evidence; orient current state before capability reissue |
-| Quiesced lease with matching persisted tool result but no observation marker | Active | `recovery_required` until deterministic reconciliation persists | Persist idempotent observation marker, then continue |
+| Quiesced lease preceding a matching persisted tool result, but no observation marker | Active | `recovery_required` until deterministic reconciliation persists | Verify branch ancestry, persist idempotent observation marker, then continue |
+| Matching persisted tool result preceding lease quiescence | Active | `recovery_required` | Reintroduce retained source evidence; never infer delivery or replay transport |
 | Observed leases only, no pending authorization | Active | Open | Continue normally |
 | Completion authorized, no terminal record | Active | `recovery_required` | Invalidate old authorization; orient current state; run fresh checkpoint |
 | Torn trailing terminal record after valid authorization | Active | `recovery_required` | Treat torn record as absent; no completion claim |
@@ -635,6 +662,8 @@ goal_missing
 goal_not_active
 goal_generation_mismatch
 gate_not_open
+execution_not_active
+quiescence_after_tool_result
 completion_not_pending
 lease_in_flight
 lease_unknown
@@ -664,11 +693,14 @@ Tests must prove:
 
 - persisted lease open precedes fake transport entry;
 - begin refusal produces zero fake-transport entry;
+- begin after IPython execution becomes idle refuses with zero fake-transport entry;
 - an open lease blocks completion authorization;
 - `completion_pending` blocks new leases;
 - successful adapter `end` moves exactly the matching lease to quiesced;
 - adapter `end` records quiescence but not result observation;
 - a persisted matching IPython tool result precedes `lease_observed`;
+- branch ancestry proves `lease_quiesced` precedes the matching tool result;
+- a matching tool result that predates quiescence cannot become observed;
 - completion refuses after quiescence but before result observation;
 - a tool-result persistence failure cannot produce `lease_observed`;
 - stale, duplicate, wrong-goal, wrong-generation, and wrong-call `end` requests refuse;
@@ -723,7 +755,14 @@ Tests must inject failure or termination at every persisted transition and prove
 - process termination after adapter return but before IPython tool-result persistence
   rehydrates `recovery_required`;
 - process termination after tool-result persistence but before `lease_observed`
-  deterministically reconciles from that persisted result before reopening;
+  deterministically reconciles before reopening only when persisted branch ancestry proves
+  quiescence preceded that tool result;
+- a detached task whose begin occurs after its originating cell becomes idle refuses before
+  transport;
+- a detached task opened during active execution but quiesced after the tool result remains
+  `recovery_required`;
+- a persisted `toolResult -> lease_quiesced -> restart` sequence never reconciles as
+  observed;
 - a torn trailing terminal record rehydrates as pre-terminal;
 - termination before terminal persistence rehydrates the goal active;
 - unresolved leases and pre-terminal authorization rehydrate `recovery_required`;
