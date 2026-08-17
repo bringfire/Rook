@@ -12,7 +12,8 @@
 
 - Authoritative specification commit exactly `bd28e3e9dd6e571380f21fabcb9eb2e116d6f95f`.
 - Authoritative specification exactly `docs/superpowers/specs/2026-08-15-acceptance-reviewer-phase-b-qualification-design.md` with SHA-256 `BA58D0684BA3CE6483D1E7A75E5C3EC14CD56D890693577C74D3497D6A38B630`.
-- Disposable root exactly `C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1`.
+- Rejected public-custody V1 remains preserved unchanged at `C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1`.
+- Active disposable root exactly `C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2`.
 - If that disposable root already exists, stop. Do not delete, overwrite, repair, or reuse it.
 - Retain Phase A V4 at `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4/operator` byte-for-byte. Never run its `prepare` mode again.
 - The copied V4 semantic manifest must hash to `D80D10393BFA7250B217C8636739EF4287E3AFBBE6E3C6A63834D99D4D51B30C`.
@@ -90,7 +91,7 @@ custody. Repository changes remain documentation-only.
 - [ ] **Step 1: Create the new root and write RED public/private test owners.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2'
 if (Test-Path -LiteralPath $root) { throw "Disposable root already exists: $root" }
 New-Item -ItemType Directory -Path "$root/public/cases" -Force | Out-Null
 New-Item -ItemType Directory -Path "$root/private" -Force | Out-Null
@@ -131,7 +132,7 @@ test_unsupported_additional_finding_fails_restraint_independently
 - [ ] **Step 2: Run both RED owners and retain the missing-module failures.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/public/test_phase_b_public.py" -v
 if ($LASTEXITCODE -eq 0) { throw 'Public RED suite unexpectedly passed' }
@@ -265,7 +266,7 @@ exact two residual IDs. Produce no aggregate field.
 - [ ] **Step 8: Run both suites GREEN and compile all Python.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/public/test_phase_b_public.py" -v
 if ($LASTEXITCODE -ne 0) { throw 'Public suite failed' }
@@ -314,6 +315,11 @@ test_uncertain_model_artifact_closes_case_and_continues
 test_transport_failure_stops_before_next_case
 test_public_custody_drift_stops_before_next_case
 test_model_identity_drift_stops_before_next_case
+test_wrong_response_model_closes_an_auditable_incomplete_prefix
+test_runtime_identity_is_reverified_after_every_response_including_final
+test_audit_reconstructs_request_response_artifact_and_validation
+test_audit_refuses_tampered_state_or_ledger_projection
+test_audit_refuses_unexpected_duplicate_or_missing_evidence_files
 test_create_new_writer_flushes_and_fsyncs
 test_complete_and_incomplete_prefixes_audit_exactly
 ```
@@ -324,7 +330,7 @@ prefixes without changing public evidence.
 - [ ] **Step 2: Run the targeted RED tests.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
 & $python "$root/public/test_phase_b_public.py" -v
 if ($LASTEXITCODE -eq 0) { throw 'Collector RED tests unexpectedly passed' }
@@ -420,7 +426,8 @@ that was performed. State the nonclaim explicitly.
 Before every call, recheck executable hash, tag manifest hash, digest list,
 sizes, and blob presence. Require the endpoint scheme/host/port/path exactly
 `http`, `127.0.0.1`, `11434`, `/api/chat`. Do not contact Ollama during
-`prepare` or tests.
+`prepare` or tests. Recheck the same runtime identity after every returned
+response, including the sixth response and any response that is later refused.
 
 - [ ] **Step 6: Implement one-call collection and prefix sealing.**
 
@@ -429,6 +436,14 @@ transport once; retain exact status/headers/body; extract only
 `message.content`; pass it once through `public.protocol` for strict parsing and
 schema/consistency validation; then append one terminal call-ledger event.
 Flush/fsync every file before advancing.
+
+Require the returned Ollama `model` field to equal `qwen3.8:27b`. Prefix audit
+reconstructs every request from frozen inputs, correlates response bytes with
+the transport record, re-extracts the artifact, re-runs public protocol
+classification, compares the validation and ledger projections, and rejects
+missing, altered, duplicate, or unexpected evidence files. The private
+adjudicator invokes this strengthened audit immediately before consuming any
+validation record.
 
 Schema/semantic outcomes continue to the next case. Transport/runtime,
 identity, public custody, or evidence-write failures close an incomplete prefix
@@ -460,7 +475,7 @@ path or oracle term.
 - [ ] **Step 8: Run the full fake-backed GREEN seam.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2'
 & pwsh -NoProfile -File "$root/public/run-public.ps1" -Mode test
 if ($LASTEXITCODE -ne 0) { throw 'Public tests failed' }
 & pwsh -NoProfile -File "$root/private/run-private.ps1" -Mode test
@@ -504,7 +519,7 @@ exact six-case execution order
 - [ ] **Step 2: Prepare and freeze the public bundle.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2'
 & pwsh -NoProfile -File "$root/public/run-public.ps1" -Mode prepare
 if ($LASTEXITCODE -ne 0) { throw 'Public prepare failed' }
 ```
@@ -535,7 +550,7 @@ or refuse the corpus. It cannot relabel cases after contact.
 After approval:
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2'
 & pwsh -NoProfile -File "$root/private/run-private.ps1" -Mode prepare
 if ($LASTEXITCODE -ne 0) { throw 'Private prepare failed' }
 ```
@@ -601,7 +616,7 @@ verification. Require `evidence/` absent and zero earlier requests.
 - [ ] **Step 2: Execute the public campaign exactly once.**
 
 ```powershell
-$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v1'
+$root = 'C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2'
 & pwsh -NoProfile -File "$root/public/run-public.ps1" -Mode execute
 $campaignExit = $LASTEXITCODE
 ```
