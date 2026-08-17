@@ -25,7 +25,7 @@ The candidates are:
 1. **Prime-Native Empirical Actor Loop**: one grounded Actor reasons and
    iterates inside the evidenced Prime/Rook runtime lineage.
 2. **Adaptive Independent Review Loop**: the same Actor loop, with a fresh
-   read-only Reviewer invoked only when policy or observed uncertainty warrants
+   tool-less Reviewer invoked only when policy or observed uncertainty warrants
    its cost.
 3. **Contract-Compiled Assurance Workflow**: a Constructor, typed contract,
    compiler, deterministic evaluator, Reviewer, and durable policy gate for
@@ -68,7 +68,10 @@ For every retained mechanism, a candidate must state:
 2. the evidence established through that implementation;
 3. whether the candidate uses, repairs, narrows, or supersedes it;
 4. the exact handoff when the mechanism is conditional; and
-5. any unqualified behavior that remains an adoption gap.
+5. any unqualified behavior that remains an adoption gap;
+6. the ordering of reversible work relative to terminal state transitions; and
+7. identity and budget custody when one goal, session, artifact, or receipt
+   supersedes another.
 
 `Optional` means that an explicit route decides whether to use a preserved
 mechanism. It does not mean that prior work disappears. `Equivalent` is not an
@@ -152,8 +155,9 @@ flowchart TD
     Q -->|"needs evidence"| I["Prime/IPython investigation over retained evidence"]
     I --> Q
     Q -->|"material ambiguity"| U
-    Q -->|"claims complete"| C["Outer mechanical closure"]
-    C -->|"fresh and closed"| E["Evidence-backed completion account"]
+    Q -->|"claims complete"| C["Pre-completion checkpoint while goal is active"]
+    C -->|"authorized"| T["Prime goal.complete terminal action"]
+    T --> E["Post-terminal lifecycle record"]
     C -->|"incomplete custody"| Q
 ```
 
@@ -181,12 +185,13 @@ flowchart TD
 #### Prime owns
 
 - the persistent Actor session;
-- the active user-provided goal and its revisions;
+- the active user-provided goal and retained supersession history;
 - the ordinary model/tool/continuation loop;
 - the persistent IPython working environment;
 - the model's reasoning and same-session correction history;
 - native session evidence; and
-- a model-authored completion request through `goal.complete()`.
+- the model-authored terminal completion action through `goal.complete()` after
+  integration authorization.
 
 Prime does not own Rhino or Grasshopper truth, mutation success, component
 identity, final receipt selection, or semantic infallibility.
@@ -257,15 +262,20 @@ wrong target identity, adapter drift, and model-setting changes all altered or
 invalidated prior results. Product checks may be automated and quieter, but the
 ownership does not disappear.
 
-#### Stage A1: Start or update the Prime goal
+#### Stage A1: Start or supersede the Prime goal
 
 The exact user request is retained as source evidence and becomes the Prime goal
-objective when it fits Prime's existing objective limit. User revisions use the
-goal's existing update path and remain visible in session history. Candidate A
-does not silently truncate or summarize an oversized request: admission must
-either obtain a bounded user-approved objective or add a separately reviewed
-exact-reference mechanism. It does not create a competing objective database
-before Prime receives the task.
+objective when it fits Prime's existing objective limit. Entering a replacement
+`/goal` does not revise the active goal in place: Prime creates a new `goalId`
+and resets per-goal token, time, and continuation accounting. Earlier objective
+and session history remain retained, but the integration owner records the new
+goal as superseding the earlier identity and applies cumulative task budgets
+across the chain.
+
+Candidate A does not silently truncate or summarize an oversized request.
+Admission must either obtain a bounded user-approved objective or add a
+separately reviewed exact-reference mechanism. It does not create a competing
+objective database before Prime receives the task.
 
 Within the session, Qwen maintains an open-text obligation account containing:
 
@@ -310,9 +320,16 @@ Qwen chooses topology, components, values, and an action sequence in its Prime
 session. The hypothesis may remain in reasoning and IPython state. Candidate A
 does not require a universal semantic graph merely to permit action.
 
-When Qwen can express an exact execution region or bounded leaf contract, it
-may route that region through the existing PlanGraph or Worker mechanisms.
-Otherwise it retains whole-definition responsibility.
+When Qwen can express an exact execution region in the admitted semantic-design
+graph schema, it may submit that region to the existing deterministic compiler.
+The compiler, not Qwen, validates and lowers an admitted region into execution
+PlanGraph state. Compiler refusal returns diagnostics to the still-active Prime
+goal and creates no runnable PlanGraph state. Once admitted, the existing
+PlanGraph runner owns step state, ordering, dispatch, and receipt collection;
+its outputs and failures return to the parent Prime session as evidence.
+
+If no admitted region can be expressed, Qwen retains direct whole-definition
+responsibility. It does not author PlanGraph runtime state by hand.
 
 #### Stage A5: Delegate a bounded leaf when justified
 
@@ -324,9 +341,22 @@ Worker delegation is eligible only when the leaf has:
 - deterministic disposition rules; and
 - an explicit return path into the parent Prime session.
 
-The existing Worker may produce the requested bounded action or decline. Its
-result returns to Qwen and Rook; it does not become an independent planner or
-acceptance authority. If these conditions are absent, Qwen does not delegate.
+The exact handoff is:
+
+```text
+Qwen or the semantic compiler identifies one bounded leaf
+-> deterministic Worker request validation freezes contract and evidence
+-> existing Worker harness returns a candidate action or decline
+-> existing Worker disposition and acceptance-source logic admits or refuses it
+-> only an admitted action reaches the Rook mutation dispatcher
+-> mutation result and receipt return through PlanGraph when present
+   and always return to the parent Prime goal
+```
+
+The Worker does not mutate directly, become an independent planner, or accept
+its own output. A decline or refused candidate returns evidence to Qwen while
+the goal remains active. If the bounded-contract conditions or deterministic
+admission owner are absent, Qwen does not delegate.
 
 #### Stage A6: Mutate through canonical Rook routes
 
@@ -380,10 +410,24 @@ This is a model-authored evidence account, not automatic semantic truth. The
 integration owner can validate cited artifact identity and freshness but cannot
 prove arbitrary design meaning from the prose alone.
 
-Where the existing behavioral evaluator has an admitted expression or probe,
-Candidate A may use it as stronger evidence. The evaluator does not receive
-credit for unsupported semantics, and its absence does not force creation of a
-new task-specific acceptance artifact.
+Where product policy or retained task context selects an existing reviewed
+behavioral artifact, the thin integration owner freezes that artifact before
+evaluation. It then seals the caller-owned authoring trace, selects the latest
+eligible terminal receipt, runs the existing receipt-fenced probe, and invokes
+the deterministic evaluator. The closed result returns to the still-active
+Prime goal:
+
+```text
+pass      -> supports pre-completion closure for the covered claims
+fail      -> supplies exact criterion evidence for Qwen repair
+unproven  -> returns to Qwen investigation, optional review, or user escalation
+incomplete -> forbids semantic repair until custody is restored
+```
+
+Qwen may propose an investigation, but it does not select or modify an artifact
+after seeing the result and then accept its own contract. The evaluator does
+not receive credit for unsupported semantics, and its absence does not force
+creation of a new task-specific acceptance artifact.
 
 #### Stage A9: Investigate in the same Prime session
 
@@ -428,23 +472,35 @@ or escalates on:
 Correction count is operational policy informed by progress and cost, not a
 universal semantic constant.
 
-#### Stage A11: Request and admit completion
+#### Stage A11: Pass the pre-completion checkpoint while the goal is active
 
-Qwen may call Prime `goal.complete()` only after auditing the current state
-against the active objective. That call records Qwen's completion judgment and
-usage; it is not final authority by itself.
+Prime `goal.complete()` is terminal, not a reversible completion request. Before
+calling it, Qwen submits a structured completion candidate to an
+integration-owned pre-completion checkpoint. The checkpoint is a new, bounded
+integration operation that must be implemented and qualified; it does not alter
+Prime goal state.
 
-The integration owner admits completion only when mechanical closure holds:
+The candidate identifies:
 
-- Prime produced the required terminal lifecycle;
-- the source trace is authentic and closed;
+- the active `goalId` and any superseded goal chain;
+- the current obligation account and evidence citations;
+- the latest relevant terminal receipt and fenced observation, when mutation
+  occurred;
+- any deterministic evaluation result selected by policy; and
+- Qwen's requested disposition: complete, blocked, or user judgment required.
+
+While the Prime goal remains active, the integration owner verifies every
+pre-terminal condition it can establish:
+
+- the source trace prefix is authentic and gap-free;
 - if target mutation occurred, the latest relevant terminal mutation has an
   eligible ready receipt and the final observation is fenced to it;
 - if no target mutation occurred, the trace establishes that read-only path and
   the final observation retains current document identity;
 - no later evidence-invalidating mutation exists;
 - partial commits and retained diagnostics are disclosed;
-- process and budget state are recorded; and
+- process and cumulative task-budget state are admissible;
+- any selected behavioral evaluator completed with authentic custody; and
 - the model-authored evidence account addresses every retained obligation.
 
 Semantic closure remains explicitly attributed:
@@ -453,6 +509,35 @@ Semantic closure remains explicitly attributed:
 - Qwen judgments are labeled as judgments;
 - unresolved material claims are not converted into success; and
 - genuine preference or consequential ambiguity returns to the user.
+
+Checkpoint refusal returns exact evidence or custody diagnostics through
+Prime's existing continuation path. The same goal remains active for
+investigation, repair, or escalation. Candidate B inserts any conditional
+Reviewer before this checkpoint grants completion authorization.
+
+Authorization is one-use and bound to the active `goalId`, target document,
+source-trace prefix, latest receipt, and cited evidence hashes. Any later target
+mutation, goal supersession, or relevant evidence change invalidates it.
+
+#### Stage A12: Complete the Prime goal terminally
+
+After pre-completion authorization, Qwen calls Prime `goal.complete()`. The
+production integration must guard Prime's host completion path with the
+one-use authorization before `_completeGoalFromHost()` changes goal state.
+Current Prime does not perform that check. An unauthorized call must refuse
+before state transition and leave the goal active; an authorized call consumes
+the authorization and immediately sets the goal inactive and terminal. There is
+no same-goal repair path after the successful action.
+
+The integration owner then records the terminal Prime lifecycle and native
+session closure. If the required `agent_end` or final session evidence is
+missing, the product result is `incomplete`; it does not pretend that the goal
+remained active. Recovery requires current-state orientation and an explicitly
+linked superseding goal rather than automatic replay.
+
+Post-terminal work is limited to durable recording and presentation of the
+already authorized outcome. It cannot add a Reviewer, reinterpret evidence, or
+route concerns back into the completed goal.
 
 ### 4.5 Recovery without a parallel orchestrator
 
@@ -466,7 +551,8 @@ Recovery begins with existing owners:
 The cross-boundary record contains only what neither system can establish alone:
 
 ```text
-Prime session and active-goal identity
+Prime session, active-goal identity, and superseded-goal chain
+per-goal accounting plus cumulative task-budget accounting
 effective model, skill, adapter, and Rook profile identity
 target document identity
 last known terminal mutation and receipt
@@ -494,21 +580,31 @@ mechanisms:
    profile from Prime's MCP integration despite its dynamic escape surfaces,
    and separately decide how unrestricted IPython network/process access is
    governed.
-4. **Lifecycle:** define the required relationship among `goal.complete()`,
-   `agent_end`, native session closure, interruption, and outer admission.
+4. **Completion checkpoint and lifecycle:** implement and qualify the
+   integration-owned pre-completion operation, one-use authorization, and a
+   Prime host-completion guard that refuses unauthorized `goal.complete()`
+   before `_completeGoalFromHost()` changes state. Qualify the authorized
+   terminal action, `agent_end`, native-session closure, and incomplete
+   post-terminal recovery behavior.
 5. **Product entry:** decide whether the current managed Rook Chat starts and
    presents the Prime goal/session or Prime remains a separately surfaced
    runtime. Current Chat, public MCP, and internal-agent bridge paths are not
    assumed equivalent, and Prime continues through the canonical MCP gateway.
-6. **Cross-boundary state:** place the thin integration record without
-   duplicating Prime conversation or Rook runtime state.
+6. **Cross-boundary state and supersession:** place the thin integration record
+   without duplicating Prime conversation or Rook runtime state; link every
+   replacement `goalId` and enforce cumulative task budgets across per-goal
+   accounting resets.
 7. **IPython authority:** explicitly accept or constrain filesystem, process,
    and shell access; do not confuse Rook target containment with OS sandboxing.
 8. **Performance:** measure the fresh-MCP-session-per-call cost and the context
    growth of long Prime sessions before optimizing either.
-9. **Worker/PlanGraph handoff:** connect the existing bounded route to Prime in a
+9. **Worker/PlanGraph handoff:** connect the existing compiler, PlanGraph,
+   Worker request, disposition, mutation, and receipt-return chain to Prime in a
    product-visible way before claiming end-user integration.
-10. **Knowledge:** measure one targeted advisory intervention before assigning
+10. **Behavioral-evaluator handoff:** assign artifact selection, trace sealing,
+    probe execution, classification, and active-goal feedback to the integration
+    owner without allowing the Actor to approve its own artifact.
+11. **Knowledge:** measure one targeted advisory intervention before assigning
     it runtime value.
 
 ### 4.7 What Candidate A deliberately excludes
@@ -558,9 +654,9 @@ work was unnecessary.
 
 ### 5.1 Objective
 
-Preserve Candidate A as the ordinary path, but add a fresh read-only model
-perspective when consequence, uncertainty, novelty, or observed Actor behavior
-justifies the latency.
+Preserve Candidate A as the ordinary path, but add a fresh tool-less model
+perspective over an immutable evidence packet when consequence, uncertainty,
+novelty, or observed Actor behavior justifies the latency.
 
 **Disposition basis:** Candidate A plus experimental Reviewer `MD-16` and
 minimal recovery from `MD-17`. Interpretive basis: `CI-09`, `CI-13`, and
@@ -568,15 +664,16 @@ minimal recovery from `MD-17`. Interpretive basis: `CI-09`, `CI-13`, and
 
 ```mermaid
 flowchart TD
-    A["Candidate A Actor loop"] --> G["Mechanical assurance trigger"]
-    G -->|"review not required"| C["Close with Actor evidence account"]
-    G -->|"review required"| P["Build read-only review packet"]
-    P --> V["Fresh Reviewer session"]
+    A["Candidate A through active-goal completion candidate"] --> G["Assurance trigger"]
+    G -->|"review not required"| C["Grant one-use completion authorization"]
+    G -->|"review required"| P["Build immutable review packet"]
+    P --> V["Fresh tool-less Reviewer invocation"]
     V --> O{"Reviewer outcome"}
     O -->|"adequate"| C
     O -->|"specific concern or investigation"| R["Actor investigates or repairs"]
     R --> A
     O -->|"unable, disputed, or consequential"| U["User decision"]
+    C --> T["Prime goal.complete terminal action"]
 ```
 
 ### 5.2 Additional participants and mechanisms
@@ -584,18 +681,21 @@ flowchart TD
 | Mechanism | Responsibility | Why included |
 |---|---|---|
 | Assurance trigger | Decide whether independent review is worth its cost | Avoids paying Reviewer latency on every ordinary task. |
-| Fresh Reviewer session | Challenge requirement coverage, assumptions, weakening, and unresolved risks | The Actor may be blind to errors created by its own reasoning path. |
+| Fresh tool-less Reviewer invocation | Challenge requirement coverage, assumptions, weakening, and unresolved risks without inheriting Actor conversation or mutation authority | The Actor may be blind to errors created by its own reasoning path. |
 | Review packet | Present exact intent, working brief, final evidence, Actor account, and relevant trace without Actor conversational momentum | Gives the Reviewer an independent context while preserving evidence custody. |
 | Review response admission | Validate response shape, citations, lifecycle, and disposition | Prevents malformed or uncited critique from becoming authority. |
 | Escalation policy | Route disagreements, inability, or high-consequence uncertainty | Reviewer judgment is not final truth. |
 
 ### 5.3 Full loop
 
-#### Stage B0-B11: Execute Candidate A
+#### Stage B0-B11: Execute Candidate A through the active-goal checkpoint
 
-The Actor completes every Candidate A stage through mechanical and semantic
-closure. Candidate B does not replace grounded iteration with a plan/review
-ceremony before work begins.
+The Actor executes Candidate A through Stage A10, submits the Stage A11
+completion candidate, and passes the mechanically checkable checkpoint
+conditions. The Prime goal remains active and the checkpoint withholds its
+one-use completion authorization until Candidate B routing finishes. Candidate
+B does not replace grounded iteration with a plan/review ceremony before work
+begins.
 
 #### Stage B12: Evaluate the assurance trigger
 
@@ -608,7 +708,8 @@ triggers include:
 - the task crosses a configured consequence boundary;
 - correction or no-progress thresholds were approached;
 - novel geometry or unsupported observations materially affect completion;
-- the final explanation materially differs from the original working brief; or
+- the final explanation materially differs from the Prime-goal-anchored
+  obligation account; or
 - the Actor reports success after partial commits or substantial reconstruction.
 
 The trigger vocabulary describes workflow risk, not every domain defect. It
@@ -619,7 +720,7 @@ must not become a catalog of possible design mistakes.
 The deterministic shell assembles:
 
 - exact user intent and revisions;
-- the Actor's working brief and assumptions;
+- the Actor's obligation account and assumptions;
 - final receipt and fenced evidence;
 - relevant earlier contradictory evidence;
 - the Actor's obligation-by-obligation completion account;
@@ -629,11 +730,23 @@ The deterministic shell assembles:
 
 The Actor does not rewrite this packet for the Reviewer.
 
-#### Stage B14: Run a fresh read-only Reviewer
+#### Stage B14: Run a fresh tool-less Reviewer
 
-The Reviewer receives no mutation profile. It may reason, inspect retained
-evidence, request an admitted read-only investigation, or state that it cannot
-resolve the question.
+The default Candidate B Reviewer uses a fresh, bounded direct-provider harness,
+not a Prime session. The harness sends one immutable review packet and admits
+one closed response. It exposes no Rook profile, IPython, filesystem, process,
+shell, model-controlled network, or model-facing tool execution; the harness
+performs only its frozen provider request. This is the containment shape used
+by the Phase B qualification harness, but its production owner and the
+Reviewer's semantic sensitivity remain unqualified.
+
+The Reviewer may reason over retained evidence, request an additional
+investigation in its response, or state that it cannot resolve the question. It
+cannot execute that investigation itself. The integration owner may admit a
+strictly read-only Rook query, append the result to a new immutable packet, and
+start one new Reviewer invocation under policy. A Prime-based Reviewer is not
+part of Candidate B unless its separate goal lifecycle, adapter profile,
+IPython authority, and containment boundary are independently qualified.
 
 Its output contains:
 
@@ -653,7 +766,8 @@ exhaustive semantic taxonomy.
 The shell verifies response structure, citation existence, and lifecycle. It
 does not mechanically endorse the finding's semantic truth.
 
-- `adequate` permits closure but remains attributed Reviewer judgment.
+- `adequate` permits the active-goal checkpoint to grant its one-use completion
+  authorization but remains attributed Reviewer judgment.
 - `concerns` returns evidence to the Actor for investigation or repair.
 - `unable_to_establish` routes to the user or closes with explicit uncertainty,
   depending on policy and consequence.
@@ -670,13 +784,25 @@ Critics.
 The user decides when disagreement is normative, high consequence, or cannot be
 resolved through additional evidence.
 
+Any Actor mutation invalidates the earlier completion candidate, checkpoint,
+and review packet. The still-active Prime goal returns through Candidate A
+Stages A7-A11 before another review can be considered.
+
+#### Stage B17: Complete the Prime goal terminally
+
+When review is not required or an admitted Reviewer outcome permits closure,
+the checkpoint grants authorization bound to the active `goalId`, final receipt,
+trace prefix, and reviewed evidence. Qwen then performs Candidate A Stage A12
+and calls `goal.complete()` as the terminal action. No review or same-goal repair
+occurs afterward.
+
 ### 5.4 Recovery
 
 Candidate B retains Candidate A state plus:
 
 - review-trigger reason;
 - immutable review packet hash;
-- Reviewer model/session identity;
+- Reviewer model/invocation identity;
 - Reviewer response and citations; and
 - whether a post-review mutation invalidated the review.
 
@@ -726,12 +852,13 @@ flowchart TD
     K --> C["Compiler validates roles, expressions, authority, and budgets"]
     C -->|"invalid"| K
     C -->|"admitted"| P["Policy/user approves residual assumptions"]
-    P --> A["Actor plans and mutates"]
+    P --> A["Prime-hosted Actor plans and mutates"]
     A --> E["Receipts, fenced evidence, and deterministic evaluation"]
-    E --> R["Independent Reviewer judges residual semantics"]
+    E --> R["Tool-less Reviewer judges residual semantics"]
     R --> G{"Policy Gate"}
     G -->|"repair"| A
-    G -->|"accept"| F["Durable assurance package"]
+    G -->|"accept"| T["Prime goal.complete terminal action"]
+    T --> F["Durable assurance package"]
     G -->|"escalate"| U
 ```
 
@@ -739,19 +866,37 @@ flowchart TD
 
 | Participant or mechanism | Responsibility | Why included |
 |---|---|---|
-| Constructor model | Translate intent into roles, claims, deterministic expressions, assumptions, and residuals | A predeclared assurance case cannot be hand-authored for every product request. |
+| Tool-less Constructor invocation | Translate intent into roles, claims, deterministic expressions, assumptions, and residuals | A predeclared assurance case cannot be hand-authored for every product request. |
 | Phase A compiler | Reject malformed references, types, authority, quantification, tolerance, and budget use | Mechanical coherence must not depend on Reviewer interpretation. |
 | Semantic manifest | Hold the typed accepted contract and admitted operation vocabulary | Enables repeatable deterministic evaluation and explicit unsupported results. |
-| Actor model | Design and implement the Grasshopper result | Contract construction does not determine topology. |
+| Prime-hosted Qwen Actor goal | Design and implement the Grasshopper result in the same grounded runtime as Candidate A | Contract construction does not determine topology. |
 | PlanGraph/Worker, optional | Lower exact execution regions and bounded leaves | Reuses deterministic execution and mature Worker contracts where beneficial. |
 | Receipt-fenced evidence collector | Correlate runtime facts with the implementation under evaluation | Prevents stale or unrelated evidence from satisfying the contract. |
 | Deterministic evaluator | Execute admitted expressions and classify pass/fail/unproven | Supplies repeatable evidence for mechanically expressible claims. |
-| Independent Reviewer | Judge disclosed residuals, omissions, assumptions, and material weakening | The compiler cannot establish intent adequacy. |
+| Tool-less independent Reviewer invocation | Judge disclosed residuals, omissions, assumptions, and material weakening | The compiler cannot establish intent adequacy. |
 | Policy Gate | Combine mechanical outcomes, attributed judgment, consequence, and user policy | Prevents either compiler or Reviewer from becoming total authority. |
 | Durable workflow store | Preserve phase ownership, artifacts, mutation state, and crash recovery | The longer multi-role workflow cannot rely on one conversational session. |
 | User | Approve materially unresolved assumptions and high-consequence acceptance | Some design meaning is normative rather than observable. |
 
-### 6.3 Full loop
+### 6.3 Role runtime and containment
+
+Candidate C does not use the word `model` as an unspecified runtime owner:
+
+| Role | Default runtime | Authority |
+|---|---|---|
+| Constructor | Fresh bounded direct-provider invocation over immutable intent, manifest, and prior compiler diagnostics | No Rook profile, IPython, filesystem, process, shell, model-controlled network, or mutation tools. The harness performs only its frozen provider request, and the model emits only a candidate contract. |
+| Actor | One active Prime goal/session with the versioned Rook skill and contained `rook_full` adapter | Same target-mutation authority and adoption conditions as Candidate A. |
+| Reviewer | Fresh bounded direct-provider invocation over an immutable review packet | No tools. Investigation requests return to the workflow owner rather than executing inside the Reviewer. |
+| Worker | Existing bounded Worker harness reached only through deterministic request and disposition owners | Candidate action or decline; no direct mutation or self-acceptance. |
+| Compiler, evaluator, Policy Gate, and workflow store | Deterministic Rook-owned or integration-owned execution | No model discretion over mechanical admission or runtime truth. |
+
+The direct Constructor/Reviewer harness shape has transport and custody evidence
+from the Phase B work but is not a qualified production runtime. A future choice
+to host either role in Prime requires a separate role goal/session, exact
+adapter profile, lifecycle, and IPython containment qualification. It cannot be
+substituted by wording alone.
+
+### 6.4 Full loop
 
 #### Stage C0: Select the assurance route
 
@@ -765,9 +910,10 @@ identities, budgets, and exclusive phase owner.
 
 #### Stage C1: Clarify intent and policy
 
-The Constructor identifies requirements, assumptions, user decisions, and
-available evidence types. Material ambiguity returns to the user. Knowledge may
-provide advisory domain priors with provenance.
+The tool-less Constructor identifies requirements, assumptions, user decisions,
+and available evidence types from its immutable packet. Material ambiguity
+returns to the user. Knowledge may provide advisory domain priors only when the
+workflow owner includes their provenance in that packet.
 
 #### Stage C2: Construct the assurance contract
 
@@ -788,27 +934,31 @@ deterministic.
 #### Stage C3: Compile and admit
 
 The Phase A compiler validates the artifact against identical manifest bytes.
-Invalid artifacts receive exact diagnostics. A bounded Constructor continuation
-may correct mechanics, but repeated schema repair stops rather than consuming
-the entire workflow.
+Invalid artifacts receive exact diagnostics. A bounded fresh Constructor
+invocation may receive the prior artifact and exact compiler diagnostic to
+correct mechanics, but repeated schema repair stops rather than consuming the
+entire workflow.
 
 Compilation proves contract coherence only. It does not prove that the contract
 faithfully covers the user's intent.
 
 #### Stage C4: Review the contract before mutation
 
-A fresh Reviewer examines requirement coverage, assumption honesty, material
-weakening, authority allocation, and residual risk. The user approves any
-material unresolved requirement required by policy.
+A fresh tool-less Reviewer invocation examines requirement coverage, assumption
+honesty, material weakening, authority allocation, and residual risk from an
+immutable packet. The user approves any material unresolved requirement
+required by policy.
 
 This stage is included because a coherent but inadequate contract can make a
 wrong implementation pass perfectly.
 
 #### Stage C5: Plan and implement
 
-The Actor receives the admitted contract but retains topology freedom. It uses
-authoritative discovery and metadata, optional semantic lowering, optional
-bounded Workers, and canonical Rook mutation routes.
+The workflow owner starts one Prime Actor goal with the exact intent, admitted
+contract, residuals, and policy decisions. That goal remains active through
+Stages C5-C10. The Actor retains topology freedom and uses authoritative
+discovery and metadata, optional semantic lowering, optional bounded Workers,
+and canonical Rook mutation routes.
 
 The contract describes required outcomes and evidence, not the exact graph,
 unless topology itself is an explicit user requirement.
@@ -833,10 +983,11 @@ silently become compiled contract operations.
 
 #### Stage C8: Review residual semantics
 
-The independent Reviewer receives the original intent, admitted contract,
-mechanical results, residual claims, Actor account, and evidence. It identifies
-omission, weakening, assumptions, and unresolved risk using attributed
-judgment.
+The tool-less independent Reviewer receives the original intent, admitted
+contract, mechanical results, residual claims, Actor account, and evidence in an
+immutable packet. It identifies omission, weakening, assumptions, and
+unresolved risk using attributed judgment. Any requested investigation returns
+to the workflow owner and, if admitted, produces a new packet and invocation.
 
 Reviewer findings cannot override deterministic facts and do not automatically
 mutate the implementation.
@@ -856,11 +1007,24 @@ possible semantic defect.
 
 #### Stage C10: Correct with contract continuity
 
-The Actor repairs within a bounded cycle. A new terminal receipt invalidates old
-runtime evidence. A changed requirement invalidates the contract and returns to
-construction rather than being smuggled into implementation.
+The Actor repairs within the still-active Prime goal. A new terminal receipt
+invalidates old runtime evidence, pre-completion authorization, and review. A
+changed requirement invalidates the contract and returns to construction rather
+than being smuggled into implementation; the workflow store links any later
+replacement Actor goal as a superseding identity.
 
-#### Stage C11: Close the assurance package
+#### Stage C11: Authorize terminal completion and close the assurance package
+
+The Policy Gate may authorize completion only after the Candidate A
+pre-completion checkpoint passes and all required review occurs while the Actor
+goal remains active. Authorization is bound to the active `goalId`, admitted
+contract, final receipt, trace prefix, evaluations, review packet, and user
+decisions.
+
+Qwen then calls Prime `goal.complete()` as the irreversible terminal action.
+The workflow store verifies the resulting terminal lifecycle. Missing terminal
+evidence makes the result incomplete and cannot route back into the completed
+goal.
 
 The durable result contains:
 
@@ -875,14 +1039,14 @@ The durable result contains:
 - final target/runtime custody; and
 - lifecycle closure.
 
-### 6.4 Recovery
+### 6.5 Recovery
 
 Every stage writes append-only state before transferring ownership. Read-only
 stages may restart from immutable inputs. Mutation stages never replay an
 ambiguous call automatically. A resumed evaluator must revalidate evidence and
 contract hashes before use.
 
-### 6.5 What Candidate C deliberately excludes
+### 6.6 What Candidate C deliberately excludes
 
 - automatic operation-vocabulary expansion;
 - runtime generation of authoritative compiler rules;
@@ -892,7 +1056,7 @@ contract hashes before use.
 - replay of ambiguous mutation; and
 - use as the default path before its handoffs are qualified.
 
-### 6.6 Direct challenge to Candidate C
+### 6.7 Direct challenge to Candidate C
 
 Candidate C has the highest risk of turning design meaning into an expanding
 object catalog. Constructor roles, value types, expression operations, evidence
@@ -912,9 +1076,11 @@ cover open-ended design.
 | Mechanism | Candidate A | Candidate B | Candidate C |
 |---|---|---|---|
 | Exact intent custody | Required | Required | Required |
-| Qwen3.8 Actor | Required | Required | Required or replaceable by qualified Actor |
-| Prime goal and persistent session | Required after named adoption repairs | Same as A | Prime role sessions conditional on separate qualification |
-| Versioned Rook skill and contained `rook_full` adapter | Required | Required | Required for every Prime role allowed to contact Rook |
+| Qwen3.8 Actor | Required | Required | Required in the Prime Actor role or replaceable by separately qualified Actor |
+| Prime goal and persistent session | Required after named adoption repairs | Same as A | Required for the Actor; Constructor/Reviewer use isolated tool-less invocations by default |
+| Versioned Rook skill and contained `rook_full` adapter | Required | Required | Required for the Prime Actor; Constructor/Reviewer receive no Rook adapter |
+| Goal supersession and cumulative task custody | Required | Same as A | Required for Actor-goal replacement and workflow transitions |
+| Pre-completion checkpoint and guarded terminal `goal.complete()` | Required but unimplemented | Same plus Reviewer-before-completion ordering | Required before Policy Gate acceptance becomes terminal |
 | Canonical gateway and strict admission | Required | Required | Required |
 | Native discovery and metadata | Required when Grasshopper components are involved | Same as A | Same as A |
 | Mutation receipts and fenced observation | Required | Required | Required |
@@ -924,7 +1090,7 @@ cover open-ended design.
 | Persistent Prime/IPython investigation | Required capability, used as needed | Same as A | Supplemental and non-authoritative to compiler vocabulary |
 | Common deterministic evaluator | Conditional on admitted evidence and operations | Same as A | Required for compiled claims |
 | Same-session repair | Prime-native and bounded | Prime-native and bounded | Bounded under Policy Gate |
-| Fresh independent Reviewer | Excluded by default | Conditional | Required by assurance policy |
+| Fresh independent Reviewer | Excluded by default | Conditional tool-less invocation | Required tool-less invocation by assurance policy |
 | Phase A compiler | Excluded | Excluded | Required |
 | Acceptance Constructor | Excluded | Excluded | Required |
 | Knowledge retrieval | Optional advisory | Optional advisory | Optional advisory during construction/review |
