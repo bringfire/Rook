@@ -1,6 +1,6 @@
 # Coordinating Intelligence Evidence Ledger
 
-**Status:** First-pass evidence inventory; interpretation intentionally limited
+**Status:** Deep verification annex added; interpretation intentionally limited
 
 **Inventory date:** 2026-08-17
 
@@ -92,6 +92,9 @@ These terms are not normalized into a score.
 | `source-located` | The source and custody identifiers were located, but the full raw run was not replayed. |
 | `reported` | The result is retained in a reviewed source; independent raw-artifact reconstruction remains for the deep pass. |
 
+Sections 4-16 preserve the verification depth assigned during the first pass.
+Sections 18-27 record the additional verification performed afterward.
+
 ## 4. Custody Snapshot
 
 ### 4.1 Repository state
@@ -126,7 +129,7 @@ The principal families are:
 | Acceptance handoff and Phase A/B | 10 | Phase A V4 evidence manifest `FB8A376BD9EBA48AE1BC904A6F4CA2701B6E2596E71E0EC711F3E278618B5F46`; Phase B public/private manifests |
 
 Manifest-file hashes and hashes declared inside manifests are separate facts.
-The deep pass must preserve that distinction and must not describe one as the
+The deep pass below preserves that distinction and does not describe one as the
 other.
 
 ## 5. Current Runtime And Program Documents
@@ -150,7 +153,7 @@ other.
 | `ARC-05` | The July semantic-harness accounting described the architecture as directionally complete but transitionally incomplete. | `observed` in architecture accounting | The LM9 ladder is historical and no longer governs active product sequencing. | `docs/superpowers/specs/2026-07-23-rook-semantic-harness-architecture-accounting.md` | `H+D` | `primary-read` |
 | `KG-01` | Rook contains a knowledge graph, knowledge visualizer work, and four documented knowledge seams in `RookAgent`. | `current-state` | Presence and integration do not establish useful retrieval quality. | `docs/rook_docs/2026-04-10-knowledge-graph-visualizer-spec.md`; `docs/AGENT_ARCHITECTURE.md` | `C+H` | `primary-read` |
 | `KG-02` | Production Grasshopper discovery explicitly excludes knowledge from component identity, native ranking, provenance, and ambiguity decisions. | `pass` for the qualified discovery specimen | This does not remove knowledge as possible advisory context and does not establish knowledge or DSPy effectiveness. | Discovery specification and live milestone | `H+L` | `primary-read` |
-| `KG-03` | No reviewed source in this first pass establishes a controlled positive effect of the existing knowledge graph on the later Prime/Qwen Grasshopper tasks. | `unassessed` | Absence from this inventory is not proof that no such evidence exists; the deep pass must search specifically for it. | First-pass source inventory | `C+H+B+L` | `source-located` |
+| `KG-03` | No controlled positive effect of the existing knowledge graph on the later Prime/Qwen Grasshopper tasks was located in the searched current, historical, branch-local, or retained evidence. | `observed` absence in the searched corpus | This does not prove that no such evidence exists outside the searched corpus. | First-pass source inventory plus section 26 deep search | `C+H+B+L` | `primary-read` |
 
 ## 7. Bounded Worker Evidence
 
@@ -362,10 +365,11 @@ Located under
 - `C:/Users/bring/AppData/Local/Temp/rook-acceptance-semantic-phase-a-v4`
 - `C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2`
 
-## 17. Deferred Work For The Deep Pass
+## 17. Deep-Pass Verification Checklist
 
-The next pass should collect and verify, without yet making architecture
-recommendations:
+The first-pass commit was
+`189abb045ae6440468f9f83e49feb48f15b06b7f`. The following checklist was then
+completed without making architecture recommendations:
 
 1. Exact commit reachability and PR lineage for each row.
 2. Declared manifest hashes versus observed manifest-file hashes.
@@ -377,6 +381,440 @@ recommendations:
 8. Any controlled knowledge-graph or knowledge-injection efficacy evidence omitted from this first inventory.
 9. Any relevant negative or interrupted result not represented above.
 
-Only after that verification should a separate document interpret the evidence,
-compare architectural alternatives, or propose a comprehensive target
+The results of that verification follow. A separate interpretive document may
+later compare architectural alternatives or propose a comprehensive target
 architecture.
+
+## 18. Deep-Pass Method And Scope
+
+The deep pass was performed against the same inventory baseline and retained
+local roots. It did not contact Rhino, Grasshopper, MCP providers, Ollama, or a
+model. It did not rerun any live qualification.
+
+The pass performed these additional checks:
+
+1. resolved sampled Rook and Prime commits against their observed repositories;
+2. classified each sampled commit as current-main, branch-local, or external to
+   the observed upstream;
+3. read current implementation owners for discovery, authoring admission,
+   solve receipts, fenced snapshots, and behavioral acceptance;
+4. ran focused current Python and managed tests;
+5. rehashed the principal retained manifests and every referenced manifest
+   entry;
+6. read raw lifecycle, evaluation, probe, and adjudication artifacts for the
+   principal model runs;
+7. extracted frozen model, reasoning, prompt, adapter, skill, target, and
+   runtime settings where retained; and
+8. searched current and historical sources for controlled evidence of knowledge
+   retrieval efficacy in these workflows.
+
+This remains a collection and verification pass. It does not convert the
+observations below into a target architecture.
+
+## 19. Repository And Commit Lineage
+
+### 19.1 Rook lineage
+
+Every sampled Rook commit below exists and is an ancestor of the inventory
+baseline `f840069a58d0a5ee297ae817f0b3efe7a9287512`.
+
+| Area | Current-main commit or merge | Recorded subject or PR |
+|---|---|---|
+| Script mutation receipts | `e5624d50` | PR #284, LM1D script receipts. |
+| MCP receipt unwrapping | `7a1f8b1b` | PR #333. |
+| Solve-readiness design | `425acaf8` | PR #481. |
+| Receipt verifier design | `3dddf920` | PR #483. |
+| Live diagnostic substring | `0d02180a` | PR #431. |
+| Planner shape guidance | `8ce8e042` | PR #453. |
+| Live planner splice | `0a3506b9` | PR #456. |
+| Structured MCP results | `4bf6fad8` | PR #553. |
+| Native discovery design/report | `a867f8e0` | PR #555. |
+| User-object provenance | `a0f2a12e` | PR #556. |
+| Discovery production | `5584b324` | PR #557. |
+| Proxy-owned Exposure | `a54eee32` | PR #558. |
+| Candidate-shape contract | `364bd50c` | PR #559. |
+| Discovery live milestone | `06534f37` | PR #560. |
+| Strict tool admission | `c1343bac` | PR #561. |
+| Offline critic boundary | `ad4d3b27` | PR #562. |
+| Authoring capability routing | `bc5c0b15` | PR #564. |
+| Solve-fenced acceptance | `61c686c5` | PR #565. |
+| Structured MCP failure admission | `7d6920d4` | Direct Rook commit. |
+| `gh_edit` admission hints | `4a2adfa3` | PR #566. |
+| Runtime empiricism principle | `f840069a` | PR #567. |
+
+This reachability check establishes that the sampled Rook mechanisms are not
+merely disposable-lane code. It does not establish that every historical
+document still describes their current contract.
+
+### 19.2 Prime lineage
+
+| Prime state | Commit | Deep-pass observation |
+|---|---|---|
+| Working checkout | `c98941a2a5cf40faecf9b4648ac3c304abf48fd3` | Clean `main`; dated 2026-08-05. |
+| Observed upstream | `9bf49d897c22563f3e4483d28149c1aac452a6f9` | `origin/main`; dated 2026-08-13. |
+| Structured-error change | `30a6621bca698ef14f64e5e45c5b1b6364148789` | Adds structured content to `McpToolError` and corresponding tests. |
+| Reviewed fork merge | `27b5be22cf0e0e81e324a59ebabbb41edfee6ec0` | Contains `30a6621b`; used by later experimental rows. |
+
+`30a6621b` is an ancestor of `27b5be22`. The reviewed fork merge is not an
+ancestor of the observed Prime upstream. Reading both trees showed the enriched
+`McpToolError.structured_content` behavior in the fork and the earlier
+text-only behavior in the observed upstream. Later structured-error and
+payload-first rows froze the reviewed fork merge, not the older working
+checkout.
+
+### 19.3 Phase A/B branch lineage
+
+The Phase A/B worktree is clean at
+`8a4572543f4e7a55fc13b41f985124e02a2523b4`. Its merge base with the inventory
+baseline is `4a2adfa39657118924d57468b77ec0aa1c4b8991`. The branch contains 18 commits after that merge
+base. Current Rook main contains three commits after the same point, including
+the empirical-model principle, runtime-empiricism principle, and PR #567 merge.
+
+Therefore the Phase A/B documents are reviewed branch-local evidence. Their
+diff against current main also presents the later empirical-principle document
+as absent because of branch divergence. That absence is a lineage fact, not
+evidence that Phase A/B evaluated or rejected that principle.
+
+## 20. Current Implementation Ownership
+
+### 20.1 Current owners
+
+| Mechanism | Current owner on the inventory baseline | Observed responsibility |
+|---|---|---|
+| Component candidate projection | `mcp_server/src/rook/grasshopper_component_contract.py` | Canonical GUID and closed catalog/search/ambiguity candidate shapes. |
+| Script authoring admission | `mcp_server/src/rook/gh_authoring_contract.py` | Script identity classification and canonical handoff construction. |
+| Behavioral acceptance | `mcp_server/src/rook/gh_behavioral_acceptance.py` | Source-trace admission, terminal receipt selection, perturb/restore custody, and predicate evaluation. |
+| Solve-receipt state | `src/Rook/InternalBridge/GhSolveReceiptRegistry.cs` | Receipt issue, readiness, supersession, document replacement, solver lock, expiry, and fenced-read checks. |
+| Managed readiness routes | `src/Rook/Handlers/GrasshopperHandler.Readiness.cs` | Begin/finalize mutation receipts and readiness/wait responses. |
+| Fenced snapshot | `src/Rook/Handlers/GrasshopperHandler.cs` | Receipt fence checked before snapshot/output reads. |
+| Knowledge injection skip | `mcp_server/src/rook/knowledge_injector.py` | `gh_library` and `gh_batch_component_info` are skipped at the injection boundary. |
+
+Observed source sizes are descriptive, not quality scores:
+
+| File | Physical lines | Nonblank lines |
+|---|---:|---:|
+| `grasshopper_component_contract.py` | 111 | 99 |
+| `gh_authoring_contract.py` | 162 | 136 |
+| `gh_behavioral_acceptance.py` | 2,349 | 2,177 |
+| `GhSolveReceiptRegistry.cs` | 739 | 646 |
+| `GrasshopperHandler.Readiness.cs` | 382 | 338 |
+
+The current `_predicate_passes` implementation contains seven recognized
+predicate names. This is a current-code count, not a claim of semantic
+coverage.
+
+### 20.2 Fresh focused verification
+
+| Seam | Result | Notes |
+|---|---|---|
+| Structured results, containment, discovery, authoring routing, and script receipts | 249 passed | 11 warnings. |
+| Common behavioral acceptance | 105 passed | 11 warnings. |
+| Managed discovery, snapshot, readiness, terminal mutation receipt, and registry tests | 168 passed | Restore was required in the fresh worktree; compilation/analyzer warnings remained. |
+| Knowledge injector | 72 passed, 2 failed | Failures assert stale operation mappings, including removed `gh_component -> create` and the older category set. |
+| Legacy point-row wrapper | 3 passed, 4 failed | Failures are current-checkout newline custody mismatches, described below. |
+
+The two tracked JSON artifacts used by the legacy point-row wrapper are indexed
+with LF but checked out as CRLF on this Windows worktree. `git ls-files --eol`
+reports `i/lf w/crlf attr/` and no explicit `eol` attribute. The worktree remains
+Git-clean. The historical 20/20 result and the current 3/4 result are therefore
+different observations under different byte custody; neither is silently
+substituted for the other.
+
+## 21. Retained Manifest Reverification
+
+The following manifest files and all entries referenced by them were rehashed
+without contacting a runtime. `Mismatch` counts include missing paths, size
+disagreement, and digest disagreement.
+
+| Evidence row | Entries | Mismatches | Manifest-file SHA-256 |
+|---|---:|---:|---|
+| Operational comparison, control | 21 | 0 | `BB4CF747...BE518` |
+| Operational comparison, Qwen | 21 | 0 | `C0A257F6...BC4C7` |
+| Qwen strict retest | 21 | 0 | `FC1EE04A...8FFB9` |
+| Point row V1 | 33 | 0 | `776D36F9...0C2D7` |
+| Point row V2 | 33 | 0 | `7C5A0BFD...F17E1` |
+| Point row V3 | 33 | 0 | `69EEF6B6...06A0C` |
+| XY grid V1 | 37 | 0 | `E84121EE...358D` |
+| Native discovery Task 0 V2 | 4 | 0 | `2D652AF3...03B64` |
+| User-object provenance V2 | 4 | 0 | `A3BD7271...1B624` |
+| Post-merge discovery | 9 | 0 | `FA1E4D0E...CEF0E2` |
+| Solve-fenced Gate A | 12 | 0 | `0675FC95...FFDCC` |
+| Solve-fenced Gate B V2 | 37 | 0 | `03016521...E3AD3` |
+| Structured-error Gate B V3 | 37 | 0 | `02C09541...B29057` |
+| Repair loop V3 | 32 | 0 | `6A2EBE9B...F869B6` |
+| Repair loop V4 | 32 | 0 | `5565EB18...63285` |
+| Payload-first repair loop V5 | 33 | 0 | `D8D6FC12...D3E53` |
+| Qwen3.8 campaign, exact row | 33 | 0 | `7BF5A02F...00DD3` |
+| Qwen3.8 campaign, open row | 33 | 0 | `81F31C02...70AA5` |
+| Qwen3.8 campaign, open grid | 33 | 0 | `2E0EA697...9ADD6` |
+| Helix V1 | 34 | 0 | `FC8C6840...E0136` |
+| Helix V2 | 34 | 0 | `40C3F6FA...EC555C` |
+| Contract handoff V1 evidence prefix | 9 | 0 | `758E33DD...E7433` |
+| Contract handoff V2 | 32 | 0 | `38AC6B48...F81E` |
+| Semantic Phase A V4 | 12 | 0 | `FB8A376B...B5F46` |
+| Reviewer Phase B public | 32 | 0 | `1D2656F3...354C0A` |
+| Reviewer Phase B private | 1 | 0 | `8B0443D0...B8C0F9` |
+
+The Nemotron manifest has 24 entries and file SHA-256
+`6142B71933E7F19583545B974ADFFE2E4491425D82EFC4082EAB3638FAC4D652`.
+Twenty-one entries resolve from the row-local root. Three `runtime/...` entries
+resolve one directory higher and match their recorded hashes there. No single
+documented root resolves all 24 keys. The retained files are present and hash
+correct, while the manifest path-base convention is ambiguous.
+
+## 22. Raw Lifecycle And Result Matrix
+
+### 22.1 Operational control and local rows
+
+| Row | Terminal lifecycle | Final mechanical evidence | Recorded semantic result |
+|---|---|---|---|
+| Opus control | 159 Prime JSONL lines; exactly one final `agent_end` | 6 components, 5 flows, zero errors/warnings | Pass. |
+| Qwen3.6 local | 15,977 Prime JSONL lines; exactly one final `agent_end` | 15 components, 15 flows, zero errors/warnings | Fail: hard-coded points and adjustable Y/Z. |
+| Qwen3.6 strict retest | Complete terminal evidence | 8 components, 7 flows, zero errors/warnings | Fail: Range/EndX substituted for Series/Step. |
+| Nemotron | 7,217 Prime JSONL lines; zero `agent_end`; last event `message_update` | Retained graph had Series but no Construct Point or points | Incomplete. |
+
+Raw hashes independently read in this pass include:
+
+- Opus Prime JSONL: `96CD825E...FB7`;
+- Opus final snapshot: `BD25176E...F48`;
+- Qwen Prime JSONL: `EB6D43A5...1FF6`;
+- Qwen final snapshot: `C1207DA4...FA3`;
+- Qwen strict final snapshot: `4B3E44B8...7AE8`; and
+- Nemotron Prime JSONL: `95B7FD99...5111`.
+
+### 22.2 Receipt-fenced and repair-loop rows
+
+| Row | Initial result | Later result | Deep-pass observation |
+|---|---|---|---|
+| Point row V1 | Fail | Pass | One bounded repair. |
+| Point row V2 | Pass | None | Initial pass. |
+| Point row V3 | Fail | Pass | One bounded repair. |
+| XY grid V1 | Fail | Fail | One repair consumed; final acceptance remained failed. |
+| Gate B V2 | Incomplete | None | Earlier undifferentiated `McpToolError` invalidated trace admission. |
+| Structured-error Gate B V3 | Incomplete | None | Failure evidence and latest receipt were retained; exact control binding failed. |
+| Repair loop V3 | Incomplete | None | `later_unfenced_mutation` after a group-only edit. |
+| Repair loop V4 | Incomplete | None | `latest_terminal_receipt_missing`; no mutation occurred. |
+| Payload-first V5 | Incomplete | Pass | Initial `control_binding_failed`; one repair then passed all eight criteria. |
+
+These classifications are the recorded boundaries of the respective rows. For
+example, V3's visually plausible graph is not reclassified as a semantic pass,
+and V4's lack of mutation is not reclassified as a model-semantic failure.
+
+### 22.3 Qwen3.8 capability campaign and helix
+
+| Row | Recorded result | Raw behavioral observation |
+|---|---|---|
+| Exact point row | Pass | Common evaluator passed. |
+| Open point row | Pass | Three controls were perturbed and restored; final output contained six points at X = 0, 50, ..., 250. |
+| Open XY grid | Pass | Four independent controls were perturbed and restored; final output contained a 5 by 4 grid. |
+| Helix V1 | Incomplete | Missing terminal lifecycle after an interrupted host application; no semantic classification. |
+| Helix V2 | Pass | Exactly one final `agent_end`; all seven criteria passed after ten fenced perturb/restore receipts. |
+
+The open-grid canvas used abbreviated control labels `C`, `R`, `X`, and `Y`.
+Its pass was behavioral, not an exact-label match. Helix V2's raw evaluation
+records an adjustable radial-periodic XY path with monotonic Z and restored
+Radius, Height, Turns, Points-per-turn, and Start-angle controls.
+
+### 22.4 Handoff and reviewer rows
+
+| Row | Recorded result | Raw boundary |
+|---|---|---|
+| Contract handoff V1 | Incomplete | Constructor referenced undeclared role IDs. |
+| Contract handoff V2 | Completed | One diagnostic continuation produced an admitted replacement; Reviewer transport/envelope passed but later review found missed underspecification. |
+| Semantic Phase A V4 | Completed | Compiler coherence: two valid examples and 23 causal mutations. |
+| Reviewer Phase B | `not_qualified_on_corpus` | Six calls completed; public reconstruction and private adjudication passed. |
+
+## 23. Frozen Inputs And Runtime Dimensions
+
+### 23.1 Opus/Qwen operational comparison
+
+The two original operational rows shared:
+
+- the exact point-row intent;
+- adapter SHA-256 `E7577F0E...2996`;
+- skill SHA-256 `0F7C8D1F...D36E`;
+- checkpoint SHA-256 `76A7C0CF...8964`;
+- Prime commit `c98941a2...`;
+- Rook commit `06534f37...`; and
+- explicit Prime thinking level `medium`.
+
+The control used `claude-opus-4-6` with Anthropic adaptive thinking and medium
+effort. The local row used `qwen3.6:35b`, Ollama manifest SHA-256
+`07D35212...522`, and medium reasoning effort. Provider-native reasoning and
+token accounting were intentionally not claimed to be identical.
+
+### 23.2 Later Prime/Qwen rows
+
+The structured-error and payload-first rows changed identified harness inputs:
+
+- Prime structured-error commit `30a6621b...`, contained in fork merge
+  `27b5be22...`;
+- payload-first adapter SHA-256 `9B22757E...C371`;
+- skill SHA-256 `96F24F89...1DA2C`; and
+- the unchanged checkpoint family `76A7C0CF...8964`.
+
+The Qwen3.8 rows used tag `qwen3.8:27b`, Ollama manifest SHA-256
+`22130167C4C20E20C7B71454612966CA8E8171E9B3CC8AB6CE8AA6CBFEC79643`,
+and medium reasoning. Retained identity records describe an approximately
+16.81-GiB model blob and an approximately 931-MiB projector layer. The campaign
+used Rook `61c686c5...`; the helix used later Rook `4a2adfa3...`.
+
+The three campaign intents were separately frozen as exact point row, open
+point row, and open XY grid. The helix intent requested an adjustable helical
+curve using native components with useful principal-dimension and resolution
+controls.
+
+### 23.3 Phase B direct model settings
+
+Phase B did not use the Grasshopper runtime or Prime. It made six direct Ollama
+`/api/chat` calls with:
+
+```text
+model       qwen3.8:27b
+think       medium
+seed        2026081502
+temperature 0.0
+top_p       0.9
+num_ctx     32768
+num_predict 8192
+stream      false
+```
+
+The frozen order was `c04`, `c01`, `c06`, `c02`, `c05`, `c03`. The model
+identity record names Ollama `0.32.13` and records tag/blob identities; this
+deep pass did not recompute complete blob digests.
+
+## 24. Discovery And Identity Evidence
+
+### 24.1 Native discovery Task 0
+
+The retained native-discovery artifact has SHA-256
+`254A9BF5A8EEE5DCCA72A37AD08DF20EDF63271F55E2F14AC4587BC180481988`.
+It records:
+
+- 1,890 live proxies;
+- 53 duplicate exact-name groups;
+- complete legacy-predicate comparisons;
+- three stable native orderings for each fixed query;
+- candidate counts of 261 (`Series`), 228 (`Range`), 18
+  (`Multiplication`), 91 (`Addition`), 58 (`Construct Point`), 112
+  (`Add`), and 371 (`Point`); and
+- two retained affirmative third-party specimens.
+
+### 24.2 User-object provenance
+
+The V2 artifact SHA-256 is
+`E7BC4124D1029D9F50721FB45B3E1079317CDC1901A0332B635532681CCE04BD`.
+It records six complete `.ghuser` specimens, canvas count `0 -> 0`,
+`FindAssemblyByObject(proxy GUID) = not_found` for all six, and temporary
+instance assembly `GhPython` for all six. The retained interpretation separates
+path/content fingerprint provenance from `BaseGuid` and runtime-assembly
+implementation metadata.
+
+### 24.3 Post-merge qualification
+
+The post-merge summary records `qualification_passed` with five host calls,
+zero model calls, zero mutations, and zero retries. It observed:
+
+- two exact eligible `Angle` candidates and preserved ambiguity;
+- `Range` returned 10 of 204 matches with `truncated=true`;
+- the first selected live user object at rank index 2;
+- two successful compiled/user-object metadata outcomes and zero errors;
+- user-object content length 2,869 and SHA-256 `B8FB2F2B...B14000`; and
+- an unchanged audit shape over 1,890 proxies, with 775 deprecated, 487 hidden,
+  and 198 obsolete entries in stable GUID order.
+
+## 25. Phase A And Phase B Evidence
+
+### 25.1 Phase A compiler boundary
+
+Phase A V4 classified the coherent artifact as compiled and applied 23 isolated
+mutations. Twenty-one were invalid and two were unsupported
+(`known_unavailable_operation` and `known_unavailable_role_kind`). The corpus
+covered reference, typing, projection, quantification, scoping, null-expression,
+tolerance, nonfinite-number, depth, node, and budget diagnostics.
+
+Its report explicitly does not establish intent adequacy, Reviewer sensitivity,
+runtime evaluation, evidence collection, router ownership, provider behavior,
+or live behavior. No model, Prime, Rook, Rhino, Grasshopper, or network calls
+occurred.
+
+### 25.2 Phase B Reviewer boundary
+
+The six independently adjudicated cases were:
+
+| Case | Frozen condition | Sensitivity | Restraint | Residual recognition |
+|---|---|---:|---:|---:|
+| `c01` | Coherent control | N/A | Pass | Pass |
+| `c02` | Requirement omission | Pass | Pass | Pass |
+| `c03` | Invented assumption | Pass | Pass | Pass |
+| `c04` | Material weakening | Pass | Pass | Pass |
+| `c05` | Authority misrouting | Fail | Pass | Pass |
+| `c06` | Hidden unresolved risk | Fail | Fail | Pass |
+
+For `c06`, the Reviewer recognized a semantic defect but assigned the wrong
+frozen category and produced one unsupported additional finding. The overall
+status was `not_qualified_on_corpus`. This is evidence of mixed sensitivity and
+restraint on this six-case corpus, prompt, model, and configuration. It is not
+a general Reviewer accuracy estimate.
+
+## 26. Knowledge And Retrieval Evidence Search
+
+Current architecture and code retain multiple knowledge mechanisms. Current
+`knowledge_injector.py` also excludes the two authoritative discovery tools
+from knowledge injection. The focused current test result is 72 passes and two
+stale mapping failures.
+
+The deep pass searched merged reports, milestones, probes, branch-local Phase
+A/B sources, current code/tests, and the retained model-run evidence for a
+controlled positive comparison in which knowledge retrieval or DSPy
+optimization improved these Prime/Grasshopper outcomes. No such result was
+located.
+
+Relevant negative boundaries were located instead:
+
+- several Worker, compiler, and compositional slices explicitly excluded
+  knowledge retrieval or DSPy from their tested boundary;
+- authoritative component discovery was qualified with unrelated knowledge
+  hints suppressed;
+- the 2026-07-23 semantic accounting document describes DSPy as a provisional
+  hypothesis and specifies a future three-arm comparison; and
+- the empirical-model principle characterizes stored knowledge as a prior, not
+  runtime authority.
+
+Accordingly, this ledger records the current knowledge system's presence and
+its exclusion from specific authoritative paths. It records no controlled
+positive efficacy result for the later Prime/Qwen workflows because none was
+found in the searched evidence set.
+
+## 27. Verified Divergences And Remaining Unknowns
+
+### 27.1 Verified divergences
+
+| Divergence | Verified fact |
+|---|---|
+| Prime structured errors | Required fork behavior exists in `27b5be22` but was not present in observed Prime upstream `9bf49d89`. |
+| Phase A/B and current main | Phase A/B diverged before the merged empirical-principle documents. |
+| Point-row historical/current tests | Historical 20/20 evidence coexists with current 3-pass/4-fail newline-custody behavior. |
+| Knowledge architecture/tests | Knowledge mechanisms remain documented and implemented, while two current tests encode stale operation mappings. |
+| Nemotron manifest | All retained files hash correctly, but three entries require a second path base. |
+
+### 27.2 Remaining unknowns after the deep pass
+
+- Complete model blobs were not rehashed.
+- No live runtime was contacted, so current installed/deployed custody was not
+  requalified.
+- The full Rook Python and managed suites were not rerun; verification was
+  focused on the mechanisms in this ledger.
+- Phase A and Phase B remain branch-local and have no production-router
+  implementation.
+- No qualified general-purpose acceptance-contract Constructor was located.
+- No controlled knowledge-retrieval efficacy result was located for these
+  workflows.
+- No claim is made that the retained predicate vocabulary covers open-ended
+  user intents.
+- No architectural disposition is assigned here to the Worker box, Prime,
+  Phase A, Phase B, deterministic acceptance, or intelligent judgment.
+
+These unknowns bound the ledger. They are inputs to a later interpretive pass,
+not defects silently converted into recommendations here.
