@@ -66,6 +66,8 @@ The design guarantees recovery from:
 - a persistence call that throws;
 - a torn trailing JSONL record handled by Prime's established session loader;
 - a lost host response after a successful terminal record;
+- a process exit after transport quiesces but before the corresponding IPython
+  tool result is persisted;
 - stale, duplicate, cross-goal, or cross-generation cooperative protocol calls; and
 - adapter, transport, or evidence-recorder failures on the unmodified adapter path.
 
@@ -223,7 +225,7 @@ goalGeneration
 transitionSequence
 discreteUsageEpoch
 gateState
-openLeases[]
+leases[] { phase: opened | quiesced | observed }
 pendingAuthorization | null
 terminalRecordId | null
 ```
@@ -238,7 +240,8 @@ Prime persists closed, versioned records for these state changes:
 
 ```text
 lease_opened
-lease_closed
+lease_quiesced
+lease_observed
 completion_authorized
 completion_aborted
 goal_terminalized
@@ -266,13 +269,31 @@ No method installs candidate goal or gate state before persistence succeeds.
 
 ### Lease opening
 
-Immediately before transport, the unmodified adapter requests a lease using a newly
-generated call ID and a closed operation descriptor:
+Immediately before transport, the unmodified adapter freezes one call descriptor. It
+canonicalizes JSON arguments once and rejects unsupported or nonfinite input before any
+lease or transport operation. The descriptor contains:
+
+```text
+adapter version
+operation kind
+capability name
+target identity and canonical target SHA-256
+canonical argument bytes and SHA-256
+source-log identity
+model-independent call ID
+```
+
+Lease admission, transport, and source evidence all derive from these frozen bytes. The
+transport receives a freshly decoded object from the canonical bytes; it never receives the
+caller's original mutable object. The descriptor itself is immutable after construction.
+
+The adapter then requests a lease using the frozen descriptor:
 
 ```text
 adapter call entry
--> capture immutable target and arguments snapshot
+-> freeze the canonical call descriptor
 -> internal lease begin request
+-> Prime binds the request to the host-owned IPython toolCallId and kernel execution
 -> Prime validates active goal, generation, and open gate
 -> Prime persists lease_opened
 -> adapter receives opaque lease identity
@@ -290,12 +311,27 @@ callId
 leaseId
 transitionSequenceOpened
 operationKind
+adapterVersion
+capabilityName
+targetIdentitySha256
+canonicalArgumentsSha256
+sourceLogIdentity
+ipythonToolCallId
+kernelExecutionId
 ```
 
 Operation descriptions support audit and correlation; they do not grant authority to a
 different capability or prove semantic correctness.
 
-### Lease closing
+Target process, document, and source-log values are read once while freezing the descriptor.
+The adapter builds transport configuration from that retained target identity after lease
+admission; it does not reread mutable environment values after the awaited begin request.
+
+The IPython tool-call and kernel-execution identities come from Prime's execution context,
+not from model-supplied host-request fields. Prime must extend the typed host-handler context
+to expose those existing host-owned identities.
+
+### Transport quiescence
 
 The adapter applies this order exactly:
 
@@ -304,34 +340,71 @@ transport returns or raises
 -> project the authentic result or exception
 -> append and flush exactly one Rook source event
 -> internal lease end request with source-event identity
--> Prime persists lease_closed
+-> Prime persists lease_quiesced
 -> adapter returns payload or re-raises the authentic exception
 ```
 
-Closing requires the exact active lease identity and permits one close. Stale, unknown,
-duplicate, cross-goal, cross-generation, or mismatched-call closes refuse without changing
-state.
+The internal `end` operation establishes transport quiescence only. It does not claim that
+the adapter returned, that the IPython cell completed, or that the result entered Prime's
+persisted conversation. Quiescence requires the exact active lease identity and permits one
+transition. Stale, unknown, duplicate, cross-goal, cross-generation, or mismatched-call
+requests refuse without changing state.
 
 If transport entered but source recording fails, the adapter does not close the lease. If
 source recording succeeds but lease-close persistence fails, the adapter does not return a
-successful payload to the model. In both cases the persisted open lease blocks completion
-and makes recovery explicit.
+successful payload to the model. In both cases the persisted unresolved lease blocks
+completion and makes recovery explicit.
 
 The protocol is cooperative. Prime proves that its lease records are ordered and that the
 unmodified adapter invokes them in the qualified order. Prime does not attest that arbitrary
 Python refrained from forging an early close.
 
+### Result observation
+
+Prime observes result delivery outside the adapter:
+
+```text
+adapter returns or raises into the IPython cell
+-> IPython execution reaches one terminal tool result
+-> AgentSession persists that toolResult message
+-> Prime correlates its host-owned toolCallId with every quiesced lease in the cell
+-> Prime persists lease_observed
+```
+
+The persisted IPython `toolResult` entry is the authoritative delivery marker. It proves the
+cell outcome is available to Prime's conversation on continuation or rehydration; it does
+not prove that the model understood the result. `lease_observed` is a correlated execution
+state marker, not a substitute for the persisted tool result.
+
+Prime must persist the tool result before `lease_observed`. If observation-marker
+persistence fails, the gate enters `recovery_required`. On rehydration, Prime may reconcile a
+quiesced lease only from the exact persisted tool result with the same host-owned
+`ipythonToolCallId` and compatible kernel execution. It then persists an idempotent
+observation marker before reopening the gate.
+
+If the process exits after `lease_quiesced` but before the matching tool result persists,
+rehydration is `recovery_required`. The retained source event must be reintroduced during
+current-state orientation before any new dispatch; the original transport is never replayed.
+
+Every Rook call in one cell has its own lease and descriptor but shares the host-owned
+IPython tool-call identity. The cell is observed only when all its admitted leases are
+quiesced and its tool result is persisted. Any still-open lease keeps the gate fail-closed.
+
+Consequently, pre-completion authorization cannot occur in the same IPython cell as the last
+Rook call. The model must receive a subsequent turn whose context includes the persisted
+tool result before it can prepare completion.
+
 ### Concurrency
 
 Lease begin is serialized by the Prime-owned controller. Multiple admitted calls may be in
-flight while the gate is `open`. Entering `completion_pending` requires zero open leases and
-prevents all new lease opens.
+flight while the gate is `open`. Entering `completion_pending` requires every prior lease to
+be observed, not merely transport-quiesced, and prevents all new lease opens.
 
 This closes both races:
 
 ```text
 begin wins first
--> lease is open
+-> lease is not yet observed
 -> completion authorization refuses
 
 authorization wins first
@@ -385,7 +458,7 @@ The authorization request refuses unless:
 
 - the goal is active;
 - the gate is open;
-- no dispatch lease is open;
+- every prior dispatch lease is observed;
 - the integration controller admits the exact candidate; and
 - persistence of `completion_authorized` succeeds.
 
@@ -408,7 +481,7 @@ the bound budget policy against current accounting at the final transition.
 - the goal is active and matches the pending authorization;
 - goal generation and discrete usage epoch match;
 - the gate is `completion_pending`;
-- no lease is open;
+- every prior lease remains observed;
 - the deadline has not passed;
 - the completion-time budget predicate passes; and
 - every bound checkpoint identity still matches.
@@ -452,7 +525,10 @@ authoritative for both goal completion and gate closure so those facts cannot di
 | Last valid persisted state | Rehydrated goal | Rehydrated gate | Required action |
 |---|---|---|---|
 | Open, no unresolved lease or authorization | Active | Open | Continue normally |
-| Open lease without matching close | Active | `recovery_required` | Orient current state; fresh checkpoint before capability reissue |
+| Open lease without matching quiescence | Active | `recovery_required` | Orient current state; never replay transport |
+| Quiesced lease without matching persisted IPython tool result | Active | `recovery_required` | Reintroduce retained source evidence; orient current state before capability reissue |
+| Quiesced lease with matching persisted tool result but no observation marker | Active | `recovery_required` until deterministic reconciliation persists | Persist idempotent observation marker, then continue |
+| Observed leases only, no pending authorization | Active | Open | Continue normally |
 | Completion authorized, no terminal record | Active | `recovery_required` | Invalidate old authorization; orient current state; run fresh checkpoint |
 | Torn trailing terminal record after valid authorization | Active | `recovery_required` | Treat torn record as absent; no completion claim |
 | Valid terminal record | Complete | Closed | Never reissue same-goal capability |
@@ -500,20 +576,31 @@ Failure precedence remains closed:
 begin refusal or begin persistence failure
 -> raise that lifecycle error; zero transport entry
 
-transport success, then recorder or lease-close failure
+transport success, then recorder failure
+-> raise the exact recorder exception; lease remains open
+
+transport exception, then recorder failure
+-> raise the exact recorder exception; lease remains open
+
+recorder success, then lease-quiescence failure after transport success
 -> retain any successfully written source prefix
 -> raise a closed adapter-lifecycle error; do not return the payload
 
-transport exception, then recorder or lease-close failure
--> retain any successfully written source prefix
--> leave the lease open
+recorder success, then lease-quiescence failure after transport exception
+-> retain the successfully written source event
+-> leave the lease unresolved
+-> retain the close failure as the re-raised exception's Python `__context__`
 -> re-raise the same transport exception object
 ```
 
-The last rule preserves the qualified `McpToolError` contract. The unresolved persisted
-lease, not exception replacement, makes later completion and recovery fail closed. Secondary
-recorder or close failures may be attached as diagnostics outside the exception text, but
-must not mutate the authentic exception or synthesize a lease close.
+Recorder failure precedence preserves the exact qualified V5 contract. The final rule
+preserves the qualified same-object `McpToolError` contract after authentic source evidence
+already exists. The unresolved persisted lease, not exception replacement, makes later
+completion and recovery fail closed. Python exception chaining retains the close failure
+without replacing the authentic exception or altering its message or `structured_content`.
+An existing explicit `__cause__` is not overwritten. The close failure is diagnostic, not a
+durability claim; after a process exit, the persisted unresolved lease and retained source
+event own recovery truth.
 
 The adapter source is versioned and owned by the Rook repository. Tests import that source
 directly. Installer integration, automatic Prime skill discovery, and migration of prior
@@ -579,8 +666,12 @@ Tests must prove:
 - begin refusal produces zero fake-transport entry;
 - an open lease blocks completion authorization;
 - `completion_pending` blocks new leases;
-- successful close removes exactly the matching lease;
-- stale, duplicate, wrong-goal, wrong-generation, and wrong-call close refuse;
+- successful adapter `end` moves exactly the matching lease to quiesced;
+- adapter `end` records quiescence but not result observation;
+- a persisted matching IPython tool result precedes `lease_observed`;
+- completion refuses after quiescence but before result observation;
+- a tool-result persistence failure cannot produce `lease_observed`;
+- stale, duplicate, wrong-goal, wrong-generation, and wrong-call `end` requests refuse;
 - authorization persistence failure leaves the gate open and goal active;
 - terminal persistence failure leaves authorization pending and goal active;
 - successful terminal persistence makes the goal complete and gate closed;
@@ -599,15 +690,21 @@ Tests must prove exact ordering:
 begin persisted
 -> one fake transport call
 -> one source event durably recorded
--> end persisted
--> payload return or same-exception re-raise
+-> quiescence persisted
+-> payload return or qualified exception precedence
+-> IPython tool result persisted
+-> observation persisted
 ```
 
 Mutations of the adapter should cause tests to fail when they:
 
 - enter transport before begin succeeds;
-- return before source recording or lease close;
+- return before source recording or lease quiescence;
+- use caller-mutable arguments after freezing the call descriptor;
+- differ between lease, transport, and evidence target or argument bytes;
 - close after a source-recorder failure;
+- replace the qualified recorder-failure precedence with the transport exception;
+- replace a transport exception after successful recording when quiescence fails;
 - normalize or copy the payload;
 - replace `McpToolError`;
 - retry transport;
@@ -619,6 +716,14 @@ Mutations of the adapter should cause tests to fail when they:
 Tests must inject failure or termination at every persisted transition and prove:
 
 - write failure rolls back the candidate session entry and in-memory transition;
+- process termination after quiescence persistence but before the internal host response
+  rehydrates `recovery_required`;
+- process termination after the internal host response but before adapter return rehydrates
+  `recovery_required`;
+- process termination after adapter return but before IPython tool-result persistence
+  rehydrates `recovery_required`;
+- process termination after tool-result persistence but before `lease_observed`
+  deterministically reconciles from that persisted result before reopening;
 - a torn trailing terminal record rehydrates as pre-terminal;
 - termination before terminal persistence rehydrates the goal active;
 - unresolved leases and pre-terminal authorization rehydrate `recovery_required`;

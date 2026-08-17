@@ -530,8 +530,10 @@ the current wall clock does not change it.
 
 Prime durably records this authorization as `completion_pending`, while the
 goal itself remains active. Across the admitted Prime-host and Rook capability
-surface, the only model-controlled operation permitted from that state is
-`goal.complete()`. Any intervening mutation, tool or host action, goal
+surface, the only model-controlled state transition permitted from that state
+is `goal.complete()`; observational `goal.get()` remains available. Any
+intervening mutation, tool action, state-changing host action other than the
+authorized completion, goal
 supersession, steering event, relevant
 evidence change, or discrete usage-epoch change invalidates authorization before
 dispatch and returns the record to active work. Passage of time alone does not
