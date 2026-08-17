@@ -103,20 +103,24 @@ The retained evidence report is
 
 ## Current Authorized Boundary
 
-Phase A is complete. It does not authorize production router implementation.
-The smallest justified next slice is a separately reviewed Phase B Reviewer
-qualification using compiler-valid artifacts only:
+Phase A is complete. The separately reviewed Phase B qualification has also
+completed with deterministic status `not_qualified_on_corpus`:
 
 ```text
-same shared semantic contract
--> compiler-valid coherent artifact
--> isolated compiler-valid semantic mutations
--> fresh fully informed Reviewer sessions
--> residual semantic-sensitivity assessment
+six complete admitted Reviewer responses
+-> coherent control restraint: pass
+-> residual recognition: pass on all six
+-> intended sensitivity: pass on three of five mutations
+-> hidden-risk case: semantic issue noticed but wrong frozen category
+-> authority-misrouting case: missed
 ```
 
-Phase B must not repeat mechanically invalid cases already owned by the
-compiler. It should test residual requirement coverage, invented assumptions,
-material weakening, and unresolved semantic risk. Runtime evaluation,
-evidence collection, policy routing, deployment, and production implementation
-remain outside this boundary.
+The result report is
+`docs/superpowers/reports/2026-08-15-acceptance-reviewer-phase-b-qualification.md`.
+
+This result does not authorize production router implementation or prompt
+tuning. It shows that intelligent review adds material value beyond the
+compiler, while also demonstrating that this frozen Reviewer configuration is
+not yet reliable enough to own residual semantic acceptance. Any next slice
+requires a separate reviewed decision; runtime evaluation, policy routing,
+deployment, and production implementation remain outside the current boundary.
