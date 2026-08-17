@@ -410,12 +410,12 @@ This is a model-authored evidence account, not automatic semantic truth. The
 integration owner can validate cited artifact identity and freshness but cannot
 prove arbitrary design meaning from the prose alone.
 
-Where product policy or retained task context selects an existing reviewed
-behavioral artifact, the thin integration owner freezes that artifact before
-evaluation. It then seals the caller-owned authoring trace, selects the latest
-eligible terminal receipt, runs the existing receipt-fenced probe, and invokes
-the deterministic evaluator. The closed result returns to the still-active
-Prime goal:
+The thin integration owner applies product policy and retained task context to
+select the exact existing reviewed behavioral artifact. It records the
+artifact identity and hash, freezes those exact bytes before evaluation, seals
+the caller-owned authoring trace, selects the latest eligible terminal receipt,
+runs the existing receipt-fenced probe, and invokes the deterministic evaluator.
+The closed result returns to the still-active Prime goal:
 
 ```text
 pass      -> supports pre-completion closure for the covered claims
@@ -515,19 +515,46 @@ Prime's existing continuation path. The same goal remains active for
 investigation, repair, or escalation. Candidate B inserts any conditional
 Reviewer before this checkpoint grants completion authorization.
 
-Authorization is one-use and bound to the active `goalId`, target document,
-source-trace prefix, latest receipt, and cited evidence hashes. Any later target
-mutation, goal supersession, or relevant evidence change invalidates it.
+Authorization is host-owned state, not a bearer token exposed to the model. It
+is one-use and bound to the active `goalId`, supersession chain, target document,
+source-trace epoch and prefix, latest receipt, cited evidence hashes, and
+cumulative task-budget state.
+
+Granting authorization moves the integration record into
+`completion_pending`, while the Prime goal itself remains active. Across the
+admitted Prime-host and Rook capability surface, the only model-controlled
+operation permitted from that state is `goal.complete()`. Any intervening
+mutation, tool or host action, goal supersession, steering event, relevant
+evidence change, or cumulative-budget change invalidates authorization before
+dispatch and returns the record to active work. A new checkpoint is then
+required.
 
 #### Stage A12: Complete the Prime goal terminally
 
 After pre-completion authorization, Qwen calls Prime `goal.complete()`. The
-production integration must guard Prime's host completion path with the
-one-use authorization before `_completeGoalFromHost()` changes goal state.
-Current Prime does not perform that check. An unauthorized call must refuse
-before state transition and leave the goal active; an authorized call consumes
-the authorization and immediately sets the goal inactive and terminal. There is
-no same-goal repair path after the successful action.
+production integration must implement one host-owned terminalization
+transaction before `_completeGoalFromHost()` changes goal state. Current Prime
+does not implement this transaction.
+
+The transaction must atomically:
+
+1. verify the one-use authorization and all bound identities and epochs;
+2. consume the authorization in a replay-proof transition;
+3. close the admitted model-controlled Prime-host operation surface for that
+   goal;
+4. revoke or close the goal-scoped Rook capability before another target call
+   can dispatch; and
+5. set the Prime goal inactive and terminal.
+
+An unauthorized or stale call refuses before state transition and leaves the
+goal active. A duplicate completion refuses. Once completion succeeds, a later
+statement in the same IPython cell may still execute as Python, but any
+`rook_full` call or other admitted product-host operation for that completed
+goal must refuse before target dispatch. Therefore this is a terminal execution
+fence over the admitted product capability surface, not a claim that current
+Prime stops Python bytecode, filesystem access, subprocesses, or arbitrary
+network access. Broader IPython containment remains a separate Prime decision.
+There is no same-goal repair path after the successful terminalization.
 
 The integration owner then records the terminal Prime lifecycle and native
 session closure. If the required `agent_end` or final session evidence is
@@ -538,6 +565,18 @@ linked superseding goal rather than automatic replay.
 Post-terminal work is limited to durable recording and presentation of the
 already authorized outcome. It cannot add a Reviewer, reinterpret evidence, or
 route concerns back into the completed goal.
+
+Terminalization recovery is phase-specific:
+
+- before authorization, the goal remains active and no completion state exists;
+- after authorization but before completion, recovery invalidates the pending
+  authorization and leaves the goal active for a fresh checkpoint;
+- after terminal state but before `agent_end`, the goal remains complete, its
+  Rook capability remains revoked, and the product outcome is `incomplete`
+  until current state is oriented through an explicitly linked superseding
+  goal; and
+- no crash case automatically replays completion or a possibly committed
+  mutation.
 
 ### 4.5 Recovery without a parallel orchestrator
 
@@ -580,12 +619,17 @@ mechanisms:
    profile from Prime's MCP integration despite its dynamic escape surfaces,
    and separately decide how unrestricted IPython network/process access is
    governed.
-4. **Completion checkpoint and lifecycle:** implement and qualify the
-   integration-owned pre-completion operation, one-use authorization, and a
-   Prime host-completion guard that refuses unauthorized `goal.complete()`
-   before `_completeGoalFromHost()` changes state. Qualify the authorized
-   terminal action, `agent_end`, native-session closure, and incomplete
-   post-terminal recovery behavior.
+4. **Terminalization protocol:** implement and qualify the integration-owned
+   pre-completion operation, host-owned `completion_pending` state, one-use
+   authorization, Prime host-operation fence, and goal-scoped Rook capability
+   revocation before `_completeGoalFromHost()` changes state. Causal tests must
+   cover wrong goal, document, trace epoch, receipt, evidence, and budget;
+   intervening mutation, tool action, steering, supersession, and evidence
+   change; unauthorized, stale, and duplicate completion; same-cell mutation
+   after completion; and crashes before authorization, between authorization
+   and completion, and after terminal state but before `agent_end`. Qualify the
+   authorized terminal action, native-session closure, and incomplete
+   post-terminal recovery behavior without claiming broader IPython sandboxing.
 5. **Product entry:** decide whether the current managed Rook Chat starts and
    presents the Prime goal/session or Prime remains a separately surfaced
    runtime. Current Chat, public MCP, and internal-agent bridge paths are not
@@ -791,10 +835,11 @@ Stages A7-A11 before another review can be considered.
 #### Stage B17: Complete the Prime goal terminally
 
 When review is not required or an admitted Reviewer outcome permits closure,
-the checkpoint grants authorization bound to the active `goalId`, final receipt,
-trace prefix, and reviewed evidence. Qwen then performs Candidate A Stage A12
-and calls `goal.complete()` as the terminal action. No review or same-goal repair
-occurs afterward.
+the checkpoint enters Candidate A's host-owned `completion_pending` state bound
+to the active `goalId`, final receipt, trace prefix, and reviewed evidence. Qwen
+then performs Candidate A Stage A12 through the same terminal execution fence
+and calls `goal.complete()` as the final admitted product-host action. No review
+or same-goal repair occurs afterward.
 
 ### 5.4 Recovery
 
@@ -888,7 +933,10 @@ Candidate C does not use the word `model` as an unspecified runtime owner:
 | Actor | One active Prime goal/session with the versioned Rook skill and contained `rook_full` adapter | Same target-mutation authority and adoption conditions as Candidate A. |
 | Reviewer | Fresh bounded direct-provider invocation over an immutable review packet | No tools. Investigation requests return to the workflow owner rather than executing inside the Reviewer. |
 | Worker | Existing bounded Worker harness reached only through deterministic request and disposition owners | Candidate action or decline; no direct mutation or self-acceptance. |
-| Compiler, evaluator, Policy Gate, and workflow store | Deterministic Rook-owned or integration-owned execution | No model discretion over mechanical admission or runtime truth. |
+| Semantic compiler | Production owner undecided and unimplemented; current evidence comes from the disposable Phase A compiler | A selected production owner must compile the frozen manifest without model discretion before Candidate C can be adopted. |
+| Deterministic evaluator | Production owner undecided and unimplemented; current evidence comes from the reviewed common evaluator and qualification harnesses | A selected production owner must evaluate only admitted expressions over fenced evidence. |
+| Policy Gate | Production owner undecided and unimplemented | A selected production owner must combine attributed mechanical, Reviewer, policy, and user dispositions without becoming a semantic oracle. |
+| Durable workflow store | Production owner undecided and unimplemented | A selected production owner must preserve append-only phase, identity, artifact, mutation, and recovery custody. |
 
 The direct Constructor/Reviewer harness shape has transport and custody evidence
 from the Phase B work but is not a qualified production runtime. A future choice
@@ -1021,10 +1069,11 @@ goal remains active. Authorization is bound to the active `goalId`, admitted
 contract, final receipt, trace prefix, evaluations, review packet, and user
 decisions.
 
-Qwen then calls Prime `goal.complete()` as the irreversible terminal action.
-The workflow store verifies the resulting terminal lifecycle. Missing terminal
-evidence makes the result incomplete and cannot route back into the completed
-goal.
+The Policy Gate enters Candidate A's host-owned `completion_pending` state.
+Qwen then calls Prime `goal.complete()` through the same terminal execution
+fence as the final admitted product-host action. The selected workflow-store
+owner verifies the resulting terminal lifecycle. Missing terminal evidence
+makes the result incomplete and cannot route back into the completed goal.
 
 The durable result contains:
 
@@ -1080,7 +1129,7 @@ cover open-ended design.
 | Prime goal and persistent session | Required after named adoption repairs | Same as A | Required for the Actor; Constructor/Reviewer use isolated tool-less invocations by default |
 | Versioned Rook skill and contained `rook_full` adapter | Required | Required | Required for the Prime Actor; Constructor/Reviewer receive no Rook adapter |
 | Goal supersession and cumulative task custody | Required | Same as A | Required for Actor-goal replacement and workflow transitions |
-| Pre-completion checkpoint and guarded terminal `goal.complete()` | Required but unimplemented | Same plus Reviewer-before-completion ordering | Required before Policy Gate acceptance becomes terminal |
+| Pre-completion checkpoint and terminal execution fence | Required but unimplemented | Same plus Reviewer-before-completion ordering | Required before Policy Gate acceptance becomes terminal |
 | Canonical gateway and strict admission | Required | Required | Required |
 | Native discovery and metadata | Required when Grasshopper components are involved | Same as A | Same as A |
 | Mutation receipts and fenced observation | Required | Required | Required |
