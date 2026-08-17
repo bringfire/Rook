@@ -134,6 +134,136 @@ The deterministic boundary lets uncertain intelligence reveal itself without
 allowing confident narration to substitute for execution. It should remain an
 evidence substrate, not become an infinite catalog of anticipated solutions.
 
+## Runtime Empiricism
+
+The same empirical principle applies inside an agent run.
+
+Model developers cannot enumerate everything a trained model can do or every
+problem it will encounter. General agent harnesses therefore do not succeed by
+shipping a complete catalog of answers or task-specific predicates. They give
+the model a disciplined runtime method:
+
+```text
+observe
+-> hypothesize
+-> act
+-> measure
+-> revise
+-> escalate when necessary
+```
+
+The model can construct a temporary experiment, execute it through available
+tools, inspect the result, and discard or revise it. Its reach comes from
+program synthesis over a general computational and observational substrate,
+not from product developers anticipating every future concept.
+
+Rook should offer local models the same relationship with Rhino and
+Grasshopper. The product should not attempt to encode every acceptance
+predicate a future user might require. It should provide trustworthy contact
+with the host:
+
+- authoritative capability and schema discovery;
+- constrained mutation;
+- solve receipts and receipt-fenced observations;
+- general computation over structured evidence;
+- bounded perturbation, restoration, and comparison;
+- persistent working state and complete traces; and
+- honest `pass`, `fail`, `unproven`, and escalation outcomes.
+
+The model remains responsible for proposing hypotheses, decompositions,
+acceptance conditions, experiments, interpretations, and corrections. Rook
+owns permission, execution, identity, temporal custody, measurement, resource
+limits, and the truthfulness of observed results.
+
+This changes the meaning of deterministic acceptance. Determinism should not
+pre-encode the semantics of the open world. It should make a model-authored
+experiment reproducible and its claims falsifiable. For example:
+
+```text
+model hypothesis:
+  changing Radius should move every output point radially
+  without changing its height
+
+Rook experiment:
+  capture a fenced baseline
+  -> perturb Radius
+  -> wait for the correlated solve
+  -> measure the resulting points
+  -> restore Radius
+  -> verify restoration
+```
+
+The hypothesis is intelligent and open-ended. The intervention, custody, and
+measurement are deterministic.
+
+## Three Nested Empirical Loops
+
+Rook development should preserve three related but distinct loops.
+
+### 1. Model qualification
+
+We interrogate a model to discover what it knows, where it fails, which
+operating policy helps it, and which affordances compensate for demonstrated
+gaps.
+
+### 2. Runtime problem solving
+
+The model interrogates Rhino and Grasshopper to discover the installed
+capabilities, current state, behavior, and consequences of its actions. It
+turns uncertainty into evidence during the task rather than relying only on
+training memory.
+
+### 3. Product evolution
+
+We examine retained traces across models and materially different tasks to
+identify recurring infrastructure deficiencies. Only repeated cross-task
+evidence justifies promotion into permanent Rook behavior.
+
+These loops prevent a failure in one run from becoming an architectural
+mandate. A novel task first pressures the model to devise a new experiment,
+not the product team to add a new semantic primitive.
+
+## Ship the Laboratory, Not the Catalog
+
+Acceptance artifacts should be treated as runtime-generated experimental
+protocols rather than a library of every task the product understands:
+
+```text
+user intent
+-> independent intelligence proposes falsifiable requirements
+-> mechanical admission checks safety and evidence availability
+-> the protocol is frozen
+-> the Actor works
+-> Rook executes the protocol against fenced host evidence
+-> pass, fail, unproven, or escalation
+```
+
+Most such protocols are ephemeral. They may be retained as evidence and
+learning material, but they are not shipped as permanent product vocabulary.
+The Actor should not quietly author its own exam after seeing the answer;
+independent review, user clarification, or a stronger model may be required
+when the proposed protocol carries material unresolved judgment.
+
+A concept should become durable deterministic infrastructure only when
+evidence across materially different tasks shows that:
+
+1. the missing fact cannot be derived safely from existing observations and
+   general computation;
+2. the fact is host-authoritative rather than a task-specific interpretation;
+3. its computation and output can be bounded; and
+4. adding it replaces recurring unsupported inference rather than duplicating
+   intelligent judgment.
+
+The knowledge graph follows the same rule. It supplies empirical priors,
+component semantics, successful strategies, and known failure patterns. It is
+not runtime authority. When stored knowledge and current host evidence
+disagree, the live evidence wins.
+
+The resulting product thesis is:
+
+> We cannot precompute intelligence's encounter with an open world. We can
+> give intelligence disciplined ways to investigate that world.
+
 ## Motivating Observation
 
 On 2026-08-14, informal direct Ollama CLI probes asked fresh conversations of
