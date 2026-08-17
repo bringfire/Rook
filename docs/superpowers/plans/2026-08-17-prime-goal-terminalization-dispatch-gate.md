@@ -4,7 +4,7 @@
 
 **Goal:** Qualify an opt-in Prime goal terminalization path that admits every promoted `rook_full` call through persisted goal-scoped leases, observes results through persisted IPython ancestry, and permanently closes the admitted Rook path when an authorized goal completes.
 
-**Architecture:** Prime owns one persisted execution-state controller beside `GoalState`; the kernel supplies host-owned active-execution identity, `AgentSession` correlates persisted tool results, and one terminal record linearizes goal completion plus gate closure. Rook owns a promoted payload-first `rook_full` adapter that freezes each call once and executes `begin -> transport -> source record -> quiesce`; both repositories consume a byte-identical offline wire fixture, while fake transports and fault injection qualify the complete boundary without Rhino, MCP, a model, or the network.
+**Architecture:** Prime owns one persisted execution-state controller beside `GoalState`; the kernel binds each host request to its originating Jupyter parent, `AgentSession` owns the active-branch goal-entry epoch and correlates persisted tool results, and one terminal record linearizes goal completion plus gate closure. Rook owns a promoted payload-first `rook_full` adapter that freezes each call once and executes `begin -> transport -> source record -> quiesce`; both repositories consume a byte-identical offline wire fixture, while fake transports and fault injection qualify the complete boundary without Rhino, MCP, a model, or the network.
 
 **Tech Stack:** TypeScript 5.7, Node.js 22.8+, Vitest 4, Prime `AgentSession`/`SessionManager`/IPython kernel, Python 3.10+, pytest, MCP Python SDK test doubles, Rook `gh_behavioral_acceptance` custody helpers, PowerShell verification.
 
@@ -13,37 +13,45 @@
 - Approved design: `docs/superpowers/specs/2026-08-17-prime-goal-terminalization-dispatch-gate-design.md`, SHA-256 `537FB29C8508AEB86F4249F9405B8AE00435F63DD48EE52E9657EDCE837A0C68`.
 - Rook implementation baseline: `8435758116adbfd0672ef5d5fc91a49b84002445` plus the reviewed architecture documents on this branch.
 - Prime architecture baseline: `c98941a2a5cf40faecf9b4648ac3c304abf48fd3`. Task 0 must first cherry-pick the already-qualified structured-error commit `30a6621bc` and prove its two file blobs match exactly; do not pull the unrelated intervening Prime history.
-- Work in the existing isolated Rook worktree and a fresh `codex/prime-goal-terminalization-dispatch-gate` Prime branch; do not touch either primary checkout.
+- Work in the existing isolated Rook worktree and the dedicated Prime worktree `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate` on branch `codex/prime-goal-terminalization-dispatch-gate`; do not switch, edit, install from, or run tests against either primary checkout.
+- Safety-relevant identity is captured at origin, persisted by one owner, and carried explicitly. Do not infer authority from the currently active cell, wall clock snapshot, checkout, branch, interpreter import path, process state, or other ambient state.
+- This custody rule orders the tasks; it is not a new runtime framework. Add no generalized custody service, registry, or abstraction.
+- The persisted usage epoch is the exact entry ID of the latest `thread_goal_state` entry on the active branch when that entry is valid. A malformed latest entry is `recovery_required`; do not skip backward. Do not add a counter or field to `GoalState`; install a new epoch only after that goal-state entry persists successfully.
 - Use TDD for every production change. Record the causal RED before the minimal GREEN implementation.
 - Prime is the sole owner of goal identity, generation, execution-gate state, transition persistence, terminalization, and rehydration.
 - Rook is the sole owner of `rook_full.search/read/call`, target/argument freezing, MCP transport, payload projection, structured failure evidence, and source-log custody.
 - Use `SessionManager.appendCustomEntryWithRollback()` as the only new persistence primitive. Do not add `fsync`, a database, a second journal, or a power-loss durability claim.
 - The linearization point is successful persistence through Prime's established session persistence contract.
 - Qualify only the unmodified durable adapter path. Direct `rlm.host_request`, adapter monkeypatching, and raw transport remain explicit IPython-containment gaps.
-- Preserve generic Prime detached host-request fallback. Reject that fallback only for `goal.dispatch.begin` by requiring an active execution context.
+- Preserve generic Prime detached host-request fallback. Reject that fallback only for `goal.dispatch.begin` by requiring the comm message's `parent_header.msg_id` to equal the current `activeExecution.requestMsgId` and by requiring the bound IPython tool-call identity.
 - Require persisted same-branch ancestry `lease_opened -> lease_quiesced -> toolResult` before `lease_observed`. Timestamps are never causal evidence.
 - A matching `toolResult -> lease_quiesced` order is permanently `recovery_required`; later quiescence cannot repair it.
 - Do not implement the semantic checkpoint, PlanGraph, Worker, Reviewer, policy routing, installer integration, automatic skill discovery, deployment, or live qualification.
 - Do not change Rook MCP schemas, Rhino/Grasshopper handlers, receipts, fenced snapshots, provider adapters, or prior campaign evidence.
 - Public model-facing Rook API remains exactly `rook_full.search`, `rook_full.read`, and `rook_full.call`.
 - All qualification is offline with fake transport and session fixtures. Model, provider, Rhino, Grasshopper, Rook MCP, deployment, and network contact are forbidden.
-- Stop for renewed design review if implementation requires moving Rook transport into Prime, remote Rook revocation, a distributed commit protocol, custom durability machinery, error-text parsing, receipt changes, a second goal orchestrator, or hostile-Python containment claims.
+- Do not begin Task 0 or create the Prime implementation worktree until this corrected plan receives one renewed independent review and explicit approval.
+- Stop for renewed design review if Jupyter does not preserve the originating comm `parent_header.msg_id` when an old detached task fires during a newer active cell. Do not fall back to the newer execution.
+- Stop for renewed design review if implementation requires moving Rook transport into Prime, remote Rook revocation, a distributed commit protocol, custom durability machinery, error-text parsing, receipt changes, a second goal orchestrator, a generalized custody substrate, or hostile-Python containment claims.
 
 ---
 
 ## File And Ownership Map
 
-### Prime repository: `D:/prime-agent`
+### Prime repository
+
+- Read-only primary checkout: `D:/prime-agent` at `c98941a2a5cf40faecf9b4648ac3c304abf48fd3`.
+- Sole implementation worktree: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate`.
 
 | File | Change | Sole responsibility |
 |---|---|---|
 | `prime-agent-runtime/src/rlm/mcp_base.py` | Adopt exact qualified commit `30a6621bc` | Preserve structured MCP failure results required by the V5 adapter contract. |
 | `prime-agent-runtime/test/test_mcp_base.py` | Adopt exact qualified commit `30a6621bc` | Preserve the 22-assertion structured-error qualification seam. |
-| `packages/coding-agent/src/core/goal-execution.ts` | Create | Closed execution records, replay, lease state machine, completion authorization, terminalization, and closed error codes. |
-| `packages/coding-agent/src/core/goals.ts` | Modify | Public completion-preparation response types and serialization only; existing unconfigured goal behavior remains intact. |
-| `packages/coding-agent/src/core/kernel/index.ts` | Modify | Host-owned active execution context, including IPython tool-call and kernel execution identities. |
+| `packages/coding-agent/src/core/goal-execution.ts` | Create | Closed execution records, persisted goal-entry epoch type, replay, lease state machine, completion authorization, terminalization, and closed error codes. |
+| `packages/coding-agent/src/core/goals.ts` | Modify | Public completion-preparation response types only; persisted `GoalState` shape remains byte-compatible. |
+| `packages/coding-agent/src/core/kernel/index.ts` | Modify | Origin-bound active execution context from the comm parent message, IPython tool-call identity, and kernel execution identity. |
 | `packages/coding-agent/src/core/tools/ipython.ts` | Modify | Pass the model tool-call identity into `KernelManager.execute()`. |
-| `packages/coding-agent/src/core/agent-session.ts` | Modify | Optional controller activation, host-handler wiring, tool-result observation, goal lifecycle hooks, and terminal record adoption. |
+| `packages/coding-agent/src/core/agent-session.ts` | Modify | Persisted goal-entry epoch ownership, optional controller activation, host-handler wiring, tool-result observation, goal lifecycle hooks, and terminal record adoption. |
 | `packages/coding-agent/src/index.ts` | Modify | Export the controller interfaces needed by an integration host without exporting internal mutation methods. |
 | `packages/coding-agent/skills/goal/src/goal/__init__.py` | Modify | Add the public `prepare_completion(candidate)` wrapper. |
 | `packages/coding-agent/test/goal-execution.test.ts` | Create | Pure state, persistence, replay, concurrency, authorization, and fault-injection coverage. |
@@ -117,12 +125,14 @@ The fixture deliberately omits `ipythonToolCallId`, `kernelExecutionId`, goal id
 
 | Approved specification area | Owning plan work |
 |---|---|
+| Origin-bound temporal authority custody | Global constraints; Tasks 0 through 4 |
 | Qualified structured MCP failure prerequisite | Task 0 |
 | Failure and cooperative-containment model | Global constraints; Tasks 5, 6, and 7 |
 | Existing ownership and selected owners | File map; Tasks 1 through 5 |
 | Conditional activation and legacy compatibility | Tasks 3 and 4 |
 | Prime execution state and persisted transitions | Task 1 |
-| Active execution identity and detached fallback | Task 2 |
+| Origin-bound active execution identity and detached fallback | Task 2 |
+| Persisted goal-entry usage epoch and legacy goal-byte compatibility | Tasks 1, 3, and 4 |
 | Lease opening, quiescence, result observation, and concurrency | Tasks 1, 2, 3, 5, and 6 |
 | Pre-completion authorization and invalidation | Tasks 1 and 4 |
 | Single-record terminalization | Tasks 1 and 4 |
@@ -134,29 +144,44 @@ The fixture deliberately omits `ipythonToolCallId`, `kernelExecutionId`, goal id
 
 ---
 
-### Task 0: Restore The Qualified Structured MCP Error Prerequisite
+### Task 0: Establish Hermetic Prime Custody And Restore The Qualified Error Prerequisite
 
 **Files:**
-- Modify by exact cherry-pick: `D:/prime-agent/prime-agent-runtime/src/rlm/mcp_base.py`
-- Modify by exact cherry-pick: `D:/prime-agent/prime-agent-runtime/test/test_mcp_base.py`
+- Create worktree: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate`
+- Modify by exact cherry-pick: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/prime-agent-runtime/src/rlm/mcp_base.py`
+- Modify by exact cherry-pick: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/prime-agent-runtime/test/test_mcp_base.py`
 
 **Interfaces:**
 - Consumes: Prime architecture baseline `c98941a2a5cf40faecf9b4648ac3c304abf48fd3` and reviewed commit `30a6621bc`.
 - Produces: `McpToolError.structured_content` with unchanged text/exception behavior for Task 5; no coding-agent lifecycle change.
 
-- [ ] **Step 1: Create the isolated Prime implementation branch at the audited baseline**
+- [ ] **Step 1: Create the isolated Prime worktree at the audited baseline**
 
 ```powershell
-git -C D:/prime-agent status --short
-git -C D:/prime-agent switch -c codex/prime-goal-terminalization-dispatch-gate c98941a2a5cf40faecf9b4648ac3c304abf48fd3
+$primeRoot = 'D:/prime-agent'
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+
+if ((git -C $primeRoot status --short)) { throw "Prime primary checkout is dirty" }
+if ((git -C $primeRoot rev-parse HEAD) -ne 'c98941a2a5cf40faecf9b4648ac3c304abf48fd3') {
+  throw "Prime primary checkout is not at the audited baseline"
+}
+if (Test-Path -LiteralPath $prime) { throw "Prime implementation worktree already exists: $prime" }
+
+git -C $primeRoot worktree add -b codex/prime-goal-terminalization-dispatch-gate $prime c98941a2a5cf40faecf9b4648ac3c304abf48fd3
+if ($LASTEXITCODE -ne 0) { throw "Prime worktree creation failed" }
+if ((git -C $prime rev-parse HEAD) -ne 'c98941a2a5cf40faecf9b4648ac3c304abf48fd3') {
+  throw "Prime worktree baseline mismatch"
+}
+if ((git -C $prime status --short)) { throw "Prime implementation worktree is not clean" }
 ```
 
-Expected: clean worktree on the exact audited architecture baseline.
+Expected: the primary checkout remains untouched and one clean linked worktree exists at the exact audited baseline.
 
 - [ ] **Step 2: Cherry-pick only the qualified structured-error commit**
 
 ```powershell
-git -C D:/prime-agent cherry-pick 30a6621bc
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+git -C $prime cherry-pick 30a6621bc
 ```
 
 Do not merge `fork/main`, `origin/main`, or the intervening Prime history. If cherry-pick conflicts, abort it and stop for continuity review.
@@ -164,48 +189,85 @@ Do not merge `fork/main`, `origin/main`, or the intervening Prime history. If ch
 - [ ] **Step 3: Verify exact source and test blob custody**
 
 ```powershell
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
 $paths = @(
   'prime-agent-runtime/src/rlm/mcp_base.py',
   'prime-agent-runtime/test/test_mcp_base.py'
 )
 foreach ($path in $paths) {
-  $reviewed = git -C D:/prime-agent rev-parse "30a6621bc:$path"
-  $current = git -C D:/prime-agent rev-parse "HEAD:$path"
+  $reviewed = git -C $prime rev-parse "30a6621bc:$path"
+  $current = git -C $prime rev-parse "HEAD:$path"
   if ($reviewed -ne $current) { throw "structured-error blob mismatch: $path" }
 }
 ```
 
-- [ ] **Step 4: Reproduce the qualified runtime test seam without provider contact**
+- [ ] **Step 4: Materialize branch-local JavaScript dependencies without network fallback**
 
 ```powershell
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Push-Location $prime
+try {
+  npm ci --offline --ignore-scripts
+  if ($LASTEXITCODE -ne 0) { throw "Offline Prime dependency installation failed" }
+} finally {
+  Pop-Location
+}
+if ((git -C $prime status --short)) { throw "Dependency installation changed tracked Prime files" }
+```
+
+Expected: dependencies are materialized from the local npm cache using the reviewed lockfile. If offline installation cannot complete, stop for environment review; do not borrow the primary checkout's `node_modules`, add a junction, or permit network fallback.
+
+- [ ] **Step 5: Reproduce the qualified runtime test seam without provider contact**
+
+```powershell
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
-& $python -m pytest D:/prime-agent/prime-agent-runtime/test/test_mcp_base.py -q
+$previousPythonPath = $env:PYTHONPATH
+try {
+  $env:PYTHONPATH = "$prime/prime-agent-runtime/src"
+  & $python -c "from pathlib import Path; import rlm.mcp_base as m; actual=Path(m.__file__).resolve(); expected=Path(r'$prime/prime-agent-runtime/src').resolve(); assert actual.is_relative_to(expected), (actual, expected); print(actual)"
+  if ($LASTEXITCODE -ne 0) { throw "Prime runtime import custody failed" }
+  & $python -m pytest "$prime/prime-agent-runtime/test/test_mcp_base.py" -q
+  if ($LASTEXITCODE -ne 0) { throw "Prime structured-error tests failed" }
+} finally {
+  if ($null -eq $previousPythonPath) {
+    Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+  } else {
+    $env:PYTHONPATH = $previousPythonPath
+  }
+}
 ```
 
-Expected: all structured MCP runtime tests pass with no network entry.
+Expected: `rlm.mcp_base.__file__` resolves under the dedicated worktree and all structured MCP runtime tests pass with no network entry.
 
-- [ ] **Step 5: Record the cherry-pick identity and stop for prerequisite review**
+- [ ] **Step 6: Record the cherry-pick identity and stop for prerequisite review**
 
 ```powershell
-git -C D:/prime-agent log -1 --oneline
-git -C D:/prime-agent status --short
-git -C D:/prime-agent diff --check c98941a2a5cf40faecf9b4648ac3c304abf48fd3..HEAD
+$primeRoot = 'D:/prime-agent'
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+git -C $prime log -1 --oneline
+git -C $prime status --short
+git -C $prime diff --check c98941a2a5cf40faecf9b4648ac3c304abf48fd3..HEAD
+if ((git -C $primeRoot rev-parse HEAD) -ne 'c98941a2a5cf40faecf9b4648ac3c304abf48fd3') {
+  throw "Prime primary checkout moved"
+}
+if ((git -C $primeRoot status --short)) { throw "Prime primary checkout changed" }
 ```
 
-**Mandatory review gate:** Confirm only the two qualified runtime files changed, both blobs equal `30a6621bc`, and no unrelated upstream Prime behavior entered the implementation branch.
+**Mandatory review gate:** Confirm the primary checkout stayed untouched, only the two qualified runtime files changed in the linked worktree, both blobs equal `30a6621bc`, JavaScript dependencies came from the reviewed lockfile without network or primary-checkout reuse, the Python test imported the linked-worktree runtime, and no unrelated upstream Prime behavior entered the implementation branch.
 
 ---
 
-### Task 1: Prime Persisted Goal Execution State Machine
+### Task 1: Prime Persisted Goal-Entry Epoch And Execution State Machine
 
 **Files:**
-- Create: `D:/prime-agent/packages/coding-agent/src/core/goal-execution.ts`
-- Create: `D:/prime-agent/packages/coding-agent/test/goal-execution.test.ts`
-- Modify: `D:/prime-agent/packages/coding-agent/src/index.ts`
+- Create: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/src/core/goal-execution.ts`
+- Create: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/test/goal-execution.test.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/src/index.ts`
 
 **Interfaces:**
-- Consumes: `SessionManager.appendCustomEntryWithRollback()`, `SessionManager.getBranch()`, `GoalState`, injected clock/ID functions, and an injected `GoalCompletionAdmissionController`.
-- Produces: `GoalExecutionController`, `GoalCompletionAdmissionController`, `GoalExecutionError`, closed wire validators, and `GOAL_EXECUTION_CUSTOM_TYPE` for Tasks 3 and 4.
+- Consumes: `SessionManager.appendCustomEntryWithRollback()`, `SessionManager.getBranch()`, `GoalState`, the exact persisted active-branch `thread_goal_state` entry ID supplied as an opaque `GoalUsageEpoch`, injected clock/ID functions, and an injected `GoalCompletionAdmissionController`.
+- Produces: `GoalUsageEpoch`, `GoalExecutionController`, `GoalCompletionAdmissionController`, `GoalExecutionError`, closed wire validators, and `GOAL_EXECUTION_CUSTOM_TYPE` for Tasks 3 and 4. It does not create or increment a usage counter.
 
 - [ ] **Step 1: Write the state-machine RED tests**
 
@@ -225,17 +287,20 @@ const causalCases = [
   "rehydration rejects sequence gaps and contradictory records",
   "rehydration never replays transport or transition side effects",
   "serialized begin and prepare races admit exactly one winner",
+  "initialization requires the exact persisted goal-state entry identity",
+  "a different persisted goal-state entry identity refuses lease and completion transitions",
 ] as const;
 ```
 
-Use an actual temporary `SessionManager`, a deterministic `now()` sequence, and deterministic IDs. Assert branch entry IDs and parent ancestry, not timestamps.
+Use an actual temporary `SessionManager`, a deterministic `now()` sequence, and deterministic IDs. Create each `GoalUsageEpoch` by appending a real `thread_goal_state` entry and retaining its returned entry ID. Assert branch entry IDs and parent ancestry, not timestamps or numeric counters.
 
 - [ ] **Step 2: Run the focused RED suite**
 
 Run:
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test -- test/goal-execution.test.ts
 ```
 
@@ -251,6 +316,7 @@ export const GOAL_EXECUTION_SCHEMA = "prime.goal_execution_state:v1";
 
 export type GoalExecutionGateState = "open" | "completion_pending" | "recovery_required" | "closed";
 export type DispatchLeasePhase = "opened" | "quiesced" | "observed";
+export type GoalUsageEpoch = string;
 
 export interface GoalDispatchDescriptor {
   schema: "rook_full.dispatch_descriptor:v1";
@@ -286,7 +352,7 @@ export interface GoalCompletionAuthorization extends GoalCompletionBindings {
   goalId: string;
   goalGeneration: string;
   supersessionChain: string[];
-  discreteUsageEpoch: number;
+  discreteUsageEpoch: GoalUsageEpoch;
 }
 
 export interface DispatchLeaseState {
@@ -306,7 +372,7 @@ export interface GoalExecutionState {
   goalId: string;
   goalGeneration: string;
   transitionSequence: number;
-  discreteUsageEpoch: number;
+  discreteUsageEpoch: GoalUsageEpoch;
   gateState: GoalExecutionGateState;
   leases: DispatchLeaseState[];
   pendingAuthorization: GoalCompletionAuthorization | null;
@@ -347,7 +413,7 @@ export interface GoalCompletionAdmissionController {
     candidate: Record<string, unknown>;
     goal: GoalState;
     goalGeneration: string;
-    discreteUsageEpoch: number;
+    discreteUsageEpoch: GoalUsageEpoch;
   }): Promise<GoalCompletionBindings>;
   isCompletionBudgetAdmissible(input: {
     authorization: GoalCompletionAuthorization;
@@ -375,18 +441,23 @@ private persistAndInstall(record: GoalExecutionRecordV1, next: GoalExecutionStat
 
 The initial state record uses transition sequence `0`, a host-generated generation, an open gate, no leases, and no authorization. Rehydration walks only `sessionManager.getBranch()` for the active leaf, accepts one valid ordered prefix, and returns `recovery_required` for unknown schema versions, gaps, impossible phases, or records from a sibling branch.
 
+`GoalUsageEpoch` is not serialized into `GoalState`. It is the existing session-entry identity that already owns the persisted goal bytes. Before initialization and every later transition, walk the current active branch and require the supplied or state-bound ID to equal its latest `thread_goal_state` entry, require that entry's data to be valid, and require its normalized goal identity to match the bound goal. A malformed latest entry is `recovery_required`; never skip backward to an older valid entry. Begin, preparation, and terminalization additionally require the exact epoch supplied by `AgentSession`; quiescence and observation recheck the epoch already bound into controller state.
+
 Implement exact methods:
 
 ```typescript
-initializeGoal(goal: GoalState): GoalExecutionState;
-beginDispatch(descriptor: GoalDispatchDescriptor, execution: ActiveIpythonExecutionIdentity, goal: GoalState): Promise<GoalDispatchLeaseResponse>;
+initializeGoal(goal: GoalState, discreteUsageEpoch: GoalUsageEpoch): GoalExecutionState;
+rehydrate(goal: GoalState, discreteUsageEpoch: GoalUsageEpoch): GoalExecutionState;
+beginDispatch(descriptor: GoalDispatchDescriptor, execution: ActiveIpythonExecutionIdentity, goal: GoalState, discreteUsageEpoch: GoalUsageEpoch): Promise<GoalDispatchLeaseResponse>;
 quiesceDispatch(input: GoalDispatchQuiescenceRequest): Promise<GoalDispatchQuiescedResponse>;
 observePersistedToolResult(input: { entryId: string; ipythonToolCallId: string }): Promise<void>;
-prepareCompletion(input: { candidate: Record<string, unknown>; goal: GoalState }): Promise<GoalCompletionPrepared>;
+prepareCompletion(input: { candidate: Record<string, unknown>; goal: GoalState; discreteUsageEpoch: GoalUsageEpoch }): Promise<GoalCompletionPrepared>;
 abortPendingAuthorization(reason: string): Promise<void>;
-terminalize(input: { goal: GoalState; completionTime: number }): Promise<GoalState>;
+terminalize(input: { goal: GoalState; discreteUsageEpoch: GoalUsageEpoch; completionTime: number }): Promise<GoalState>;
 snapshot(): Readonly<GoalExecutionState>;
 ```
+
+`initializeGoal()` creates sequence zero only for a newly persisted active goal with no execution records for that goal/generation. `rehydrate()` replays the active branch and never creates a missing open state; an active goal without one compatible execution prefix becomes `recovery_required` as required by the specification.
 
 Serialize every post-initialization operation through one controller-owned promise tail. `prepareCompletion()` must hold that serialized ownership across the injected admission await, so either a lease open persists first and preparation refuses, or authorization persists first and the later begin refuses. Do not add timeouts or a second scheduler.
 
@@ -403,7 +474,8 @@ it("concurrent begin and prepare have one persisted winner");
 it("authorization write failure leaves goal active and gate open");
 it("wall clock advances without invalidating authorization before deadline");
 it("deadline and completion-time budget predicate refuse completion");
-it("discrete usage change aborts authorization persistently");
+it("a newly persisted goal-state entry identity aborts authorization persistently");
+it("elapsed wall time alone does not change the persisted goal-entry identity");
 it("terminal write failure leaves authorization pending and goal active");
 it("terminal record closes gate and consumes authorization once");
 it("lost terminal response followed by retry returns duplicate_completion");
@@ -417,7 +489,8 @@ The terminal record contains the complete next `GoalState` and closed gate. No s
 Run:
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test -- test/goal-execution.test.ts
 npm run build
 ```
@@ -427,25 +500,26 @@ Expected: all focused tests pass; build exits `0`.
 - [ ] **Step 7: Commit the Prime state-machine slice**
 
 ```powershell
-git -C D:/prime-agent add packages/coding-agent/src/core/goal-execution.ts packages/coding-agent/src/index.ts packages/coding-agent/test/goal-execution.test.ts
-git -C D:/prime-agent commit -m "feat: add persisted goal execution state"
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+git -C $prime add packages/coding-agent/src/core/goal-execution.ts packages/coding-agent/src/index.ts packages/coding-agent/test/goal-execution.test.ts
+git -C $prime commit -m "feat: add persisted goal execution state"
 ```
 
-**Mandatory review gate:** Independently review replay ordering, sibling-branch rejection, mixed multi-lease behavior, persistence-before-memory, and the absence of transport or Rook semantics from this controller.
+**Mandatory review gate:** Independently review replay ordering, sibling-branch rejection, mixed multi-lease behavior, persistence-before-memory, opaque persisted-entry epoch use, and the absence of a counter, transport, or Rook semantics from this controller.
 
 ---
 
 ### Task 2: Prime Active IPython Execution Custody
 
 **Files:**
-- Modify: `D:/prime-agent/packages/coding-agent/src/core/kernel/index.ts`
-- Modify: `D:/prime-agent/packages/coding-agent/src/core/tools/ipython.ts`
-- Create: `D:/prime-agent/packages/coding-agent/test/kernel-host-request-context.test.ts`
-- Modify: `D:/prime-agent/packages/coding-agent/test/agent-session-recursion.test.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/src/core/kernel/index.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/src/core/tools/ipython.ts`
+- Create: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/test/kernel-host-request-context.test.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/test/agent-session-recursion.test.ts`
 
 **Interfaces:**
-- Consumes: the existing kernel `ActiveExecution`, `ExecuteOptions`, generic `HostRequestHandler`, and IPython tool `toolCallId`.
-- Produces: a second, host-owned `HostRequestContext` argument. Task 3 uses it to admit `goal.dispatch.begin`; existing handlers continue receiving `cellSourceCode` in their payload for compatibility.
+- Consumes: the incoming Jupyter comm message's `parent_header.msg_id`, existing kernel `ActiveExecution`, `ExecuteOptions`, generic `HostRequestHandler`, and IPython tool `toolCallId`.
+- Produces: a second, origin-bound `HostRequestContext` argument. Task 3 uses it to admit `goal.dispatch.begin`; existing handlers continue receiving `cellSourceCode` in their payload for compatibility.
 
 - [ ] **Step 1: Write RED tests for active and detached requests**
 
@@ -454,16 +528,20 @@ The tests must prove:
 ```typescript
 it("passes tool call and kernel execution identities during an active cell");
 it("marks a detached request inactive while preserving last-cell source fallback");
+it("marks an old detached request inactive when it fires during a newer active cell");
 it("does not synthesize a tool-call identity for direct kernel execute without one");
 it("keeps generic detached rlm host requests working");
 ```
 
-For the detached case, schedule `asyncio.create_task(rlm.host_request("test.detached", {"value": 1}))`, let the originating cell become idle, then release the task. Assert `context.activeExecution === false` while the legacy payload still contains `cellSourceCode`.
+For the idle detached case, schedule `asyncio.create_task(rlm.host_request("test.detached", {"value": 1}))`, let the originating cell become idle, then release the task. Assert `context.activeExecution === false` while the legacy payload still contains `cellSourceCode`.
+
+For the cross-cell case, hold the same old detached task, start a second cell, and release the task while the second cell is active. Assert the incoming comm retains the first cell's `parent_header.msg_id`, `context.activeExecution === false`, and no identity from the second cell appears in the context. If the real kernel test cannot observe the originating parent ID, stop for renewed design review; do not weaken the assertion or substitute the current execution.
 
 - [ ] **Step 2: Run the focused RED tests**
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test -- test/kernel-host-request-context.test.ts test/agent-session-recursion.test.ts
 ```
 
@@ -476,6 +554,7 @@ In `kernel/index.ts`, add:
 ```typescript
 export interface HostRequestContext {
   activeExecution: boolean;
+  requestParentMessageId?: string;
   cellSourceCode?: string;
   ipythonToolCallId?: string;
   kernelExecutionId?: string;
@@ -496,21 +575,34 @@ export interface ExecuteOptions {
 }
 ```
 
-At host dispatch, keep the existing payload behavior and supply the context separately:
+Pass `(incoming.parent_header as { msg_id?: unknown }).msg_id` from `handleCommMessage()` through `startHostRequestFromComm()` into `handleHostRequest()`. Treat it as present only when it is a nonempty string. Keep the existing payload behavior and supply the origin-correlated context separately:
 
 ```typescript
+const requestParentMessageId =
+  typeof parentMessageId === "string" && parentMessageId.length > 0
+    ? parentMessageId
+    : undefined;
 const execution = this.activeExecution;
+const belongsToActiveExecution =
+  execution !== undefined && requestParentMessageId === execution.requestMsgId;
 const cellSourceCode = execution?.code ?? this.lastCellCode;
 return handler(
   Object.assign({}, data, { cellSourceCode }),
   {
-    activeExecution: execution !== undefined,
+    activeExecution: belongsToActiveExecution,
+    requestParentMessageId,
     cellSourceCode,
-    ipythonToolCallId: execution?.opts.ipythonToolCallId,
-    kernelExecutionId: execution?.requestMsgId,
+    ipythonToolCallId: belongsToActiveExecution
+      ? execution.opts.ipythonToolCallId
+      : undefined,
+    kernelExecutionId: belongsToActiveExecution
+      ? execution.requestMsgId
+      : undefined,
   },
 );
 ```
+
+The comm parent identity is captured at receipt and carried as an argument. `handleHostRequest()` must not reread or reconstruct it later. The current active execution is used only for an exact equality check; it is never used as the request's origin.
 
 Existing one-argument handlers remain behaviorally compatible because JavaScript ignores the additional argument.
 
@@ -534,7 +626,8 @@ Do not alter bootstrap/internal executions or Prime's last-cell source behavior.
 - [ ] **Step 5: Run the kernel and recursion suites**
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test -- test/kernel-host-request-context.test.ts test/agent-session-recursion.test.ts
 npm run build
 ```
@@ -544,24 +637,25 @@ Expected: active context, detached context, and existing recursion tests pass.
 - [ ] **Step 6: Commit the Prime execution-context slice**
 
 ```powershell
-git -C D:/prime-agent add packages/coding-agent/src/core/kernel/index.ts packages/coding-agent/src/core/tools/ipython.ts packages/coding-agent/test/kernel-host-request-context.test.ts packages/coding-agent/test/agent-session-recursion.test.ts
-git -C D:/prime-agent commit -m "feat: expose active ipython host context"
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+git -C $prime add packages/coding-agent/src/core/kernel/index.ts packages/coding-agent/src/core/tools/ipython.ts packages/coding-agent/test/kernel-host-request-context.test.ts packages/coding-agent/test/agent-session-recursion.test.ts
+git -C $prime commit -m "feat: expose active ipython host context"
 ```
 
-**Mandatory review gate:** Confirm dispatch identity is host-owned, detached fallback is preserved generically, and no model-supplied payload field can make an inactive execution active.
+**Mandatory review gate:** Confirm dispatch identity comes from the comm parent at origin, an old detached request cannot borrow a newer active cell, detached fallback is preserved generically, and no model-supplied payload field can make an inactive execution active.
 
 ---
 
 ### Task 3: AgentSession Dispatch Lease And Tool-Result Observation Wiring
 
 **Files:**
-- Modify: `D:/prime-agent/packages/coding-agent/src/core/agent-session.ts`
-- Create: `D:/prime-agent/packages/coding-agent/test/fixtures/rook-goal-dispatch-wire-v1.json`
-- Modify: `D:/prime-agent/packages/coding-agent/test/suite/agent-session-goal.test.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/src/core/agent-session.ts`
+- Create: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/test/fixtures/rook-goal-dispatch-wire-v1.json`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/test/suite/agent-session-goal.test.ts`
 
 **Interfaces:**
-- Consumes: `GoalExecutionController`, `HostRequestContext`, the Prime-side wire fixture, and persisted `toolResult` messages.
-- Produces: optional configured handlers `goal.dispatch.begin` and `goal.dispatch.quiesce`, persisted result observation, and an AgentSession-owned controller instance.
+- Consumes: `GoalExecutionController`, `GoalUsageEpoch`, `HostRequestContext`, the Prime-side wire fixture, persisted `thread_goal_state` entry identities, and persisted `toolResult` messages.
+- Produces: the sole `GoalUsageEpoch` owner in `AgentSession`, optional configured handlers `goal.dispatch.begin` and `goal.dispatch.quiesce`, persisted result observation, and an AgentSession-owned controller instance.
 
 - [ ] **Step 1: Freeze the Prime wire fixture and write handler RED tests**
 
@@ -572,15 +666,22 @@ it("does not register dispatch handlers without an admission controller");
 it("rehydrates a configured active goal without compatible execution state as recovery_required");
 it("rejects begin when HostRequestContext is inactive");
 it("rejects begin when the active context lacks an ipython tool-call identity");
+it("rejects an old detached request released during a newer active execution");
 it("binds begin to host-owned tool-call and kernel execution identities");
 it("quiesce may arrive after the cell becomes inactive");
 it("unknown and open request fields refuse before transition state access");
+it("loads the usage epoch from the latest goal-state entry when it is valid");
+it("refuses a malformed latest goal-state entry instead of skipping backward");
+it("does not load a sibling branch goal-state entry as the usage epoch");
+it("installs a new usage epoch only after goal-state persistence succeeds");
+it("keeps unconfigured persisted GoalState data byte-compatible and adds no epoch field");
 ```
 
 - [ ] **Step 2: Run the AgentSession RED cases**
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test -- test/suite/agent-session-goal.test.ts
 ```
 
@@ -596,17 +697,83 @@ goalCompletionAdmissionController?: GoalCompletionAdmissionController;
 
 When present, construct one `GoalExecutionController` owned by `AgentSession`. When absent, do not construct it and do not register lease or preparation handlers.
 
+Add one nonserialized field to `AgentSession`:
+
+```typescript
+private _goalUsageEpoch?: GoalUsageEpoch;
+```
+
+Keep the existing `_loadPersistedGoalState()` path byte-for-byte for unconfigured sessions. Add a configured-only helper that walks only `sessionManager.getBranch()` from its active leaf and returns the normalized goal plus the exact entry ID of the latest `thread_goal_state` entry when valid:
+
+```typescript
+private _loadPersistedGoalStateWithEpoch():
+  | { status: "none"; goal: GoalState }
+  | { status: "valid"; goal: GoalState; usageEpoch: GoalUsageEpoch }
+  | { status: "invalid"; goal: GoalState } {
+  const branch = this.sessionManager.getBranch();
+  for (let index = branch.length - 1; index >= 0; index--) {
+    const entry = branch[index];
+    if (entry.type === "custom" && entry.customType === GOAL_STATE_CUSTOM_TYPE) {
+      if (!isPersistedGoalState(entry.data)) {
+        return { status: "invalid", goal: emptyGoalState() };
+      }
+      return {
+        status: "valid",
+        goal: normalizeGoalState(entry.data),
+        usageEpoch: entry.id,
+      };
+    }
+  }
+  return { status: "none", goal: emptyGoalState() };
+}
+```
+
+A configured session with a malformed latest goal-state entry or an active goal without an epoch enters `recovery_required`; it must not fall back to an older entry. An unconfigured session continues calling the existing loader and retains existing outward behavior.
+
+Keep the existing `_persistGoalState()` and unconfigured `_setGoalState()` ordering unchanged. Add a configured-only persistence helper that returns the existing entry identity and rolls back if persistence fails:
+
+```typescript
+private _persistConfiguredGoalState(goal: GoalState): GoalUsageEpoch {
+  return this.sessionManager.appendCustomEntryWithRollback(
+    GOAL_STATE_CUSTOM_TYPE,
+    goal,
+  );
+}
+```
+
+In `_setGoalState()`, retain the current implementation exactly when the controller is absent. When configured, normalize first, persist through `_persistConfiguredGoalState()` when requested, and only then install both `_goalState` and `_goalUsageEpoch`. For configured `persist: false`, preserve the prior epoch. Do not add `discreteUsageEpoch`, `goalUsageEpoch`, or any other new property to the serialized `GoalState`; the entry ID is the epoch. Rehydration installs the returned pair from the same active-branch scan.
+
+On configured session startup, call `rehydrate(goal, usageEpoch)` only when the loaded goal is active and the exact epoch exists. A malformed/missing epoch or incompatible execution prefix becomes `recovery_required`. After `_startGoal()` successfully persists a fresh active goal and installs its returned epoch, call `initializeGoal(this._goalState, this._requireGoalUsageEpoch())`; never initialize before goal persistence and never synthesize an epoch for an idle branch.
+
+Add the required accessor in this task because dispatch consumes it immediately:
+
+```typescript
+private _requireGoalUsageEpoch(): GoalUsageEpoch {
+  if (!this._goalUsageEpoch) {
+    throw new GoalExecutionError("recovery_required");
+  }
+  return this._goalUsageEpoch;
+}
+```
+
 Register exact internal handlers:
 
 ```typescript
 handlers["goal.dispatch.begin"] = async (payload, context) => {
-  if (!context.activeExecution || !context.ipythonToolCallId || !context.kernelExecutionId) {
+  const descriptor = validateDispatchHostPayload(payload);
+  if (
+    !context.activeExecution ||
+    !context.requestParentMessageId ||
+    context.requestParentMessageId !== context.kernelExecutionId ||
+    !context.ipythonToolCallId ||
+    !context.kernelExecutionId
+  ) {
     throw new GoalExecutionError("execution_not_active");
   }
-  return await this._goalExecution!.beginDispatch(validateDispatchHostPayload(payload), {
+  return await this._goalExecution!.beginDispatch(descriptor, {
     ipythonToolCallId: context.ipythonToolCallId,
     kernelExecutionId: context.kernelExecutionId,
-  }, this.goalState);
+  }, this.goalState, this._requireGoalUsageEpoch());
 };
 
 handlers["goal.dispatch.quiesce"] = async (payload) =>
@@ -614,6 +781,8 @@ handlers["goal.dispatch.quiesce"] = async (payload) =>
 ```
 
 `rlm.host_request()` flattens the caller payload with `type`, and the kernel adds the compatibility-only `cellSourceCode`. Each validator first requires its exact `type`, removes only those two bridge-owned fields, and then validates the remaining closed descriptor or quiescence shape. Validation rejects every other unknown field and wrong scalar type before reading current goal or gate state; neither `type` nor `cellSourceCode` contributes authorization.
+
+The handler receives origin identity only through `HostRequestContext`; it never reads `activeExecution` itself and never substitutes the current cell when the parent does not match.
 
 - [ ] **Step 4: Observe only after the tool result entry persists**
 
@@ -644,10 +813,13 @@ opened(A,B) -> quiesced(A) -> toolResult -> quiesced(B) -> recovery_required
 
 Add a sibling-branch case where a matching `toolResult` exists outside `getBranch(quiescedEntryId)`. It must not observe the lease.
 
+Add a persistence-custody case that captures the current epoch, advances wall time without persisting a goal entry, and proves the epoch is unchanged. Then persist one byte-identical-shape `thread_goal_state` update, prove the returned entry ID becomes the new epoch only after persistence succeeds, and prove an authorization bound to the prior ID refuses.
+
 - [ ] **Step 6: Run focused AgentSession and controller tests**
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test -- test/goal-execution.test.ts test/suite/agent-session-goal.test.ts
 npm run build
 ```
@@ -657,22 +829,23 @@ Expected: all tests pass, including the reviewer's sibling-branch and late secon
 - [ ] **Step 7: Commit the Prime dispatch-wiring slice**
 
 ```powershell
-git -C D:/prime-agent add packages/coding-agent/src/core/agent-session.ts packages/coding-agent/test/suite/agent-session-goal.test.ts packages/coding-agent/test/fixtures/rook-goal-dispatch-wire-v1.json
-git -C D:/prime-agent commit -m "feat: gate goal-scoped dispatch leases"
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+git -C $prime add packages/coding-agent/src/core/agent-session.ts packages/coding-agent/test/suite/agent-session-goal.test.ts packages/coding-agent/test/fixtures/rook-goal-dispatch-wire-v1.json
+git -C $prime commit -m "feat: gate goal-scoped dispatch leases"
 ```
 
-**Mandatory review gate:** Confirm result observation follows the exact persisted tool-result entry on the same branch and that every mixed-cell lease must quiesce before that entry.
+**Mandatory review gate:** Confirm result observation follows the exact persisted tool-result entry on the same branch, every mixed-cell lease must quiesce before that entry, the goal usage epoch is one existing active-branch entry identity, persistence precedes epoch installation, and serialized legacy goal bytes contain no new field.
 
 ---
 
 ### Task 4: Prime Completion Preparation And Terminalization
 
 **Files:**
-- Modify: `D:/prime-agent/packages/coding-agent/src/core/goals.ts`
-- Modify: `D:/prime-agent/packages/coding-agent/src/core/agent-session.ts`
-- Modify: `D:/prime-agent/packages/coding-agent/skills/goal/src/goal/__init__.py`
-- Modify: `D:/prime-agent/packages/coding-agent/test/suite/agent-session-goal.test.ts`
-- Create: `D:/prime-agent/packages/coding-agent/test/kernel-goal-dispatch-skill.test.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/src/core/goals.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/src/core/agent-session.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/skills/goal/src/goal/__init__.py`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/test/suite/agent-session-goal.test.ts`
+- Create: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/test/kernel-goal-dispatch-skill.test.ts`
 
 **Interfaces:**
 - Consumes: observed leases and the injected `GoalCompletionAdmissionController`.
@@ -688,7 +861,9 @@ it("requires prepare_completion when controller is configured");
 it("keeps goal.get observational during completion_pending");
 it("refuses preparation while a lease is open or merely quiesced");
 it("authorizes after all leases are observed in a prior tool result");
-it("steering supersession and discrete usage changes abort pending authorization");
+it("steering supersession and a new persisted goal-state entry abort pending authorization");
+it("wall-clock accounting without persistence does not change the usage epoch");
+it("unconfigured goal-state JSON is byte-identical to the legacy closed key set");
 it("terminal persistence failure leaves authorization pending and goal active");
 it("successful terminal persistence installs complete goal and closed gate");
 it("same-cell rook begin after goal.complete refuses before fake transport");
@@ -699,7 +874,8 @@ it("rehydration derives complete goal and closed gate from one terminal record")
 - [ ] **Step 2: Run the completion RED suites**
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test -- test/suite/agent-session-goal.test.ts test/kernel-goal-dispatch-skill.test.ts
 ```
 
@@ -733,6 +909,7 @@ case "goal.prepare_completion":
   return this._goalExecution.prepareCompletion({
     candidate: validateCompletionCandidate(payload),
     goal: this.goalState,
+    discreteUsageEpoch: this._requireGoalUsageEpoch(),
   });
 
 case "goal.complete":
@@ -748,6 +925,7 @@ private async _completeConfiguredGoalFromHost(): Promise<GoalHostResponse> {
   const current = this._goalWithAccountedWallClock();
   const completed = await this._goalExecution!.terminalize({
     goal: current,
+    discreteUsageEpoch: this._requireGoalUsageEpoch(),
     completionTime: Date.now(),
   });
   this._installPersistedTerminalGoal(completed);
@@ -759,9 +937,15 @@ Register `goal.prepare_completion` only when the execution controller exists. Ke
 
 `_installPersistedTerminalGoal()` updates memory, accounting, queue state, and emitted UI state without appending another goal record. The controller has already persisted the sole terminal record.
 
-- [ ] **Step 5: Connect invalidation hooks**
+- [ ] **Step 5: Connect persisted-entry invalidation hooks without changing `GoalState` bytes**
 
-Add `discreteUsageEpoch: number` to `GoalState`, initialize and normalize it to `0` for old sessions, and increment it in the same persisted goal-state update that accounts each accepted assistant message. The execution controller reads that persisted value when opening a lease, authorizing completion, and terminalizing; rehydration derives the current value from the active persisted `GoalState` rather than inventing an execution transition. Call persisted authorization abort before admitted steering, goal supersession, clear/pause, or resume changes the bound goal. Do not compare continuously changing `timeUsedSeconds` for authorization identity; check only the explicit deadline and completion-time budget predicate.
+Do not modify the `GoalState` interface, `emptyGoalState()`, `normalizeGoalState()`, or serialized goal payload with an epoch field. `AgentSession._goalUsageEpoch` is the exact latest persisted `thread_goal_state` entry ID installed by Task 3.
+
+Use Task 3's `_requireGoalUsageEpoch()` accessor to pass that exact ID to completion authorization and terminalization; lease opening already uses it. Call persisted authorization abort before admitted steering, goal supersession, clear/pause, resume, accepted assistant-message accounting, or any other operation that will persist a changed `thread_goal_state`. Persist the changed goal next; only successful persistence may replace `_goalUsageEpoch` with the returned entry ID. If abort or goal persistence fails, do not install a new in-memory goal or epoch.
+
+Rehydration takes the goal and epoch from the same active-branch entry. A sibling entry, model-provided value, elapsed wall-clock value, or execution transition sequence can never become the usage epoch. Do not compare continuously changing `timeUsedSeconds` for authorization identity; check only exact epoch equality, the explicit deadline, and the completion-time budget predicate.
+
+Add a byte-custody regression that persists representative idle, active, paused, budget-limited, complete, and error goals with the controller absent and compares each custom-entry `data` JSON to the baseline expected keys and values. Assert no `discreteUsageEpoch` or `goalUsageEpoch` key exists.
 
 - [ ] **Step 6: Add process-crash and replay qualification**
 
@@ -780,7 +964,8 @@ Use Prime's existing session parser behavior for torn trailing JSONL; do not add
 - [ ] **Step 7: Run the complete Prime focused seam and build**
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test -- test/goal-execution.test.ts test/kernel-host-request-context.test.ts test/kernel-goal-dispatch-skill.test.ts test/kernel-goal-skill.test.ts test/agent-session-recursion.test.ts test/suite/agent-session-goal.test.ts
 npm run build
 ```
@@ -790,11 +975,12 @@ Expected: all focused tests pass; existing unconfigured goal and detached-recurs
 - [ ] **Step 8: Commit the Prime terminalization slice**
 
 ```powershell
-git -C D:/prime-agent add packages/coding-agent/src/core/goals.ts packages/coding-agent/src/core/agent-session.ts packages/coding-agent/skills/goal/src/goal/__init__.py packages/coding-agent/test/suite/agent-session-goal.test.ts packages/coding-agent/test/kernel-goal-dispatch-skill.test.ts
-git -C D:/prime-agent commit -m "feat: terminalize authorized goals atomically"
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+git -C $prime add packages/coding-agent/src/core/goals.ts packages/coding-agent/src/core/agent-session.ts packages/coding-agent/skills/goal/src/goal/__init__.py packages/coding-agent/test/suite/agent-session-goal.test.ts packages/coding-agent/test/kernel-goal-dispatch-skill.test.ts
+git -C $prime commit -m "feat: terminalize authorized goals atomically"
 ```
 
-**Mandatory review gate:** Confirm one persisted terminal record owns both complete goal and closed gate, no configured path mutates memory before persistence, and unconfigured Prime behavior is byte-contract compatible.
+**Mandatory review gate:** Confirm one persisted terminal record owns both complete goal and closed gate, no configured path mutates memory or epoch before persistence, the epoch is always an active-branch goal-entry ID, and unconfigured Prime goal bytes are unchanged.
 
 ---
 
@@ -861,11 +1047,51 @@ Test all three public operations. Mutate the caller's arguments and target envir
 
 Add zero-entry assertions for missing handlers, begin refusal, nonfinite input, unsupported JSON input, and malformed target identity.
 
+Add these exact quiescence-precedence cases before implementing `_raise_quiescence_failure()`:
+
+```text
+test_quiescence_failure_after_transport_success_raises_lifecycle_error
+  -> the source event is retained
+  -> no payload is returned
+  -> RuntimeError("rook_full_quiescence_failed") is raised
+
+test_transport_exception_is_reraised_by_identity_when_quiescence_also_fails
+  -> the raised object is the exact transport exception
+  -> the quiescence exception is retained as __context__
+  -> the source event retains the transport failure
+
+test_transport_exception_explicit_cause_survives_quiescence_failure
+  -> the raised object is the exact transport exception
+  -> its preexisting __cause__ is unchanged
+  -> the quiescence exception is retained as __context__
+```
+
+Also assert recorder failure remains primary and prevents quiescence, so these cases cannot accidentally supersede the qualified V5 recorder-precedence contract.
+
 - [ ] **Step 3: Run the adapter RED suite**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger'
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
-& $python -m pytest integrations/prime/rook-full/tests/test_rook_full.py -q
+$previousPythonPath = $env:PYTHONPATH
+try {
+  $env:PYTHONPATH = @(
+    "$rook/integrations/prime/rook-full/src",
+    "$rook/mcp_server/src",
+    "$prime/prime-agent-runtime/src"
+  ) -join [IO.Path]::PathSeparator
+  & $python -c "from pathlib import Path; import rlm.mcp_base as m; actual=Path(m.__file__).resolve(); expected=Path(r'$prime/prime-agent-runtime/src').resolve(); assert actual.is_relative_to(expected), (actual, expected)"
+  if ($LASTEXITCODE -ne 0) { throw "Adapter test runtime import custody failed" }
+  & $python -m pytest "$rook/integrations/prime/rook-full/tests/test_rook_full.py" -q
+  if ($LASTEXITCODE -eq 0) { throw "Adapter RED suite unexpectedly passed" }
+} finally {
+  if ($null -eq $previousPythonPath) {
+    Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+  } else {
+    $env:PYTHONPATH = $previousPythonPath
+  }
+}
 ```
 
 Expected: FAIL because the durable adapter source does not exist.
@@ -950,9 +1176,29 @@ For `call`, derive transport target `rook_tools_call` and transport arguments `{
 - [ ] **Step 7: Run adapter, acceptance-helper, and compilation tests**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger'
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
-& $python -m pytest integrations/prime/rook-full/tests/test_rook_full.py mcp_server/tests/test_gh_behavioral_acceptance.py -q
-& $python -m py_compile integrations/prime/rook-full/src/rook_full/__init__.py integrations/prime/rook-full/tests/test_rook_full.py
+$previousPythonPath = $env:PYTHONPATH
+try {
+  $env:PYTHONPATH = @(
+    "$rook/integrations/prime/rook-full/src",
+    "$rook/mcp_server/src",
+    "$prime/prime-agent-runtime/src"
+  ) -join [IO.Path]::PathSeparator
+  & $python -c "from pathlib import Path; import rlm.mcp_base as m; actual=Path(m.__file__).resolve(); expected=Path(r'$prime/prime-agent-runtime/src').resolve(); assert actual.is_relative_to(expected), (actual, expected)"
+  if ($LASTEXITCODE -ne 0) { throw "Adapter test runtime import custody failed" }
+  & $python -m pytest "$rook/integrations/prime/rook-full/tests/test_rook_full.py" "$rook/mcp_server/tests/test_gh_behavioral_acceptance.py" -q
+  if ($LASTEXITCODE -ne 0) { throw "Adapter tests failed" }
+  & $python -m py_compile "$rook/integrations/prime/rook-full/src/rook_full/__init__.py" "$rook/integrations/prime/rook-full/tests/test_rook_full.py"
+  if ($LASTEXITCODE -ne 0) { throw "Adapter compilation failed" }
+} finally {
+  if ($null -eq $previousPythonPath) {
+    Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+  } else {
+    $env:PYTHONPATH = $previousPythonPath
+  }
+}
 ```
 
 Expected: all tests pass with zero transport retries and no source schema changes.
@@ -971,8 +1217,8 @@ git commit -m "feat: add prime-gated rook adapter"
 ### Task 6: Cross-Owner Offline Vertical And Crash Matrix
 
 **Files:**
-- Modify: `D:/prime-agent/packages/coding-agent/test/kernel-goal-dispatch-skill.test.ts`
-- Modify: `D:/prime-agent/packages/coding-agent/test/goal-execution.test.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/test/kernel-goal-dispatch-skill.test.ts`
+- Modify: `D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate/packages/coding-agent/test/goal-execution.test.ts`
 - Modify: `integrations/prime/rook-full/tests/test_rook_full.py`
 - Modify: both `rook-goal-dispatch-wire-v1.json` fixture copies only if the reviewed protocol itself requires correction; any fixture change requires renewed cross-owner review before tests continue.
 
@@ -983,7 +1229,8 @@ git commit -m "feat: add prime-gated rook adapter"
 - [ ] **Step 1: Compare the wire fixture bytes before running integration tests**
 
 ```powershell
-$primeFixture = 'D:/prime-agent/packages/coding-agent/test/fixtures/rook-goal-dispatch-wire-v1.json'
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+$primeFixture = "$prime/packages/coding-agent/test/fixtures/rook-goal-dispatch-wire-v1.json"
 $rookFixture = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger/integrations/prime/rook-full/tests/fixtures/rook-goal-dispatch-wire-v1.json'
 $primeHash = (Get-FileHash $primeFixture -Algorithm SHA256).Hash
 $rookHash = (Get-FileHash $rookFixture -Algorithm SHA256).Hash
@@ -1029,26 +1276,46 @@ after goal_terminalized before host response
 
 For each prefix, restart from the session file and assert the recovery table from the specification. No case may automatically replay transport, source append, quiescence, observation, or completion.
 
-- [ ] **Step 4: Mutation-test the two reviewer-required causal invariants**
+- [ ] **Step 4: Mutation-test the reviewer-required causal invariants**
 
 Temporarily make each mutation separately and prove focused tests fail, then restore production bytes:
 
 1. Permit `getBranch()` membership without requiring `quiescedEntryId` before the tool-result entry. The sibling/reverse-order tests must fail.
 2. Observe every quiesced lease when one matching lease remains open. The mixed multi-lease test must fail.
+3. Mark a host request active whenever any execution exists, without comparing the comm parent ID. The old-detached-task-during-new-cell test must fail.
+4. Replace the persisted goal-entry ID comparison with a numeric counter or current in-memory goal check. The stale-epoch completion and legacy-byte tests must fail.
 
 Record the exact failing test counts; verify `git diff` shows no remaining mutation.
 
 - [ ] **Step 5: Run both focused seams and builds**
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test -- test/goal-execution.test.ts test/kernel-host-request-context.test.ts test/kernel-goal-dispatch-skill.test.ts test/kernel-goal-skill.test.ts test/agent-session-recursion.test.ts test/suite/agent-session-goal.test.ts
 npm run build
 
 cd C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger
+$rook = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
-& $python -m pytest integrations/prime/rook-full/tests/test_rook_full.py mcp_server/tests/test_gh_behavioral_acceptance.py -q
-& $python -m py_compile integrations/prime/rook-full/src/rook_full/__init__.py integrations/prime/rook-full/tests/test_rook_full.py
+$previousPythonPath = $env:PYTHONPATH
+try {
+  $env:PYTHONPATH = @(
+    "$rook/integrations/prime/rook-full/src",
+    "$rook/mcp_server/src",
+    "$prime/prime-agent-runtime/src"
+  ) -join [IO.Path]::PathSeparator
+  & $python -m pytest integrations/prime/rook-full/tests/test_rook_full.py mcp_server/tests/test_gh_behavioral_acceptance.py -q
+  if ($LASTEXITCODE -ne 0) { throw "Rook focused tests failed" }
+  & $python -m py_compile integrations/prime/rook-full/src/rook_full/__init__.py integrations/prime/rook-full/tests/test_rook_full.py
+  if ($LASTEXITCODE -ne 0) { throw "Rook adapter compilation failed" }
+} finally {
+  if ($null -eq $previousPythonPath) {
+    Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+  } else {
+    $env:PYTHONPATH = $previousPythonPath
+  }
+}
 ```
 
 Expected: both focused seams and both builds/compilations pass without live contact.
@@ -1056,12 +1323,29 @@ Expected: both focused seams and both builds/compilations pass without live cont
 - [ ] **Step 6: Run broader regression suites**
 
 ```powershell
-cd D:/prime-agent/packages/coding-agent
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+Set-Location "$prime/packages/coding-agent"
 npm test
 
 cd C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger
+$rook = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger'
 $python = 'C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe'
-& $python -m pytest mcp_server/tests -m "not requires_rhino" --ignore=mcp_server/tests/test_dspy_integration.py --ignore=mcp_server/tests/test_e2e_agents.py -q
+$previousPythonPath = $env:PYTHONPATH
+try {
+  $env:PYTHONPATH = @(
+    "$rook/integrations/prime/rook-full/src",
+    "$rook/mcp_server/src",
+    "$prime/prime-agent-runtime/src"
+  ) -join [IO.Path]::PathSeparator
+  & $python -m pytest mcp_server/tests -m "not requires_rhino" --ignore=mcp_server/tests/test_dspy_integration.py --ignore=mcp_server/tests/test_e2e_agents.py -q
+  if ($LASTEXITCODE -ne 0) { throw "Rook broad offline suite failed" }
+} finally {
+  if ($null -eq $previousPythonPath) {
+    Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+  } else {
+    $env:PYTHONPATH = $previousPythonPath
+  }
+}
 ```
 
 The two ignored modules explicitly perform provider or live Rhino contact and are outside this offline slice. Record exact pass/fail/skip/warning counts. Any failure not already present at the two baselines must be resolved or independently proven unrelated before proceeding.
@@ -1071,8 +1355,9 @@ The two ignored modules explicitly perform provider or live Rhino contact and ar
 If Task 6 required test-only additions, commit them in their owning repository without squashing production commits:
 
 ```powershell
-git -C D:/prime-agent add packages/coding-agent/test
-git -C D:/prime-agent commit -m "test: qualify goal dispatch terminalization"
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+git -C $prime add packages/coding-agent/test
+git -C $prime commit -m "test: qualify goal dispatch terminalization"
 
 git -C C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger add integrations/prime/rook-full/tests
 git -C C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger commit -m "test: qualify prime rook dispatch boundary"
@@ -1120,9 +1405,15 @@ The decision may claim only:
 - [ ] **Step 2: Reconcile exact repository scope**
 
 ```powershell
-git -C D:/prime-agent status --short
-git -C D:/prime-agent diff --check
-git -C D:/prime-agent log --oneline c98941a2a5cf40faecf9b4648ac3c304abf48fd3..HEAD
+$primeRoot = 'D:/prime-agent'
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+git -C $prime status --short
+git -C $prime diff --check
+git -C $prime log --oneline c98941a2a5cf40faecf9b4648ac3c304abf48fd3..HEAD
+if ((git -C $primeRoot rev-parse HEAD) -ne 'c98941a2a5cf40faecf9b4648ac3c304abf48fd3') {
+  throw "Prime primary checkout moved"
+}
+if ((git -C $primeRoot status --short)) { throw "Prime primary checkout changed" }
 
 git status --short
 git diff --check
@@ -1134,9 +1425,10 @@ Confirm Prime changes only the mapped Prime owners/tests and Rook changes only t
 - [ ] **Step 3: Run final prohibited-surface scans**
 
 ```powershell
-git -C D:/prime-agent diff --name-only c98941a2a5cf40faecf9b4648ac3c304abf48fd3..HEAD
+$prime = 'D:/prime-agent/.worktrees/prime-goal-terminalization-dispatch-gate'
+git -C $prime diff --name-only c98941a2a5cf40faecf9b4648ac3c304abf48fd3..HEAD
 git diff --name-only 8435758116adbfd0672ef5d5fc91a49b84002445..HEAD
-rg -n "fsync|Rhino|Grasshopper|goal\.dispatch" D:/prime-agent/packages/coding-agent/src/core/goal-execution.ts D:/prime-agent/packages/coding-agent/src/core/agent-session.ts
+rg -n "fsync|Rhino|Grasshopper|goal\.dispatch" "$prime/packages/coding-agent/src/core/goal-execution.ts" "$prime/packages/coding-agent/src/core/agent-session.ts"
 rg -n "goalGeneration|terminalRecord|completion_authorized" integrations/prime/rook-full/src/rook_full/__init__.py
 ```
 
@@ -1167,10 +1459,14 @@ Do not push, open a PR, merge, package, deploy, start Rhino, start MCP, or run a
 
 - [ ] Every requirement in the approved design maps to a task and causal test.
 - [ ] Prime and Rook ownership is singular at every handoff.
+- [ ] Every safety-relevant identity is captured at origin, persisted by one owner, and carried explicitly; no generalized custody framework was added.
+- [ ] All Prime edits and tests run from the dedicated linked worktree; branch-local Python import and offline JavaScript dependency custody are proven.
+- [ ] An old detached request released during a newer active cell retains the old comm parent and cannot borrow the newer execution.
+- [ ] `GoalUsageEpoch` is the exact latest active-branch `thread_goal_state` entry ID, changes only after successful persistence, and never enters serialized `GoalState` bytes.
 - [ ] `lease_quiesced` must precede the exact tool-result entry on the same branch.
 - [ ] Sibling branches and late second leases are rejected causally.
 - [ ] Configured terminalization uses one persisted terminal record; unconfigured behavior is unchanged.
-- [ ] Recorder and exception precedence matches V5 exactly.
+- [ ] Recorder and exception precedence matches V5 exactly, including transport-success close failure, same-object transport re-raise, `__context__`, and explicit `__cause__` preservation.
 - [ ] One frozen descriptor owns lease, transport, and evidence values.
 - [ ] The two wire fixtures are byte-identical and consumed by real tests on both sides.
 - [ ] No task introduces live contact, deployment, a semantic checkpoint, hostile-Python containment, or stronger durability language.
