@@ -710,5 +710,51 @@ model.
 
 ## Execution Ledger
 
-Not yet executed. Task 3 must append exact frozen hashes and independent review
-evidence here before any authorization request.
+Task 3 completed without provider or live-system contact on 2026-08-17.
+
+```text
+active disposable root:
+  C:/Users/bring/AppData/Local/Temp/rook-acceptance-reviewer-phase-b-v2
+
+repository head:
+  ac2b70bd1cf3009804a863c78712ac83e0198bfa
+
+public source manifest:
+  F4EE0181D9530A7534EE76D817C345F937F014EA99BB2FD6F324F44C282CD51F
+  entries: 22/22
+
+private source manifest:
+  F5AD166F628E567959EF18AF2A046F3E8DEB1F0C60289964B0A016C841AB5DE1
+  entries: 6/6
+
+pre-contact review:
+  3025A73CFA8C6D9B415182EDE02B4C9CF23FAD61B38E5AA81041517295EAA120
+
+model identity:
+  E8DBDCCB1FB67D0844BF7B062734A9A4D82F7DB590C7E1EAC9C4E51B18346E16
+
+model tag manifest:
+  22130167C4C20E20C7B71454612966CA8E8171E9B3CC8AB6CE8AA6CBFEC79643
+
+category review:
+  C8981D417297A5D56A06CA746AC563625CDA8987F4782417F389B41E2942C88E
+
+structural diff:
+  E71BE655C631CCDE496496164FB3C9E1A0109F6D124532252D44220A7E680C6E
+
+preserved rejected V1 public manifest:
+  07C210B0A1588BDC3F5E3AF2EF98E8A3D913163F01049775D7B69E98ED74D657
+
+inert verification:
+  public tests: 31/31
+  private tests: 11/11
+  Python compilation: passed
+  public manifest mismatches: 0
+  private manifest mismatches: 0
+  evidence directory: absent
+  provider calls during independent review: 0
+```
+
+Authorization target: the exact public and private manifest hashes above for
+exactly six ordered Reviewer calls. No provider call is authorized by this
+ledger entry.
