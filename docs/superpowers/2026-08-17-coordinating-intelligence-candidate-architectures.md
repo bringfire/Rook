@@ -1,6 +1,7 @@
 # Coordinating Intelligence Candidate Architectures
 
-**Status:** Architecture comparison; working baseline recommendation only
+**Status:** Architecture comparison; Candidate A continuity-corrected working
+baseline recommendation only
 
 **Comparison date:** 2026-08-17
 
@@ -9,6 +10,7 @@
 - evidence ledger at commit `855f98d5`;
 - claims and responsibility map at commit `13ade0fc`;
 - mechanism dispositions at commit `bc2d36f0`.
+- Prime continuity inspection at working checkout `c98941a2`.
 
 ## 1. Purpose
 
@@ -20,8 +22,8 @@ evidence that makes that responsibility necessary.
 
 The candidates are:
 
-1. **Minimal Empirical Actor Loop**: one grounded Actor reasons and iterates
-   inside a small deterministic shell.
+1. **Prime-Native Empirical Actor Loop**: one grounded Actor reasons and
+   iterates inside the evidenced Prime/Rook runtime lineage.
 2. **Adaptive Independent Review Loop**: the same Actor loop, with a fresh
    read-only Reviewer invoked only when policy or observed uncertainty warrants
    its cost.
@@ -54,6 +56,38 @@ All three candidates inherit these facts from the evidence:
 These constraints form the common substrate. The candidates differ in how they
 construct and judge meaning above it.
 
+### 2.1 Continuity rule
+
+Architecture comparison starts from the real integrated system that produced
+the evidence. A later design may narrow, repair, or replace a mechanism, but it
+may not silently convert a concrete owner into an interchangeable box.
+
+For every retained mechanism, a candidate must state:
+
+1. its current owner and implementation;
+2. the evidence established through that implementation;
+3. whether the candidate uses, repairs, narrows, or supersedes it;
+4. the exact handoff when the mechanism is conditional; and
+5. any unqualified behavior that remains an adoption gap.
+
+`Optional` means that an explicit route decides whether to use a preserved
+mechanism. It does not mean that prior work disappears. `Equivalent` is not an
+acceptable substitute for an evidenced runtime unless equivalence is itself
+qualified.
+
+Operational model evidence belongs to the full observed configuration:
+
+```text
+model and reasoning settings
++ Prime version and session behavior
++ skill and adapter bytes
++ admitted Rook profile
++ Rook runtime and target
++ evidence and closure rules
+```
+
+No single element receives sole credit for a result produced by that system.
+
 ## 3. Comparison Criteria
 
 | Criterion | Question |
@@ -69,275 +103,456 @@ construct and judge meaning above it.
 | Current evidence maturity | Which parts have actually run successfully under comparable conditions? |
 | Product complexity | How many durable owners, schemas, transitions, and policies are required? |
 
-## 4. Candidate A: Minimal Empirical Actor Loop
+## 4. Candidate A: Prime-Native Empirical Actor Loop
 
-### 4.1 Objective
+### 4.1 Objective and continuity position
 
-Make one capable local Actor responsible for interpreting, building,
-investigating, correcting, and explaining the result. Keep deterministic code
-focused on truthful interaction with the world rather than pre-encoding the
-meaning of every possible request.
+Use the actual Prime/Rook stack that produced the strongest local-model results
+as the baseline for ordinary interactive Grasshopper work. Repair its known
+adoption gaps without inventing a second agent loop, a second goal manager, or a
+parallel source of runtime truth.
 
-This is the closest candidate to the simple loop:
+The semantic strategy remains empirical: Qwen interprets open intent, acts in
+the live world, observes consequences, and revises its hypothesis. The runtime
+strategy is concrete rather than generic:
 
-**Disposition basis:** `MD-01` through `MD-05`, narrowed mechanisms `MD-06`
-through `MD-09`, adoption-blocked Prime `MD-10`, and experimental Actor/adapter
-mechanisms `MD-11` and `MD-12`. Interpretive basis: `CI-02`, `CI-04` through
-`CI-11`, and `CI-16` through `CI-18`.
+```text
+user intent
+-> Prime goal and persistent Actor session
+-> Qwen reasoning and persistent IPython investigation
+-> versioned Rook skill and contained rook_full adapter
+-> canonical Rook gateway
+-> live discovery, mutation, receipts, and fenced evidence
+-> evidence returns to the same Prime goal/session
+-> Qwen investigates, repairs, or escalates
+-> outer mechanical closure admits or refuses completion
+```
+
+**Disposition basis:** established `MD-01` through `MD-05`; narrowed but
+preserved `MD-06` through `MD-09`; repair-before-adoption Prime `MD-10`;
+experimental Qwen and adapter mechanisms `MD-11` and `MD-12`; and the
+interruption evidence motivating `MD-17`. Interpretive basis: `CI-01` through
+`CI-11` and `CI-15` through `CI-18`.
+
+Candidate A is not a proposal to start over around Qwen. It is a proposal to
+finish integrating the system already exercised across the Prime/Rook rows.
 
 ```mermaid
 flowchart TD
-    U["User intent"] --> A["Qwen Actor interprets and forms a working brief"]
-    A --> D["Discover components and inspect metadata"]
-    D --> H["Form implementation hypothesis"]
-    H --> M["Mutate through canonical Rook routes"]
-    M --> R["Wait on receipt and obtain fenced observations"]
-    R --> J["Actor compares evidence with working brief"]
-    J -->|"satisfied"| C["Evidence-backed completion account"]
-    J -->|"needs evidence"| I["Run bounded investigation"]
-    I --> J
-    J -->|"repairable"| H
-    J -->|"ambiguous or blocked"| U
+    U["User intent and revisions"] --> G["Prime goal and persistent session"]
+    G --> Q["Qwen Actor in persistent IPython"]
+    Q --> S["Versioned Rook skill and contained rook_full profile"]
+    S --> D["Rook discovery and authoritative metadata"]
+    S --> M["Rook mutation routes"]
+    M --> F["Receipt, readiness, and fenced observation"]
+    D --> Q
+    F --> Q
+    Q -->|"bounded leaf"| W["Existing Worker contract and optional PlanGraph"]
+    W --> M
+    Q -->|"needs evidence"| I["Prime/IPython investigation over retained evidence"]
+    I --> Q
+    Q -->|"material ambiguity"| U
+    Q -->|"claims complete"| C["Outer mechanical closure"]
+    C -->|"fresh and closed"| E["Evidence-backed completion account"]
+    C -->|"incomplete custody"| Q
 ```
 
-### 4.2 Participants and mechanisms
+### 4.2 Proven runtime lineage and treatment
 
-| Participant or mechanism | Responsibility | Why included |
+| Existing mechanism | Current owner and evidence | Candidate A treatment |
 |---|---|---|
-| User | Supply intent and decide genuine preferences or consequential ambiguity | The system cannot infer normative choices reliably. |
-| Qwen3.8 Actor | Interpret, discover, plan, mutate, inspect, investigate, repair, and make attributed semantic judgments | Open-grid and helix evidence demonstrates bounded capability across these functions. |
-| Prime or equivalent Actor host | Preserve reasoning state, IPython work, and canonical tool access | Prime enabled sustained empirical loops and same-session correction, subject to its adoption prerequisites. |
-| Rook gateway | Enforce exact capability calls and retain structured results/failures | Prevents malformed arguments, hidden bypass, and protocol ambiguity. |
-| Native discovery and metadata | Expose installed components, duplicate identities, ports, and provenance | Prevents guessing and knowledge-store identity errors. |
-| Mutation receipts and fenced snapshots | Establish that observed outputs follow the relevant mutation and solve | Prevents reasoning from stale computation. |
-| Working intent brief | Maintain an open-text list of interpreted obligations, assumptions, and unresolved questions | Gives the Actor something stable to revisit without requiring a fixed semantic ontology. |
-| Bounded Worker, optional | Handle a clearly scoped code or transformation leaf | Reuses the mature Worker boundary without forcing all work through it. |
-| Ephemeral investigation, optional | Execute model-authored, read-only analysis over retained evidence | Lets intelligence formulate a new test without adding a permanent product predicate. |
-| Minimal supervisor | Enforce lifecycle, latest-receipt freshness, budgets, progress, and truthful closure | Bounds wandering and prevents self-report from overriding missing custody. |
-| Advisory knowledge, optional | Supply provenance-bearing priors when requested | May reduce rediscovery but remains outside runtime authority. |
+| Goal persistence and continuation | Current Prime `/goal` retains the objective across turns, accounts for usage, issues continuation context, and asks for a requirement audit before `goal.complete()`; the retained Grasshopper rows did not qualify this complete goal-owned loop | Use directly and qualify in integration. Do not create a parallel goal or continuation engine. |
+| Actor conversation and tool loop | Prime agent loop processes model responses, tool calls, steering, follow-ups, continuations, and terminal events | Use directly, with bounded stop hooks and outer lifecycle verification. |
+| Persistent investigation | Prime IPython preserves variables, imports, and loaded data across calls and supports best-effort restoration | Use as the Actor's working laboratory. Do not mislabel it ephemeral or inherently read-only. |
+| Model-facing instructions | Frozen skills materially affected successful Prime/Qwen behavior | Make the exact skill identity part of the effective runtime profile. |
+| Model-facing capability projection | `rook_full.search/read/call` contained catalog access; payload-first V5 removed envelope confusion while retaining protocol evidence | Promote the reviewed payload-first contract to a durable owner before production adoption. |
+| Structured failures | Reviewed Prime structured-error behavior plus Rook trace handling preserved authentic failure evidence and later receipts | Preserve the exact cross-repository contract and exception behavior. |
+| Gateway and admission | Rook canonical gateway, strict argument admission, and script-authoring routing are merged and tested | Required for every model-facing host call. |
+| Discovery and identity | Native ranking, ambiguity preservation, direct GUID metadata, and provenance passed live qualification | Required whenever component identity or ports matter. Knowledge cannot replace it. |
+| Mutation and solve truth | Rook receipts, readiness registry, source trace, and fenced reads passed model-free and model-involved tests | Rook remains the sole owner of mutation and solve truth. |
+| Behavioral acceptance core | Rook's current common evaluator caught false completion and enabled bounded repair within its admitted vocabulary | Preserve as an available assurance mechanism. Do not claim it covers arbitrary intent or require a bespoke contract for every task. |
+| Bounded Worker | Existing Worker contracts repeatedly accepted or declined bounded evidence-conditioned work | Preserve as a real delegation route with its existing contract, not as a generic model call. |
+| PlanGraph and compositional lowering | Existing modules and live slices represented exact execution dependencies and one Worker/deterministic composition | Preserve for admitted exact regions. Do not require it to represent all semantic intent. |
+| Advisory knowledge | Existing system is present but has no measured positive effect on the later Prime/Qwen rows | Keep outside authority; invoke only through an explicit, measurable advisory route. |
+| Empirical qualification | Frozen configurations, evidence manifests, and independent observations exposed model and infrastructure failures | Continue for configuration changes and architecture claims; do not turn it into exhaustive prompt enumeration. |
 
-### 4.3 Full loop
+### 4.3 Ownership boundaries
 
-#### Stage A0: Admit the session
+#### Prime owns
 
-The supervisor retains:
+- the persistent Actor session;
+- the active user-provided goal and its revisions;
+- the ordinary model/tool/continuation loop;
+- the persistent IPython working environment;
+- the model's reasoning and same-session correction history;
+- native session evidence; and
+- a model-authored completion request through `goal.complete()`.
 
-- exact user intent and revisions;
-- target document identity;
-- effective model/runtime identity;
-- allowed Rook profile;
-- mutation, call, elapsed-time, and context budgets; and
-- interruption ownership.
+Prime does not own Rhino or Grasshopper truth, mutation success, component
+identity, final receipt selection, or semantic infallibility.
 
-It verifies canonical runtime custody before mutation. This stage exists because
-stale deployment, wrong import paths, and target mismatch have invalidated past
-experiments.
+#### Rook owns
 
-#### Stage A1: Build a working intent brief
+- the admitted capability surface and strict arguments;
+- target and document identity at host contact;
+- component discovery, identity, metadata, and ambiguity;
+- mutation execution and partial-commit truth;
+- solve receipts, epochs, readiness, and fenced reads;
+- structural, diagnostic, point, and currently supported behavioral evidence;
+- script-authoring capability routing; and
+- exact protocol results and failures at the MCP boundary.
 
-The Actor restates the request as open-text obligations, assumptions, and
-questions. For example:
+Rook does not own open-ended intent interpretation or a universal vocabulary of
+design meaning.
 
-```text
-obligation: provide independently adjustable start, spacing, and count
-obligation: produce points along the X axis
-obligation: keep Y and Z fixed at zero
-assumption: default values may be selected unless the user supplied them
-```
+#### The Rook skill and `rook_full` adapter own
 
-The shell validates only custody and shape, not semantic meaning. The brief is
-not a Phase A contract and contains no closed predicate catalog. If the Actor
-detects a material ambiguity, it asks the user before mutation.
+- the small model-facing interface presented inside Prime;
+- payload-first Python ergonomics without losing the authentic MCP envelope;
+- source-event retention for success, refusal, partial commit, and failure;
+- exclusion of raw Prime MCP dynamic methods from the model-facing adapter
+  object; and
+- guidance about schema reading and canonical capability use.
 
-Brief revisions are append-only. The Actor may add or refine an obligation, but
-deletion or material reinterpretation retains the earlier text and a reason.
-The original user intent remains visible throughout.
+They do not own copied schemas, hidden retries, result reinterpretation,
+runtime truth, or containment of arbitrary network/process activity initiated
+through the broader IPython environment.
 
-This stage challenges the bare loop slightly: without a retained interpretation,
-the Actor can silently substitute `EndX` for `Step` and later forget the original
-relationship.
+#### The thin integration owner owns
+
+- starting the exact Prime goal/session from the product entry point;
+- effective model, reasoning, Prime, skill, adapter, Rook, and target custody;
+- the admitted Rook profile;
+- call, mutation, elapsed-time, and no-progress policy;
+- final lifecycle, source-trace, and latest-receipt closure; and
+- interruption disposition across the Prime/Rook boundary.
+
+This is an integration responsibility, not authorization for a second planner,
+another conversational state machine, or a duplicate workflow router. Its
+production location remains an explicit design decision.
+
+#### Qwen owns attributed judgment
+
+Qwen interprets intent, chooses topology, selects investigations, evaluates
+evidence, decides repairs, and explains unresolved claims. Its conclusions
+remain attributed and fallible. The user owns normative preferences and
+consequential ambiguity.
+
+### 4.4 Full Prime-native loop
+
+#### Stage A0: Admit the effective runtime
+
+The integration owner verifies the complete operational configuration:
+
+- Prime commit and effective provider/model configuration;
+- exact model manifest and reasoning setting;
+- exact skill and adapter bytes;
+- admitted Rook profile;
+- deployed Rook runtime identity;
+- Rhino process, port, and document identity; and
+- session budgets and interruption ownership.
+
+This is not experiment-only ceremony. Stale Python, stale managed binaries,
+wrong target identity, adapter drift, and model-setting changes all altered or
+invalidated prior results. Product checks may be automated and quieter, but the
+ownership does not disappear.
+
+#### Stage A1: Start or update the Prime goal
+
+The exact user request is retained as source evidence and becomes the Prime goal
+objective when it fits Prime's existing objective limit. User revisions use the
+goal's existing update path and remain visible in session history. Candidate A
+does not silently truncate or summarize an oversized request: admission must
+either obtain a bounded user-approved objective or add a separately reviewed
+exact-reference mechanism. It does not create a competing objective database
+before Prime receives the task.
+
+Within the session, Qwen maintains an open-text obligation account containing:
+
+- interpreted requirements;
+- assumptions;
+- unresolved questions;
+- evidence still needed; and
+- material changes in interpretation.
+
+This account augments the Prime goal; it does not supersede it. The original
+objective remains the source Qwen must reread before completion. The account is
+not a Phase A contract, acceptance JSON, or closed predicate language.
 
 #### Stage A2: Orient to the live document
 
-The Actor obtains current document status and a snapshot appropriate to the
-task. It determines whether it is creating, extending, or repairing. It may
-inspect viewport evidence when available and useful.
+Through the contained Rook profile, Qwen establishes document status and the
+current Grasshopper state. It determines whether it is creating, extending, or
+repairing. It does not assume an empty or unchanged canvas.
 
-No mutation occurs from an assumed empty or assumed current canvas.
+Structural snapshots and supported point evidence are current capabilities.
+Viewport capture may be used when actually available. Broader fenced geometry
+projection remains an open capability and is not assumed by this candidate.
 
-#### Stage A3: Discover capabilities
+#### Stage A3: Discover capabilities and schemas
 
-The Actor searches the live component catalog and reads authoritative metadata
-before relying on ambiguous names or unknown ports. It may consult advisory
-knowledge, but live metadata wins every conflict.
+Qwen uses `rook_full.search`, `rook_full.read`, and `rook_full.call`. It searches
+the live component catalog and obtains authoritative metadata before wiring
+unknown components or resolving ambiguous names. The full MCP or component
+catalog is not exposed by default.
 
-Discovery is demand-driven. The Actor does not receive the full tool or
-component catalog by default.
+The payload-first adapter returns capability data to Python while retaining the
+original structured envelope in evidence. Authentic failures remain failures;
+partial commits and zero-dispatch refusals remain distinguishable.
+
+Prime currently opens a fresh MCP session for each capability call. Candidate A
+accepts that behavior for correctness and accounts for its latency until a
+separate measured optimization proves another lifecycle safe.
 
 #### Stage A4: Form an implementation hypothesis
 
-The Actor chooses topology, components, values, and an execution sequence. The
-hypothesis may remain in its reasoning/session trace rather than requiring a
-universal semantic graph.
+Qwen chooses topology, components, values, and an action sequence in its Prime
+session. The hypothesis may remain in reasoning and IPython state. Candidate A
+does not require a universal semantic graph merely to permit action.
 
-If a leaf is sufficiently bounded, the Actor may delegate it to the Worker with
-an exact contract. Otherwise the Actor remains responsible for the topology.
+When Qwen can express an exact execution region or bounded leaf contract, it
+may route that region through the existing PlanGraph or Worker mechanisms.
+Otherwise it retains whole-definition responsibility.
 
-#### Stage A5: Mutate through canonical routes
+#### Stage A5: Delegate a bounded leaf when justified
 
-The Actor calls admitted mutation capabilities. Rook validates arguments,
-identities, route policy, temporary IDs, and partial/complete outcomes. Every
-covered terminal mutation produces an authentic receipt.
+Worker delegation is eligible only when the leaf has:
 
-A partially committed result remains visible. The Actor cannot treat an
-exception as proof that nothing changed.
+- an exact bounded objective;
+- admitted inputs and expected output/interface;
+- retained evidence and allowed actions;
+- deterministic disposition rules; and
+- an explicit return path into the parent Prime session.
 
-#### Stage A6: Wait and observe
+The existing Worker may produce the requested bounded action or decline. Its
+result returns to Qwen and Rook; it does not become an independent planner or
+acceptance authority. If these conditions are absent, Qwen does not delegate.
 
-The loop waits on the latest eligible receipt and obtains a fenced snapshot.
-The Actor inspects:
+#### Stage A6: Mutate through canonical Rook routes
 
-- components and wiring;
-- diagnostics;
-- output counts and data previews;
-- relevant point or geometry evidence;
-- status and errors; and
-- viewport evidence when it can answer a question not available structurally.
+Qwen mutates only the Rhino/Grasshopper target through the admitted Rook
+profile. Rook validates arguments, identities, route policy, temporary IDs,
+and partial/complete outcomes. Every covered terminal mutation produces an
+authentic receipt.
 
-Observation is selective. Repeated snapshots without a changed hypothesis or
-new evidence request count against progress.
+A raised exception does not imply that nothing changed. Structured failure
+evidence and any committed receipt remain visible to Prime and the closure
+owner.
 
-#### Stage A7: Compare evidence with the working brief
+Prime IPython itself is a broad local Python and `%%bash` environment. Candidate
+A therefore distinguishes **target mutation containment**, which Rook can
+enforce, from **process and filesystem containment**, which remains a Prime
+product-adoption decision. It does not claim that current IPython is read-only.
 
-Before evaluating the brief, the Actor rereads the exact original request and
-performs an explicit coverage check for requirements omitted or materially
-changed in its own interpretation. The original request, initial brief, and
-revised brief are all visible. This remains self-audit; the shell can prove the
-texts were presented but cannot prove that the Actor noticed every omission.
+#### Stage A7: Wait and observe current computation
 
-The Actor accounts for each obligation as:
+After a covered mutation, the latest eligible terminal receipt is waited through
+Rook's readiness owner. Qwen then obtains a receipt-fenced snapshot or another
+receipt-fenced supported observation. A genuinely read-only task may use an
+ordinary document-identified observation only when the admitted source trace
+contains no target mutation. It may inspect:
+
+- components, parameters, wiring, and groups;
+- errors and warnings;
+- output counts and bounded previews;
+- supported point evidence;
+- status and error surfaces; and
+- available viewport evidence.
+
+No older receipt is silently reused after a later evidence-invalidating
+mutation. A decorative route that does not require a solve must be classified
+truthfully rather than invalidating or blessing computation by accident.
+
+#### Stage A8: Compare evidence with the Prime goal
+
+Qwen rereads the exact active goal and its obligation account. For each material
+requirement it records one of:
 
 ```text
-satisfied with cited evidence
-contradicted by cited evidence
-still unresolved and why
-requires user judgment and why
+satisfied with cited host evidence
+contradicted with cited host evidence
+unresolved and requiring another investigation
+blocked by unavailable evidence or capability
+requires user judgment
 ```
 
-This is intelligent judgment. The shell verifies that cited artifacts and
-component/output identities exist, but it does not pretend to understand every
-claim.
+This is a model-authored evidence account, not automatic semantic truth. The
+integration owner can validate cited artifact identity and freshness but cannot
+prove arbitrary design meaning from the prose alone.
 
-#### Stage A8: Investigate an unresolved claim
+Where the existing behavioral evaluator has an admitted expression or probe,
+Candidate A may use it as stronger evidence. The evaluator does not receive
+credit for unsupported semantics, and its absence does not force creation of a
+new task-specific acceptance artifact.
 
-When existing observations are insufficient, the Actor chooses among:
+#### Stage A9: Investigate in the same Prime session
 
-- another read-only Rook query;
-- a temporary value perturbation followed by receipt-fenced observation and
-  exact restoration;
-- a bounded read-only analysis over retained JSON evidence;
-- a viewport capture;
-- authoritative component metadata; or
+If a claim remains unresolved, Qwen uses its persistent IPython workspace to
+formulate and run a new empirical test. Available actions include:
+
+- another Rook query or authoritative metadata read;
+- a temporary control perturbation, receipt wait, observation, and exact
+  restoration;
+- analysis of retained JSON evidence in Python;
+- a supported viewport capture;
+- an existing deterministic evaluator operation; or
 - a user clarification.
 
-A model-authored analysis is retained with its code, inputs, output, and errors.
-It does not become a permanent Rook predicate merely because it was useful once.
-It may not mutate the host except through admitted Rook routes.
+The code, inputs, outputs, and errors remain in the Prime session evidence.
+Executing an analysis deterministically proves that the code ran over those
+inputs. Relevance, formula choice, and interpretation remain Qwen's attributed
+judgment.
 
-Deterministic execution proves that the retained analysis ran over the retained
-inputs. It does not prove that the Actor chose a relevant formula or interpreted
-the output correctly. Those remain attributed judgment and may trigger review
-or user escalation.
+An investigation is not promoted into a permanent Rook predicate merely
+because it helped once. Repeated cross-task pressure may justify a separately
+reviewed generic evidence operation.
 
-#### Stage A9: Repair
+#### Stage A10: Repair through Prime continuation
 
-If evidence contradicts the brief and the failure is repairable, the Actor
-updates its hypothesis and mutates again. Every correction creates new receipt
-and evidence custody.
+When evidence contradicts the hypothesis and progress remains plausible, Qwen
+repairs in the same Prime goal/session. Prime's existing tool loop and goal
+continuation carry the work; Candidate A does not insert a second outer model
+conversation for ordinary repair.
 
-The supervisor stops or escalates on:
+Every target correction creates new Rook custody. The integration owner stops
+or escalates on:
 
-- elapsed or call budget;
-- repeated identical failure;
-- no new evidence or hypothesis across a bounded number of cycles;
+- elapsed, call, context, or mutation budget;
+- repeated equivalent failure;
+- no new evidence or changed hypothesis across bounded cycles;
 - restoration failure;
-- lifecycle loss;
-- target/runtime drift; or
-- a mutation whose state cannot be established safely.
+- target or runtime drift;
+- lifecycle loss; or
+- a mutation whose resulting state cannot be established safely.
 
-The correction count is policy, not a semantic truth. It should be informed by
-observed progress and cost rather than frozen universally at one or three.
+Correction count is operational policy informed by progress and cost, not a
+universal semantic constant.
 
-#### Stage A10: Close truthfully
+#### Stage A11: Request and admit completion
 
-Completion requires two distinct closures.
+Qwen may call Prime `goal.complete()` only after auditing the current state
+against the active objective. That call records Qwen's completion judgment and
+usage; it is not final authority by itself.
 
-**Mechanical closure:**
+The integration owner admits completion only when mechanical closure holds:
 
-- the latest terminal mutation has a ready receipt;
-- the final observation is fenced to that receipt;
+- Prime produced the required terminal lifecycle;
+- the source trace is authentic and closed;
+- if target mutation occurred, the latest relevant terminal mutation has an
+  eligible ready receipt and the final observation is fenced to it;
+- if no target mutation occurred, the trace establishes that read-only path and
+  the final observation retains current document identity;
 - no later evidence-invalidating mutation exists;
-- lifecycle and source trace close;
-- retained diagnostics are disclosed; and
-- budgets and process state are recorded.
+- partial commits and retained diagnostics are disclosed;
+- process and budget state are recorded; and
+- the model-authored evidence account addresses every retained obligation.
 
-**Semantic closure:**
+Semantic closure remains explicitly attributed:
 
-- every working obligation is accounted for;
-- evidence citations are retained;
-- judgments are labeled as judgments;
-- unresolved material claims are disclosed; and
-- the Actor states why it considers the result adequate.
+- deterministic facts are reported as facts only within their admitted scope;
+- Qwen judgments are labeled as judgments;
+- unresolved material claims are not converted into success; and
+- genuine preference or consequential ambiguity returns to the user.
 
-The supervisor can verify the mechanical closure and completeness of the
-account. It cannot mechanically certify the truth of arbitrary open-text
-semantic judgments.
+### 4.5 Recovery without a parallel orchestrator
 
-### 4.4 Recovery
+Recovery begins with existing owners:
 
-Candidate A needs a minimal durable record, not necessarily the full workflow
-router:
+1. Prime retains the goal, conversation, native session, and best-effort
+   IPython snapshot.
+2. Rook retains host state and receipt truth for its bounded lifetime.
+3. The thin integration record correlates the two systems across interruption.
+
+The cross-boundary record contains only what neither system can establish alone:
 
 ```text
-exact intent and working brief
-target and runtime identity
-last completed stage
-last terminal mutation and receipt
-last fenced evidence set
-source/session trace references
-whether mutation replay is forbidden
+Prime session and active-goal identity
+effective model, skill, adapter, and Rook profile identity
+target document identity
+last known terminal mutation and receipt
+last admitted fenced evidence
+source-trace and lifecycle closure state
+whether a possibly committed mutation forbids automatic replay
 ```
 
-After interruption, read-only orientation may be repeated. An ambiguous
-mutation is never replayed automatically. The Actor either resumes from proven
-state or asks for escalation.
+After interruption, Qwen may repeat read-only orientation. Best-effort IPython
+restoration is not treated as proof that all Python objects or external handles
+survived. An ambiguous mutation is never replayed automatically. Recovery
+resumes from current host evidence or escalates.
 
-### 4.5 What Candidate A deliberately excludes
+### 4.6 Adoption repairs and unresolved integration decisions
 
+Candidate A depends on closing these real gaps rather than creating substitute
+mechanisms:
+
+1. **Prime lineage:** choose and maintain the reviewed structured-error behavior
+   against an identified Prime base or upstream equivalent.
+2. **Payload-first adapter:** assign the V5 contract a durable product owner and
+   test it against success, structured failure, malformed envelopes, and mutable
+   payloads.
+3. **Tool containment:** mechanically expose only the admitted `rook_full`
+   profile from Prime's MCP integration despite its dynamic escape surfaces,
+   and separately decide how unrestricted IPython network/process access is
+   governed.
+4. **Lifecycle:** define the required relationship among `goal.complete()`,
+   `agent_end`, native session closure, interruption, and outer admission.
+5. **Product entry:** decide whether the current managed Rook Chat starts and
+   presents the Prime goal/session or Prime remains a separately surfaced
+   runtime. Current Chat, public MCP, and internal-agent bridge paths are not
+   assumed equivalent, and Prime continues through the canonical MCP gateway.
+6. **Cross-boundary state:** place the thin integration record without
+   duplicating Prime conversation or Rook runtime state.
+7. **IPython authority:** explicitly accept or constrain filesystem, process,
+   and shell access; do not confuse Rook target containment with OS sandboxing.
+8. **Performance:** measure the fresh-MCP-session-per-call cost and the context
+   growth of long Prime sessions before optimizing either.
+9. **Worker/PlanGraph handoff:** connect the existing bounded route to Prime in a
+   product-visible way before claiming end-user integration.
+10. **Knowledge:** measure one targeted advisory intervention before assigning
+    it runtime value.
+
+### 4.7 What Candidate A deliberately excludes
+
+- replacement of Prime with an unspecified equivalent host;
+- a second planner or continuation loop around Prime;
+- a parallel objective store that competes with Prime `/goal`;
 - mandatory Constructor Agent;
-- Phase A semantic compiler;
-- prepackaged acceptance JSON per task;
+- mandatory Phase A semantic compiler;
+- prepackaged acceptance JSON for every task;
 - permanent independent Reviewer;
 - closed Reviewer defect taxonomy;
 - universal semantic graph;
-- knowledge in the authoritative path; and
-- a seven-stage workflow router.
+- knowledge in the authoritative host path; and
+- automatic replay of ambiguous mutations.
 
-### 4.6 Direct challenge to Candidate A
+It does not exclude the existing Worker, PlanGraph, common evaluator, or
+advisory knowledge system. It preserves them behind explicit, evidence-bounded
+routes.
 
-Candidate A accepts that an intelligent Actor may occasionally judge a
-semantically wrong result adequate. Receipts and clean diagnostics cannot
-prevent that. The working brief can reduce forgotten requirements but is itself
-model-authored. A model can construct a plausible explanation around its own
-mistake.
+### 4.8 Direct challenge to Candidate A
 
-Choosing Candidate A therefore means accepting attributed, fallible semantic
-judgment as a normal product property. The compensation is empirical freedom,
-lower latency, and no requirement to pre-encode the domain of design meaning.
+Candidate A still permits Qwen to judge a semantically wrong result adequate.
+Receipts, clean diagnostics, Prime goal persistence, and an evidence account do
+not make the Actor infallible. The Qwen3.6 Range/EndX and hard-coded-point runs
+demonstrate this failure mode.
 
-The strongest missing evidence is whether Qwen3.8 can catch a plausible
-semantic substitution through its own final review when no deterministic
-acceptance artifact tells it what failed.
+The strongest Qwen3.8 successes were produced by the Prime/Rook stack but were
+ultimately scored by externally designed behavioral probes. They establish
+grounded Actor capability and the usefulness of the runtime substrate. They do
+not establish that Prime `/goal`, Qwen self-audit, and the thin closure owner
+already form a qualified production acceptance boundary.
+
+Choosing Candidate A therefore means testing a specific integration hypothesis:
+
+> Can the existing Prime-native Actor loop, given exact goal persistence,
+> authoritative Rook evidence, and freedom to author new runtime
+> investigations, catch or honestly disclose a plausible semantic substitution
+> without receiving a prewritten task answer?
+
+That hypothesis should be qualified without removing the Worker, evaluator, or
+other proven mechanisms from the product architecture. Candidate A is the
+smallest continuity-preserving baseline, not a declaration that the rest of the
+work was unnecessary.
 
 ## 5. Candidate B: Adaptive Independent Review Loop
 
@@ -376,13 +591,13 @@ flowchart TD
 
 ### 5.3 Full loop
 
-#### Stage B0-B10: Execute Candidate A
+#### Stage B0-B11: Execute Candidate A
 
 The Actor completes every Candidate A stage through mechanical and semantic
 closure. Candidate B does not replace grounded iteration with a plan/review
 ceremony before work begins.
 
-#### Stage B11: Evaluate the assurance trigger
+#### Stage B12: Evaluate the assurance trigger
 
 Review may be required by explicit product policy or observed run state. Useful
 triggers include:
@@ -399,7 +614,7 @@ triggers include:
 The trigger vocabulary describes workflow risk, not every domain defect. It
 must not become a catalog of possible design mistakes.
 
-#### Stage B12: Build the review packet
+#### Stage B13: Build the review packet
 
 The deterministic shell assembles:
 
@@ -414,7 +629,7 @@ The deterministic shell assembles:
 
 The Actor does not rewrite this packet for the Reviewer.
 
-#### Stage B13: Run a fresh read-only Reviewer
+#### Stage B14: Run a fresh read-only Reviewer
 
 The Reviewer receives no mutation profile. It may reason, inspect retained
 evidence, request an admitted read-only investigation, or state that it cannot
@@ -433,7 +648,7 @@ residual risk
 The categories are deliberately small. Findings are not forced into an
 exhaustive semantic taxonomy.
 
-#### Stage B14: Admit and route the review
+#### Stage B15: Admit and route the review
 
 The shell verifies response structure, citation existence, and lifecycle. It
 does not mechanically endorse the finding's semantic truth.
@@ -445,7 +660,7 @@ does not mechanically endorse the finding's semantic truth.
 - Actor/Reviewer disagreement is preserved rather than silently resolved by
   role priority.
 
-#### Stage B15: Correct or escalate
+#### Stage B16: Correct or escalate
 
 The Actor may perform a bounded evidence-driven correction using the same
 receipt and observation loop. A materially changed result may receive one fresh
@@ -698,21 +913,23 @@ cover open-ended design.
 |---|---|---|---|
 | Exact intent custody | Required | Required | Required |
 | Qwen3.8 Actor | Required | Required | Required or replaceable by qualified Actor |
-| Prime/equivalent persistent host | Conditional on adoption repair | Conditional on adoption repair | Conditional per model role |
+| Prime goal and persistent session | Required after named adoption repairs | Same as A | Prime role sessions conditional on separate qualification |
+| Versioned Rook skill and contained `rook_full` adapter | Required | Required | Required for every Prime role allowed to contact Rook |
 | Canonical gateway and strict admission | Required | Required | Required |
 | Native discovery and metadata | Required when Grasshopper components are involved | Same as A | Same as A |
 | Mutation receipts and fenced observation | Required | Required | Required |
-| Open-text working intent brief | Required | Required | Replaced by typed contract plus residuals |
-| Bounded Worker | Optional leaf | Optional leaf | Optional leaf |
-| PlanGraph execution representation | Optional | Optional | Expected when deterministic lowering adds value |
-| Ephemeral model-authored investigation | Optional and important | Optional and important | Supplemental, non-authoritative to compiler vocabulary |
-| Common deterministic evaluator | Optional generic checks | Optional generic checks | Required for compiled claims |
-| Same-session repair | Bounded | Bounded | Bounded under Policy Gate |
+| Prime-goal-anchored obligation account | Required | Required | Typed contract plus residuals supplements the role goal |
+| Bounded Worker | Preserved conditional leaf route | Same as A | Conditional leaf route |
+| PlanGraph execution representation | Preserved for admitted exact regions | Same as A | Expected when deterministic lowering adds value |
+| Persistent Prime/IPython investigation | Required capability, used as needed | Same as A | Supplemental and non-authoritative to compiler vocabulary |
+| Common deterministic evaluator | Conditional on admitted evidence and operations | Same as A | Required for compiled claims |
+| Same-session repair | Prime-native and bounded | Prime-native and bounded | Bounded under Policy Gate |
 | Fresh independent Reviewer | Excluded by default | Conditional | Required by assurance policy |
 | Phase A compiler | Excluded | Excluded | Required |
 | Acceptance Constructor | Excluded | Excluded | Required |
 | Knowledge retrieval | Optional advisory | Optional advisory | Optional advisory during construction/review |
-| Durable workflow state | Minimal recovery record | Minimal plus review state | Full append-only phase ownership |
+| Durable state | Prime session plus thin cross-boundary custody | Same plus review packet state | Full append-only phase ownership |
+| Product entry and lifecycle integration | Required unresolved integration decision | Same as A | Required for every role transition |
 | User escalation | Ambiguity/consequence | Ambiguity, disagreement, consequence | Contract decisions, residuals, consequence |
 
 ## 8. Comparative Evaluation
@@ -724,10 +941,10 @@ cover open-ended design.
 | Independent semantic challenge | None by default | Conditional fresh Reviewer | Required Reviewer plus Policy Gate |
 | Mechanical semantic repeatability | Only supported generic checks or generated witnesses | Same as A | Highest within admitted expression language |
 | Typical latency | Lowest | Medium and trigger-dependent | Highest |
-| Product complexity | Lowest | Medium | Highest |
+| Product complexity | Lowest new complexity, but requires Prime product integration | Medium | Highest |
 | Object-catalog expansion risk | Low | Low to medium | High |
 | Recovery complexity | Low to medium | Medium | High |
-| Current integrated evidence | Strongest: grid and helix approximate this loop | Partial: Reviewer value mixed | Weakest: handoffs not integrated or qualified |
+| Current integrated evidence | Strong Prime/Rook substrate evidence; exact goal/self-audit/closure integration unqualified | Partial: Reviewer value mixed | Weakest: handoffs not integrated or qualified |
 | Principal failure risk | Actor misses its own semantic error | Reviewer misses or invents concerns while adding cost | Coherent contract incompletely represents intent |
 | Best fit | Ordinary interactive design and empirical exploration | Higher-risk or visibly uncertain ordinary work | Prequalified, auditable, consequential workflows |
 
@@ -755,20 +972,24 @@ Therefore the honest Candidate A baseline is not:
 Qwen says done -> done
 ```
 
-It is:
+It is the existing Prime-native loop with explicit ownership:
 
 ```text
-Qwen maintains explicit interpreted obligations
--> acts against authoritative runtime state
--> cites fresh evidence for every obligation
--> formulates new investigations when needed
--> discloses unresolved meaning
--> deterministic shell verifies custody and bounded progress
+Prime retains the exact goal and continuation
+-> Qwen maintains interpreted obligations in the same session
+-> versioned skill and adapter constrain model-facing Rook access
+-> Qwen acts against authoritative Rook runtime state
+-> receipts and fenced observations return into Prime
+-> Qwen cites evidence and formulates investigations in persistent IPython
+-> existing Worker, PlanGraph, and evaluator routes remain available by policy
+-> Qwen discloses unresolved meaning
+-> thin integration owner verifies lifecycle, custody, and bounded progress
 ```
 
-If we remove the working brief, evidence account, freshness shell, and budgets,
-we are not simplifying the architecture. We are discarding lessons established
-by repeated failures.
+If we replace Prime's goal/session with a new working-brief engine, omit the
+skill or adapter, or remove the Worker, evaluator, freshness boundary, and
+budgets, we are not simplifying the architecture. We are discarding mechanisms
+that materially shaped the observed results.
 
 Conversely, no evidence currently requires a mandatory Constructor, compiled
 semantic contract, or Reviewer for every ordinary request.
@@ -777,19 +998,24 @@ semantic contract, or Reviewer for every ordinary request.
 
 ### 10.1 Default
 
-Adopt **Candidate A, the Minimal Empirical Actor Loop**, as the new architecture
-baseline for ordinary interactive Grasshopper work.
+Adopt **Candidate A, the Prime-Native Empirical Actor Loop**, as the working
+architecture baseline for ordinary interactive Grasshopper work.
 
 `Baseline` here means the smallest reference hypothesis against which additional
-mechanisms must demonstrate value. It does not mean production-ready. The exact
-working-brief, self-audit, ephemeral-investigation, progress, and recovery loop
-has not yet been qualified as one integrated system.
+mechanisms must demonstrate value. It does not mean production-ready. The
+underlying Prime/Rook interaction is real and repeatedly exercised. The exact
+product entry, Prime-goal-anchored obligation account, self-audit, thin closure,
+and recovery integration have not yet been qualified as one system.
 
 This recommendation is based on:
 
-- the successful Qwen3.8 open-grid and helix behavior;
+- Prime's demonstrated persistent reasoning, IPython, gateway use, and
+  same-session correction;
+- the successful Qwen3.8 open-grid and helix behavior within that Prime/Rook
+  configuration, while retaining the role of external behavioral probes;
 - the maturity of Rook discovery, admission, receipts, and fenced observation;
-- the bounded Worker option for narrow leaves;
+- the separately established bounded Worker and compositional mechanisms;
+- the material effect of exact skills, adapters, and error projection;
 - the ability of an intelligent Actor to formulate runtime investigations; and
 - the absence of evidence that a universal acceptance language or mandatory
   Reviewer is required for ordinary work.
@@ -813,14 +1039,17 @@ high-assurance need.
 A later qualification of Candidate A should test the architecture question, not
 model trivia:
 
-> Can a grounded Qwen3.8 Actor use its own working brief, fresh runtime evidence,
-> and self-authored investigations to detect and correct a plausible semantic
-> mistake without a prewritten acceptance contract?
+> Can Qwen3.8, running in the repaired Prime-native goal/session with the exact
+> Rook skill and adapter, use fresh Rook evidence and self-authored IPython
+> investigations to detect and correct a plausible semantic mistake without a
+> prewritten acceptance contract?
 
 One structurally novel task with a deliberately observable opportunity for
 self-correction is more informative than many paraphrases of point rows or
-grids. The independent operator may inspect the final state afterward to score
-the experiment, but must not feed a hidden acceptance answer into the Actor.
+grids. The qualification must use the concrete Prime/Rook lineage rather than a
+new surrogate harness. The independent operator may inspect the final state
+afterward to score the experiment, but must not feed a hidden acceptance answer
+into the Actor.
 
 Candidate B earns promotion only if its conditional Reviewer catches a material
 miss from Candidate A without unacceptable false concerns or latency. Candidate
