@@ -515,36 +515,58 @@ Prime's existing continuation path. The same goal remains active for
 investigation, repair, or escalation. Candidate B inserts any conditional
 Reviewer before this checkpoint grants completion authorization.
 
-Authorization is host-owned state, not a bearer token exposed to the model. It
-is one-use and bound to the active `goalId`, supersession chain, target document,
-source-trace epoch and prefix, latest receipt, cited evidence hashes, and
-cumulative task-budget state.
+After the integration-owned checkpoint succeeds, Prime installs the result as
+host-owned authorization state, not as a bearer token exposed to the model. The
+cross-boundary integration record may mirror its identity and hash for audit,
+but it has no completion-transition authority. The authorization is one-use and
+bound to the active `goalId`, supersession chain, target document, source-trace
+epoch and prefix, latest receipt, cited evidence hashes, budget policy identity
+and version, fixed budget limits, a monotonically increasing discrete usage
+epoch, and an explicit completion deadline. Continuously derived elapsed
+wall-clock values are not
+hash-bound authorization inputs. The usage epoch changes only when Prime
+persists a token, continuation, or other discrete accounting update; reading
+the current wall clock does not change it.
 
-Granting authorization moves the integration record into
-`completion_pending`, while the Prime goal itself remains active. Across the
-admitted Prime-host and Rook capability surface, the only model-controlled
-operation permitted from that state is `goal.complete()`. Any intervening
-mutation, tool or host action, goal supersession, steering event, relevant
-evidence change, or cumulative-budget change invalidates authorization before
-dispatch and returns the record to active work. A new checkpoint is then
-required.
+Prime durably records this authorization as `completion_pending`, while the
+goal itself remains active. Across the admitted Prime-host and Rook capability
+surface, the only model-controlled operation permitted from that state is
+`goal.complete()`. Any intervening mutation, tool or host action, goal
+supersession, steering event, relevant
+evidence change, or discrete usage-epoch change invalidates authorization before
+dispatch and returns the record to active work. Passage of time alone does not
+invalidate authorization before its deadline. Completion recomputes current
+accounting and applies the bound policy's completion-time admissibility
+predicate. A missed deadline or failed predicate refuses completion and requires
+a new checkpoint.
 
 #### Stage A12: Complete the Prime goal terminally
 
 After pre-completion authorization, Qwen calls Prime `goal.complete()`. The
-production integration must implement one host-owned terminalization
-transaction before `_completeGoalFromHost()` changes goal state. Current Prime
-does not implement this transaction.
+Prime process is the sole terminalization owner. The production contained
+adapter must route every admitted Prime-host and Rook call through a
+Prime-local, goal-scoped dispatch gate. Current Prime and the qualification
+adapter do not implement this gate.
 
-The transaction must atomically:
+The explicit linearization point is one Prime-owned durable append-and-flush
+that records, in a single terminalization record:
 
-1. verify the one-use authorization and all bound identities and epochs;
-2. consume the authorization in a replay-proof transition;
-3. close the admitted model-controlled Prime-host operation surface for that
-   goal;
-4. revoke or close the goal-scoped Rook capability before another target call
-   can dispatch; and
-5. set the Prime goal inactive and terminal.
+1. the verified authorization identity and its replay-proof consumption;
+2. the final goal state as inactive and complete; and
+3. the goal-scoped dispatch gate as closed.
+
+Immediately before that append, Prime verifies all bound identities and
+discrete epochs, the explicit deadline, and the completion-time budget
+predicate. Before the durable record exists, the goal remains active and no
+terminal outcome is claimed. Once the record is flushed, both completion and
+dispatch closure are durable truth; in-memory state is reconstructed from that
+record after a crash.
+
+This protocol does not perform remote Rook revocation. Rook remains the owner of
+target and receipt truth, while Prime's local gate prevents the admitted
+adapter from dispatching another Rook call for the completed goal. A direct
+network path that bypasses the contained adapter remains part of the separate
+IPython/process/network containment problem.
 
 An unauthorized or stale call refuses before state transition and leaves the
 goal active. A duplicate completion refuses. Once completion succeeds, a later
@@ -569,12 +591,14 @@ route concerns back into the completed goal.
 Terminalization recovery is phase-specific:
 
 - before authorization, the goal remains active and no completion state exists;
-- after authorization but before completion, recovery invalidates the pending
-  authorization and leaves the goal active for a fresh checkpoint;
-- after terminal state but before `agent_end`, the goal remains complete, its
-  Rook capability remains revoked, and the product outcome is `incomplete`
-  until current state is oriented through an explicitly linked superseding
-  goal; and
+- after authorization but before the linearization record is flushed, recovery
+  invalidates the pending authorization and leaves the goal active; target
+  capability is reissued only after current-state orientation and a fresh
+  checkpoint;
+- after the linearization record is flushed but before the host response or
+  `agent_end`, rehydration keeps the goal complete and the local dispatch gate
+  closed, while the product outcome remains `incomplete` until current state is
+  oriented through an explicitly linked superseding goal; and
 - no crash case automatically replays completion or a possibly committed
   mutation.
 
@@ -621,15 +645,20 @@ mechanisms:
    governed.
 4. **Terminalization protocol:** implement and qualify the integration-owned
    pre-completion operation, host-owned `completion_pending` state, one-use
-   authorization, Prime host-operation fence, and goal-scoped Rook capability
-   revocation before `_completeGoalFromHost()` changes state. Causal tests must
-   cover wrong goal, document, trace epoch, receipt, evidence, and budget;
+   authorization, Prime-local goal-scoped dispatch gate, and single durable
+   terminalization record as the linearization point before
+   `_completeGoalFromHost()` changes state. Causal tests must cover wrong goal,
+   document, trace epoch, receipt, evidence, budget policy, and usage epoch;
    intervening mutation, tool action, steering, supersession, and evidence
    change; unauthorized, stale, and duplicate completion; same-cell mutation
-   after completion; and crashes before authorization, between authorization
-   and completion, and after terminal state but before `agent_end`. Qualify the
-   authorized terminal action, native-session closure, and incomplete
-   post-terminal recovery behavior without claiming broader IPython sandboxing.
+   after completion; delayed completion while wall-clock accounting advances;
+   fault injection before and after the durable linearization point; crashes
+   before authorization, with authorization pending, and after terminal state
+   but before the host response or `agent_end`; and capability reissuance after
+   aborted terminalization only following fresh orientation and checkpointing.
+   Qualify the authorized terminal action, native-session closure, and
+   incomplete post-terminal recovery behavior without claiming remote Rook
+   revocation or broader IPython sandboxing.
 5. **Product entry:** decide whether the current managed Rook Chat starts and
    presents the Prime goal/session or Prime remains a separately surfaced
    runtime. Current Chat, public MCP, and internal-agent bridge paths are not
