@@ -797,7 +797,7 @@ def _run_prime_row(
         protocol, task=task, row_root=row_root, target=target
     )
     operator = row_root / "operator"
-    operator.mkdir()
+    operator.mkdir(exist_ok=True)
     source = operator / "source.jsonl"
     source.write_bytes(
         b'{"row_emitter":"prime_rook_adapter","schema":"rook.gh_authoring_source_log:v1"}\n'
