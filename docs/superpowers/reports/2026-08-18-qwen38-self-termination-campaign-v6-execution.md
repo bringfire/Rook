@@ -242,8 +242,9 @@ V6 supports these bounded conclusions:
    evidence-custody gate.
 3. No later gateway call followed the qualified snapshot, and the V5
    compensating status turn did not recur.
-4. The semantic result remains shadow evidence because the separate evaluator
-   refused the earlier unknown trace event.
+4. The semantic result remains shadow evidence because independent judgment is
+   required. The campaign-time trace refusal was an additional historical
+   limitation.
 5. Efficiency remains unresolved: V6 was slower, used more gateway calls, and
    consumed more provider context than V5 despite cleaner final custody.
 
