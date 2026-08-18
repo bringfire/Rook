@@ -1,6 +1,12 @@
 # Prime Goal Terminalization And Rook Dispatch Gate
 
-**Status:** Design ready for independent review
+**Status:** SUSPENDED, UNIMPLEMENTED, AND UNQUALIFIED
+
+> This specification is preserved as architecture evidence only. It was
+> suspended by
+> `docs/superpowers/2026-08-17-coordinating-intelligence-architectural-reset.md`
+> before implementation began. Do not use it as current implementation
+> guidance or resume it without a new architecture decision.
 
 **Date:** 2026-08-17
 

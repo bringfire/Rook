@@ -1,7 +1,12 @@
 # Coordinating Intelligence Mechanism Dispositions
 
-**Status:** Interpretive disposition pass; no target architecture or
-implementation authorization
+**Status:** Historical disposition pass; narrowed by the architectural reset
+
+> These dispositions remain evidence about individual mechanisms. Current
+> runtime authority and the next experiment are governed by
+> `docs/superpowers/2026-08-17-coordinating-intelligence-architectural-reset.md`.
+> Where this document implies deterministic semantic acceptance in the ordinary
+> runtime, the reset's closed-semantics boundary controls.
 
 **Disposition date:** 2026-08-17
 

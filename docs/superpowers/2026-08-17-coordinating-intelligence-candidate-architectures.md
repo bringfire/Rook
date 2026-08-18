@@ -1,7 +1,13 @@
 # Coordinating Intelligence Candidate Architectures
 
-**Status:** Architecture comparison; Candidate A continuity-corrected working
-baseline recommendation only
+**Status:** Historical architecture comparison; working direction superseded by
+the architectural reset
+
+> The evidence and alternatives in this document remain preserved. The current
+> baseline, ownership model, and experiment sequence are defined by
+> `docs/superpowers/2026-08-17-coordinating-intelligence-architectural-reset.md`.
+> In particular, Candidate A's terminalization mechanism is suspended rather
+> than an adoption prerequisite.
 
 **Comparison date:** 2026-08-17
 

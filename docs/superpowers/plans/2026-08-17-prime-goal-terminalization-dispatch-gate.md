@@ -1,5 +1,13 @@
 # Prime Goal Terminalization And Rook Dispatch Gate Implementation Plan
 
+**Status:** SUSPENDED, UNIMPLEMENTED, AND UNQUALIFIED
+
+> This plan was suspended by
+> `docs/superpowers/2026-08-17-coordinating-intelligence-architectural-reset.md`
+> before Task 0 or creation of the Prime implementation worktree. Preserve it
+> as evidence. Do not execute any task without a new architecture decision and
+> a newly reviewed plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Qualify an opt-in Prime goal terminalization path that admits every promoted `rook_full` call through persisted goal-scoped leases, observes results through persisted IPython ancestry, and permanently closes the admitted Rook path when an authorized goal completes.
