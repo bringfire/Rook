@@ -91,9 +91,11 @@ class CampaignLimits:
 
 
 def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
-    if type(protocol) is not dict or protocol.get("schema") != (
-        "rook.experiment.qwen38_self_termination_campaign:v3"
-    ):
+    schema = protocol.get("schema") if type(protocol) is dict else None
+    if schema not in {
+        "rook.experiment.qwen38_self_termination_campaign:v3",
+        "rook.experiment.qwen38_self_termination_campaign:v4",
+    }:
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
     prime = protocol.get("prime")
@@ -105,10 +107,32 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("builtin_skills_not_enabled")
     tasks = protocol.get("tasks")
     order = protocol.get("executionOrder")
-    if type(tasks) is not dict or order != ["T3", "T1", "T2", "T4"]:
+    expected_order = (
+        ["T3", "T2", "T4"]
+        if schema == "rook.experiment.qwen38_self_termination_campaign:v4"
+        else ["T3", "T1", "T2", "T4"]
+    )
+    if type(tasks) is not dict or order != expected_order:
         raise ValueError("task_order_invalid")
     if protocol.get("smokeTask") != "T3" or set(tasks) != set(order):
         raise ValueError("smoke_task_invalid")
+    if schema == "rook.experiment.qwen38_self_termination_campaign:v4":
+        if prime.get("thinkingLevel") != "low":
+            raise ValueError("thinking_level_invalid")
+        verification = protocol.get("precontactVerification")
+        if (
+            type(verification) is not dict
+            or set(verification) != {"pythonPath", "arguments"}
+            or type(verification.get("pythonPath")) is not str
+            or not Path(verification["pythonPath"]).is_absolute()
+            or type(verification.get("arguments")) is not list
+            or not verification["arguments"]
+            or any(
+                type(argument) is not str or not argument
+                for argument in verification["arguments"]
+            )
+        ):
+            raise ValueError("precontact_verification_invalid")
     versioned = protocol.get("versionedInputs")
     if type(versioned) is not dict:
         raise ValueError("versioned_inputs_invalid")
@@ -197,6 +221,40 @@ def validate_evidence_root(path: Path) -> Path:
     if not lowered.startswith("c:/udev/rookevidence/"):
         raise ValueError("durable_evidence_root_required")
     return resolved
+
+
+def run_precontact_verification(
+    protocol: dict[str, Any], evidence_root: Path
+) -> dict[str, Any] | None:
+    configured = protocol.get("precontactVerification")
+    if configured is None:
+        return None
+    command = [configured["pythonPath"], *configured["arguments"]]
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=False,
+    )
+    stdout_path = Path(evidence_root) / "precontact-tests.stdout.txt"
+    stderr_path = Path(evidence_root) / "precontact-tests.stderr.txt"
+    stdout_path.write_bytes(completed.stdout)
+    stderr_path.write_bytes(completed.stderr)
+    record = {
+        "schema": "rook.experiment.precontact_verification:v1",
+        "command": command,
+        "cwd": ROOT.as_posix(),
+        "exitCode": completed.returncode,
+        "stdoutBytes": len(completed.stdout),
+        "stdoutSha256": _sha(stdout_path),
+        "stderrBytes": len(completed.stderr),
+        "stderrSha256": _sha(stderr_path),
+    }
+    _write_json(Path(evidence_root) / "precontact-verification.json", record)
+    if completed.returncode != 0:
+        raise RuntimeError(f"precontact_verification_failed:{completed.returncode}")
+    return record
 
 
 def build_prime_launch(
@@ -1116,6 +1174,9 @@ def _run_prime_row(
         "providerReportedTokens": monitor.provider_tokens,
         "gatewayEvents": _source_event_count(source),
         "goalContextVerified": goal_context_verified,
+        "thinkingLevelVerified": prime_session_proves_thinking_level(
+            row_root, protocol["prime"]["thinkingLevel"]
+        ),
         "limitBreach": breach,
         "stdoutEof": stdout_eof,
         "trackedProcessIdentities": {
@@ -1146,6 +1207,26 @@ def _goal_status(row_root: Path) -> str:
                 if type(goal) is dict and type(goal.get("status")) is str:
                     status = goal["status"]
     return status
+
+
+def prime_session_proves_thinking_level(row_root: Path, expected: str) -> bool:
+    sessions = sorted((Path(row_root) / "agent" / "sessions").glob("*.jsonl"))
+    if len(sessions) != 1:
+        return False
+    observed: list[str] = []
+    with sessions[0].open("r", encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                value = json.loads(line)
+            except ValueError:
+                continue
+            if (
+                type(value) is dict
+                and value.get("type") == "thinking_level_change"
+                and type(value.get("thinkingLevel")) is str
+            ):
+                observed.append(value["thinkingLevel"])
+    return bool(observed) and all(level == expected for level in observed)
 
 
 def _operator_command(
@@ -1266,6 +1347,11 @@ def _row_outcome(
         process_result["stdoutEof"] is True
         and process_result["ownedChildPids"] == []
         and process_result["exitCode"] == 0
+        and (
+            protocol["schema"]
+            != "rook.experiment.qwen38_self_termination_campaign:v4"
+            or process_result.get("thinkingLevelVerified") is True
+        )
     )
     return {
         "semanticStatus": semantic,
@@ -1273,6 +1359,16 @@ def _row_outcome(
         "budgetStatus": "pass" if budget_pass else "fail",
         "custodyStatus": "pass" if custody_pass else "fail",
     }
+
+
+def campaign_completion_status(
+    protocol: dict[str, Any], outcomes: dict[str, Any]
+) -> str:
+    return (
+        "complete"
+        if len(outcomes) == len(protocol["executionOrder"])
+        else "stopped_at_smoke_gate"
+    )
 
 
 def _finalize_campaign(evidence_root: Path, summary: dict[str, Any]) -> dict[str, Any]:
@@ -1391,6 +1487,7 @@ def run_campaign(
     shutil.copy2(protocol_path, evidence_root / "protocol.json")
     outcomes: dict[str, Any] = {}
     try:
+        run_precontact_verification(protocol, evidence_root)
         _write_json(evidence_root / "runtime-custody.json", _runtime_custody(protocol))
         _collect_tool_surface(protocol, evidence_root)
         _run_preflight(protocol, evidence_root)
@@ -1467,7 +1564,7 @@ def run_campaign(
         evidence_root,
         {
             "schema": "rook.experiment.qwen38_self_termination_campaign_result:v2",
-            "status": "complete" if len(outcomes) == 4 else "stopped_at_smoke_gate",
+            "status": campaign_completion_status(protocol, outcomes),
             "outcomes": outcomes,
         },
     )

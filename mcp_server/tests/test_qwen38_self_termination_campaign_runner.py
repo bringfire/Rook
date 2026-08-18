@@ -21,6 +21,13 @@ PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-18-qwen38-self-termination-campaign-v3.json"
 )
+V4_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-18-qwen38-self-termination-campaign-v4.json"
+)
 ADAPTER_PATH = (
     ROOT
     / "integrations"
@@ -59,6 +66,189 @@ def _runner():
 
 def _protocol() -> dict:
     return json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
+def _v4_protocol() -> dict:
+    protocol = _protocol()
+    protocol["schema"] = "rook.experiment.qwen38_self_termination_campaign:v4"
+    protocol["executionOrder"] = ["T3", "T2", "T4"]
+    protocol["tasks"] = {
+        task_id: protocol["tasks"][task_id] for task_id in protocol["executionOrder"]
+    }
+    protocol["prime"]["thinkingLevel"] = "low"
+    protocol["precontactVerification"] = {
+        "pythonPath": "C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe",
+        "arguments": [
+            "-m",
+            "pytest",
+            "mcp_server/tests/test_qwen38_self_termination_campaign_runner.py",
+            "mcp_server/tests/test_gh_behavioral_acceptance.py",
+            "-q",
+        ],
+    }
+    return protocol
+
+
+def test_v4_protocol_freezes_low_thinking_and_three_row_screening_order(tmp_path: Path):
+    runner = _runner()
+    protocol = _v4_protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+    command, _ = runner.build_prime_launch(
+        protocol,
+        task=protocol["tasks"]["T3"],
+        row_root=tmp_path,
+        target={"processId": 123, "documentSerialNumber": 456},
+    )
+    assert command[command.index("--thinking") + 1] == "low"
+    assert protocol["executionOrder"] == ["T3", "T2", "T4"]
+
+    missing = json.loads(json.dumps(protocol))
+    del missing["precontactVerification"]
+    with pytest.raises(ValueError, match="precontact_verification_invalid"):
+        runner.validate_protocol(missing)
+
+    wrong_level = json.loads(json.dumps(protocol))
+    wrong_level["prime"]["thinkingLevel"] = "medium"
+    with pytest.raises(ValueError, match="thinking_level_invalid"):
+        runner.validate_protocol(wrong_level)
+
+
+def test_frozen_v4_protocol_changes_only_screening_order_thinking_and_test_custody():
+    runner = _runner()
+    v3 = _protocol()
+    v4 = json.loads(V4_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+    assert runner.validate_protocol(v4) is v4
+    assert v4["prime"]["thinkingLevel"] == "low"
+    assert v4["executionOrder"] == ["T3", "T2", "T4"]
+    assert {
+        task_id: v4["tasks"][task_id]["prompt"] for task_id in v4["executionOrder"]
+    } == {
+        task_id: v3["tasks"][task_id]["prompt"] for task_id in v4["executionOrder"]
+    }
+
+    normalized = json.loads(json.dumps(v4))
+    normalized["schema"] = v3["schema"]
+    normalized["purpose"] = v3["purpose"]
+    normalized["executionOrder"] = v3["executionOrder"]
+    normalized["prime"]["thinkingLevel"] = v3["prime"]["thinkingLevel"]
+    normalized["tasks"]["T1"] = v3["tasks"]["T1"]
+    del normalized["precontactVerification"]
+    assert normalized == v3
+
+
+def test_precontact_verification_retains_complete_command_and_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _v4_protocol()
+    observed: dict = {}
+
+    def completed(command, **kwargs):
+        observed["command"] = command
+        observed["kwargs"] = kwargs
+        return types.SimpleNamespace(
+            returncode=0,
+            stdout=b"141 passed, 11 warnings in 7.00s\r\n",
+            stderr=b"",
+        )
+
+    monkeypatch.setattr(runner.subprocess, "run", completed)
+
+    record = runner.run_precontact_verification(protocol, tmp_path)
+
+    assert observed["command"] == [
+        protocol["precontactVerification"]["pythonPath"],
+        *protocol["precontactVerification"]["arguments"],
+    ]
+    assert observed["kwargs"]["cwd"] == runner.ROOT
+    assert (tmp_path / "precontact-tests.stdout.txt").read_bytes() == (
+        b"141 passed, 11 warnings in 7.00s\r\n"
+    )
+    assert (tmp_path / "precontact-tests.stderr.txt").read_bytes() == b""
+    assert record["exitCode"] == 0
+    assert record["stdoutSha256"] == hashlib.sha256(
+        b"141 passed, 11 warnings in 7.00s\r\n"
+    ).hexdigest().upper()
+
+
+def test_precontact_verification_failure_is_retained_and_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _v4_protocol()
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda *args, **kwargs: types.SimpleNamespace(
+            returncode=1, stdout=b"1 failed\n", stderr=b"failure details\n"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="precontact_verification_failed:1"):
+        runner.run_precontact_verification(protocol, tmp_path)
+
+    assert (tmp_path / "precontact-tests.stdout.txt").read_bytes() == b"1 failed\n"
+    assert json.loads((tmp_path / "precontact-verification.json").read_text())[
+        "exitCode"
+    ] == 1
+
+
+def test_effective_thinking_level_is_read_from_the_retained_prime_session(
+    tmp_path: Path,
+):
+    runner = _runner()
+    sessions = tmp_path / "agent" / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "session.jsonl").write_text(
+        json.dumps({"type": "thinking_level_change", "thinkingLevel": "low"})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert runner.prime_session_proves_thinking_level(tmp_path, "low")
+    assert not runner.prime_session_proves_thinking_level(tmp_path, "medium")
+
+
+def test_v4_row_custody_requires_effective_low_thinking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _v4_protocol()
+    monkeypatch.setattr(runner, "_post_actor_evaluation", lambda *args: "pass")
+    monkeypatch.setattr(runner, "_goal_status", lambda *args: "complete")
+    process = {
+        "limitBreach": None,
+        "goalContextVerified": True,
+        "providerReportedTokens": 100,
+        "gatewayEvents": 1,
+        "elapsedSeconds": 1.0,
+        "stdoutEof": True,
+        "ownedChildPids": [],
+        "exitCode": 0,
+        "thinkingLevelVerified": False,
+    }
+
+    assert runner._row_outcome(
+        protocol, protocol["tasks"]["T3"], tmp_path, process
+    )["custodyStatus"] == "fail"
+    process["thinkingLevelVerified"] = True
+    assert runner._row_outcome(
+        protocol, protocol["tasks"]["T3"], tmp_path, process
+    )["custodyStatus"] == "pass"
+
+
+def test_campaign_completion_uses_the_frozen_row_count():
+    runner = _runner()
+    protocol = _v4_protocol()
+
+    assert runner.campaign_completion_status(
+        protocol, {task_id: {} for task_id in protocol["executionOrder"]}
+    ) == "complete"
+    assert runner.campaign_completion_status(protocol, {"T3": {}}) == (
+        "stopped_at_smoke_gate"
+    )
 
 
 def test_frozen_protocol_owns_exact_limits_and_corrected_skill_bootstrap():

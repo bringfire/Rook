@@ -109,16 +109,30 @@ large continuation reconstructing and checking curve-length behavior with
 SciPy and custom B-spline calculations inside IPython. It made no additional
 Rook mutation during most of that tail.
 
-This is not an infrastructure failure and not proof that Qwen cannot build a
-helix. It is direct evidence of excessive deliberation and weak self-termination
-at the frozen medium thinking level.
+The investigation began from an incorrect analytic comparison. Qwen used:
+
+    turns * sqrt((2 * pi * radius)^2 + height^2) = 65.938
+
+The analytic length for a helix with total turn count is instead:
+
+    sqrt((2 * pi * radius * turns)^2 + height^2) = approximately 63.622
+
+Rook observed `63.62078641963602`, essentially matching the correct result.
+Qwen manufactured the discrepancy through faulty arithmetic and then built
+increasingly elaborate SciPy and hand-coded spline checks around it.
+
+This is not an infrastructure failure, an observation deficiency, or proof
+that Qwen cannot build a helix. It is direct evidence of a judgment and
+stopping failure in this row at the frozen medium thinking level.
 
 ## Resource And Custody Result
 
 The runner mechanically enforced, per row:
 
 - Prime goal token budget: 2,000,000;
-- provider-reported token ceiling: 2,000,000;
+- provider-reported token ceiling: 2,000,000, detected and terminated after
+  the first provider `message_end` reporting cumulative usage above the limit,
+  with a possible one-message overshoot;
 - wall-clock ceiling: 1,800 seconds; and
 - gateway-call ceiling: 150 before transport.
 
@@ -138,7 +152,10 @@ Durable evidence:
     campaign summary SHA-256:
     CE7A052CFF3370AADDC3614F17F01E82A7D1388A02FC59F56824CD40552CE5FF
 
-Pre-contact verification passed 138 tests with 11 existing DSPy warnings.
+Pre-contact verification passed 138 tests with 11 existing DSPy warnings. V3
+did not retain that command transcript inside its evidence archive; the next
+cohort must retain the exact command, stdout, stderr, and exit status before
+model contact.
 
 ## Bounded Conclusion
 
@@ -151,9 +168,11 @@ The primary infrastructure questions are now closed for this cohort:
 - Hard resource limits and durable evidence custody worked.
 
 Qwen3.8 can repair and build the exact point-row task and can complete a useful
-underspecified grid with honest design disclosures. The remaining dominant
-failure is operational: medium thinking can continue far beyond a viable
-solution, particularly on geometry-bearing work.
+underspecified grid with honest design disclosures. The leading hypothesis for
+the remaining operational failure is that medium thinking can continue far
+beyond a viable solution on some geometry-bearing work. One failed row does
+not establish that medium is generally inferior or that low thinking will cure
+the behavior.
 
 The next smallest experiment is a new cohort that changes only Qwen's thinking
 level one notch lower. It should reuse the V3 runner and custody boundary and
