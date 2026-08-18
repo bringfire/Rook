@@ -1,0 +1,125 @@
+{
+  "schema": "rook.experiment.qwen38_self_termination_campaign:v1",
+  "status": "frozen_precontact",
+  "purpose": "Measure Qwen3.8 self-termination in the grounded Prime/Rook loop without runtime evaluator feedback.",
+  "cohort": {
+    "prime": {
+      "commit": "27b5be22cf0e0e81e324a59ebabbb41edfee6ec0",
+      "structuredErrorChange": "30a6621bca698ef14f64e5e45c5b1b6364148789",
+      "sourceRoot": "D:/prime-agent/.worktrees/mcp-error-merged-runtime",
+      "runtimeMcpBaseSha256": "5B36CD6C49A2FD91E98FFE1DBCDF04262FC7450C7D2BB0B76EA83E0783171852",
+      "settingsSha256": "586BD828E51E04753F81B8ACC7F793E38FA9181B316841AB4430B73DBB543400",
+      "modelsSha256": "DAB953980249445214E54005DD3503CB9FA124A1C8B7D513E4A8D7AD00EF98FC",
+      "settingsSourcePath": "C:/Users/bring/AppData/Local/Temp/rook-qwen38-gh-helix-qualification-v2/agent/settings.json",
+      "modelsSourcePath": "C:/Users/bring/AppData/Local/Temp/rook-qwen38-gh-helix-qualification-v2/agent/models.json",
+      "nodeVersion": "v24.11.1",
+      "nodeExeSha256": "F13AC3CA23248DC389507E8FE38C34489AB7EDB3E6D6700EB6DA6A0B7E128EAF",
+      "packageJsonSha256": "F4F71C0D4257C3BEB5AE1830EFA1AEC5F9D80A5A74277B0173B34A780434D6B3",
+      "packageLockSha256": "7E708D473E01FE3F992E8E12E25C4F815282A1763038F1D0F65A8A0F6D7B37E7",
+      "kernelPipFreezeSha256": "A3DD4A3615259A4FCA101CBC47B6029919DF3F0A06C04E35F794FB5F6F55FFDA",
+      "kernelRequirementsSha256": "ECA59771565CD204120936A7110BD62FC11C532D3E5FB7ACD26A70951E7DEF4A",
+      "invocation": {
+        "offline": true,
+        "noExtensions": true,
+        "mode": "json",
+        "thinkingLevel": "medium",
+        "explicitSamplingOverrides": null
+      }
+    },
+    "model": {
+      "provider": "ollama_chat",
+      "id": "qwen3.8:27b",
+      "runtimeVersion": "0.32.14",
+      "runtimeExePath": "C:/Users/bring/AppData/Local/Programs/Ollama/ollama.exe",
+      "runtimeExeSha256": "11D7729CB18BB4876AD91A14FBE9BA3B6985EAABC3475A62D47D874BE24A9B54",
+      "reasoning": true,
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true,
+      "manifestSha256": "22130167C4C20E20C7B71454612966CA8E8171E9B3CC8AB6CE8AA6CBFEC79643",
+      "configDigest": "sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f",
+      "layerDigests": [
+        "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e",
+        "sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d",
+        "sha256:4c6a8e842ef0d8504549facfb03f1273a8d0022991519bc1888522cc1a5517d1",
+        "sha256:906ee87bde6cff7bf3c3b1550f55cbbec261e027187fbb9f511f908ffc418334"
+      ]
+    },
+    "skill": {
+      "repositoryCommit": "1000a339cf93eee5357612939170fee9de66d028",
+      "path": "integrations/prime/skills/prime-execute-grasshopper/SKILL.md",
+      "sha256": "B333B5ECFB725DC96B55D99C48E661A6F5DE704CA3BE2299A1C927EF0693DC53",
+      "checkpointPath": "integrations/prime/skills/prime-execute-grasshopper/references/checkpoint-protocol.md",
+      "checkpointSha256": "2FCF16E0B6C58B1D0390CCF16D28DD62D142AC20CCF9AEC81D3B916BD251CBD8"
+    },
+    "adapter": {
+      "contract": "payload_first_v5",
+      "sourcePath": "C:/Users/bring/AppData/Local/Temp/rook-solve-fenced-repair-loop-v5/agent/skills/rook-full/src/rook_full/__init__.py",
+      "sha256": "9B22757E30986F9FDB2FC3AFA10F95F2C98A4727E551132E58DA74E90235C371"
+    },
+    "rook": {
+      "commit": "4a2adfa39657118924d57468b77ec0aa1c4b8991",
+      "sourceRoot": "C:/UDEV/Rook/.worktrees/gh-edit-admission-authoritative-runtime",
+      "nativePluginSha256": "0CA4DEEC98B98FDDA09AAC2E62FC1DA31107213DFACC09C20A43838B041723A1",
+      "managedNet8PluginSha256": "020EEE4F04B13725AE46BD81EC92F1211375F2BEF5B51159FF5BB26517D64BE4",
+      "pythonServerSha256": "234CF22B847B62F5E11635621622C7B363180154A845F94CE0C86658A0186159",
+      "behavioralAcceptanceSha256": "ED90B41F4DA86569A6A7439024A692A3C7D071353CF4BBE4EBB7579B5F92C8BA"
+    },
+    "toolSurface": {
+      "profile": "full",
+      "adapterMethods": [
+        "rook_full.search",
+        "rook_full.read",
+        "rook_full.call"
+      ],
+      "serializedCatalogMethod": "UTF-8 JSON array of name, description, and inputSchema; source order retained; object keys sorted; compact separators; ensure_ascii true",
+      "serializedCatalogCount": 382,
+      "serializedCatalogBytes": 320742,
+      "serializedCatalogSha256": "83CFE8F782FFB8CF24A24C3BE4E64DA4C7287F116CE24A883741D927A3BB9669"
+    }
+  },
+  "limits": {
+    "wallClockSecondsPerRun": 1800,
+    "gatewayEventsPerRun": 150,
+    "providerReportedTokensPerRun": 2000000,
+    "primeSessionsPerRun": 1,
+    "operatorRepairTurns": 0,
+    "runtimeEvaluatorFeedback": 0,
+    "automaticMutationReplay": 0
+  },
+  "executionOrder": [
+    "T1",
+    "T2",
+    "T3",
+    "T4"
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "class": "exact_smoke",
+      "targetBaseline": "fresh_empty_grasshopper_document",
+      "prompt": "Create an adjustable row of points along the X axis in Grasshopper. Provide Number Sliders named Start, Step, and Count. Start controls the first X coordinate, Step controls the spacing, Count controls the number of points, and Y and Z remain fixed at zero. Use native Grasshopper components. Inspect the finished definition and stop when you believe it satisfies the request.",
+      "promptSha256": "EC889F379361DCAEB3C77B19390879F672622D336215AE6C4ECD0155C84381F6"
+    },
+    {
+      "id": "T2",
+      "class": "underspecified_design",
+      "targetBaseline": "fresh_empty_grasshopper_document",
+      "prompt": "Create a useful adjustable rectangular grid of points in the XY plane for an early facade layout study. Give it clear controls that a designer can use to change the grid dimensions and spacing. Keep the result easy to inspect. Use native Grasshopper components. Make reasonable professional choices, but investigate or disclose any material ambiguity rather than claiming an unstated preference was required.",
+      "promptSha256": "5E47E6B738F56B3789C4E2C2D9E20433BF3ABC373E0E074665C57B8309A9C23B"
+    },
+    {
+      "id": "T3",
+      "class": "repair_in_place",
+      "targetBaseline": "operator_seeded_divide_by_zero_point_row_v1",
+      "prompt": "The current Grasshopper document contains a partially broken adjustable X-axis point-row definition. Repair it in place so the existing Start, Step, and Count controls determine the first X coordinate, spacing, and point count, with Y and Z fixed at zero. Preserve working components where practical, resolve any current errors or warnings, and verify the behavior before stopping.",
+      "promptSha256": "9BC99A36306BF8B89DBF96338E0A12421CCC103603CE7CC0C52A83C3806E04F0"
+    },
+    {
+      "id": "T4",
+      "class": "geometry_bearing",
+      "targetBaseline": "fresh_empty_grasshopper_document",
+      "prompt": "Create an adjustable helical curve around the Z axis using native Grasshopper components. Provide useful controls for radius, total height, turns, start angle, and resolution. Inspect both its generated points and curve geometry, exercise important controls, and stop when you believe it satisfies the request.",
+      "promptSha256": "08C2D8B0453358A03FB6032C057D6F10CA4DE0A16092CD5EC5B423C6057566E5"
+    }
+  ]
+}
