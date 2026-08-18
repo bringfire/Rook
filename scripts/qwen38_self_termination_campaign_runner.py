@@ -96,6 +96,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         "rook.experiment.qwen38_self_termination_campaign:v3",
         "rook.experiment.qwen38_self_termination_campaign:v4",
         "rook.experiment.qwen38_self_termination_campaign:v5",
+        "rook.experiment.qwen38_self_termination_campaign:v6",
     }:
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
@@ -117,15 +118,17 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         ],
         "rook.experiment.qwen38_self_termination_campaign:v4": ["T3", "T2", "T4"],
         "rook.experiment.qwen38_self_termination_campaign:v5": ["T4"],
+        "rook.experiment.qwen38_self_termination_campaign:v6": ["T4"],
     }[schema]
     if type(tasks) is not dict or order != expected_order:
         raise ValueError("focused_retest_invalid" if schema.endswith(":v5") else "task_order_invalid")
-    expected_smoke = "T4" if schema.endswith(":v5") else "T3"
+    expected_smoke = "T4" if schema.endswith((":v5", ":v6")) else "T3"
     if protocol.get("smokeTask") != expected_smoke or set(tasks) != set(order):
         raise ValueError("smoke_task_invalid")
     if schema in {
         "rook.experiment.qwen38_self_termination_campaign:v4",
         "rook.experiment.qwen38_self_termination_campaign:v5",
+        "rook.experiment.qwen38_self_termination_campaign:v6",
     }:
         if prime.get("thinkingLevel") != "low":
             raise ValueError("thinking_level_invalid")
@@ -160,6 +163,31 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
             "decisionTelemetry": {
                 "firstSufficientEvidence": "independent_post_run_timeline_adjudication",
                 "formalCompletion": "persisted_goal_complete",
+            },
+            "evaluatorFeedbackDuringRun": False,
+        }:
+            raise ValueError("focused_retest_invalid")
+    if schema == "rook.experiment.qwen38_self_termination_campaign:v6":
+        if protocol.get("focusedRetest") != {
+            "sourceEvidenceManifestSha256": (
+                "336E1A539C25B1DEA4E3625B9E526FBC28033ABB7E8C5593C57AC36D17DC059C"
+            ),
+            "onlyChangedOperationalInput": "versioned_prime_instructions",
+            "changedInstructionInputs": ["skillSha256", "checkpointSha256"],
+            "successCriteria": [
+                "mechanically_healthy_helix",
+                "important_controls_exercised_and_restored",
+                "model_facing_receipt_wait_ready",
+                "model_facing_receipt_fenced_snapshot",
+                "no_later_gateway_call",
+                "goal_complete",
+                "budget_pass",
+                "custody_pass",
+            ],
+            "decisionTelemetry": {
+                "firstQualifiedEvidence": "receipt_fenced_snapshot_tool_result",
+                "formalCompletion": "persisted_goal_complete",
+                "perTurnInputOutput": "retained_prime_message_usage",
             },
             "evaluatorFeedbackDuringRun": False,
         }:
@@ -1359,6 +1387,124 @@ def _post_actor_evaluation(
     return evaluation["status"]
 
 
+def audit_actor_final_checkpoint(events: list[dict[str, Any]]) -> dict[str, Any]:
+    ordered = sorted(
+        (
+            event
+            for event in events
+            if type(event) is dict and type(event.get("sequence")) is int
+        ),
+        key=lambda event: event["sequence"],
+    )
+
+    def result(
+        status: str,
+        reason: str | None,
+        receipt_id: str | None = None,
+        mutation_sequence: int | None = None,
+        wait_sequence: int | None = None,
+        snapshot_sequence: int | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "schema": "rook.experiment.actor_final_checkpoint:v1",
+            "status": status,
+            "reason": reason,
+            "receiptId": receipt_id,
+            "mutationSequence": mutation_sequence,
+            "waitSequence": wait_sequence,
+            "snapshotSequence": snapshot_sequence,
+            "gatewayEventCount": len(ordered),
+        }
+
+    terminal = [
+        event
+        for event in ordered
+        if event.get("mutation", {}).get("classification") == "terminal"
+        and event.get("mutation", {}).get("commit_status") == "committed"
+    ]
+    if not terminal:
+        return result("fail", "final_terminal_receipt_missing")
+    mutation = terminal[-1]
+    receipt = mutation.get("mutation", {}).get("solve_readiness_receipt")
+    receipt_id = receipt.get("receipt_id") if type(receipt) is dict else None
+    if type(receipt_id) is not str or not receipt_id:
+        return result(
+            "fail",
+            "final_terminal_receipt_missing",
+            mutation_sequence=mutation["sequence"],
+        )
+
+    later = [event for event in ordered if event["sequence"] > mutation["sequence"]]
+    waits = []
+    for event in later:
+        payload = event.get("result", {}).get("data")
+        ready = payload.get("receipt") if type(payload) is dict else None
+        if (
+            event.get("target") == "gh_wait_for_solve_readiness"
+            and event.get("arguments", {}).get("readiness_receipt_id") == receipt_id
+            and event.get("result", {}).get("success") is True
+            and type(payload) is dict
+            and payload.get("wait_status") == "ready"
+            and type(ready) is dict
+            and ready.get("receipt_id") == receipt_id
+            and ready.get("status") == "ready"
+        ):
+            waits.append(event)
+    if not waits:
+        return result(
+            "fail",
+            "final_receipt_wait_missing",
+            receipt_id,
+            mutation["sequence"],
+        )
+    wait = waits[0]
+
+    snapshots = [
+        event
+        for event in later
+        if event["sequence"] > wait["sequence"]
+        and event.get("target") == "gh_snapshot"
+        and event.get("arguments", {}).get("readiness_receipt_id") == receipt_id
+        and event.get("result", {}).get("success") is True
+    ]
+    if not snapshots:
+        return result(
+            "fail",
+            "final_receipt_fenced_snapshot_missing",
+            receipt_id,
+            mutation["sequence"],
+            wait["sequence"],
+        )
+    snapshot = snapshots[0]
+    if any(event["sequence"] > snapshot["sequence"] for event in ordered):
+        return result(
+            "fail",
+            "later_gateway_call",
+            receipt_id,
+            mutation["sequence"],
+            wait["sequence"],
+            snapshot["sequence"],
+        )
+    return result(
+        "pass",
+        None,
+        receipt_id,
+        mutation["sequence"],
+        wait["sequence"],
+        snapshot["sequence"],
+    )
+
+
+def _source_events(path: Path) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as stream:
+        for line in stream:
+            value = json.loads(line)
+            if type(value) is dict and type(value.get("sequence")) is int:
+                events.append(value)
+    return events
+
+
 def _row_outcome(
     protocol: dict[str, Any], task: dict[str, Any], row_root: Path, process_result: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1374,6 +1520,15 @@ def _row_outcome(
         and process_result["elapsedSeconds"]
         < protocol["limits"]["wallClockSecondsPerRun"]
     )
+    final_checkpoint: dict[str, Any] | None = None
+    if protocol["schema"] == "rook.experiment.qwen38_self_termination_campaign:v6":
+        final_checkpoint = audit_actor_final_checkpoint(
+            _source_events(row_root / "operator" / "source.jsonl")
+        )
+        _write_json(
+            row_root / "operator" / "actor-final-checkpoint.json",
+            final_checkpoint,
+        )
     custody_pass = (
         process_result["stdoutEof"] is True
         and process_result["ownedChildPids"] == []
@@ -1383,16 +1538,21 @@ def _row_outcome(
             not in {
                 "rook.experiment.qwen38_self_termination_campaign:v4",
                 "rook.experiment.qwen38_self_termination_campaign:v5",
+                "rook.experiment.qwen38_self_termination_campaign:v6",
             }
             or process_result.get("thinkingLevelVerified") is True
         )
+        and (final_checkpoint is None or final_checkpoint["status"] == "pass")
     )
-    return {
+    outcome = {
         "semanticStatus": semantic,
         "goalStatus": goal_status,
         "budgetStatus": "pass" if budget_pass else "fail",
         "custodyStatus": "pass" if custody_pass else "fail",
     }
+    if final_checkpoint is not None:
+        outcome["actorFinalCheckpointStatus"] = final_checkpoint["status"]
+    return outcome
 
 
 def campaign_completion_status(

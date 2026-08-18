@@ -53,4 +53,10 @@ If verification still fails, stop and report the completed and failed operations
 
 ## Final checkpoint
 
-Use a fresh snapshot and `gh_errors` to prove the requested graph and outputs. Report the execution-owned IDs and exact state changed. There is no global cleanup step.
+Retain the final terminal mutation's `solve_readiness_receipt.receipt_id`. Call
+`gh_wait_for_solve_readiness` with that value and require the exact receipt to
+be `ready`. Then call `gh_snapshot` with the same `readiness_receipt_id` and
+inspect that receipt-fenced snapshot once. Do not substitute an unfenced
+snapshot or `gh_status`. If waiting or the fenced snapshot refuses, report the
+result as incomplete. Report the execution-owned IDs and exact state changed.
+There is no global cleanup step.

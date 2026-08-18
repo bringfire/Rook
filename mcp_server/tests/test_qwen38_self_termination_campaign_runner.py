@@ -35,6 +35,13 @@ V5_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-18-qwen38-self-termination-campaign-v5.json"
 )
+V6_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-18-qwen38-self-termination-campaign-v6.json"
+)
 ADAPTER_PATH = (
     ROOT
     / "integrations"
@@ -128,6 +135,183 @@ def _v5_protocol() -> dict:
     return protocol
 
 
+def _v6_protocol() -> dict:
+    protocol = _v5_protocol()
+    protocol["schema"] = "rook.experiment.qwen38_self_termination_campaign:v6"
+    protocol["purpose"] = (
+        "Test whether Qwen completes from one model-facing receipt-fenced final "
+        "checkpoint without a compensating status call."
+    )
+    protocol["focusedRetest"] = {
+        "sourceEvidenceManifestSha256": (
+            "336E1A539C25B1DEA4E3625B9E526FBC28033ABB7E8C5593C57AC36D17DC059C"
+        ),
+        "onlyChangedOperationalInput": "versioned_prime_instructions",
+        "changedInstructionInputs": [
+            "skillSha256",
+            "checkpointSha256",
+        ],
+        "successCriteria": [
+            "mechanically_healthy_helix",
+            "important_controls_exercised_and_restored",
+            "model_facing_receipt_wait_ready",
+            "model_facing_receipt_fenced_snapshot",
+            "no_later_gateway_call",
+            "goal_complete",
+            "budget_pass",
+            "custody_pass",
+        ],
+        "decisionTelemetry": {
+            "firstQualifiedEvidence": "receipt_fenced_snapshot_tool_result",
+            "formalCompletion": "persisted_goal_complete",
+            "perTurnInputOutput": "retained_prime_message_usage",
+        },
+        "evaluatorFeedbackDuringRun": False,
+    }
+    return protocol
+
+
+def test_v6_protocol_freezes_one_low_thinking_receipt_fenced_t4_confirmation(
+    tmp_path: Path,
+):
+    runner = _runner()
+    protocol = _v6_protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+    command, _ = runner.build_prime_launch(
+        protocol,
+        task=protocol["tasks"]["T4"],
+        row_root=tmp_path,
+        target={"processId": 123, "documentSerialNumber": 456},
+    )
+    assert command[command.index("--thinking") + 1] == "low"
+    assert protocol["executionOrder"] == ["T4"]
+
+
+def test_frozen_v6_changes_only_focused_scope_and_versioned_instructions():
+    runner = _runner()
+    v5 = json.loads(V5_PROTOCOL_PATH.read_text(encoding="utf-8"))
+    v6 = json.loads(V6_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+    assert runner.validate_protocol(v6) is v6
+    assert v6["focusedRetest"] == _v6_protocol()["focusedRetest"]
+    assert v6["tasks"] == v5["tasks"]
+    assert v6["prime"] == v5["prime"]
+    assert v6["limits"] == v5["limits"]
+    assert v6["versionedInputs"]["skillSha256"] == hashlib.sha256(
+        SKILL_PATH.read_bytes()
+    ).hexdigest().upper()
+    assert v6["versionedInputs"]["checkpointSha256"] == hashlib.sha256(
+        CHECKPOINT_PATH.read_bytes()
+    ).hexdigest().upper()
+
+    normalized = json.loads(json.dumps(v6))
+    normalized["schema"] = v5["schema"]
+    normalized["purpose"] = v5["purpose"]
+    normalized["versionedInputs"]["skillSha256"] = v5["versionedInputs"][
+        "skillSha256"
+    ]
+    normalized["versionedInputs"]["checkpointSha256"] = v5[
+        "versionedInputs"
+    ]["checkpointSha256"]
+    normalized["focusedRetest"] = v5["focusedRetest"]
+    assert normalized == v5
+
+
+def test_skill_and_checkpoint_require_one_receipt_fenced_final_observation():
+    skill = SKILL_PATH.read_text(encoding="utf-8")
+    checkpoint = CHECKPOINT_PATH.read_text(encoding="utf-8")
+
+    for text in (skill, checkpoint):
+        assert "gh_wait_for_solve_readiness" in text
+        assert "readiness_receipt_id" in text
+        assert "receipt-fenced" in text
+    normalized_skill = " ".join(skill.split())
+    assert "Do not substitute an unfenced snapshot or `gh_status`" in normalized_skill
+    assert "If the wait or fenced snapshot refuses, report incomplete" in normalized_skill
+
+
+def test_actor_final_checkpoint_requires_wait_snapshot_order_and_no_later_call():
+    runner = _runner()
+    receipt = {
+        "receipt_id": "receipt-1",
+        "status": "pending",
+        "mutation_epoch": 7,
+    }
+    events = [
+        {
+            "sequence": 1,
+            "target": "gh_edit",
+            "arguments": {"epoch": 6},
+            "dispatch": {"status": "dispatched"},
+            "mutation": {
+                "classification": "terminal",
+                "commit_status": "committed",
+                "solve_readiness_receipt": receipt,
+            },
+            "result": {"success": True, "data": {}},
+        },
+        {
+            "sequence": 2,
+            "target": "gh_wait_for_solve_readiness",
+            "arguments": {"readiness_receipt_id": "receipt-1"},
+            "dispatch": {"status": "dispatched"},
+            "mutation": {"classification": "observational"},
+            "result": {
+                "success": True,
+                "data": {
+                    "wait_status": "ready",
+                    "receipt": receipt | {"status": "ready"},
+                },
+            },
+        },
+        {
+            "sequence": 3,
+            "target": "gh_snapshot",
+            "arguments": {
+                "include_data": True,
+                "readiness_receipt_id": "receipt-1",
+            },
+            "dispatch": {"status": "dispatched"},
+            "mutation": {"classification": "observational"},
+            "result": {"success": True, "data": {"epoch": 21}},
+        },
+    ]
+
+    assert runner.audit_actor_final_checkpoint(events) == {
+        "schema": "rook.experiment.actor_final_checkpoint:v1",
+        "status": "pass",
+        "reason": None,
+        "receiptId": "receipt-1",
+        "mutationSequence": 1,
+        "waitSequence": 2,
+        "snapshotSequence": 3,
+        "gatewayEventCount": 3,
+    }
+
+    for changed, reason in (
+        (events[:1] + events[2:], "final_receipt_wait_missing"),
+        (
+            events[:2]
+            + [events[2] | {"arguments": {"include_data": True}}],
+            "final_receipt_fenced_snapshot_missing",
+        ),
+        (
+            events
+            + [
+                {
+                    "sequence": 4,
+                    "target": "gh_status",
+                    "arguments": {},
+                    "result": {"success": True, "data": {}},
+                }
+            ],
+            "later_gateway_call",
+        ),
+    ):
+        assert runner.audit_actor_final_checkpoint(changed)["reason"] == reason
+
+
 def test_v5_protocol_freezes_one_low_thinking_t4_retest(tmp_path: Path):
     runner = _runner()
     protocol = _v5_protocol()
@@ -158,9 +342,9 @@ def test_frozen_v5_changes_only_focused_scope_skill_and_success_contract():
     assert runner.validate_protocol(v5) is v5
     assert v5["focusedRetest"] == _v5_protocol()["focusedRetest"]
     assert v5["tasks"]["T4"]["prompt"] == v4["tasks"]["T4"]["prompt"]
-    assert v5["versionedInputs"]["skillSha256"] == hashlib.sha256(
-        SKILL_PATH.read_bytes()
-    ).hexdigest().upper()
+    assert v5["versionedInputs"]["skillSha256"] == (
+        "9656C6456E7AC318FA825D87FC7DE7BA2756804426749CBC9C16805289CC3D6D"
+    )
 
     normalized = json.loads(json.dumps(v5))
     normalized["schema"] = v4["schema"]
@@ -362,6 +546,56 @@ def test_v5_row_custody_requires_effective_low_thinking(
     )["custodyStatus"] == "fail"
 
 
+def test_v6_row_custody_refuses_an_unfenced_actor_checkpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _v6_protocol()
+    operator = tmp_path / "operator"
+    operator.mkdir()
+    terminal = {
+        "sequence": 1,
+        "target": "gh_edit",
+        "arguments": {"epoch": 6},
+        "mutation": {
+            "classification": "terminal",
+            "commit_status": "committed",
+            "solve_readiness_receipt": {
+                "receipt_id": "receipt-1",
+                "status": "pending",
+            },
+        },
+        "result": {"success": True, "data": {}},
+    }
+    (operator / "source.jsonl").write_text(
+        json.dumps({"schema": "header"}) + "\n" + json.dumps(terminal) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runner, "_post_actor_evaluation", lambda *args: "unproven")
+    monkeypatch.setattr(runner, "_goal_status", lambda *args: "complete")
+    process = {
+        "limitBreach": None,
+        "goalContextVerified": True,
+        "providerReportedTokens": 100,
+        "gatewayEvents": 1,
+        "elapsedSeconds": 1.0,
+        "stdoutEof": True,
+        "ownedChildPids": [],
+        "exitCode": 0,
+        "thinkingLevelVerified": True,
+    }
+
+    outcome = runner._row_outcome(
+        protocol, protocol["tasks"]["T4"], tmp_path, process
+    )
+
+    assert outcome["custodyStatus"] == "fail"
+    assert outcome["actorFinalCheckpointStatus"] == "fail"
+    assert json.loads((operator / "actor-final-checkpoint.json").read_text())[
+        "reason"
+    ] == "final_receipt_wait_missing"
+
+
 def test_campaign_completion_uses_the_frozen_row_count():
     runner = _runner()
     protocol = _v4_protocol()
@@ -400,7 +634,7 @@ def test_frozen_protocol_owns_exact_limits_and_corrected_skill_bootstrap():
 
 
 def test_frozen_protocol_pins_every_staged_versioned_input():
-    versioned = json.loads(V5_PROTOCOL_PATH.read_text(encoding="utf-8"))[
+    versioned = json.loads(V6_PROTOCOL_PATH.read_text(encoding="utf-8"))[
         "versionedInputs"
     ]
 

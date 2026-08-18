@@ -89,18 +89,25 @@ See [checkpoint protocol](references/checkpoint-protocol.md) for the compact res
 - After the final solve-relevant mutation, make only observational calls.
 - Do not issue a group-only or no-op mutation after that point.
 - Do not perform a redundant mutation merely to obtain a receipt.
+- Retain the `solve_readiness_receipt.receipt_id` returned by the final
+  terminal mutation.
 
 ## Evidence And Completion Discipline
 
 Before completing:
 
 1. Restate the intended result.
-2. Inspect fresh post-solve state after the latest mutation.
+2. Establish the final checkpoint with the latest terminal mutation receipt:
+   call `gh_wait_for_solve_readiness` with `readiness_receipt_id`, require a
+   `ready` result for that exact receipt, then call `gh_snapshot` with the same
+   `readiness_receipt_id`. Inspect that receipt-fenced snapshot once. Do not
+   substitute an unfenced snapshot or `gh_status`. If the wait or fenced
+   snapshot refuses, report incomplete instead of completing.
 3. Compare the observed result with the intent.
 4. Investigate material uncertainties.
 5. Exercise important controls when appropriate and report what is observed,
    inferred, and unresolved.
-   After the required fresh post-solve checkpoint, make another observation only to resolve a named material uncertainty whose outcome could change the completion decision.
+   After the required receipt-fenced checkpoint, make another observation only to resolve a named material uncertainty whose outcome could change the completion decision.
    Greater precision, repeated confirmation, or reassurance such as being "100% sure" is not material investigation.
 6. Call `goal.complete()` as a dedicated final step only when you believe the
    request is satisfied. Do not perform a later Rook mutation in that

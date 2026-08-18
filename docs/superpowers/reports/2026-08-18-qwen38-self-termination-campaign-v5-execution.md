@@ -2,7 +2,7 @@
 
 Date: 2026-08-18
 
-Classification: **qualified focused execution; observed stopping pattern corrected on one fresh T4 specimen**
+Classification: **qualified stopping, budget, and custody execution; model-facing final evidence not receipt-fenced**
 
 ## Scope
 
@@ -118,20 +118,27 @@ state:
 | Height probe | 10 | 200 | 5 | 0 | 100 | 100 | 372.4145 |
 | Restored | 10 | 50 | 3 | 0 | 50 | 50 | 195.0056 |
 
-The final restoration was a committed five-value mutation. The next gateway
-event was a fresh post-solve snapshot at epoch 21, showing the restored values,
-50 points, the baseline curve length, and zero diagnostics. Qwen made no later
+The final restoration was a committed five-value mutation whose returned solve
+receipt was still `pending`. The next gateway event was an actor-observed,
+unfenced snapshot at epoch 21: Qwen omitted `readiness_receipt_id`. It showed
+the restored values, 50 points, the baseline curve length, and zero
+diagnostics, but it was not a qualified receipt-fenced read. Qwen made no later
 Grasshopper mutation and no later geometry snapshot. It made one observational
 `gh_status` call, summarized the retained evidence, called `goal.complete()`,
 and stopped.
+
+After Qwen terminated, the silent operator waited on the exact final receipt
+and captured a properly fenced snapshot. That operator-owned evidence proves
+the final artifact was healthy; Qwen did not receive it before completing.
 
 ## Decision-Tail Telemetry
 
 The decision points were adjudicated after execution from the retained Prime
 timeline; no result was exposed to Qwen.
 
-The first sufficient evidence existed when the fresh restored-state snapshot
-returned. At that point, cumulative provider-reported usage was:
+The provisional first sufficient actor evidence existed when the unfenced
+restored-state snapshot returned. At that point, cumulative provider-reported
+usage was:
 
     829,393 tokens
 
@@ -139,7 +146,7 @@ Prime persisted `goal.complete()` at:
 
     948,140 tokens
 
-The completion tail was therefore:
+The provisional completion tail was therefore:
 
     118,747 tokens
 
@@ -147,11 +154,18 @@ The final user-facing response brought total provider-reported usage to
 `1,008,525`, another 60,385 tokens after formal completion.
 
 Unlike V4, Qwen did not request a larger or repeated geometry snapshot after
-sufficient evidence existed. Its final `gh_status` call was observational and
-did not add geometry evidence capable of changing the completion decision.
-The added skill guidance therefore corrected the specific V4 pattern in this
-fresh specimen. It did not eliminate a substantial reasoning and presentation
-tail.
+the provisional evidence boundary. Its final `gh_status` call was
+observational and did not add geometry evidence capable of changing the
+completion decision. The controlled intervention is consistent with the
+guidance correcting the observed pattern; it does not establish causality or
+repeatability.
+
+The 118,747-token tail was primarily provider context and turn cost, not new
+reasoning: 117,463 input tokens and 1,284 output tokens. The separate
+`gh_status` turn alone cost 58,861 tokens. Across the whole run, 979,015 of
+1,008,525 provider-reported tokens were input. The skill clarification avoided
+the V4 geometry-observation loop, but it did not eliminate expensive context
+replay.
 
 ## V4 Versus V5
 
@@ -160,13 +174,14 @@ tail.
 | Runtime | 829.937 s | 499.328 s | -39.8% |
 | Provider tokens | 2,067,953 | 1,008,525 | -51.2% |
 | Gateway calls | 70 | 54 | -22.9% |
-| Goal outcome | budget_limited | complete | corrected |
-| Budget | fail | pass | corrected |
+| Goal outcome | budget_limited | complete | observed pass |
+| Budget | fail | pass | observed pass |
 
-The comparison is causal only with respect to the frozen operational inputs:
-the versioned skill was the one changed input. A single successful retest does
-not establish repeatability, general self-termination competence, or that
-`low` thinking should become the product default.
+The versioned skill was the only deliberately changed operational input. This
+controlled intervention is consistent with the guidance correcting the
+observed pattern; one V4 and one V5 stochastic run do not establish causality,
+repeatability, general self-termination competence, or that `low` thinking
+should become the product default.
 
 ## Resource And Custody Result
 
@@ -206,22 +221,23 @@ mismatches.
 
 V5 supports these bounded conclusions:
 
-1. The refined decision-relevance guidance corrected the specific observed V4
-   stopping failure on one fresh low-thinking T4 run.
+1. The refined decision-relevance guidance is consistent with correcting the
+   specific observed V4 stopping failure on one fresh low-thinking T4 run.
 2. Qwen produced, exercised, restored, inspected, and formally completed a
-   mechanically healthy adjustable helix within every enforced resource and
-   custody boundary.
+   mechanically healthy adjustable helix within the enforced process, budget,
+   and artifact-custody boundaries. Its own final snapshot was not
+   receipt-fenced; the silent operator later established final host custody.
 3. The runtime did not need a semantic supervisor, terminalization protocol,
    or new deterministic acceptance mechanism to obtain this result.
 4. The result remains a shadow semantic observation because the open-ended
    helix task intentionally required independent judgment rather than a
    runtime semantic verdict.
 5. Efficiency remains a product concern: the row consumed about 8.3 minutes
-   and one million cumulative provider tokens, including 118,747 tokens after
-   sufficient evidence already existed.
+   and one million cumulative provider tokens, including 118,747 mostly-input
+   tokens after the provisional sufficient-evidence boundary.
 
-The next decision should separate stopping from general efficiency. The
-observed stopping defect is corrected on this specimen. Any further experiment
-should target a named remaining question, such as repeatability or excessive
-discovery/context cost, without treating this pass as justification for a new
-runtime architecture.
+The next bounded correction is to use Rook's existing final-evidence path in
+the model-facing loop: wait on the final mutation receipt, pass that receipt to
+`gh_snapshot`, evaluate once, and complete. This tests qualified observation
+custody without adding a supervisor, terminalization protocol, or semantic
+acceptance architecture. General efficiency remains a separate question.
