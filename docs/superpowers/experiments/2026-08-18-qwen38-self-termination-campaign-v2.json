@@ -1,0 +1,130 @@
+{
+  "schema": "rook.experiment.qwen38_self_termination_campaign:v2",
+  "status": "frozen_precontact",
+  "purpose": "Requalify Qwen3.8 self-termination after correcting Prime goal-skill bootstrap and enforcing the declared resource contract.",
+  "evidenceRootPrefix": "C:/UDEV/RookEvidence",
+  "smokeTask": "T3",
+  "executionOrder": ["T3", "T1", "T2", "T4"],
+  "limits": {
+    "wallClockSecondsPerRun": 1800,
+    "gatewayEventsPerRun": 150,
+    "providerReportedTokensPerRun": 2000000,
+    "primeGoalTokenBudget": 2000000
+  },
+  "prime": {
+    "sourceRoot": "D:/prime-agent/.worktrees/mcp-error-merged-runtime",
+    "commit": "27b5be22cf0e0e81e324a59ebabbb41edfee6ec0",
+    "bashPath": "C:/Program Files/Git/bin/bash.exe",
+    "launcherPath": "D:/prime-agent/.worktrees/mcp-error-merged-runtime/prime-agent.sh",
+    "nodePath": "C:/Program Files/nodejs/node.exe",
+    "nodeVersion": "v24.11.1",
+    "nodeSha256": "F13AC3CA23248DC389507E8FE38C34489AB7EDB3E6D6700EB6DA6A0B7E128EAF",
+    "runtimeBundle": {
+      "root": "D:/prime-agent/.worktrees/mcp-error-merged-runtime/packages/coding-agent/dist",
+      "subtrees": ["bundle", "skills"],
+      "entryCount": 83,
+      "totalBytes": 13975754,
+      "manifestSha256": "78FEBC82B29F2729968A8475033E800DFA840BC99D425EDC8C0B684EF8A4A036"
+    },
+    "sealedKernelPython": "C:/Users/bring/.prime/agent/kernel-venv/Scripts/python.exe",
+    "thinkingLevel": "medium",
+    "model": "ollama_chat/qwen3.8:27b",
+    "settings": {
+      "enableBuiltinSkills": true,
+      "packages": [],
+      "extensions": []
+    },
+    "models": {
+      "providers": {
+        "ollama_chat": {
+          "baseUrl": "http://127.0.0.1:11434/v1",
+          "api": "openai-completions",
+          "apiKey": "ollama",
+          "compat": {
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": true
+          },
+          "models": [
+            {
+              "id": "qwen3.8:27b",
+              "reasoning": true
+            }
+          ]
+        }
+      }
+    }
+  },
+  "modelCustody": {
+    "ollamaVersion": "0.32.14",
+    "runtimePath": "C:/Users/bring/AppData/Local/Programs/Ollama/ollama.exe",
+    "runtimeSha256": "11D7729CB18BB4876AD91A14FBE9BA3B6985EAABC3475A62D47D874BE24A9B54",
+    "manifestPath": "C:/Users/bring/.ollama/models/manifests/registry.ollama.ai/library/qwen3.8/27b",
+    "manifestSha256": "22130167C4C20E20C7B71454612966CA8E8171E9B3CC8AB6CE8AA6CBFEC79643",
+    "blobRoot": "C:/Users/bring/.ollama/models/blobs",
+    "config": {
+      "digest": "sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f",
+      "size": 215
+    },
+    "layers": [
+      {"digest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e", "size": 931146016},
+      {"digest": "sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d", "size": 16810714464},
+      {"digest": "sha256:4c6a8e842ef0d8504549facfb03f1273a8d0022991519bc1888522cc1a5517d1", "size": 11345},
+      {"digest": "sha256:906ee87bde6cff7bf3c3b1550f55cbbec261e027187fbb9f511f908ffc418334", "size": 114}
+    ]
+  },
+  "rookCustody": {
+    "nativePluginPath": "C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp",
+    "nativePluginSha256": "0CA4DEEC98B98FDDA09AAC2E62FC1DA31107213DFACC09C20A43838B041723A1",
+    "managedNet8PluginPath": "C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net8.0/Rook.rhp",
+    "managedNet8PluginSha256": "020EEE4F04B13725AE46BD81EC92F1211375F2BEF5B51159FF5BB26517D64BE4",
+    "installedPythonRoot": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages",
+    "serverPath": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/server.py",
+    "serverSha256": "234CF22B847B62F5E11635621622C7B363180154A845F94CE0C86658A0186159",
+    "behavioralAcceptancePath": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/gh_behavioral_acceptance.py",
+    "behavioralAcceptanceSha256": "ED90B41F4DA86569A6A7439024A692A3C7D071353CF4BBE4EBB7579B5F92C8BA"
+  },
+  "versionedInputs": {
+    "skillPath": "integrations/prime/skills/prime-execute-grasshopper/SKILL.md",
+    "skillSha256": "90A6F1028B6DD9ABB60453E520EC1F38865C3D3C264F59C751B9B9A087C36243",
+    "checkpointPath": "integrations/prime/skills/prime-execute-grasshopper/references/checkpoint-protocol.md",
+    "checkpointSha256": "2FCF16E0B6C58B1D0390CCF16D28DD62D142AC20CCF9AEC81D3B916BD251CBD8",
+    "adapterRoot": "integrations/prime/skills/rook-full",
+    "adapterInitSha256": "06F1CB4AA58FD8C4C6F61F96CE7B8A5F4FEF7B6B126D00C0550B2CB3AA0BBF74"
+  },
+  "toolSurface": {
+    "profile": "full",
+    "serializedCatalogCount": 382,
+    "serializedCatalogBytes": 320743,
+    "serializedCatalogSha256": "64796B23E123368F1F9CC509206A879783195223D81165C70D7226CB154B86FA"
+  },
+  "tasks": {
+    "T1": {
+      "id": "T1",
+      "class": "exact_smoke",
+      "targetBaseline": "fresh_empty_grasshopper_document",
+      "evaluator": "point_row_v1",
+      "prompt": "Create an adjustable row of points along the X axis in Grasshopper. Provide Number Sliders named Start, Step, and Count. Start controls the first X coordinate, Step controls the spacing, Count controls the number of points, and Y and Z remain fixed at zero. Use native Grasshopper components. Inspect the finished definition and stop when you believe it satisfies the request."
+    },
+    "T2": {
+      "id": "T2",
+      "class": "underspecified_design",
+      "targetBaseline": "fresh_empty_grasshopper_document",
+      "evaluator": "xy_grid_shadow",
+      "prompt": "Create a useful adjustable rectangular grid of points in the XY plane for an early facade layout study. Give it clear controls that a designer can use to change the grid dimensions and spacing. Keep the result easy to inspect. Use native Grasshopper components. Make reasonable professional choices, but investigate or disclose any material ambiguity rather than claiming an unstated preference was required."
+    },
+    "T3": {
+      "id": "T3",
+      "class": "repair_in_place",
+      "targetBaseline": "operator_seeded_divide_by_zero_point_row_v1",
+      "evaluator": "point_row_v1",
+      "prompt": "The current Grasshopper document contains a partially broken adjustable X-axis point-row definition. Repair it in place so the existing Start, Step, and Count controls determine the first X coordinate, spacing, and point count, with Y and Z fixed at zero. Preserve working components where practical, resolve any current errors or warnings, and verify the behavior before stopping."
+    },
+    "T4": {
+      "id": "T4",
+      "class": "geometry_bearing",
+      "targetBaseline": "fresh_empty_grasshopper_document",
+      "evaluator": "helix_shadow",
+      "prompt": "Create an adjustable helical curve around the Z axis using native Grasshopper components. Provide useful controls for radius, total height, turns, start angle, and resolution. Inspect both its generated points and curve geometry, exercise important controls, and stop when you believe it satisfies the request."
+    }
+  }
+}
