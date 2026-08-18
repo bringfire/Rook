@@ -191,12 +191,15 @@ configuration.
 
 The silent semantic evaluator remained `unproven` with
 `authoring_trace_invalid`. Earlier in the Actor run, a stale-epoch `gh_edit`
-was truthfully refused with `epoch_mismatch` and no mutation. The existing trace
-normalizer classifies that refusal as an unknown mutation outcome, so it did
-not admit an independent semantic evaluation. This is the previously observed
-trace-admission limitation. It does not invalidate the later model-facing
-receipt-fenced snapshot, but it prevents upgrading this open task to a formal
-semantic pass.
+was truthfully refused with `epoch_mismatch` and no mutation. At campaign time,
+the trace normalizer classified that refusal as an unknown mutation outcome, so
+it did not admit an independent semantic evaluation. This is the previously
+observed trace-admission limitation. It does not invalidate the later
+model-facing receipt-fenced snapshot, but it prevented the evaluator from
+retaining its own fenced observation and reporting the accurate reason
+classification. Even with
+a valid trace, this open task remains `unproven: independent_judgment_required`;
+the correction does not upgrade it to a formal semantic pass.
 
 ## Resource And Evidence Custody
 

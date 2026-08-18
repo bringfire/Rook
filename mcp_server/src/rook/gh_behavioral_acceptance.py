@@ -140,6 +140,9 @@ _ZERO_DISPATCH_REFUSALS = {
     "tool_profile_blocked",
     "unknown_or_non_dispatchable",
 }
+_GH_EDIT_EPOCH_MISMATCH_MESSAGE = (
+    "Canvas has changed since last snapshot. Call gh_snapshot first."
+)
 
 
 def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -326,6 +329,36 @@ def _recognized_zero_dispatch_refusal(event: dict[str, Any]) -> bool:
     return isinstance(code, str) and code in _ZERO_DISPATCH_REFUSALS
 
 
+def _recognized_gh_edit_epoch_mismatch(event: dict[str, Any]) -> bool:
+    result = event["result"]
+    arguments = event["arguments"]
+    if (
+        event["target"] != "gh_edit"
+        or event["exception"] is not None
+        or event["dispatch"] != {"status": "dispatched", "target_call_count": 1}
+        or type(result) is not dict
+        or set(result) != {"success", "data"}
+        or result["success"] is not False
+        or type(result["data"]) is not dict
+        or type(arguments) is not dict
+    ):
+        return False
+    data = result["data"]
+    if set(data) != {"current_epoch", "error", "message", "requested_epoch"}:
+        return False
+    current_epoch = data["current_epoch"]
+    requested_epoch = data["requested_epoch"]
+    return (
+        _is_int(current_epoch, maximum=2_147_483_647)
+        and _is_int(requested_epoch, maximum=2_147_483_647)
+        and current_epoch != requested_epoch
+        and arguments.get("epoch") == requested_epoch
+        and type(arguments.get("epoch")) is int
+        and data["error"] == "epoch_mismatch"
+        and data["message"] == _GH_EDIT_EPOCH_MISMATCH_MESSAGE
+    )
+
+
 def _composite_evidence(event: dict[str, Any], data: dict[str, Any]) -> dict[str, Any] | None:
     if data.get("error") == "script_pipeline_incomplete":
         evidence = {
@@ -363,6 +396,8 @@ def _expected_mutation(event: dict[str, Any]) -> dict[str, Any]:
     if type(result) is not dict:
         return _unknown_mutation()
     data = result["data"]
+    if _recognized_gh_edit_epoch_mismatch(event):
+        return _observational_mutation()
     if target == "gh_set_script" and "script" not in event["arguments"]:
         return _observational_mutation()
     if result["success"] is False and target in _OBSERVATIONAL_TARGETS:
@@ -455,12 +490,30 @@ def _expected_mutation(event: dict[str, Any]) -> dict[str, Any]:
     return _unknown_mutation()
 
 
-def _validate_mutation_projection(event: dict[str, Any]) -> None:
-    if event["mutation"] != _expected_mutation(event):
-        raise ValueError("mutation_projection_mismatch")
+def _validate_mutation_projection(
+    event: dict[str, Any], *, normalize_retained_epoch_mismatch: bool = False
+) -> dict[str, Any]:
+    expected = _expected_mutation(event)
+    if event["mutation"] == expected:
+        return event
+    if (
+        normalize_retained_epoch_mismatch
+        and _recognized_gh_edit_epoch_mismatch(event)
+        and event["mutation"] == _unknown_mutation()
+    ):
+        normalized = dict(event)
+        normalized["mutation"] = expected
+        return normalized
+    raise ValueError("mutation_projection_mismatch")
 
 
-def _validate_event(value: Any, sequence: int, *, probe: bool = False) -> dict[str, Any]:
+def _validate_event(
+    value: Any,
+    sequence: int,
+    *,
+    probe: bool = False,
+    normalize_retained_epoch_mismatch: bool = False,
+) -> dict[str, Any]:
     if type(value) is not dict or set(value) != _EVENT_KEYS:
         raise ValueError("invalid_event_shape")
     if value["sequence"] != sequence:
@@ -522,8 +575,10 @@ def _validate_event(value: Any, sequence: int, *, probe: bool = False) -> dict[s
         or receipt is not None
     ):
         raise ValueError("invalid_exception_event")
-    _validate_mutation_projection(value)
-    return value
+    return _validate_mutation_projection(
+        value,
+        normalize_retained_epoch_mismatch=normalize_retained_epoch_mismatch,
+    )
 
 
 def _open_source(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]], list[bytes]]:
@@ -846,7 +901,14 @@ def normalize_authoring_trace(source_path: Path, runtime_log_path: Path) -> dict
     closure_row = source_rows[-1]
     if type(closure_row) is not dict or set(closure_row) != {"type", "source_closure"} or closure_row["type"] != "closure":
         raise ValueError("source_log_unclosed")
-    events = [_validate_event(row, index) for index, row in enumerate(source_rows[1:-1])]
+    events = [
+        _validate_event(
+            row,
+            index,
+            normalize_retained_epoch_mismatch=True,
+        )
+        for index, row in enumerate(source_rows[1:-1])
+    ]
     source_hashed_payload = b"".join(source_lines[:-1])
     closure = _validate_closure(closure_row["source_closure"], header, events, source_hashed_payload, runtime_payload)
     if header["row_emitter"] == "prime_rook_adapter":

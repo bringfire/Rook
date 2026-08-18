@@ -149,6 +149,54 @@ def _trace(*events: dict) -> dict:
     }
 
 
+def _write_closed_prime_trace(
+    tmp_path: Path, *events: dict
+) -> tuple[Path, Path]:
+    source_path = tmp_path / "source.jsonl"
+    runtime_path = tmp_path / "runtime.jsonl"
+    header = {
+        "schema": "rook.gh_authoring_source_log:v1",
+        "row_emitter": "prime_rook_adapter",
+    }
+    source_payload = b"".join(
+        acceptance.canonical_json_bytes(row) for row in (header, *events)
+    )
+    runtime_payload = acceptance.canonical_json_bytes({"type": "agent_end"})
+    closure = {
+        "schema": "rook.gh_authoring_source_closure:v1",
+        "owner": "prime_transaction_launcher",
+        "row_emitter": "prime_rook_adapter",
+        "source_event_count": len(events),
+        "final_source_sequence": len(events) - 1 if events else None,
+        "source_log_sha256": hashlib.sha256(source_payload).hexdigest().upper(),
+        "runtime_log_sha256": hashlib.sha256(runtime_payload).hexdigest().upper(),
+        "terminal_marker": "agent_end",
+        "closed": True,
+    }
+    source_path.write_bytes(
+        source_payload
+        + acceptance.canonical_json_bytes(
+            {"type": "closure", "source_closure": closure}
+        )
+    )
+    runtime_path.write_bytes(runtime_payload)
+    return source_path, runtime_path
+
+
+def _epoch_mismatch_result(
+    *, requested_epoch: object = 5, current_epoch: object = 6
+) -> dict:
+    return {
+        "success": False,
+        "data": {
+            "current_epoch": current_epoch,
+            "error": "epoch_mismatch",
+            "message": "Canvas has changed since last snapshot. Call gh_snapshot first.",
+            "requested_epoch": requested_epoch,
+        },
+    }
+
+
 def _artifact() -> dict:
     return {
         "schema": "rook.gh_behavioral_acceptance:v1",
@@ -573,6 +621,135 @@ def test_failed_observational_result_without_known_refusal_is_unknown(tmp_path):
         "commit_evidence": None,
         "solve_readiness_receipt": None,
     }
+
+
+def test_exact_dispatched_epoch_mismatch_is_definite_no_commit(tmp_path):
+    source_path = tmp_path / "source.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+
+    event = acceptance.append_canonical_gateway_source_event(
+        source_path,
+        "gh_edit",
+        {"epoch": 5, "set_values": [{"id": "C1", "value": 8}]},
+        result=_epoch_mismatch_result(),
+    )
+
+    assert event["dispatch"] == {"status": "dispatched", "target_call_count": 1}
+    assert event["mutation"] == {
+        "classification": "observational",
+        "commit_status": "none",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("arguments", "result"),
+    [
+        ({"epoch": 4}, _epoch_mismatch_result()),
+        ({"epoch": 5}, _epoch_mismatch_result(requested_epoch=True)),
+        ({"epoch": 5}, _epoch_mismatch_result(current_epoch=True)),
+        ({"epoch": 5}, _epoch_mismatch_result(current_epoch=5)),
+        ({"epoch": 5}, _epoch_mismatch_result(current_epoch=2_147_483_648)),
+        (
+            {"epoch": 5},
+            {
+                "success": False,
+                "data": _epoch_mismatch_result()["data"] | {"extra": True},
+            },
+        ),
+        (
+            {"epoch": 5},
+            {
+                "success": False,
+                "data": _epoch_mismatch_result()["data"]
+                | {"message": "A different refusal"},
+            },
+        ),
+        (
+            {"epoch": 5},
+            {
+                "success": False,
+                "data": _epoch_mismatch_result()["data"]
+                | {"error": "mystery_refusal"},
+            },
+        ),
+    ],
+)
+def test_near_epoch_mismatch_shapes_remain_fail_closed_unknown(
+    tmp_path, arguments, result
+):
+    source_path = tmp_path / "source.jsonl"
+    source_path.write_bytes(
+        acceptance.canonical_json_bytes(
+            {
+                "schema": "rook.gh_authoring_source_log:v1",
+                "row_emitter": "prime_rook_adapter",
+            }
+        )
+    )
+
+    event = acceptance.append_canonical_gateway_source_event(
+        source_path,
+        "gh_edit",
+        arguments,
+        result=result,
+    )
+
+    assert event["mutation"] == {
+        "classification": "unknown",
+        "commit_status": "unknown",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
+    }
+
+
+def test_retained_epoch_mismatch_projection_normalizes_and_latest_receipt_wins(
+    tmp_path,
+):
+    retained_refusal = _event(
+        0,
+        "gh_edit",
+        classification="unknown",
+        commit_status="unknown",
+        arguments={"epoch": 5, "set_values": [{"id": "C1", "value": 8}]},
+        data=_epoch_mismatch_result()["data"],
+    )
+    retained_refusal["result"] = _epoch_mismatch_result()
+    retained_refusal["mutation"] = {
+        "classification": "unknown",
+        "commit_status": "unknown",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
+    }
+    latest_receipt = _receipt("latest", mutation_epoch=4)
+    terminal = _event(
+        1,
+        "gh_edit",
+        classification="terminal",
+        commit_status="committed",
+        receipt=latest_receipt,
+    )
+    source_path, runtime_path = _write_closed_prime_trace(
+        tmp_path, retained_refusal, terminal
+    )
+
+    trace = acceptance.normalize_authoring_trace(source_path, runtime_path)
+
+    assert trace["events"][0]["mutation"] == {
+        "classification": "observational",
+        "commit_status": "none",
+        "commit_evidence": None,
+        "solve_readiness_receipt": None,
+    }
+    assert acceptance._latest_terminal_receipt(trace) == (latest_receipt, None)
 
 
 def test_public_gateway_appender_refuses_non_prime_source_owner(tmp_path):
