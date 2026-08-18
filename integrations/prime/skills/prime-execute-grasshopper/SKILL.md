@@ -100,6 +100,8 @@ Before completing:
 4. Investigate material uncertainties.
 5. Exercise important controls when appropriate and report what is observed,
    inferred, and unresolved.
+   After the required fresh post-solve checkpoint, make another observation only to resolve a named material uncertainty whose outcome could change the completion decision.
+   Greater precision, repeated confirmation, or reassurance such as being "100% sure" is not material investigation.
 6. Call `goal.complete()` as a dedicated final step only when you believe the
    request is satisfied. Do not perform a later Rook mutation in that
    iteration.

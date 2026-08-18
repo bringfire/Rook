@@ -187,16 +187,22 @@ The row improved materially over V3's semantic path:
   two-turn helix;
 - it did not construct SciPy or hand-coded spline oracles;
 - it exercised and restored four principal controls;
-- it used Rook's canvas image and focus capabilities to inspect the result; and
+- it focused and captured the Grasshopper canvas, although `attach_image` was
+  unavailable and Qwen explicitly could not view the captured image; and
 - it explicitly reasoned that the definition was complete and clean.
 
-The row still failed completion and budget custody. After acknowledging that it
-had already confirmed the endpoint, turns, radius, and curve length, Qwen chose
-another full 60-point snapshot to be "100% sure." The provider ceiling was
-crossed on that next tool-use response. The runner mechanically detected and
-terminated the row after the first provider report above 2,000,000 tokens, with
-the expected one-message overshoot to 2,067,953. Prime never reached
-`goal.complete()`.
+The row still failed completion and budget custody. The restored-state snapshot
+showed only the first 20 of 60 points, and Qwen mistakenly referred to the
+twentieth preview item as the endpoint before recognizing the preview limit.
+A 60-point snapshot would therefore have added endpoint precision. However,
+Qwen also explicitly acknowledged that earlier evidence had already confirmed
+the endpoint, turns, radius, and curve length and that the definition was
+complete. The additional precision could no longer change the completion
+decision. Qwen nevertheless requested the larger snapshot to be "100% sure."
+The provider ceiling was crossed on that next tool-use response. The runner
+mechanically detected and terminated the row after the first provider report
+above 2,000,000 tokens, with the expected one-message overshoot to 2,067,953.
+Prime never reached `goal.complete()`.
 
 The hidden evaluator correctly returned `incomplete` because the killed Prime
 stream had no valid terminal marker. No post-run host inspection or semantic
@@ -260,14 +266,17 @@ V4 supports four bounded conclusions:
    than medium T4, but still failed to stop within the resource budget.
 4. The retained terminal thought identifies the immediate failure precisely:
    Qwen knew the result was complete, knew the requested facts were already
-   established, and nevertheless requested another equivalent final check.
+   sufficiently established for the completion decision, and nevertheless
+   requested a more detailed final check.
 
 Low thinking should not be promoted as the default from this screening cohort,
 and an unchanged confirmatory repeat is not yet justified because T4 did not
 pass. The smallest evidence-led correction is behavioral guidance in the
-versioned Prime skill: once fresh post-solve evidence satisfies the request and
-no contradictory evidence remains, repeated equivalent checks are not
-material investigation; summarize the evidence and call `goal.complete()`.
+versioned Prime skill: after the required checkpoint, another observation is
+justified only by a named material uncertainty whose outcome could change the
+completion decision. Greater precision or reassurance alone is not material
+investigation; when current evidence satisfies the request and no contradictory
+evidence remains, summarize it and call `goal.complete()`.
 
 That correction should receive one focused T4-like retest before any broader
 cohort or thinking-level promotion. The T2 pre-mutation refusal classification

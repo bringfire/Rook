@@ -28,6 +28,13 @@ V4_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-18-qwen38-self-termination-campaign-v4.json"
 )
+V5_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-18-qwen38-self-termination-campaign-v5.json"
+)
 ADAPTER_PATH = (
     ROOT
     / "integrations"
@@ -87,6 +94,98 @@ def _v4_protocol() -> dict:
         ],
     }
     return protocol
+
+
+def _v5_protocol() -> dict:
+    protocol = _v4_protocol()
+    protocol["schema"] = "rook.experiment.qwen38_self_termination_campaign:v5"
+    protocol["purpose"] = (
+        "Test whether decision-relevance stopping guidance closes the observed "
+        "low-thinking T4 completion tail without changing any other operational input."
+    )
+    protocol["smokeTask"] = "T4"
+    protocol["executionOrder"] = ["T4"]
+    protocol["tasks"] = {"T4": protocol["tasks"]["T4"]}
+    protocol["focusedRetest"] = {
+        "sourceEvidenceManifestSha256": (
+            "99A1D37E45A4410CC668A53CB6ADD97A827C8080201C389C3F3BA9F5A4F9BF16"
+        ),
+        "onlyChangedOperationalInput": "versioned_prime_skill",
+        "successCriteria": [
+            "mechanically_healthy_helix",
+            "important_controls_exercised_and_restored",
+            "adequate_fresh_post_restore_checkpoint",
+            "goal_complete",
+            "budget_pass",
+            "custody_pass",
+        ],
+        "decisionTelemetry": {
+            "firstSufficientEvidence": "independent_post_run_timeline_adjudication",
+            "formalCompletion": "persisted_goal_complete",
+        },
+        "evaluatorFeedbackDuringRun": False,
+    }
+    return protocol
+
+
+def test_v5_protocol_freezes_one_low_thinking_t4_retest(tmp_path: Path):
+    runner = _runner()
+    protocol = _v5_protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+    command, _ = runner.build_prime_launch(
+        protocol,
+        task=protocol["tasks"]["T4"],
+        row_root=tmp_path,
+        target={"processId": 123, "documentSerialNumber": 456},
+    )
+    assert command[command.index("--thinking") + 1] == "low"
+    assert protocol["smokeTask"] == "T4"
+    assert protocol["executionOrder"] == ["T4"]
+
+    expanded = json.loads(json.dumps(protocol))
+    expanded["executionOrder"] = ["T4", "T2"]
+    expanded["tasks"]["T2"] = _v4_protocol()["tasks"]["T2"]
+    with pytest.raises(ValueError, match="focused_retest_invalid"):
+        runner.validate_protocol(expanded)
+
+
+def test_frozen_v5_changes_only_focused_scope_skill_and_success_contract():
+    runner = _runner()
+    v4 = json.loads(V4_PROTOCOL_PATH.read_text(encoding="utf-8"))
+    v5 = json.loads(V5_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+    assert runner.validate_protocol(v5) is v5
+    assert v5["focusedRetest"] == _v5_protocol()["focusedRetest"]
+    assert v5["tasks"]["T4"]["prompt"] == v4["tasks"]["T4"]["prompt"]
+    assert v5["versionedInputs"]["skillSha256"] == hashlib.sha256(
+        SKILL_PATH.read_bytes()
+    ).hexdigest().upper()
+
+    normalized = json.loads(json.dumps(v5))
+    normalized["schema"] = v4["schema"]
+    normalized["purpose"] = v4["purpose"]
+    normalized["smokeTask"] = v4["smokeTask"]
+    normalized["executionOrder"] = v4["executionOrder"]
+    normalized["tasks"] = v4["tasks"]
+    normalized["versionedInputs"]["skillSha256"] = v4["versionedInputs"][
+        "skillSha256"
+    ]
+    del normalized["focusedRetest"]
+    assert normalized == v4
+
+
+def test_skill_requires_decision_relevant_uncertainty_before_another_observation():
+    skill = SKILL_PATH.read_text(encoding="utf-8")
+
+    assert (
+        "make another observation only to resolve a named material uncertainty "
+        "whose outcome could change the completion decision"
+    ) in skill
+    assert (
+        "Greater precision, repeated confirmation, or reassurance such as being "
+        '"100% sure" is not material investigation.'
+    ) in skill
 
 
 def test_v4_protocol_freezes_low_thinking_and_three_row_screening_order(tmp_path: Path):
@@ -239,6 +338,30 @@ def test_v4_row_custody_requires_effective_low_thinking(
     )["custodyStatus"] == "pass"
 
 
+def test_v5_row_custody_requires_effective_low_thinking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _v5_protocol()
+    monkeypatch.setattr(runner, "_post_actor_evaluation", lambda *args: "unproven")
+    monkeypatch.setattr(runner, "_goal_status", lambda *args: "complete")
+    process = {
+        "limitBreach": None,
+        "goalContextVerified": True,
+        "providerReportedTokens": 100,
+        "gatewayEvents": 1,
+        "elapsedSeconds": 1.0,
+        "stdoutEof": True,
+        "ownedChildPids": [],
+        "exitCode": 0,
+        "thinkingLevelVerified": False,
+    }
+
+    assert runner._row_outcome(
+        protocol, protocol["tasks"]["T4"], tmp_path, process
+    )["custodyStatus"] == "fail"
+
+
 def test_campaign_completion_uses_the_frozen_row_count():
     runner = _runner()
     protocol = _v4_protocol()
@@ -277,7 +400,9 @@ def test_frozen_protocol_owns_exact_limits_and_corrected_skill_bootstrap():
 
 
 def test_frozen_protocol_pins_every_staged_versioned_input():
-    versioned = _protocol()["versionedInputs"]
+    versioned = json.loads(V5_PROTOCOL_PATH.read_text(encoding="utf-8"))[
+        "versionedInputs"
+    ]
 
     assert versioned["skillSha256"] == hashlib.sha256(SKILL_PATH.read_bytes()).hexdigest().upper()
     assert versioned["checkpointSha256"] == hashlib.sha256(

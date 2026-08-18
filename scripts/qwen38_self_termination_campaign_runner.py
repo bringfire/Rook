@@ -95,6 +95,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     if schema not in {
         "rook.experiment.qwen38_self_termination_campaign:v3",
         "rook.experiment.qwen38_self_termination_campaign:v4",
+        "rook.experiment.qwen38_self_termination_campaign:v5",
     }:
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
@@ -107,16 +108,25 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("builtin_skills_not_enabled")
     tasks = protocol.get("tasks")
     order = protocol.get("executionOrder")
-    expected_order = (
-        ["T3", "T2", "T4"]
-        if schema == "rook.experiment.qwen38_self_termination_campaign:v4"
-        else ["T3", "T1", "T2", "T4"]
-    )
+    expected_order = {
+        "rook.experiment.qwen38_self_termination_campaign:v3": [
+            "T3",
+            "T1",
+            "T2",
+            "T4",
+        ],
+        "rook.experiment.qwen38_self_termination_campaign:v4": ["T3", "T2", "T4"],
+        "rook.experiment.qwen38_self_termination_campaign:v5": ["T4"],
+    }[schema]
     if type(tasks) is not dict or order != expected_order:
-        raise ValueError("task_order_invalid")
-    if protocol.get("smokeTask") != "T3" or set(tasks) != set(order):
+        raise ValueError("focused_retest_invalid" if schema.endswith(":v5") else "task_order_invalid")
+    expected_smoke = "T4" if schema.endswith(":v5") else "T3"
+    if protocol.get("smokeTask") != expected_smoke or set(tasks) != set(order):
         raise ValueError("smoke_task_invalid")
-    if schema == "rook.experiment.qwen38_self_termination_campaign:v4":
+    if schema in {
+        "rook.experiment.qwen38_self_termination_campaign:v4",
+        "rook.experiment.qwen38_self_termination_campaign:v5",
+    }:
         if prime.get("thinkingLevel") != "low":
             raise ValueError("thinking_level_invalid")
         verification = protocol.get("precontactVerification")
@@ -133,6 +143,27 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
             )
         ):
             raise ValueError("precontact_verification_invalid")
+    if schema == "rook.experiment.qwen38_self_termination_campaign:v5":
+        if protocol.get("focusedRetest") != {
+            "sourceEvidenceManifestSha256": (
+                "99A1D37E45A4410CC668A53CB6ADD97A827C8080201C389C3F3BA9F5A4F9BF16"
+            ),
+            "onlyChangedOperationalInput": "versioned_prime_skill",
+            "successCriteria": [
+                "mechanically_healthy_helix",
+                "important_controls_exercised_and_restored",
+                "adequate_fresh_post_restore_checkpoint",
+                "goal_complete",
+                "budget_pass",
+                "custody_pass",
+            ],
+            "decisionTelemetry": {
+                "firstSufficientEvidence": "independent_post_run_timeline_adjudication",
+                "formalCompletion": "persisted_goal_complete",
+            },
+            "evaluatorFeedbackDuringRun": False,
+        }:
+            raise ValueError("focused_retest_invalid")
     versioned = protocol.get("versionedInputs")
     if type(versioned) is not dict:
         raise ValueError("versioned_inputs_invalid")
@@ -1349,7 +1380,10 @@ def _row_outcome(
         and process_result["exitCode"] == 0
         and (
             protocol["schema"]
-            != "rook.experiment.qwen38_self_termination_campaign:v4"
+            not in {
+                "rook.experiment.qwen38_self_termination_campaign:v4",
+                "rook.experiment.qwen38_self_termination_campaign:v5",
+            }
             or process_result.get("thinkingLevelVerified") is True
         )
     )
