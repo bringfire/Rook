@@ -8,31 +8,42 @@
 **Frozen protocol commit:**
 `0986fc61933156acd318847362712e4672ec59fc`
 
-**Evidence root:**
-`C:/Users/bring/AppData/Local/Temp/rook-qwen38-self-termination-campaign-v1`
+**Qualification status:** `not_qualified`
 
-**Evidence-manifest SHA-256:**
-`874CFC6545070C935100E41C665D80BEBEBA7742A3814961D9892A700B7F3AA2`
+**Durable partial-evidence root:**
+`C:/UDEV/RookEvidence/2026-08-18-qwen38-self-termination-campaign-v1-partial`
+
+**Durable partial-evidence manifest SHA-256:**
+`9667506C1939F5111409F9FCFB9D7A64A025654AFDC0EA69FAAAA0AB651AB797`
 
 ## Result
 
-The model-led Prime/Rook loop is promising, but this cohort did not establish
-reliable formal self-termination.
+The model-led Prime/Rook loop produced encouraging observations, but this
+campaign is not qualified. Its original Temp evidence root lost 84 of 121
+manifested files after the run, including all 36 T1 files. T1 is therefore an
+unreviewable retained finding, not part of a verified aggregate result.
 
-Qwen3.8 produced three semantically successful Grasshopper outcomes and one
-semantic failure. It recorded formal Prime goal completion in only one of the
-four rows. No row contained a false formal completion belief.
+The original run was interpreted as three semantic successes and one semantic
+failure. Surviving primary evidence supports the substantive T2-T4
+observations, but the original three-pass/one-fail aggregate is no longer
+independently reproducible. Prime recorded formal goal completion only in the
+now-missing T1 evidence.
 
-The dominant stopping failure was not inability to judge the Grasshopper
-canvas. In the repair row, Qwen reached and behaviorally verified the correct
-state in approximately three minutes, then spent approximately twenty minutes
-trying to discover an unavailable Prime goal-completion affordance. Construction
-ability, completion judgment, and Prime lifecycle closure are therefore
-separate concerns.
+T3 directly establishes one important stopping defect: Qwen reached and
+behaviorally verified the correct state in approximately three minutes, then
+spent approximately twenty minutes trying to discover an unavailable Prime
+goal-completion affordance. The runner both froze `enableBuiltinSkills: false`,
+which excluded Prime's bundled `goal` Python skill, and forced an external
+`PRIME_AGENT_KERNEL_PYTHON`. Prime treats that override as preprovisioned and
+warns/disables missing Python skills rather than installing them. The surviving
+T3 session proves that `goal` was not importable in the effective kernel. This
+was a campaign-bootstrap defect, not a missing Prime public API and not a Rook
+defect. It is a plausible contributor to other incomplete closures, but T4 does
+not prove the same causal path and T2 was a genuine semantic failure.
 
 | Row | Semantic result | Model outcome | Prime time | Gateway events | Provider-reported tokens |
 |---|---|---|---:|---:|---:|
-| T1 exact point row | `pass` | `completed_belief` | 458.4s | 49 | 875,726 |
+| T1 exact point row | `pass` (unreviewable) | `completed_belief` (unreviewable) | 458.4s | 49 | 875,726 |
 | T2 open facade grid | `fail` | `interrupted` | 1281.0s | 90 | 2,363,232 |
 | T3 repair in place | `pass` | `incomplete_reported` | 1405.5s | 96 | 6,860,401 |
 | T4 adjustable helix | `pass` | `interrupted` | 1236.6s | 78 | 3,451,775 |
@@ -40,12 +51,14 @@ separate concerns.
 The token values are cumulative provider telemetry, not comparable to unique
 context size. T2, T3, and T4 exceeded the protocol's frozen two-million-token
 ceiling because that ceiling was recorded but not mechanically enforced by the
-runner. Those rows remain useful evidence, but the resource-policy
-nonconformance must not be hidden.
+runner. Their semantic artifacts remain useful, but runtime and
+self-termination measurements are not qualified under the declared resource
+contract.
 
 ## Cohort Custody
 
-The four rows used the unchanged frozen cohort:
+Recovered launch records show that the four rows used these intended cohort
+inputs:
 
 - Prime commit `27b5be22cf0e0e81e324a59ebabbb41edfee6ec0`;
 - Qwen `qwen3.8:27b` through Ollama `0.32.14`, medium reasoning;
@@ -56,14 +69,38 @@ The four rows used the unchanged frozen cohort:
 - no runtime evaluator feedback, operator repair turn, prompt change, or
   between-row product tuning.
 
-Post-run checks reproduced Prime, Node, Ollama manifest/layer, installed Rook
-Python, and behavioral-acceptance hashes. Each row's 13-entry precontact
-manifest still matched exactly. All four stderr files were empty and no
-qualification-owned process remained.
+At initial campaign close, post-run checks reproduced Prime, Node, Ollama,
+installed Rook Python, and behavioral-acceptance hashes. That claim cannot now
+be re-audited for the complete campaign because the Temp root was not durable.
+
+The surviving bytes were copied unchanged to the durable partial-evidence root.
+Using extended Win32 paths, 37 original manifest entries verify, 84 are missing,
+and none of the surviving entries mismatch. Conventional Windows APIs report
+only 36 because `T3/nul` is a real 102-byte file whose reserved name is otherwise
+treated as the null device. The exact reconciliation is retained in
+`custody-reconciliation.json`.
+
+The orchestrating Codex task log separately retained the exact Prime launch
+commands and the settings inspection. A 14-record extract is preserved as
+secondary evidence with SHA-256
+`BD20E40C84F9335F7906134F887C1767EF9843836C9EA5CBE255D378E9510648`.
+It proves launch configuration but does not replace missing primary row
+evidence.
+
+A post-review, non-provider Prime check also found that the current managed
+kernel bootstrap is not a working Windows fallback: the focused bundled-goal
+test stops before the skill bridge because bootstrap targets
+`kernel-venv/bin/python`, while the created Windows environment exposes
+`Scripts/python.exe`. This did not cause the campaign, which forced an external
+kernel. It does mean that removing the override is not yet a qualified repair.
 
 ## T1: Exact Point Row
 
-Qwen created the requested native graph:
+T1's complete primary evidence is missing. The following is the original
+post-run interpretation and is retained for historical continuity, but it is
+not independently reviewable.
+
+Qwen was observed creating the requested native graph:
 
 ```text
 Start -> Series.Start
@@ -73,20 +110,21 @@ Series -> Construct Point.X
 Construct Point.Y/Z use native zero defaults
 ```
 
-It verified ten default points, perturbed the controls to produce
+It was observed verifying ten default points and perturbing the controls to produce
 `(5,0,0)`, `(7,0,0)`, `(9,0,0)`, and `(11,0,0)`, restored the defaults, and
 observed clean diagnostics.
 
-The first retained passing evidence appeared 195.9 seconds after goal start.
+The originally retained passing evidence appeared 195.9 seconds after goal start.
 Prime recorded completion 229.9 seconds later. Qwen reached Prime's lower-level
 `goal.complete` host request after finding that the ordinary `goal` object was
-not bound. This row demonstrates both semantic success and a functioning
-underlying completion operation, but also avoidable completion discovery.
+not bound. The row was originally interpreted as semantic success plus a
+functioning lower-level completion operation, but the missing primary evidence
+prevents that interpretation from being independently confirmed now.
 
-The legacy point-row shadow evaluator returned `incomplete` because an earlier
-partial edit violated its stricter historical trace-admission rule. The retained
-receipt-fenced model observations independently establish the behavioral pass;
-the evaluator refusal is not rewritten as a semantic failure.
+The original legacy point-row shadow evaluator returned `incomplete` because an earlier
+partial edit violated its stricter historical trace-admission rule. Those
+receipt-fenced model observations are among the missing files, so neither the
+behavioral pass nor that evaluator attribution is currently reviewable.
 
 ## T2: Underspecified Facade Grid
 
@@ -158,26 +196,30 @@ message stated that defaults had been restored and final acceptance passed, but
 no supported Prime goal outcome was recorded, so the model outcome is
 `interrupted`.
 
-The unchanged legacy helix evaluator returned `incomplete` because Qwen used
-five additional fixed-value sliders as numerical constants, raising the total
-slider count above that evaluator's frozen maximum. Receipt-fenced point,
-curve, diagnostic, and perturbation evidence still establishes the semantic
-pass. This is another example of a shadow evaluator's bounded coverage, not a
-reason to expand runtime semantic authority.
+The retained top-level legacy helix evaluator reports only
+`behavioral_evidence_unavailable`. During the original analysis this was
+attributed to Qwen's five additional fixed-value sliders exceeding the
+evaluator's frozen slider maximum, but the lower-level diagnostic establishing
+that exact cause was not preserved. The attribution is therefore not a
+qualified claim. Receipt-fenced point, curve, diagnostic, and perturbation
+evidence still supports the substantive helix result.
 
-## What The Campaign Establishes
+## What The Retained Evidence Supports
 
-1. **The simple empirical loop works materially.** Qwen used discovery,
-   metadata, mutation, snapshots, errors, receipts, and direct behavioral
-   experiments to produce three viable definitions without runtime semantic
-   evaluator feedback.
+1. **The simple empirical loop worked materially in retained T3 and T4
+   evidence.** Qwen used discovery, metadata, mutation, snapshots, errors,
+   receipts, and direct behavioral experiments without runtime semantic
+   evaluator feedback. T2 retains a counterexample where the same loop produced
+   clean but semantically wrong geometry.
 
-2. **Qwen can judge successful Grasshopper behavior.** T1, T3, and T4 include
-   model-authored perturbation or geometry evidence, not merely clean canvases.
+2. **Qwen can judge successful Grasshopper behavior in some tasks.** T3 and T4
+   retain model-authored perturbation or geometry evidence, not merely clean
+   canvases. T1 was originally consistent with this finding but is now
+   unreviewable.
 
-3. **Prime formal completion is the main cross-row operational defect.** Only
-   T1 closed its goal. T3 proves this can dominate runtime after the model has
-   already established success.
+3. **Missing Prime goal-skill bootstrap dominated T3's runtime.** T3 proves this
+   can dominate runtime after the model has already established success. It is
+   a plausible contributor elsewhere, not a proven cross-row cause.
 
 4. **There is still a real model-semantic limit.** T2's clean but wrong geometry
    shows that trustworthy observations and self-inspection do not guarantee
@@ -196,9 +238,23 @@ reason to expand runtime semantic authority.
 Do not resume the suspended terminalization state-machine plan and do not add a
 semantic supervisor.
 
-The next bounded product experiment should make Prime's existing goal
-completion affordance reliably available in the versioned execution skill or
-IPython environment, then run a new cohort. The desired behavior is simple:
+The next bounded correction belongs to the campaign runner and Prime's existing
+goal-skill bootstrap. Do not teach `rook_full` to call Prime's lower-level host
+protocol. Prime already ships `goal.get()` and `goal.complete()` and pre-imports
+the `goal` module when the bundled skill is selected and importable in the
+effective kernel.
+
+The runner must set `enableBuiltinSkills: true` and, until the separate Windows
+managed-bootstrap issue is repaired, use a sealed external kernel containing
+every selected skill. Before model contact, a non-live preflight must prove
+that an ordinary active-goal IPython session exposes `goal`, that
+`await goal.get()` returns the active goal, and that a dedicated
+`await goal.complete()` records completion. Configuration bytes, the effective
+Python executable, and the imported `goal.__file__` must be retained. The
+versioned Grasshopper skill should instruct Qwen to report an infrastructure
+blocker immediately if that documented affordance is unexpectedly absent.
+
+The corrected runtime behavior remains simple:
 
 ```text
 inspect final solved state
@@ -207,10 +263,10 @@ inspect final solved state
 -> stop
 ```
 
-This should be treated as affordance repair, not transactional containment. The
-test must prove that a normal `/goal` session receives the completion object or
-documented supported equivalent and that a dedicated final completion call
-closes the goal without further Rook mutation.
+This is runner configuration and bootstrap qualification, not transactional
+containment. The corrected runner must also set Prime's existing goal budget,
+verify the resulting goal context before model contact, and enforce an outer
+watchdog against the same declared provider-telemetry ceiling.
 
 Separately, T2 justifies focused investigation of Grasshopper data-tree and
 Cartesian-grid reasoning. That should begin with better observation or skill
@@ -219,15 +275,15 @@ justify another general orchestration subsystem.
 
 ## Evidence Index
 
-The evidence root contains 121 hashed files plus its non-self-referential
-manifest. Primary summaries are:
+The durable partial-evidence root contains 40 hashed files plus its
+non-self-referential manifest. Primary custody records are:
 
-- `campaign-summary.json`;
-- `runtime-custody-postrun.json`;
-- each row's `prime.jsonl`, `source.jsonl`, target, process result, and stderr;
-- T2's hidden final fenced snapshot;
-- T3's post-run receipt-refusal record; and
-- T4's fenced geometry probe and evaluator result.
+- `custody-reconciliation.json`;
+- `recovered-codex-launch-events.jsonl`;
+- the original, now-incomplete `evidence-manifest.json`;
+- surviving T2-T4 row artifacts; and
+- the original campaign summary and post-run custody records, retained as
+  historical artifacts rather than current proof.
 
-All retained canvases remain untouched after their row's permitted hidden
-inspection.
+No T1 primary file was recovered. The original three-pass/one-fail aggregate
+must not be cited as independently verified from this archive.

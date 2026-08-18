@@ -104,6 +104,10 @@ Before completing:
    request is satisfied. Do not perform a later Rook mutation in that
    iteration.
 
+If the documented `goal` module is unexpectedly unavailable, report the Prime
+bootstrap blocker once and stop. Do not search Rook capabilities, raw host
+protocols, or unrelated Python internals for an alternate completion path.
+
 Material uncertainty requires further investigation, an honest incomplete
 report, or user input. Budget exhaustion is not completion. After interruption
 or restart, reorient from current Rook state before any mutation and never
