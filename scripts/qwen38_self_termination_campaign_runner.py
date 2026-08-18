@@ -30,6 +30,11 @@ DEFAULT_PROTOCOL = (
     / "experiments"
     / "2026-08-18-qwen38-self-termination-campaign-v3.json"
 )
+VARIED_COHORT_SCHEMA = "rook.experiment.qwen38_varied_product_cohort:v1"
+TARGET_FIXTURE_SCHEMA = "rook.experiment.gh_target_fixture:v1"
+SHADOW_ADJUDICATION_SCHEMA = (
+    "rook.experiment.varied_product_shadow_adjudication:v1"
+)
 POINT_ACCEPTANCE = ROOT / "scripts" / "grasshopper_point_row_acceptance.json"
 PREFLIGHT_SCRIPT = ROOT / "scripts" / "prime_goal_kernel_preflight.ts"
 _MANIFEST_EXCLUSIONS = {"evidence-manifest.json", "manifest-verification.json"}
@@ -60,6 +65,170 @@ def _sha(path: Path) -> str:
 
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789ABCDEF" for character in value)
+    )
+
+
+def validate_target_fixture(fixture: Any) -> dict[str, Any]:
+    if type(fixture) is not dict or set(fixture) != {
+        "schema",
+        "baseline",
+        "seedEdit",
+        "seedExpectations",
+        "preservation",
+    }:
+        raise ValueError("target_fixture_invalid")
+    if fixture.get("schema") != TARGET_FIXTURE_SCHEMA:
+        raise ValueError("target_fixture_invalid")
+    baseline = fixture.get("baseline")
+    if baseline == "fresh_empty":
+        if any(fixture.get(field) is not None for field in (
+            "seedEdit",
+            "seedExpectations",
+            "preservation",
+        )):
+            raise ValueError("target_fixture_invalid")
+        return fixture
+    if baseline != "seeded_working_definition":
+        raise ValueError("target_fixture_invalid")
+
+    seed = fixture.get("seedEdit")
+    expected = fixture.get("seedExpectations")
+    preservation = fixture.get("preservation")
+    if type(seed) is not dict or set(seed) != {"create", "connect"}:
+        raise ValueError("target_fixture_seed_invalid")
+    create = seed.get("create")
+    connect = seed.get("connect")
+    if (
+        type(create) is not list
+        or not create
+        or any(type(item) is not dict for item in create)
+        or type(connect) is not list
+        or any(type(item) is not str or not item for item in connect)
+    ):
+        raise ValueError("target_fixture_seed_invalid")
+    temp_ids = [item.get("temp_id") for item in create]
+    if (
+        any(
+            type(item) is not str
+            or not item.startswith("T")
+            or not item[1:].isdigit()
+            or item[1] == "0"
+            for item in temp_ids
+        )
+        or len(temp_ids) != len(set(temp_ids))
+    ):
+        raise ValueError("target_fixture_seed_invalid")
+    if type(expected) is not dict or set(expected) != {
+        "components",
+        "flows",
+        "errors",
+        "warnings",
+    } or any(type(expected[field]) is not int or expected[field] < 0 for field in expected):
+        raise ValueError("target_fixture_expectations_invalid")
+    if type(preservation) is not dict or set(preservation) != {
+        "protectedComponents",
+        "protectedFlows",
+        "exactIncidentFlowRoles",
+    }:
+        raise ValueError("target_fixture_preservation_invalid")
+    protected = preservation.get("protectedComponents")
+    protected_flows = preservation.get("protectedFlows")
+    exact_incident_roles = preservation.get("exactIncidentFlowRoles")
+    if (
+        type(protected) is not list
+        or not protected
+        or type(protected_flows) is not list
+        or any(type(flow) is not str or not flow for flow in protected_flows)
+        or type(exact_incident_roles) is not list
+        or any(type(role) is not str or not role for role in exact_incident_roles)
+    ):
+        raise ValueError("target_fixture_preservation_invalid")
+    roles: list[str] = []
+    for item in protected:
+        if type(item) is not dict or set(item) != {"role", "temp_id", "fields"}:
+            raise ValueError("target_fixture_preservation_invalid")
+        role = item.get("role")
+        temp_id = item.get("temp_id")
+        fields = item.get("fields")
+        if (
+            type(role) is not str
+            or not role
+            or temp_id not in temp_ids
+            or type(fields) is not list
+            or not fields
+            or len(fields) != len(set(fields))
+            or any(field not in {"type", "nick", "value", "componentGuid"} for field in fields)
+        ):
+            raise ValueError("target_fixture_preservation_invalid")
+        roles.append(role)
+    if len(roles) != len(set(roles)):
+        raise ValueError("target_fixture_preservation_invalid")
+    if any(role not in roles for role in exact_incident_roles):
+        raise ValueError("target_fixture_preservation_invalid")
+    return fixture
+
+
+def validate_shadow_adjudication(
+    artifact: Any, protocol: dict[str, Any]
+) -> dict[str, Any]:
+    if type(artifact) is not dict or set(artifact) != {
+        "schema",
+        "status",
+        "purpose",
+        "evaluatorFeedbackDuringRun",
+        "evidenceLabels",
+        "dispositions",
+        "aggregateScore",
+        "rules",
+        "tasks",
+    }:
+        raise ValueError("shadow_adjudication_invalid")
+    if (
+        artifact.get("schema") != SHADOW_ADJUDICATION_SCHEMA
+        or artifact.get("status") != "frozen_precontact"
+        or artifact.get("evaluatorFeedbackDuringRun") is not False
+        or artifact.get("evidenceLabels") != ["observed", "inferred", "unresolved"]
+        or artifact.get("dispositions")
+        != ["credible_success", "partial_success", "semantic_failure", "incomplete"]
+        or artifact.get("aggregateScore") is not None
+        or type(artifact.get("rules")) is not list
+        or not artifact["rules"]
+        or any(type(rule) is not str or not rule for rule in artifact["rules"])
+    ):
+        raise ValueError("shadow_adjudication_invalid")
+    tasks = artifact.get("tasks")
+    if type(tasks) is not dict or set(tasks) != set(protocol.get("executionOrder", [])):
+        raise ValueError("shadow_adjudication_tasks_invalid")
+    for task_id, task in tasks.items():
+        if type(task) is not dict or set(task) != {"class", "questions"}:
+            raise ValueError("shadow_adjudication_task_invalid")
+        if task.get("class") != protocol["tasks"][task_id].get("class"):
+            raise ValueError("shadow_adjudication_task_invalid")
+        questions = task.get("questions")
+        if type(questions) is not list or not questions:
+            raise ValueError("shadow_adjudication_task_invalid")
+        identifiers: list[str] = []
+        for question in questions:
+            if (
+                type(question) is not dict
+                or set(question) != {"id", "text"}
+                or type(question.get("id")) is not str
+                or not question["id"]
+                or type(question.get("text")) is not str
+                or not question["text"]
+            ):
+                raise ValueError("shadow_adjudication_task_invalid")
+            identifiers.append(question["id"])
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("shadow_adjudication_task_invalid")
+    return artifact
 
 
 @dataclass(frozen=True)
@@ -97,6 +266,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         "rook.experiment.qwen38_self_termination_campaign:v4",
         "rook.experiment.qwen38_self_termination_campaign:v5",
         "rook.experiment.qwen38_self_termination_campaign:v6",
+        VARIED_COHORT_SCHEMA,
     }:
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
@@ -119,16 +289,24 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         "rook.experiment.qwen38_self_termination_campaign:v4": ["T3", "T2", "T4"],
         "rook.experiment.qwen38_self_termination_campaign:v5": ["T4"],
         "rook.experiment.qwen38_self_termination_campaign:v6": ["T4"],
+        VARIED_COHORT_SCHEMA: ["VP1", "VP2", "VP3"],
     }[schema]
     if type(tasks) is not dict or order != expected_order:
         raise ValueError("focused_retest_invalid" if schema.endswith(":v5") else "task_order_invalid")
-    expected_smoke = "T4" if schema.endswith((":v5", ":v6")) else "T3"
-    if protocol.get("smokeTask") != expected_smoke or set(tasks) != set(order):
-        raise ValueError("smoke_task_invalid")
+    if set(tasks) != set(order):
+        raise ValueError("task_order_invalid")
+    if schema == VARIED_COHORT_SCHEMA:
+        if "smokeTask" in protocol:
+            raise ValueError("varied_cohort_smoke_forbidden")
+    else:
+        expected_smoke = "T4" if schema.endswith((":v5", ":v6")) else "T3"
+        if protocol.get("smokeTask") != expected_smoke:
+            raise ValueError("smoke_task_invalid")
     if schema in {
         "rook.experiment.qwen38_self_termination_campaign:v4",
         "rook.experiment.qwen38_self_termination_campaign:v5",
         "rook.experiment.qwen38_self_termination_campaign:v6",
+        VARIED_COHORT_SCHEMA,
     }:
         if prime.get("thinkingLevel") != "low":
             raise ValueError("thinking_level_invalid")
@@ -192,6 +370,72 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
             "evaluatorFeedbackDuringRun": False,
         }:
             raise ValueError("focused_retest_invalid")
+    if schema == VARIED_COHORT_SCHEMA:
+        continuation = protocol.get("continuationPolicy")
+        if continuation != {
+            "modelOrSemanticFailureContinues": True,
+            "budgetLimitTerminationContinuesAfterCleanShutdown": True,
+            "stopConditions": [
+                "runtime_custody_drift",
+                "python_environment_drift",
+                "tool_surface_drift",
+                "target_contamination",
+                "process_custody_failure",
+                "evaluator_infrastructure_failure",
+                "unexpected_runner_failure",
+            ],
+        }:
+            raise ValueError("continuation_policy_invalid")
+        source = protocol.get("sourceCampaignProtocol")
+        if (
+            type(source) is not dict
+            or set(source) != {"path", "sha256"}
+            or source.get("path")
+            != "docs/superpowers/experiments/2026-08-18-qwen38-self-termination-campaign-v6.json"
+            or not _is_sha256(source.get("sha256"))
+        ):
+            raise ValueError("source_campaign_invalid")
+        source_path = ROOT / source["path"]
+        if not source_path.is_file() or _sha(source_path) != source["sha256"]:
+            raise ValueError("source_campaign_invalid")
+        evaluator = protocol.get("offlineEvaluator")
+        if (
+            type(evaluator) is not dict
+            or set(evaluator)
+            != {
+                "sourceCampaignProtocolSha256",
+                "reviewedCorrectionCommit",
+                "behavioralAcceptancePath",
+                "behavioralAcceptanceSha256",
+                "scope",
+            }
+            or evaluator.get("sourceCampaignProtocolSha256") != source["sha256"]
+            or evaluator.get("reviewedCorrectionCommit")
+            != "efe0615466b84079263fd190336831bfce59343a"
+            or evaluator.get("scope") != "silent_post_run_trace_normalization_only"
+            or not _is_sha256(evaluator.get("behavioralAcceptanceSha256"))
+        ):
+            raise ValueError("offline_evaluator_invalid")
+        evaluator_path = ROOT / evaluator["behavioralAcceptancePath"]
+        if (
+            not evaluator_path.is_file()
+            or _sha(evaluator_path) != evaluator["behavioralAcceptanceSha256"]
+        ):
+            raise ValueError("offline_evaluator_invalid")
+        adjudication = protocol.get("shadowAdjudication")
+        if (
+            type(adjudication) is not dict
+            or set(adjudication) != {"path", "sha256"}
+            or not _is_sha256(adjudication.get("sha256"))
+        ):
+            raise ValueError("shadow_adjudication_invalid")
+        adjudication_path = ROOT / adjudication["path"]
+        if (
+            not adjudication_path.is_file()
+            or _sha(adjudication_path) != adjudication["sha256"]
+        ):
+            raise ValueError("shadow_adjudication_invalid")
+        validate_shadow_adjudication(_load_json(adjudication_path), protocol)
     versioned = protocol.get("versionedInputs")
     if type(versioned) is not dict:
         raise ValueError("versioned_inputs_invalid")
@@ -268,6 +512,17 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
             or not task["prompt"].strip()
         ):
             raise ValueError(f"task_invalid:{task_id}")
+        if schema == VARIED_COHORT_SCHEMA:
+            if set(task) != {
+                "id",
+                "class",
+                "targetBaseline",
+                "evaluator",
+                "prompt",
+                "targetFixture",
+            } or task.get("evaluator") != "independent_shadow_judgment":
+                raise ValueError(f"task_invalid:{task_id}")
+            validate_target_fixture(task["targetFixture"])
     _ = limits
     return protocol
 
@@ -400,6 +655,24 @@ def python_runtime_environment(
     result["PATH"] = os.pathsep.join(
         [*dll_paths, *([existing_path] if existing_path else [])]
     )
+    return result
+
+
+def offline_evaluator_environment(
+    protocol: dict[str, Any], environment: dict[str, str]
+) -> dict[str, str]:
+    if protocol.get("schema") != VARIED_COHORT_SCHEMA:
+        raise ValueError("varied_cohort_protocol_required")
+    evaluator = protocol["offlineEvaluator"]
+    source = ROOT / evaluator["behavioralAcceptancePath"]
+    if not source.is_file() or _sha(source) != evaluator["behavioralAcceptanceSha256"]:
+        raise RuntimeError("offline_evaluator_custody_mismatch")
+    result = dict(environment)
+    existing = result.get("PYTHONPATH")
+    entries = [(ROOT / "mcp_server" / "src").as_posix()]
+    if existing:
+        entries.append(existing)
+    result["PYTHONPATH"] = os.pathsep.join(entries)
     return result
 
 
@@ -643,6 +916,9 @@ def _write_row_input_custody(
         "adapter": agent / "skills" / "rook-full" / "src" / "rook_full" / "__init__.py",
         "target": operator / "target.json",
     }
+    fixture_path = operator / "task-fixture.json"
+    if fixture_path.is_file():
+        files["targetFixture"] = fixture_path
     custody = {
         "schema": "rook.experiment.qwen38_campaign_row_input_custody:v1",
         "task": task,
@@ -821,7 +1097,9 @@ def _write_python_environment_custody(
     return require_python_environment_custody(record)
 
 
-def _runtime_custody(protocol: dict[str, Any]) -> dict[str, Any]:
+def _runtime_custody(
+    protocol: dict[str, Any], protocol_path: Path = DEFAULT_PROTOCOL
+) -> dict[str, Any]:
     prime = protocol["prime"]
     prime_commit = subprocess.run(
         ["git", "-C", prime["sourceRoot"], "rev-parse", "HEAD"],
@@ -905,9 +1183,9 @@ def _runtime_custody(protocol: dict[str, Any]) -> dict[str, Any]:
             adapter_path, versioned["adapterInitSha256"], "versioned_adapter"
         ),
         "campaignProtocol": {
-            "path": DEFAULT_PROTOCOL.as_posix(),
-            "sha256": _sha(DEFAULT_PROTOCOL),
-            "bytes": DEFAULT_PROTOCOL.stat().st_size,
+            "path": Path(protocol_path).as_posix(),
+            "sha256": _sha(Path(protocol_path)),
+            "bytes": Path(protocol_path).stat().st_size,
         },
         "campaignRunner": {
             "path": Path(__file__).resolve().as_posix(),
@@ -920,6 +1198,23 @@ def _runtime_custody(protocol: dict[str, Any]) -> dict[str, Any]:
             "bytes": PREFLIGHT_SCRIPT.stat().st_size,
         },
     }
+    if protocol.get("schema") == VARIED_COHORT_SCHEMA:
+        evaluator = protocol["offlineEvaluator"]
+        source = protocol["sourceCampaignProtocol"]
+        adjudication = protocol["shadowAdjudication"]
+        files["offlineBehavioralAcceptance"] = _verify_sha(
+            ROOT / evaluator["behavioralAcceptancePath"],
+            evaluator["behavioralAcceptanceSha256"],
+            "offline_behavioral_acceptance",
+        )
+        files["sourceCampaignProtocol"] = _verify_sha(
+            ROOT / source["path"], source["sha256"], "source_campaign_protocol"
+        )
+        files["shadowAdjudication"] = _verify_sha(
+            ROOT / adjudication["path"],
+            adjudication["sha256"],
+            "shadow_adjudication",
+        )
     return {
         "schema": "rook.experiment.qwen38_campaign_runtime_custody:v1",
         "campaignRepositoryCommit": repository_commit,
@@ -1312,6 +1607,22 @@ def _operator_command(
     )
 
 
+def _offline_evaluator_command(
+    protocol: dict[str, Any], args: list[str]
+) -> subprocess.CompletedProcess:
+    verification = protocol["precontactVerification"]
+    environment = offline_evaluator_environment(protocol, dict(os.environ))
+    return subprocess.run(
+        [verification["pythonPath"], str(Path(__file__).resolve()), *args],
+        cwd=ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+
 def operator_envelope(value: Any) -> dict[str, Any]:
     if type(value) is dict and value.get("success") is False:
         if set(value) == {"success", "data"}:
@@ -1357,6 +1668,12 @@ def _prepare_target(
         "--output",
         str(output),
     ]
+    fixture = task.get("targetFixture")
+    if fixture is not None:
+        validate_target_fixture(fixture)
+        fixture_path = output.parent / "task-fixture.json"
+        _write_json(fixture_path, fixture)
+        arguments.extend(["--fixture", str(fixture_path)])
     if process_id is not None:
         arguments.extend(["--process-id", str(process_id)])
     result = _operator_command(protocol, arguments)
@@ -1368,6 +1685,34 @@ def _prepare_target(
 def _post_actor_evaluation(
     protocol: dict[str, Any], task: dict[str, Any], row_root: Path, process_result: dict[str, Any]
 ) -> str:
+    presealed = protocol.get("schema") == VARIED_COHORT_SCHEMA
+    infrastructure_path = row_root / "operator" / "evaluation-infrastructure.json"
+    if presealed:
+        normalize_arguments = [
+            "_operator-normalize",
+            "--row-root",
+            str(row_root),
+            "--exit-code",
+            str(process_result["exitCode"]),
+        ]
+        normalized = _offline_evaluator_command(protocol, normalize_arguments)
+        if normalized.returncode != 0:
+            (row_root / "operator" / "normalization-error.txt").write_text(
+                normalized.stderr, encoding="utf-8"
+            )
+            _write_json(
+                infrastructure_path,
+                {"status": "fail", "stage": "offline_trace_normalization"},
+            )
+            return "incomplete"
+        retained_evaluation = row_root / "operator" / "hidden-evaluation.json"
+        retained_trace = row_root / "operator" / "authoring-trace.json"
+        if retained_evaluation.is_file() and not retained_trace.is_file():
+            _write_json(
+                infrastructure_path,
+                {"status": "pass", "stage": "actor_evidence_incomplete"},
+            )
+            return _load_json(retained_evaluation)["status"]
     arguments = [
         "_operator-evaluate",
         "--task",
@@ -1377,12 +1722,24 @@ def _post_actor_evaluation(
         "--exit-code",
         str(process_result["exitCode"]),
     ]
+    if presealed:
+        arguments.append("--presealed")
     result = _operator_command(protocol, arguments)
     if result.returncode != 0:
         (row_root / "operator" / "evaluation-error.txt").write_text(
             result.stderr, encoding="utf-8"
         )
+        if presealed:
+            _write_json(
+                infrastructure_path,
+                {"status": "fail", "stage": "live_final_observation"},
+            )
         return "incomplete"
+    if presealed:
+        _write_json(
+            infrastructure_path,
+            {"status": "pass", "stage": "complete"},
+        )
     evaluation = _load_json(row_root / "operator" / "hidden-evaluation.json")
     return evaluation["status"]
 
@@ -1505,6 +1862,322 @@ def _source_events(path: Path) -> list[dict[str, Any]]:
     return events
 
 
+def _jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    values: list[dict[str, Any]] = []
+    if not path.is_file():
+        return values
+    with path.open("r", encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                value = json.loads(line)
+            except ValueError:
+                continue
+            if type(value) is dict:
+                values.append(value)
+    return values
+
+
+def _envelope_data(value: Any) -> Any:
+    if type(value) is dict and value.get("success") is True:
+        return value.get("data")
+    return None
+
+
+def evaluate_seed_preservation(
+    fixture: dict[str, Any],
+    seed_evidence: dict[str, Any],
+    final_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    validate_target_fixture(fixture)
+    if fixture["baseline"] != "seeded_working_definition":
+        raise ValueError("seed_preservation_not_applicable")
+    edit = _envelope_data(seed_evidence.get("edit"))
+    baseline = _envelope_data(seed_evidence.get("snapshot"))
+    temp_map = (
+        edit.get("edit_summary", {}).get("temp_id_map")
+        if type(edit) is dict
+        else None
+    )
+    if (
+        type(temp_map) is not dict
+        or type(baseline) is not dict
+        or type(final_snapshot) is not dict
+    ):
+        raise ValueError("seed_preservation_evidence_invalid")
+    baseline_components = {
+        item.get("id"): item
+        for item in baseline.get("components", [])
+        if type(item) is dict and type(item.get("id")) is str
+    }
+    final_components = {
+        item.get("id"): item
+        for item in final_snapshot.get("components", [])
+        if type(item) is dict and type(item.get("id")) is str
+    }
+    violations: list[dict[str, Any]] = []
+    preservation = fixture["preservation"]
+    for protected in preservation["protectedComponents"]:
+        role = protected["role"]
+        component_id = temp_map.get(protected["temp_id"])
+        before = baseline_components.get(component_id)
+        after = final_components.get(component_id)
+        if type(component_id) is not str or type(before) is not dict:
+            raise ValueError("seed_preservation_evidence_invalid")
+        if type(after) is not dict:
+            violations.append(
+                {"code": "protected_component_missing", "role": role}
+            )
+            continue
+        for field in protected["fields"]:
+            if before.get(field) != after.get(field):
+                violations.append(
+                    {
+                        "code": "protected_field_changed",
+                        "role": role,
+                        "field": field,
+                    }
+                )
+
+    final_flows = set(final_snapshot.get("flows", []))
+    for symbolic_flow in preservation["protectedFlows"]:
+        concrete_flow = symbolic_flow
+        for temp_id, component_id in sorted(
+            temp_map.items(), key=lambda pair: len(pair[0]), reverse=True
+        ):
+            concrete_flow = concrete_flow.replace(temp_id, component_id)
+        if concrete_flow not in final_flows:
+            violations.append(
+                {"code": "protected_flow_missing", "flow": symbolic_flow}
+            )
+    baseline_flows = set(baseline.get("flows", []))
+    role_to_id = {
+        item["role"]: temp_map[item["temp_id"]]
+        for item in preservation["protectedComponents"]
+    }
+    for role in preservation["exactIncidentFlowRoles"]:
+        component_id = role_to_id[role]
+        marker = f"{component_id}."
+        before = sorted(flow for flow in baseline_flows if marker in flow)
+        after = sorted(flow for flow in final_flows if marker in flow)
+        if before != after:
+            violations.append(
+                {"code": "protected_incident_flows_changed", "role": role}
+            )
+    return {
+        "schema": "rook.experiment.seed_preservation:v1",
+        "status": "fail" if violations else "pass",
+        "violations": violations,
+    }
+
+
+def summarize_row_telemetry(
+    source_events: list[dict[str, Any]], prime_events: list[dict[str, Any]]
+) -> dict[str, Any]:
+    ordered = sorted(
+        (
+            event
+            for event in source_events
+            if type(event) is dict and type(event.get("sequence")) is int
+        ),
+        key=lambda event: event["sequence"],
+    )
+    discovery_targets = {
+        "rook_tools_search",
+        "rook_tools_read",
+        "gh_library",
+        "gh_batch_component_info",
+    }
+    mutation_events = [
+        event
+        for event in ordered
+        if event.get("target")
+        in {
+            "gh_edit",
+            "gh_execute_intent",
+            "gh_set_value",
+            "gh_create_script",
+            "gh_update_script",
+            "gh_set_script_pins",
+            "chirp_create",
+        }
+    ]
+    committed = [
+        event
+        for event in mutation_events
+        if event.get("mutation", {}).get("commit_status") == "committed"
+    ]
+    refused_or_failed = []
+    for event in ordered:
+        result = event.get("result")
+        if type(event.get("exception")) is dict or (
+            type(result) is dict and result.get("success") is False
+        ):
+            refused_or_failed.append(event)
+    per_turn: list[dict[str, Any]] = []
+    for value in prime_events:
+        if type(value) is not dict or value.get("type") != "message_end":
+            continue
+        message = value.get("message")
+        usage = message.get("usage") if type(message) is dict else None
+        if type(usage) is not dict:
+            continue
+        input_tokens = usage.get("input", usage.get("inputTokens"))
+        output_tokens = usage.get("output", usage.get("outputTokens"))
+        total_tokens = usage.get("totalTokens")
+        if any(type(item) is not int or item < 0 for item in (
+            input_tokens,
+            output_tokens,
+            total_tokens,
+        )):
+            continue
+        per_turn.append(
+            {
+                "turn": len(per_turn) + 1,
+                "timestamp": value.get("timestamp"),
+                "inputTokens": input_tokens,
+                "outputTokens": output_tokens,
+                "totalTokens": total_tokens,
+            }
+        )
+    return {
+        "schema": "rook.experiment.varied_product_row_telemetry:v1",
+        "observed": {
+            "gatewayCalls": len(ordered),
+            "discoveryCalls": sum(
+                event.get("target") in discovery_targets for event in ordered
+            ),
+            "mutationCalls": len(mutation_events),
+            "committedMutations": len(committed),
+            "refusedOrFailedCalls": len(refused_or_failed),
+            "perTurnUsage": per_turn,
+        },
+        "inferred": {
+            "candidateCorrectionMutations": max(0, len(committed) - 1),
+            "qualification": "mutation_order_only_not_semantic_correction",
+        },
+        "unresolved": ["first_sufficient_fenced_evidence_turn"],
+    }
+
+
+def varied_row_allows_continuation(
+    protocol: dict[str, Any], outcome: dict[str, Any]
+) -> bool:
+    if protocol.get("schema") != VARIED_COHORT_SCHEMA:
+        raise ValueError("varied_cohort_protocol_required")
+    process = outcome.get("process")
+    if type(process) is not dict:
+        return False
+    clean_limit_breach = process.get("limitBreach") in {
+        "provider_token_ceiling",
+        "gateway_call_ceiling",
+        "wall_clock_ceiling",
+    }
+    return (
+        outcome.get("evaluationInfrastructureStatus") == "pass"
+        and
+        process.get("stdoutEof") is True
+        and process.get("ownedChildPids") == []
+        and process.get("thinkingLevelVerified") is True
+        and (process.get("exitCode") == 0 or clean_limit_breach)
+    )
+
+
+def _final_observation_snapshot(row_root: Path) -> dict[str, Any] | None:
+    path = row_root / "operator" / "hidden-final-observation.json"
+    if not path.is_file():
+        return None
+    observation = _load_json(path)
+    snapshot = observation.get("snapshot") if type(observation) is dict else None
+    data = _envelope_data(snapshot)
+    return data if type(data) is dict else None
+
+
+def _write_varied_row_records(
+    protocol: dict[str, Any],
+    task: dict[str, Any],
+    row_root: Path,
+    final_checkpoint: dict[str, Any],
+) -> dict[str, Any]:
+    operator = row_root / "operator"
+    source_events = _source_events(operator / "source.jsonl")
+    prime_events = _jsonl_objects(operator / "prime.jsonl")
+    telemetry = summarize_row_telemetry(source_events, prime_events)
+    snapshot = _final_observation_snapshot(row_root)
+    diagnostics = snapshot.get("diagnostics") if type(snapshot) is dict else None
+    telemetry["observed"]["finalDiagnostics"] = (
+        {
+            "errors": diagnostics.get("errors"),
+            "warnings": diagnostics.get("warnings"),
+        }
+        if type(diagnostics) is dict
+        else None
+    )
+    telemetry["observed"]["actorFinalCheckpoint"] = final_checkpoint
+    _write_json(operator / "row-telemetry.json", telemetry)
+
+    fixture = task["targetFixture"]
+    if fixture["baseline"] == "fresh_empty":
+        preservation = {
+            "schema": "rook.experiment.seed_preservation:v1",
+            "status": "not_applicable",
+            "violations": [],
+        }
+    elif snapshot is None:
+        preservation = {
+            "schema": "rook.experiment.seed_preservation:v1",
+            "status": "incomplete",
+            "violations": [
+                {"code": "fenced_final_snapshot_unavailable"}
+            ],
+        }
+    else:
+        preservation = evaluate_seed_preservation(
+            fixture,
+            _load_json(operator / "seed-evidence.json"),
+            snapshot,
+        )
+    _write_json(operator / "preservation-evaluation.json", preservation)
+
+    evidence_paths = {
+        "primeRuntime": operator / "prime.jsonl",
+        "sourceLog": operator / "source.jsonl",
+        "processResult": operator / "process-result.json",
+        "evaluationInfrastructure": operator / "evaluation-infrastructure.json",
+        "authoringTrace": operator / "authoring-trace.json",
+        "finalObservation": operator / "hidden-final-observation.json",
+        "actorFinalCheckpoint": operator / "actor-final-checkpoint.json",
+        "preservation": operator / "preservation-evaluation.json",
+        "telemetry": operator / "row-telemetry.json",
+    }
+    judgment_input = {
+        "schema": "rook.experiment.varied_product_shadow_judgment_input:v1",
+        "status": "pending_independent_judgment",
+        "taskId": task["id"],
+        "taskSha256": hashlib.sha256(_canonical_bytes(task)).hexdigest().upper(),
+        "adjudicationContract": protocol["shadowAdjudication"],
+        "evidence": {
+            name: (
+                {
+                    "path": path.relative_to(row_root).as_posix(),
+                    "sha256": _sha(path),
+                    "bytes": path.stat().st_size,
+                }
+                if path.is_file()
+                else None
+            )
+            for name, path in evidence_paths.items()
+        },
+        "requiredEvidenceLabels": ["observed", "inferred", "unresolved"],
+        "runtimeFeedbackProvided": False,
+    }
+    _write_json(operator / "shadow-judgment-input.json", judgment_input)
+    return {
+        "telemetry": telemetry,
+        "preservation": preservation,
+        "shadowJudgmentStatus": judgment_input["status"],
+    }
+
+
 def _row_outcome(
     protocol: dict[str, Any], task: dict[str, Any], row_root: Path, process_result: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1521,7 +2194,10 @@ def _row_outcome(
         < protocol["limits"]["wallClockSecondsPerRun"]
     )
     final_checkpoint: dict[str, Any] | None = None
-    if protocol["schema"] == "rook.experiment.qwen38_self_termination_campaign:v6":
+    if protocol["schema"] in {
+        "rook.experiment.qwen38_self_termination_campaign:v6",
+        VARIED_COHORT_SCHEMA,
+    }:
         final_checkpoint = audit_actor_final_checkpoint(
             _source_events(row_root / "operator" / "source.jsonl")
         )
@@ -1539,10 +2215,15 @@ def _row_outcome(
                 "rook.experiment.qwen38_self_termination_campaign:v4",
                 "rook.experiment.qwen38_self_termination_campaign:v5",
                 "rook.experiment.qwen38_self_termination_campaign:v6",
+                VARIED_COHORT_SCHEMA,
             }
             or process_result.get("thinkingLevelVerified") is True
         )
-        and (final_checkpoint is None or final_checkpoint["status"] == "pass")
+        and (
+            final_checkpoint is None
+            or protocol["schema"] == VARIED_COHORT_SCHEMA
+            or final_checkpoint["status"] == "pass"
+        )
     )
     outcome = {
         "semanticStatus": semantic,
@@ -1552,6 +2233,19 @@ def _row_outcome(
     }
     if final_checkpoint is not None:
         outcome["actorFinalCheckpointStatus"] = final_checkpoint["status"]
+    if protocol["schema"] == VARIED_COHORT_SCHEMA:
+        infrastructure = _load_json(
+            row_root / "operator" / "evaluation-infrastructure.json"
+        )
+        records = _write_varied_row_records(
+            protocol,
+            task,
+            row_root,
+            final_checkpoint,
+        )
+        outcome["preservationStatus"] = records["preservation"]["status"]
+        outcome["shadowJudgmentStatus"] = records["shadowJudgmentStatus"]
+        outcome["evaluationInfrastructureStatus"] = infrastructure["status"]
     return outcome
 
 
@@ -1579,6 +2273,22 @@ def _finalize_campaign(evidence_root: Path, summary: dict[str, Any]) -> dict[str
     return summary | {
         "evidenceRoot": evidence_root.as_posix(),
         "manifestEntryCount": manifest["entryCount"],
+        "manifestSha256": _sha(manifest_path),
+    }
+
+
+def _seal_row_evidence(row_root: Path) -> dict[str, Any]:
+    manifest_path = row_root / "evidence-manifest.json"
+    manifest = write_evidence_manifest(row_root, manifest_path)
+    verification = verify_evidence_manifest(row_root, manifest_path)
+    _write_json(
+        row_root / "manifest-verification.json",
+        verification | {"manifestSha256": _sha(manifest_path)},
+    )
+    if verification["mismatches"]:
+        raise RuntimeError("row_evidence_manifest_verification_failed")
+    return {
+        "entryCount": manifest["entryCount"],
         "manifestSha256": _sha(manifest_path),
     }
 
@@ -1682,14 +2392,21 @@ def run_campaign(
     outcomes: dict[str, Any] = {}
     try:
         run_precontact_verification(protocol, evidence_root)
-        _write_json(evidence_root / "runtime-custody.json", _runtime_custody(protocol))
+        _write_json(
+            evidence_root / "runtime-custody.json",
+            _runtime_custody(protocol, protocol_path),
+        )
         _collect_tool_surface(protocol, evidence_root)
         _run_preflight(protocol, evidence_root)
         _write_python_environment_custody(
             protocol, evidence_root / "python-environment-baseline.json"
         )
 
-        if accepted_smoke_root is None:
+        if protocol["schema"] == VARIED_COHORT_SCHEMA:
+            if accepted_smoke_root is not None:
+                raise RuntimeError("varied_cohort_retained_smoke_forbidden")
+            tasks_to_run = list(protocol["executionOrder"])
+        elif accepted_smoke_root is None:
             tasks_to_run = [protocol["smokeTask"]]
         else:
             retained_smoke = admit_retained_smoke(
@@ -1731,9 +2448,17 @@ def run_campaign(
             _write_json(row_root / "operator" / "outcome.json", outcomes[task_id])
             _write_json(
                 row_root / "operator" / "runtime-custody-postrun.json",
-                _runtime_custody(protocol),
+                _runtime_custody(protocol, protocol_path),
             )
-            if task_id == protocol["smokeTask"]:
+            if protocol["schema"] == VARIED_COHORT_SCHEMA:
+                _seal_row_evidence(row_root)
+                if outcome.get("evaluationInfrastructureStatus") != "pass":
+                    raise RuntimeError(
+                        f"evaluator_infrastructure_failure:{task_id}"
+                    )
+                if not varied_row_allows_continuation(protocol, outcomes[task_id]):
+                    raise RuntimeError(f"process_custody_failure:{task_id}")
+            elif task_id == protocol["smokeTask"]:
                 tasks_to_run.extend(cohort_after_smoke(protocol, outcome))
     except BaseException as exc:
         failure = {
@@ -1800,7 +2525,61 @@ async def _operator_prepare(args: argparse.Namespace) -> int:
     initial_snapshot_path = Path(args.output).parent / "initial-inspection.json"
     _write_json(initial_snapshot_path, snapshot)
     seed = None
-    if args.task == "T3":
+    fixture = None
+    if args.fixture is not None:
+        fixture = validate_target_fixture(_load_json(args.fixture))
+    if fixture is not None and fixture["seedEdit"] is not None:
+        edit_arguments = json.loads(json.dumps(fixture["seedEdit"]))
+        edit_arguments["documentSerialNumber"] = args.document_serial
+        edit_arguments["epoch"] = data["epoch"]
+        edit = operator_payload(
+            await _mcp_tool_executor("gh_edit", edit_arguments), "seed_gh_edit"
+        )
+        receipt = edit.get("solve_readiness_receipt")
+        if type(receipt) is not dict:
+            raise RuntimeError("seed_receipt_missing")
+        wait = operator_payload(
+            await _mcp_tool_executor(
+                "gh_wait_for_solve_readiness",
+                {
+                    "readiness_receipt_id": receipt["receipt_id"],
+                    "timeout_ms": 10_000,
+                },
+            ),
+            "seed_wait",
+        )
+        ready = wait.get("receipt")
+        if type(ready) is not dict or ready.get("status") != "ready":
+            raise RuntimeError("seed_receipt_not_ready")
+        seeded = operator_payload(
+            await _mcp_tool_executor(
+                "gh_snapshot",
+                {
+                    "include_data": True,
+                    "max_preview_items": 200,
+                    "readiness_receipt_id": ready["receipt_id"],
+                },
+            ),
+            "seed_snapshot",
+        )
+        expectations = fixture["seedExpectations"]
+        diagnostics = seeded.get("diagnostics") if type(seeded) is dict else None
+        if (
+            type(seeded) is not dict
+            or len(seeded.get("components", [])) != expectations["components"]
+            or len(seeded.get("flows", [])) != expectations["flows"]
+            or type(diagnostics) is not dict
+            or diagnostics.get("errors") != expectations["errors"]
+            or diagnostics.get("warnings") != expectations["warnings"]
+        ):
+            raise RuntimeError("seed_fixture_invalid")
+        seed = {
+            "edit": operator_envelope(edit),
+            "wait": operator_envelope(wait),
+            "snapshot": operator_envelope(seeded),
+        }
+        _write_json(Path(args.output).parent / "seed-evidence.json", seed)
+    elif args.task == "T3":
         edit_arguments = {
             "documentSerialNumber": args.document_serial,
             "epoch": data["epoch"],
@@ -1869,6 +2648,9 @@ async def _operator_prepare(args: argparse.Namespace) -> int:
         "initialSnapshotSha256": _sha(initial_snapshot_path),
         "seeded": seed is not None,
     }
+    if fixture is not None:
+        target["targetFixtureSha256"] = _sha(args.fixture)
+        target["targetBaseline"] = fixture["baseline"]
     _write_json(Path(args.output), target)
     return 0
 
@@ -1901,16 +2683,11 @@ async def _operator_tool_surface(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _operator_evaluate(args: argparse.Namespace) -> int:
+async def _operator_normalize(args: argparse.Namespace) -> int:
     from rook.gh_behavioral_acceptance import (
-        _latest_terminal_receipt,
-        canonical_json_bytes,
-        evaluate_behavioral_probe,
         normalize_authoring_trace,
-        run_behavioral_probe,
         seal_prime_source_log,
     )
-    from rook.server import _mcp_tool_executor
 
     row_root = Path(args.row_root)
     operator = row_root / "operator"
@@ -1929,11 +2706,54 @@ async def _operator_evaluate(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as exc:
         _write_json(
             operator / "hidden-evaluation.json",
-            {"schema": "rook.experiment.hidden_evaluation:v1", "status": "incomplete", "reason": str(exc)},
+            {
+                "schema": "rook.experiment.hidden_evaluation:v1",
+                "status": "incomplete",
+                "reason": str(exc),
+            },
         )
         return 0
     _write_json(operator / "source-closure.json", closure)
     _write_json(operator / "authoring-trace.json", trace)
+    return 0
+
+
+async def _operator_evaluate(args: argparse.Namespace) -> int:
+    from rook.gh_behavioral_acceptance import (
+        _latest_terminal_receipt,
+        canonical_json_bytes,
+        evaluate_behavioral_probe,
+        normalize_authoring_trace,
+        run_behavioral_probe,
+        seal_prime_source_log,
+    )
+    from rook.server import _mcp_tool_executor
+
+    row_root = Path(args.row_root)
+    operator = row_root / "operator"
+    if args.presealed:
+        trace = _load_json(operator / "authoring-trace.json")
+    else:
+        source = operator / "source.jsonl"
+        runtime = operator / "prime.jsonl"
+        process = _load_json(operator / "process-result.json")
+        process_state = {
+            "terminated": True,
+            "stdout_eof": process["stdoutEof"],
+            "owned_child_pids": process["ownedChildPids"],
+            "exit_code": args.exit_code,
+        }
+        try:
+            closure = seal_prime_source_log(source, runtime, process_state)
+            trace = normalize_authoring_trace(source, runtime)
+        except (OSError, ValueError) as exc:
+            _write_json(
+                operator / "hidden-evaluation.json",
+                {"schema": "rook.experiment.hidden_evaluation:v1", "status": "incomplete", "reason": str(exc)},
+            )
+            return 0
+        _write_json(operator / "source-closure.json", closure)
+        _write_json(operator / "authoring-trace.json", trace)
 
     if args.task in {"T1", "T3"}:
         artifact = json.loads(POINT_ACCEPTANCE.read_text(encoding="utf-8"))
@@ -2007,6 +2827,7 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--task", required=True)
     prepare.add_argument("--document-serial", type=int, required=True)
     prepare.add_argument("--process-id", type=int)
+    prepare.add_argument("--fixture", type=Path)
     prepare.add_argument("--output", type=Path, required=True)
 
     tool_surface = sub.add_parser("_operator-tool-surface")
@@ -2016,6 +2837,11 @@ def _parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--task", required=True)
     evaluate.add_argument("--row-root", type=Path, required=True)
     evaluate.add_argument("--exit-code", type=int, required=True)
+    evaluate.add_argument("--presealed", action="store_true")
+
+    normalize = sub.add_parser("_operator-normalize")
+    normalize.add_argument("--row-root", type=Path, required=True)
+    normalize.add_argument("--exit-code", type=int, required=True)
     return parser
 
 
@@ -2037,6 +2863,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_operator_tool_surface(args))
     if args.command == "_operator-evaluate":
         return asyncio.run(_operator_evaluate(args))
+    if args.command == "_operator-normalize":
+        return asyncio.run(_operator_normalize(args))
     raise AssertionError(args.command)
 
 

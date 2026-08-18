@@ -42,6 +42,20 @@ V6_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-18-qwen38-self-termination-campaign-v6.json"
 )
+VARIED_COHORT_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-18-qwen38-varied-product-cohort-v1.json"
+)
+VARIED_COHORT_ADJUDICATION_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-18-qwen38-varied-product-cohort-v1-adjudication.json"
+)
 ADAPTER_PATH = (
     ROOT
     / "integrations"
@@ -169,6 +183,415 @@ def _v6_protocol() -> dict:
         "evaluatorFeedbackDuringRun": False,
     }
     return protocol
+
+
+def _varied_cohort_protocol() -> dict:
+    return json.loads(VARIED_COHORT_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
+def test_varied_cohort_freezes_v6_runtime_and_exact_reviewed_evaluator_delta():
+    runner = _runner()
+    v6 = json.loads(V6_PROTOCOL_PATH.read_text(encoding="utf-8"))
+    cohort = _varied_cohort_protocol()
+
+    assert runner.validate_protocol(cohort) is cohort
+    assert cohort["executionOrder"] == ["VP1", "VP2", "VP3"]
+    assert cohort["prime"] == v6["prime"]
+    assert cohort["limits"] == v6["limits"]
+    assert cohort["pythonEnvironment"] == v6["pythonEnvironment"]
+    assert cohort["modelCustody"] == v6["modelCustody"]
+    assert cohort["rookCustody"] == v6["rookCustody"]
+    assert cohort["versionedInputs"] == v6["versionedInputs"]
+    assert cohort["toolSurface"] == v6["toolSurface"]
+    evaluator = cohort["offlineEvaluator"]
+    evaluator_path = ROOT / evaluator["behavioralAcceptancePath"]
+    assert evaluator["sourceCampaignProtocolSha256"] == hashlib.sha256(
+        V6_PROTOCOL_PATH.read_bytes()
+    ).hexdigest().upper()
+    assert evaluator["behavioralAcceptanceSha256"] == hashlib.sha256(
+        evaluator_path.read_bytes()
+    ).hexdigest().upper()
+    assert evaluator["reviewedCorrectionCommit"] == (
+        "efe0615466b84079263fd190336831bfce59343a"
+    )
+
+
+def test_varied_cohort_tasks_are_distinct_closed_product_fixtures():
+    runner = _runner()
+    protocol = _varied_cohort_protocol()
+
+    prompts = []
+    for task_id in protocol["executionOrder"]:
+        task = protocol["tasks"][task_id]
+        assert runner.validate_target_fixture(task["targetFixture"]) is task[
+            "targetFixture"
+        ]
+        prompts.append(task["prompt"].lower())
+    assert protocol["tasks"]["VP1"]["targetFixture"]["baseline"] == (
+        "seeded_working_definition"
+    )
+    assert protocol["tasks"]["VP2"]["targetFixture"]["baseline"] == "fresh_empty"
+    assert protocol["tasks"]["VP3"]["targetFixture"]["baseline"] == "fresh_empty"
+    assert sum("point row" in prompt for prompt in prompts) == 0
+    assert sum("grid" in prompt for prompt in prompts) == 0
+    assert sum("helix" in prompt for prompt in prompts) == 0
+
+
+def test_varied_cohort_adjudication_is_shadow_only_and_closed():
+    runner = _runner()
+    protocol = _varied_cohort_protocol()
+    adjudication = json.loads(
+        VARIED_COHORT_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+
+    assert runner.validate_shadow_adjudication(adjudication, protocol) is adjudication
+    assert hashlib.sha256(VARIED_COHORT_ADJUDICATION_PATH.read_bytes()).hexdigest().upper() == (
+        protocol["shadowAdjudication"]["sha256"]
+    )
+    assert adjudication["evaluatorFeedbackDuringRun"] is False
+    assert adjudication["evidenceLabels"] == ["observed", "inferred", "unresolved"]
+    assert adjudication["aggregateScore"] is None
+    assert set(adjudication["tasks"]) == {"VP1", "VP2", "VP3"}
+
+
+def test_seed_preservation_uses_temp_id_mapping_and_closed_snapshot_facts():
+    runner = _runner()
+    fixture = _varied_cohort_protocol()["tasks"]["VP1"]["targetFixture"]
+    seed_evidence = {
+        "edit": {
+            "success": True,
+            "data": {
+                "edit_summary": {
+                    "temp_id_map": {
+                        "T1": "C1",
+                        "T2": "C2",
+                        "T3": "C3",
+                        "T4": "C4",
+                        "T5": "C5",
+                        "T6": "C6",
+                    }
+                }
+            },
+        },
+        "snapshot": {
+            "success": True,
+            "data": {
+                "components": [
+                    {"id": "C1", "type": "NumberSlider", "nick": "Radius", "value": {"type": "slider", "val": 8}},
+                    {"id": "C2", "type": "Component_Circle", "nick": "Circle"},
+                    {"id": "C3", "type": "NumberSlider", "nick": "Reference A", "value": {"type": "slider", "val": 2}},
+                    {"id": "C4", "type": "NumberSlider", "nick": "Reference B", "value": {"type": "slider", "val": 3}},
+                    {"id": "C5", "type": "Component_VariableAddition", "nick": "A+B"},
+                    {"id": "C6", "type": "Panel", "nick": "Reference Result", "value": {"type": "panel", "val": "5"}},
+                ],
+                "flows": ["C1.O0>C2.I1", "C3.O0>C5.I0", "C4.O0>C5.I1", "C5.O0>C6.I0"],
+            },
+        },
+    }
+    final_snapshot = json.loads(json.dumps(seed_evidence["snapshot"]["data"]))
+
+    passed = runner.evaluate_seed_preservation(fixture, seed_evidence, final_snapshot)
+    assert passed == {
+        "schema": "rook.experiment.seed_preservation:v1",
+        "status": "pass",
+        "violations": [],
+    }
+
+    final_snapshot["components"] = [
+        item for item in final_snapshot["components"] if item["id"] != "C4"
+    ]
+    final_snapshot["flows"].remove("C3.O0>C5.I0")
+    changed = next(item for item in final_snapshot["components"] if item["id"] == "C1")
+    changed["nick"] = "R"
+    failed = runner.evaluate_seed_preservation(fixture, seed_evidence, final_snapshot)
+    assert failed["status"] == "fail"
+    assert failed["violations"] == [
+        {"code": "protected_field_changed", "role": "radius_control", "field": "nick"},
+        {"code": "protected_component_missing", "role": "reference_b"},
+        {"code": "protected_flow_missing", "flow": "T3.O0>T5.I0"},
+        {"code": "protected_incident_flows_changed", "role": "reference_a"},
+        {"code": "protected_incident_flows_changed", "role": "reference_addition"},
+    ]
+
+
+def test_varied_cohort_continues_model_failures_but_stops_infrastructure_failures():
+    runner = _runner()
+    protocol = _varied_cohort_protocol()
+    process = {
+        "stdoutEof": True,
+        "ownedChildPids": [],
+        "exitCode": 0,
+        "thinkingLevelVerified": True,
+        "limitBreach": None,
+    }
+    outcome = {
+        "semanticStatus": "unproven",
+        "goalStatus": "active",
+        "budgetStatus": "fail",
+        "custodyStatus": "pass",
+        "actorFinalCheckpointStatus": "fail",
+        "evaluationInfrastructureStatus": "pass",
+        "process": process,
+    }
+    assert runner.varied_row_allows_continuation(protocol, outcome)
+
+    budget_kill = json.loads(json.dumps(outcome))
+    budget_kill["process"].update(
+        {"exitCode": 1, "limitBreach": "provider_token_ceiling"}
+    )
+    assert runner.varied_row_allows_continuation(protocol, budget_kill)
+
+    for changed in (
+        {"stdoutEof": False},
+        {"ownedChildPids": [999]},
+        {"thinkingLevelVerified": False},
+        {"exitCode": 1, "limitBreach": None},
+    ):
+        contaminated = json.loads(json.dumps(outcome))
+        contaminated["process"].update(changed)
+        assert not runner.varied_row_allows_continuation(protocol, contaminated)
+
+    evaluation_failure = json.loads(json.dumps(outcome))
+    evaluation_failure["evaluationInfrastructureStatus"] = "fail"
+    assert not runner.varied_row_allows_continuation(protocol, evaluation_failure)
+
+
+def test_row_telemetry_keeps_observation_and_inference_separate():
+    runner = _runner()
+    source_events = [
+        {"sequence": 0, "target": "gh_library", "result": {"success": True}, "mutation": {"classification": "observational", "commit_status": "none"}},
+        {"sequence": 1, "target": "gh_batch_component_info", "result": {"success": False}, "mutation": {"classification": "observational", "commit_status": "none"}},
+        {"sequence": 2, "target": "gh_edit", "result": {"success": True}, "mutation": {"classification": "terminal", "commit_status": "committed"}},
+        {"sequence": 3, "target": "gh_edit", "exception": {"type": "McpToolError"}, "mutation": {"classification": "observational", "commit_status": "none"}},
+        {"sequence": 4, "target": "gh_snapshot", "result": {"success": True}, "mutation": {"classification": "observational", "commit_status": "none"}},
+    ]
+    prime_events = [
+        {"type": "message_end", "timestamp": 10, "message": {"usage": {"input": 100, "output": 20, "totalTokens": 120}}},
+        {"type": "message_end", "timestamp": 20, "message": {"usage": {"input": 130, "output": 10, "totalTokens": 140}}},
+    ]
+
+    telemetry = runner.summarize_row_telemetry(source_events, prime_events)
+
+    assert telemetry["observed"]["gatewayCalls"] == 5
+    assert telemetry["observed"]["discoveryCalls"] == 2
+    assert telemetry["observed"]["mutationCalls"] == 2
+    assert telemetry["observed"]["committedMutations"] == 1
+    assert telemetry["observed"]["refusedOrFailedCalls"] == 2
+    assert telemetry["observed"]["perTurnUsage"] == [
+        {"turn": 1, "timestamp": 10, "inputTokens": 100, "outputTokens": 20, "totalTokens": 120},
+        {"turn": 2, "timestamp": 20, "inputTokens": 130, "outputTokens": 10, "totalTokens": 140},
+    ]
+    assert telemetry["inferred"] == {
+        "candidateCorrectionMutations": 0,
+        "qualification": "mutation_order_only_not_semantic_correction",
+    }
+    assert telemetry["unresolved"] == ["first_sufficient_fenced_evidence_turn"]
+
+
+def test_prepare_target_stages_the_exact_task_fixture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _varied_cohort_protocol()
+    task = protocol["tasks"]["VP1"]
+    row_root = tmp_path / "VP1"
+    captured: list[str] = []
+
+    def operator_command(_protocol, arguments, **_kwargs):
+        captured.extend(arguments)
+        fixture_path = Path(arguments[arguments.index("--fixture") + 1])
+        assert json.loads(fixture_path.read_text(encoding="utf-8")) == task[
+            "targetFixture"
+        ]
+        output = Path(arguments[arguments.index("--output") + 1])
+        output.write_text(
+            json.dumps({"task": "VP1", "targetFixtureSha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest().upper()}) + "\n",
+            encoding="utf-8",
+        )
+        return types.SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(runner, "_operator_command", operator_command)
+    target = runner._prepare_target(protocol, task, row_root, 268435457, 123)
+
+    assert captured[0] == "_operator-prepare"
+    assert "--fixture" in captured
+    assert target["task"] == "VP1"
+    assert (row_root / "operator" / "task-fixture.json").is_file()
+
+
+def test_varied_offline_normalizer_uses_reviewed_source_without_changing_live_path():
+    runner = _runner()
+    protocol = _varied_cohort_protocol()
+    environment = runner.offline_evaluator_environment(protocol, {"PYTHONPATH": "ambient"})
+
+    assert environment["PYTHONPATH"].split(";") == [
+        (ROOT / "mcp_server" / "src").as_posix(),
+        "ambient",
+    ]
+    _, live_environment = runner.build_prime_launch(
+        protocol,
+        task=protocol["tasks"]["VP2"],
+        row_root=ROOT,
+        target={"processId": 1, "documentSerialNumber": 2},
+    )
+    assert (ROOT / "mcp_server" / "src").as_posix() not in live_environment[
+        "PYTHONPATH"
+    ].split(";")
+
+
+def test_varied_post_actor_evaluation_normalizes_offline_before_live_observation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _varied_cohort_protocol()
+    task = protocol["tasks"]["VP2"]
+    row_root = tmp_path / "VP2"
+    operator = row_root / "operator"
+    operator.mkdir(parents=True)
+    calls: list[tuple[str, list[str]]] = []
+
+    def offline(_protocol, arguments):
+        calls.append(("offline", arguments))
+        return types.SimpleNamespace(returncode=0, stderr="")
+
+    def live(_protocol, arguments, **_kwargs):
+        calls.append(("live", arguments))
+        (operator / "hidden-evaluation.json").write_text(
+            json.dumps({"status": "unproven"}) + "\n", encoding="utf-8"
+        )
+        return types.SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(runner, "_offline_evaluator_command", offline)
+    monkeypatch.setattr(runner, "_operator_command", live)
+
+    status = runner._post_actor_evaluation(
+        protocol, task, row_root, {"exitCode": 0}
+    )
+
+    assert status == "unproven"
+    assert calls[0][0] == "offline"
+    assert calls[0][1][0] == "_operator-normalize"
+    assert calls[1][0] == "live"
+    assert calls[1][1][0] == "_operator-evaluate"
+    assert "--presealed" in calls[1][1]
+
+
+def test_varied_campaign_runs_every_row_after_model_failure_and_seals_each(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _varied_cohort_protocol()
+    protocol_path = tmp_path / "protocol.json"
+    protocol_path.write_text(json.dumps(protocol) + "\n", encoding="utf-8")
+    evidence_root = tmp_path / "cohort"
+    run_tasks: list[str] = []
+
+    monkeypatch.setattr(runner, "validate_evidence_root", lambda path: Path(path))
+    monkeypatch.setattr(runner, "run_precontact_verification", lambda *args: {})
+    monkeypatch.setattr(runner, "_runtime_custody", lambda *args: {"ok": True})
+    monkeypatch.setattr(runner, "_collect_tool_surface", lambda *args: {})
+    monkeypatch.setattr(runner, "_run_preflight", lambda *args: {})
+    monkeypatch.setattr(
+        runner,
+        "capture_python_environment_custody",
+        lambda protocol: {"roots": {}, "mismatches": []},
+    )
+    monkeypatch.setattr(runner, "_copy_versioned_inputs", lambda *args: None)
+    monkeypatch.setattr(runner, "_write_row_input_custody", lambda *args: None)
+
+    def prepare(_protocol, task, row_root, *_args):
+        (row_root / "operator").mkdir(parents=True, exist_ok=True)
+        return {"task": task["id"]}
+
+    def run(_protocol, task, _row_root, _target):
+        run_tasks.append(task["id"])
+        return {
+            "stdoutEof": True,
+            "ownedChildPids": [],
+            "exitCode": 0,
+            "thinkingLevelVerified": True,
+            "limitBreach": None,
+        }
+
+    monkeypatch.setattr(runner, "_prepare_target", prepare)
+    monkeypatch.setattr(runner, "_run_prime_row", run)
+    monkeypatch.setattr(
+        runner,
+        "_row_outcome",
+        lambda *args: {
+            "semanticStatus": "unproven",
+            "goalStatus": "active",
+            "budgetStatus": "fail",
+            "custodyStatus": "pass",
+                "actorFinalCheckpointStatus": "fail",
+                "evaluationInfrastructureStatus": "pass",
+        },
+    )
+
+    result = runner.run_campaign(protocol_path, evidence_root, 268435457, None)
+
+    assert run_tasks == ["VP1", "VP2", "VP3"]
+    assert result["status"] == "complete"
+    for task_id in protocol["executionOrder"]:
+        row = evidence_root / task_id
+        assert runner.verify_evidence_manifest(
+            row, row / "evidence-manifest.json"
+        )["mismatches"] == []
+
+
+def test_varied_campaign_stops_before_next_target_on_process_custody_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _varied_cohort_protocol()
+    protocol_path = tmp_path / "protocol.json"
+    protocol_path.write_text(json.dumps(protocol) + "\n", encoding="utf-8")
+    evidence_root = tmp_path / "cohort"
+    prepared: list[str] = []
+
+    monkeypatch.setattr(runner, "validate_evidence_root", lambda path: Path(path))
+    monkeypatch.setattr(runner, "run_precontact_verification", lambda *args: {})
+    monkeypatch.setattr(runner, "_runtime_custody", lambda *args: {"ok": True})
+    monkeypatch.setattr(runner, "_collect_tool_surface", lambda *args: {})
+    monkeypatch.setattr(runner, "_run_preflight", lambda *args: {})
+    monkeypatch.setattr(
+        runner,
+        "capture_python_environment_custody",
+        lambda protocol: {"roots": {}, "mismatches": []},
+    )
+    monkeypatch.setattr(runner, "_copy_versioned_inputs", lambda *args: None)
+    monkeypatch.setattr(runner, "_write_row_input_custody", lambda *args: None)
+
+    def prepare(_protocol, task, row_root, *_args):
+        prepared.append(task["id"])
+        (row_root / "operator").mkdir(parents=True, exist_ok=True)
+        return {"task": task["id"]}
+
+    process = {
+        "stdoutEof": False,
+        "ownedChildPids": [],
+        "exitCode": 1,
+        "thinkingLevelVerified": True,
+        "limitBreach": None,
+    }
+    monkeypatch.setattr(runner, "_prepare_target", prepare)
+    monkeypatch.setattr(runner, "_run_prime_row", lambda *args: process)
+    monkeypatch.setattr(
+        runner,
+        "_row_outcome",
+        lambda *args: {
+            "semanticStatus": "incomplete",
+            "goalStatus": "active",
+            "budgetStatus": "pass",
+                "custodyStatus": "fail",
+                "evaluationInfrastructureStatus": "pass",
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="process_custody_failure:VP1"):
+        runner.run_campaign(protocol_path, evidence_root, 268435457, None)
+
+    assert prepared == ["VP1"]
 
 
 def test_v6_protocol_freezes_one_low_thinking_receipt_fenced_t4_confirmation(
@@ -1090,7 +1513,7 @@ def test_early_gate_failure_is_durably_finalized_and_verified(
     monkeypatch.setattr(
         runner,
         "_runtime_custody",
-        lambda protocol: (_ for _ in ()).throw(RuntimeError("custody_gate_failed")),
+        lambda *args: (_ for _ in ()).throw(RuntimeError("custody_gate_failed")),
     )
 
     with pytest.raises(RuntimeError, match="custody_gate_failed"):
@@ -1231,7 +1654,7 @@ def test_campaign_continuation_does_not_rerun_admitted_smoke(
         "retainedOriginalBudgetStatus": "fail",
     }
     monkeypatch.setattr(runner, "validate_evidence_root", lambda path: Path(path))
-    monkeypatch.setattr(runner, "_runtime_custody", lambda protocol: {"ok": True})
+    monkeypatch.setattr(runner, "_runtime_custody", lambda *args: {"ok": True})
     monkeypatch.setattr(runner, "_collect_tool_surface", lambda *args: {})
     monkeypatch.setattr(runner, "_run_preflight", lambda *args: {})
     monkeypatch.setattr(runner, "admit_retained_smoke", lambda *args: admitted)
@@ -1291,7 +1714,7 @@ def test_post_row_python_environment_drift_stops_before_next_target(
         ]
     )
     monkeypatch.setattr(runner, "validate_evidence_root", lambda path: Path(path))
-    monkeypatch.setattr(runner, "_runtime_custody", lambda protocol: {"ok": True})
+    monkeypatch.setattr(runner, "_runtime_custody", lambda *args: {"ok": True})
     monkeypatch.setattr(runner, "_collect_tool_surface", lambda *args: {})
     monkeypatch.setattr(runner, "_run_preflight", lambda *args: {})
     monkeypatch.setattr(
