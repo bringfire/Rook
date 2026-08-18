@@ -264,7 +264,24 @@ def _goal_context_text(value: dict[str, Any]) -> str | None:
 
 
 def goal_context_matches(value: dict[str, Any], objective: str, budget: int) -> bool:
-    text = _goal_context_text(value)
+    if value.get("type") == "goal_update":
+        goal = value.get("goal")
+        return (
+            type(goal) is dict
+            and goal.get("objective") == objective
+            and goal.get("status") == "active"
+            and goal.get("tokenBudget") == budget
+        )
+    message = value.get("message")
+    if (
+        value.get("type") in {"message_start", "message_end"}
+        and type(message) is dict
+        and message.get("customType") == "goal_context"
+        and type(message.get("content")) is str
+    ):
+        text = message["content"]
+    else:
+        text = _goal_context_text(value)
     if text is None:
         return False
     return (
@@ -272,6 +289,20 @@ def goal_context_matches(value: dict[str, Any], objective: str, budget: int) -> 
         and "- status: active" in text
         and f"- token budget: {budget}" in text
     )
+
+
+def prime_log_proves_goal_context(
+    path: Path, objective: str, budget: int
+) -> bool:
+    with Path(path).open("r", encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                value = json.loads(line)
+            except ValueError:
+                continue
+            if type(value) is dict and goal_context_matches(value, objective, budget):
+                return True
+    return False
 
 
 def validate_preflight_record(
@@ -747,7 +778,11 @@ def extend_owned_processes(
             continue
         by_pid[pid] = process
         by_parent.setdefault(parent, []).append(pid)
-    closure = set(root_pids) | set(tracked)
+    closure = set(root_pids)
+    for pid, creation in tracked.items():
+        process = by_pid.get(pid)
+        if process is not None and process.get("creationDate") == creation:
+            closure.add(pid)
     pending = list(closure)
     while pending:
         parent = pending.pop()
@@ -760,7 +795,9 @@ def extend_owned_processes(
         process = by_pid.get(pid)
         if process is not None:
             creation = process.get("creationDate")
-            updated[pid] = creation if type(creation) is str else None
+            identity = creation if type(creation) is str else None
+            if pid not in updated or updated[pid] == identity:
+                updated[pid] = identity
     return updated
 
 
@@ -787,6 +824,29 @@ def live_owned_processes(
         if same_identity or marked:
             live.add(pid)
     return sorted(live)
+
+
+def retained_live_processes(
+    processes: list[dict[str, Any]], row_marker: str
+) -> list[int]:
+    parents = {
+        item.get("processId"): item.get("parentProcessId")
+        for item in processes
+        if type(item.get("processId")) is int
+        and type(item.get("parentProcessId")) is int
+    }
+    verifier_ancestry: set[int] = set()
+    current = os.getpid()
+    while current not in verifier_ancestry and type(current) is int:
+        verifier_ancestry.add(current)
+        current = parents.get(current)
+        if current is None:
+            break
+    return [
+        pid
+        for pid in live_owned_processes({}, processes, row_marker)
+        if pid not in verifier_ancestry
+    ]
 
 
 def _run_prime_row(
@@ -874,7 +934,7 @@ def _run_prime_row(
     exit_code = process.wait(timeout=10)
     final_snapshot = _process_snapshot()
     tracked_processes = extend_owned_processes(
-        tracked_processes, final_snapshot, {process.pid}
+        tracked_processes, final_snapshot, set()
     )
     children = live_owned_processes(
         tracked_processes, final_snapshot, row_root.as_posix()
@@ -1072,11 +1132,97 @@ def _finalize_campaign(evidence_root: Path, summary: dict[str, Any]) -> dict[str
     }
 
 
+def admit_retained_smoke(
+    protocol: dict[str, Any],
+    retained_root: Path,
+    expected_protocol_path: Path = DEFAULT_PROTOCOL,
+) -> dict[str, Any]:
+    retained_root = validate_evidence_root(retained_root)
+    manifest_path = retained_root / "evidence-manifest.json"
+    manifest = _load_json(manifest_path)
+    if (
+        manifest.get("root") != retained_root.as_posix()
+        or manifest.get("entryCount") != len(manifest.get("entries", {}))
+    ):
+        raise RuntimeError("retained_smoke_manifest_invalid")
+    verification = verify_evidence_manifest(retained_root, manifest_path)
+    if verification["mismatches"]:
+        raise RuntimeError("retained_smoke_manifest_invalid")
+    retained_protocol = retained_root / "protocol.json"
+    if (
+        retained_protocol.read_bytes() != Path(expected_protocol_path).read_bytes()
+        or _load_json(retained_protocol) != protocol
+    ):
+        raise RuntimeError("retained_smoke_protocol_mismatch")
+
+    row_root = retained_root / protocol["smokeTask"]
+    operator = row_root / "operator"
+    outcome = _load_json(operator / "outcome.json")
+    process = _load_json(operator / "process-result.json")
+    evaluation = _load_json(operator / "hidden-evaluation.json")
+    objective = protocol["tasks"][protocol["smokeTask"]]["prompt"]
+    limits = CampaignLimits.from_mapping(protocol["limits"])
+    context_verified = prime_log_proves_goal_context(
+        operator / "prime.jsonl", objective, limits.prime_goal_tokens
+    )
+    goal_status = _goal_status(row_root)
+    live_processes = retained_live_processes(
+        _process_snapshot(), retained_root.as_posix()
+    )
+    process_matches = outcome.get("process") == process
+    budget_pass = (
+        process_matches
+        and process.get("limitBreach") is None
+        and context_verified
+        and type(process.get("providerReportedTokens")) is int
+        and process["providerReportedTokens"] <= limits.provider_tokens
+        and type(process.get("gatewayEvents")) is int
+        and process["gatewayEvents"] <= limits.gateway_events
+        and type(process.get("elapsedSeconds")) in {int, float}
+        and process["elapsedSeconds"] < limits.wall_clock_seconds
+    )
+    custody_pass = (
+        process_matches
+        and process.get("stdoutEof") is True
+        and process.get("ownedChildPids") == []
+        and process.get("exitCode") == 0
+        and live_processes == []
+    )
+    admitted = {
+        "semanticStatus": (
+            "pass"
+            if outcome.get("semanticStatus") == "pass"
+            and evaluation.get("status") == "pass"
+            else "fail"
+        ),
+        "goalStatus": goal_status,
+        "budgetStatus": "pass" if budget_pass else "fail",
+        "custodyStatus": "pass" if custody_pass else "fail",
+        "retainedOriginalBudgetStatus": outcome.get("budgetStatus"),
+        "retainedEvidenceRoot": retained_root.as_posix(),
+        "retainedManifestSha256": _sha(manifest_path),
+        "retainedOutcomeSha256": _sha(operator / "outcome.json"),
+    }
+    smoke_projection = {
+        key: admitted[key]
+        for key in (
+            "semanticStatus",
+            "goalStatus",
+            "budgetStatus",
+            "custodyStatus",
+        )
+    }
+    if not smoke_allows_cohort(smoke_projection):
+        raise RuntimeError("retained_smoke_not_admissible")
+    return admitted
+
+
 def run_campaign(
     protocol_path: Path,
     evidence_root: Path,
     document_serial: int,
     process_id: int | None,
+    accepted_smoke_root: Path | None = None,
 ) -> dict[str, Any]:
     protocol = validate_protocol(_load_json(protocol_path))
     evidence_root = validate_evidence_root(evidence_root)
@@ -1088,7 +1234,26 @@ def run_campaign(
         _collect_tool_surface(protocol, evidence_root)
         _run_preflight(protocol, evidence_root)
 
-        tasks_to_run = [protocol["smokeTask"]]
+        if accepted_smoke_root is None:
+            tasks_to_run = [protocol["smokeTask"]]
+        else:
+            retained_smoke = admit_retained_smoke(
+                protocol, accepted_smoke_root, protocol_path
+            )
+            _write_json(evidence_root / "retained-smoke-admission.json", retained_smoke)
+            outcomes[protocol["smokeTask"]] = retained_smoke
+            tasks_to_run = cohort_after_smoke(
+                protocol,
+                {
+                    key: retained_smoke[key]
+                    for key in (
+                        "semanticStatus",
+                        "goalStatus",
+                        "budgetStatus",
+                        "custodyStatus",
+                    )
+                },
+            )
         while tasks_to_run:
             task_id = tasks_to_run.pop(0)
             task = protocol["tasks"][task_id]
@@ -1375,6 +1540,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--evidence-root", type=Path, required=True)
     run.add_argument("--document-serial", type=int, required=True)
     run.add_argument("--process-id", type=int)
+    run.add_argument("--accepted-smoke-root", type=Path)
 
     prepare = sub.add_parser("_operator-prepare")
     prepare.add_argument("--task", required=True)
@@ -1396,7 +1562,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "run":
         result = run_campaign(
-            args.protocol, args.evidence_root, args.document_serial, args.process_id
+            args.protocol,
+            args.evidence_root,
+            args.document_serial,
+            args.process_id,
+            args.accepted_smoke_root,
         )
         print(json.dumps(result, ensure_ascii=True, allow_nan=False, separators=(",", ":")))
         return 0

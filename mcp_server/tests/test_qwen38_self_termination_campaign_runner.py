@@ -264,6 +264,12 @@ def test_owned_process_tracking_survives_descendant_reparenting():
     ]
     assert runner.live_owned_processes(tracked, after_parent_exit, "never-matches") == [12]
 
+    reused_parent = [
+        {"processId": 10, "parentProcessId": 1, "creationDate": "new", "commandLine": "other"},
+        {"processId": 13, "parentProcessId": 10, "creationDate": "e", "commandLine": "unrelated child"},
+    ]
+    assert runner.extend_owned_processes(tracked, reused_parent, set()) == tracked
+
 
 def test_pid_reuse_is_not_treated_as_owned_but_row_marker_is():
     runner = _runner()
@@ -295,6 +301,29 @@ def test_goal_context_must_prove_exact_budget_before_row_is_admissible():
     assert runner.goal_context_matches(context, "repair", 2_000_000)
     context["goal"]["token_budget"] = 123
     assert not runner.goal_context_matches(context, "repair", 2_000_000)
+
+
+def test_goal_context_accepts_primes_real_custom_message_and_goal_update_shapes():
+    runner = _runner()
+    objective = "repair"
+    content = (
+        "<goal_context>\n<objective>\nrepair\n</objective>\n"
+        "- status: active\n- tokens used: 0\n- token budget: 2000000\n"
+        "</goal_context>"
+    )
+    message = {
+        "type": "message_start",
+        "message": {"role": "custom", "customType": "goal_context", "content": content},
+    }
+    update = {
+        "type": "goal_update",
+        "goal": {"objective": objective, "status": "active", "tokenBudget": 2_000_000},
+    }
+
+    assert runner.goal_context_matches(message, objective, 2_000_000)
+    assert runner.goal_context_matches(update, objective, 2_000_000)
+    update["goal"]["tokenBudget"] = 7
+    assert not runner.goal_context_matches(update, objective, 2_000_000)
 
 
 def test_goal_status_reads_primes_persisted_custom_goal_record(tmp_path: Path):
@@ -423,6 +452,147 @@ def test_smoke_gate_is_closed_and_only_pass_opens_varied_cohort():
         failed[key] = "fail"
         assert not runner.smoke_allows_cohort(failed)
         assert runner.cohort_after_smoke(_protocol(), failed) == []
+
+
+def test_imported_smoke_recomputes_budget_from_retained_prime_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = _protocol()
+    root = tmp_path / "smoke"
+    operator = root / "T3" / "operator"
+    sessions = root / "T3" / "agent" / "sessions"
+    operator.mkdir(parents=True)
+    sessions.mkdir(parents=True)
+    (root / "protocol.json").write_bytes(PROTOCOL_PATH.read_bytes())
+    process = {
+        "limitBreach": None,
+        "providerReportedTokens": 1_000,
+        "gatewayEvents": 4,
+        "elapsedSeconds": 10.0,
+        "stdoutEof": True,
+        "ownedChildPids": [],
+        "exitCode": 0,
+    }
+    outcome = {
+        "semanticStatus": "pass",
+        "goalStatus": "complete",
+        "budgetStatus": "fail",
+        "custodyStatus": "pass",
+        "process": process,
+        "target": {"task": "T3"},
+    }
+    (operator / "outcome.json").write_text(json.dumps(outcome) + "\n")
+    (operator / "process-result.json").write_text(json.dumps(process) + "\n")
+    (operator / "hidden-evaluation.json").write_text(
+        json.dumps({"status": "pass"}) + "\n"
+    )
+    context = {
+        "type": "goal_update",
+        "goal": {
+            "objective": protocol["tasks"]["T3"]["prompt"],
+            "status": "active",
+            "tokenBudget": 2_000_000,
+        },
+    }
+    (operator / "prime.jsonl").write_text(json.dumps(context) + "\n")
+    (sessions / "session.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "custom",
+                "customType": "thread_goal_state",
+                "data": {"status": "complete"},
+            }
+        )
+        + "\n"
+    )
+    manifest_path = root / "evidence-manifest.json"
+    runner.write_evidence_manifest(root, manifest_path)
+    monkeypatch.setattr(runner, "validate_evidence_root", lambda path: root)
+    monkeypatch.setattr(runner, "_process_snapshot", lambda: [])
+
+    admitted = runner.admit_retained_smoke(protocol, root)
+
+    assert {key: admitted[key] for key in (
+        "semanticStatus", "goalStatus", "budgetStatus", "custodyStatus"
+    )} == {
+        "semanticStatus": "pass",
+        "goalStatus": "complete",
+        "budgetStatus": "pass",
+        "custodyStatus": "pass",
+    }
+    assert admitted["retainedOriginalBudgetStatus"] == "fail"
+
+    semantically_equal = tmp_path / "reformatted-protocol.json"
+    semantically_equal.write_text(json.dumps(protocol, indent=2) + "\n")
+    with pytest.raises(RuntimeError, match="retained_smoke_protocol_mismatch"):
+        runner.admit_retained_smoke(protocol, root, semantically_equal)
+
+
+def test_retained_smoke_process_scan_excludes_only_verifier_ancestry(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runner = _runner()
+    processes = [
+        {"processId": 10, "parentProcessId": 1, "commandLine": "pwsh retained"},
+        {"processId": 20, "parentProcessId": 10, "commandLine": "python retained"},
+        {"processId": 30, "parentProcessId": 1, "commandLine": "python retained"},
+    ]
+    monkeypatch.setattr(runner.os, "getpid", lambda: 20)
+
+    assert runner.retained_live_processes(processes, "retained") == [30]
+
+
+def test_campaign_continuation_does_not_rerun_admitted_smoke(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    evidence_root = tmp_path / "continuation"
+    retained_root = tmp_path / "retained"
+    run_tasks: list[str] = []
+    admitted = {
+        "semanticStatus": "pass",
+        "goalStatus": "complete",
+        "budgetStatus": "pass",
+        "custodyStatus": "pass",
+        "retainedOriginalBudgetStatus": "fail",
+    }
+    monkeypatch.setattr(runner, "validate_evidence_root", lambda path: Path(path))
+    monkeypatch.setattr(runner, "_runtime_custody", lambda protocol: {"ok": True})
+    monkeypatch.setattr(runner, "_collect_tool_surface", lambda *args: {})
+    monkeypatch.setattr(runner, "_run_preflight", lambda *args: {})
+    monkeypatch.setattr(runner, "admit_retained_smoke", lambda *args: admitted)
+    monkeypatch.setattr(runner, "_copy_versioned_inputs", lambda *args: None)
+    monkeypatch.setattr(runner, "_write_row_input_custody", lambda *args: None)
+
+    def prepare(protocol, task, row_root, *args):
+        (row_root / "operator").mkdir()
+        return {"task": task["id"]}
+
+    def run(protocol, task, row_root, target):
+        run_tasks.append(task["id"])
+        return {"task": task["id"]}
+
+    monkeypatch.setattr(runner, "_prepare_target", prepare)
+    monkeypatch.setattr(runner, "_run_prime_row", run)
+    monkeypatch.setattr(
+        runner,
+        "_row_outcome",
+        lambda *args: {
+            "semanticStatus": "unproven",
+            "goalStatus": "complete",
+            "budgetStatus": "pass",
+            "custodyStatus": "pass",
+        },
+    )
+
+    result = runner.run_campaign(
+        PROTOCOL_PATH, evidence_root, 268435457, None, retained_root
+    )
+
+    assert run_tasks == ["T1", "T2", "T4"]
+    assert result["status"] == "complete"
+    assert result["outcomes"]["T3"] == admitted
 
 
 def test_versioned_adapter_preserves_v5_bytes_and_adds_pre_dispatch_call_ceiling():
