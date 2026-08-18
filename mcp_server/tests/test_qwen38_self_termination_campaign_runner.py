@@ -130,6 +130,19 @@ def test_tool_surface_validation_refuses_any_catalog_drift():
             runner.validate_tool_surface_record(record | {field: value}, expected)
 
 
+def test_operator_executor_boundary_distinguishes_payloads_from_failures():
+    runner = _runner()
+
+    payload = {"components": [], "flows": []}
+    assert runner.operator_payload(payload, "snapshot") is payload
+    assert runner.operator_envelope(payload) == {"success": True, "data": payload}
+
+    failure = {"success": False, "data": {"error": "refused"}}
+    assert runner.operator_envelope(failure) is failure
+    with pytest.raises(RuntimeError, match="operator_call_failed:snapshot"):
+        runner.operator_payload(failure, "snapshot")
+
+
 @pytest.mark.parametrize(
     "field",
     [

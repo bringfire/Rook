@@ -951,6 +951,21 @@ def _operator_command(
     )
 
 
+def operator_envelope(value: Any) -> dict[str, Any]:
+    if type(value) is dict and value.get("success") is False:
+        if set(value) == {"success", "data"}:
+            return value
+        return {"success": False, "data": value.get("data", value.get("error"))}
+    return {"success": True, "data": value}
+
+
+def operator_payload(value: Any, label: str) -> Any:
+    envelope = operator_envelope(value)
+    if envelope["success"] is not True:
+        raise RuntimeError(f"operator_call_failed:{label}")
+    return envelope["data"]
+
+
 def _collect_tool_surface(
     protocol: dict[str, Any], evidence_root: Path
 ) -> dict[str, Any]:
@@ -1143,13 +1158,17 @@ async def _operator_prepare(args: argparse.Namespace) -> int:
             "ROOK_MCP_TOOL_PROFILE": "full",
         }
     )
-    created = await _mcp_tool_executor("gh_document_new", {})
-    if created.get("success") is not True:
-        raise RuntimeError("gh_document_new_failed")
-    snapshot = await _mcp_tool_executor(
-        "gh_snapshot", {"include_data": True, "max_preview_items": 200}
+    created = operator_payload(
+        await _mcp_tool_executor("gh_document_new", {}), "gh_document_new"
     )
-    data = snapshot.get("data") if snapshot.get("success") is True else None
+    _write_json(Path(args.output).parent / "document-new.json", created)
+    snapshot = operator_payload(
+        await _mcp_tool_executor(
+            "gh_snapshot", {"include_data": True, "max_preview_items": 200}
+        ),
+        "initial_gh_snapshot",
+    )
+    data = snapshot
     if type(data) is not dict or data.get("components") != [] or data.get("flows") != []:
         raise RuntimeError("fresh_canvas_not_empty")
     initial_snapshot_path = Path(args.output).parent / "initial-inspection.json"
@@ -1173,26 +1192,34 @@ async def _operator_prepare(args: argparse.Namespace) -> int:
                 "T5.O0>T6.I0", "T4.O0>T6.I1", "T6.O0>T7.I0",
             ],
         }
-        edit = await _mcp_tool_executor("gh_edit", edit_arguments)
-        receipt = edit.get("data", {}).get("solve_readiness_receipt")
+        edit = operator_payload(
+            await _mcp_tool_executor("gh_edit", edit_arguments), "seed_gh_edit"
+        )
+        receipt = edit.get("solve_readiness_receipt")
         if type(receipt) is not dict:
             raise RuntimeError("seed_receipt_missing")
-        wait = await _mcp_tool_executor(
-            "gh_wait_for_solve_readiness",
-            {"readiness_receipt_id": receipt["receipt_id"], "timeout_ms": 10_000},
+        wait = operator_payload(
+            await _mcp_tool_executor(
+                "gh_wait_for_solve_readiness",
+                {"readiness_receipt_id": receipt["receipt_id"], "timeout_ms": 10_000},
+            ),
+            "seed_wait",
         )
-        ready = wait.get("data", {}).get("receipt")
+        ready = wait.get("receipt")
         if type(ready) is not dict or ready.get("status") != "ready":
             raise RuntimeError("seed_receipt_not_ready")
-        seeded = await _mcp_tool_executor(
-            "gh_snapshot",
-            {
-                "include_data": True,
-                "max_preview_items": 200,
-                "readiness_receipt_id": ready["receipt_id"],
-            },
+        seeded = operator_payload(
+            await _mcp_tool_executor(
+                "gh_snapshot",
+                {
+                    "include_data": True,
+                    "max_preview_items": 200,
+                    "readiness_receipt_id": ready["receipt_id"],
+                },
+            ),
+            "seed_snapshot",
         )
-        seeded_data = seeded.get("data")
+        seeded_data = seeded
         if (
             type(seeded_data) is not dict
             or seeded_data.get("diagnostics", {}).get("errors") != 1
@@ -1200,7 +1227,11 @@ async def _operator_prepare(args: argparse.Namespace) -> int:
             or len(seeded_data.get("flows", [])) != 6
         ):
             raise RuntimeError("seed_fixture_invalid")
-        seed = {"edit": edit, "wait": wait, "snapshot": seeded}
+        seed = {
+            "edit": operator_envelope(edit),
+            "wait": operator_envelope(wait),
+            "snapshot": operator_envelope(seeded),
+        }
         _write_json(Path(args.output).parent / "seed-evidence.json", seed)
     target = {
         "schema": "rook.experiment.target:v2",
@@ -1280,7 +1311,11 @@ async def _operator_evaluate(args: argparse.Namespace) -> int:
 
     if args.task in {"T1", "T3"}:
         artifact = json.loads(POINT_ACCEPTANCE.read_text(encoding="utf-8"))
-        probe = await run_behavioral_probe(artifact, trace, _mcp_tool_executor)
+
+        async def envelope_executor(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+            return operator_envelope(await _mcp_tool_executor(name, arguments))
+
+        probe = await run_behavioral_probe(artifact, trace, envelope_executor)
         evaluation = evaluate_behavioral_probe(artifact, trace, probe)
         _write_json(operator / "hidden-probe.json", probe)
         _write_json(operator / "hidden-evaluation.json", evaluation)
@@ -1291,21 +1326,30 @@ async def _operator_evaluate(args: argparse.Namespace) -> int:
     latest_receipt, receipt_error = _latest_terminal_receipt(trace)
     observation: dict[str, Any] | None = None
     if type(latest_receipt) is dict and receipt_error is None:
-        wait = await _mcp_tool_executor(
-            "gh_wait_for_solve_readiness",
-            {"readiness_receipt_id": latest_receipt["receipt_id"], "timeout_ms": 10_000},
+        wait = operator_payload(
+            await _mcp_tool_executor(
+                "gh_wait_for_solve_readiness",
+                {"readiness_receipt_id": latest_receipt["receipt_id"], "timeout_ms": 10_000},
+            ),
+            "final_wait",
         )
-        ready = wait.get("data", {}).get("receipt")
+        ready = wait.get("receipt")
         if type(ready) is dict and ready.get("status") == "ready":
-            snapshot = await _mcp_tool_executor(
-                "gh_snapshot",
-                {
-                    "include_data": True,
-                    "max_preview_items": 200,
-                    "readiness_receipt_id": ready["receipt_id"],
-                },
+            snapshot = operator_payload(
+                await _mcp_tool_executor(
+                    "gh_snapshot",
+                    {
+                        "include_data": True,
+                        "max_preview_items": 200,
+                        "readiness_receipt_id": ready["receipt_id"],
+                    },
+                ),
+                "final_snapshot",
             )
-            observation = {"wait": wait, "snapshot": snapshot}
+            observation = {
+                "wait": operator_envelope(wait),
+                "snapshot": operator_envelope(snapshot),
+            }
             _write_json(operator / "hidden-final-observation.json", observation)
     _write_json(
         operator / "hidden-evaluation.json",
