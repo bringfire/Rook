@@ -278,10 +278,20 @@ def test_seed_preservation_uses_temp_id_mapping_and_closed_snapshot_facts():
             "data": {
                 "components": [
                     {"id": "C1", "type": "NumberSlider", "nick": "Radius", "value": {"type": "slider", "val": 8}},
-                    {"id": "C2", "type": "Component_Circle", "nick": "Circle"},
+                    {
+                        "id": "C2",
+                        "type": "Component_Circle",
+                        "nick": "Circle",
+                        "componentGuid": "807b86e3-be8d-4970-92b5-f8cdcb45b06b",
+                    },
                     {"id": "C3", "type": "NumberSlider", "nick": "Reference A", "value": {"type": "slider", "val": 2}},
                     {"id": "C4", "type": "NumberSlider", "nick": "Reference B", "value": {"type": "slider", "val": 3}},
-                    {"id": "C5", "type": "Component_VariableAddition", "nick": "A+B"},
+                    {
+                        "id": "C5",
+                        "type": "Component_VariableAddition",
+                        "nick": "A+B",
+                        "componentGuid": "a0d62394-a118-422d-abb3-6af115c75b25",
+                    },
                     {"id": "C6", "type": "Panel", "nick": "Reference Result", "value": {"type": "panel", "val": "5"}},
                 ],
                 "flows": ["C1.O0>C2.I1", "C3.O0>C5.I0", "C4.O0>C5.I1", "C5.O0>C6.I0"],
@@ -314,6 +324,58 @@ def test_seed_preservation_uses_temp_id_mapping_and_closed_snapshot_facts():
     ]
 
 
+def _complete_seed_preservation_evidence() -> dict:
+    temp_id_map = {f"T{index}": f"C{index}" for index in range(1, 7)}
+    components = [
+        {"id": "C1", "type": "NumberSlider", "nick": "Radius", "value": {"type": "slider", "val": 8}},
+        {"id": "C2", "type": "Component_Circle", "componentGuid": "807b86e3-be8d-4970-92b5-f8cdcb45b06b"},
+        {"id": "C3", "type": "NumberSlider", "nick": "Reference A", "value": {"type": "slider", "val": 2}},
+        {"id": "C4", "type": "NumberSlider", "nick": "Reference B", "value": {"type": "slider", "val": 3}},
+        {"id": "C5", "type": "Component_VariableAddition", "componentGuid": "a0d62394-a118-422d-abb3-6af115c75b25"},
+        {"id": "C6", "type": "Panel", "nick": "Reference Result"},
+    ]
+    flows = ["C1.O0>C2.I1", "C3.O0>C5.I0", "C4.O0>C5.I1", "C5.O0>C6.I0"]
+    return {
+        "edit": {"success": True, "data": {"edit_summary": {"temp_id_map": temp_id_map}}},
+        "snapshot": {"success": True, "data": {"components": components, "flows": flows}},
+    }
+
+
+def test_seed_preservation_rejects_missing_baseline_field():
+    runner = _runner()
+    fixture = _varied_cohort_protocol()["tasks"]["VP1"]["targetFixture"]
+    seed_evidence = _complete_seed_preservation_evidence()
+    missing_baseline = json.loads(json.dumps(seed_evidence))
+    del missing_baseline["snapshot"]["data"]["components"][1]["componentGuid"]
+    with pytest.raises(ValueError, match="seed_preservation_evidence_invalid"):
+        runner.evaluate_seed_preservation(
+            fixture,
+            missing_baseline,
+            json.loads(json.dumps(seed_evidence["snapshot"]["data"])),
+        )
+
+
+def test_seed_preservation_withholds_missing_final_field():
+    runner = _runner()
+    fixture = _varied_cohort_protocol()["tasks"]["VP1"]["targetFixture"]
+    seed_evidence = _complete_seed_preservation_evidence()
+    missing_final = json.loads(json.dumps(seed_evidence["snapshot"]["data"]))
+    del missing_final["components"][1]["componentGuid"]
+    assert runner.evaluate_seed_preservation(
+        fixture, seed_evidence, missing_final
+    ) == {
+        "schema": "rook.experiment.seed_preservation:v1",
+        "status": "incomplete",
+        "violations": [
+            {
+                "code": "protected_field_unobserved",
+                "role": "original_circle",
+                "field": "componentGuid",
+            }
+        ],
+    }
+
+
 def test_varied_cohort_continues_model_failures_but_stops_infrastructure_failures():
     runner = _runner()
     protocol = _varied_cohort_protocol()
@@ -321,6 +383,7 @@ def test_varied_cohort_continues_model_failures_but_stops_infrastructure_failure
         "stdoutEof": True,
         "ownedChildPids": [],
         "exitCode": 0,
+        "goalContextVerified": True,
         "thinkingLevelVerified": True,
         "limitBreach": None,
     }
@@ -344,6 +407,7 @@ def test_varied_cohort_continues_model_failures_but_stops_infrastructure_failure
     for changed in (
         {"stdoutEof": False},
         {"ownedChildPids": [999]},
+        {"goalContextVerified": False},
         {"thinkingLevelVerified": False},
         {"exitCode": 1, "limitBreach": None},
     ):
@@ -509,6 +573,7 @@ def test_varied_campaign_runs_every_row_after_model_failure_and_seals_each(
             "stdoutEof": True,
             "ownedChildPids": [],
             "exitCode": 0,
+            "goalContextVerified": True,
             "thinkingLevelVerified": True,
             "limitBreach": None,
         }
@@ -571,6 +636,7 @@ def test_varied_campaign_stops_before_next_target_on_process_custody_failure(
         "stdoutEof": False,
         "ownedChildPids": [],
         "exitCode": 1,
+        "goalContextVerified": True,
         "thinkingLevelVerified": True,
         "limitBreach": None,
     }

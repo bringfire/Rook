@@ -1923,13 +1923,23 @@ def evaluate_seed_preservation(
         after = final_components.get(component_id)
         if type(component_id) is not str or type(before) is not dict:
             raise ValueError("seed_preservation_evidence_invalid")
+        if any(field not in before for field in protected["fields"]):
+            raise ValueError("seed_preservation_evidence_invalid")
         if type(after) is not dict:
             violations.append(
                 {"code": "protected_component_missing", "role": role}
             )
             continue
         for field in protected["fields"]:
-            if before.get(field) != after.get(field):
+            if field not in after:
+                violations.append(
+                    {
+                        "code": "protected_field_unobserved",
+                        "role": role,
+                        "field": field,
+                    }
+                )
+            elif before[field] != after[field]:
                 violations.append(
                     {
                         "code": "protected_field_changed",
@@ -1963,9 +1973,17 @@ def evaluate_seed_preservation(
             violations.append(
                 {"code": "protected_incident_flows_changed", "role": role}
             )
+    has_unobserved = any(
+        item["code"] == "protected_field_unobserved" for item in violations
+    )
+    has_failure = any(
+        item["code"] != "protected_field_unobserved" for item in violations
+    )
     return {
         "schema": "rook.experiment.seed_preservation:v1",
-        "status": "fail" if violations else "pass",
+        "status": (
+            "fail" if has_failure else "incomplete" if has_unobserved else "pass"
+        ),
         "violations": violations,
     }
 
@@ -2077,6 +2095,7 @@ def varied_row_allows_continuation(
         and
         process.get("stdoutEof") is True
         and process.get("ownedChildPids") == []
+        and process.get("goalContextVerified") is True
         and process.get("thinkingLevelVerified") is True
         and (process.get("exitCode") == 0 or clean_limit_breach)
     )
