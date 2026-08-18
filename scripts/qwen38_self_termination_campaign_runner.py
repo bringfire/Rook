@@ -28,7 +28,7 @@ DEFAULT_PROTOCOL = (
     / "docs"
     / "superpowers"
     / "experiments"
-    / "2026-08-18-qwen38-self-termination-campaign-v2.json"
+    / "2026-08-18-qwen38-self-termination-campaign-v3.json"
 )
 POINT_ACCEPTANCE = ROOT / "scripts" / "grasshopper_point_row_acceptance.json"
 PREFLIGHT_SCRIPT = ROOT / "scripts" / "prime_goal_kernel_preflight.ts"
@@ -92,7 +92,7 @@ class CampaignLimits:
 
 def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     if type(protocol) is not dict or protocol.get("schema") != (
-        "rook.experiment.qwen38_self_termination_campaign:v2"
+        "rook.experiment.qwen38_self_termination_campaign:v3"
     ):
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
@@ -120,6 +120,47 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
             or any(character not in "0123456789ABCDEF" for character in digest)
         ):
             raise ValueError(f"versioned_hash_invalid:{field}")
+    python_environment = protocol.get("pythonEnvironment")
+    if type(python_environment) is not dict or set(python_environment) != {
+        "pythonPathEntries",
+        "dllPathEntries",
+        "manifestRoots",
+    }:
+        raise ValueError("python_environment_contract_invalid")
+    for field in ("pythonPathEntries", "dllPathEntries"):
+        entries = python_environment.get(field)
+        if (
+            type(entries) is not list
+            or not entries
+            or len(entries) != len(set(entries))
+            or any(type(item) is not str or not item or not Path(item).is_absolute() for item in entries)
+        ):
+            raise ValueError("python_environment_contract_invalid")
+    manifest_roots = python_environment.get("manifestRoots")
+    if type(manifest_roots) is not dict or not manifest_roots:
+        raise ValueError("python_environment_contract_invalid")
+    for name, manifest in manifest_roots.items():
+        if (
+            type(name) is not str
+            or not name
+            or type(manifest) is not dict
+            or set(manifest) != {
+                "path",
+                "entryCount",
+                "totalBytes",
+                "manifestSha256",
+            }
+            or type(manifest.get("path")) is not str
+            or not Path(manifest["path"]).is_absolute()
+            or type(manifest.get("entryCount")) is not int
+            or manifest["entryCount"] <= 0
+            or type(manifest.get("totalBytes")) is not int
+            or manifest["totalBytes"] <= 0
+            or type(manifest.get("manifestSha256")) is not str
+            or len(manifest["manifestSha256"]) != 64
+            or any(character not in "0123456789ABCDEF" for character in manifest["manifestSha256"])
+        ):
+            raise ValueError("python_environment_manifest_invalid")
     tool_surface = protocol.get("toolSurface")
     if (
         type(tool_surface) is not dict
@@ -190,13 +231,13 @@ def build_prime_launch(
     ]
     source_log = row_root / "operator" / "source.jsonl"
     adapter_source = row_root / "agent" / "skills" / "rook-full" / "src"
-    installed_source = Path(protocol["rookCustody"]["installedPythonRoot"])
-    environment = dict(os.environ)
+    environment = python_runtime_environment(
+        protocol, dict(os.environ), adapter_source
+    )
     environment.update(
         {
             "PRIME_AGENT_CODING_AGENT_DIR": str(row_root / "agent"),
             "PRIME_AGENT_KERNEL_PYTHON": prime["sealedKernelPython"],
-            "PYTHONPATH": f"{adapter_source};{installed_source}",
             "ROOK_GH_AUTHORING_SOURCE_LOG": str(source_log),
             "ROOK_MCP_TARGET_MODE": "panel_locked",
             "ROOK_MCP_TARGET_PROCESS_ID": str(target["processId"]),
@@ -212,6 +253,37 @@ def build_prime_launch(
     environment.pop("ANTHROPIC_API_KEY", None)
     environment.pop("ANTHROPIC_OAUTH_TOKEN", None)
     return command, environment
+
+
+def python_runtime_environment(
+    protocol: dict[str, Any],
+    environment: dict[str, str],
+    adapter_source: Path,
+) -> dict[str, str]:
+    configured = protocol.get("pythonEnvironment")
+    if type(configured) is not dict:
+        installed = protocol["rookCustody"]["installedPythonRoot"]
+        return environment | {"PYTHONPATH": f"{adapter_source};{installed}"}
+    python_paths = configured.get("pythonPathEntries")
+    dll_paths = configured.get("dllPathEntries")
+    if (
+        type(python_paths) is not list
+        or not python_paths
+        or any(type(item) is not str or not item for item in python_paths)
+        or type(dll_paths) is not list
+        or not dll_paths
+        or any(type(item) is not str or not item for item in dll_paths)
+    ):
+        raise ValueError("python_environment_paths_invalid")
+    result = dict(environment)
+    result["PYTHONPATH"] = os.pathsep.join(
+        [Path(adapter_source).as_posix(), *python_paths]
+    )
+    existing_path = result.get("PATH", "")
+    result["PATH"] = os.pathsep.join(
+        [*dll_paths, *([existing_path] if existing_path else [])]
+    )
+    return result
 
 
 class RunMonitor:
@@ -313,6 +385,7 @@ def validate_preflight_record(
         "pythonExecutable",
         "goalFile",
         "rlmFile",
+        "rookFullFile",
         "goalPreimported",
         "getStatus",
         "getTokenBudget",
@@ -324,12 +397,14 @@ def validate_preflight_record(
         valid = (
             type(record) is dict
             and set(record) == expected_keys
-            and record["schema"] == "rook.experiment.prime_goal_preflight:v1"
+            and record["schema"] == "rook.experiment.prime_goal_preflight:v2"
             and Path(record["pythonExecutable"]).resolve() == Path(expected_python).resolve()
             and Path(record["goalFile"]).name == "__init__.py"
             and Path(record["goalFile"]).parent.name == "goal"
             and Path(record["rlmFile"]).name == "__init__.py"
             and Path(record["rlmFile"]).parent.name == "rlm"
+            and Path(record["rookFullFile"]).name == "__init__.py"
+            and Path(record["rookFullFile"]).parent.name == "rook_full"
             and record["goalPreimported"] is True
             and record["getStatus"] == "active"
             and record["getTokenBudget"] == budget
@@ -551,6 +626,84 @@ def _verify_prime_runtime_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def path_manifest(root: Path) -> dict[str, Any]:
+    root = Path(root)
+    if root.is_file():
+        paths = [root]
+        relative = lambda path: path.name
+    elif root.is_dir():
+        paths = sorted(item for item in root.rglob("*") if item.is_file())
+        relative = lambda path: path.relative_to(root).as_posix()
+    else:
+        raise RuntimeError(f"python_environment_missing:{root.as_posix()}")
+    entries = {
+        relative(path): {
+            "sha256": _sha(path),
+            "bytes": path.stat().st_size,
+        }
+        for path in paths
+    }
+    summary = {
+        "entryCount": len(entries),
+        "totalBytes": sum(item["bytes"] for item in entries.values()),
+        "manifestSha256": hashlib.sha256(_canonical_bytes(entries))
+        .hexdigest()
+        .upper(),
+    }
+    return {"root": root.as_posix(), "summary": summary, "entries": entries}
+
+
+def directory_manifest(root: Path) -> dict[str, Any]:
+    return path_manifest(root)
+
+
+def capture_python_environment_custody(
+    protocol: dict[str, Any],
+) -> dict[str, Any]:
+    configured = protocol.get("pythonEnvironment")
+    roots = configured.get("manifestRoots") if type(configured) is dict else None
+    if type(roots) is not dict or not roots:
+        raise ValueError("python_environment_manifest_roots_invalid")
+    actual: dict[str, Any] = {}
+    mismatches: list[str] = []
+    for name, expected in roots.items():
+        if type(name) is not str or type(expected) is not dict:
+            raise ValueError("python_environment_manifest_root_invalid")
+        manifest = path_manifest(Path(expected.get("path", "")))
+        actual[name] = manifest
+        expected_projection = {
+            "entryCount": expected.get("entryCount"),
+            "totalBytes": expected.get("totalBytes"),
+            "manifestSha256": expected.get("manifestSha256"),
+        }
+        if manifest["summary"] != expected_projection:
+            mismatches.append(name)
+    return {
+        "schema": "rook.experiment.python_environment_custody:v1",
+        "roots": actual,
+        "mismatches": mismatches,
+    }
+
+
+def require_python_environment_custody(record: dict[str, Any]) -> dict[str, Any]:
+    mismatches = record.get("mismatches")
+    if type(mismatches) is not list:
+        raise RuntimeError("python_environment_custody_invalid")
+    if mismatches:
+        raise RuntimeError(f"python_environment_drift:{','.join(mismatches)}")
+    return record
+
+
+def _write_python_environment_custody(
+    protocol: dict[str, Any], path: Path
+) -> dict[str, Any] | None:
+    if "pythonEnvironment" not in protocol:
+        return None
+    record = capture_python_environment_custody(protocol)
+    _write_json(path, record)
+    return require_python_environment_custody(record)
+
+
 def _runtime_custody(protocol: dict[str, Any]) -> dict[str, Any]:
     prime = protocol["prime"]
     prime_commit = subprocess.run(
@@ -674,8 +827,16 @@ def _run_preflight(
         str(prime_root),
         str(preflight_root / "kernel-session"),
         str(protocol["limits"]["primeGoalTokenBudget"]),
+        str(ROOT / protocol["versionedInputs"]["adapterRoot"]),
     ]
-    environment = dict(os.environ)
+    adapter_source = (
+        ROOT
+        / protocol["versionedInputs"]["adapterRoot"]
+        / "src"
+    )
+    environment = python_runtime_environment(
+        protocol, dict(os.environ), adapter_source
+    )
     environment["PRIME_AGENT_KERNEL_PYTHON"] = protocol["prime"][
         "sealedKernelPython"
     ]
@@ -1233,6 +1394,9 @@ def run_campaign(
         _write_json(evidence_root / "runtime-custody.json", _runtime_custody(protocol))
         _collect_tool_surface(protocol, evidence_root)
         _run_preflight(protocol, evidence_root)
+        _write_python_environment_custody(
+            protocol, evidence_root / "python-environment-baseline.json"
+        )
 
         if accepted_smoke_root is None:
             tasks_to_run = [protocol["smokeTask"]]
@@ -1260,11 +1424,17 @@ def run_campaign(
             row_root = evidence_root / task_id
             row_root.mkdir()
             _copy_versioned_inputs(protocol, row_root)
+            _write_python_environment_custody(
+                protocol, row_root / "operator" / "python-environment-pre.json"
+            )
             target = _prepare_target(
                 protocol, task, row_root, document_serial, process_id
             )
             _write_row_input_custody(protocol, task, row_root, target)
             process_result = _run_prime_row(protocol, task, row_root, target)
+            _write_python_environment_custody(
+                protocol, row_root / "operator" / "python-environment-post.json"
+            )
             outcome = _row_outcome(protocol, task, row_root, process_result)
             outcomes[task_id] = outcome | {"process": process_result, "target": target}
             _write_json(row_root / "operator" / "outcome.json", outcomes[task_id])

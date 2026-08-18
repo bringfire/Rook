@@ -19,7 +19,7 @@ PROTOCOL_PATH = (
     / "docs"
     / "superpowers"
     / "experiments"
-    / "2026-08-18-qwen38-self-termination-campaign-v2.json"
+    / "2026-08-18-qwen38-self-termination-campaign-v3.json"
 )
 ADAPTER_PATH = (
     ROOT
@@ -112,6 +112,30 @@ def test_frozen_protocol_pins_model_blobs_and_serialized_tool_surface():
         "serializedCatalogBytes": 320743,
         "serializedCatalogSha256": "64796B23E123368F1F9CC509206A879783195223D81165C70D7226CB154B86FA",
     }
+
+
+def test_v3_protocol_requires_closed_python_environment_custody():
+    runner = _runner()
+    protocol = _protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+
+    missing = json.loads(json.dumps(protocol))
+    del missing["pythonEnvironment"]["dllPathEntries"]
+    with pytest.raises(ValueError, match="python_environment_contract_invalid"):
+        runner.validate_protocol(missing)
+
+    open_contract = json.loads(json.dumps(protocol))
+    open_contract["pythonEnvironment"]["unexpected"] = True
+    with pytest.raises(ValueError, match="python_environment_contract_invalid"):
+        runner.validate_protocol(open_contract)
+
+    invalid_summary = json.loads(json.dumps(protocol))
+    invalid_summary["pythonEnvironment"]["manifestRoots"]["rookPackage"][
+        "manifestSha256"
+    ] = "not-a-digest"
+    with pytest.raises(ValueError, match="python_environment_manifest_invalid"):
+        runner.validate_protocol(invalid_summary)
 
 
 def test_tool_surface_validation_refuses_any_catalog_drift():
@@ -225,6 +249,104 @@ def test_prime_command_seeds_budgeted_goal_and_uses_sealed_kernel(tmp_path: Path
     assert environment["PRIME_AGENT_CODING_AGENT_DIR"] == str(
         tmp_path / "agent"
     )
+
+
+def test_python_runtime_environment_uses_explicit_windows_import_and_dll_paths(
+    tmp_path: Path,
+):
+    runner = _runner()
+    protocol = _protocol()
+    protocol["pythonEnvironment"] = {
+        "manifestRoots": {},
+        "pythonPathEntries": ["C:/runtime/site-packages", "C:/runtime/win32/lib"],
+        "dllPathEntries": ["C:/runtime", "C:/runtime/pywin32_system32"],
+    }
+
+    environment = runner.python_runtime_environment(
+        protocol,
+        {"PATH": "C:/Windows/System32"},
+        tmp_path / "adapter" / "src",
+    )
+
+    assert environment["PYTHONPATH"].split(";") == [
+        (tmp_path / "adapter" / "src").as_posix(),
+        "C:/runtime/site-packages",
+        "C:/runtime/win32/lib",
+    ]
+    assert environment["PATH"].split(";")[:3] == [
+        "C:/runtime",
+        "C:/runtime/pywin32_system32",
+        "C:/Windows/System32",
+    ]
+
+
+def test_recursive_python_environment_manifest_detects_any_file_drift(
+    tmp_path: Path,
+):
+    runner = _runner()
+    kernel = tmp_path / "kernel"
+    rook = tmp_path / "rook"
+    kernel.mkdir()
+    rook.mkdir()
+    (kernel / "python.exe").write_bytes(b"python")
+    (rook / "module.py").write_text("value = 1\n")
+    expected = {
+        "kernel": runner.directory_manifest(kernel),
+        "rook": runner.directory_manifest(rook),
+    }
+    protocol = {
+        "pythonEnvironment": {
+            "manifestRoots": {
+                name: {"path": item["root"], **item["summary"]}
+                for name, item in expected.items()
+            }
+        }
+    }
+
+    admitted = runner.capture_python_environment_custody(protocol)
+    assert admitted["mismatches"] == []
+
+    (rook / "module.py").write_text("value = 2\n")
+    drifted = runner.capture_python_environment_custody(protocol)
+    assert drifted["mismatches"] == ["rook"]
+    with pytest.raises(RuntimeError, match="python_environment_drift:rook"):
+        runner.require_python_environment_custody(drifted)
+
+
+def test_python_environment_manifest_covers_directories_and_single_dlls(
+    tmp_path: Path,
+):
+    runner = _runner()
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "module.py").write_bytes(b"value = 1\n")
+    dll = tmp_path / "pythoncom311.dll"
+    dll.write_bytes(b"dll")
+
+    package_manifest = runner.path_manifest(package)
+    dll_manifest = runner.path_manifest(dll)
+
+    assert package_manifest["entries"] == {
+        "module.py": {
+            "sha256": hashlib.sha256(b"value = 1\n").hexdigest().upper(),
+            "bytes": 10,
+        }
+    }
+    assert dll_manifest["entries"] == {
+        "pythoncom311.dll": {
+            "sha256": hashlib.sha256(b"dll").hexdigest().upper(),
+            "bytes": 3,
+        }
+    }
+
+
+def test_preflight_source_imports_versioned_rook_adapter_in_normal_kernel():
+    source = (ROOT / "scripts" / "prime_goal_kernel_preflight.ts").read_text()
+
+    assert 'name: "rook-full"' in source
+    assert 'importName: "rook_full"' in source
+    assert "import rook_full as _rook_full_module" in source
+    assert '"rookFullFile": _rook_full_module.__file__' in source
 
 
 def test_monitor_enforces_provider_tokens_gateway_calls_and_wall_clock():
@@ -357,11 +479,13 @@ def test_preflight_requires_exact_kernel_imports_active_goal_and_completion(
     python = tmp_path / "Scripts" / "python.exe"
     goal_file = tmp_path / "Lib" / "site-packages" / "goal" / "__init__.py"
     rlm_file = tmp_path / "Lib" / "site-packages" / "rlm" / "__init__.py"
+    rook_full_file = tmp_path / "Lib" / "site-packages" / "rook_full" / "__init__.py"
     record = {
-        "schema": "rook.experiment.prime_goal_preflight:v1",
+        "schema": "rook.experiment.prime_goal_preflight:v2",
         "pythonExecutable": str(python),
         "goalFile": str(goal_file),
         "rlmFile": str(rlm_file),
+        "rookFullFile": str(rook_full_file),
         "goalPreimported": True,
         "getStatus": "active",
         "getTokenBudget": 2_000_000,
@@ -562,11 +686,20 @@ def test_campaign_continuation_does_not_rerun_admitted_smoke(
     monkeypatch.setattr(runner, "_collect_tool_surface", lambda *args: {})
     monkeypatch.setattr(runner, "_run_preflight", lambda *args: {})
     monkeypatch.setattr(runner, "admit_retained_smoke", lambda *args: admitted)
+    monkeypatch.setattr(
+        runner,
+        "capture_python_environment_custody",
+        lambda protocol: {
+            "schema": "rook.experiment.python_environment_custody:v1",
+            "roots": {},
+            "mismatches": [],
+        },
+    )
     monkeypatch.setattr(runner, "_copy_versioned_inputs", lambda *args: None)
     monkeypatch.setattr(runner, "_write_row_input_custody", lambda *args: None)
 
     def prepare(protocol, task, row_root, *args):
-        (row_root / "operator").mkdir()
+        (row_root / "operator").mkdir(exist_ok=True)
         return {"task": task["id"]}
 
     def run(protocol, task, row_root, target):
@@ -593,6 +726,59 @@ def test_campaign_continuation_does_not_rerun_admitted_smoke(
     assert run_tasks == ["T1", "T2", "T4"]
     assert result["status"] == "complete"
     assert result["outcomes"]["T3"] == admitted
+
+
+def test_post_row_python_environment_drift_stops_before_next_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    evidence_root = tmp_path / "campaign"
+    prepared: list[str] = []
+    custody_records = iter(
+        [
+            {"schema": "rook.experiment.python_environment_custody:v1", "roots": {}, "mismatches": []},
+            {"schema": "rook.experiment.python_environment_custody:v1", "roots": {}, "mismatches": []},
+            {"schema": "rook.experiment.python_environment_custody:v1", "roots": {}, "mismatches": ["kernel"]},
+        ]
+    )
+    monkeypatch.setattr(runner, "validate_evidence_root", lambda path: Path(path))
+    monkeypatch.setattr(runner, "_runtime_custody", lambda protocol: {"ok": True})
+    monkeypatch.setattr(runner, "_collect_tool_surface", lambda *args: {})
+    monkeypatch.setattr(runner, "_run_preflight", lambda *args: {})
+    monkeypatch.setattr(
+        runner, "capture_python_environment_custody", lambda protocol: next(custody_records)
+    )
+    monkeypatch.setattr(runner, "_copy_versioned_inputs", lambda *args: None)
+    monkeypatch.setattr(runner, "_write_row_input_custody", lambda *args: None)
+
+    def prepare(protocol, task, row_root, *args):
+        prepared.append(task["id"])
+        (row_root / "operator").mkdir(exist_ok=True)
+        return {"task": task["id"]}
+
+    monkeypatch.setattr(runner, "_prepare_target", prepare)
+    monkeypatch.setattr(runner, "_run_prime_row", lambda *args: {})
+    monkeypatch.setattr(
+        runner,
+        "_row_outcome",
+        lambda *args: {
+            "semanticStatus": "pass",
+            "goalStatus": "complete",
+            "budgetStatus": "pass",
+            "custodyStatus": "pass",
+        },
+    )
+    protocol = _protocol()
+    protocol_path = tmp_path / "protocol.json"
+    protocol_path.write_text(json.dumps(protocol) + "\n")
+
+    with pytest.raises(RuntimeError, match="python_environment_drift:kernel"):
+        runner.run_campaign(protocol_path, evidence_root, 268435457, None)
+
+    assert prepared == ["T3"]
+    assert json.loads((evidence_root / "campaign-failure.json").read_text())["error"] == (
+        "python_environment_drift:kernel"
+    )
 
 
 def test_versioned_adapter_preserves_v5_bytes_and_adds_pre_dispatch_call_ceiling():
