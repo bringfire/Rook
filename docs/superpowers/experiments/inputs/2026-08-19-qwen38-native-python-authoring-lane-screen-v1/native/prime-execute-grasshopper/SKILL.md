@@ -26,9 +26,10 @@ Every inspection or mutation must use this interface and returned Rook evidence.
 <!-- authoring-lane:start -->
 ## Experimental native-components authoring lane
 
-This row is routed to the native-components authoring lane.
-Script components are unavailable. Build and repair the requested definition with ordinary
-Grasshopper components only; do not switch implementation modes.
+This row is routed to the native-components authoring lane. Script components
+are outside this row's admitted authoring lane. Build and repair the requested
+definition with ordinary Grasshopper components only; do not switch
+implementation modes.
 
 These capabilities are known and immediately available:
 

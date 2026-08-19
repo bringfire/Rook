@@ -423,6 +423,7 @@ def _authoring_lane_execution_order(protocol: dict[str, Any]) -> list[str]:
         "rowLanes",
         "pairedControls",
         "successCriteria",
+        "firstCommitTokenAttribution",
         "evaluatorFeedbackDuringRun",
         "retriesPerRow",
         "midCampaignTuning",
@@ -480,10 +481,10 @@ def _authoring_lane_execution_order(protocol: dict[str, Any]) -> list[str]:
             "lane": "native",
             "skillPath": _AUTHORING_LANE_NATIVE_SKILL,
             "skillSha256": (
-                "AB053FA8FE7D0526E8C076DE4488C34FAD127A7CEC63BF3059378F1EB9EDBE53"
+                "2F3605CD4FD09EB6DCC028AED9E78119E93C6C28A64796804BF81E99DFEB9FAC"
             ),
             "startingCapabilities": audit["nativeStartingCapabilities"],
-            "scriptComponentsAvailable": False,
+            "scriptComponentsAdmitted": False,
         },
         "P": {
             "lane": "python",
@@ -545,6 +546,19 @@ def _authoring_lane_execution_order(protocol: dict[str, Any]) -> list[str]:
             "no_equivalent_repeated_mutation_without_named_material_reason",
             "no_efficiency_credit_if_semantic_or_evidence_quality_regresses",
         ]
+        or experiment.get("firstCommitTokenAttribution")
+        != {
+            "measurement": (
+                "cumulative_provider_tokens_through_the_assistant_turn_that_"
+                "originated_the_ipython_execution_containing_the_first_committed_"
+                "source_event"
+            ),
+            "requiredCitations": [
+                "first_committed_source_event",
+                "originating_assistant_turn_usage",
+            ],
+            "ambiguousMappingDisposition": "unproven",
+        }
         or experiment.get("evaluatorFeedbackDuringRun") is not False
         or experiment.get("retriesPerRow") != 0
         or experiment.get("midCampaignTuning") is not False

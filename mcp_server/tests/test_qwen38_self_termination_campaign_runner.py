@@ -734,8 +734,12 @@ def test_authoring_lane_skills_are_closed_deltas_from_canonical_skill():
     native_block = native.split("<!-- authoring-lane:start -->", 1)[1].split(
         "<!-- authoring-lane:end -->", 1
     )[0]
+    normalized_native_block = " ".join(native_block.split())
     assert "native-components authoring lane" in native_block
-    assert "Script components are unavailable" in native_block
+    assert "Script components are outside this row's admitted authoring lane" in (
+        normalized_native_block
+    )
+    assert "Script components are unavailable" not in native_block
     for capability in (
         "gh_snapshot",
         "gh_library",
@@ -833,7 +837,7 @@ def test_authoring_lane_protocol_freezes_one_native_and_one_python_row():
                 "gh_errors",
                 "gh_wait_for_solve_readiness",
             ],
-            "scriptComponentsAvailable": False,
+            "scriptComponentsAdmitted": False,
         },
         "P": {
             "lane": "python",
@@ -867,6 +871,17 @@ def test_authoring_lane_protocol_freezes_one_native_and_one_python_row():
         "no_equivalent_repeated_mutation_without_named_material_reason",
         "no_efficiency_credit_if_semantic_or_evidence_quality_regresses",
     ]
+    assert experiment["firstCommitTokenAttribution"] == {
+        "measurement": (
+            "cumulative_provider_tokens_through_the_assistant_turn_that_originated_"
+            "the_ipython_execution_containing_the_first_committed_source_event"
+        ),
+        "requiredCitations": [
+            "first_committed_source_event",
+            "originating_assistant_turn_usage",
+        ],
+        "ambiguousMappingDisposition": "unproven",
+    }
     assert experiment["evaluatorFeedbackDuringRun"] is False
     assert experiment["retriesPerRow"] == 0
     assert experiment["midCampaignTuning"] is False

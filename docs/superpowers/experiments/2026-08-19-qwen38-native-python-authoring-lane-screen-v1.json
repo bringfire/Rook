@@ -258,7 +258,7 @@
       "N": {
         "lane": "native",
         "skillPath": "docs/superpowers/experiments/inputs/2026-08-19-qwen38-native-python-authoring-lane-screen-v1/native/prime-execute-grasshopper/SKILL.md",
-        "skillSha256": "AB053FA8FE7D0526E8C076DE4488C34FAD127A7CEC63BF3059378F1EB9EDBE53",
+        "skillSha256": "2F3605CD4FD09EB6DCC028AED9E78119E93C6C28A64796804BF81E99DFEB9FAC",
         "startingCapabilities": [
           "gh_snapshot",
           "gh_library",
@@ -267,7 +267,7 @@
           "gh_errors",
           "gh_wait_for_solve_readiness"
         ],
-        "scriptComponentsAvailable": false
+        "scriptComponentsAdmitted": false
       },
       "P": {
         "lane": "python",
@@ -319,6 +319,14 @@
       "no_equivalent_repeated_mutation_without_named_material_reason",
       "no_efficiency_credit_if_semantic_or_evidence_quality_regresses"
     ],
+    "firstCommitTokenAttribution": {
+      "measurement": "cumulative_provider_tokens_through_the_assistant_turn_that_originated_the_ipython_execution_containing_the_first_committed_source_event",
+      "requiredCitations": [
+        "first_committed_source_event",
+        "originating_assistant_turn_usage"
+      ],
+      "ambiguousMappingDisposition": "unproven"
+    },
     "evaluatorFeedbackDuringRun": false,
     "retriesPerRow": 0,
     "midCampaignTuning": false,

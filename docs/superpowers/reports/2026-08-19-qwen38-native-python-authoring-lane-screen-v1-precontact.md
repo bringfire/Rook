@@ -4,7 +4,9 @@ Date: 2026-08-19
 
 Status: `frozen_precontact_review_required`
 
-Repository parent: `626fa30fad3bee3b0446acac1a7a9bcbb0cc23b1`
+Original package parent: `626fa30fad3bee3b0446acac1a7a9bcbb0cc23b1`
+
+Review-correction parent: `1cf03030eed80b977e2ee56888a067e96e98c191`
 
 No Rhino, Grasshopper, MCP, Prime, Ollama, Qwen, deployment, target
 preparation, or screening contact occurred while preparing this package.
@@ -20,9 +22,11 @@ The model receives the same task on two fresh empty targets:
 - `N`: native Grasshopper components only.
 - `P`: one Python script component plus ordinary controls.
 
-The fixtures are model-facing guidance over the unchanged full Rook tool
-surface. They do not mechanically hide capabilities. Route compliance and any
-implementation-mode switch are measured from the retained gateway trace.
+The fixtures are model-facing admission guidance over the unchanged full Rook
+tool surface. They do not mechanically hide capabilities. Script components
+remain available but are outside row `N`'s admitted authoring lane. Route
+compliance and any implementation-mode switch are measured from the retained
+gateway trace.
 
 The canonical product skill is unchanged at SHA-256
 `30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07`.
@@ -88,7 +92,7 @@ Canonical skill
 30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07
 
 Native lane skill
-AB053FA8FE7D0526E8C076DE4488C34FAD127A7CEC63BF3059378F1EB9EDBE53
+2F3605CD4FD09EB6DCC028AED9E78119E93C6C28A64796804BF81E99DFEB9FAC
 
 Python lane skill
 E70095B557A2C55FDA33FCA7BC7830A4D2FD54F98E7B66A861AC87DB9C4B4AD6
@@ -100,10 +104,10 @@ Shadow adjudication
 328774E470C612F6FA127DDF174C65D9438986FC71D868DE28DD3F427176CC25
 
 Protocol
-B7CFC42F1145B444E1AF721C64A9AB28AAE5882184DB4257E3467CA1A96B4215
+D75537826C764A254928279420AEA045FB8AFBD9F60BDBE692A0B8A506CDEFB6
 
-Runner before the pre-contact documentation commit
-07DF207B7178FB78839BA3954800290E3C09ED6AEE0F62EC2D9F45E6364F955D
+Runner in the corrected pre-contact package
+DB87BD5B9163E8773AD961F8A5BF8FDEE9FE2A576CA02E3A96E27D48EB20B87C
 ```
 
 ## Predeclared observations
@@ -123,6 +127,12 @@ Each row is reported independently against these frozen criteria:
 
 The post-run report compares first-mutation cost, discovery, route stability,
 semantic quality, evidence custody, stopping, total tokens, calls, and time.
+
+For the 200,000-token criterion, cumulative provider tokens are measured
+through the assistant turn that originated the IPython execution containing
+the first committed source event. The report must cite both that source event
+and the originating assistant-turn usage record. If their mapping is
+ambiguous, this criterion is `unproven`.
 
 ## Verification
 
