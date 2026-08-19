@@ -937,6 +937,53 @@ def verify_evidence_manifest(root: Path, manifest_path: Path) -> dict[str, Any]:
     return {"entryCount": manifest.get("entryCount"), "mismatches": mismatches}
 
 
+def verify_screening_source_evidence(
+    protocol: dict[str, Any], evidence_root: Path
+) -> dict[str, Any] | None:
+    screening = protocol.get("screeningRetest")
+    if screening is None:
+        return None
+    source = screening["sourceEvidenceManifest"]
+    manifest_path = Path(source["path"])
+    expected_sha = source["sha256"]
+    output_path = evidence_root / "screening-source-evidence-verification.json"
+    record: dict[str, Any] = {
+        "schema": "rook.experiment.screening_source_evidence_verification:v1",
+        "status": "fail",
+        "manifestPath": manifest_path.as_posix(),
+        "expectedSha256": expected_sha,
+        "observedSha256": None,
+        "evidenceRoot": manifest_path.parent.as_posix(),
+        "entryCount": None,
+        "mismatches": [],
+        "reason": None,
+    }
+    if not manifest_path.is_file():
+        record["reason"] = "screening_source_manifest_missing"
+        _write_json(output_path, record)
+        raise RuntimeError(record["reason"])
+    record["observedSha256"] = _sha(manifest_path)
+    if record["observedSha256"] != expected_sha:
+        record["reason"] = "screening_source_manifest_digest_mismatch"
+        _write_json(output_path, record)
+        raise RuntimeError(record["reason"])
+    try:
+        verification = verify_evidence_manifest(manifest_path.parent, manifest_path)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        record["reason"] = "screening_source_manifest_invalid"
+        _write_json(output_path, record)
+        raise RuntimeError(record["reason"])
+    record["entryCount"] = verification["entryCount"]
+    record["mismatches"] = verification["mismatches"]
+    if record["mismatches"]:
+        record["reason"] = "screening_source_evidence_mismatch"
+        _write_json(output_path, record)
+        raise RuntimeError(record["reason"])
+    record["status"] = "pass"
+    _write_json(output_path, record)
+    return record
+
+
 def smoke_allows_cohort(result: dict[str, Any]) -> bool:
     return result == {
         "semanticStatus": "pass",
@@ -2486,6 +2533,7 @@ def run_campaign(
     outcomes: dict[str, Any] = {}
     try:
         run_precontact_verification(protocol, evidence_root)
+        verify_screening_source_evidence(protocol, evidence_root)
         _write_json(
             evidence_root / "runtime-custody.json",
             _runtime_custody(protocol, protocol_path),

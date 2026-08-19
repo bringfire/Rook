@@ -336,6 +336,134 @@ def test_vp2_screening_contract_is_closed_to_one_silent_row():
         runner.validate_protocol(expanded)
 
 
+def _screening_with_manifest(protocol: dict, manifest_path: Path) -> dict:
+    updated = json.loads(json.dumps(protocol))
+    updated["screeningRetest"]["sourceEvidenceManifest"] = {
+        "path": manifest_path.as_posix(),
+        "sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest().upper(),
+    }
+    return updated
+
+
+def test_screening_precontact_retains_verified_source_evidence(tmp_path: Path):
+    runner = _runner()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "result.json").write_text('{"status":"complete"}\n', encoding="utf-8")
+    manifest_path = source / "evidence-manifest.json"
+    runner.write_evidence_manifest(source, manifest_path)
+    protocol = _screening_with_manifest(
+        _vp2_evidence_reuse_protocol(), manifest_path
+    )
+    screening_root = tmp_path / "screening"
+    screening_root.mkdir()
+
+    result = runner.verify_screening_source_evidence(protocol, screening_root)
+
+    assert result == {
+        "schema": "rook.experiment.screening_source_evidence_verification:v1",
+        "status": "pass",
+        "manifestPath": manifest_path.as_posix(),
+        "expectedSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest().upper(),
+        "observedSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest().upper(),
+        "evidenceRoot": source.as_posix(),
+        "entryCount": 1,
+        "mismatches": [],
+        "reason": None,
+    }
+    assert json.loads(
+        (screening_root / "screening-source-evidence-verification.json").read_text()
+    ) == result
+
+
+def test_screening_precontact_refuses_and_records_missing_source_manifest(
+    tmp_path: Path,
+):
+    runner = _runner()
+    protocol = _vp2_evidence_reuse_protocol()
+    missing = tmp_path / "missing" / "evidence-manifest.json"
+    protocol["screeningRetest"]["sourceEvidenceManifest"] = {
+        "path": missing.as_posix(),
+        "sha256": "A" * 64,
+    }
+    screening_root = tmp_path / "screening"
+    screening_root.mkdir()
+
+    with pytest.raises(RuntimeError, match="screening_source_manifest_missing"):
+        runner.verify_screening_source_evidence(protocol, screening_root)
+
+    retained = json.loads(
+        (screening_root / "screening-source-evidence-verification.json").read_text()
+    )
+    assert retained["status"] == "fail"
+    assert retained["reason"] == "screening_source_manifest_missing"
+    assert retained["observedSha256"] is None
+
+
+def test_screening_precontact_refuses_and_records_source_manifest_digest_drift(
+    tmp_path: Path,
+):
+    runner = _runner()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "result.json").write_text('{"status":"complete"}\n', encoding="utf-8")
+    manifest_path = source / "evidence-manifest.json"
+    runner.write_evidence_manifest(source, manifest_path)
+    protocol = _screening_with_manifest(
+        _vp2_evidence_reuse_protocol(), manifest_path
+    )
+    manifest_path.write_bytes(manifest_path.read_bytes() + b" ")
+    screening_root = tmp_path / "screening"
+    screening_root.mkdir()
+
+    with pytest.raises(RuntimeError, match="screening_source_manifest_digest_mismatch"):
+        runner.verify_screening_source_evidence(protocol, screening_root)
+
+    retained = json.loads(
+        (screening_root / "screening-source-evidence-verification.json").read_text()
+    )
+    assert retained["status"] == "fail"
+    assert retained["reason"] == "screening_source_manifest_digest_mismatch"
+    assert retained["observedSha256"] != retained["expectedSha256"]
+
+
+def test_screening_precontact_refuses_source_evidence_mismatch_before_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    source = tmp_path / "source"
+    source.mkdir()
+    payload = source / "result.json"
+    payload.write_text('{"status":"complete"}\n', encoding="utf-8")
+    manifest_path = source / "evidence-manifest.json"
+    runner.write_evidence_manifest(source, manifest_path)
+    protocol = _screening_with_manifest(
+        _vp2_evidence_reuse_protocol(), manifest_path
+    )
+    payload.write_text('{"status":"altered"}\n', encoding="utf-8")
+    protocol_path = tmp_path / "protocol.json"
+    protocol_path.write_text(json.dumps(protocol) + "\n", encoding="utf-8")
+    screening_root = tmp_path / "screening"
+    prepared: list[str] = []
+
+    monkeypatch.setattr(runner, "validate_evidence_root", lambda path: Path(path))
+    monkeypatch.setattr(runner, "run_precontact_verification", lambda *args: {})
+    monkeypatch.setattr(
+        runner, "_prepare_target", lambda *args: prepared.append("target")
+    )
+
+    with pytest.raises(RuntimeError, match="screening_source_evidence_mismatch"):
+        runner.run_campaign(protocol_path, screening_root, 268435457, None)
+
+    assert prepared == []
+    retained = json.loads(
+        (screening_root / "screening-source-evidence-verification.json").read_text()
+    )
+    assert retained["status"] == "fail"
+    assert retained["reason"] == "screening_source_evidence_mismatch"
+    assert retained["mismatches"] == ["result.json"]
+
+
 def test_varied_cohort_freezes_v6_runtime_and_exact_reviewed_evaluator_delta():
     runner = _runner()
     v6 = json.loads(V6_PROTOCOL_PATH.read_text(encoding="utf-8"))
