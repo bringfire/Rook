@@ -94,6 +94,20 @@ VP2_CONNECTION_TRUTHFULNESS_RETEST_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-19-qwen38-vp2-connection-truthfulness-retest-v2.json"
 )
+VP1_PROSPECTIVE_EFFICIENCY_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-vp1-prospective-efficiency-screen-v1.json"
+)
+VP1_PROSPECTIVE_EFFICIENCY_ADJUDICATION_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-vp1-prospective-efficiency-screen-v1-adjudication.json"
+)
 VP2_STRATEGY_DISCIPLINE_SKILL_PATH = (
     ROOT
     / "docs"
@@ -101,6 +115,16 @@ VP2_STRATEGY_DISCIPLINE_SKILL_PATH = (
     / "experiments"
     / "inputs"
     / "2026-08-18-qwen38-vp2-strategy-discipline-screening-v1"
+    / "prime-execute-grasshopper"
+    / "SKILL.md"
+)
+VP1_PROSPECTIVE_EFFICIENCY_SKILL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "inputs"
+    / "2026-08-19-qwen38-vp1-prospective-efficiency-screen-v1"
     / "prime-execute-grasshopper"
     / "SKILL.md"
 )
@@ -139,6 +163,14 @@ STRATEGY_DISCIPLINE_RULE = (
     "committed strategy, either attempt one bounded local repair or identify live "
     "evidence making a pivot preferable. Preserve unaffected committed work during "
     "a pivot. Further discovery must name the blocker it resolves."
+)
+KNOWN_TOOL_DISCOVERY_RULE = (
+    "Tool names listed in this skill are already known. Read each required contract "
+    "directly once; do not search for a known tool name. After `gh_edit` and one "
+    "viable authoring contract are known, choose an implementation mode and create "
+    "the smallest working scaffold. Further discovery must name the exact unresolved "
+    "fact required by the next intended mutation—for example a component identity, "
+    "parameter index, or required tool argument—and stop once that fact is resolved."
 )
 BASELINE_SKILL_SHA256 = (
     "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
@@ -395,6 +427,114 @@ def _vp2_connection_truthfulness_retest_protocol() -> dict:
             encoding="utf-8"
         )
     )
+
+
+def _vp1_prospective_efficiency_protocol() -> dict:
+    return json.loads(
+        VP1_PROSPECTIVE_EFFICIENCY_PROTOCOL_PATH.read_text(encoding="utf-8")
+    )
+
+
+def test_vp1_prospective_skill_delta_is_exact_and_corrects_known_tool_example():
+    source_skill = VP2_STRATEGY_DISCIPLINE_SKILL_PATH.read_text(encoding="utf-8")
+    experimental_skill = VP1_PROSPECTIVE_EFFICIENCY_SKILL_PATH.read_text(
+        encoding="utf-8"
+    )
+
+    assert experimental_skill.count(KNOWN_TOOL_DISCOVERY_RULE) == 1
+    assert 'search_payload = await rook_full.search("gh_edit")' not in experimental_skill
+    prior = experimental_skill.replace(KNOWN_TOOL_DISCOVERY_RULE + "\n\n", "", 1)
+    prior = prior.replace(
+        'tool_contract = await rook_full.read("gh_edit")',
+        'search_payload = await rook_full.search("gh_edit")\n'
+        'tool_contract = await rook_full.read("gh_edit")',
+        1,
+    )
+    assert prior == source_skill
+
+
+def test_vp1_prospective_screen_freezes_task_budget_and_primary_observations():
+    runner = _runner()
+    source = _vp2_connection_truthfulness_retest_protocol()
+    varied = _varied_cohort_protocol()
+    protocol = _vp1_prospective_efficiency_protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["executionOrder"] == ["VP1"]
+    assert protocol["tasks"] == {"VP1": varied["tasks"]["VP1"]}
+    assert protocol["limits"] == source["limits"] | {"primeGoalTokenBudget": 1_900_000}
+    assert protocol["prospectiveScreen"] == {
+        "classification": "single_prospective_efficiency_screen",
+        "sourceOperationalProtocol": {
+            "path": VP2_CONNECTION_TRUTHFULNESS_RETEST_PROTOCOL_PATH.relative_to(ROOT).as_posix(),
+            "sha256": hashlib.sha256(
+                VP2_CONNECTION_TRUTHFULNESS_RETEST_PROTOCOL_PATH.read_bytes()
+            ).hexdigest().upper(),
+        },
+        "taskSourceProtocol": {
+            "path": VARIED_COHORT_PROTOCOL_PATH.relative_to(ROOT).as_posix(),
+            "sha256": hashlib.sha256(VARIED_COHORT_PROTOCOL_PATH.read_bytes())
+            .hexdigest()
+            .upper(),
+            "taskId": "VP1",
+        },
+        "changedOperationalInputs": [
+            "task",
+            "versioned_prime_skill",
+            "prime_goal_token_budget",
+            "shadow_adjudication_task_subset",
+        ],
+        "sourceSkillSha256": hashlib.sha256(
+            VP2_STRATEGY_DISCIPLINE_SKILL_PATH.read_bytes()
+        ).hexdigest().upper(),
+        "rule": KNOWN_TOOL_DISCOVERY_RULE,
+        "budgetSplit": {
+            "providerCeilingTokens": 2_000_000,
+            "primeGoalBudgetTokens": 1_900_000,
+            "finalResponseReserveTokens": 100_000,
+        },
+        "primaryObservations": [
+            "searches_for_skill_listed_tool_names",
+            "duplicate_contract_reads",
+            "gateway_calls_before_first_mutation",
+            "provider_tokens_before_first_mutation",
+            "named_reasons_for_further_discovery",
+            "semantic_health",
+            "final_receipt_fenced_evidence",
+            "goal_complete",
+        ],
+        "evaluatorFeedbackDuringRun": False,
+    }
+    for owner in (
+        "prime",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "offlineEvaluator",
+        "toolSurface",
+        "sourceCampaignProtocol",
+        "continuationPolicy",
+        "precontactVerification",
+    ):
+        assert protocol[owner] == source[owner]
+    adjudication = json.loads(
+        VP1_PROSPECTIVE_EFFICIENCY_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+    assert set(adjudication["tasks"]) == {"VP1"}
+    assert protocol["shadowAdjudication"] == {
+        "path": VP1_PROSPECTIVE_EFFICIENCY_ADJUDICATION_PATH.relative_to(
+            ROOT
+        ).as_posix(),
+        "sha256": hashlib.sha256(
+            VP1_PROSPECTIVE_EFFICIENCY_ADJUDICATION_PATH.read_bytes()
+        ).hexdigest().upper(),
+    }
+    assert protocol["versionedInputs"]["skillPath"] == (
+        VP1_PROSPECTIVE_EFFICIENCY_SKILL_PATH.relative_to(ROOT).as_posix()
+    )
+    assert protocol["versionedInputs"]["skillSha256"] == hashlib.sha256(
+        VP1_PROSPECTIVE_EFFICIENCY_SKILL_PATH.read_bytes()
+    ).hexdigest().upper()
 
 
 def test_vp2_connection_truthfulness_retest_admits_only_the_repaired_runtime_delta():

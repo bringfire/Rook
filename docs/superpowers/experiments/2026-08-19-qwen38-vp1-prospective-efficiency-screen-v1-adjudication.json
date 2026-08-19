@@ -1,0 +1,49 @@
+{
+  "schema": "rook.experiment.varied_product_shadow_adjudication:v1",
+  "status": "frozen_precontact",
+  "purpose": "Guide independent post-run judgment without providing semantic feedback to the Actor.",
+  "evaluatorFeedbackDuringRun": false,
+  "evidenceLabels": [
+    "observed",
+    "inferred",
+    "unresolved"
+  ],
+  "dispositions": [
+    "credible_success",
+    "partial_success",
+    "semantic_failure",
+    "incomplete"
+  ],
+  "aggregateScore": null,
+  "rules": [
+    "Judge each row independently after the Actor process has ended and the row evidence has been sealed.",
+    "Cite retained evidence for every observed claim.",
+    "Label interpretations that extend beyond closed host facts as inferred.",
+    "Use unresolved when retained evidence cannot support a judgment.",
+    "Do not convert aesthetic preference or an unstated design choice into a failure.",
+    "Do not feed any judgment, question, disposition, or expected answer back to the Actor during the cohort."
+  ],
+  "tasks": {
+    "VP1": {
+      "class": "brownfield_modification_and_preservation",
+      "questions": [
+        {
+          "id": "annular_system_created",
+          "text": "Did the final definition create a credible adjustable annular band with distinct inner and outer circular boundaries?"
+        },
+        {
+          "id": "width_control_is_meaningful",
+          "text": "Does the added Width control materially affect the annular band while retaining a useful Radius control?"
+        },
+        {
+          "id": "seeded_work_preserved",
+          "text": "Were the seeded circle system and unrelated reference cluster preserved without unauthorized deletion or rewiring?"
+        },
+        {
+          "id": "material_assumptions_disclosed",
+          "text": "Did the completion account honestly for consequential assumptions or unresolved ambiguity?"
+        }
+      ]
+    }
+  }
+}

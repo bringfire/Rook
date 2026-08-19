@@ -51,6 +51,14 @@ _STRATEGY_DISCIPLINE_RULE = (
     "evidence making a pivot preferable. Preserve unaffected committed work during "
     "a pivot. Further discovery must name the blocker it resolves."
 )
+_KNOWN_TOOL_DISCOVERY_RULE = (
+    "Tool names listed in this skill are already known. Read each required contract "
+    "directly once; do not search for a known tool name. After `gh_edit` and one "
+    "viable authoring contract are known, choose an implementation mode and create "
+    "the smallest working scaffold. Further discovery must name the exact unresolved "
+    "fact required by the next intended mutation—for example a component identity, "
+    "parameter index, or required tool argument—and stop once that fact is resolved."
+)
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -274,6 +282,102 @@ class CampaignLimits:
 
 def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
     screening = protocol.get("screeningRetest")
+    prospective = protocol.get("prospectiveScreen")
+    if screening is not None and prospective is not None:
+        raise ValueError("prospective_screen_invalid")
+    if prospective is not None:
+        if type(prospective) is not dict or set(prospective) != {
+            "classification",
+            "sourceOperationalProtocol",
+            "taskSourceProtocol",
+            "changedOperationalInputs",
+            "sourceSkillSha256",
+            "rule",
+            "budgetSplit",
+            "primaryObservations",
+            "evaluatorFeedbackDuringRun",
+        }:
+            raise ValueError("prospective_screen_invalid")
+        operational = prospective.get("sourceOperationalProtocol")
+        task_source = prospective.get("taskSourceProtocol")
+        if (
+            prospective.get("classification")
+            != "single_prospective_efficiency_screen"
+            or type(operational) is not dict
+            or set(operational) != {"path", "sha256"}
+            or operational.get("path")
+            != "docs/superpowers/experiments/2026-08-19-qwen38-vp2-connection-truthfulness-retest-v2.json"
+            or not _is_sha256(operational.get("sha256"))
+            or type(task_source) is not dict
+            or set(task_source) != {"path", "sha256", "taskId"}
+            or task_source.get("path")
+            != "docs/superpowers/experiments/2026-08-18-qwen38-varied-product-cohort-v1.json"
+            or not _is_sha256(task_source.get("sha256"))
+            or task_source.get("taskId") != "VP1"
+        ):
+            raise ValueError("prospective_screen_invalid")
+        operational_path = ROOT / operational["path"]
+        task_source_path = ROOT / task_source["path"]
+        if (
+            not operational_path.is_file()
+            or _sha(operational_path) != operational["sha256"]
+            or not task_source_path.is_file()
+            or _sha(task_source_path) != task_source["sha256"]
+        ):
+            raise ValueError("prospective_screen_invalid")
+        operational_protocol = _load_json(operational_path)
+        task_protocol = _load_json(task_source_path)
+        if (
+            prospective.get("changedOperationalInputs")
+            != [
+                "task",
+                "versioned_prime_skill",
+                "prime_goal_token_budget",
+                "shadow_adjudication_task_subset",
+            ]
+            or prospective.get("sourceSkillSha256")
+            != operational_protocol.get("versionedInputs", {}).get("skillSha256")
+            or prospective.get("rule") != _KNOWN_TOOL_DISCOVERY_RULE
+            or prospective.get("budgetSplit")
+            != {
+                "providerCeilingTokens": 2_000_000,
+                "primeGoalBudgetTokens": 1_900_000,
+                "finalResponseReserveTokens": 100_000,
+            }
+            or prospective.get("primaryObservations")
+            != [
+                "searches_for_skill_listed_tool_names",
+                "duplicate_contract_reads",
+                "gateway_calls_before_first_mutation",
+                "provider_tokens_before_first_mutation",
+                "named_reasons_for_further_discovery",
+                "semantic_health",
+                "final_receipt_fenced_evidence",
+                "goal_complete",
+            ]
+            or prospective.get("evaluatorFeedbackDuringRun") is not False
+            or protocol.get("limits")
+            != operational_protocol["limits"] | {"primeGoalTokenBudget": 1_900_000}
+            or protocol.get("tasks") != {"VP1": task_protocol["tasks"]["VP1"]}
+        ):
+            raise ValueError("prospective_screen_invalid")
+        unchanged_owners = (
+            "prime",
+            "pythonEnvironment",
+            "modelCustody",
+            "rookCustody",
+            "offlineEvaluator",
+            "toolSurface",
+            "sourceCampaignProtocol",
+            "continuationPolicy",
+            "precontactVerification",
+        )
+        if any(
+            protocol.get(owner) != operational_protocol.get(owner)
+            for owner in unchanged_owners
+        ):
+            raise ValueError("prospective_screen_invalid")
+        return ["VP1"]
     if screening is None:
         return ["VP1", "VP2", "VP3"]
     if type(screening) is not dict or set(screening) != {
