@@ -305,16 +305,29 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
             != "single_prospective_efficiency_screen"
             or type(operational) is not dict
             or set(operational) != {"path", "sha256"}
-            or operational.get("path")
-            != "docs/superpowers/experiments/2026-08-19-qwen38-vp2-connection-truthfulness-retest-v2.json"
+            or type(operational.get("path")) is not str
             or not _is_sha256(operational.get("sha256"))
             or type(task_source) is not dict
             or set(task_source) != {"path", "sha256", "taskId"}
-            or task_source.get("path")
-            != "docs/superpowers/experiments/2026-08-18-qwen38-varied-product-cohort-v1.json"
+            or type(task_source.get("path")) is not str
             or not _is_sha256(task_source.get("sha256"))
-            or task_source.get("taskId") != "VP1"
+            or type(task_source.get("taskId")) is not str
         ):
+            raise ValueError("prospective_screen_invalid")
+        first_profile = (
+            operational["path"]
+            == "docs/superpowers/experiments/2026-08-19-qwen38-vp2-connection-truthfulness-retest-v2.json"
+            and task_source["path"]
+            == "docs/superpowers/experiments/2026-08-18-qwen38-varied-product-cohort-v1.json"
+            and task_source["taskId"] == "VP1"
+        )
+        continued_profile = (
+            operational["path"]
+            == "docs/superpowers/experiments/2026-08-19-qwen38-vp1-prospective-efficiency-screen-v1.json"
+            and task_source["path"] == operational["path"]
+            and task_source["taskId"] == "VP1"
+        )
+        if not (first_profile or continued_profile):
             raise ValueError("prospective_screen_invalid")
         operational_path = ROOT / operational["path"]
         task_source_path = ROOT / task_source["path"]
@@ -327,14 +340,61 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
             raise ValueError("prospective_screen_invalid")
         operational_protocol = _load_json(operational_path)
         task_protocol = _load_json(task_source_path)
-        if (
-            prospective.get("changedOperationalInputs")
-            != [
+        common_observations = [
+            "searches_for_skill_listed_tool_names",
+            "duplicate_contract_reads",
+            "gateway_calls_before_first_mutation",
+            "provider_tokens_before_first_mutation",
+            "named_reasons_for_further_discovery",
+        ]
+        expected_changed_inputs = (
+            [
                 "task",
                 "versioned_prime_skill",
                 "prime_goal_token_budget",
                 "shadow_adjudication_task_subset",
             ]
+            if first_profile
+            else ["task", "shadow_adjudication_task_subset"]
+        )
+        expected_observations = common_observations + (
+            [
+                "semantic_health",
+                "final_receipt_fenced_evidence",
+                "goal_complete",
+            ]
+            if first_profile
+            else [
+                "total_mutation_and_commit_churn",
+                "local_repair_behavior",
+                "semantic_health",
+                "final_receipt_fenced_evidence",
+                "goal_complete",
+            ]
+        )
+        expected_limits = (
+            operational_protocol["limits"] | {"primeGoalTokenBudget": 1_900_000}
+            if first_profile
+            else operational_protocol["limits"]
+        )
+        if first_profile:
+            expected_tasks = {"VP1": task_protocol["tasks"]["VP1"]}
+            expected_order = ["VP1"]
+        else:
+            expected_order = protocol.get("executionOrder")
+            tasks = protocol.get("tasks")
+            if (
+                type(expected_order) is not list
+                or len(expected_order) != 1
+                or type(expected_order[0]) is not str
+                or type(tasks) is not dict
+                or set(tasks) != set(expected_order)
+                or expected_order[0] == task_source["taskId"]
+            ):
+                raise ValueError("prospective_screen_invalid")
+            expected_tasks = tasks
+        if (
+            prospective.get("changedOperationalInputs") != expected_changed_inputs
             or prospective.get("sourceSkillSha256")
             != operational_protocol.get("versionedInputs", {}).get("skillSha256")
             or prospective.get("rule") != _KNOWN_TOOL_DISCOVERY_RULE
@@ -344,21 +404,10 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
                 "primeGoalBudgetTokens": 1_900_000,
                 "finalResponseReserveTokens": 100_000,
             }
-            or prospective.get("primaryObservations")
-            != [
-                "searches_for_skill_listed_tool_names",
-                "duplicate_contract_reads",
-                "gateway_calls_before_first_mutation",
-                "provider_tokens_before_first_mutation",
-                "named_reasons_for_further_discovery",
-                "semantic_health",
-                "final_receipt_fenced_evidence",
-                "goal_complete",
-            ]
+            or prospective.get("primaryObservations") != expected_observations
             or prospective.get("evaluatorFeedbackDuringRun") is not False
-            or protocol.get("limits")
-            != operational_protocol["limits"] | {"primeGoalTokenBudget": 1_900_000}
-            or protocol.get("tasks") != {"VP1": task_protocol["tasks"]["VP1"]}
+            or protocol.get("limits") != expected_limits
+            or protocol.get("tasks") != expected_tasks
         ):
             raise ValueError("prospective_screen_invalid")
         unchanged_owners = (
@@ -372,12 +421,14 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
             "continuationPolicy",
             "precontactVerification",
         )
+        if continued_profile:
+            unchanged_owners += ("versionedInputs",)
         if any(
             protocol.get(owner) != operational_protocol.get(owner)
             for owner in unchanged_owners
         ):
             raise ValueError("prospective_screen_invalid")
-        return ["VP1"]
+        return expected_order
     if screening is None:
         return ["VP1", "VP2", "VP3"]
     if type(screening) is not dict or set(screening) != {

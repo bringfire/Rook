@@ -108,6 +108,20 @@ VP1_PROSPECTIVE_EFFICIENCY_ADJUDICATION_PATH = (
     / "experiments"
     / "2026-08-19-qwen38-vp1-prospective-efficiency-screen-v1-adjudication.json"
 )
+VP4_PROFILE_STACK_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-vp4-profile-stack-prospective-screen-v1.json"
+)
+VP4_PROFILE_STACK_ADJUDICATION_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-vp4-profile-stack-prospective-screen-v1-adjudication.json"
+)
 VP2_STRATEGY_DISCIPLINE_SKILL_PATH = (
     ROOT
     / "docs"
@@ -171,6 +185,15 @@ KNOWN_TOOL_DISCOVERY_RULE = (
     "the smallest working scaffold. Further discovery must name the exact unresolved "
     "fact required by the next intended mutation—for example a component identity, "
     "parameter index, or required tool argument—and stop once that fact is resolved."
+)
+PROFILE_STACK_PROMPT = (
+    "Create a compact adjustable stack of closed horizontal rectangular profiles "
+    "for possible future lofting. Expose Width, Depth, integer Levels, and Level "
+    "Spacing controls. Produce exactly Levels profiles. Their XY centroids must "
+    "align on one vertical axis, and adjacent profiles must be separated evenly by "
+    "Level Spacing in Z. Exercise at least one consequential control, observe its "
+    "effect, and restore the chosen defaults. Inspect the final stack and stop when "
+    "satisfied. Do not loft, surface, bake, or create downstream geometry."
 )
 BASELINE_SKILL_SHA256 = (
     "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
@@ -535,6 +558,102 @@ def test_vp1_prospective_screen_freezes_task_budget_and_primary_observations():
     assert protocol["versionedInputs"]["skillSha256"] == hashlib.sha256(
         VP1_PROSPECTIVE_EFFICIENCY_SKILL_PATH.read_bytes()
     ).hexdigest().upper()
+
+
+def test_vp4_profile_stack_reuses_prospective_path_and_changes_only_task_evaluation():
+    runner = _runner()
+    source = _vp1_prospective_efficiency_protocol()
+    protocol = json.loads(VP4_PROFILE_STACK_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["executionOrder"] == ["VP4"]
+    assert protocol["tasks"] == {
+        "VP4": {
+            "id": "VP4",
+            "class": "parametric_profile_stack",
+            "targetBaseline": "fresh_empty_grasshopper_document",
+            "evaluator": "independent_shadow_judgment",
+            "prompt": PROFILE_STACK_PROMPT,
+            "targetFixture": {
+                "schema": "rook.experiment.gh_target_fixture:v1",
+                "baseline": "fresh_empty",
+                "seedEdit": None,
+                "seedExpectations": None,
+                "preservation": None,
+            },
+        }
+    }
+    for owner in (
+        "limits",
+        "prime",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "offlineEvaluator",
+        "versionedInputs",
+        "toolSurface",
+        "sourceCampaignProtocol",
+        "continuationPolicy",
+        "precontactVerification",
+    ):
+        assert protocol[owner] == source[owner]
+    assert protocol["versionedInputs"]["skillSha256"] == (
+        "6C6A7AFF7B7A6F8B4C36F4F6E2ACCCC44D00443354662843523B92D4AB22A2DD"
+    )
+    assert protocol["prospectiveScreen"] == {
+        "classification": "single_prospective_efficiency_screen",
+        "sourceOperationalProtocol": {
+            "path": VP1_PROSPECTIVE_EFFICIENCY_PROTOCOL_PATH.relative_to(
+                ROOT
+            ).as_posix(),
+            "sha256": hashlib.sha256(
+                VP1_PROSPECTIVE_EFFICIENCY_PROTOCOL_PATH.read_bytes()
+            ).hexdigest().upper(),
+        },
+        "taskSourceProtocol": {
+            "path": VP1_PROSPECTIVE_EFFICIENCY_PROTOCOL_PATH.relative_to(
+                ROOT
+            ).as_posix(),
+            "sha256": hashlib.sha256(
+                VP1_PROSPECTIVE_EFFICIENCY_PROTOCOL_PATH.read_bytes()
+            ).hexdigest().upper(),
+            "taskId": "VP1",
+        },
+        "changedOperationalInputs": [
+            "task",
+            "shadow_adjudication_task_subset",
+        ],
+        "sourceSkillSha256": source["versionedInputs"]["skillSha256"],
+        "rule": KNOWN_TOOL_DISCOVERY_RULE,
+        "budgetSplit": {
+            "providerCeilingTokens": 2_000_000,
+            "primeGoalBudgetTokens": 1_900_000,
+            "finalResponseReserveTokens": 100_000,
+        },
+        "primaryObservations": [
+            "searches_for_skill_listed_tool_names",
+            "duplicate_contract_reads",
+            "gateway_calls_before_first_mutation",
+            "provider_tokens_before_first_mutation",
+            "named_reasons_for_further_discovery",
+            "total_mutation_and_commit_churn",
+            "local_repair_behavior",
+            "semantic_health",
+            "final_receipt_fenced_evidence",
+            "goal_complete",
+        ],
+        "evaluatorFeedbackDuringRun": False,
+    }
+    adjudication = json.loads(
+        VP4_PROFILE_STACK_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+    assert set(adjudication["tasks"]) == {"VP4"}
+    assert protocol["shadowAdjudication"] == {
+        "path": VP4_PROFILE_STACK_ADJUDICATION_PATH.relative_to(ROOT).as_posix(),
+        "sha256": hashlib.sha256(
+            VP4_PROFILE_STACK_ADJUDICATION_PATH.read_bytes()
+        ).hexdigest().upper(),
+    }
 
 
 def test_vp2_connection_truthfulness_retest_admits_only_the_repaired_runtime_delta():
