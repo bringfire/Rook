@@ -30,6 +30,11 @@ metadata, and snapshot projection:
 - Out-of-range selectors are refused before mutation.
 - Connection and disconnection counts advance only after source membership is
   observed in the requested post-state.
+- Raw `/gh/connect` and `/gh/disconnect` detect an already-satisfied post-state
+  before undo recording or mutation, return an explicit no-op reason, and do
+  not request a solve or canvas refresh.
+- `/gh/connections` projects standalone and conventional parameters through
+  the same logical `ParamIndex` plus `Sources`/`Recipients` envelope.
 - Snapshots project logical ports and incoming flows for every supported
   standalone parameter; no component-name or type-name catalog was added.
 
@@ -42,8 +47,8 @@ The authoritative post-update run used an owned Rhino process and the deployed
 Release companion:
 
 ```text
-Rhino PID:       114108
-Native port:     56470
+Rhino PID:       44964
+Native port:     52374
 Live tests:      2/2 passed
 Shutdown:        graceful
 Remaining Rhino: zero
@@ -79,22 +84,43 @@ missing C2.O0>C1.I0 disconnect
 -> disconnected = 0
 -> no solve-relevant mutation committed
 -> valid C1.O0>C2.I0 flow remains
+
+raw duplicate C1.O0>C2.I0 connect
+-> connected = false
+-> noOp = true, reason = connection_already_exists
+-> valid flow remains exactly once
+
+raw missing C2.O0>C1.I0 disconnect
+-> disconnected = false
+-> noOp = true, reason = connection_does_not_exist
+-> valid flow remains
+
+/gh/connections for standalone Point On Curve
+-> one input envelope at ParamIndex 0
+-> Sources contains the connected Circle output
 ```
 
 The live harness manifest is SHA-256
-`90B8A1EA1B3934E4D05BCB0A5952BD2EEBA84F29B5E1AADFC730ED434A41C957`.
+`E874EF57889939DDC3F313FD59A44AFB6C9191EB512BB7AD0CE57762562452E1`.
 The compact causal result is SHA-256
-`FFDD0C2A1463261BCBFCE1C237389F3C2E3D1D255A4EFF671CB1A3999CD18AE5`.
+`EE85F0411AAE5BEE8A0C665EE7C916D0CFEC40EAC72F7593A23E835D3DE23FBD`.
+
+One earlier owned run is retained as non-green because its live test required
+epoch equality across a no-op. A delayed solution from prior `gh_edit` work
+advanced the global epoch, so that assertion could not establish route-owned
+solve behavior. The managed regression instead proves zero scheduling and
+refresh calls; the live regression proves the public no-op response and
+unchanged wiring.
 
 ## Verification
 
-- Focused managed parameter/receipt tests: `64/64 passed`.
-- Related Python tests: `191/191 passed`, 11 existing warnings.
-- Full managed suite: `3800/3800 passed`.
+- Focused managed parameter/receipt tests: `67/67 passed`.
+- Related Python tests: `212/212 passed`, 11 existing warnings.
+- Full managed suite: `3803/3803 passed`.
 - Full local Release deployment completed with native, managed, RookBIM,
   registration, AppData, and Chirp synchronization successful.
-- Durable evidence manifest: `210/210`, zero mismatches, SHA-256
-  `258489A53A1F8F06C24EB81A66BAE3F202B5084EBD0D56DA83C385F718B7A949`.
+- Durable evidence manifest: `247/247`, zero mismatches, SHA-256
+  `3EA39AFA9C4817CF6694481E85F867B335CC04ED7FF1908B3509737B00A1F27D`.
 - No Qwen, Prime, Ollama, or other model contact occurred.
 
 Evidence root:
@@ -102,7 +128,8 @@ Evidence root:
 
 ## Disposition
 
-The reviewer-identified Rook admission and reporting defect is repaired and
-qualified against live Grasshopper. Qwen's separate judgment mistakes in the
-VP2 specimen remain recorded. No reasoning rule was added, no semantic
-acceptance machinery changed, and VP2 was not rerun.
+The reviewer-identified Rook admission and reporting defect is repaired across
+`gh_edit`, raw public connect/disconnect routes, snapshots, and
+`/gh/connections`, and qualified against live Grasshopper. Qwen's separate
+judgment mistakes in the VP2 specimen remain recorded. No reasoning rule was
+added, no semantic acceptance machinery changed, and VP2 was not rerun.

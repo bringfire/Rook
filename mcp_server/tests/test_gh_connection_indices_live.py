@@ -108,6 +108,13 @@ def _response_data(result: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _field(payload: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in payload:
+            return payload[name]
+    pytest.fail(f"response did not contain any of {names!r}: {payload!r}")
+
+
 async def _fenced_snapshot_after_edit(
     base_url: str,
     edit_result: dict[str, Any],
@@ -428,6 +435,13 @@ async def test_point_on_curve_parameter_rejects_i1_and_projects_confirmed_i0_flo
         assert [item.get("idx") for item in connected_target.get("outputs") or []] == [0]
         assert connected_target["inputs"][0].get("sources") == 1, connected_target
 
+        standalone_connections = await _connections(base_url, target_id)
+        standalone_input = standalone_connections[0]
+        assert standalone_input.get("paramIndex") == 0, standalone_input
+        standalone_sources = standalone_input.get("sources") or []
+        assert len(standalone_sources) == 1, standalone_input
+        assert isinstance(standalone_sources[0].get("componentGuid"), str), standalone_input
+
         duplicate_result = await _raw_post(
             base_url,
             "/gh/edit",
@@ -466,6 +480,45 @@ async def test_point_on_curve_parameter_rejects_i1_and_projects_confirmed_i0_flo
         assert valid_flow in (after_missing.get("flows") or []), after_missing
         assert missing_flow not in (after_missing.get("flows") or []), after_missing
 
+        raw_duplicate_result = await _raw_post(
+            base_url,
+            "/gh/connect",
+            {
+                "sourceGuid": source_id,
+                "sourceIndex": 0,
+                "targetGuid": target_id,
+                "targetIndex": 0,
+            },
+        )
+        raw_duplicate = _response_data(raw_duplicate_result)
+        assert _field(raw_duplicate, "connected", "Connected") is False, raw_duplicate
+        assert _field(raw_duplicate, "noOp", "NoOp") is True, raw_duplicate
+        assert _field(raw_duplicate, "reason", "Reason") == "connection_already_exists"
+        after_raw_duplicate = _response_data(
+            await _raw_post(base_url, "/gh/snapshot", {"include_data": False})
+        )
+        assert (after_raw_duplicate.get("flows") or []).count(valid_flow) == 1
+
+        raw_missing_result = await _raw_post(
+            base_url,
+            "/gh/disconnect",
+            {
+                "sourceGuid": target_id,
+                "sourceIndex": 0,
+                "targetGuid": source_id,
+                "targetIndex": 0,
+            },
+        )
+        raw_missing = _response_data(raw_missing_result)
+        assert _field(raw_missing, "disconnected", "Disconnected") is False, raw_missing
+        assert _field(raw_missing, "noOp", "NoOp") is True, raw_missing
+        assert _field(raw_missing, "reason", "Reason") == "connection_does_not_exist"
+        after_raw_missing = _response_data(
+            await _raw_post(base_url, "/gh/snapshot", {"include_data": False})
+        )
+        assert valid_flow in (after_raw_missing.get("flows") or []), after_raw_missing
+        assert missing_flow not in (after_raw_missing.get("flows") or []), after_raw_missing
+
         artifact_dir = Path(os.environ["ROOK_HARNESS_ARTIFACT_DIR"])
         evidence = {
             "schema": "rook.live_parameter_connection_truthfulness:v1",
@@ -490,6 +543,7 @@ async def test_point_on_curve_parameter_rejects_i1_and_projects_confirmed_i0_flo
                 "epochAfter": connected["epoch"],
                 "flowsAfter": connected.get("flows") or [],
                 "target": connected_target,
+                "connections": standalone_connections,
             },
             "duplicateConnect": {
                 "flow": valid_flow,
@@ -504,6 +558,16 @@ async def test_point_on_curve_parameter_rejects_i1_and_projects_confirmed_i0_flo
                 "receipt": missing_receipt,
                 "epochAfter": after_missing["epoch"],
                 "flowsAfter": after_missing.get("flows") or [],
+            },
+            "rawDuplicateConnect": {
+                "response": raw_duplicate,
+                "epochAfter": after_raw_duplicate["epoch"],
+                "flowsAfter": after_raw_duplicate.get("flows") or [],
+            },
+            "rawMissingDisconnect": {
+                "response": raw_missing,
+                "epochAfter": after_raw_missing["epoch"],
+                "flowsAfter": after_raw_missing.get("flows") or [],
             },
         }
         (artifact_dir / "parameter-connection-evidence.json").write_text(

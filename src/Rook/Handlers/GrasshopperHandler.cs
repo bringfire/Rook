@@ -2405,122 +2405,23 @@ namespace Rook.Handlers
                 var inputConnections = new List<object>();
                 var outputConnections = new List<object>();
 
-                // Check if this is a simple param (slider, panel) that can be a source
-                var sourcesProp = target.GetType().GetProperty("Sources");
-                var recipientsProp = target.GetType().GetProperty("Recipients");
-
-                // Simple params (sliders, panels) have Recipients directly
-                if (recipientsProp != null)
+                if (GhParameterContract.TryGetParameters(target, isInput: true, out var inputs))
                 {
-                    var recipients = recipientsProp.GetValue(target) as System.Collections.IEnumerable;
-                    if (recipients != null)
+                    for (var index = 0; index < inputs.Count; index++)
                     {
-                        foreach (var recipient in recipients)
-                        {
-                            var recipientInfo = GetParamConnectionInfo(recipient, "input");
-                            if (recipientInfo != null)
-                                outputConnections.Add(recipientInfo);
-                        }
+                        var connection = GetParameterConnectionEnvelope(inputs[index], index, isInput: true);
+                        if (connection != null)
+                            inputConnections.Add(connection);
                     }
                 }
 
-                // Simple params might also have Sources (if wired as input)
-                if (sourcesProp != null)
+                if (GhParameterContract.TryGetParameters(target, isInput: false, out var outputs))
                 {
-                    var sources = sourcesProp.GetValue(target) as System.Collections.IEnumerable;
-                    if (sources != null)
+                    for (var index = 0; index < outputs.Count; index++)
                     {
-                        foreach (var source in sources)
-                        {
-                            var sourceInfo = GetParamConnectionInfo(source, "output");
-                            if (sourceInfo != null)
-                                inputConnections.Add(sourceInfo);
-                        }
-                    }
-                }
-
-                // Check if this is a component with Params property
-                var paramsProp = target.GetType().GetProperty("Params");
-                if (paramsProp != null)
-                {
-                    var paramsServer = paramsProp.GetValue(target);
-                    if (paramsServer != null)
-                    {
-                        var inputProp = paramsServer.GetType().GetProperty("Input");
-                        var outputProp = paramsServer.GetType().GetProperty("Output");
-
-                        var inputs = inputProp?.GetValue(paramsServer) as System.Collections.IEnumerable;
-                        var outputs = outputProp?.GetValue(paramsServer) as System.Collections.IEnumerable;
-
-                        // Process inputs
-                        if (inputs != null)
-                        {
-                            int idx = 0;
-                            foreach (var input in inputs)
-                            {
-                                var inputName = input.GetType().GetProperty("Name")?.GetValue(input)?.ToString();
-                                var inputNickname = input.GetType().GetProperty("NickName")?.GetValue(input)?.ToString();
-                                var inputSources = input.GetType().GetProperty("Sources")?.GetValue(input) as System.Collections.IEnumerable;
-
-                                var sourceList = new List<object>();
-                                if (inputSources != null)
-                                {
-                                    foreach (var source in inputSources)
-                                    {
-                                        var sourceInfo = GetParamConnectionInfo(source, "output");
-                                        if (sourceInfo != null)
-                                            sourceList.Add(sourceInfo);
-                                    }
-                                }
-
-                                if (sourceList.Count > 0)
-                                {
-                                    inputConnections.Add(new
-                                    {
-                                        ParamIndex = idx,
-                                        ParamName = inputName,
-                                        ParamNickName = inputNickname,
-                                        Sources = sourceList
-                                    });
-                                }
-                                idx++;
-                            }
-                        }
-
-                        // Process outputs
-                        if (outputs != null)
-                        {
-                            int idx = 0;
-                            foreach (var output in outputs)
-                            {
-                                var outputName = output.GetType().GetProperty("Name")?.GetValue(output)?.ToString();
-                                var outputNickname = output.GetType().GetProperty("NickName")?.GetValue(output)?.ToString();
-                                var outputRecipients = output.GetType().GetProperty("Recipients")?.GetValue(output) as System.Collections.IEnumerable;
-
-                                var recipientList = new List<object>();
-                                if (outputRecipients != null)
-                                {
-                                    foreach (var recipient in outputRecipients)
-                                    {
-                                        var recipientInfo = GetParamConnectionInfo(recipient, "input");
-                                        if (recipientInfo != null)
-                                            recipientList.Add(recipientInfo);
-                                    }
-                                }
-
-                                if (recipientList.Count > 0)
-                                {
-                                    outputConnections.Add(new
-                                    {
-                                        ParamIndex = idx,
-                                        ParamName = outputName,
-                                        ParamNickName = outputNickname,
-                                        Recipients = recipientList
-                                    });
-                                }
-                                idx++;
-                            }
-                        }
+                        var connection = GetParameterConnectionEnvelope(outputs[index], index, isInput: false);
+                        if (connection != null)
+                            outputConnections.Add(connection);
                     }
                 }
 
@@ -2546,6 +2447,49 @@ namespace Rook.Handlers
                     Data = $"GetConnections failed: {ex.Message}"
                 };
             }
+        }
+
+        /// <summary>
+        /// Project one logical input or output and its connected counterparts.
+        /// </summary>
+        private object? GetParameterConnectionEnvelope(object parameter, int index, bool isInput)
+        {
+            var relationProperty = parameter.GetType().GetProperty(isInput ? "Sources" : "Recipients");
+            var relatedParameters = relationProperty?.GetValue(parameter) as System.Collections.IEnumerable;
+            if (relatedParameters == null)
+                return null;
+
+            var related = new List<object>();
+            foreach (var candidate in relatedParameters)
+            {
+                var connection = GetParamConnectionInfo(candidate, isInput ? "output" : "input");
+                if (connection != null)
+                    related.Add(connection);
+            }
+
+            if (related.Count == 0)
+                return null;
+
+            var name = parameter.GetType().GetProperty("Name")?.GetValue(parameter)?.ToString();
+            var nickname = parameter.GetType().GetProperty("NickName")?.GetValue(parameter)?.ToString();
+            if (isInput)
+            {
+                return new
+                {
+                    ParamIndex = index,
+                    ParamName = name,
+                    ParamNickName = nickname,
+                    Sources = related
+                };
+            }
+
+            return new
+            {
+                ParamIndex = index,
+                ParamName = name,
+                ParamNickName = nickname,
+                Recipients = related
+            };
         }
 
         /// <summary>
@@ -6071,6 +6015,32 @@ namespace Rook.Handlers
                 var sourceOutput = resolvedSource.Value!;
                 var targetInput = resolvedTarget.Value!;
 
+                if (ParameterHasSource(targetInput, sourceOutput))
+                {
+                    return new ApiResponse
+                    {
+                        Success = true,
+                        Data = new
+                        {
+                            Connected = false,
+                            NoOp = true,
+                            Reason = "connection_already_exists",
+                            Source = new
+                            {
+                                Guid = request.SourceGuid,
+                                Param = resolvedSource.Name,
+                                Index = resolvedSource.Index
+                            },
+                            Target = new
+                            {
+                                Guid = request.TargetGuid,
+                                Param = resolvedTarget.Name,
+                                Index = resolvedTarget.Index
+                            }
+                        }
+                    };
+                }
+
                 // Record wire undo BEFORE connecting
                 try
                 {
@@ -6179,6 +6149,32 @@ namespace Rook.Handlers
 
                 var sourceOutput = resolvedSource.Value!;
                 var targetInput = resolvedTarget.Value!;
+
+                if (!ParameterHasSource(targetInput, sourceOutput))
+                {
+                    return new ApiResponse
+                    {
+                        Success = true,
+                        Data = new
+                        {
+                            Disconnected = false,
+                            NoOp = true,
+                            Reason = "connection_does_not_exist",
+                            Source = new
+                            {
+                                Guid = request.SourceGuid,
+                                Param = resolvedSource.Name,
+                                Index = resolvedSource.Index
+                            },
+                            Target = new
+                            {
+                                Guid = request.TargetGuid,
+                                Param = resolvedTarget.Name,
+                                Index = resolvedTarget.Index
+                            }
+                        }
+                    };
+                }
 
                 // Record wire undo BEFORE disconnecting
                 try

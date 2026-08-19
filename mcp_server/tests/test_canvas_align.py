@@ -1,7 +1,14 @@
 """Tests for canvas alignment utilities."""
 
 import pytest
-from rook.learning.canvas_align import align_positions, distribute_positions, straighten_wire_positions
+from rook.learning.canvas_align import (
+    align_positions,
+    connection_inputs_from_payload,
+    connection_source_guid,
+    connection_sources_from_input,
+    distribute_positions,
+    straighten_wire_positions,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -19,6 +26,23 @@ def _make_comps(positions: list[tuple[float, float]], size=(100, 40)):
         }
         for i, (x, y) in enumerate(positions)
     ]
+
+
+def test_standalone_parameter_connection_envelope_reaches_consumer():
+    payload = {
+        "Inputs": [
+            {
+                "ParamIndex": 0,
+                "ParamName": "Point On Curve",
+                "Sources": [{"ComponentGuid": "source-guid"}],
+            }
+        ]
+    }
+
+    connection = connection_inputs_from_payload(payload)[0]
+    sources = connection_sources_from_input(connection)
+
+    assert [connection_source_guid(source) for source in sources] == ["source-guid"]
 
 
 # ---------------------------------------------------------------------------

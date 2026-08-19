@@ -585,6 +585,93 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void ConnectComponents_DuplicateConnectionReturnsNoOpWithoutMutationOrSolve()
+        {
+            var sourceGuid = Guid.NewGuid();
+            var targetGuid = Guid.NewGuid();
+            var source = CreateDynamicParam(sourceGuid);
+            var target = CreateDynamicParam(targetGuid);
+            target.GetType().GetMethod("AddSource")!.Invoke(target, new[] { source });
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var canvas = (FakeCanvas)ActiveCanvasProperty.GetValue(null)!;
+
+            var response = handler.ConnectComponents(JsonSerializer.Serialize(new
+            {
+                sourceGuid,
+                sourceIndex = 0,
+                targetGuid,
+                targetIndex = 0,
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.False(data.GetProperty("Connected").GetBoolean());
+            Assert.True(data.GetProperty("NoOp").GetBoolean());
+            Assert.Equal("connection_already_exists", data.GetProperty("Reason").GetString());
+            Assert.Equal(1, GetDynamicParamCount(target, "AddCalls"));
+            Assert.Equal(0, canvas.ScheduleCount);
+            Assert.Equal(0, canvas.RefreshCount);
+        }
+
+        [Fact]
+        public void DisconnectComponents_MissingConnectionReturnsNoOpWithoutMutationOrSolve()
+        {
+            var sourceGuid = Guid.NewGuid();
+            var targetGuid = Guid.NewGuid();
+            var source = CreateDynamicParam(sourceGuid);
+            var target = CreateDynamicParam(targetGuid);
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var canvas = (FakeCanvas)ActiveCanvasProperty.GetValue(null)!;
+
+            var response = handler.DisconnectComponents(JsonSerializer.Serialize(new
+            {
+                sourceGuid,
+                sourceIndex = 0,
+                targetGuid,
+                targetIndex = 0,
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.False(data.GetProperty("Disconnected").GetBoolean());
+            Assert.True(data.GetProperty("NoOp").GetBoolean());
+            Assert.Equal("connection_does_not_exist", data.GetProperty("Reason").GetString());
+            Assert.Equal(0, GetDynamicParamCount(target, "RemoveCalls"));
+            Assert.Equal(0, canvas.ScheduleCount);
+            Assert.Equal(0, canvas.RefreshCount);
+        }
+
+        [Fact]
+        public void GetConnections_ProjectsStandaloneParametersThroughLogicalPortEnvelopes()
+        {
+            var sourceGuid = Guid.NewGuid();
+            var targetGuid = Guid.NewGuid();
+            var source = CreateDynamicParam(sourceGuid);
+            var target = CreateDynamicParam(targetGuid);
+            target.GetType().GetMethod("AddSource")!.Invoke(target, new[] { source });
+            var recipients = (System.Collections.IList)source.GetType().GetProperty("Recipients")!.GetValue(source)!;
+            recipients.Add(target);
+            var handler = CreateHandler(new FakeDocument(source, target));
+
+            var targetResponse = handler.GetConnections(targetGuid.ToString());
+            var sourceResponse = handler.GetConnections(sourceGuid.ToString());
+
+            Assert.True(targetResponse.Success);
+            var input = Assert.Single(Element(targetResponse.Data).GetProperty("Inputs").EnumerateArray());
+            Assert.Equal(0, input.GetProperty("ParamIndex").GetInt32());
+            var sourceInfo = Assert.Single(input.GetProperty("Sources").EnumerateArray());
+            Assert.Equal(sourceGuid.ToString(), sourceInfo.GetProperty("ComponentGuid").GetString());
+
+            Assert.True(sourceResponse.Success);
+            var output = Assert.Single(Element(sourceResponse.Data).GetProperty("Outputs").EnumerateArray());
+            Assert.Equal(0, output.GetProperty("ParamIndex").GetInt32());
+            var recipientInfo = Assert.Single(output.GetProperty("Recipients").EnumerateArray());
+            Assert.Equal(targetGuid.ToString(), recipientInfo.GetProperty("ComponentGuid").GetString());
+        }
+
+        [Fact]
         public void Snapshot_ProjectsIncomingFlowForUnlistedStandaloneParameter()
         {
             var source = CreateDynamicParam(Guid.NewGuid());
@@ -1240,6 +1327,7 @@ namespace Rook.Tests.Handlers
             var addCallsField = type.DefineField("_addCalls", typeof(int), FieldAttributes.Private);
             var removeCallsField = type.DefineField("_removeCalls", typeof(int), FieldAttributes.Private);
             var sourcesField = type.DefineField("_sources", typeof(List<object>), FieldAttributes.Private);
+            var recipientsField = type.DefineField("_recipients", typeof(List<object>), FieldAttributes.Private);
             var retainSourcesField = type.DefineField("_retainSources", typeof(bool), FieldAttributes.Private);
             var constructor = type.DefineConstructor(
                 MethodAttributes.Public,
@@ -1255,6 +1343,9 @@ namespace Rook.Tests.Handlers
             constructorIl.Emit(OpCodes.Newobj, typeof(List<object>).GetConstructor(Type.EmptyTypes)!);
             constructorIl.Emit(OpCodes.Stfld, sourcesField);
             constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Newobj, typeof(List<object>).GetConstructor(Type.EmptyTypes)!);
+            constructorIl.Emit(OpCodes.Stfld, recipientsField);
+            constructorIl.Emit(OpCodes.Ldarg_0);
             constructorIl.Emit(OpCodes.Ldc_I4_1);
             constructorIl.Emit(OpCodes.Stfld, retainSourcesField);
             constructorIl.Emit(OpCodes.Ret);
@@ -1263,8 +1354,8 @@ namespace Rook.Tests.Handlers
             DefineReadOnlyProperty(type, "AddCalls", typeof(int), addCallsField);
             DefineReadOnlyProperty(type, "RemoveCalls", typeof(int), removeCallsField);
             DefineReadOnlyProperty(type, "Sources", typeof(List<object>), sourcesField);
+            DefineReadOnlyProperty(type, "Recipients", typeof(List<object>), recipientsField);
             DefineReadWriteProperty(type, "RetainSources", typeof(bool), retainSourcesField);
-            DefineNullProperty(type, "Recipients");
             DefineSourceMutationMethod(
                 type,
                 "AddSource",
@@ -1454,10 +1545,15 @@ namespace Rook.Tests.Handlers
 
             public object? Document { get; private set; }
             public bool ThrowOnRefresh { get; set; }
+            public int ScheduleCount { get; private set; }
+            public int RefreshCount { get; private set; }
             public event EventHandler<FakeCanvasDocumentChangedEventArgs>? DocumentChanged;
+
+            public void ScheduleSolution(int delayMs) => ScheduleCount++;
 
             public void Refresh()
             {
+                RefreshCount++;
                 if (ThrowOnRefresh)
                     throw new InvalidOperationException("refresh failed after group mutation");
             }
