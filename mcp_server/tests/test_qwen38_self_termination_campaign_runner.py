@@ -70,6 +70,16 @@ VP2_EVIDENCE_REUSE_ADJUDICATION_PATH = (
     / "experiments"
     / "2026-08-18-qwen38-vp2-evidence-reuse-screening-v1-adjudication.json"
 )
+VP2_EVIDENCE_REUSE_SKILL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "inputs"
+    / "2026-08-18-qwen38-vp2-evidence-reuse-screening-v1"
+    / "prime-execute-grasshopper"
+    / "SKILL.md"
+)
 ADAPTER_PATH = (
     ROOT
     / "integrations"
@@ -219,10 +229,15 @@ def _vp2_evidence_reuse_protocol() -> dict:
 
 
 def test_vp2_evidence_reuse_skill_delta_is_exactly_one_reviewed_rule():
-    skill = SKILL_PATH.read_text(encoding="utf-8")
+    baseline_skill = SKILL_PATH.read_bytes()
+    experimental_skill = VP2_EVIDENCE_REUSE_SKILL_PATH.read_text(encoding="utf-8")
 
-    assert skill.count(EVIDENCE_REUSE_RULE) == 1
-    prior = skill.replace(EVIDENCE_REUSE_RULE + "\n\n", "", 1).encode("utf-8")
+    assert hashlib.sha256(baseline_skill).hexdigest().upper() == BASELINE_SKILL_SHA256
+    assert EVIDENCE_REUSE_RULE not in baseline_skill.decode("utf-8")
+    assert experimental_skill.count(EVIDENCE_REUSE_RULE) == 1
+    prior = experimental_skill.replace(
+        EVIDENCE_REUSE_RULE + "\n\n", "", 1
+    ).encode("utf-8")
     assert hashlib.sha256(prior).hexdigest().upper() == BASELINE_SKILL_SHA256
 
 
@@ -244,8 +259,11 @@ def test_vp2_evidence_reuse_screening_freezes_only_the_reviewed_input_delta():
     assert screening["sourceCampaignProtocol"] == baseline["sourceCampaignProtocol"]
     assert screening["continuationPolicy"] == baseline["continuationPolicy"]
     assert screening["precontactVerification"] == baseline["precontactVerification"]
+    assert screening["versionedInputs"]["skillPath"] == (
+        VP2_EVIDENCE_REUSE_SKILL_PATH.relative_to(ROOT).as_posix()
+    )
     assert screening["versionedInputs"]["skillSha256"] == hashlib.sha256(
-        SKILL_PATH.read_bytes()
+        VP2_EVIDENCE_REUSE_SKILL_PATH.read_bytes()
     ).hexdigest().upper()
     assert screening["versionedInputs"]["skillSha256"] != (
         baseline["versionedInputs"]["skillSha256"]
@@ -261,6 +279,9 @@ def test_vp2_evidence_reuse_screening_freezes_only_the_reviewed_input_delta():
     normalized["purpose"] = baseline["purpose"]
     normalized["executionOrder"] = baseline["executionOrder"]
     normalized["tasks"] = baseline["tasks"]
+    normalized["versionedInputs"]["skillPath"] = baseline["versionedInputs"][
+        "skillPath"
+    ]
     normalized["versionedInputs"]["skillSha256"] = baseline["versionedInputs"][
         "skillSha256"
     ]

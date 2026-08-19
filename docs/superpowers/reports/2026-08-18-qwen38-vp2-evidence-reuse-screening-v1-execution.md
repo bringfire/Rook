@@ -1,8 +1,8 @@
 # Qwen3.8 VP2 Evidence-Reuse Screening V1
 
-**Date:** 2026-08-18  
-**Status:** Complete execution; screening result incomplete  
-**Protocol:** `rook.experiment.qwen38_varied_product_cohort:v1`  
+**Date:** 2026-08-18
+**Status:** Complete execution; screening result incomplete
+**Protocol:** `rook.experiment.qwen38_varied_product_cohort:v1`
 **Implementation commit:** `5bf8670756273b5605c09fa69e6ee8c553eddcd9`
 
 ## Objective
@@ -17,6 +17,12 @@ limits remained identical to the retained VP2 baseline.
 
 No evaluator feedback, operator repair, retry, cleanup, or second model run
 occurred.
+
+The modified skill bytes remain an experiment-only input. The canonical Prime
+skill retains the previously qualified `30CA9880...4B07` product-baseline hash.
+After execution, the repository protocol's skill source path was relocated to
+the experiment fixture without changing the `9B64700A...F448` skill bytes. The
+sealed archive retains the exact protocol path used during execution.
 
 ## Result
 

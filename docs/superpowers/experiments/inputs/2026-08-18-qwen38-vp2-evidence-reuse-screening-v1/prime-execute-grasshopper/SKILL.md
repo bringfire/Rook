@@ -43,6 +43,8 @@ Before mutation:
 5. Compare any optional structural baseline with the live document.
 6. Start an execution-owned ID ledger containing temporary IDs, committed IDs, authorized pre-existing IDs, and operation outcomes.
 
+Reuse successfully and unambiguously resolved session-local capability schemas, component-discovery facts, and component metadata. Request only missing facts. Refresh a resolved fact only when refusal, runtime or target-identity change, or contradictory live evidence gives a named reason to consider it stale.
+
 For Wasp work, apply `../design-grasshopper/references/wasp-admission.md`. Failed admission stops before mutation with the missing component or port evidence reported.
 
 If no admitted host, mutation tool, or required live component can be reached, stop without mutation. Preserve useful design or plan artifacts and report the unavailable boundary.

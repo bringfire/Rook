@@ -186,7 +186,7 @@
     "scope": "silent_post_run_trace_normalization_only"
   },
   "versionedInputs": {
-    "skillPath": "integrations/prime/skills/prime-execute-grasshopper/SKILL.md",
+    "skillPath": "docs/superpowers/experiments/inputs/2026-08-18-qwen38-vp2-evidence-reuse-screening-v1/prime-execute-grasshopper/SKILL.md",
     "skillSha256": "9B64700AED510C4925F23E622AAC77524D25148AFE8B6A70AF42D5D0AE77F448",
     "checkpointPath": "integrations/prime/skills/prime-execute-grasshopper/references/checkpoint-protocol.md",
     "checkpointSha256": "2D574EABF45EC1EB9B9BBCFCBD68F1CBE311E466CD922DF312F88A51925D63E7",
