@@ -1,0 +1,1701 @@
+{
+  "campaignManifestSha256": "3E62BE054F33AA87D8F1A6745BA7B0769419220A954A5667160CB89EB1EB4990",
+  "evidenceRoot": "C:/UDEV/RookEvidence/2026-08-18-qwen38-varied-product-cohort-v1",
+  "interpretationBoundary": {
+    "measured": [
+      "provider_reported_per_turn_input_and_output_tokens",
+      "canonical_source_result_bytes",
+      "prime_session_tool_result_text_bytes",
+      "exact_request_and_narrow_near_request_repetition"
+    ],
+    "notEstablished": [
+      "provider_token_cost_caused_by_any_specific_tool_or_byte",
+      "semantic_necessity_or_avoidability_of_a_repeated_call"
+    ]
+  },
+  "rows": {
+    "VP1": {
+      "contextGrowth": {
+        "averageInterTurnGrowthTokens": 1272.652,
+        "causalLimits": [
+          "provider_input_tokens_are_reported_context_size_per_turn",
+          "byte_counts_are_not_provider_token_attribution"
+        ],
+        "cumulativeInputTokens": 484254,
+        "cumulativeOutputTokens": 17351,
+        "finalInputTokens": 34445,
+        "initialInputTokens": 5174,
+        "largestInterTurnGrowth": {
+          "tokens": 5951,
+          "turn": 9
+        },
+        "netContextGrowthTokens": 29271,
+        "perTurn": [
+          {
+            "inputGrowthTokens": 0,
+            "inputTokens": 5174,
+            "outputTokens": 243,
+            "turn": 1
+          },
+          {
+            "inputGrowthTokens": 1757,
+            "inputTokens": 6931,
+            "outputTokens": 218,
+            "turn": 2
+          },
+          {
+            "inputGrowthTokens": 403,
+            "inputTokens": 7334,
+            "outputTokens": 164,
+            "turn": 3
+          },
+          {
+            "inputGrowthTokens": 1294,
+            "inputTokens": 8628,
+            "outputTokens": 221,
+            "turn": 4
+          },
+          {
+            "inputGrowthTokens": 347,
+            "inputTokens": 8975,
+            "outputTokens": 134,
+            "turn": 5
+          },
+          {
+            "inputGrowthTokens": 630,
+            "inputTokens": 9605,
+            "outputTokens": 181,
+            "turn": 6
+          },
+          {
+            "inputGrowthTokens": 273,
+            "inputTokens": 9878,
+            "outputTokens": 51,
+            "turn": 7
+          },
+          {
+            "inputGrowthTokens": 1455,
+            "inputTokens": 11333,
+            "outputTokens": 4533,
+            "turn": 8
+          },
+          {
+            "inputGrowthTokens": 5951,
+            "inputTokens": 17284,
+            "outputTokens": 500,
+            "turn": 9
+          },
+          {
+            "inputGrowthTokens": 805,
+            "inputTokens": 18089,
+            "outputTokens": 59,
+            "turn": 10
+          },
+          {
+            "inputGrowthTokens": 313,
+            "inputTokens": 18402,
+            "outputTokens": 148,
+            "turn": 11
+          },
+          {
+            "inputGrowthTokens": 212,
+            "inputTokens": 18614,
+            "outputTokens": 2248,
+            "turn": 12
+          },
+          {
+            "inputGrowthTokens": 3170,
+            "inputTokens": 21784,
+            "outputTokens": 200,
+            "turn": 13
+          },
+          {
+            "inputGrowthTokens": 1738,
+            "inputTokens": 23522,
+            "outputTokens": 1821,
+            "turn": 14
+          },
+          {
+            "inputGrowthTokens": 2325,
+            "inputTokens": 25847,
+            "outputTokens": 392,
+            "turn": 15
+          },
+          {
+            "inputGrowthTokens": 710,
+            "inputTokens": 26557,
+            "outputTokens": 529,
+            "turn": 16
+          },
+          {
+            "inputGrowthTokens": 830,
+            "inputTokens": 27387,
+            "outputTokens": 345,
+            "turn": 17
+          },
+          {
+            "inputGrowthTokens": 512,
+            "inputTokens": 27899,
+            "outputTokens": 343,
+            "turn": 18
+          },
+          {
+            "inputGrowthTokens": 737,
+            "inputTokens": 28636,
+            "outputTokens": 1951,
+            "turn": 19
+          },
+          {
+            "inputGrowthTokens": 2212,
+            "inputTokens": 30848,
+            "outputTokens": 143,
+            "turn": 20
+          },
+          {
+            "inputGrowthTokens": 494,
+            "inputTokens": 31342,
+            "outputTokens": 197,
+            "turn": 21
+          },
+          {
+            "inputGrowthTokens": 759,
+            "inputTokens": 32101,
+            "outputTokens": 1478,
+            "turn": 22
+          },
+          {
+            "inputGrowthTokens": 1538,
+            "inputTokens": 33639,
+            "outputTokens": 788,
+            "turn": 23
+          },
+          {
+            "inputGrowthTokens": 806,
+            "inputTokens": 34445,
+            "outputTokens": 464,
+            "turn": 24
+          }
+        ],
+        "turnCount": 24
+      },
+      "gatewayResults": {
+        "byCategory": {
+          "component_discovery": {
+            "calls": 7,
+            "canonicalResultBytes": 14046
+          },
+          "diagnostics": {
+            "calls": 1,
+            "canonicalResultBytes": 103
+          },
+          "mutation": {
+            "calls": 1,
+            "canonicalResultBytes": 4929
+          },
+          "output_inspection": {
+            "calls": 2,
+            "canonicalResultBytes": 1192
+          },
+          "schema_metadata": {
+            "calls": 9,
+            "canonicalResultBytes": 14274
+          },
+          "status_readiness": {
+            "calls": 1,
+            "canonicalResultBytes": 573
+          },
+          "structural_observation": {
+            "calls": 2,
+            "canonicalResultBytes": 6574
+          }
+        },
+        "byTool": {
+          "gh_batch_component_info": {
+            "calls": 1,
+            "canonicalResultBytes": 3150,
+            "category": "schema_metadata"
+          },
+          "gh_edit": {
+            "calls": 1,
+            "canonicalResultBytes": 4929,
+            "category": "mutation"
+          },
+          "gh_errors": {
+            "calls": 1,
+            "canonicalResultBytes": 103,
+            "category": "diagnostics"
+          },
+          "gh_inspect_output": {
+            "calls": 2,
+            "canonicalResultBytes": 1192,
+            "category": "output_inspection"
+          },
+          "gh_library": {
+            "calls": 2,
+            "canonicalResultBytes": 952,
+            "category": "component_discovery"
+          },
+          "gh_snapshot": {
+            "calls": 2,
+            "canonicalResultBytes": 6574,
+            "category": "structural_observation"
+          },
+          "gh_wait_for_solve_readiness": {
+            "calls": 1,
+            "canonicalResultBytes": 573,
+            "category": "status_readiness"
+          },
+          "rook_tools_read": {
+            "calls": 8,
+            "canonicalResultBytes": 11124,
+            "category": "schema_metadata"
+          },
+          "rook_tools_search": {
+            "calls": 5,
+            "canonicalResultBytes": 13094,
+            "category": "component_discovery"
+          }
+        },
+        "callCount": 23,
+        "canonicalResultBytes": 41691,
+        "causalLimits": [
+          "canonical_result_bytes_measure_retained_source_payloads_not_prompt_tokens",
+          "repeated_request_shape_does_not_prove_the_call_was_unnecessary"
+        ],
+        "exactRequestRepeats": [],
+        "nearRequestRepeats": []
+      },
+      "inputCustody": {
+        "primeJsonlSha256": "2264FE2A6331ACFBDFB1C2CC9A1EDB9CC7C8EC36D0041C18127AF4CB008FE526",
+        "sessionJsonlSha256": "8774F591B09786B5A6DF68E20127E9EF6755E8AE1269DFF4F88153CAE41DDA41",
+        "sourceJsonlSha256": "0C6C52BCE8E682881380B939FCCDDCD242CF29B2779078764F58C9C151AA26AD"
+      },
+      "primeToolResults": {
+        "byAttribution": {
+          "gh_batch_component_info": {
+            "category": "schema_metadata",
+            "cells": 1,
+            "retainedTextBytes": 4655
+          },
+          "gh_edit": {
+            "category": "mutation",
+            "cells": 1,
+            "retainedTextBytes": 1342
+          },
+          "gh_errors": {
+            "category": "diagnostics",
+            "cells": 1,
+            "retainedTextBytes": 146
+          },
+          "gh_inspect_output": {
+            "category": "output_inspection",
+            "cells": 1,
+            "retainedTextBytes": 1404
+          },
+          "gh_library": {
+            "category": "component_discovery",
+            "cells": 2,
+            "retainedTextBytes": 1104
+          },
+          "gh_snapshot": {
+            "category": "structural_observation",
+            "cells": 2,
+            "retainedTextBytes": 585
+          },
+          "gh_wait_for_solve_readiness": {
+            "category": "status_readiness",
+            "cells": 1,
+            "retainedTextBytes": 649
+          },
+          "non_gateway": {
+            "category": "non_gateway",
+            "cells": 11,
+            "retainedTextBytes": 17271
+          },
+          "rook_tools_read": {
+            "category": "schema_metadata",
+            "cells": 6,
+            "retainedTextBytes": 11446
+          },
+          "rook_tools_search": {
+            "category": "component_discovery",
+            "cells": 3,
+            "retainedTextBytes": 3475
+          }
+        },
+        "causalLimits": [
+          "counts_only_text_retained_in_prime_tool_result_content",
+          "cell_attribution_is_static_and_may_be_mixed_or_unattributed",
+          "retained_text_bytes_are_not_provider_token_attribution"
+        ],
+        "retainedTextBytes": 42077,
+        "toolResultCount": 29
+      },
+      "sessionContent": {
+        "byKind": {
+          "assistant_text": {
+            "contentBytes": 6665,
+            "items": 18
+          },
+          "assistant_thinking": {
+            "contentBytes": 45552,
+            "items": 24
+          },
+          "assistant_tool_arguments": {
+            "contentBytes": 8936,
+            "items": 29
+          },
+          "custom_message_text": {
+            "contentBytes": 1406,
+            "items": 1
+          },
+          "tool_result_text": {
+            "contentBytes": 42077,
+            "items": 29
+          },
+          "user_text": {
+            "contentBytes": 26,
+            "items": 1
+          }
+        },
+        "causalLimits": [
+          "counts_selected_native_session_content_not_serialized_provider_prompt_bytes",
+          "does_not_include_provider_system_material_or_protocol_overhead"
+        ],
+        "measuredContentBytes": 104662
+      }
+    },
+    "VP2": {
+      "contextGrowth": {
+        "averageInterTurnGrowthTokens": 1783.111,
+        "causalLimits": [
+          "provider_input_tokens_are_reported_context_size_per_turn",
+          "byte_counts_are_not_provider_token_attribution"
+        ],
+        "cumulativeInputTokens": 2012994,
+        "cumulativeOutputTokens": 60694,
+        "finalInputTokens": 85407,
+        "initialInputTokens": 5167,
+        "largestInterTurnGrowth": {
+          "tokens": 11324,
+          "turn": 25
+        },
+        "netContextGrowthTokens": 80240,
+        "perTurn": [
+          {
+            "inputGrowthTokens": 0,
+            "inputTokens": 5167,
+            "outputTokens": 111,
+            "turn": 1
+          },
+          {
+            "inputGrowthTokens": 1623,
+            "inputTokens": 6790,
+            "outputTokens": 191,
+            "turn": 2
+          },
+          {
+            "inputGrowthTokens": 324,
+            "inputTokens": 7114,
+            "outputTokens": 60,
+            "turn": 3
+          },
+          {
+            "inputGrowthTokens": 953,
+            "inputTokens": 8067,
+            "outputTokens": 122,
+            "turn": 4
+          },
+          {
+            "inputGrowthTokens": 136,
+            "inputTokens": 8203,
+            "outputTokens": 63,
+            "turn": 5
+          },
+          {
+            "inputGrowthTokens": 1198,
+            "inputTokens": 9401,
+            "outputTokens": 124,
+            "turn": 6
+          },
+          {
+            "inputGrowthTokens": 959,
+            "inputTokens": 10360,
+            "outputTokens": 62,
+            "turn": 7
+          },
+          {
+            "inputGrowthTokens": 267,
+            "inputTokens": 10627,
+            "outputTokens": 115,
+            "turn": 8
+          },
+          {
+            "inputGrowthTokens": 147,
+            "inputTokens": 10774,
+            "outputTokens": 5510,
+            "turn": 9
+          },
+          {
+            "inputGrowthTokens": 5661,
+            "inputTokens": 16435,
+            "outputTokens": 100,
+            "turn": 10
+          },
+          {
+            "inputGrowthTokens": 1418,
+            "inputTokens": 17853,
+            "outputTokens": 475,
+            "turn": 11
+          },
+          {
+            "inputGrowthTokens": 1117,
+            "inputTokens": 18970,
+            "outputTokens": 227,
+            "turn": 12
+          },
+          {
+            "inputGrowthTokens": 435,
+            "inputTokens": 19405,
+            "outputTokens": 219,
+            "turn": 13
+          },
+          {
+            "inputGrowthTokens": 242,
+            "inputTokens": 19647,
+            "outputTokens": 85,
+            "turn": 14
+          },
+          {
+            "inputGrowthTokens": 659,
+            "inputTokens": 20306,
+            "outputTokens": 296,
+            "turn": 15
+          },
+          {
+            "inputGrowthTokens": 2062,
+            "inputTokens": 22368,
+            "outputTokens": 313,
+            "turn": 16
+          },
+          {
+            "inputGrowthTokens": 625,
+            "inputTokens": 22993,
+            "outputTokens": 6426,
+            "turn": 17
+          },
+          {
+            "inputGrowthTokens": 7166,
+            "inputTokens": 30159,
+            "outputTokens": 761,
+            "turn": 18
+          },
+          {
+            "inputGrowthTokens": 1105,
+            "inputTokens": 31264,
+            "outputTokens": 748,
+            "turn": 19
+          },
+          {
+            "inputGrowthTokens": 896,
+            "inputTokens": 32160,
+            "outputTokens": 279,
+            "turn": 20
+          },
+          {
+            "inputGrowthTokens": 420,
+            "inputTokens": 32580,
+            "outputTokens": 626,
+            "turn": 21
+          },
+          {
+            "inputGrowthTokens": 1135,
+            "inputTokens": 33715,
+            "outputTokens": 5503,
+            "turn": 22
+          },
+          {
+            "inputGrowthTokens": 6086,
+            "inputTokens": 39801,
+            "outputTokens": 5866,
+            "turn": 23
+          },
+          {
+            "inputGrowthTokens": 6257,
+            "inputTokens": 46058,
+            "outputTokens": 11306,
+            "turn": 24
+          },
+          {
+            "inputGrowthTokens": 11324,
+            "inputTokens": 57382,
+            "outputTokens": 1501,
+            "turn": 25
+          },
+          {
+            "inputGrowthTokens": 2094,
+            "inputTokens": 59476,
+            "outputTokens": 243,
+            "turn": 26
+          },
+          {
+            "inputGrowthTokens": 279,
+            "inputTokens": 59755,
+            "outputTokens": 825,
+            "turn": 27
+          },
+          {
+            "inputGrowthTokens": 912,
+            "inputTokens": 60667,
+            "outputTokens": 603,
+            "turn": 28
+          },
+          {
+            "inputGrowthTokens": 683,
+            "inputTokens": 61350,
+            "outputTokens": 336,
+            "turn": 29
+          },
+          {
+            "inputGrowthTokens": 1294,
+            "inputTokens": 62644,
+            "outputTokens": 324,
+            "turn": 30
+          },
+          {
+            "inputGrowthTokens": 422,
+            "inputTokens": 63066,
+            "outputTokens": 554,
+            "turn": 31
+          },
+          {
+            "inputGrowthTokens": 1363,
+            "inputTokens": 64429,
+            "outputTokens": 2561,
+            "turn": 32
+          },
+          {
+            "inputGrowthTokens": 2972,
+            "inputTokens": 67401,
+            "outputTokens": 866,
+            "turn": 33
+          },
+          {
+            "inputGrowthTokens": 1057,
+            "inputTokens": 68458,
+            "outputTokens": 764,
+            "turn": 34
+          },
+          {
+            "inputGrowthTokens": 1024,
+            "inputTokens": 69482,
+            "outputTokens": 680,
+            "turn": 35
+          },
+          {
+            "inputGrowthTokens": 785,
+            "inputTokens": 70267,
+            "outputTokens": 749,
+            "turn": 36
+          },
+          {
+            "inputGrowthTokens": 867,
+            "inputTokens": 71134,
+            "outputTokens": 528,
+            "turn": 37
+          },
+          {
+            "inputGrowthTokens": 1507,
+            "inputTokens": 72641,
+            "outputTokens": 956,
+            "turn": 38
+          },
+          {
+            "inputGrowthTokens": 1066,
+            "inputTokens": 73707,
+            "outputTokens": 183,
+            "turn": 39
+          },
+          {
+            "inputGrowthTokens": 300,
+            "inputTokens": 74007,
+            "outputTokens": 307,
+            "turn": 40
+          },
+          {
+            "inputGrowthTokens": 613,
+            "inputTokens": 74620,
+            "outputTokens": 437,
+            "turn": 41
+          },
+          {
+            "inputGrowthTokens": 722,
+            "inputTokens": 75342,
+            "outputTokens": 4170,
+            "turn": 42
+          },
+          {
+            "inputGrowthTokens": 4396,
+            "inputTokens": 79738,
+            "outputTokens": 580,
+            "turn": 43
+          },
+          {
+            "inputGrowthTokens": 640,
+            "inputTokens": 80378,
+            "outputTokens": 574,
+            "turn": 44
+          },
+          {
+            "inputGrowthTokens": 1048,
+            "inputTokens": 81426,
+            "outputTokens": 3240,
+            "turn": 45
+          },
+          {
+            "inputGrowthTokens": 3981,
+            "inputTokens": 85407,
+            "outputTokens": 125,
+            "turn": 46
+          }
+        ],
+        "turnCount": 46
+      },
+      "gatewayResults": {
+        "byCategory": {
+          "component_discovery": {
+            "calls": 13,
+            "canonicalResultBytes": 52025
+          },
+          "diagnostics": {
+            "calls": 4,
+            "canonicalResultBytes": 416
+          },
+          "mutation": {
+            "calls": 7,
+            "canonicalResultBytes": 173259
+          },
+          "schema_metadata": {
+            "calls": 23,
+            "canonicalResultBytes": 97502
+          },
+          "status_readiness": {
+            "calls": 8,
+            "canonicalResultBytes": 4547
+          },
+          "structural_observation": {
+            "calls": 14,
+            "canonicalResultBytes": 358203
+          }
+        },
+        "byTool": {
+          "gh_batch_component_info": {
+            "calls": 10,
+            "canonicalResultBytes": 78721,
+            "category": "schema_metadata"
+          },
+          "gh_edit": {
+            "calls": 7,
+            "canonicalResultBytes": 173259,
+            "category": "mutation"
+          },
+          "gh_errors": {
+            "calls": 4,
+            "canonicalResultBytes": 416,
+            "category": "diagnostics"
+          },
+          "gh_library": {
+            "calls": 12,
+            "canonicalResultBytes": 48578,
+            "category": "component_discovery"
+          },
+          "gh_snapshot": {
+            "calls": 14,
+            "canonicalResultBytes": 358203,
+            "category": "structural_observation"
+          },
+          "gh_status": {
+            "calls": 6,
+            "canonicalResultBytes": 3401,
+            "category": "status_readiness"
+          },
+          "gh_wait_for_solve_readiness": {
+            "calls": 2,
+            "canonicalResultBytes": 1146,
+            "category": "status_readiness"
+          },
+          "rook_tools_read": {
+            "calls": 13,
+            "canonicalResultBytes": 18781,
+            "category": "schema_metadata"
+          },
+          "rook_tools_search": {
+            "calls": 1,
+            "canonicalResultBytes": 3447,
+            "category": "component_discovery"
+          }
+        },
+        "callCount": 69,
+        "canonicalResultBytes": 685952,
+        "causalLimits": [
+          "canonical_result_bytes_measure_retained_source_payloads_not_prompt_tokens",
+          "repeated_request_shape_does_not_prove_the_call_was_unnecessary"
+        ],
+        "exactRequestRepeats": [
+          {
+            "allResultsIdentical": true,
+            "calls": 2,
+            "repeatCalls": 1,
+            "repeatCanonicalResultBytes": 3606,
+            "sequences": [
+              1,
+              8
+            ],
+            "target": "rook_tools_read"
+          },
+          {
+            "allResultsIdentical": true,
+            "calls": 2,
+            "repeatCalls": 1,
+            "repeatCanonicalResultBytes": 1734,
+            "sequences": [
+              2,
+              9
+            ],
+            "target": "rook_tools_read"
+          },
+          {
+            "allResultsIdentical": true,
+            "calls": 2,
+            "repeatCalls": 1,
+            "repeatCanonicalResultBytes": 1341,
+            "sequences": [
+              3,
+              10
+            ],
+            "target": "rook_tools_read"
+          },
+          {
+            "allResultsIdentical": true,
+            "calls": 2,
+            "repeatCalls": 1,
+            "repeatCanonicalResultBytes": 1051,
+            "sequences": [
+              4,
+              18
+            ],
+            "target": "rook_tools_read"
+          },
+          {
+            "allResultsIdentical": true,
+            "calls": 2,
+            "repeatCalls": 1,
+            "repeatCanonicalResultBytes": 435,
+            "sequences": [
+              5,
+              12
+            ],
+            "target": "rook_tools_read"
+          },
+          {
+            "allResultsIdentical": true,
+            "calls": 2,
+            "repeatCalls": 1,
+            "repeatCanonicalResultBytes": 733,
+            "sequences": [
+              7,
+              11
+            ],
+            "target": "rook_tools_read"
+          },
+          {
+            "allResultsIdentical": false,
+            "calls": 6,
+            "repeatCalls": 5,
+            "repeatCanonicalResultBytes": 2835,
+            "sequences": [
+              13,
+              40,
+              46,
+              54,
+              60,
+              67
+            ],
+            "target": "gh_status"
+          },
+          {
+            "allResultsIdentical": false,
+            "calls": 7,
+            "repeatCalls": 6,
+            "repeatCanonicalResultBytes": 160568,
+            "sequences": [
+              38,
+              44,
+              49,
+              51,
+              53,
+              58,
+              63
+            ],
+            "target": "gh_snapshot"
+          },
+          {
+            "allResultsIdentical": false,
+            "calls": 4,
+            "repeatCalls": 3,
+            "repeatCanonicalResultBytes": 312,
+            "sequences": [
+              41,
+              48,
+              62,
+              68
+            ],
+            "target": "gh_errors"
+          },
+          {
+            "allResultsIdentical": false,
+            "calls": 3,
+            "repeatCalls": 2,
+            "repeatCanonicalResultBytes": 69394,
+            "sequences": [
+              43,
+              47,
+              61
+            ],
+            "target": "gh_snapshot"
+          }
+        ],
+        "nearRequestRepeats": [
+          {
+            "calls": 7,
+            "kind": "same_projection_shape",
+            "sequences": [
+              14,
+              42,
+              43,
+              47,
+              57,
+              61,
+              66
+            ],
+            "target": "gh_snapshot"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              15,
+              16
+            ],
+            "sharedSelectors": [
+              "name:circle",
+              "name:construct point",
+              "name:interpolate curve",
+              "name:list item",
+              "name:revolve",
+              "name:rotate 3d",
+              "name:series"
+            ],
+            "target": "gh_batch_component_info"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              15,
+              17
+            ],
+            "sharedSelectors": [
+              "name:circle",
+              "name:construct domain",
+              "name:construct point",
+              "name:fit curve",
+              "name:fit spline",
+              "name:list item",
+              "name:number slider",
+              "name:revolve",
+              "name:rotate",
+              "name:rotate 3d",
+              "name:series"
+            ],
+            "target": "gh_batch_component_info"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              15,
+              25
+            ],
+            "sharedSelectors": [
+              "name:number slider"
+            ],
+            "target": "gh_batch_component_info"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              15,
+              26
+            ],
+            "sharedSelectors": [
+              "name:construct domain",
+              "name:line",
+              "name:number slider"
+            ],
+            "target": "gh_batch_component_info"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              15,
+              30
+            ],
+            "sharedSelectors": [
+              "name:line"
+            ],
+            "target": "gh_batch_component_info"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              16,
+              17
+            ],
+            "sharedSelectors": [
+              "name:circle",
+              "name:construct point",
+              "name:list item",
+              "name:revolve",
+              "name:rotate 3d",
+              "name:series"
+            ],
+            "target": "gh_batch_component_info"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              17,
+              25
+            ],
+            "sharedSelectors": [
+              "name:number slider"
+            ],
+            "target": "gh_batch_component_info"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              17,
+              26
+            ],
+            "sharedSelectors": [
+              "name:construct domain",
+              "name:number slider"
+            ],
+            "target": "gh_batch_component_info"
+          },
+          {
+            "calls": 2,
+            "kind": "same_normalized_search",
+            "sequences": [
+              19,
+              20
+            ],
+            "target": "gh_library"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              25,
+              26
+            ],
+            "sharedSelectors": [
+              "name:number slider"
+            ],
+            "target": "gh_batch_component_info"
+          },
+          {
+            "kind": "overlapping_selectors",
+            "sequences": [
+              26,
+              30
+            ],
+            "sharedSelectors": [
+              "name:line",
+              "name:panel"
+            ],
+            "target": "gh_batch_component_info"
+          }
+        ]
+      },
+      "inputCustody": {
+        "primeJsonlSha256": "5AB87A7BEF3169C06234C1849D08FE4402B6DEC3A3D5B246AC4221A1C5957529",
+        "sessionJsonlSha256": "8A9F3CB0C5B2A7F79130EBBD48DDB4CD74EBCDCB30B8244BE1677DA84A505BE2",
+        "sourceJsonlSha256": "288AC2BFBB404543AF9BA667BF7F1178F0F049815EB9185DF64037B0F9EF7AC0"
+      },
+      "primeToolResults": {
+        "byAttribution": {
+          "gh_batch_component_info": {
+            "category": "schema_metadata",
+            "cells": 8,
+            "retainedTextBytes": 11992
+          },
+          "gh_edit": {
+            "category": "mutation",
+            "cells": 1,
+            "retainedTextBytes": 201
+          },
+          "gh_library": {
+            "category": "component_discovery",
+            "cells": 4,
+            "retainedTextBytes": 7238
+          },
+          "gh_snapshot": {
+            "category": "structural_observation",
+            "cells": 5,
+            "retainedTextBytes": 4163
+          },
+          "gh_status": {
+            "category": "status_readiness",
+            "cells": 1,
+            "retainedTextBytes": 592
+          },
+          "gh_wait_for_solve_readiness": {
+            "category": "status_readiness",
+            "cells": 1,
+            "retainedTextBytes": 649
+          },
+          "mixed_gateway": {
+            "category": "mixed_gateway",
+            "cells": 11,
+            "retainedTextBytes": 10084
+          },
+          "non_gateway": {
+            "category": "non_gateway",
+            "cells": 10,
+            "retainedTextBytes": 10540
+          },
+          "rook_tools_read": {
+            "category": "schema_metadata",
+            "cells": 4,
+            "retainedTextBytes": 8200
+          },
+          "rook_tools_search": {
+            "category": "component_discovery",
+            "cells": 1,
+            "retainedTextBytes": 3508
+          }
+        },
+        "causalLimits": [
+          "counts_only_text_retained_in_prime_tool_result_content",
+          "cell_attribution_is_static_and_may_be_mixed_or_unattributed",
+          "retained_text_bytes_are_not_provider_token_attribution"
+        ],
+        "retainedTextBytes": 57167,
+        "toolResultCount": 46
+      },
+      "sessionContent": {
+        "byKind": {
+          "assistant_text": {
+            "contentBytes": 4204,
+            "items": 20
+          },
+          "assistant_thinking": {
+            "contentBytes": 152606,
+            "items": 46
+          },
+          "assistant_tool_arguments": {
+            "contentBytes": 31753,
+            "items": 46
+          },
+          "custom_message_text": {
+            "contentBytes": 1376,
+            "items": 1
+          },
+          "tool_result_text": {
+            "contentBytes": 57167,
+            "items": 46
+          },
+          "user_text": {
+            "contentBytes": 26,
+            "items": 1
+          }
+        },
+        "causalLimits": [
+          "counts_selected_native_session_content_not_serialized_provider_prompt_bytes",
+          "does_not_include_provider_system_material_or_protocol_overhead"
+        ],
+        "measuredContentBytes": 247132
+      }
+    },
+    "VP3": {
+      "contextGrowth": {
+        "averageInterTurnGrowthTokens": 1868.902,
+        "causalLimits": [
+          "provider_input_tokens_are_reported_context_size_per_turn",
+          "byte_counts_are_not_provider_token_attribution"
+        ],
+        "cumulativeInputTokens": 2009582,
+        "cumulativeOutputTokens": 47558,
+        "finalInputTokens": 81799,
+        "initialInputTokens": 5174,
+        "largestInterTurnGrowth": {
+          "tokens": 10635,
+          "turn": 18
+        },
+        "netContextGrowthTokens": 76625,
+        "perTurn": [
+          {
+            "inputGrowthTokens": 0,
+            "inputTokens": 5174,
+            "outputTokens": 193,
+            "turn": 1
+          },
+          {
+            "inputGrowthTokens": 1705,
+            "inputTokens": 6879,
+            "outputTokens": 141,
+            "turn": 2
+          },
+          {
+            "inputGrowthTokens": 689,
+            "inputTokens": 7568,
+            "outputTokens": 174,
+            "turn": 3
+          },
+          {
+            "inputGrowthTokens": 242,
+            "inputTokens": 7810,
+            "outputTokens": 137,
+            "turn": 4
+          },
+          {
+            "inputGrowthTokens": 423,
+            "inputTokens": 8233,
+            "outputTokens": 188,
+            "turn": 5
+          },
+          {
+            "inputGrowthTokens": 648,
+            "inputTokens": 8881,
+            "outputTokens": 75,
+            "turn": 6
+          },
+          {
+            "inputGrowthTokens": 1637,
+            "inputTokens": 10518,
+            "outputTokens": 184,
+            "turn": 7
+          },
+          {
+            "inputGrowthTokens": 956,
+            "inputTokens": 11474,
+            "outputTokens": 150,
+            "turn": 8
+          },
+          {
+            "inputGrowthTokens": 1390,
+            "inputTokens": 12864,
+            "outputTokens": 3530,
+            "turn": 9
+          },
+          {
+            "inputGrowthTokens": 6280,
+            "inputTokens": 19144,
+            "outputTokens": 650,
+            "turn": 10
+          },
+          {
+            "inputGrowthTokens": 2350,
+            "inputTokens": 21494,
+            "outputTokens": 518,
+            "turn": 11
+          },
+          {
+            "inputGrowthTokens": 2047,
+            "inputTokens": 23541,
+            "outputTokens": 898,
+            "turn": 12
+          },
+          {
+            "inputGrowthTokens": 3684,
+            "inputTokens": 27225,
+            "outputTokens": 2135,
+            "turn": 13
+          },
+          {
+            "inputGrowthTokens": 3225,
+            "inputTokens": 30450,
+            "outputTokens": 3548,
+            "turn": 14
+          },
+          {
+            "inputGrowthTokens": 5217,
+            "inputTokens": 35667,
+            "outputTokens": 1427,
+            "turn": 15
+          },
+          {
+            "inputGrowthTokens": 1797,
+            "inputTokens": 37464,
+            "outputTokens": 1970,
+            "turn": 16
+          },
+          {
+            "inputGrowthTokens": 2279,
+            "inputTokens": 39743,
+            "outputTokens": 10605,
+            "turn": 17
+          },
+          {
+            "inputGrowthTokens": 10635,
+            "inputTokens": 50378,
+            "outputTokens": 351,
+            "turn": 18
+          },
+          {
+            "inputGrowthTokens": 844,
+            "inputTokens": 51222,
+            "outputTokens": 139,
+            "turn": 19
+          },
+          {
+            "inputGrowthTokens": 331,
+            "inputTokens": 51553,
+            "outputTokens": 256,
+            "turn": 20
+          },
+          {
+            "inputGrowthTokens": 353,
+            "inputTokens": 51906,
+            "outputTokens": 9647,
+            "turn": 21
+          },
+          {
+            "inputGrowthTokens": 9697,
+            "inputTokens": 61603,
+            "outputTokens": 312,
+            "turn": 22
+          },
+          {
+            "inputGrowthTokens": 582,
+            "inputTokens": 62185,
+            "outputTokens": 329,
+            "turn": 23
+          },
+          {
+            "inputGrowthTokens": 809,
+            "inputTokens": 62994,
+            "outputTokens": 325,
+            "turn": 24
+          },
+          {
+            "inputGrowthTokens": 740,
+            "inputTokens": 63734,
+            "outputTokens": 398,
+            "turn": 25
+          },
+          {
+            "inputGrowthTokens": 1084,
+            "inputTokens": 64818,
+            "outputTokens": 105,
+            "turn": 26
+          },
+          {
+            "inputGrowthTokens": 219,
+            "inputTokens": 65037,
+            "outputTokens": 56,
+            "turn": 27
+          },
+          {
+            "inputGrowthTokens": 228,
+            "inputTokens": 65265,
+            "outputTokens": 308,
+            "turn": 28
+          },
+          {
+            "inputGrowthTokens": 798,
+            "inputTokens": 66063,
+            "outputTokens": 451,
+            "turn": 29
+          },
+          {
+            "inputGrowthTokens": 1466,
+            "inputTokens": 67529,
+            "outputTokens": 1519,
+            "turn": 30
+          },
+          {
+            "inputGrowthTokens": 2256,
+            "inputTokens": 69785,
+            "outputTokens": 773,
+            "turn": 31
+          },
+          {
+            "inputGrowthTokens": 1941,
+            "inputTokens": 71726,
+            "outputTokens": 598,
+            "turn": 32
+          },
+          {
+            "inputGrowthTokens": 628,
+            "inputTokens": 72354,
+            "outputTokens": 316,
+            "turn": 33
+          },
+          {
+            "inputGrowthTokens": 553,
+            "inputTokens": 72907,
+            "outputTokens": 546,
+            "turn": 34
+          },
+          {
+            "inputGrowthTokens": 1191,
+            "inputTokens": 74098,
+            "outputTokens": 744,
+            "turn": 35
+          },
+          {
+            "inputGrowthTokens": 1094,
+            "inputTokens": 75192,
+            "outputTokens": 1645,
+            "turn": 36
+          },
+          {
+            "inputGrowthTokens": 2346,
+            "inputTokens": 77538,
+            "outputTokens": 188,
+            "turn": 37
+          },
+          {
+            "inputGrowthTokens": 340,
+            "inputTokens": 77878,
+            "outputTokens": 112,
+            "turn": 38
+          },
+          {
+            "inputGrowthTokens": 360,
+            "inputTokens": 78238,
+            "outputTokens": 232,
+            "turn": 39
+          },
+          {
+            "inputGrowthTokens": 535,
+            "inputTokens": 78773,
+            "outputTokens": 463,
+            "turn": 40
+          },
+          {
+            "inputGrowthTokens": 2105,
+            "inputTokens": 80878,
+            "outputTokens": 669,
+            "turn": 41
+          },
+          {
+            "inputGrowthTokens": 921,
+            "inputTokens": 81799,
+            "outputTokens": 553,
+            "turn": 42
+          }
+        ],
+        "turnCount": 42
+      },
+      "gatewayResults": {
+        "byCategory": {
+          "component_discovery": {
+            "calls": 40,
+            "canonicalResultBytes": 61185
+          },
+          "diagnostics": {
+            "calls": 1,
+            "canonicalResultBytes": 104
+          },
+          "export_visual": {
+            "calls": 3,
+            "canonicalResultBytes": 8186
+          },
+          "mutation": {
+            "calls": 5,
+            "canonicalResultBytes": 88028
+          },
+          "schema_metadata": {
+            "calls": 11,
+            "canonicalResultBytes": 34570
+          },
+          "status_readiness": {
+            "calls": 2,
+            "canonicalResultBytes": 1140
+          },
+          "structural_observation": {
+            "calls": 14,
+            "canonicalResultBytes": 231781
+          }
+        },
+        "byTool": {
+          "gh_bake_output": {
+            "calls": 2,
+            "canonicalResultBytes": 7757,
+            "category": "export_visual"
+          },
+          "gh_batch_component_info": {
+            "calls": 4,
+            "canonicalResultBytes": 22995,
+            "category": "schema_metadata"
+          },
+          "gh_canvas_image": {
+            "calls": 1,
+            "canonicalResultBytes": 429,
+            "category": "export_visual"
+          },
+          "gh_edit": {
+            "calls": 5,
+            "canonicalResultBytes": 88028,
+            "category": "mutation"
+          },
+          "gh_errors": {
+            "calls": 1,
+            "canonicalResultBytes": 104,
+            "category": "diagnostics"
+          },
+          "gh_library": {
+            "calls": 28,
+            "canonicalResultBytes": 44625,
+            "category": "component_discovery"
+          },
+          "gh_snapshot": {
+            "calls": 14,
+            "canonicalResultBytes": 231781,
+            "category": "structural_observation"
+          },
+          "gh_status": {
+            "calls": 1,
+            "canonicalResultBytes": 567,
+            "category": "status_readiness"
+          },
+          "gh_wait_for_solve_readiness": {
+            "calls": 1,
+            "canonicalResultBytes": 573,
+            "category": "status_readiness"
+          },
+          "rook_tools_read": {
+            "calls": 7,
+            "canonicalResultBytes": 11575,
+            "category": "schema_metadata"
+          },
+          "rook_tools_search": {
+            "calls": 12,
+            "canonicalResultBytes": 16560,
+            "category": "component_discovery"
+          }
+        },
+        "callCount": 76,
+        "canonicalResultBytes": 424994,
+        "causalLimits": [
+          "canonical_result_bytes_measure_retained_source_payloads_not_prompt_tokens",
+          "repeated_request_shape_does_not_prove_the_call_was_unnecessary"
+        ],
+        "exactRequestRepeats": [
+          {
+            "allResultsIdentical": true,
+            "calls": 2,
+            "repeatCalls": 1,
+            "repeatCanonicalResultBytes": 2753,
+            "sequences": [
+              30,
+              46
+            ],
+            "target": "gh_library"
+          },
+          {
+            "allResultsIdentical": false,
+            "calls": 5,
+            "repeatCalls": 4,
+            "repeatCanonicalResultBytes": 74633,
+            "sequences": [
+              55,
+              59,
+              64,
+              67,
+              70
+            ],
+            "target": "gh_snapshot"
+          },
+          {
+            "allResultsIdentical": false,
+            "calls": 2,
+            "repeatCalls": 1,
+            "repeatCanonicalResultBytes": 18236,
+            "sequences": [
+              56,
+              58
+            ],
+            "target": "gh_snapshot"
+          },
+          {
+            "allResultsIdentical": false,
+            "calls": 5,
+            "repeatCalls": 4,
+            "repeatCanonicalResultBytes": 65082,
+            "sequences": [
+              60,
+              62,
+              65,
+              68,
+              71
+            ],
+            "target": "gh_snapshot"
+          }
+        ],
+        "nearRequestRepeats": [
+          {
+            "calls": 3,
+            "kind": "same_normalized_search",
+            "sequences": [
+              30,
+              43,
+              46
+            ],
+            "target": "gh_library"
+          },
+          {
+            "calls": 2,
+            "kind": "same_normalized_search",
+            "sequences": [
+              33,
+              41
+            ],
+            "target": "gh_library"
+          },
+          {
+            "calls": 8,
+            "kind": "same_projection_shape",
+            "sequences": [
+              55,
+              56,
+              58,
+              59,
+              64,
+              67,
+              70,
+              74
+            ],
+            "target": "gh_snapshot"
+          }
+        ]
+      },
+      "inputCustody": {
+        "primeJsonlSha256": "67CD7816EE1E0DC4745599A1C53F549D813497B2EFA7B27049354AD9F9EB20E0",
+        "sessionJsonlSha256": "2D1315DF31D0D6C11FB9BA997180CDCE14D9D4F1BF6D22107D614CF2966AF564",
+        "sourceJsonlSha256": "C93D5A11396A8212A3A3EC52D0C870778247CBD274910C70F183DBA8A4BB85F1"
+      },
+      "primeToolResults": {
+        "byAttribution": {
+          "gh_bake_output": {
+            "category": "export_visual",
+            "cells": 2,
+            "retainedTextBytes": 2547
+          },
+          "gh_batch_component_info": {
+            "category": "schema_metadata",
+            "cells": 4,
+            "retainedTextBytes": 18487
+          },
+          "gh_canvas_image": {
+            "category": "export_visual",
+            "cells": 1,
+            "retainedTextBytes": 462
+          },
+          "gh_edit": {
+            "category": "mutation",
+            "cells": 1,
+            "retainedTextBytes": 101
+          },
+          "gh_errors": {
+            "category": "diagnostics",
+            "cells": 1,
+            "retainedTextBytes": 65
+          },
+          "gh_library": {
+            "category": "component_discovery",
+            "cells": 7,
+            "retainedTextBytes": 19797
+          },
+          "gh_snapshot": {
+            "category": "structural_observation",
+            "cells": 9,
+            "retainedTextBytes": 13456
+          },
+          "gh_status": {
+            "category": "status_readiness",
+            "cells": 1,
+            "retainedTextBytes": 629
+          },
+          "gh_wait_for_solve_readiness": {
+            "category": "status_readiness",
+            "cells": 1,
+            "retainedTextBytes": 636
+          },
+          "mixed_gateway": {
+            "category": "mixed_gateway",
+            "cells": 4,
+            "retainedTextBytes": 4055
+          },
+          "non_gateway": {
+            "category": "non_gateway",
+            "cells": 5,
+            "retainedTextBytes": 9141
+          },
+          "rook_tools_read": {
+            "category": "schema_metadata",
+            "cells": 4,
+            "retainedTextBytes": 14695
+          },
+          "rook_tools_search": {
+            "category": "component_discovery",
+            "cells": 3,
+            "retainedTextBytes": 3163
+          }
+        },
+        "causalLimits": [
+          "counts_only_text_retained_in_prime_tool_result_content",
+          "cell_attribution_is_static_and_may_be_mixed_or_unattributed",
+          "retained_text_bytes_are_not_provider_token_attribution"
+        ],
+        "retainedTextBytes": 87234,
+        "toolResultCount": 43
+      },
+      "sessionContent": {
+        "byKind": {
+          "assistant_text": {
+            "contentBytes": 2860,
+            "items": 28
+          },
+          "assistant_thinking": {
+            "contentBytes": 105146,
+            "items": 42
+          },
+          "assistant_tool_arguments": {
+            "contentBytes": 29575,
+            "items": 44
+          },
+          "custom_message_text": {
+            "contentBytes": 1352,
+            "items": 1
+          },
+          "tool_result_text": {
+            "contentBytes": 87234,
+            "items": 43
+          },
+          "user_text": {
+            "contentBytes": 26,
+            "items": 1
+          }
+        },
+        "causalLimits": [
+          "counts_selected_native_session_content_not_serialized_provider_prompt_bytes",
+          "does_not_include_provider_system_material_or_protocol_overhead"
+        ],
+        "measuredContentBytes": 226193
+      }
+    }
+  },
+  "schema": "rook.analysis.qwen38_varied_product_efficiency:v1"
+}
