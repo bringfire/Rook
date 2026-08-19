@@ -122,6 +122,41 @@ VP4_PROFILE_STACK_ADJUDICATION_PATH = (
     / "experiments"
     / "2026-08-19-qwen38-vp4-profile-stack-prospective-screen-v1-adjudication.json"
 )
+AUTHORING_LANE_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-native-python-authoring-lane-screen-v1.json"
+)
+AUTHORING_LANE_ADJUDICATION_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-native-python-authoring-lane-screen-v1-adjudication.json"
+)
+AUTHORING_LANE_CAPABILITY_AUDIT_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-native-python-authoring-lane-capability-audit-v1.json"
+)
+AUTHORING_LANE_INPUT_ROOT = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "inputs"
+    / "2026-08-19-qwen38-native-python-authoring-lane-screen-v1"
+)
+NATIVE_LANE_SKILL_PATH = (
+    AUTHORING_LANE_INPUT_ROOT / "native" / "prime-execute-grasshopper" / "SKILL.md"
+)
+PYTHON_LANE_SKILL_PATH = (
+    AUTHORING_LANE_INPUT_ROOT / "python" / "prime-execute-grasshopper" / "SKILL.md"
+)
 VP2_STRATEGY_DISCIPLINE_SKILL_PATH = (
     ROOT
     / "docs"
@@ -194,6 +229,13 @@ PROFILE_STACK_PROMPT = (
     "Level Spacing in Z. Exercise at least one consequential control, observe its "
     "effect, and restore the chosen defaults. Inspect the final stack and stop when "
     "satisfied. Do not loft, surface, bake, or create downstream geometry."
+)
+CIRCULAR_LINE_ARRAY_PROMPT = (
+    "Create an adjustable circular array of vertical line segments. Expose "
+    "Radius, Count, Height, and Start Angle. Produce exactly Count evenly spaced "
+    "vertical lines around the circle. Exercise Count and Height, observe the "
+    "effects, restore defaults, obtain a final receipt-fenced observation, and "
+    "stop when satisfied."
 )
 BASELINE_SKILL_SHA256 = (
     "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
@@ -317,6 +359,10 @@ def _vp2_strategy_discipline_protocol() -> dict:
     return json.loads(
         VP2_STRATEGY_DISCIPLINE_PROTOCOL_PATH.read_text(encoding="utf-8")
     )
+
+
+def _authoring_lane_protocol() -> dict:
+    return json.loads(AUTHORING_LANE_PROTOCOL_PATH.read_text(encoding="utf-8"))
 
 
 def test_vp2_evidence_reuse_skill_delta_is_exactly_one_reviewed_rule():
@@ -654,6 +700,241 @@ def test_vp4_profile_stack_reuses_prospective_path_and_changes_only_task_evaluat
             VP4_PROFILE_STACK_ADJUDICATION_PATH.read_bytes()
         ).hexdigest().upper(),
     }
+
+
+def _remove_authoring_lane_block(skill: str) -> str:
+    start = "<!-- authoring-lane:start -->\n"
+    end = "<!-- authoring-lane:end -->\n\n"
+    assert skill.count(start) == 1
+    assert skill.count(end) == 1
+    prefix, remainder = skill.split(start, 1)
+    _, suffix = remainder.split(end, 1)
+    without_lane = prefix + suffix
+    return without_lane.replace(
+        'tool_contract = await rook_full.read("gh_edit")',
+        'search_payload = await rook_full.search("gh_edit")\n'
+        'tool_contract = await rook_full.read("gh_edit")',
+        1,
+    )
+
+
+def test_authoring_lane_skills_are_closed_deltas_from_canonical_skill():
+    canonical = SKILL_PATH.read_text(encoding="utf-8")
+    native = NATIVE_LANE_SKILL_PATH.read_text(encoding="utf-8")
+    python = PYTHON_LANE_SKILL_PATH.read_text(encoding="utf-8")
+
+    assert hashlib.sha256(SKILL_PATH.read_bytes()).hexdigest().upper() == (
+        BASELINE_SKILL_SHA256
+    )
+    assert _remove_authoring_lane_block(native) == canonical
+    assert _remove_authoring_lane_block(python) == canonical
+    assert 'search_payload = await rook_full.search("gh_edit")' not in native
+    assert 'search_payload = await rook_full.search("gh_edit")' not in python
+
+    native_block = native.split("<!-- authoring-lane:start -->", 1)[1].split(
+        "<!-- authoring-lane:end -->", 1
+    )[0]
+    assert "native-components authoring lane" in native_block
+    assert "Script components are unavailable" in native_block
+    for capability in (
+        "gh_snapshot",
+        "gh_library",
+        "gh_batch_component_info",
+        "gh_edit",
+        "gh_errors",
+        "gh_wait_for_solve_readiness",
+    ):
+        assert capability in native_block
+    for forbidden in (
+        "gh_create_script",
+        "gh_create_python_script",
+        "gh_create_csharp_script",
+        "gh_update_script",
+    ):
+        assert forbidden not in native_block
+
+    python_block = python.split("<!-- authoring-lane:start -->", 1)[1].split(
+        "<!-- authoring-lane:end -->", 1
+    )[0]
+    assert "Python authoring lane" in python_block
+    for capability in (
+        "gh_snapshot",
+        "gh_create_script",
+        "gh_set_script_pins",
+        "gh_update_script",
+        "gh_edit",
+        "gh_errors",
+        "gh_wait_for_solve_readiness",
+    ):
+        assert capability in python_block
+    assert 'language="python"' in python_block
+    assert "C#" not in python_block
+    assert "csharp" not in python_block.lower()
+
+
+def test_authoring_lane_protocol_freezes_one_native_and_one_python_row():
+    runner = _runner()
+    source = json.loads(VP4_PROFILE_STACK_PROTOCOL_PATH.read_text(encoding="utf-8"))
+    protocol = _authoring_lane_protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["executionOrder"] == ["N", "P"]
+    assert protocol["tasks"]["N"]["prompt"] == CIRCULAR_LINE_ARRAY_PROMPT
+    assert protocol["tasks"]["P"]["prompt"] == CIRCULAR_LINE_ARRAY_PROMPT
+    assert protocol["tasks"]["N"] | {"id": "P"} == protocol["tasks"]["P"]
+    assert "prospectiveScreen" not in protocol
+
+    for owner in (
+        "limits",
+        "prime",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "offlineEvaluator",
+        "toolSurface",
+        "sourceCampaignProtocol",
+        "continuationPolicy",
+        "precontactVerification",
+    ):
+        assert protocol[owner] == source[owner]
+    assert protocol["versionedInputs"] == {
+        "skillPath": SKILL_PATH.relative_to(ROOT).as_posix(),
+        "skillSha256": BASELINE_SKILL_SHA256,
+        "checkpointPath": source["versionedInputs"]["checkpointPath"],
+        "checkpointSha256": source["versionedInputs"]["checkpointSha256"],
+        "adapterRoot": source["versionedInputs"]["adapterRoot"],
+        "adapterInitSha256": source["versionedInputs"]["adapterInitSha256"],
+    }
+
+    experiment = protocol["authoringLaneExperiment"]
+    assert experiment["classification"] == "paired_authoring_lane_product_screen"
+    assert experiment["sourceOperationalProtocol"] == {
+        "path": VP4_PROFILE_STACK_PROTOCOL_PATH.relative_to(ROOT).as_posix(),
+        "sha256": hashlib.sha256(
+            VP4_PROFILE_STACK_PROTOCOL_PATH.read_bytes()
+        ).hexdigest().upper(),
+    }
+    assert experiment["canonicalSkill"] == {
+        "path": SKILL_PATH.relative_to(ROOT).as_posix(),
+        "sha256": BASELINE_SKILL_SHA256,
+    }
+    assert experiment["rowLanes"] == {
+        "N": {
+            "lane": "native",
+            "skillPath": NATIVE_LANE_SKILL_PATH.relative_to(ROOT).as_posix(),
+            "skillSha256": hashlib.sha256(
+                NATIVE_LANE_SKILL_PATH.read_bytes()
+            ).hexdigest().upper(),
+            "startingCapabilities": [
+                "gh_snapshot",
+                "gh_library",
+                "gh_batch_component_info",
+                "gh_edit",
+                "gh_errors",
+                "gh_wait_for_solve_readiness",
+            ],
+            "scriptComponentsAvailable": False,
+        },
+        "P": {
+            "lane": "python",
+            "skillPath": PYTHON_LANE_SKILL_PATH.relative_to(ROOT).as_posix(),
+            "skillSha256": hashlib.sha256(
+                PYTHON_LANE_SKILL_PATH.read_bytes()
+            ).hexdigest().upper(),
+            "startingCapabilities": [
+                "gh_snapshot",
+                "gh_create_script",
+                "gh_set_script_pins",
+                "gh_update_script",
+                "gh_edit",
+                "gh_errors",
+                "gh_wait_for_solve_readiness",
+            ],
+            "scriptLanguage": "python",
+            "nativeDiscovery": "controls_or_named_blocker_only",
+        },
+    }
+    assert experiment["successCriteria"] == [
+        "credible_result_or_honest_failure",
+        "budget_and_custody_pass",
+        "count_and_height_exercised_and_restored",
+        "final_receipt_fenced_snapshot_before_goal_complete",
+        "no_later_gateway_call",
+        "no_search_for_listed_capabilities",
+        "no_implementation_mode_switch",
+        "first_commit_within_12_gateway_calls",
+        "first_commit_within_200000_cumulative_tokens",
+        "no_equivalent_repeated_mutation_without_named_material_reason",
+        "no_efficiency_credit_if_semantic_or_evidence_quality_regresses",
+    ]
+    assert experiment["evaluatorFeedbackDuringRun"] is False
+    assert experiment["retriesPerRow"] == 0
+    assert experiment["midCampaignTuning"] is False
+    assert experiment["interpretation"] == "product_screen_not_pure_causal_proof"
+    assert experiment["laneRestrictionEnforcement"] == (
+        "model_facing_skill_guidance_only"
+    )
+    assert experiment["excludedFutureComparison"] == "python_vs_csharp"
+    assert protocol["capabilityAudit"] == {
+        "path": AUTHORING_LANE_CAPABILITY_AUDIT_PATH.relative_to(ROOT).as_posix(),
+        "sha256": hashlib.sha256(
+            AUTHORING_LANE_CAPABILITY_AUDIT_PATH.read_bytes()
+        ).hexdigest().upper(),
+    }
+
+    adjudication = json.loads(
+        AUTHORING_LANE_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+    assert runner.validate_shadow_adjudication(adjudication, protocol) is adjudication
+    assert protocol["shadowAdjudication"] == {
+        "path": AUTHORING_LANE_ADJUDICATION_PATH.relative_to(ROOT).as_posix(),
+        "sha256": hashlib.sha256(
+            AUTHORING_LANE_ADJUDICATION_PATH.read_bytes()
+        ).hexdigest().upper(),
+    }
+
+
+def test_authoring_lane_protocol_rejects_crossed_or_tampered_lane_custody():
+    runner = _runner()
+    protocol = _authoring_lane_protocol()
+
+    crossed = json.loads(json.dumps(protocol))
+    crossed["authoringLaneExperiment"]["rowLanes"]["N"]["skillPath"] = (
+        crossed["authoringLaneExperiment"]["rowLanes"]["P"]["skillPath"]
+    )
+    with pytest.raises(ValueError, match="authoring_lane_experiment_invalid"):
+        runner.validate_protocol(crossed)
+
+    mismatched_prompt = json.loads(json.dumps(protocol))
+    mismatched_prompt["tasks"]["P"]["prompt"] += " Prefer native components."
+    with pytest.raises(ValueError, match="authoring_lane_experiment_invalid"):
+        runner.validate_protocol(mismatched_prompt)
+
+    expanded = json.loads(json.dumps(protocol))
+    expanded["executionOrder"].append("X")
+    expanded["tasks"]["X"] = json.loads(json.dumps(expanded["tasks"]["N"]))
+    expanded["tasks"]["X"]["id"] = "X"
+    with pytest.raises(ValueError, match="authoring_lane_experiment_invalid"):
+        runner.validate_protocol(expanded)
+
+
+@pytest.mark.parametrize(
+    ("task_id", "expected_path"),
+    (("N", NATIVE_LANE_SKILL_PATH), ("P", PYTHON_LANE_SKILL_PATH)),
+)
+def test_copy_versioned_inputs_stages_the_exact_row_lane_skill(
+    tmp_path: Path, task_id: str, expected_path: Path
+):
+    runner = _runner()
+    protocol = _authoring_lane_protocol()
+    row_root = tmp_path / task_id
+
+    runner._copy_versioned_inputs(protocol, protocol["tasks"][task_id], row_root)
+
+    staged = (
+        row_root / "agent" / "skills" / "prime-execute-grasshopper" / "SKILL.md"
+    )
+    assert staged.read_bytes() == expected_path.read_bytes()
 
 
 def test_vp2_connection_truthfulness_retest_admits_only_the_repaired_runtime_delta():
@@ -1185,6 +1466,15 @@ def test_row_telemetry_keeps_observation_and_inference_separate():
     assert telemetry["observed"]["discoveryCalls"] == 2
     assert telemetry["observed"]["mutationCalls"] == 2
     assert telemetry["observed"]["committedMutations"] == 1
+    assert telemetry["observed"]["firstMutation"] == {
+        "sequence": 2,
+        "target": "gh_edit",
+        "commitStatus": "committed",
+    }
+    assert telemetry["observed"]["firstCommittedMutation"] == {
+        "sequence": 2,
+        "target": "gh_edit",
+    }
     assert telemetry["observed"]["refusedOrFailedCalls"] == 2
     assert telemetry["observed"]["perTurnUsage"] == [
         {"turn": 1, "timestamp": 10, "inputTokens": 100, "outputTokens": 20, "totalTokens": 120},
@@ -1195,6 +1485,79 @@ def test_row_telemetry_keeps_observation_and_inference_separate():
         "qualification": "mutation_order_only_not_semantic_correction",
     }
     assert telemetry["unresolved"] == ["first_sufficient_fenced_evidence_turn"]
+
+
+@pytest.mark.parametrize(
+    "alias", ("gh_create_python_script", "gh_create_csharp_script")
+)
+def test_script_creation_aliases_count_as_first_committed_mutations(alias: str):
+    runner = _runner()
+    source_events = [
+        {
+            "sequence": 0,
+            "target": "gh_snapshot",
+            "result": {"success": True},
+            "mutation": {"classification": "observational", "commit_status": "none"},
+        },
+        {
+            "sequence": 1,
+            "target": alias,
+            "result": {"success": True},
+            "mutation": {"classification": "terminal", "commit_status": "committed"},
+        },
+        {
+            "sequence": 2,
+            "target": "gh_edit",
+            "result": {"success": True},
+            "mutation": {"classification": "terminal", "commit_status": "committed"},
+        },
+    ]
+
+    telemetry = runner.summarize_row_telemetry(source_events, [])
+
+    assert telemetry["observed"]["mutationCalls"] == 2
+    assert telemetry["observed"]["committedMutations"] == 2
+    assert telemetry["observed"]["firstMutation"] == {
+        "sequence": 1,
+        "target": alias,
+        "commitStatus": "committed",
+    }
+    assert telemetry["observed"]["firstCommittedMutation"] == {
+        "sequence": 1,
+        "target": alias,
+    }
+    assert telemetry["inferred"]["candidateCorrectionMutations"] == 1
+
+
+def test_first_committed_mutation_does_not_credit_a_refused_attempt():
+    runner = _runner()
+    source_events = [
+        {
+            "sequence": 0,
+            "target": "gh_create_python_script",
+            "result": {"success": False},
+            "mutation": {"classification": "observational", "commit_status": "none"},
+        },
+        {
+            "sequence": 1,
+            "target": "gh_edit",
+            "result": {"success": True},
+            "mutation": {"classification": "terminal", "commit_status": "committed"},
+        },
+    ]
+
+    telemetry = runner.summarize_row_telemetry(source_events, [])
+
+    assert telemetry["observed"]["mutationCalls"] == 2
+    assert telemetry["observed"]["firstMutation"] == {
+        "sequence": 0,
+        "target": "gh_create_python_script",
+        "commitStatus": "none",
+    }
+    assert telemetry["observed"]["firstCommittedMutation"] == {
+        "sequence": 1,
+        "target": "gh_edit",
+    }
 
 
 def test_prepare_target_stages_the_exact_task_fixture(

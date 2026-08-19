@@ -1,0 +1,1013 @@
+{
+  "schema": "rook.experiment.grasshopper_authoring_lane_capability_audit:v1",
+  "status": "frozen_precontact",
+  "sourceCatalog": {
+    "path": "C:/UDEV/RookEvidence/2026-08-19-qwen38-vp4-profile-stack-prospective-screen-v1/tool-catalog.json",
+    "sha256": "64796B23E123368F1F9CC509206A879783195223D81165C70D7226CB154B86FA",
+    "entryCount": 382
+  },
+  "sourceServer": {
+    "path": "mcp_server/src/rook/server.py",
+    "sha256": "C02358F5AF5091A5C0E8EDBC7004CCFD9FB1E941BAD9361C7547CEEDD56909F5"
+  },
+  "canonicalScriptCreation": "gh_create_script",
+  "verifiedBackCompatAliases": [
+    "gh_create_python_script",
+    "gh_create_csharp_script"
+  ],
+  "nativeStartingCapabilities": [
+    "gh_snapshot",
+    "gh_library",
+    "gh_batch_component_info",
+    "gh_edit",
+    "gh_errors",
+    "gh_wait_for_solve_readiness"
+  ],
+  "pythonStartingCapabilities": [
+    "gh_snapshot",
+    "gh_create_script",
+    "gh_set_script_pins",
+    "gh_update_script",
+    "gh_edit",
+    "gh_errors",
+    "gh_wait_for_solve_readiness"
+  ],
+  "capabilities": {
+    "gh_snapshot": {
+      "inputSchema": {
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "readiness_receipt_id"
+              ]
+            },
+            "then": {
+              "properties": {
+                "include_data": {
+                  "const": true
+                },
+                "max_preview_items": {
+                  "maximum": 1000,
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "include_data",
+                "max_preview_items"
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "include_data": {
+            "description": "Include output data previews (default true)",
+            "type": "boolean"
+          },
+          "max_preview_items": {
+            "description": "Max items per output data preview (default 3)",
+            "type": "integer"
+          },
+          "readiness_receipt_id": {
+            "description": "Optional solve-readiness receipt that fences this snapshot to the admitted solved state. When present, include_data=true and max_preview_items in 1..1000 are required.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "inputSchemaSha256": "18A271DC954FE0C50096E460785C50C0949634265FD28A0D35560BF038EBB49C",
+      "descriptionSha256": "AF954049802F8BC63B3409E869CF637A8147B7A9D10C02D7E2E0869F29229CCC"
+    },
+    "gh_library": {
+      "inputSchema": {
+        "properties": {
+          "category": {
+            "description": "Filter by category or subcategory (e.g., 'Surface', 'Primitive', 'Kangaroo2')",
+            "type": "string"
+          },
+          "exact": {
+            "description": "If true, only return components whose name exactly matches the search term (case-insensitive)",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "Maximum results to return (default 50)",
+            "type": "integer"
+          },
+          "search": {
+            "description": "Search term to filter components by name/description",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "inputSchemaSha256": "94726BB973769308D40DE02F07F69A2F285F94A6B5D65CC2142C76CFCAE242C2",
+      "descriptionSha256": "41199F4FBAD66DA7377FD3CF7D11416B21B1BFD6DB544A4E98C9F30FE93F71C3"
+    },
+    "gh_batch_component_info": {
+      "inputSchema": {
+        "properties": {
+          "guids": {
+            "description": "Component type GUIDs to look up",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "names": {
+            "description": "Component names to look up (e.g., ['Sphere', 'Loft'])",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "inputSchemaSha256": "A211CBD662C25AD3190F67E7A41FE20B4F852A64C7D8C7D41A48D15E29F986BC",
+      "descriptionSha256": "75DD4495C38364FB7743575B20229D6E96C763603468B40B2764642D1C74695C"
+    },
+    "gh_edit": {
+      "inputSchema": {
+        "properties": {
+          "connect": {
+            "description": "Flow strings to connect: 'C1.O0>C2.I1' or 'T1.O0>C3.I0'",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "create": {
+            "description": "Components to create. Each needs temp_id (T1, T2, ...) plus guid/name/type.",
+            "items": {
+              "properties": {
+                "content": {
+                  "description": "Text content (panel)",
+                  "type": "string"
+                },
+                "guid": {
+                  "description": "Component type GUID",
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Max value (slider)",
+                  "type": "number"
+                },
+                "min": {
+                  "description": "Min value (slider)",
+                  "type": "number"
+                },
+                "name": {
+                  "description": "Component name (alternative to guid)",
+                  "type": "string"
+                },
+                "nick": {
+                  "description": "Nickname",
+                  "type": "string"
+                },
+                "pos": {
+                  "description": "[x, y] canvas position",
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "temp_id": {
+                  "description": "Temporary ID (T1, T2, ...) for referencing in connect/groups",
+                  "maxLength": 64,
+                  "minLength": 2,
+                  "pattern": "^T[A-Za-z0-9_]{1,63}$",
+                  "type": "string"
+                },
+                "type": {
+                  "description": "Special type: 'slider', 'panel', 'toggle'",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "Initial value (slider/panel/toggle)"
+                }
+              },
+              "required": [
+                "temp_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "delete": {
+            "description": "Short IDs of components to delete (e.g. ['C3', 'C5'])",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "disconnect": {
+            "description": "Flow strings to disconnect: 'C1.O0>C2.I1'",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "epoch": {
+            "description": "epoch from most recent gh_snapshot (required)",
+            "type": "integer"
+          },
+          "groups": {
+            "description": "Group operations: create/delete/add_members/remove_members",
+            "items": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "create",
+                    "delete",
+                    "add_members",
+                    "remove_members"
+                  ],
+                  "type": "string"
+                },
+                "colour": {
+                  "type": "string"
+                },
+                "id": {
+                  "description": "Group ID (for delete/modify)",
+                  "type": "string"
+                },
+                "members": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "nick": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "set_values": {
+            "description": "Value updates for sliders/panels/toggles",
+            "items": {
+              "properties": {
+                "id": {
+                  "description": "Component short ID",
+                  "type": "string"
+                },
+                "max": {
+                  "type": "number"
+                },
+                "min": {
+                  "type": "number"
+                },
+                "value": {
+                  "description": "New value"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "epoch"
+        ],
+        "type": "object"
+      },
+      "inputSchemaSha256": "AB2BAC82C8F661D2597B60FEDC4F71CF960540F447CD6D7DA253EF4EFEF305C7",
+      "descriptionSha256": "305323CF825D8008CDAA33B2234D1A5F08B3531A091A98BCE1D972082303B2D6"
+    },
+    "gh_errors": {
+      "inputSchema": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "inputSchemaSha256": "2E22D1B419CA53CB0A0B7D7E020DC283F668E660DE8838D737D551BC6703DB2F",
+      "descriptionSha256": "2F87AFF6EF4381E2BE161E8887E5EC2D620127C7F750CD7691C86A61A688B799"
+    },
+    "gh_wait_for_solve_readiness": {
+      "inputSchema": {
+        "properties": {
+          "readiness_receipt_id": {
+            "description": "Opaque solve readiness receipt ID returned by terminal gh_set_value, gh_edit, or script-authoring mutations.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "timeout_ms": {
+            "default": 10000,
+            "description": "Maximum managed wait in milliseconds.",
+            "maximum": 300000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "readiness_receipt_id"
+        ],
+        "type": "object"
+      },
+      "inputSchemaSha256": "8316F181B92F7E0500C8CC761A8B555D8D6F6D1792344018BE00E049D1DF86AF",
+      "descriptionSha256": "15E45242C7AE9A184B775E2CB9A6E3B13C4B258DFB859877B5481ED65B65A391"
+    },
+    "gh_create_script": {
+      "inputSchema": {
+        "properties": {
+          "code": {
+            "description": "Script source code \u2014 Python 3 or C# per the chosen language",
+            "type": "string"
+          },
+          "language": {
+            "description": "Script language \u2014 'python' (RhinoCode Python 3) or 'csharp' (RhinoCode C#). Required; no default.",
+            "enum": [
+              "python",
+              "csharp"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name for the component (default: language-appropriate \u2014 'Python 3 Script' or 'C# Script')",
+            "type": "string"
+          },
+          "pins_in": {
+            "description": "Input pin definitions as \"Name:Type\" strings or pin objects, e.g. [\"x:float\", {\"name\": \"pts\", \"type\": \"Point3d\", \"access\": \"list\"}]",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "properties": {
+                    "access": {
+                      "description": "Grasshopper access mode",
+                      "enum": [
+                        "item",
+                        "list",
+                        "tree"
+                      ],
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "Pin description",
+                      "type": "string"
+                    },
+                    "hidden": {
+                      "description": "Hide the pin on the component UI",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "Pin name",
+                      "type": "string"
+                    },
+                    "nick": {
+                      "description": "Optional pin nickname override",
+                      "type": "string"
+                    },
+                    "optional": {
+                      "description": "Whether an input pin is optional",
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "description": "Optional GH/Rhino type hint used for script wrappers and Chirp generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "pins_out": {
+            "description": "Output pin definitions as \"Name:Type\" strings or pin objects, e.g. [{\"name\": \"Points\", \"type\": \"Point3d\", \"access\": \"list\"}]. For Python geometry outputs, prefer pin objects with explicit type/access and assign RhinoCommon values to matching output variables.",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "properties": {
+                    "access": {
+                      "description": "Grasshopper access mode",
+                      "enum": [
+                        "item",
+                        "list",
+                        "tree"
+                      ],
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "Pin description",
+                      "type": "string"
+                    },
+                    "hidden": {
+                      "description": "Hide the pin on the component UI",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "Pin name",
+                      "type": "string"
+                    },
+                    "nick": {
+                      "description": "Optional pin nickname override",
+                      "type": "string"
+                    },
+                    "optional": {
+                      "description": "Whether an input pin is optional",
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "description": "Optional GH/Rhino type hint used for script wrappers and Chirp generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "x": {
+            "description": "Canvas X position (default: 200)",
+            "type": "number"
+          },
+          "y": {
+            "description": "Canvas Y position (default: 200)",
+            "type": "number"
+          }
+        },
+        "required": [
+          "language",
+          "code"
+        ],
+        "type": "object"
+      },
+      "inputSchemaSha256": "2250DBE6B8D6D6FCD24449D43B1321E2E732FD249221735D6B3763B57AED7293",
+      "descriptionSha256": "7EADE9EED811FB93A9EDDD9D17857DCBB1753D695E6E771547CE80617508BB46"
+    },
+    "gh_set_script_pins": {
+      "inputSchema": {
+        "properties": {
+          "description": {
+            "description": "Optional component description",
+            "type": "string"
+          },
+          "guid": {
+            "description": "Component instance GUID or short ID (C1, C2...) from gh_snapshot",
+            "type": "string"
+          },
+          "input_updates": {
+            "description": "Targeted updates for existing input pins",
+            "items": {
+              "properties": {
+                "access": {
+                  "description": "Grasshopper access mode",
+                  "enum": [
+                    "item",
+                    "list",
+                    "tree"
+                  ],
+                  "type": "string"
+                },
+                "current_name": {
+                  "description": "Match an existing pin by its current name or nickname",
+                  "type": "string"
+                },
+                "description": {
+                  "description": "Pin description",
+                  "type": "string"
+                },
+                "hidden": {
+                  "description": "Hide the pin on the component UI",
+                  "type": "boolean"
+                },
+                "index": {
+                  "description": "Zero-based pin index",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "name": {
+                  "description": "New pin name",
+                  "type": "string"
+                },
+                "nick": {
+                  "description": "New pin nickname",
+                  "type": "string"
+                },
+                "optional": {
+                  "description": "Whether the input pin is optional",
+                  "type": "boolean"
+                },
+                "type": {
+                  "description": "Optional GH/Rhino type hint metadata to retain alongside the pin",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "Optional new component display name / nickname",
+            "type": "string"
+          },
+          "output_updates": {
+            "description": "Targeted updates for existing output pins",
+            "items": {
+              "properties": {
+                "access": {
+                  "description": "Grasshopper access mode",
+                  "enum": [
+                    "item",
+                    "list",
+                    "tree"
+                  ],
+                  "type": "string"
+                },
+                "current_name": {
+                  "description": "Match an existing pin by its current name or nickname",
+                  "type": "string"
+                },
+                "description": {
+                  "description": "Pin description",
+                  "type": "string"
+                },
+                "hidden": {
+                  "description": "Hide the pin on the component UI",
+                  "type": "boolean"
+                },
+                "index": {
+                  "description": "Zero-based pin index",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "name": {
+                  "description": "New pin name",
+                  "type": "string"
+                },
+                "nick": {
+                  "description": "New pin nickname",
+                  "type": "string"
+                },
+                "optional": {
+                  "description": "Whether the input pin is optional",
+                  "type": "boolean"
+                },
+                "type": {
+                  "description": "Optional GH/Rhino type hint metadata to retain alongside the pin",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "pins_in": {
+            "description": "Optional full replacement input pin list",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "properties": {
+                    "access": {
+                      "description": "Grasshopper access mode",
+                      "enum": [
+                        "item",
+                        "list",
+                        "tree"
+                      ],
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "Pin description",
+                      "type": "string"
+                    },
+                    "hidden": {
+                      "description": "Hide the pin on the component UI",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "Pin name",
+                      "type": "string"
+                    },
+                    "nick": {
+                      "description": "Optional pin nickname override",
+                      "type": "string"
+                    },
+                    "optional": {
+                      "description": "Whether an input pin is optional",
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "description": "Optional GH/Rhino type hint used for script wrappers and Chirp generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "pins_out": {
+            "description": "Optional full replacement output pin list",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "properties": {
+                    "access": {
+                      "description": "Grasshopper access mode",
+                      "enum": [
+                        "item",
+                        "list",
+                        "tree"
+                      ],
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "Pin description",
+                      "type": "string"
+                    },
+                    "hidden": {
+                      "description": "Hide the pin on the component UI",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "Pin name",
+                      "type": "string"
+                    },
+                    "nick": {
+                      "description": "Optional pin nickname override",
+                      "type": "string"
+                    },
+                    "optional": {
+                      "description": "Whether an input pin is optional",
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "description": "Optional GH/Rhino type hint used for script wrappers and Chirp generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "guid"
+        ],
+        "type": "object"
+      },
+      "inputSchemaSha256": "081354DBC950F506D94B669064EDBCD0245BD350EBA8CA34982562E256A67EF4",
+      "descriptionSha256": "9C36D9D8E064A3E14D7A4569827A6DA51BCA5B3FD20B22A14AB40A4411B78D6A"
+    },
+    "gh_update_script": {
+      "inputSchema": {
+        "properties": {
+          "check_errors": {
+            "default": true,
+            "description": "After writing, wait briefly and summarize /gh/errors for this component and the canvas",
+            "type": "boolean"
+          },
+          "code": {
+            "description": "New source code or body code, depending on mode and detected runtime",
+            "type": "string"
+          },
+          "guid": {
+            "description": "Component instance GUID or short ID (C1, C2...) from gh_snapshot",
+            "type": "string"
+          },
+          "language": {
+            "default": "auto",
+            "description": "Optional runtime language assertion; auto accepts the detected component language",
+            "enum": [
+              "auto",
+              "python",
+              "csharp"
+            ],
+            "type": "string"
+          },
+          "mode": {
+            "default": "auto",
+            "description": "auto detects full source where possible; body wraps for supported runtimes; full_source writes complete source",
+            "enum": [
+              "auto",
+              "body",
+              "full_source"
+            ],
+            "type": "string"
+          },
+          "python_preamble": {
+            "default": true,
+            "description": "For RhinoCode Python 3 body edits, add generated input/output coercion helpers when needed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "guid",
+          "code"
+        ],
+        "type": "object"
+      },
+      "inputSchemaSha256": "B8532775F8A319317F489ED94E50EA69BF2AC2F9803C0B90801F3102E715086E",
+      "descriptionSha256": "B1FAE78B25C326F0DD4EE14F26BCFD752D725C490472B0EE42369F29E12FE40A"
+    },
+    "gh_create_python_script": {
+      "inputSchema": {
+        "properties": {
+          "code": {
+            "description": "Python 3 source code for the script component",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name for the component (default: 'Python 3 Script')",
+            "type": "string"
+          },
+          "pins_in": {
+            "description": "Input pin definitions as \"Name:Type\" strings or pin objects, e.g. [\"x:float\", {\"name\": \"pts\", \"type\": \"Point3d\", \"access\": \"list\"}]",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "properties": {
+                    "access": {
+                      "description": "Grasshopper access mode",
+                      "enum": [
+                        "item",
+                        "list",
+                        "tree"
+                      ],
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "Pin description",
+                      "type": "string"
+                    },
+                    "hidden": {
+                      "description": "Hide the pin on the component UI",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "Pin name",
+                      "type": "string"
+                    },
+                    "nick": {
+                      "description": "Optional pin nickname override",
+                      "type": "string"
+                    },
+                    "optional": {
+                      "description": "Whether an input pin is optional",
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "description": "Optional GH/Rhino type hint used for script wrappers and Chirp generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "pins_out": {
+            "description": "Output pin definitions as \"Name:Type\" strings or pin objects, e.g. [{\"name\": \"Points\", \"type\": \"Point3d\", \"access\": \"list\"}]. For geometry outputs, prefer pin objects with explicit type/access and assign RhinoCommon values to matching output variables.",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "properties": {
+                    "access": {
+                      "description": "Grasshopper access mode",
+                      "enum": [
+                        "item",
+                        "list",
+                        "tree"
+                      ],
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "Pin description",
+                      "type": "string"
+                    },
+                    "hidden": {
+                      "description": "Hide the pin on the component UI",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "Pin name",
+                      "type": "string"
+                    },
+                    "nick": {
+                      "description": "Optional pin nickname override",
+                      "type": "string"
+                    },
+                    "optional": {
+                      "description": "Whether an input pin is optional",
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "description": "Optional GH/Rhino type hint used for script wrappers and Chirp generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "x": {
+            "description": "Canvas X position (default: 200)",
+            "type": "number"
+          },
+          "y": {
+            "description": "Canvas Y position (default: 200)",
+            "type": "number"
+          }
+        },
+        "required": [
+          "code",
+          "pins_in",
+          "pins_out"
+        ],
+        "type": "object"
+      },
+      "inputSchemaSha256": "A37BA69C9704AC14116A6CD5C6FAB7C8D081AADF7FFB0B0BDA11E51D21566C26",
+      "descriptionSha256": "D0201A160B2E5CDF91FA23553673F65E5E6B769D00367C5FFEF98928B1118783"
+    },
+    "gh_create_csharp_script": {
+      "inputSchema": {
+        "properties": {
+          "code": {
+            "description": "C# source code \u2014 either RunScript body or full Script_Instance class",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name for the component (default: 'C# Script')",
+            "type": "string"
+          },
+          "pins_in": {
+            "description": "Input pin definitions as \"Name:Type\" strings or pin objects, e.g. [\"x:double\", {\"name\": \"Pts\", \"type\": \"Point3d\", \"access\": \"list\"}]",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "properties": {
+                    "access": {
+                      "description": "Grasshopper access mode",
+                      "enum": [
+                        "item",
+                        "list",
+                        "tree"
+                      ],
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "Pin description",
+                      "type": "string"
+                    },
+                    "hidden": {
+                      "description": "Hide the pin on the component UI",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "Pin name",
+                      "type": "string"
+                    },
+                    "nick": {
+                      "description": "Optional pin nickname override",
+                      "type": "string"
+                    },
+                    "optional": {
+                      "description": "Whether an input pin is optional",
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "description": "Optional GH/Rhino type hint used for script wrappers and Chirp generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "pins_out": {
+            "description": "Output pin definitions as \"Name:Type\" strings or pin objects, e.g. [\"a:Point3d\"]",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "properties": {
+                    "access": {
+                      "description": "Grasshopper access mode",
+                      "enum": [
+                        "item",
+                        "list",
+                        "tree"
+                      ],
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "Pin description",
+                      "type": "string"
+                    },
+                    "hidden": {
+                      "description": "Hide the pin on the component UI",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "Pin name",
+                      "type": "string"
+                    },
+                    "nick": {
+                      "description": "Optional pin nickname override",
+                      "type": "string"
+                    },
+                    "optional": {
+                      "description": "Whether an input pin is optional",
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "description": "Optional GH/Rhino type hint used for script wrappers and Chirp generation",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "x": {
+            "description": "Canvas X position (default: 200)",
+            "type": "number"
+          },
+          "y": {
+            "description": "Canvas Y position (default: 200)",
+            "type": "number"
+          }
+        },
+        "required": [
+          "code",
+          "pins_in",
+          "pins_out"
+        ],
+        "type": "object"
+      },
+      "inputSchemaSha256": "77C3C229133AF9365C478883BB11D567E0755E35D670D363C49B66374D535DB2",
+      "descriptionSha256": "26474907F34E585752EED4D500CE2D3B8D7541D72FB574D4E2600E2E16C5EFBA"
+    }
+  }
+}

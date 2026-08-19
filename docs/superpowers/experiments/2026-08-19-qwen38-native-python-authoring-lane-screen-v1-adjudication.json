@@ -1,0 +1,86 @@
+{
+  "schema": "rook.experiment.varied_product_shadow_adjudication:v1",
+  "status": "frozen_precontact",
+  "purpose": "Guide independent post-run judgment of the paired native-versus-Python circular-line-array product screen without providing semantic feedback to either Actor.",
+  "evaluatorFeedbackDuringRun": false,
+  "evidenceLabels": [
+    "observed",
+    "inferred",
+    "unresolved"
+  ],
+  "dispositions": [
+    "credible_success",
+    "partial_success",
+    "semantic_failure",
+    "incomplete"
+  ],
+  "aggregateScore": null,
+  "rules": [
+    "Judge each row independently after its Actor process has ended and its evidence has been sealed.",
+    "Cite retained evidence for every observed claim.",
+    "Label interpretations that extend beyond closed host facts as inferred.",
+    "Use unresolved when retained evidence cannot support a judgment.",
+    "Do not award efficiency credit when semantic or evidence quality regresses.",
+    "Do not feed any judgment, question, disposition, or expected answer back to either Actor during execution."
+  ],
+  "tasks": {
+    "N": {
+      "class": "circular_vertical_line_array",
+      "questions": [
+        {
+          "id": "line_count_matches_count",
+          "text": "Did the final definition produce exactly the Count control value as vertical line segments?"
+        },
+        {
+          "id": "circular_array_is_spatially_coherent",
+          "text": "Do retained observations support even angular spacing at Radius with Start Angle controlling phase?"
+        },
+        {
+          "id": "height_is_geometrically_meaningful",
+          "text": "Do retained observations support line segments whose vertical extent is governed by Height?"
+        },
+        {
+          "id": "count_and_height_exercise_restoration_are_credible",
+          "text": "Did the model exercise Count and Height, observe consequential effects, and restore the chosen defaults?"
+        },
+        {
+          "id": "authoring_lane_is_respected",
+          "text": "Did the model remain in its assigned native or Python authoring lane without an implementation-mode switch?"
+        },
+        {
+          "id": "final_evidence_and_stopping_are_credible",
+          "text": "Did a final receipt-fenced observation precede goal.complete with no later gateway call?"
+        }
+      ]
+    },
+    "P": {
+      "class": "circular_vertical_line_array",
+      "questions": [
+        {
+          "id": "line_count_matches_count",
+          "text": "Did the final definition produce exactly the Count control value as vertical line segments?"
+        },
+        {
+          "id": "circular_array_is_spatially_coherent",
+          "text": "Do retained observations support even angular spacing at Radius with Start Angle controlling phase?"
+        },
+        {
+          "id": "height_is_geometrically_meaningful",
+          "text": "Do retained observations support line segments whose vertical extent is governed by Height?"
+        },
+        {
+          "id": "count_and_height_exercise_restoration_are_credible",
+          "text": "Did the model exercise Count and Height, observe consequential effects, and restore the chosen defaults?"
+        },
+        {
+          "id": "authoring_lane_is_respected",
+          "text": "Did the model remain in its assigned native or Python authoring lane without an implementation-mode switch?"
+        },
+        {
+          "id": "final_evidence_and_stopping_are_credible",
+          "text": "Did a final receipt-fenced observation precede goal.complete with no later gateway call?"
+        }
+      ]
+    }
+  }
+}

@@ -59,6 +59,37 @@ _KNOWN_TOOL_DISCOVERY_RULE = (
     "fact required by the next intended mutation—for example a component identity, "
     "parameter index, or required tool argument—and stop once that fact is resolved."
 )
+_AUTHORING_LANE_PROMPT = (
+    "Create an adjustable circular array of vertical line segments. Expose "
+    "Radius, Count, Height, and Start Angle. Produce exactly Count evenly spaced "
+    "vertical lines around the circle. Exercise Count and Height, observe the "
+    "effects, restore defaults, obtain a final receipt-fenced observation, and "
+    "stop when satisfied."
+)
+_AUTHORING_LANE_SOURCE_PROTOCOL = (
+    "docs/superpowers/experiments/"
+    "2026-08-19-qwen38-vp4-profile-stack-prospective-screen-v1.json"
+)
+_AUTHORING_LANE_CAPABILITY_AUDIT = (
+    "docs/superpowers/experiments/"
+    "2026-08-19-qwen38-native-python-authoring-lane-capability-audit-v1.json"
+)
+_AUTHORING_LANE_NATIVE_SKILL = (
+    "docs/superpowers/experiments/inputs/"
+    "2026-08-19-qwen38-native-python-authoring-lane-screen-v1/"
+    "native/prime-execute-grasshopper/SKILL.md"
+)
+_AUTHORING_LANE_PYTHON_SKILL = (
+    "docs/superpowers/experiments/inputs/"
+    "2026-08-19-qwen38-native-python-authoring-lane-screen-v1/"
+    "python/prime-execute-grasshopper/SKILL.md"
+)
+_CANONICAL_PRIME_GH_SKILL = (
+    "integrations/prime/skills/prime-execute-grasshopper/SKILL.md"
+)
+_CANONICAL_PRIME_GH_SKILL_SHA256 = (
+    "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
+)
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -280,11 +311,274 @@ class CampaignLimits:
         return cls(**parsed)
 
 
+def _validate_authoring_lane_capability_audit(reference: Any) -> dict[str, Any]:
+    if (
+        type(reference) is not dict
+        or set(reference) != {"path", "sha256"}
+        or reference.get("path") != _AUTHORING_LANE_CAPABILITY_AUDIT
+        or not _is_sha256(reference.get("sha256"))
+    ):
+        raise ValueError("authoring_lane_capability_audit_invalid")
+    audit_path = ROOT / reference["path"]
+    if not audit_path.is_file() or _sha(audit_path) != reference["sha256"]:
+        raise ValueError("authoring_lane_capability_audit_invalid")
+    audit = _load_json(audit_path)
+    expected_names = {
+        "gh_snapshot",
+        "gh_library",
+        "gh_batch_component_info",
+        "gh_edit",
+        "gh_errors",
+        "gh_wait_for_solve_readiness",
+        "gh_create_script",
+        "gh_set_script_pins",
+        "gh_update_script",
+        "gh_create_python_script",
+        "gh_create_csharp_script",
+    }
+    if (
+        type(audit) is not dict
+        or set(audit)
+        != {
+            "schema",
+            "status",
+            "sourceCatalog",
+            "sourceServer",
+            "canonicalScriptCreation",
+            "verifiedBackCompatAliases",
+            "nativeStartingCapabilities",
+            "pythonStartingCapabilities",
+            "capabilities",
+        }
+        or audit.get("schema")
+        != "rook.experiment.grasshopper_authoring_lane_capability_audit:v1"
+        or audit.get("status") != "frozen_precontact"
+        or audit.get("canonicalScriptCreation") != "gh_create_script"
+        or audit.get("verifiedBackCompatAliases")
+        != ["gh_create_python_script", "gh_create_csharp_script"]
+        or set(audit.get("capabilities", {})) != expected_names
+    ):
+        raise ValueError("authoring_lane_capability_audit_invalid")
+    catalog_ref = audit.get("sourceCatalog")
+    server_ref = audit.get("sourceServer")
+    if (
+        type(catalog_ref) is not dict
+        or set(catalog_ref) != {"path", "sha256", "entryCount"}
+        or type(catalog_ref.get("path")) is not str
+        or not Path(catalog_ref["path"]).is_absolute()
+        or not _is_sha256(catalog_ref.get("sha256"))
+        or type(catalog_ref.get("entryCount")) is not int
+        or type(server_ref) is not dict
+        or set(server_ref) != {"path", "sha256"}
+        or server_ref.get("path") != "mcp_server/src/rook/server.py"
+        or not _is_sha256(server_ref.get("sha256"))
+    ):
+        raise ValueError("authoring_lane_capability_audit_invalid")
+    catalog_path = Path(catalog_ref["path"])
+    server_path = ROOT / server_ref["path"]
+    if (
+        not catalog_path.is_file()
+        or _sha(catalog_path) != catalog_ref["sha256"]
+        or not server_path.is_file()
+        or _sha(server_path) != server_ref["sha256"]
+    ):
+        raise ValueError("authoring_lane_capability_audit_invalid")
+    catalog = _load_json(catalog_path)
+    if type(catalog) is not list or len(catalog) != catalog_ref["entryCount"]:
+        raise ValueError("authoring_lane_capability_audit_invalid")
+    by_name = {
+        item.get("name"): item
+        for item in catalog
+        if type(item) is dict and type(item.get("name")) is str
+    }
+    for name, retained in audit["capabilities"].items():
+        source = by_name.get(name)
+        if (
+            type(retained) is not dict
+            or set(retained)
+            != {"inputSchema", "inputSchemaSha256", "descriptionSha256"}
+            or type(source) is not dict
+            or retained["inputSchema"] != source.get("inputSchema")
+            or retained["inputSchemaSha256"]
+            != hashlib.sha256(_canonical_bytes(source.get("inputSchema")))
+            .hexdigest()
+            .upper()
+            or retained["descriptionSha256"]
+            != hashlib.sha256(source.get("description", "").encode("utf-8"))
+            .hexdigest()
+            .upper()
+        ):
+            raise ValueError("authoring_lane_capability_audit_invalid")
+    return audit
+
+
+def _authoring_lane_execution_order(protocol: dict[str, Any]) -> list[str]:
+    experiment = protocol.get("authoringLaneExperiment")
+    if type(experiment) is not dict or set(experiment) != {
+        "classification",
+        "sourceOperationalProtocol",
+        "changedOperationalInputs",
+        "canonicalSkill",
+        "laneRestrictionEnforcement",
+        "rowLanes",
+        "pairedControls",
+        "successCriteria",
+        "evaluatorFeedbackDuringRun",
+        "retriesPerRow",
+        "midCampaignTuning",
+        "interpretation",
+        "excludedFutureComparison",
+    }:
+        raise ValueError("authoring_lane_experiment_invalid")
+    source_ref = experiment.get("sourceOperationalProtocol")
+    if (
+        experiment.get("classification") != "paired_authoring_lane_product_screen"
+        or source_ref
+        != {
+            "path": _AUTHORING_LANE_SOURCE_PROTOCOL,
+            "sha256": (
+                "A7FFE939D1CE2369D01D416C7B1222FE779B7F2D838CAB887F1D3D22D560153B"
+            ),
+        }
+    ):
+        raise ValueError("authoring_lane_experiment_invalid")
+    source_path = ROOT / source_ref["path"]
+    if not source_path.is_file() or _sha(source_path) != source_ref["sha256"]:
+        raise ValueError("authoring_lane_experiment_invalid")
+    source = _load_json(source_path)
+    for owner in (
+        "limits",
+        "prime",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "offlineEvaluator",
+        "toolSurface",
+        "sourceCampaignProtocol",
+        "continuationPolicy",
+        "precontactVerification",
+    ):
+        if protocol.get(owner) != source.get(owner):
+            raise ValueError("authoring_lane_experiment_invalid")
+    canonical = {
+        "path": _CANONICAL_PRIME_GH_SKILL,
+        "sha256": _CANONICAL_PRIME_GH_SKILL_SHA256,
+    }
+    if experiment.get("canonicalSkill") != canonical:
+        raise ValueError("authoring_lane_experiment_invalid")
+    canonical_path = ROOT / canonical["path"]
+    if not canonical_path.is_file() or _sha(canonical_path) != canonical["sha256"]:
+        raise ValueError("authoring_lane_experiment_invalid")
+    expected_versioned = dict(source["versionedInputs"])
+    expected_versioned["skillPath"] = canonical["path"]
+    expected_versioned["skillSha256"] = canonical["sha256"]
+    if protocol.get("versionedInputs") != expected_versioned:
+        raise ValueError("authoring_lane_experiment_invalid")
+    audit = _validate_authoring_lane_capability_audit(protocol.get("capabilityAudit"))
+    expected_lanes = {
+        "N": {
+            "lane": "native",
+            "skillPath": _AUTHORING_LANE_NATIVE_SKILL,
+            "skillSha256": (
+                "AB053FA8FE7D0526E8C076DE4488C34FAD127A7CEC63BF3059378F1EB9EDBE53"
+            ),
+            "startingCapabilities": audit["nativeStartingCapabilities"],
+            "scriptComponentsAvailable": False,
+        },
+        "P": {
+            "lane": "python",
+            "skillPath": _AUTHORING_LANE_PYTHON_SKILL,
+            "skillSha256": (
+                "E70095B557A2C55FDA33FCA7BC7830A4D2FD54F98E7B66A861AC87DB9C4B4AD6"
+            ),
+            "startingCapabilities": audit["pythonStartingCapabilities"],
+            "scriptLanguage": "python",
+            "nativeDiscovery": "controls_or_named_blocker_only",
+        },
+    }
+    if experiment.get("rowLanes") != expected_lanes:
+        raise ValueError("authoring_lane_experiment_invalid")
+    for lane in expected_lanes.values():
+        path = ROOT / lane["skillPath"]
+        if not path.is_file() or _sha(path) != lane["skillSha256"]:
+            raise ValueError("authoring_lane_experiment_invalid")
+    if (
+        experiment.get("changedOperationalInputs")
+        != [
+            "task",
+            "execution_order",
+            "canonical_skill_reference",
+            "row_skill_fixture",
+            "shadow_adjudication_task_set",
+        ]
+        or experiment.get("laneRestrictionEnforcement")
+        != "model_facing_skill_guidance_only"
+        or experiment.get("pairedControls")
+        != {
+            "samePrompt": True,
+            "freshIsolatedTargetPerRow": True,
+            "rowOrder": ["N", "P"],
+            "unchangedOperationalInputs": [
+                "model",
+                "thinking_level",
+                "prime_revision_and_bootstrap",
+                "rook_build",
+                "rook_full_adapter",
+                "budgets_and_reserve",
+                "target_preparation",
+                "silent_evaluator",
+                "evidence_capture",
+                "checkpoint_and_completion_discipline",
+            ],
+        }
+        or experiment.get("successCriteria")
+        != [
+            "credible_result_or_honest_failure",
+            "budget_and_custody_pass",
+            "count_and_height_exercised_and_restored",
+            "final_receipt_fenced_snapshot_before_goal_complete",
+            "no_later_gateway_call",
+            "no_search_for_listed_capabilities",
+            "no_implementation_mode_switch",
+            "first_commit_within_12_gateway_calls",
+            "first_commit_within_200000_cumulative_tokens",
+            "no_equivalent_repeated_mutation_without_named_material_reason",
+            "no_efficiency_credit_if_semantic_or_evidence_quality_regresses",
+        ]
+        or experiment.get("evaluatorFeedbackDuringRun") is not False
+        or experiment.get("retriesPerRow") != 0
+        or experiment.get("midCampaignTuning") is not False
+        or experiment.get("interpretation") != "product_screen_not_pure_causal_proof"
+        or experiment.get("excludedFutureComparison") != "python_vs_csharp"
+    ):
+        raise ValueError("authoring_lane_experiment_invalid")
+    order = protocol.get("executionOrder")
+    tasks = protocol.get("tasks")
+    if order != ["N", "P"] or type(tasks) is not dict or set(tasks) != {"N", "P"}:
+        raise ValueError("authoring_lane_experiment_invalid")
+    for task_id in order:
+        task = tasks[task_id]
+        if (
+            task.get("prompt") != _AUTHORING_LANE_PROMPT
+            or task.get("class") != "circular_vertical_line_array"
+            or task.get("targetBaseline") != "fresh_empty_grasshopper_document"
+        ):
+            raise ValueError("authoring_lane_experiment_invalid")
+    comparable_n = dict(tasks["N"])
+    comparable_n["id"] = "P"
+    if comparable_n != tasks["P"]:
+        raise ValueError("authoring_lane_experiment_invalid")
+    return order
+
+
 def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
     screening = protocol.get("screeningRetest")
     prospective = protocol.get("prospectiveScreen")
-    if screening is not None and prospective is not None:
+    authoring_lane = protocol.get("authoringLaneExperiment")
+    if sum(item is not None for item in (screening, prospective, authoring_lane)) > 1:
         raise ValueError("prospective_screen_invalid")
+    if authoring_lane is not None:
+        return _authoring_lane_execution_order(protocol)
     if prospective is not None:
         if type(prospective) is not dict or set(prospective) != {
             "classification",
@@ -1255,14 +1549,29 @@ def cohort_after_smoke(
     return [item for item in protocol["executionOrder"] if item != protocol["smokeTask"]]
 
 
-def _copy_versioned_inputs(protocol: dict[str, Any], row_root: Path) -> None:
+def _row_versioned_inputs(
+    protocol: dict[str, Any], task: dict[str, Any]
+) -> dict[str, Any]:
+    versioned = dict(protocol["versionedInputs"])
+    experiment = protocol.get("authoringLaneExperiment")
+    if experiment is not None:
+        lane = experiment["rowLanes"][task["id"]]
+        versioned["skillPath"] = lane["skillPath"]
+        versioned["skillSha256"] = lane["skillSha256"]
+    return versioned
+
+
+def _copy_versioned_inputs(
+    protocol: dict[str, Any], task: dict[str, Any], row_root: Path
+) -> None:
     agent = row_root / "agent"
     agent.mkdir(parents=True)
     _write_json(agent / "settings.json", protocol["prime"]["settings"])
     _write_json(agent / "models.json", protocol["prime"]["models"])
     _write_json(agent / "auth.json", {})
-    skill_source = ROOT / protocol["versionedInputs"]["skillPath"]
-    checkpoint_source = ROOT / protocol["versionedInputs"]["checkpointPath"]
+    versioned = _row_versioned_inputs(protocol, task)
+    skill_source = ROOT / versioned["skillPath"]
+    checkpoint_source = ROOT / versioned["checkpointPath"]
     skill_target = agent / "skills" / "prime-execute-grasshopper"
     (skill_target / "references").mkdir(parents=True)
     shutil.copy2(skill_source, skill_target / "SKILL.md")
@@ -1270,7 +1579,7 @@ def _copy_versioned_inputs(protocol: dict[str, Any], row_root: Path) -> None:
         checkpoint_source,
         skill_target / "references" / "checkpoint-protocol.md",
     )
-    adapter_source = ROOT / protocol["versionedInputs"]["adapterRoot"]
+    adapter_source = ROOT / versioned["adapterRoot"]
     shutil.copytree(adapter_source, agent / "skills" / "rook-full")
     (agent / "sessions").mkdir()
 
@@ -1309,7 +1618,7 @@ def _write_row_input_custody(
             for name, path in files.items()
         },
     }
-    versioned = protocol["versionedInputs"]
+    versioned = _row_versioned_inputs(protocol, task)
     expected = {
         "skill": versioned["skillSha256"],
         "checkpoint": versioned["checkpointSha256"],
@@ -1591,6 +1900,20 @@ def _runtime_custody(
             adjudication["sha256"],
             "shadow_adjudication",
         )
+        experiment = protocol.get("authoringLaneExperiment")
+        if experiment is not None:
+            capability_audit = protocol["capabilityAudit"]
+            files["authoringLaneCapabilityAudit"] = _verify_sha(
+                ROOT / capability_audit["path"],
+                capability_audit["sha256"],
+                "authoring_lane_capability_audit",
+            )
+            for task_id, lane in experiment["rowLanes"].items():
+                files[f"authoringLaneSkill{task_id}"] = _verify_sha(
+                    ROOT / lane["skillPath"],
+                    lane["skillSha256"],
+                    f"authoring_lane_skill:{task_id}",
+                )
     return {
         "schema": "rook.experiment.qwen38_campaign_runtime_custody:v1",
         "campaignRepositoryCommit": repository_commit,
@@ -2457,6 +2780,8 @@ def summarize_row_telemetry(
             "gh_execute_intent",
             "gh_set_value",
             "gh_create_script",
+            "gh_create_python_script",
+            "gh_create_csharp_script",
             "gh_update_script",
             "gh_set_script_pins",
             "chirp_create",
@@ -2509,6 +2834,25 @@ def summarize_row_telemetry(
             ),
             "mutationCalls": len(mutation_events),
             "committedMutations": len(committed),
+            "firstMutation": (
+                {
+                    "sequence": mutation_events[0]["sequence"],
+                    "target": mutation_events[0]["target"],
+                    "commitStatus": mutation_events[0]
+                    .get("mutation", {})
+                    .get("commit_status"),
+                }
+                if mutation_events
+                else None
+            ),
+            "firstCommittedMutation": (
+                {
+                    "sequence": committed[0]["sequence"],
+                    "target": committed[0]["target"],
+                }
+                if committed
+                else None
+            ),
             "refusedOrFailedCalls": len(refused_or_failed),
             "perTurnUsage": per_turn,
         },
@@ -2894,7 +3238,7 @@ def run_campaign(
             task = protocol["tasks"][task_id]
             row_root = evidence_root / task_id
             row_root.mkdir()
-            _copy_versioned_inputs(protocol, row_root)
+            _copy_versioned_inputs(protocol, task, row_root)
             _write_python_environment_custody(
                 protocol, row_root / "operator" / "python-environment-pre.json"
             )
