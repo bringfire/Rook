@@ -87,6 +87,13 @@ VP2_STRATEGY_DISCIPLINE_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-18-qwen38-vp2-strategy-discipline-screening-v1.json"
 )
+VP2_CONNECTION_TRUTHFULNESS_RETEST_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-vp2-connection-truthfulness-retest-v2.json"
+)
 VP2_STRATEGY_DISCIPLINE_SKILL_PATH = (
     ROOT
     / "docs"
@@ -308,6 +315,7 @@ def test_vp2_strategy_screening_freezes_only_the_reviewed_skill_delta():
         "continuationPolicy",
         "precontactVerification",
         "shadowAdjudication",
+        "offlineEvaluator",
     ):
         assert screening[owner] == source[owner]
     assert screening["versionedInputs"]["skillPath"] == (
@@ -379,6 +387,48 @@ def test_vp2_strategy_screening_contract_is_closed_to_one_silent_row():
     altered["screeningRetest"]["rule"] += " Prefer native components."
     with pytest.raises(ValueError, match="screening_retest_invalid"):
         _runner().validate_protocol(altered)
+
+
+def _vp2_connection_truthfulness_retest_protocol() -> dict:
+    return json.loads(
+        VP2_CONNECTION_TRUTHFULNESS_RETEST_PROTOCOL_PATH.read_text(
+            encoding="utf-8"
+        )
+    )
+
+
+def test_vp2_connection_truthfulness_retest_admits_only_the_repaired_runtime_delta():
+    runner = _runner()
+    source = _vp2_strategy_discipline_protocol()
+    protocol = _vp2_connection_truthfulness_retest_protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["executionOrder"] == ["VP2"]
+    assert protocol["tasks"] == source["tasks"]
+    for owner in (
+        "prime",
+        "limits",
+        "modelCustody",
+        "versionedInputs",
+        "toolSurface",
+        "sourceCampaignProtocol",
+        "continuationPolicy",
+        "precontactVerification",
+        "shadowAdjudication",
+    ):
+        assert protocol[owner] == source[owner]
+
+    altered = json.loads(json.dumps(protocol))
+    altered["versionedInputs"]["skillSha256"] = "A" * 64
+    with pytest.raises(ValueError, match="screening_retest_invalid"):
+        runner.validate_protocol(altered)
+
+    altered = json.loads(json.dumps(protocol))
+    altered["screeningRetest"]["onlyChangedOperationalInput"] = (
+        "versioned_prime_skill"
+    )
+    with pytest.raises(ValueError, match="screening_retest_invalid"):
+        runner.validate_protocol(altered)
 
 
 def test_vp2_evidence_reuse_screening_freezes_only_the_reviewed_input_delta():

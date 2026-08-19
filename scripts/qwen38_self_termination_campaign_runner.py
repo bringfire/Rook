@@ -291,6 +291,7 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
     allowed_source_paths = {
         "docs/superpowers/experiments/2026-08-18-qwen38-varied-product-cohort-v1.json",
         "docs/superpowers/experiments/2026-08-18-qwen38-vp2-evidence-reuse-screening-v1.json",
+        "docs/superpowers/experiments/2026-08-18-qwen38-vp2-strategy-discipline-screening-v1.json",
     }
     if (
         type(source) is not dict
@@ -364,11 +365,46 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
             "custody_pass",
         ]
     )
+    truthfulness_repair_profile = (
+        rule == _STRATEGY_DISCIPLINE_RULE
+        and source["path"]
+        == "docs/superpowers/experiments/2026-08-18-qwen38-vp2-strategy-discipline-screening-v1.json"
+        and type(telemetry) is dict
+        and telemetry
+        == {
+            "wholesaleDeletedCommittedComponents": 0,
+            "committedComponentsPreservedDuringPivot": 31,
+            "replacementStrategyDiscoveryCalls": 15,
+            "gatewayCalls": 87,
+            "cumulativeProviderTokens": 2026180,
+        }
+        and screening.get("successCriteria")
+        == [
+            "no_wholesale_deletion_without_live_evidence",
+            "preserve_unaffected_committed_work_during_pivot",
+            "fewer_than_15_replacement_strategy_discovery_calls",
+            "fewer_than_2026180_cumulative_provider_tokens",
+            "any_strategy_pivot_supported_by_live_evidence",
+            "mechanically_healthy_canopy_without_material_regression",
+            "receipt_fenced_final_snapshot_then_goal_complete",
+            "budget_pass",
+            "custody_pass",
+        ]
+    )
+    expected_changed_input = (
+        "rook_connection_truthfulness_repair"
+        if truthfulness_repair_profile
+        else "versioned_prime_skill"
+    )
     if (
-        not (evidence_reuse_profile or strategy_profile)
+        not (
+            evidence_reuse_profile
+            or strategy_profile
+            or truthfulness_repair_profile
+        )
         or any(type(value) is not int or value < 0 for value in telemetry.values())
         or screening.get("onlyChangedOperationalInput")
-        != "versioned_prime_skill"
+        != expected_changed_input
         or not _is_sha256(screening.get("sourceSkillSha256"))
         or screening.get("evaluatorFeedbackDuringRun") is not False
     ):
@@ -378,6 +414,22 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
         "skillSha256"
     ):
         raise ValueError("screening_retest_invalid")
+    if truthfulness_repair_profile:
+        unchanged_owners = (
+            "prime",
+            "limits",
+            "modelCustody",
+            "versionedInputs",
+            "toolSurface",
+            "tasks",
+            "sourceCampaignProtocol",
+            "continuationPolicy",
+            "precontactVerification",
+            "shadowAdjudication",
+            "offlineEvaluator",
+        )
+        if any(protocol.get(owner) != baseline.get(owner) for owner in unchanged_owners):
+            raise ValueError("screening_retest_invalid")
     return ["VP2"]
 
 
