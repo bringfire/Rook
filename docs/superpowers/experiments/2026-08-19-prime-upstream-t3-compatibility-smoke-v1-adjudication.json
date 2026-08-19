@@ -1,0 +1,31 @@
+{
+  "schema": "rook.experiment.prime_upstream_t3_compatibility_adjudication:v1",
+  "taskId": "T3",
+  "sourceCampaignProtocol": {
+    "path": "docs/superpowers/experiments/2026-08-18-qwen38-self-termination-campaign-v3.json",
+    "sha256": "F6957493F808C8C780F17282274490CD968611B4456CCB4629B25133DC982E1A"
+  },
+  "historicalTaskSha256": "9BAC7975A2A5B0F38D697D57D3298B135C4F4BB9843496D4F6A9FF9D8D4CA665",
+  "authoritativeCriteria": [
+    "semanticStatus == pass",
+    "goalStatus == complete",
+    "budgetStatus == pass",
+    "custodyStatus == pass"
+  ],
+  "requiredCustody": [
+    "single fresh operator-seeded T3 target",
+    "exact upstream Prime lineage and runtime bundle",
+    "branch-local Prime Node and Python imports",
+    "current frozen Rook and tool surface",
+    "historical T3 task, skill, checkpoint, adapter, and point-row evaluator",
+    "one execution with no retry or evaluator feedback"
+  ],
+  "classifications": {
+    "pass": "all authoritative criteria pass",
+    "fail": "complete evidence supports a semantic failure",
+    "incomplete": "runtime, custody, budget, process, target, or evidence admission fails"
+  },
+  "comparisonClaim": "bounded compatibility screen under current frozen Rook; not a pure causal comparison with V3",
+  "runtimeFeedbackProvided": false,
+  "automaticPromotion": false
+}

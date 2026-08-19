@@ -186,7 +186,9 @@ print(json.dumps({
 		restoreRecord = JSON.parse(restored.stdout.trim().split(/\r?\n/).at(-1) ?? "null");
 		const restoredMcpBase = normalize(realpathSync(String(restoreRecord?.mcpBaseFile)));
 		requireInside(primeRoot, restoredMcpBase, "restored_python_mcp_base_import");
-		if (restoreRecord.goalStatus !== "complete") throw new Error("completed_goal_not_retained");
+		if (restoreRecord.goalStatus !== "complete") {
+			throw new Error("host_goal_bridge_not_reconnected");
+		}
 		if (restoreRecord.largeTextPresent !== false) throw new Error("pruned_state_restored");
 		if (restoreRecord.sentinel?.state !== "survives" || restoreRecord.sentinel?.value !== 42) {
 			throw new Error("sentinel_not_restored");

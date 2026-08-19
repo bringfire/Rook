@@ -157,6 +157,35 @@ PYTHON_LANE_CONFIRMATION_ADJUDICATION_PATH = (
     / "experiments"
     / "2026-08-19-qwen38-python-lane-point-lattice-confirmation-v1-adjudication.json"
 )
+PRIME_UPSTREAM_SMOKE_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-prime-upstream-t3-compatibility-smoke-v1.json"
+)
+PRIME_UPSTREAM_SMOKE_ADJUDICATION_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-prime-upstream-t3-compatibility-smoke-v1-adjudication.json"
+)
+PRIME_UPSTREAM_SMOKE_SKILL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "inputs"
+    / "2026-08-19-prime-upstream-t3-compatibility-smoke-v1"
+    / "prime-execute-grasshopper"
+    / "SKILL.md"
+)
+PRIME_UPSTREAM_SMOKE_CHECKPOINT_PATH = (
+    PRIME_UPSTREAM_SMOKE_SKILL_PATH.parent
+    / "references"
+    / "checkpoint-protocol.md"
+)
 AUTHORING_LANE_INPUT_ROOT = (
     ROOT
     / "docs"
@@ -393,6 +422,154 @@ def _python_lane_confirmation_protocol() -> dict:
     return json.loads(
         PYTHON_LANE_CONFIRMATION_PROTOCOL_PATH.read_text(encoding="utf-8")
     )
+
+
+def _prime_upstream_smoke_protocol() -> dict:
+    return json.loads(PRIME_UPSTREAM_SMOKE_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
+def test_prime_upstream_smoke_freezes_one_historical_t3_row():
+    runner = _runner()
+    historical = _protocol()
+    current = _python_lane_confirmation_protocol()
+    protocol = _prime_upstream_smoke_protocol()
+    adjudication = json.loads(
+        PRIME_UPSTREAM_SMOKE_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["schema"] == runner.PRIME_UPSTREAM_SMOKE_SCHEMA
+    assert protocol["status"] == "frozen_precontact"
+    assert protocol["executionOrder"] == ["T3"]
+    assert protocol["smokeTask"] == "T3"
+    assert protocol["tasks"] == {"T3": historical["tasks"]["T3"]}
+    assert protocol["limits"] == historical["limits"]
+    assert protocol["modelCustody"] == historical["modelCustody"]
+    assert protocol["rookCustody"] == current["rookCustody"]
+    assert protocol["toolSurface"] == current["toolSurface"]
+    assert protocol["singleRowSmoke"] == {
+        "retryCount": 0,
+        "evaluatorFeedbackDuringRun": False,
+        "comparisonKind": "compatibility_screen",
+    }
+    assert protocol["prime"]["sourceRoot"] == (
+        "D:/prime-agent/.worktrees/rook-upstream-evaluation"
+    )
+    assert protocol["prime"]["commit"] == (
+        "739400844f8f3f280414b0c7b9c65797208815d3"
+    )
+    assert protocol["prime"]["runtimeBundle"] == {
+        "root": (
+            "D:/prime-agent/.worktrees/rook-upstream-evaluation/"
+            "packages/coding-agent/dist"
+        ),
+        "subtrees": ["bundle", "skills"],
+        "entryCount": 84,
+        "totalBytes": 13_990_452,
+        "manifestSha256": (
+            "4C5BC52CDAE882144E851600048711756E4BB28B400DF4A25B206D0F1263A106"
+        ),
+    }
+    assert protocol["upstreamCustody"] == {
+        "baseCommit": "f8f0036cc2da1a640aad990ae8dcb7c4820ce32e",
+        "baseTree": "3ff69db27820afc0f3addc2089f6c04f10808d21",
+        "patchCommit": "30a6621bca698ef14f64e5e45c5b1b6364148789",
+        "patchTree": "05021548c143700b1b24045d29e712f784797798",
+        "resultCommit": "739400844f8f3f280414b0c7b9c65797208815d3",
+        "resultTree": "4d782187c6898aa8352045dd597bab6a3819029c",
+        "dependencyLockSha256": (
+            "C0AEC1FE34A5CFE0E601C8EFC1E5B0A96D4E8D76773633F76425F4F0829AA69D"
+        ),
+    }
+    assert hashlib.sha256(PRIME_UPSTREAM_SMOKE_SKILL_PATH.read_bytes()).hexdigest().upper() == (
+        historical["versionedInputs"]["skillSha256"]
+    )
+    assert protocol["versionedInputs"]["skillPath"] == (
+        PRIME_UPSTREAM_SMOKE_SKILL_PATH.relative_to(ROOT).as_posix()
+    )
+    assert hashlib.sha256(
+        PRIME_UPSTREAM_SMOKE_CHECKPOINT_PATH.read_bytes()
+    ).hexdigest().upper() == historical["versionedInputs"]["checkpointSha256"]
+    assert protocol["versionedInputs"]["checkpointPath"] == (
+        PRIME_UPSTREAM_SMOKE_CHECKPOINT_PATH.relative_to(ROOT).as_posix()
+    )
+    assert protocol["versionedInputs"]["adapterInitSha256"] == (
+        historical["versionedInputs"]["adapterInitSha256"]
+    )
+    assert protocol["offlineEvaluator"]["acceptanceArtifactSha256"] == hashlib.sha256(
+        (ROOT / protocol["offlineEvaluator"]["acceptanceArtifactPath"]).read_bytes()
+    ).hexdigest().upper()
+    assert protocol["smokeAdjudication"]["sha256"] == hashlib.sha256(
+        PRIME_UPSTREAM_SMOKE_ADJUDICATION_PATH.read_bytes()
+    ).hexdigest().upper()
+    assert adjudication["taskId"] == "T3"
+    assert adjudication["runtimeFeedbackProvided"] is False
+
+
+def test_prime_upstream_smoke_rejects_scope_and_branch_locality_drift(tmp_path):
+    runner = _runner()
+    protocol = _prime_upstream_smoke_protocol()
+
+    changed = json.loads(json.dumps(protocol))
+    changed["singleRowSmoke"]["retryCount"] = 1
+    with pytest.raises(ValueError, match="prime_upstream_smoke_invalid"):
+        runner.validate_protocol(changed)
+
+    changed = json.loads(json.dumps(protocol))
+    changed["executionOrder"].append("T1")
+    changed["tasks"]["T1"] = _protocol()["tasks"]["T1"]
+    with pytest.raises(ValueError, match="task_order_invalid"):
+        runner.validate_protocol(changed)
+
+    row_root = tmp_path / "row"
+    target = {"processId": 1, "documentSerialNumber": 2}
+    command, environment = runner.build_prime_launch(
+        protocol,
+        task=protocol["tasks"]["T3"],
+        row_root=row_root,
+        target=target,
+    )
+    expected_root = "D:/prime-agent/.worktrees/rook-upstream-evaluation"
+    assert command[:2] == [
+        protocol["prime"]["bashPath"],
+        f"{expected_root}/prime-agent.sh",
+    ]
+    python_paths = environment["PYTHONPATH"].replace("\\", "/").split(";")
+    assert python_paths[0] == (
+        row_root / "agent" / "skills" / "rook-full" / "src"
+    ).as_posix()
+    assert python_paths[1] == f"{expected_root}/prime-agent-runtime/src"
+    assert all("mcp-error-merged-runtime" not in item for item in python_paths)
+    assert all("mcp-error-structured-content" not in item for item in python_paths)
+
+
+def test_prime_upstream_preflight_requires_branch_local_prime_python():
+    runner = _runner()
+    root = Path("D:/prime-agent/.worktrees/rook-upstream-evaluation")
+    python = Path("C:/Users/bring/.prime/agent/kernel-venv/Scripts/python.exe")
+    record = {
+        "schema": "rook.experiment.prime_goal_preflight:v2",
+        "pythonExecutable": str(python),
+        "goalFile": str(root / "packages/coding-agent/skills/goal/src/goal/__init__.py"),
+        "rlmFile": str(root / "prime-agent-runtime/src/rlm/__init__.py"),
+        "rookFullFile": (
+            "C:/qualified-row/agent/skills/rook-full/src/rook_full/__init__.py"
+        ),
+        "goalPreimported": True,
+        "getStatus": "active",
+        "getTokenBudget": 2_000_000,
+        "completeStatus": "complete",
+        "requests": ["goal.get", "goal.complete"],
+        "kernelClosed": True,
+    }
+
+    assert runner.validate_preflight_record(record, python, 2_000_000, root) == record
+    record["rlmFile"] = (
+        "D:/prime-agent/.worktrees/mcp-error-merged-runtime/"
+        "prime-agent-runtime/src/rlm/__init__.py"
+    )
+    with pytest.raises(ValueError, match="preflight_invalid"):
+        runner.validate_preflight_record(record, python, 2_000_000, root)
 
 
 def test_vp2_evidence_reuse_skill_delta_is_exactly_one_reviewed_rule():

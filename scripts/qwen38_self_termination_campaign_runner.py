@@ -31,6 +31,9 @@ DEFAULT_PROTOCOL = (
     / "2026-08-18-qwen38-self-termination-campaign-v3.json"
 )
 VARIED_COHORT_SCHEMA = "rook.experiment.qwen38_varied_product_cohort:v1"
+PRIME_UPSTREAM_SMOKE_SCHEMA = (
+    "rook.experiment.prime_upstream_t3_compatibility_smoke:v1"
+)
 TARGET_FIXTURE_SCHEMA = "rook.experiment.gh_target_fixture:v1"
 SHADOW_ADJUDICATION_SCHEMA = (
     "rook.experiment.varied_product_shadow_adjudication:v1"
@@ -138,6 +141,14 @@ def _is_sha256(value: Any) -> bool:
         type(value) is str
         and len(value) == 64
         and all(character in "0123456789ABCDEF" for character in value)
+    )
+
+
+def _is_git_oid(value: Any) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 40
+        and all(character in "0123456789abcdef" for character in value.lower())
     )
 
 
@@ -965,6 +976,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         "rook.experiment.qwen38_self_termination_campaign:v5",
         "rook.experiment.qwen38_self_termination_campaign:v6",
         VARIED_COHORT_SCHEMA,
+        PRIME_UPSTREAM_SMOKE_SCHEMA,
     }:
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
@@ -988,6 +1000,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         "rook.experiment.qwen38_self_termination_campaign:v5": ["T4"],
         "rook.experiment.qwen38_self_termination_campaign:v6": ["T4"],
         VARIED_COHORT_SCHEMA: _varied_execution_order(protocol),
+        PRIME_UPSTREAM_SMOKE_SCHEMA: ["T3"],
     }[schema]
     if type(tasks) is not dict or order != expected_order:
         raise ValueError("focused_retest_invalid" if schema.endswith(":v5") else "task_order_invalid")
@@ -1005,8 +1018,12 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         "rook.experiment.qwen38_self_termination_campaign:v5",
         "rook.experiment.qwen38_self_termination_campaign:v6",
         VARIED_COHORT_SCHEMA,
+        PRIME_UPSTREAM_SMOKE_SCHEMA,
     }:
-        if prime.get("thinkingLevel") != "low":
+        if (
+            schema != PRIME_UPSTREAM_SMOKE_SCHEMA
+            and prime.get("thinkingLevel") != "low"
+        ):
             raise ValueError("thinking_level_invalid")
         verification = protocol.get("precontactVerification")
         if (
@@ -1022,6 +1039,116 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
             )
         ):
             raise ValueError("precontact_verification_invalid")
+    if schema == PRIME_UPSTREAM_SMOKE_SCHEMA:
+        source = protocol.get("sourceCampaignProtocol")
+        upstream = protocol.get("upstreamCustody")
+        evaluator = protocol.get("offlineEvaluator")
+        adjudication = protocol.get("smokeAdjudication")
+        versioned_inputs = protocol.get("versionedInputs")
+        expected_root = "D:/prime-agent/.worktrees/rook-upstream-evaluation"
+        expected_source = (
+            "docs/superpowers/experiments/"
+            "2026-08-18-qwen38-self-termination-campaign-v3.json"
+        )
+        if (
+            protocol.get("status") != "frozen_precontact"
+            or protocol.get("singleRowSmoke")
+            != {
+                "retryCount": 0,
+                "evaluatorFeedbackDuringRun": False,
+                "comparisonKind": "compatibility_screen",
+            }
+            or protocol["prime"].get("sourceRoot") != expected_root
+            or protocol["prime"].get("launcherPath")
+            != f"{expected_root}/prime-agent.sh"
+            or protocol["prime"].get("runtimeBundle", {}).get("root")
+            != f"{expected_root}/packages/coding-agent/dist"
+            or protocol["prime"].get("runtimeBundle", {}).get("subtrees")
+            != ["bundle", "skills"]
+            or protocol["prime"].get("thinkingLevel") != "medium"
+            or type(source) is not dict
+            or set(source) != {"path", "sha256"}
+            or source.get("path") != expected_source
+            or not _is_sha256(source.get("sha256"))
+            or type(upstream) is not dict
+            or set(upstream)
+            != {
+                "baseCommit",
+                "baseTree",
+                "patchCommit",
+                "patchTree",
+                "resultCommit",
+                "resultTree",
+                "dependencyLockSha256",
+            }
+            or any(
+                not _is_git_oid(upstream.get(field))
+                for field in (
+                    "baseCommit",
+                    "baseTree",
+                    "patchCommit",
+                    "patchTree",
+                    "resultCommit",
+                    "resultTree",
+                )
+            )
+            or not _is_sha256(upstream.get("dependencyLockSha256"))
+            or protocol["prime"].get("commit") != upstream.get("resultCommit")
+            or type(evaluator) is not dict
+            or set(evaluator)
+            != {
+                "runnerPath",
+                "runnerSha256",
+                "acceptanceArtifactPath",
+                "acceptanceArtifactSha256",
+            }
+            or not _is_sha256(evaluator.get("runnerSha256"))
+            or not _is_sha256(evaluator.get("acceptanceArtifactSha256"))
+            or evaluator.get("runnerPath")
+            != "scripts/qwen38_self_termination_campaign_runner.py"
+            or evaluator.get("acceptanceArtifactPath")
+            != "scripts/grasshopper_point_row_acceptance.json"
+            or type(adjudication) is not dict
+            or set(adjudication) != {"path", "sha256"}
+            or adjudication.get("path")
+            != (
+                "docs/superpowers/experiments/"
+                "2026-08-19-prime-upstream-t3-compatibility-smoke-v1-adjudication.json"
+            )
+            or not _is_sha256(adjudication.get("sha256"))
+            or type(versioned_inputs) is not dict
+            or versioned_inputs.get("skillPath")
+            != (
+                "docs/superpowers/experiments/inputs/"
+                "2026-08-19-prime-upstream-t3-compatibility-smoke-v1/"
+                "prime-execute-grasshopper/SKILL.md"
+            )
+            or versioned_inputs.get("checkpointPath")
+            != (
+                "docs/superpowers/experiments/inputs/"
+                "2026-08-19-prime-upstream-t3-compatibility-smoke-v1/"
+                "prime-execute-grasshopper/references/checkpoint-protocol.md"
+            )
+            or versioned_inputs.get("adapterRoot")
+            != "integrations/prime/skills/rook-full"
+        ):
+            raise ValueError("prime_upstream_smoke_invalid")
+        source_path = ROOT / source["path"]
+        evaluator_path = ROOT / evaluator["acceptanceArtifactPath"]
+        runner_path = ROOT / evaluator["runnerPath"]
+        adjudication_path = ROOT / adjudication["path"]
+        if (
+            not source_path.is_file()
+            or _sha(source_path) != source["sha256"]
+            or tasks["T3"] != _load_json(source_path)["tasks"]["T3"]
+            or not evaluator_path.is_file()
+            or _sha(evaluator_path) != evaluator["acceptanceArtifactSha256"]
+            or not runner_path.is_file()
+            or _sha(runner_path) != evaluator["runnerSha256"]
+            or not adjudication_path.is_file()
+            or _sha(adjudication_path) != adjudication["sha256"]
+        ):
+            raise ValueError("prime_upstream_smoke_invalid")
     if schema == "rook.experiment.qwen38_self_termination_campaign:v5":
         if protocol.get("focusedRetest") != {
             "sourceEvidenceManifestSha256": (
@@ -1346,9 +1473,16 @@ def python_runtime_environment(
     ):
         raise ValueError("python_environment_paths_invalid")
     result = dict(environment)
-    result["PYTHONPATH"] = os.pathsep.join(
-        [Path(adapter_source).as_posix(), *python_paths]
-    )
+    source_paths = [Path(adapter_source).as_posix()]
+    if protocol.get("schema") == PRIME_UPSTREAM_SMOKE_SCHEMA:
+        source_paths.append(
+            (
+                Path(protocol["prime"]["sourceRoot"])
+                / "prime-agent-runtime"
+                / "src"
+            ).as_posix()
+        )
+    result["PYTHONPATH"] = os.pathsep.join([*source_paths, *python_paths])
     existing_path = result.get("PATH", "")
     result["PATH"] = os.pathsep.join(
         [*dll_paths, *([existing_path] if existing_path else [])]
@@ -1466,7 +1600,10 @@ def prime_log_proves_goal_context(
 
 
 def validate_preflight_record(
-    record: dict[str, Any], expected_python: Path, budget: int
+    record: dict[str, Any],
+    expected_python: Path,
+    budget: int,
+    expected_prime_root: Path | None = None,
 ) -> dict[str, Any]:
     expected_keys = {
         "schema",
@@ -1500,6 +1637,12 @@ def validate_preflight_record(
             and record["requests"] == ["goal.get", "goal.complete"]
             and record["kernelClosed"] is True
         )
+        if valid and expected_prime_root is not None:
+            prime_root = Path(expected_prime_root).resolve()
+            valid = all(
+                Path(record[field]).resolve().is_relative_to(prime_root)
+                for field in ("goalFile", "rlmFile")
+            )
     except (KeyError, TypeError, ValueError):
         valid = False
     if not valid:
@@ -1861,6 +2004,7 @@ def _runtime_custody(
     protocol: dict[str, Any], protocol_path: Path = DEFAULT_PROTOCOL
 ) -> dict[str, Any]:
     prime = protocol["prime"]
+    upstream_observed: dict[str, str] | None = None
     prime_commit = subprocess.run(
         ["git", "-C", prime["sourceRoot"], "rev-parse", "HEAD"],
         check=True,
@@ -1869,6 +2013,51 @@ def _runtime_custody(
     ).stdout.strip()
     if prime_commit != prime["commit"]:
         raise RuntimeError("custody_mismatch:prime_commit")
+    if protocol.get("schema") == PRIME_UPSTREAM_SMOKE_SCHEMA:
+        upstream = protocol["upstreamCustody"]
+        root = Path(prime["sourceRoot"]).resolve()
+        if root.as_posix().lower() != (
+            "d:/prime-agent/.worktrees/rook-upstream-evaluation"
+        ):
+            raise RuntimeError("custody_mismatch:prime_source_root")
+        upstream_observed = {
+            "baseCommit": upstream["baseCommit"],
+            "baseTree": subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "rev-parse",
+                    f"{upstream['baseCommit']}^{{tree}}",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip(),
+            "patchCommit": upstream["patchCommit"],
+            "patchTree": subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "rev-parse",
+                    f"{upstream['patchCommit']}^{{tree}}",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip(),
+            "resultCommit": prime_commit,
+            "resultTree": subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD^{tree}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip(),
+            "dependencyLockSha256": _sha(root / "package-lock.json"),
+        }
+        if upstream_observed != upstream:
+            raise RuntimeError("custody_mismatch:prime_upstream_lineage")
     repository_commit = subprocess.run(
         ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
         check=True,
@@ -1989,7 +2178,29 @@ def _runtime_custody(
                     lane["skillSha256"],
                     f"authoring_lane_skill:{task_id}",
                 )
-    return {
+    if protocol.get("schema") == PRIME_UPSTREAM_SMOKE_SCHEMA:
+        source = protocol["sourceCampaignProtocol"]
+        evaluator = protocol["offlineEvaluator"]
+        adjudication = protocol["smokeAdjudication"]
+        files["sourceCampaignProtocol"] = _verify_sha(
+            ROOT / source["path"], source["sha256"], "source_campaign_protocol"
+        )
+        files["offlineEvaluatorRunner"] = _verify_sha(
+            ROOT / evaluator["runnerPath"],
+            evaluator["runnerSha256"],
+            "offline_evaluator_runner",
+        )
+        files["offlineEvaluatorArtifact"] = _verify_sha(
+            ROOT / evaluator["acceptanceArtifactPath"],
+            evaluator["acceptanceArtifactSha256"],
+            "offline_evaluator_artifact",
+        )
+        files["smokeAdjudication"] = _verify_sha(
+            ROOT / adjudication["path"],
+            adjudication["sha256"],
+            "smoke_adjudication",
+        )
+    record = {
         "schema": "rook.experiment.qwen38_campaign_runtime_custody:v1",
         "campaignRepositoryCommit": repository_commit,
         "primeCommit": prime_commit,
@@ -1998,6 +2209,9 @@ def _runtime_custody(
         "modelContent": _verify_model_blobs(protocol["modelCustody"]),
         "files": files,
     }
+    if upstream_observed is not None:
+        record["primeUpstream"] = upstream_observed
+    return record
 
 
 def _run_preflight(
@@ -2045,6 +2259,11 @@ def _run_preflight(
         record,
         Path(protocol["prime"]["sealedKernelPython"]),
         protocol["limits"]["primeGoalTokenBudget"],
+        (
+            Path(protocol["prime"]["sourceRoot"])
+            if protocol.get("schema") == PRIME_UPSTREAM_SMOKE_SCHEMA
+            else None
+        ),
     )
     _write_json(preflight_root / "result.json", record)
     return record

@@ -130,20 +130,23 @@ oversized variable         detected and pruned
 small sentinel             retained after pruning
 kernel restart             sentinel restored
 pruned variable restart    remained absent
-goal after restart         complete
+host goal bridge restart   reconnected, complete
 first and second kernels   closed
 ```
 
 The preflight created a 17 MiB variable, which exceeded Prime's 16 MiB
 per-variable snapshot limit. Prime excluded and pruned that variable while
-retaining a small sentinel. A fresh kernel restored the sentinel and the
-completed goal state. The preflight result records both Node and Python source
-paths and refuses if either Prime import is outside the admitted worktree.
+retaining a small sentinel. A fresh kernel restored the sentinel and
+reconnected to the same host-owned goal bridge, which remained complete. The
+preflight does not prove goal persistence across restart; the retained
+AgentSession tests own goal persistence and compaction-continuation evidence.
+The preflight result records both Node and Python source paths and refuses if
+either Prime import is outside the admitted worktree.
 
 The preflight source SHA-256 is:
 
 ```text
-651AF08A80E1DB5CAFB58D3E5B07BF52512BB35DDD620F319ED37F3B1AA50EC7
+DD38C4D136F019E0CECB530CA61F906D001F71CDBCB2F5B9253BD57F07CA5A28
 ```
 
 ### Upstream Windows test-harness limitation
@@ -197,12 +200,54 @@ The final manifest covers 12 selected files and independently verifies with
 zero mismatches:
 
 ```text
-CC873C6FEC5BD8BE22E9C9E5D9E7F2132F70F3B1815E24CE99F31F4B8961D953
+9A192C56AD9D613F7451A3D2578ADC3B3F638D2D49933EA5B389B3EE05A54739
 ```
 
-Preliminary preflight V1/V2 files remain outside the admitted manifest. The
-manifest admits only the final post-install V3 preflight, custody and isolation
+Preliminary preflight V1/V2/V3 files remain outside the admitted manifest. The
+manifest admits only the final post-install V4 preflight, custody and isolation
 records, build/test logs, and final process ledger.
+
+## Frozen Contact Package
+
+The one-row contact package is now explicit and committed for spot review:
+
+| Artifact | SHA-256 |
+|---|---|
+| Protocol | `7F7A3CA976F3929CD01F9251467066B4DC06D4B307875D3C76D63300B6D0DA59` |
+| Adjudication | `211B3345822021B17EEB04B14060A1914B2BEDFDA75FB4B685D7E2FF72C4A814` |
+| Campaign runner | `864534D181DE2971184DE4E3E4DCB9A0D494EF3DE5EFD1FE358D8D9F29951F6F` |
+| Historical T3 skill | `13FB486CE69C0681CF2F12A7D8F391AAEBF146363DD7A37B04C50E08A9D81696` |
+| Historical checkpoint | `2FCF16E0B6C58B1D0390CCF16D28DD62D142AC20CCF9AEC81D3B916BD251CBD8` |
+| Historical adapter | `06F1CB4AA58FD8C4C6F61F96CE7B8A5F4FEF7B6B126D00C0550B2CB3AA0BBF74` |
+| Point-row acceptance artifact | `A4836173494C2396FB60E0C0FAF889161980C26C078987F8CA5CA847B6A4367F` |
+
+The protocol freezes:
+
+- exactly one `T3` repair row and no cohort continuation;
+- the exact historical T3 prompt, medium thinking, model, skill, checkpoint,
+  adapter, evaluator artifact, and budgets;
+- zero retries and no evaluator feedback during execution;
+- current deployed Rook hashes and the current serialized tool surface;
+- the exact upstream base, patch, result commit/tree, dependency lock, and
+  84-file runtime bundle; and
+- branch-local Prime launcher, Node module, goal skill, and `rlm` Python paths.
+
+The current deployed Rook bytes differ from historical V3. This is therefore a
+bounded upstream compatibility screen under current frozen Rook, not a claim
+that Prime is the only difference from the historical V3 execution.
+
+The exact command proposed after spot-review approval is:
+
+```powershell
+& C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe `
+  scripts/qwen38_self_termination_campaign_runner.py run `
+  --protocol docs/superpowers/experiments/2026-08-19-prime-upstream-t3-compatibility-smoke-v1.json `
+  --evidence-root C:/UDEV/RookEvidence/2026-08-19-prime-upstream-t3-compatibility-smoke-v1 `
+  --document-serial 268435457
+```
+
+The evidence root does not exist. The command is not authorized until the
+frozen contact package receives the requested spot review.
 
 ## Disposition
 
@@ -222,8 +267,5 @@ a Rook product qualification. It does not justify changing Prime or bypassing
 the retained functional preflight in this slice.
 
 No smoke task should run before independent approval. After approval, the next
-bounded action is one `T3` point-row repair smoke derived from the previously
-qualified V3 row, with its model, thinking level, task, skill, adapter, target
-fixture, budgets, runner behavior, and evaluator frozen. The only intended
-runtime change is the admitted Prime source/result above. Python-skill packaging
+bounded action is the exact one-row command above. Python-skill packaging
 remains paused.
