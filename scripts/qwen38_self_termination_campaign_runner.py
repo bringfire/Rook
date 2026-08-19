@@ -66,9 +66,23 @@ _AUTHORING_LANE_PROMPT = (
     "effects, restore defaults, obtain a final receipt-fenced observation, and "
     "stop when satisfied."
 )
+_PYTHON_LANE_CONFIRMATION_PROMPT = (
+    "Create an adjustable rectangular lattice of points in the XY plane. "
+    "Expose integer Columns, integer Rows, X Spacing, and Y Spacing controls. "
+    "Produce exactly Columns × Rows points, starting at the origin, with adjacent "
+    "columns separated by X Spacing and adjacent rows separated by Y Spacing; all "
+    "Z coordinates must remain zero. Exercise Columns and Y Spacing independently, "
+    "observe each effect, restore defaults, obtain a final receipt-fenced "
+    "observation, and stop when satisfied. Do not create curves, surfaces, bake, "
+    "or add downstream geometry."
+)
 _AUTHORING_LANE_SOURCE_PROTOCOL = (
     "docs/superpowers/experiments/"
     "2026-08-19-qwen38-vp4-profile-stack-prospective-screen-v1.json"
+)
+_PYTHON_LANE_CONFIRMATION_SOURCE_PROTOCOL = (
+    "docs/superpowers/experiments/"
+    "2026-08-19-qwen38-native-python-authoring-lane-screen-v1.json"
 )
 _AUTHORING_LANE_CAPABILITY_AUDIT = (
     "docs/superpowers/experiments/"
@@ -431,17 +445,23 @@ def _authoring_lane_execution_order(protocol: dict[str, Any]) -> list[str]:
         "excludedFutureComparison",
     }:
         raise ValueError("authoring_lane_experiment_invalid")
+    classification = experiment.get("classification")
     source_ref = experiment.get("sourceOperationalProtocol")
-    if (
-        experiment.get("classification") != "paired_authoring_lane_product_screen"
-        or source_ref
-        != {
+    expected_source_ref = {
+        "paired_authoring_lane_product_screen": {
             "path": _AUTHORING_LANE_SOURCE_PROTOCOL,
             "sha256": (
                 "A7FFE939D1CE2369D01D416C7B1222FE779B7F2D838CAB887F1D3D22D560153B"
             ),
-        }
-    ):
+        },
+        "single_python_lane_varied_confirmation": {
+            "path": _PYTHON_LANE_CONFIRMATION_SOURCE_PROTOCOL,
+            "sha256": (
+                "D75537826C764A254928279420AEA045FB8AFBD9F60BDBE692A0B8A506CDEFB6"
+            ),
+        },
+    }.get(classification)
+    if expected_source_ref is None or source_ref != expected_source_ref:
         raise ValueError("authoring_lane_experiment_invalid")
     source_path = ROOT / source_ref["path"]
     if not source_path.is_file() or _sha(source_path) != source_ref["sha256"]:
@@ -476,7 +496,7 @@ def _authoring_lane_execution_order(protocol: dict[str, Any]) -> list[str]:
     if protocol.get("versionedInputs") != expected_versioned:
         raise ValueError("authoring_lane_experiment_invalid")
     audit = _validate_authoring_lane_capability_audit(protocol.get("capabilityAudit"))
-    expected_lanes = {
+    all_lanes = {
         "N": {
             "lane": "native",
             "skillPath": _AUTHORING_LANE_NATIVE_SKILL,
@@ -497,55 +517,85 @@ def _authoring_lane_execution_order(protocol: dict[str, Any]) -> list[str]:
             "nativeDiscovery": "controls_or_named_blocker_only",
         },
     }
+    expected_lanes = (
+        all_lanes
+        if classification == "paired_authoring_lane_product_screen"
+        else {"P2": all_lanes["P"]}
+    )
     if experiment.get("rowLanes") != expected_lanes:
         raise ValueError("authoring_lane_experiment_invalid")
     for lane in expected_lanes.values():
         path = ROOT / lane["skillPath"]
         if not path.is_file() or _sha(path) != lane["skillSha256"]:
             raise ValueError("authoring_lane_experiment_invalid")
-    if (
-        experiment.get("changedOperationalInputs")
-        != [
+    shared_unchanged_inputs = [
+        "model",
+        "thinking_level",
+        "prime_revision_and_bootstrap",
+        "rook_build",
+        "rook_full_adapter",
+        "budgets_and_reserve",
+        "target_preparation",
+        "silent_evaluator",
+        "evidence_capture",
+        "checkpoint_and_completion_discipline",
+    ]
+    shared_success_criteria = [
+        "credible_result_or_honest_failure",
+        "budget_and_custody_pass",
+        "final_receipt_fenced_snapshot_before_goal_complete",
+        "no_later_gateway_call",
+        "no_search_for_listed_capabilities",
+        "no_implementation_mode_switch",
+        "first_commit_within_12_gateway_calls",
+        "first_commit_within_200000_cumulative_tokens",
+        "no_equivalent_repeated_mutation_without_named_material_reason",
+        "no_efficiency_credit_if_semantic_or_evidence_quality_regresses",
+    ]
+    if classification == "paired_authoring_lane_product_screen":
+        expected_changed_inputs = [
             "task",
             "execution_order",
             "canonical_skill_reference",
             "row_skill_fixture",
             "shadow_adjudication_task_set",
         ]
-        or experiment.get("laneRestrictionEnforcement")
-        != "model_facing_skill_guidance_only"
-        or experiment.get("pairedControls")
-        != {
+        expected_controls = {
             "samePrompt": True,
             "freshIsolatedTargetPerRow": True,
             "rowOrder": ["N", "P"],
+            "unchangedOperationalInputs": shared_unchanged_inputs,
+        }
+        expected_success_criteria = shared_success_criteria[:2] + [
+            "count_and_height_exercised_and_restored"
+        ] + shared_success_criteria[2:]
+        expected_interpretation = "product_screen_not_pure_causal_proof"
+        expected_order = ["N", "P"]
+    else:
+        expected_changed_inputs = [
+            "task",
+            "execution_order",
+            "shadow_adjudication_task_set",
+        ]
+        expected_controls = {
+            "sourceRow": "P",
+            "freshIsolatedTarget": True,
             "unchangedOperationalInputs": [
-                "model",
-                "thinking_level",
-                "prime_revision_and_bootstrap",
-                "rook_build",
-                "rook_full_adapter",
-                "budgets_and_reserve",
-                "target_preparation",
-                "silent_evaluator",
-                "evidence_capture",
-                "checkpoint_and_completion_discipline",
+                "python_lane_skill_fixture",
+                *shared_unchanged_inputs,
             ],
         }
-        or experiment.get("successCriteria")
-        != [
-            "credible_result_or_honest_failure",
-            "budget_and_custody_pass",
-            "count_and_height_exercised_and_restored",
-            "final_receipt_fenced_snapshot_before_goal_complete",
-            "no_later_gateway_call",
-            "no_search_for_listed_capabilities",
-            "no_implementation_mode_switch",
-            "first_commit_within_12_gateway_calls",
-            "first_commit_within_200000_cumulative_tokens",
-            "no_equivalent_repeated_mutation_without_named_material_reason",
-            "no_efficiency_credit_if_semantic_or_evidence_quality_regresses",
-        ]
+        expected_success_criteria = shared_success_criteria[:2] + [
+            "columns_and_y_spacing_independently_exercised_and_restored"
+        ] + shared_success_criteria[2:]
+        expected_interpretation = "single_varied_confirmation_not_general_proof"
+        expected_order = ["P2"]
+    if (
+        experiment.get("changedOperationalInputs") != expected_changed_inputs
+        or experiment.get("laneRestrictionEnforcement")
+        != "model_facing_skill_guidance_only"
+        or experiment.get("pairedControls") != expected_controls
+        or experiment.get("successCriteria") != expected_success_criteria
         or experiment.get("firstCommitTokenAttribution")
         != {
             "measurement": (
@@ -562,26 +612,37 @@ def _authoring_lane_execution_order(protocol: dict[str, Any]) -> list[str]:
         or experiment.get("evaluatorFeedbackDuringRun") is not False
         or experiment.get("retriesPerRow") != 0
         or experiment.get("midCampaignTuning") is not False
-        or experiment.get("interpretation") != "product_screen_not_pure_causal_proof"
+        or experiment.get("interpretation") != expected_interpretation
         or experiment.get("excludedFutureComparison") != "python_vs_csharp"
     ):
         raise ValueError("authoring_lane_experiment_invalid")
     order = protocol.get("executionOrder")
     tasks = protocol.get("tasks")
-    if order != ["N", "P"] or type(tasks) is not dict or set(tasks) != {"N", "P"}:
+    if order != expected_order or type(tasks) is not dict or set(tasks) != set(order):
         raise ValueError("authoring_lane_experiment_invalid")
+    expected_prompt = (
+        _AUTHORING_LANE_PROMPT
+        if classification == "paired_authoring_lane_product_screen"
+        else _PYTHON_LANE_CONFIRMATION_PROMPT
+    )
+    expected_class = (
+        "circular_vertical_line_array"
+        if classification == "paired_authoring_lane_product_screen"
+        else "rectangular_point_lattice"
+    )
     for task_id in order:
         task = tasks[task_id]
         if (
-            task.get("prompt") != _AUTHORING_LANE_PROMPT
-            or task.get("class") != "circular_vertical_line_array"
+            task.get("prompt") != expected_prompt
+            or task.get("class") != expected_class
             or task.get("targetBaseline") != "fresh_empty_grasshopper_document"
         ):
             raise ValueError("authoring_lane_experiment_invalid")
-    comparable_n = dict(tasks["N"])
-    comparable_n["id"] = "P"
-    if comparable_n != tasks["P"]:
-        raise ValueError("authoring_lane_experiment_invalid")
+    if classification == "paired_authoring_lane_product_screen":
+        comparable_n = dict(tasks["N"])
+        comparable_n["id"] = "P"
+        if comparable_n != tasks["P"]:
+            raise ValueError("authoring_lane_experiment_invalid")
     return order
 
 

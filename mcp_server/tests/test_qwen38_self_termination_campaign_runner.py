@@ -143,6 +143,20 @@ AUTHORING_LANE_CAPABILITY_AUDIT_PATH = (
     / "experiments"
     / "2026-08-19-qwen38-native-python-authoring-lane-capability-audit-v1.json"
 )
+PYTHON_LANE_CONFIRMATION_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-python-lane-point-lattice-confirmation-v1.json"
+)
+PYTHON_LANE_CONFIRMATION_ADJUDICATION_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-python-lane-point-lattice-confirmation-v1-adjudication.json"
+)
 AUTHORING_LANE_INPUT_ROOT = (
     ROOT
     / "docs"
@@ -236,6 +250,16 @@ CIRCULAR_LINE_ARRAY_PROMPT = (
     "vertical lines around the circle. Exercise Count and Height, observe the "
     "effects, restore defaults, obtain a final receipt-fenced observation, and "
     "stop when satisfied."
+)
+POINT_LATTICE_PROMPT = (
+    "Create an adjustable rectangular lattice of points in the XY plane. "
+    "Expose integer Columns, integer Rows, X Spacing, and Y Spacing controls. "
+    "Produce exactly Columns × Rows points, starting at the origin, with adjacent "
+    "columns separated by X Spacing and adjacent rows separated by Y Spacing; all "
+    "Z coordinates must remain zero. Exercise Columns and Y Spacing independently, "
+    "observe each effect, restore defaults, obtain a final receipt-fenced "
+    "observation, and stop when satisfied. Do not create curves, surfaces, bake, "
+    "or add downstream geometry."
 )
 BASELINE_SKILL_SHA256 = (
     "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
@@ -363,6 +387,12 @@ def _vp2_strategy_discipline_protocol() -> dict:
 
 def _authoring_lane_protocol() -> dict:
     return json.loads(AUTHORING_LANE_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
+def _python_lane_confirmation_protocol() -> dict:
+    return json.loads(
+        PYTHON_LANE_CONFIRMATION_PROTOCOL_PATH.read_text(encoding="utf-8")
+    )
 
 
 def test_vp2_evidence_reuse_skill_delta_is_exactly_one_reviewed_rule():
@@ -931,6 +961,156 @@ def test_authoring_lane_protocol_rejects_crossed_or_tampered_lane_custody():
     expanded["tasks"]["X"]["id"] = "X"
     with pytest.raises(ValueError, match="authoring_lane_experiment_invalid"):
         runner.validate_protocol(expanded)
+
+
+def test_python_lane_confirmation_reuses_exact_fixture_and_runtime_custody():
+    runner = _runner()
+    source = _authoring_lane_protocol()
+    protocol = _python_lane_confirmation_protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["executionOrder"] == ["P2"]
+    assert protocol["tasks"] == {
+        "P2": {
+            "id": "P2",
+            "class": "rectangular_point_lattice",
+            "targetBaseline": "fresh_empty_grasshopper_document",
+            "evaluator": "independent_shadow_judgment",
+            "prompt": POINT_LATTICE_PROMPT,
+            "targetFixture": {
+                "schema": "rook.experiment.gh_target_fixture:v1",
+                "baseline": "fresh_empty",
+                "seedEdit": None,
+                "seedExpectations": None,
+                "preservation": None,
+            },
+        }
+    }
+    for owner in (
+        "limits",
+        "prime",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "offlineEvaluator",
+        "toolSurface",
+        "sourceCampaignProtocol",
+        "continuationPolicy",
+        "precontactVerification",
+        "versionedInputs",
+        "capabilityAudit",
+    ):
+        assert protocol[owner] == source[owner]
+
+    experiment = protocol["authoringLaneExperiment"]
+    assert experiment["classification"] == "single_python_lane_varied_confirmation"
+    assert experiment["sourceOperationalProtocol"] == {
+        "path": AUTHORING_LANE_PROTOCOL_PATH.relative_to(ROOT).as_posix(),
+        "sha256": hashlib.sha256(
+            AUTHORING_LANE_PROTOCOL_PATH.read_bytes()
+        ).hexdigest().upper(),
+    }
+    assert experiment["changedOperationalInputs"] == [
+        "task",
+        "execution_order",
+        "shadow_adjudication_task_set",
+    ]
+    assert experiment["rowLanes"] == {
+        "P2": source["authoringLaneExperiment"]["rowLanes"]["P"]
+    }
+    assert experiment["pairedControls"] == {
+        "sourceRow": "P",
+        "freshIsolatedTarget": True,
+        "unchangedOperationalInputs": [
+            "python_lane_skill_fixture",
+            "model",
+            "thinking_level",
+            "prime_revision_and_bootstrap",
+            "rook_build",
+            "rook_full_adapter",
+            "budgets_and_reserve",
+            "target_preparation",
+            "silent_evaluator",
+            "evidence_capture",
+            "checkpoint_and_completion_discipline",
+        ],
+    }
+    assert experiment["successCriteria"] == [
+        "credible_result_or_honest_failure",
+        "budget_and_custody_pass",
+        "columns_and_y_spacing_independently_exercised_and_restored",
+        "final_receipt_fenced_snapshot_before_goal_complete",
+        "no_later_gateway_call",
+        "no_search_for_listed_capabilities",
+        "no_implementation_mode_switch",
+        "first_commit_within_12_gateway_calls",
+        "first_commit_within_200000_cumulative_tokens",
+        "no_equivalent_repeated_mutation_without_named_material_reason",
+        "no_efficiency_credit_if_semantic_or_evidence_quality_regresses",
+    ]
+    assert "diagnostic" not in " ".join(experiment["successCriteria"])
+    assert experiment["firstCommitTokenAttribution"] == source[
+        "authoringLaneExperiment"
+    ]["firstCommitTokenAttribution"]
+    assert experiment["evaluatorFeedbackDuringRun"] is False
+    assert experiment["retriesPerRow"] == 0
+    assert experiment["midCampaignTuning"] is False
+    assert experiment["interpretation"] == (
+        "single_varied_confirmation_not_general_proof"
+    )
+    assert experiment["excludedFutureComparison"] == "python_vs_csharp"
+
+    adjudication = json.loads(
+        PYTHON_LANE_CONFIRMATION_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+    assert runner.validate_shadow_adjudication(adjudication, protocol) is adjudication
+    assert protocol["shadowAdjudication"] == {
+        "path": PYTHON_LANE_CONFIRMATION_ADJUDICATION_PATH.relative_to(
+            ROOT
+        ).as_posix(),
+        "sha256": hashlib.sha256(
+            PYTHON_LANE_CONFIRMATION_ADJUDICATION_PATH.read_bytes()
+        ).hexdigest().upper(),
+    }
+
+
+def test_python_lane_confirmation_rejects_fixture_or_scope_drift():
+    runner = _runner()
+    protocol = _python_lane_confirmation_protocol()
+
+    changed_fixture = json.loads(json.dumps(protocol))
+    changed_fixture["authoringLaneExperiment"]["rowLanes"]["P2"][
+        "skillSha256"
+    ] = "A" * 64
+    with pytest.raises(ValueError, match="authoring_lane_experiment_invalid"):
+        runner.validate_protocol(changed_fixture)
+
+    added_native_row = json.loads(json.dumps(protocol))
+    added_native_row["executionOrder"].append("N")
+    added_native_row["tasks"]["N"] = json.loads(
+        json.dumps(added_native_row["tasks"]["P2"])
+    )
+    added_native_row["tasks"]["N"]["id"] = "N"
+    with pytest.raises(ValueError, match="authoring_lane_experiment_invalid"):
+        runner.validate_protocol(added_native_row)
+
+    added_retry = json.loads(json.dumps(protocol))
+    added_retry["authoringLaneExperiment"]["retriesPerRow"] = 1
+    with pytest.raises(ValueError, match="authoring_lane_experiment_invalid"):
+        runner.validate_protocol(added_retry)
+
+
+def test_python_lane_confirmation_stages_the_unchanged_python_fixture(tmp_path: Path):
+    runner = _runner()
+    protocol = _python_lane_confirmation_protocol()
+    row_root = tmp_path / "P2"
+
+    runner._copy_versioned_inputs(protocol, protocol["tasks"]["P2"], row_root)
+
+    staged = (
+        row_root / "agent" / "skills" / "prime-execute-grasshopper" / "SKILL.md"
+    )
+    assert staged.read_bytes() == PYTHON_LANE_SKILL_PATH.read_bytes()
 
 
 @pytest.mark.parametrize(
