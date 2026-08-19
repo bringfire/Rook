@@ -41,6 +41,28 @@ metadata, and snapshot projection:
 Raw connection and `gh_edit` paths use the same selector resolver. Existing
 Grasshopper solve scheduling and receipt ownership remain unchanged.
 
+## Python Boundary Follow-up
+
+The MCP knowledge wrappers now preserve the same distinction as the managed
+routes:
+
+```text
+request succeeded
+!= mutation committed
+!= proven no-op
+```
+
+Duplicate connect and missing disconnect calls remain successful, auditable
+invocations, but they record no connection delta, do not clear a prior failure
+as a correction, and do not earn mutation-derived gotcha success. Session
+metadata retains normalized `request_succeeded`, `mutation_committed`, and
+`no_op` facts. Successful disconnect history now uses the route-resolved source
+and target GUIDs and indexed selectors, matching connect history.
+
+This was an offline Python telemetry-custody correction. It did not change the
+managed host behavior qualified below, and no rebuild, deployment, Rhino, or
+model contact was performed for this follow-up.
+
 ## Live Qualification
 
 The authoritative post-update run used an owned Rhino process and the deployed
@@ -116,6 +138,8 @@ unchanged wiring.
 
 - Focused managed parameter/receipt tests: `67/67 passed`.
 - Related Python tests: `212/212 passed`, 11 existing warnings.
+- Follow-up wrapper/session/gateway tests: `204/204 passed`, 22 existing
+  warnings.
 - Full managed suite: `3803/3803 passed`.
 - Full local Release deployment completed with native, managed, RookBIM,
   registration, AppData, and Chirp synchronization successful.
@@ -129,7 +153,8 @@ Evidence root:
 ## Disposition
 
 The reviewer-identified Rook admission and reporting defect is repaired across
-`gh_edit`, raw public connect/disconnect routes, snapshots, and
-`/gh/connections`, and qualified against live Grasshopper. Qwen's separate
+`gh_edit`, raw public connect/disconnect routes, snapshots, `/gh/connections`,
+and MCP session/learning custody. The managed surface remains qualified against
+live Grasshopper; the final Python boundary is covered offline. Qwen's separate
 judgment mistakes in the VP2 specimen remain recorded. No reasoning rule was
 added, no semantic acceptance machinery changed, and VP2 was not rerun.

@@ -955,6 +955,7 @@ async def _record_gh_to_session(
     connections_made: list[tuple] | None = None,
     connections_removed: list[tuple] | None = None,
     patterns_applied: list[str] | None = None,
+    record_metadata: dict[str, Any] | None = None,
 ) -> int | None:
     """Record a GH tool call to session history.
 
@@ -972,6 +973,7 @@ async def _record_gh_to_session(
         connections_made: List of (source, source_param, target, target_param)
         connections_removed: List of removed connections
         patterns_applied: Pattern IDs that were used in this action (Phase 2)
+        record_metadata: Normalized audit facts not returned by the host route
 
     Returns:
         Entry ID if recorded, None if skipped
@@ -1019,6 +1021,8 @@ async def _record_gh_to_session(
                 partial_metadata[key] = result[key]
             elif isinstance(data, dict) and key in data:
                 partial_metadata[key] = data[key]
+        if record_metadata:
+            partial_metadata.update(record_metadata)
 
         # Determine outcome level
         if partial_success:
@@ -3075,7 +3079,7 @@ def _gh_resolved_connection_selector(
     side: str,
     fallback: str,
 ) -> tuple[str, str]:
-    """Read the resolved endpoint GUID and selector returned by /gh/connect."""
+    """Read the resolved endpoint GUID and selector returned by a wire route."""
     data = result.get("data") if isinstance(result.get("data"), dict) else {}
     endpoint = data.get(side) or data.get(side.capitalize())
     if not isinstance(endpoint, dict):
@@ -3090,6 +3094,22 @@ def _gh_resolved_connection_selector(
     if isinstance(param, str) and param:
         return str(guid), f"name:{param}"
     return str(guid), fallback
+
+
+def _gh_connection_outcome(result: dict, mutation_field: str) -> tuple[bool, bool, bool]:
+    """Separate route success from a committed wire mutation and a proven no-op."""
+    request_succeeded = result.get("success") is True
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+
+    nested_success = data.get("success", data.get("Success"))
+    if isinstance(nested_success, bool):
+        request_succeeded = nested_success
+
+    mutation_value = data.get(mutation_field, data.get(mutation_field.capitalize()))
+    no_op_value = data.get("noOp", data.get("NoOp"))
+    no_op = request_succeeded and no_op_value is True
+    mutation_committed = request_succeeded and mutation_value is True and not no_op
+    return request_succeeded, mutation_committed, no_op
 
 
 async def _execute_gh_connect_with_knowledge(arguments: dict, port: int) -> dict:
@@ -3120,19 +3140,19 @@ async def _execute_gh_connect_with_knowledge(arguments: dict, port: int) -> dict
     # Execute the actual connection
     result = await call_rhino("/gh/connect", "POST", arguments, port=port)
 
-    # Determine success
-    success = result.get("success", False)
-    if isinstance(result.get("data"), dict):
-        success = result["data"].get("success", success)
+    request_succeeded, mutation_committed, no_op = _gh_connection_outcome(
+        result,
+        "connected",
+    )
 
     # Track or check correction
     correction_detected = False
     correction_info = None
 
-    if not success:
+    if not request_succeeded:
         error_msg = str(result.get("data", "Connection failed"))
         _track_gh_failure("wire", context, error_msg)
-    else:
+    elif mutation_committed:
         correction_info = _check_for_gh_correction("wire", context, True)
         if correction_info:
             correction_detected = True
@@ -3185,7 +3205,12 @@ async def _execute_gh_connect_with_knowledge(arguments: dict, port: int) -> dict
             resolved_source_selector,
             target_guid or arguments.get("targetGuid", ""),
             resolved_target_selector,
-        )] if success else None,
+        )] if mutation_committed else None,
+        record_metadata={
+            "request_succeeded": request_succeeded,
+            "mutation_committed": mutation_committed,
+            "no_op": no_op,
+        },
     )
     if entry_id and isinstance(result.get("data"), dict):
         result["data"]["_entry_id"] = entry_id
@@ -3322,10 +3347,14 @@ async def _execute_gh_disconnect_with_knowledge(arguments: dict, port: int) -> d
     from rook.learning.gh_knowledge import gh_query_operation, get_gh_knowledge_store
 
     observation_id = str(uuid_module.uuid4())[:8]
+    source_selector = _gh_connection_selector(arguments, "source")
+    target_selector = _gh_connection_selector(arguments, "target")
     context = {
         "source_guid": arguments.get("sourceGuid"),
         "target_guid": arguments.get("targetGuid"),
-        "param": arguments.get("targetParam"),
+        "source_selector": source_selector,
+        "target_selector": target_selector,
+        "param": target_selector,
     }
 
     # Query operation knowledge
@@ -3335,19 +3364,19 @@ async def _execute_gh_disconnect_with_knowledge(arguments: dict, port: int) -> d
     # Execute the actual disconnect
     result = await call_rhino("/gh/disconnect", "POST", arguments, port=port)
 
-    # Determine success
-    success = result.get("success", False)
-    if isinstance(result.get("data"), dict):
-        success = result["data"].get("success", success)
+    request_succeeded, mutation_committed, no_op = _gh_connection_outcome(
+        result,
+        "disconnected",
+    )
 
     # Track or check correction
     correction_detected = False
     correction_info = None
 
-    if not success:
+    if not request_succeeded:
         error_msg = str(result.get("data", "Disconnect failed"))
         _track_gh_failure("disconnect", context, error_msg)
-    else:
+    elif mutation_committed:
         correction_info = _check_for_gh_correction("disconnect", context, True)
         if correction_info:
             correction_detected = True
@@ -3366,13 +3395,43 @@ async def _execute_gh_disconnect_with_knowledge(arguments: dict, port: int) -> d
         result["observation_id"] = observation_id
         result["correction_detected"] = correction_detected
 
-    # Record to session history
+    session_params = {
+        "source": arguments.get("sourceGuid"),
+        "target": arguments.get("targetGuid"),
+    }
+    for selector_key in ("sourceParam", "sourceIndex", "targetParam", "targetIndex"):
+        if selector_key in arguments:
+            session_params[selector_key] = arguments[selector_key]
+    session_params["sourceSelector"] = source_selector
+    session_params["targetSelector"] = target_selector
+    session_params["param"] = target_selector
+
+    source_guid, resolved_source_selector = _gh_resolved_connection_selector(
+        result,
+        "source",
+        source_selector,
+    )
+    target_guid, resolved_target_selector = _gh_resolved_connection_selector(
+        result,
+        "target",
+        target_selector,
+    )
     entry_id = await _record_gh_to_session(
         action="gh_disconnect",
-        params={"source": arguments.get("sourceGuid"), "target": arguments.get("targetGuid"), "param": arguments.get("targetParam")},
+        params=session_params,
         result=result,
         port=port,
-        connections_removed=[(arguments.get("sourceGuid", ""), "output", arguments.get("targetGuid", ""), arguments.get("targetParam", ""))] if success else None,
+        connections_removed=[(
+            source_guid or arguments.get("sourceGuid", ""),
+            resolved_source_selector,
+            target_guid or arguments.get("targetGuid", ""),
+            resolved_target_selector,
+        )] if mutation_committed else None,
+        record_metadata={
+            "request_succeeded": request_succeeded,
+            "mutation_committed": mutation_committed,
+            "no_op": no_op,
+        },
     )
     if entry_id and isinstance(result.get("data"), dict):
         result["data"]["_entry_id"] = entry_id

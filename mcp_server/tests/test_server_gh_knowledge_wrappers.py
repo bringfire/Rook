@@ -148,6 +148,217 @@ async def test_gh_connect_indexed_failures_keep_distinct_correction_keys(
     }
 
 
+@pytest.mark.asyncio
+async def test_gh_connect_duplicate_is_audited_without_mutation_or_learning_credit(
+    monkeypatch,
+    patch_gh_knowledge,
+    patch_session_recording,
+):
+    context = {
+        "source_guid": "SOURCE-GUID",
+        "target_guid": "TARGET-GUID",
+        "source_selector": "index:0",
+        "target_selector": "index:1",
+        "param": "index:1",
+    }
+    server._track_gh_failure("wire", context, "earlier failure")
+
+    monkeypatch.setattr(
+        "rook.learning.gh_knowledge.gh_query_operation",
+        lambda _operation, _context: {"gotchas": [{"message": "known gotcha"}]},
+    )
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        assert route == "/gh/connect"
+        return {
+            "success": True,
+            "data": {
+                "connected": False,
+                "noOp": True,
+                "reason": "connection_already_exists",
+                "source": {"guid": "SOURCE-GUID", "param": "Result", "index": 0},
+                "target": {"guid": "TARGET-GUID", "param": "I1", "index": 1},
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    result = await server._execute_gh_connect_with_knowledge(
+        {
+            "sourceGuid": "SOURCE-GUID",
+            "targetGuid": "TARGET-GUID",
+            "sourceIndex": 0,
+            "targetIndex": 1,
+        },
+        port=64345,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["connected"] is False
+    assert result["data"]["noOp"] is True
+    assert result["data"]["correction_detected"] is False
+    assert patch_gh_knowledge.successes == []
+    assert "wire:TARGET-GUID:index:1" in server._recent_gh_failures
+    assert len(patch_session_recording) == 1
+    assert patch_session_recording[0]["connections_made"] is None
+    assert patch_session_recording[0]["record_metadata"] == {
+        "request_succeeded": True,
+        "mutation_committed": False,
+        "no_op": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_gh_disconnect_missing_wire_is_audited_without_mutation_or_learning_credit(
+    monkeypatch,
+    patch_gh_knowledge,
+    patch_session_recording,
+):
+    context = {
+        "source_guid": "SOURCE-GUID",
+        "target_guid": "TARGET-GUID",
+        "source_selector": "index:0",
+        "target_selector": "index:2",
+        "param": "index:2",
+    }
+    server._track_gh_failure("disconnect", context, "earlier failure")
+
+    monkeypatch.setattr(
+        "rook.learning.gh_knowledge.gh_query_operation",
+        lambda _operation, _context: {"gotchas": [{"message": "known gotcha"}]},
+    )
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        assert route == "/gh/disconnect"
+        return {
+            "success": True,
+            "data": {
+                "disconnected": False,
+                "noOp": True,
+                "reason": "connection_does_not_exist",
+                "source": {"guid": "SOURCE-GUID", "param": "Result", "index": 0},
+                "target": {"guid": "TARGET-GUID", "param": "I2", "index": 2},
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    result = await server._execute_gh_disconnect_with_knowledge(
+        {
+            "sourceGuid": "SOURCE-GUID",
+            "targetGuid": "TARGET-GUID",
+            "sourceIndex": 0,
+            "targetIndex": 2,
+        },
+        port=64345,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["disconnected"] is False
+    assert result["data"]["noOp"] is True
+    assert result["data"]["correction_detected"] is False
+    assert patch_gh_knowledge.successes == []
+    assert "disconnect:TARGET-GUID:index:2" in server._recent_gh_failures
+    assert len(patch_session_recording) == 1
+    assert patch_session_recording[0]["connections_removed"] is None
+    assert patch_session_recording[0]["record_metadata"] == {
+        "request_succeeded": True,
+        "mutation_committed": False,
+        "no_op": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_gh_disconnect_records_route_resolved_indexed_endpoints(
+    monkeypatch,
+    patch_gh_knowledge,
+    patch_session_recording,
+):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        assert route == "/gh/disconnect"
+        return {
+            "success": True,
+            "data": {
+                "disconnected": True,
+                "source": {"guid": "RESOLVED-SOURCE", "param": "Result", "index": 3},
+                "target": {"guid": "RESOLVED-TARGET", "param": "I7", "index": 7},
+            },
+        }
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    result = await server._execute_gh_disconnect_with_knowledge(
+        {
+            "sourceGuid": "SOURCE-GUID",
+            "targetGuid": "TARGET-GUID",
+            "sourceIndex": 3,
+            "targetIndex": 7,
+        },
+        port=64345,
+    )
+
+    assert result["data"]["disconnected"] is True
+    assert patch_session_recording[0]["connections_removed"] == [
+        ("RESOLVED-SOURCE", "index:3", "RESOLVED-TARGET", "index:7")
+    ]
+    assert patch_session_recording[0]["params"] == {
+        "source": "SOURCE-GUID",
+        "target": "TARGET-GUID",
+        "sourceIndex": 3,
+        "targetIndex": 7,
+        "sourceSelector": "index:3",
+        "targetSelector": "index:7",
+        "param": "index:7",
+    }
+    assert patch_session_recording[0]["record_metadata"] == {
+        "request_succeeded": True,
+        "mutation_committed": True,
+        "no_op": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_connection_outcome_metadata_is_retained_by_session_recorder(monkeypatch):
+    recorded: dict = {}
+
+    class _Recorder:
+        async def record(self, **kwargs):
+            recorded.update(kwargs)
+            return 456
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        assert route == "/gh/document"
+        return {"success": True, "data": {"name": "audit.gh", "path": "C:/audit.gh"}}
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+    monkeypatch.setattr(
+        "rook.learning.gh_session_history.get_session_recorder",
+        lambda: _Recorder(),
+    )
+
+    entry_id = await server._record_gh_to_session(
+        action="gh_connect",
+        params={"source": "A", "target": "B"},
+        result={"success": True, "data": {"connected": False, "noOp": True}},
+        port=64345,
+        record_metadata={
+            "request_succeeded": True,
+            "mutation_committed": False,
+            "no_op": True,
+        },
+    )
+
+    assert entry_id == 456
+    assert recorded["result"].success is True
+    assert recorded["result"].outcome == "success"
+    assert recorded["result"].connections_made == []
+    assert recorded["result"].data == {
+        "request_succeeded": True,
+        "mutation_committed": False,
+        "no_op": True,
+    }
+
+
 class _DummyGhKnowledgeStore:
     def __init__(self) -> None:
         self.successes: list[str] = []
