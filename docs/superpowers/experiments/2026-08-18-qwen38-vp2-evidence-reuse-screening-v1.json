@@ -1,0 +1,263 @@
+{
+  "schema": "rook.experiment.qwen38_varied_product_cohort:v1",
+  "status": "frozen_precontact",
+  "purpose": "Screen the approved session-local evidence-reuse guidance on one otherwise unchanged VP2 radial-canopy task.",
+  "evidenceRootPrefix": "C:/UDEV/RookEvidence",
+  "sourceCampaignProtocol": {
+    "path": "docs/superpowers/experiments/2026-08-18-qwen38-self-termination-campaign-v6.json",
+    "sha256": "F3DFAFD00C0DF55A1F6C2A8B2DA3A4AEE0BE2A2DEAE533892F909F0AC184ECB8"
+  },
+  "executionOrder": [
+    "VP2"
+  ],
+  "continuationPolicy": {
+    "modelOrSemanticFailureContinues": true,
+    "budgetLimitTerminationContinuesAfterCleanShutdown": true,
+    "stopConditions": [
+      "runtime_custody_drift",
+      "python_environment_drift",
+      "tool_surface_drift",
+      "target_contamination",
+      "process_custody_failure",
+      "evaluator_infrastructure_failure",
+      "unexpected_runner_failure"
+    ]
+  },
+  "limits": {
+    "wallClockSecondsPerRun": 1800,
+    "gatewayEventsPerRun": 150,
+    "providerReportedTokensPerRun": 2000000,
+    "primeGoalTokenBudget": 2000000
+  },
+  "prime": {
+    "sourceRoot": "D:/prime-agent/.worktrees/mcp-error-merged-runtime",
+    "commit": "27b5be22cf0e0e81e324a59ebabbb41edfee6ec0",
+    "bashPath": "C:/Program Files/Git/bin/bash.exe",
+    "launcherPath": "D:/prime-agent/.worktrees/mcp-error-merged-runtime/prime-agent.sh",
+    "nodePath": "C:/Program Files/nodejs/node.exe",
+    "nodeVersion": "v24.11.1",
+    "nodeSha256": "F13AC3CA23248DC389507E8FE38C34489AB7EDB3E6D6700EB6DA6A0B7E128EAF",
+    "runtimeBundle": {
+      "root": "D:/prime-agent/.worktrees/mcp-error-merged-runtime/packages/coding-agent/dist",
+      "subtrees": [
+        "bundle",
+        "skills"
+      ],
+      "entryCount": 83,
+      "totalBytes": 13975754,
+      "manifestSha256": "78FEBC82B29F2729968A8475033E800DFA840BC99D425EDC8C0B684EF8A4A036"
+    },
+    "sealedKernelPython": "C:/Users/bring/.prime/agent/kernel-venv/Scripts/python.exe",
+    "thinkingLevel": "low",
+    "model": "ollama_chat/qwen3.8:27b",
+    "settings": {
+      "enableBuiltinSkills": true,
+      "packages": [],
+      "extensions": []
+    },
+    "models": {
+      "providers": {
+        "ollama_chat": {
+          "baseUrl": "http://127.0.0.1:11434/v1",
+          "api": "openai-completions",
+          "apiKey": "ollama",
+          "compat": {
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": true
+          },
+          "models": [
+            {
+              "id": "qwen3.8:27b",
+              "reasoning": true
+            }
+          ]
+        }
+      }
+    }
+  },
+  "pythonEnvironment": {
+    "pythonPathEntries": [
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/win32",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/win32/lib",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pythonwin"
+    ],
+    "dllPathEntries": [
+      "C:/Users/bring/AppData/Local/Rook/venv",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pywin32_system32"
+    ],
+    "manifestRoots": {
+      "kernelSitePackages": {
+        "path": "C:/Users/bring/.prime/agent/kernel-venv/Lib/site-packages",
+        "entryCount": 14915,
+        "totalBytes": 302687750,
+        "manifestSha256": "019A431AA3EC558A0068215D513E59AB732FDDCCFD20DDCADD7B58E56A0153ED"
+      },
+      "rookPackage": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook",
+        "entryCount": 568,
+        "totalBytes": 13857260,
+        "manifestSha256": "F8B077BA85BB42B2DB77938F81B110BFE42F1E7A1A14F36EF62F94016C43C23B"
+      },
+      "mcpPackage": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/mcp",
+        "entryCount": 221,
+        "totalBytes": 1787908,
+        "manifestSha256": "A750191E60B326AE16E654B209B53C184C0A073FDBF5D7B0716793833819D953"
+      },
+      "win32Package": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/win32",
+        "entryCount": 332,
+        "totalBytes": 5484932,
+        "manifestSha256": "147FA456B1E727579D5741867F4359CDDAA24BF2BD7084B999885964A955FC0B"
+      },
+      "pythonwinPackage": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pythonwin",
+        "entryCount": 219,
+        "totalBytes": 4999870,
+        "manifestSha256": "21D552729B15976DA573CBACE4898AFF4E05C1E589FC976D75AF967480A7FE70"
+      },
+      "pywin32System32": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pywin32_system32",
+        "entryCount": 2,
+        "totalBytes": 816128,
+        "manifestSha256": "BCF11A2AA7DDF9A4113B51C4433292C2CF02C5203E760F73146CA087DBBAF85D"
+      },
+      "pythoncomDll": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/pythoncom311.dll",
+        "entryCount": 1,
+        "totalBytes": 680960,
+        "manifestSha256": "2D5716D1217D618BDA5D75BF07B1C7DD40EF873C2E6AABA6B4C038230DEB48E4"
+      },
+      "pywintypesDll": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/pywintypes311.dll",
+        "entryCount": 1,
+        "totalBytes": 135168,
+        "manifestSha256": "C2DB79B199901864A0988AE782DC380B8C45E30EC10B30AE7A79C96AC881BA48"
+      }
+    }
+  },
+  "modelCustody": {
+    "ollamaVersion": "0.32.14",
+    "runtimePath": "C:/Users/bring/AppData/Local/Programs/Ollama/ollama.exe",
+    "runtimeSha256": "11D7729CB18BB4876AD91A14FBE9BA3B6985EAABC3475A62D47D874BE24A9B54",
+    "manifestPath": "C:/Users/bring/.ollama/models/manifests/registry.ollama.ai/library/qwen3.8/27b",
+    "manifestSha256": "22130167C4C20E20C7B71454612966CA8E8171E9B3CC8AB6CE8AA6CBFEC79643",
+    "blobRoot": "C:/Users/bring/.ollama/models/blobs",
+    "config": {
+      "digest": "sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f",
+      "size": 215
+    },
+    "layers": [
+      {
+        "digest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e",
+        "size": 931146016
+      },
+      {
+        "digest": "sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d",
+        "size": 16810714464
+      },
+      {
+        "digest": "sha256:4c6a8e842ef0d8504549facfb03f1273a8d0022991519bc1888522cc1a5517d1",
+        "size": 11345
+      },
+      {
+        "digest": "sha256:906ee87bde6cff7bf3c3b1550f55cbbec261e027187fbb9f511f908ffc418334",
+        "size": 114
+      }
+    ]
+  },
+  "rookCustody": {
+    "nativePluginPath": "C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp",
+    "nativePluginSha256": "0CA4DEEC98B98FDDA09AAC2E62FC1DA31107213DFACC09C20A43838B041723A1",
+    "managedNet8PluginPath": "C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net8.0/Rook.rhp",
+    "managedNet8PluginSha256": "020EEE4F04B13725AE46BD81EC92F1211375F2BEF5B51159FF5BB26517D64BE4",
+    "installedPythonRoot": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages",
+    "serverPath": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/server.py",
+    "serverSha256": "234CF22B847B62F5E11635621622C7B363180154A845F94CE0C86658A0186159",
+    "behavioralAcceptancePath": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/gh_behavioral_acceptance.py",
+    "behavioralAcceptanceSha256": "ED90B41F4DA86569A6A7439024A692A3C7D071353CF4BBE4EBB7579B5F92C8BA"
+  },
+  "offlineEvaluator": {
+    "sourceCampaignProtocolSha256": "F3DFAFD00C0DF55A1F6C2A8B2DA3A4AEE0BE2A2DEAE533892F909F0AC184ECB8",
+    "reviewedCorrectionCommit": "efe0615466b84079263fd190336831bfce59343a",
+    "behavioralAcceptancePath": "mcp_server/src/rook/gh_behavioral_acceptance.py",
+    "behavioralAcceptanceSha256": "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5",
+    "scope": "silent_post_run_trace_normalization_only"
+  },
+  "versionedInputs": {
+    "skillPath": "integrations/prime/skills/prime-execute-grasshopper/SKILL.md",
+    "skillSha256": "9B64700AED510C4925F23E622AAC77524D25148AFE8B6A70AF42D5D0AE77F448",
+    "checkpointPath": "integrations/prime/skills/prime-execute-grasshopper/references/checkpoint-protocol.md",
+    "checkpointSha256": "2D574EABF45EC1EB9B9BBCFCBD68F1CBE311E466CD922DF312F88A51925D63E7",
+    "adapterRoot": "integrations/prime/skills/rook-full",
+    "adapterInitSha256": "06F1CB4AA58FD8C4C6F61F96CE7B8A5F4FEF7B6B126D00C0550B2CB3AA0BBF74"
+  },
+  "toolSurface": {
+    "profile": "full",
+    "serializedCatalogCount": 382,
+    "serializedCatalogBytes": 320743,
+    "serializedCatalogSha256": "64796B23E123368F1F9CC509206A879783195223D81165C70D7226CB154B86FA"
+  },
+  "tasks": {
+    "VP2": {
+      "id": "VP2",
+      "class": "underspecified_architectural_system",
+      "targetBaseline": "fresh_empty_grasshopper_document",
+      "evaluator": "independent_shadow_judgment",
+      "prompt": "Create a useful adjustable radial canopy rib system centered near the world origin. Make reasonable architectural choices about span, rib count, rise or curvature, and opening or rotation; expose meaningful controls; produce inspectable curve geometry suitable as a conceptual canopy framework. Investigate material ambiguity where useful and disclose consequential assumptions when completing.",
+      "targetFixture": {
+        "schema": "rook.experiment.gh_target_fixture:v1",
+        "baseline": "fresh_empty",
+        "seedEdit": null,
+        "seedExpectations": null,
+        "preservation": null
+      }
+    }
+  },
+  "shadowAdjudication": {
+    "path": "docs/superpowers/experiments/2026-08-18-qwen38-vp2-evidence-reuse-screening-v1-adjudication.json",
+    "sha256": "8B21891DC996F78BFDA497928CA1F470400DB50626C369B43E0F12F34C9FDAB1"
+  },
+  "precontactVerification": {
+    "pythonPath": "C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe",
+    "arguments": [
+      "-m",
+      "pytest",
+      "mcp_server/tests/test_qwen38_self_termination_campaign_runner.py",
+      "mcp_server/tests/test_gh_behavioral_acceptance.py",
+      "-q"
+    ]
+  },
+  "screeningRetest": {
+    "sourceProtocol": {
+      "path": "docs/superpowers/experiments/2026-08-18-qwen38-varied-product-cohort-v1.json",
+      "sha256": "3250486ED3012AC7B3EAD290984F835B3ECB0AE694D1743DD19158B0F1F00E09"
+    },
+    "sourceEvidenceManifest": {
+      "path": "C:/UDEV/RookEvidence/2026-08-18-qwen38-varied-product-cohort-v1/evidence-manifest.json",
+      "sha256": "3E62BE054F33AA87D8F1A6745BA7B0769419220A954A5667160CB89EB1EB4990"
+    },
+    "onlyChangedOperationalInput": "versioned_prime_skill",
+    "sourceSkillSha256": "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07",
+    "rule": "Reuse successfully and unambiguously resolved session-local capability schemas, component-discovery facts, and component metadata. Request only missing facts. Refresh a resolved fact only when refusal, runtime or target-identity change, or contradictory live evidence gives a named reason to consider it stale.",
+    "baselineTelemetry": {
+      "discoveryAndSchemaCalls": 36,
+      "exactRepeatedSuccessfulSchemaReads": 6,
+      "repeatedMetadataSelectorOccurrences": 25,
+      "modelTurns": 46,
+      "finalInputContextTokens": 85407,
+      "cumulativeProviderInputTokens": 2012994
+    },
+    "successCriteria": [
+      "no_exact_repeated_successful_schema_read",
+      "no_resolved_metadata_selector_repeat_without_named_stale_trigger",
+      "fewer_than_36_discovery_and_schema_calls",
+      "mechanically_healthy_canopy_without_material_regression",
+      "receipt_fenced_final_snapshot_then_goal_complete",
+      "budget_pass",
+      "custody_pass"
+    ],
+    "evaluatorFeedbackDuringRun": false
+  }
+}

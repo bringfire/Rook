@@ -56,6 +56,20 @@ VARIED_COHORT_ADJUDICATION_PATH = (
     / "experiments"
     / "2026-08-18-qwen38-varied-product-cohort-v1-adjudication.json"
 )
+VP2_EVIDENCE_REUSE_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-18-qwen38-vp2-evidence-reuse-screening-v1.json"
+)
+VP2_EVIDENCE_REUSE_ADJUDICATION_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-18-qwen38-vp2-evidence-reuse-screening-v1-adjudication.json"
+)
 ADAPTER_PATH = (
     ROOT
     / "integrations"
@@ -77,6 +91,17 @@ CHECKPOINT_PATH = (
     / "prime-execute-grasshopper"
     / "references"
     / "checkpoint-protocol.md"
+)
+
+EVIDENCE_REUSE_RULE = (
+    "Reuse successfully and unambiguously resolved session-local capability "
+    "schemas, component-discovery facts, and component metadata. Request only "
+    "missing facts. Refresh a resolved fact only when refusal, runtime or "
+    "target-identity change, or contradictory live evidence gives a named reason "
+    "to consider it stale."
+)
+BASELINE_SKILL_SHA256 = (
+    "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
 )
 
 
@@ -187,6 +212,128 @@ def _v6_protocol() -> dict:
 
 def _varied_cohort_protocol() -> dict:
     return json.loads(VARIED_COHORT_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
+def _vp2_evidence_reuse_protocol() -> dict:
+    return json.loads(VP2_EVIDENCE_REUSE_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
+def test_vp2_evidence_reuse_skill_delta_is_exactly_one_reviewed_rule():
+    skill = SKILL_PATH.read_text(encoding="utf-8")
+
+    assert skill.count(EVIDENCE_REUSE_RULE) == 1
+    prior = skill.replace(EVIDENCE_REUSE_RULE + "\n\n", "", 1).encode("utf-8")
+    assert hashlib.sha256(prior).hexdigest().upper() == BASELINE_SKILL_SHA256
+
+
+def test_vp2_evidence_reuse_screening_freezes_only_the_reviewed_input_delta():
+    runner = _runner()
+    baseline = _varied_cohort_protocol()
+    screening = _vp2_evidence_reuse_protocol()
+
+    assert runner.validate_protocol(screening) is screening
+    assert screening["executionOrder"] == ["VP2"]
+    assert screening["tasks"] == {"VP2": baseline["tasks"]["VP2"]}
+    assert screening["prime"] == baseline["prime"]
+    assert screening["limits"] == baseline["limits"]
+    assert screening["pythonEnvironment"] == baseline["pythonEnvironment"]
+    assert screening["modelCustody"] == baseline["modelCustody"]
+    assert screening["rookCustody"] == baseline["rookCustody"]
+    assert screening["offlineEvaluator"] == baseline["offlineEvaluator"]
+    assert screening["toolSurface"] == baseline["toolSurface"]
+    assert screening["sourceCampaignProtocol"] == baseline["sourceCampaignProtocol"]
+    assert screening["continuationPolicy"] == baseline["continuationPolicy"]
+    assert screening["precontactVerification"] == baseline["precontactVerification"]
+    assert screening["versionedInputs"]["skillSha256"] == hashlib.sha256(
+        SKILL_PATH.read_bytes()
+    ).hexdigest().upper()
+    assert screening["versionedInputs"]["skillSha256"] != (
+        baseline["versionedInputs"]["skillSha256"]
+    )
+    assert screening["versionedInputs"]["checkpointSha256"] == (
+        baseline["versionedInputs"]["checkpointSha256"]
+    )
+    assert screening["versionedInputs"]["adapterInitSha256"] == (
+        baseline["versionedInputs"]["adapterInitSha256"]
+    )
+
+    normalized = json.loads(json.dumps(screening))
+    normalized["purpose"] = baseline["purpose"]
+    normalized["executionOrder"] = baseline["executionOrder"]
+    normalized["tasks"] = baseline["tasks"]
+    normalized["versionedInputs"]["skillSha256"] = baseline["versionedInputs"][
+        "skillSha256"
+    ]
+    normalized["shadowAdjudication"] = baseline["shadowAdjudication"]
+    del normalized["screeningRetest"]
+    assert normalized == baseline
+
+
+def test_vp2_screening_adjudication_is_the_exact_baseline_vp2_slice():
+    runner = _runner()
+    baseline = json.loads(
+        VARIED_COHORT_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+    screening_protocol = _vp2_evidence_reuse_protocol()
+    screening = json.loads(
+        VP2_EVIDENCE_REUSE_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+
+    assert runner.validate_shadow_adjudication(
+        screening, screening_protocol
+    ) is screening
+    assert screening["tasks"] == {"VP2": baseline["tasks"]["VP2"]}
+    normalized = json.loads(json.dumps(screening))
+    normalized["tasks"] = baseline["tasks"]
+    assert normalized == baseline
+    assert screening_protocol["shadowAdjudication"]["sha256"] == hashlib.sha256(
+        VP2_EVIDENCE_REUSE_ADJUDICATION_PATH.read_bytes()
+    ).hexdigest().upper()
+
+
+def test_vp2_screening_contract_is_closed_to_one_silent_row():
+    runner = _runner()
+    protocol = _vp2_evidence_reuse_protocol()
+
+    assert protocol["screeningRetest"] == {
+        "sourceProtocol": {
+            "path": VARIED_COHORT_PROTOCOL_PATH.relative_to(ROOT).as_posix(),
+            "sha256": hashlib.sha256(
+                VARIED_COHORT_PROTOCOL_PATH.read_bytes()
+            ).hexdigest().upper(),
+        },
+        "sourceEvidenceManifest": {
+            "path": "C:/UDEV/RookEvidence/2026-08-18-qwen38-varied-product-cohort-v1/evidence-manifest.json",
+            "sha256": "3E62BE054F33AA87D8F1A6745BA7B0769419220A954A5667160CB89EB1EB4990",
+        },
+        "onlyChangedOperationalInput": "versioned_prime_skill",
+        "sourceSkillSha256": BASELINE_SKILL_SHA256,
+        "rule": EVIDENCE_REUSE_RULE,
+        "baselineTelemetry": {
+            "discoveryAndSchemaCalls": 36,
+            "exactRepeatedSuccessfulSchemaReads": 6,
+            "repeatedMetadataSelectorOccurrences": 25,
+            "modelTurns": 46,
+            "finalInputContextTokens": 85407,
+            "cumulativeProviderInputTokens": 2012994,
+        },
+        "successCriteria": [
+            "no_exact_repeated_successful_schema_read",
+            "no_resolved_metadata_selector_repeat_without_named_stale_trigger",
+            "fewer_than_36_discovery_and_schema_calls",
+            "mechanically_healthy_canopy_without_material_regression",
+            "receipt_fenced_final_snapshot_then_goal_complete",
+            "budget_pass",
+            "custody_pass",
+        ],
+        "evaluatorFeedbackDuringRun": False,
+    }
+
+    expanded = json.loads(json.dumps(protocol))
+    expanded["executionOrder"] = ["VP1", "VP2"]
+    expanded["tasks"]["VP1"] = _varied_cohort_protocol()["tasks"]["VP1"]
+    with pytest.raises(ValueError, match="task_order_invalid"):
+        runner.validate_protocol(expanded)
 
 
 def test_varied_cohort_freezes_v6_runtime_and_exact_reviewed_evaluator_delta():
@@ -687,9 +834,7 @@ def test_frozen_v6_changes_only_focused_scope_and_versioned_instructions():
     assert v6["tasks"] == v5["tasks"]
     assert v6["prime"] == v5["prime"]
     assert v6["limits"] == v5["limits"]
-    assert v6["versionedInputs"]["skillSha256"] == hashlib.sha256(
-        SKILL_PATH.read_bytes()
-    ).hexdigest().upper()
+    assert v6["versionedInputs"]["skillSha256"] == BASELINE_SKILL_SHA256
     assert v6["versionedInputs"]["checkpointSha256"] == hashlib.sha256(
         CHECKPOINT_PATH.read_bytes()
     ).hexdigest().upper()
@@ -1127,7 +1272,7 @@ def test_frozen_protocol_pins_every_staged_versioned_input():
         "versionedInputs"
     ]
 
-    assert versioned["skillSha256"] == hashlib.sha256(SKILL_PATH.read_bytes()).hexdigest().upper()
+    assert versioned["skillSha256"] == BASELINE_SKILL_SHA256
     assert versioned["checkpointSha256"] == hashlib.sha256(
         CHECKPOINT_PATH.read_bytes()
     ).hexdigest().upper()

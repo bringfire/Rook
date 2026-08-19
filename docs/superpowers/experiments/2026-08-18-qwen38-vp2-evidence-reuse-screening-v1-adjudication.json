@@ -1,0 +1,49 @@
+{
+  "schema": "rook.experiment.varied_product_shadow_adjudication:v1",
+  "status": "frozen_precontact",
+  "purpose": "Guide independent post-run judgment without providing semantic feedback to the Actor.",
+  "evaluatorFeedbackDuringRun": false,
+  "evidenceLabels": [
+    "observed",
+    "inferred",
+    "unresolved"
+  ],
+  "dispositions": [
+    "credible_success",
+    "partial_success",
+    "semantic_failure",
+    "incomplete"
+  ],
+  "aggregateScore": null,
+  "rules": [
+    "Judge each row independently after the Actor process has ended and the row evidence has been sealed.",
+    "Cite retained evidence for every observed claim.",
+    "Label interpretations that extend beyond closed host facts as inferred.",
+    "Use unresolved when retained evidence cannot support a judgment.",
+    "Do not convert aesthetic preference or an unstated design choice into a failure.",
+    "Do not feed any judgment, question, disposition, or expected answer back to the Actor during the cohort."
+  ],
+  "tasks": {
+    "VP2": {
+      "class": "underspecified_architectural_system",
+      "questions": [
+        {
+          "id": "canopy_system_is_useful",
+          "text": "Did the final definition produce a credible radial canopy-rib framework rather than merely disconnected or incidental geometry?"
+        },
+        {
+          "id": "controls_are_meaningful",
+          "text": "Do exposed controls materially govern consequential canopy properties such as span, rib count, rise, curvature, opening, or rotation?"
+        },
+        {
+          "id": "design_choices_are_reasonable",
+          "text": "Are the model's architectural choices coherent with the underspecified request?"
+        },
+        {
+          "id": "ambiguity_is_handled_honestly",
+          "text": "Did the model investigate or disclose consequential ambiguity rather than claim an unstated aesthetic preference as fact?"
+        }
+      ]
+    }
+  }
+}

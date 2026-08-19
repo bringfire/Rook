@@ -259,6 +259,81 @@ class CampaignLimits:
         return cls(**parsed)
 
 
+def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
+    screening = protocol.get("screeningRetest")
+    if screening is None:
+        return ["VP1", "VP2", "VP3"]
+    if type(screening) is not dict or set(screening) != {
+        "sourceProtocol",
+        "sourceEvidenceManifest",
+        "onlyChangedOperationalInput",
+        "sourceSkillSha256",
+        "rule",
+        "baselineTelemetry",
+        "successCriteria",
+        "evaluatorFeedbackDuringRun",
+    }:
+        raise ValueError("screening_retest_invalid")
+    source = screening.get("sourceProtocol")
+    if (
+        type(source) is not dict
+        or set(source) != {"path", "sha256"}
+        or source.get("path")
+        != "docs/superpowers/experiments/2026-08-18-qwen38-varied-product-cohort-v1.json"
+        or not _is_sha256(source.get("sha256"))
+    ):
+        raise ValueError("screening_retest_invalid")
+    source_path = ROOT / source["path"]
+    if not source_path.is_file() or _sha(source_path) != source["sha256"]:
+        raise ValueError("screening_retest_invalid")
+    evidence = screening.get("sourceEvidenceManifest")
+    if (
+        type(evidence) is not dict
+        or set(evidence) != {"path", "sha256"}
+        or type(evidence.get("path")) is not str
+        or not Path(evidence["path"]).is_absolute()
+        or not _is_sha256(evidence.get("sha256"))
+    ):
+        raise ValueError("screening_retest_invalid")
+    telemetry = screening.get("baselineTelemetry")
+    if (
+        type(telemetry) is not dict
+        or set(telemetry)
+        != {
+            "discoveryAndSchemaCalls",
+            "exactRepeatedSuccessfulSchemaReads",
+            "repeatedMetadataSelectorOccurrences",
+            "modelTurns",
+            "finalInputContextTokens",
+            "cumulativeProviderInputTokens",
+        }
+        or any(type(value) is not int or value < 0 for value in telemetry.values())
+        or screening.get("onlyChangedOperationalInput")
+        != "versioned_prime_skill"
+        or not _is_sha256(screening.get("sourceSkillSha256"))
+        or type(screening.get("rule")) is not str
+        or not screening["rule"]
+        or screening.get("successCriteria")
+        != [
+            "no_exact_repeated_successful_schema_read",
+            "no_resolved_metadata_selector_repeat_without_named_stale_trigger",
+            "fewer_than_36_discovery_and_schema_calls",
+            "mechanically_healthy_canopy_without_material_regression",
+            "receipt_fenced_final_snapshot_then_goal_complete",
+            "budget_pass",
+            "custody_pass",
+        ]
+        or screening.get("evaluatorFeedbackDuringRun") is not False
+    ):
+        raise ValueError("screening_retest_invalid")
+    baseline = _load_json(source_path)
+    if screening["sourceSkillSha256"] != baseline.get("versionedInputs", {}).get(
+        "skillSha256"
+    ):
+        raise ValueError("screening_retest_invalid")
+    return ["VP2"]
+
+
 def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     schema = protocol.get("schema") if type(protocol) is dict else None
     if schema not in {
@@ -289,7 +364,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         "rook.experiment.qwen38_self_termination_campaign:v4": ["T3", "T2", "T4"],
         "rook.experiment.qwen38_self_termination_campaign:v5": ["T4"],
         "rook.experiment.qwen38_self_termination_campaign:v6": ["T4"],
-        VARIED_COHORT_SCHEMA: ["VP1", "VP2", "VP3"],
+        VARIED_COHORT_SCHEMA: _varied_execution_order(protocol),
     }[schema]
     if type(tasks) is not dict or order != expected_order:
         raise ValueError("focused_retest_invalid" if schema.endswith(":v5") else "task_order_invalid")
