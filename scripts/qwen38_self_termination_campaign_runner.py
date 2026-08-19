@@ -38,6 +38,19 @@ SHADOW_ADJUDICATION_SCHEMA = (
 POINT_ACCEPTANCE = ROOT / "scripts" / "grasshopper_point_row_acceptance.json"
 PREFLIGHT_SCRIPT = ROOT / "scripts" / "prime_goal_kernel_preflight.ts"
 _MANIFEST_EXCLUSIONS = {"evidence-manifest.json", "manifest-verification.json"}
+_EVIDENCE_REUSE_RULE = (
+    "Reuse successfully and unambiguously resolved session-local capability "
+    "schemas, component-discovery facts, and component metadata. Request only "
+    "missing facts. Refresh a resolved fact only when refusal, runtime or "
+    "target-identity change, or contradictory live evidence gives a named reason "
+    "to consider it stale."
+)
+_STRATEGY_DISCIPLINE_RULE = (
+    "Treat a component or subgraph failure as local first. Before abandoning a "
+    "committed strategy, either attempt one bounded local repair or identify live "
+    "evidence making a pivot preferable. Preserve unaffected committed work during "
+    "a pivot. Further discovery must name the blocker it resolves."
+)
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -275,11 +288,14 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
     }:
         raise ValueError("screening_retest_invalid")
     source = screening.get("sourceProtocol")
+    allowed_source_paths = {
+        "docs/superpowers/experiments/2026-08-18-qwen38-varied-product-cohort-v1.json",
+        "docs/superpowers/experiments/2026-08-18-qwen38-vp2-evidence-reuse-screening-v1.json",
+    }
     if (
         type(source) is not dict
         or set(source) != {"path", "sha256"}
-        or source.get("path")
-        != "docs/superpowers/experiments/2026-08-18-qwen38-varied-product-cohort-v1.json"
+        or source.get("path") not in allowed_source_paths
         or not _is_sha256(source.get("sha256"))
     ):
         raise ValueError("screening_retest_invalid")
@@ -296,10 +312,14 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
     ):
         raise ValueError("screening_retest_invalid")
     telemetry = screening.get("baselineTelemetry")
-    if (
-        type(telemetry) is not dict
-        or set(telemetry)
-        != {
+    rule = screening.get("rule")
+    evidence_reuse_profile = (
+        rule == _EVIDENCE_REUSE_RULE
+        and source["path"]
+        == "docs/superpowers/experiments/2026-08-18-qwen38-varied-product-cohort-v1.json"
+        and type(telemetry) is dict
+        and set(telemetry)
+        == {
             "discoveryAndSchemaCalls",
             "exactRepeatedSuccessfulSchemaReads",
             "repeatedMetadataSelectorOccurrences",
@@ -307,14 +327,8 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
             "finalInputContextTokens",
             "cumulativeProviderInputTokens",
         }
-        or any(type(value) is not int or value < 0 for value in telemetry.values())
-        or screening.get("onlyChangedOperationalInput")
-        != "versioned_prime_skill"
-        or not _is_sha256(screening.get("sourceSkillSha256"))
-        or type(screening.get("rule")) is not str
-        or not screening["rule"]
-        or screening.get("successCriteria")
-        != [
+        and screening.get("successCriteria")
+        == [
             "no_exact_repeated_successful_schema_read",
             "no_resolved_metadata_selector_repeat_without_named_stale_trigger",
             "fewer_than_36_discovery_and_schema_calls",
@@ -323,6 +337,39 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
             "budget_pass",
             "custody_pass",
         ]
+    )
+    strategy_profile = (
+        rule == _STRATEGY_DISCIPLINE_RULE
+        and source["path"]
+        == "docs/superpowers/experiments/2026-08-18-qwen38-vp2-evidence-reuse-screening-v1.json"
+        and type(telemetry) is dict
+        and set(telemetry)
+        == {
+            "wholesaleDeletedCommittedComponents",
+            "committedComponentsPreservedDuringPivot",
+            "replacementStrategyDiscoveryCalls",
+            "gatewayCalls",
+            "cumulativeProviderTokens",
+        }
+        and screening.get("successCriteria")
+        == [
+            "no_wholesale_deletion_without_live_evidence",
+            "preserve_unaffected_committed_work_during_pivot",
+            "fewer_than_3_replacement_strategy_discovery_calls",
+            "fewer_than_2092295_cumulative_provider_tokens",
+            "any_strategy_pivot_supported_by_live_evidence",
+            "mechanically_healthy_canopy_without_material_regression",
+            "receipt_fenced_final_snapshot_then_goal_complete",
+            "budget_pass",
+            "custody_pass",
+        ]
+    )
+    if (
+        not (evidence_reuse_profile or strategy_profile)
+        or any(type(value) is not int or value < 0 for value in telemetry.values())
+        or screening.get("onlyChangedOperationalInput")
+        != "versioned_prime_skill"
+        or not _is_sha256(screening.get("sourceSkillSha256"))
         or screening.get("evaluatorFeedbackDuringRun") is not False
     ):
         raise ValueError("screening_retest_invalid")

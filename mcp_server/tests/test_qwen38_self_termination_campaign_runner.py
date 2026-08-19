@@ -80,6 +80,23 @@ VP2_EVIDENCE_REUSE_SKILL_PATH = (
     / "prime-execute-grasshopper"
     / "SKILL.md"
 )
+VP2_STRATEGY_DISCIPLINE_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-18-qwen38-vp2-strategy-discipline-screening-v1.json"
+)
+VP2_STRATEGY_DISCIPLINE_SKILL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "inputs"
+    / "2026-08-18-qwen38-vp2-strategy-discipline-screening-v1"
+    / "prime-execute-grasshopper"
+    / "SKILL.md"
+)
 ADAPTER_PATH = (
     ROOT
     / "integrations"
@@ -109,6 +126,12 @@ EVIDENCE_REUSE_RULE = (
     "missing facts. Refresh a resolved fact only when refusal, runtime or "
     "target-identity change, or contradictory live evidence gives a named reason "
     "to consider it stale."
+)
+STRATEGY_DISCIPLINE_RULE = (
+    "Treat a component or subgraph failure as local first. Before abandoning a "
+    "committed strategy, either attempt one bounded local repair or identify live "
+    "evidence making a pivot preferable. Preserve unaffected committed work during "
+    "a pivot. Further discovery must name the blocker it resolves."
 )
 BASELINE_SKILL_SHA256 = (
     "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
@@ -228,6 +251,12 @@ def _vp2_evidence_reuse_protocol() -> dict:
     return json.loads(VP2_EVIDENCE_REUSE_PROTOCOL_PATH.read_text(encoding="utf-8"))
 
 
+def _vp2_strategy_discipline_protocol() -> dict:
+    return json.loads(
+        VP2_STRATEGY_DISCIPLINE_PROTOCOL_PATH.read_text(encoding="utf-8")
+    )
+
+
 def test_vp2_evidence_reuse_skill_delta_is_exactly_one_reviewed_rule():
     baseline_skill = SKILL_PATH.read_bytes()
     experimental_skill = VP2_EVIDENCE_REUSE_SKILL_PATH.read_text(encoding="utf-8")
@@ -239,6 +268,117 @@ def test_vp2_evidence_reuse_skill_delta_is_exactly_one_reviewed_rule():
         EVIDENCE_REUSE_RULE + "\n\n", "", 1
     ).encode("utf-8")
     assert hashlib.sha256(prior).hexdigest().upper() == BASELINE_SKILL_SHA256
+
+
+def test_vp2_strategy_discipline_skill_delta_is_exactly_one_reviewed_rule():
+    source_skill = VP2_EVIDENCE_REUSE_SKILL_PATH.read_bytes()
+    experimental_skill = VP2_STRATEGY_DISCIPLINE_SKILL_PATH.read_text(
+        encoding="utf-8"
+    )
+
+    assert hashlib.sha256(SKILL_PATH.read_bytes()).hexdigest().upper() == (
+        BASELINE_SKILL_SHA256
+    )
+    assert STRATEGY_DISCIPLINE_RULE not in source_skill.decode("utf-8")
+    assert experimental_skill.count(EVIDENCE_REUSE_RULE) == 1
+    assert experimental_skill.count(STRATEGY_DISCIPLINE_RULE) == 1
+    prior = experimental_skill.replace(
+        STRATEGY_DISCIPLINE_RULE + "\n\n", "", 1
+    ).encode("utf-8")
+    assert prior == source_skill
+
+
+def test_vp2_strategy_screening_freezes_only_the_reviewed_skill_delta():
+    runner = _runner()
+    source = _vp2_evidence_reuse_protocol()
+    screening = _vp2_strategy_discipline_protocol()
+
+    assert runner.validate_protocol(screening) is screening
+    assert screening["executionOrder"] == ["VP2"]
+    assert screening["tasks"] == source["tasks"]
+    for owner in (
+        "prime",
+        "limits",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "offlineEvaluator",
+        "toolSurface",
+        "sourceCampaignProtocol",
+        "continuationPolicy",
+        "precontactVerification",
+        "shadowAdjudication",
+    ):
+        assert screening[owner] == source[owner]
+    assert screening["versionedInputs"]["skillPath"] == (
+        VP2_STRATEGY_DISCIPLINE_SKILL_PATH.relative_to(ROOT).as_posix()
+    )
+    assert screening["versionedInputs"]["skillSha256"] == hashlib.sha256(
+        VP2_STRATEGY_DISCIPLINE_SKILL_PATH.read_bytes()
+    ).hexdigest().upper()
+    assert screening["versionedInputs"]["checkpointSha256"] == (
+        source["versionedInputs"]["checkpointSha256"]
+    )
+    assert screening["versionedInputs"]["adapterInitSha256"] == (
+        source["versionedInputs"]["adapterInitSha256"]
+    )
+
+    normalized = json.loads(json.dumps(screening))
+    normalized["purpose"] = source["purpose"]
+    normalized["versionedInputs"]["skillPath"] = source["versionedInputs"][
+        "skillPath"
+    ]
+    normalized["versionedInputs"]["skillSha256"] = source["versionedInputs"][
+        "skillSha256"
+    ]
+    normalized["screeningRetest"] = source["screeningRetest"]
+    assert normalized == source
+
+
+def test_vp2_strategy_screening_contract_is_closed_to_one_silent_row():
+    protocol = _vp2_strategy_discipline_protocol()
+
+    assert protocol["screeningRetest"] == {
+        "sourceProtocol": {
+            "path": VP2_EVIDENCE_REUSE_PROTOCOL_PATH.relative_to(ROOT).as_posix(),
+            "sha256": hashlib.sha256(
+                VP2_EVIDENCE_REUSE_PROTOCOL_PATH.read_bytes()
+            ).hexdigest().upper(),
+        },
+        "sourceEvidenceManifest": {
+            "path": "C:/UDEV/RookEvidence/2026-08-18-qwen38-vp2-evidence-reuse-screening-v1/evidence-manifest.json",
+            "sha256": "22E45CAE9517C8BFDEA395BBFF9B734574251C1C979EB6FCD8618F413E05F173",
+        },
+        "onlyChangedOperationalInput": "versioned_prime_skill",
+        "sourceSkillSha256": hashlib.sha256(
+            VP2_EVIDENCE_REUSE_SKILL_PATH.read_bytes()
+        ).hexdigest().upper(),
+        "rule": STRATEGY_DISCIPLINE_RULE,
+        "baselineTelemetry": {
+            "wholesaleDeletedCommittedComponents": 26,
+            "committedComponentsPreservedDuringPivot": 0,
+            "replacementStrategyDiscoveryCalls": 3,
+            "gatewayCalls": 72,
+            "cumulativeProviderTokens": 2092295,
+        },
+        "successCriteria": [
+            "no_wholesale_deletion_without_live_evidence",
+            "preserve_unaffected_committed_work_during_pivot",
+            "fewer_than_3_replacement_strategy_discovery_calls",
+            "fewer_than_2092295_cumulative_provider_tokens",
+            "any_strategy_pivot_supported_by_live_evidence",
+            "mechanically_healthy_canopy_without_material_regression",
+            "receipt_fenced_final_snapshot_then_goal_complete",
+            "budget_pass",
+            "custody_pass",
+        ],
+        "evaluatorFeedbackDuringRun": False,
+    }
+
+    altered = json.loads(json.dumps(protocol))
+    altered["screeningRetest"]["rule"] += " Prefer native components."
+    with pytest.raises(ValueError, match="screening_retest_invalid"):
+        _runner().validate_protocol(altered)
 
 
 def test_vp2_evidence_reuse_screening_freezes_only_the_reviewed_input_delta():

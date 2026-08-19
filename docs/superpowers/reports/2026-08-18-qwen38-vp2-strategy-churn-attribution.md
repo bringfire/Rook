@@ -125,7 +125,7 @@ overall strategy.
 
 This supports one experimental guidance candidate:
 
-> Once implementation starts, preserve the chosen strategy unless live evidence shows it cannot meet a consequential requirement. Treat a failed component or subgraph as a local blocker: inspect and replace that part before abandoning committed work. Further discovery must name the blocker it resolves.
+> Treat a component or subgraph failure as local first. Before abandoning a committed strategy, either attempt one bounded local repair or identify live evidence making a pivot preferable. Preserve unaffected committed work during a pivot. Further discovery must name the blocker it resolves.
 
 This candidate does not require a planner, cache, supervisor, semantic gate, or
 runtime change. It remains experimental guidance, not a product default. A
