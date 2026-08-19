@@ -267,8 +267,8 @@ class CampaignLimits:
             if type(item) is not int or item <= 0:
                 raise ValueError(f"limit_invalid:{source}")
             parsed[target] = item
-        if parsed["provider_tokens"] != parsed["prime_goal_tokens"]:
-            raise ValueError("token_budget_mismatch")
+        if parsed["prime_goal_tokens"] > parsed["provider_tokens"]:
+            raise ValueError("goal_budget_exceeds_provider_ceiling")
         return cls(**parsed)
 
 
@@ -1859,6 +1859,73 @@ def operator_payload(value: Any, label: str) -> Any:
     return envelope["data"]
 
 
+def _is_known_readiness_snapshot_refusal(event: Any) -> bool:
+    arguments = event.get("arguments") if type(event) is dict else None
+    receipt_id = arguments.get("readiness_receipt_id") if type(arguments) is dict else None
+    return (
+        type(event) is dict
+        and set(event)
+        == {
+            "arguments",
+            "dispatch",
+            "exception",
+            "ingress",
+            "mutation",
+            "result",
+            "sequence",
+            "target",
+        }
+        and event["target"] == "gh_snapshot"
+        and event["ingress"] == "canonical_gateway"
+        and event["exception"] is None
+        and event["dispatch"] == {"status": "dispatched", "target_call_count": 1}
+        and type(event["sequence"]) is int
+        and event["sequence"] >= 0
+        and type(arguments) is dict
+        and set(arguments) == {"include_data", "readiness_receipt_id"}
+        and arguments["include_data"] is False
+        and type(receipt_id) is str
+        and len(receipt_id) == 32
+        and all(character in "0123456789abcdef" for character in receipt_id)
+        and event["result"]
+        == {
+            "data": {"error": "readiness_snapshot_request_invalid"},
+            "success": False,
+        }
+        and event["mutation"]
+        == {
+            "classification": "unknown",
+            "commit_evidence": None,
+            "commit_status": "unknown",
+            "solve_readiness_receipt": None,
+        }
+    )
+
+
+def normalize_known_readonly_refusals(trace: dict[str, Any]) -> dict[str, Any]:
+    """Refine exact authenticated read-only refusals without changing raw evidence."""
+
+    normalized_events: list[dict[str, Any]] | None = None
+    for index, event in enumerate(trace["events"]):
+        if not _is_known_readiness_snapshot_refusal(event):
+            continue
+        if normalized_events is None:
+            normalized_events = list(trace["events"])
+        normalized_event = dict(event)
+        normalized_event["mutation"] = {
+            "classification": "observational",
+            "commit_evidence": None,
+            "commit_status": "none",
+            "solve_readiness_receipt": None,
+        }
+        normalized_events[index] = normalized_event
+    if normalized_events is None:
+        return trace
+    normalized_trace = dict(trace)
+    normalized_trace["events"] = normalized_events
+    return normalized_trace
+
+
 def _collect_tool_surface(
     protocol: dict[str, Any], evidence_root: Path
 ) -> dict[str, Any]:
@@ -2943,7 +3010,9 @@ async def _operator_normalize(args: argparse.Namespace) -> int:
     }
     try:
         closure = seal_prime_source_log(source, runtime, process_state)
-        trace = normalize_authoring_trace(source, runtime)
+        trace = normalize_known_readonly_refusals(
+            normalize_authoring_trace(source, runtime)
+        )
     except (OSError, ValueError) as exc:
         _write_json(
             operator / "hidden-evaluation.json",
@@ -2986,7 +3055,9 @@ async def _operator_evaluate(args: argparse.Namespace) -> int:
         }
         try:
             closure = seal_prime_source_log(source, runtime, process_state)
-            trace = normalize_authoring_trace(source, runtime)
+            trace = normalize_known_readonly_refusals(
+                normalize_authoring_trace(source, runtime)
+            )
         except (OSError, ValueError) as exc:
             _write_json(
                 operator / "hidden-evaluation.json",

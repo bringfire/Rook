@@ -1689,6 +1689,72 @@ def test_operator_executor_boundary_distinguishes_payloads_from_failures():
         runner.operator_payload(failure, "snapshot")
 
 
+def _readiness_snapshot_refusal_event() -> dict:
+    return {
+        "arguments": {
+            "include_data": False,
+            "readiness_receipt_id": "ca581c2dbaf8246a8ccbc1100965ebda",
+        },
+        "dispatch": {"status": "dispatched", "target_call_count": 1},
+        "exception": None,
+        "ingress": "canonical_gateway",
+        "mutation": {
+            "classification": "unknown",
+            "commit_evidence": None,
+            "commit_status": "unknown",
+            "solve_readiness_receipt": None,
+        },
+        "result": {
+            "data": {"error": "readiness_snapshot_request_invalid"},
+            "success": False,
+        },
+        "sequence": 71,
+        "target": "gh_snapshot",
+    }
+
+
+def test_exact_readiness_snapshot_refusal_gets_offline_no_commit_projection():
+    runner = _runner()
+    event = _readiness_snapshot_refusal_event()
+    trace = {"events": [event], "schema": "trace", "source_closure": {}}
+
+    normalized = runner.normalize_known_readonly_refusals(trace)
+
+    assert normalized["events"][0]["mutation"] == {
+        "classification": "observational",
+        "commit_evidence": None,
+        "commit_status": "none",
+        "solve_readiness_receipt": None,
+    }
+    assert trace["events"][0] == event
+
+
+@pytest.mark.parametrize(
+    "alter",
+    [
+        lambda event: event | {"target": "gh_status"},
+        lambda event: event
+        | {"arguments": event["arguments"] | {"max_preview_items": 20}},
+        lambda event: event
+        | {
+            "result": {
+                "success": False,
+                "data": {
+                    "error": "readiness_snapshot_request_invalid",
+                    "message": "extra",
+                },
+            }
+        },
+    ],
+)
+def test_near_readiness_snapshot_refusals_remain_fail_closed(alter):
+    runner = _runner()
+    event = alter(_readiness_snapshot_refusal_event())
+    trace = {"events": [event], "schema": "trace", "source_closure": {}}
+
+    assert runner.normalize_known_readonly_refusals(trace) == trace
+
+
 @pytest.mark.parametrize(
     "field",
     [
@@ -1711,12 +1777,23 @@ def test_missing_or_nonpositive_enforcement_limit_refuses(field: str):
         runner.validate_protocol(protocol)
 
 
-def test_provider_and_prime_budget_must_match():
+def test_prime_budget_may_reserve_final_response_inside_provider_ceiling():
     runner = _runner()
     protocol = _protocol()
-    protocol["limits"]["primeGoalTokenBudget"] = 1_999_999
+    protocol["limits"]["primeGoalTokenBudget"] = 1_900_000
 
-    with pytest.raises(ValueError, match="token_budget_mismatch"):
+    assert runner.validate_protocol(protocol) is protocol
+    limits = runner.CampaignLimits.from_mapping(protocol["limits"])
+    assert limits.prime_goal_tokens == 1_900_000
+    assert limits.provider_tokens == 2_000_000
+
+
+def test_prime_budget_cannot_exceed_provider_ceiling():
+    runner = _runner()
+    protocol = _protocol()
+    protocol["limits"]["primeGoalTokenBudget"] = 2_000_001
+
+    with pytest.raises(ValueError, match="goal_budget_exceeds_provider_ceiling"):
         runner.validate_protocol(protocol)
 
 

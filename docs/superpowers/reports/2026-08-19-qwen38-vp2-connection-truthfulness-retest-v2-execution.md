@@ -130,7 +130,7 @@ The prior live and offline repair qualification remains the evidence for the
 
 ## Efficiency
 
-The strategy improved after commitment, but discovery remained dominant:
+V2 exhibited better post-commit discipline, but discovery remained dominant:
 
 | Observation | Strategy V1 | Repair retest V2 |
 |---|---:|---:|
@@ -145,9 +145,24 @@ The strategy improved after commitment, but discovery remained dominant:
 
 The first committed mutation occurred at source sequence 68, after 68 prior
 gateway events. Qwen then made no replacement-component discovery calls after
-commitment; it repaired the script and tested the resulting graph. The
-experiment therefore improved completion and post-commit discipline, not
-overall efficiency.
+commitment; it repaired the script and tested the resulting graph. V2 therefore
+exhibited better completion and post-commit discipline than Strategy V1. The
+single stochastic specimen does not establish that the unexercised connection
+repair caused either improvement.
+
+The retained trace also proves explicit noncompliance with the frozen evidence
+reuse discipline before the first mutation:
+
+- 28 capability searches;
+- 25 component-library searches;
+- 11 contract reads; and
+- 2 metadata requests.
+
+Qwen read both `gh_edit` and `gh_create_script` twice. The script contract was
+available by source sequence 36, but mutation did not begin until sequence 68.
+This is not merely high discovery volume: known tool names were searched again,
+resolved contracts were reread, and no missing field in the next intended call
+was named as the blocker for the intervening exploration.
 
 Prime's retained runtime JSONL is **1,115,824,926 bytes** because streaming
 thinking updates retain cumulative partial text. That evidence-volume behavior
@@ -172,12 +187,13 @@ gh_snapshot({
 -> error: readiness_snapshot_request_invalid
 ```
 
-This is a failed read-only request, but the current normalizer classifies the
-unrecognized failure as `unknown`, which invalidates the whole trace. It did
-not mutate Grasshopper and did not prevent the later valid final checkpoint.
-A future correction may classify this exact closed refusal as observational
-no-commit, while keeping unfamiliar failures fail-closed. No such correction
-was made during this experiment.
+This was a failed read-only request. The campaign-time normalizer classified the
+unrecognized failure as `unknown`, which invalidated the whole trace. It did not
+mutate Grasshopper and did not prevent the later valid final checkpoint. A
+subsequent experiment-runner correction recognizes only this exact closed
+refusal as observational no-commit; altered or unfamiliar failures remain
+fail-closed. The retained source bytes and historical campaign classification
+remain unchanged.
 
 Independent judgment would still be required for this open architectural task,
 so repairing trace admission would produce an accurate reason boundary, not a
@@ -207,14 +223,24 @@ Do not rerun VP2 merely to force `Point On Curve` usage. The finite connection
 contract is already directly qualified. The next KISS work should remain
 separate:
 
-1. Correct the exact read-only `readiness_snapshot_request_invalid` trace
-   classification offline, with no model or Rhino rerun.
-2. Reconcile or explicitly reserve budget for Prime's post-completion final
-   response, because the enforced provider metric currently outlives the goal
-   budget owner.
+1. The exact read-only `readiness_snapshot_request_invalid` trace shape is now
+   classified offline as observational no-commit, with near-matches fail-closed.
+2. Future protocols may set Prime's goal budget below the total provider ceiling
+   to reserve final-response cost. The outer ceiling still includes every token,
+   including the 94,443-token final turn observed here.
 3. Treat discovery/context cost as the dominant remaining efficiency problem.
-4. Move to a genuinely varied product task after those narrow experiment-owner
-   corrections, without adding semantic supervision or another reasoning rule.
+4. Move to a smaller genuinely varied product task, without adding semantic
+   supervision or another broad reasoning rule. Freeze this as the sole skill
+   delta for a future prompt experiment:
+
+   > Tool names listed in this skill are already known. Read each required
+   > contract directly once; do not search for a known tool name. After
+   > `gh_edit` and one viable authoring contract are known, choose an
+   > implementation mode and create the smallest working scaffold. Further
+   > discovery must identify a field missing from the next intended call.
+
+   The current skill's opening `gh_edit` search example must change in that
+   experimental fixture, not in the qualified product baseline.
 
 ## Custody
 
