@@ -471,6 +471,193 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void ApplyEdit_StandaloneParamRejectsNonexistentInputBeforeMutation()
+        {
+            var source = CreateDynamicParam(Guid.NewGuid());
+            var target = CreateDynamicParam(Guid.NewGuid());
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                connect = new[] { "C1.O0>C2.I1" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("connected").GetInt32());
+            Assert.Contains(
+                "Target input index 1 is out of range for 1 input",
+                data.GetProperty("edit_summary").GetProperty("errors")[0].GetString());
+            Assert.Equal(0, GetDynamicParamCount(target, "AddCalls"));
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_AddSourceWithoutObservedMembershipIsNotCounted()
+        {
+            var source = CreateDynamicParam(Guid.NewGuid());
+            var target = CreateDynamicParam(Guid.NewGuid());
+            target.GetType().GetProperty("RetainSources")!.SetValue(target, false);
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                connect = new[] { "C1.O0>C2.I0" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("connected").GetInt32());
+            Assert.Contains(
+                "AddSource did not establish the requested connection",
+                data.GetProperty("edit_summary").GetProperty("errors")[0].GetString());
+            Assert.Equal(1, GetDynamicParamCount(target, "AddCalls"));
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_DuplicateConnectionIsNotCountedAsMutation()
+        {
+            var source = CreateDynamicParam(Guid.NewGuid());
+            var target = CreateDynamicParam(Guid.NewGuid());
+            target.GetType().GetMethod("AddSource")!.Invoke(target, new[] { source });
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                connect = new[] { "C1.O0>C2.I0" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("connected").GetInt32());
+            Assert.Contains(
+                "connection already exists",
+                data.GetProperty("edit_summary").GetProperty("errors")[0].GetString());
+            Assert.Equal(1, GetDynamicParamCount(target, "AddCalls"));
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void ApplyEdit_MissingConnectionDisconnectIsNotCountedAsMutation()
+        {
+            var source = CreateDynamicParam(Guid.NewGuid());
+            var target = CreateDynamicParam(Guid.NewGuid());
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                disconnect = new[] { "C1.O0>C2.I0" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(0, data.GetProperty("edit_summary").GetProperty("disconnected").GetInt32());
+            Assert.Contains(
+                "connection does not exist",
+                data.GetProperty("edit_summary").GetProperty("errors")[0].GetString());
+            Assert.Equal(0, GetDynamicParamCount(target, "RemoveCalls"));
+            Assert.Equal(
+                "no_solve_relevant_mutation_committed",
+                data.GetProperty("solve_readiness_receipt").GetProperty("reason").GetString());
+            Assert.Equal(0, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void Snapshot_ProjectsIncomingFlowForUnlistedStandaloneParameter()
+        {
+            var source = CreateDynamicParam(Guid.NewGuid());
+            var target = CreateDynamicParam(Guid.NewGuid());
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var edit = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                connect = new[] { "C1.O0>C2.I0" },
+            }));
+            Assert.True(edit.Success);
+
+            var snapshot = Element(handler.TakeSnapshot(null).Data);
+            Assert.Contains(
+                snapshot.GetProperty("components").EnumerateArray(),
+                component => component.GetProperty("id").GetString() == "C2" &&
+                             component.GetProperty("is_param").GetBoolean() &&
+                             component.GetProperty("inputs")[0].GetProperty("idx").GetInt32() == 0 &&
+                             component.GetProperty("inputs")[0].GetProperty("sources").GetInt32() == 1 &&
+                             component.GetProperty("outputs")[0].GetProperty("idx").GetInt32() == 0);
+            Assert.Contains(
+                "C1.O0>C2.I0",
+                snapshot.GetProperty("flows").EnumerateArray().Select(flow => flow.GetString()));
+        }
+
+        [Fact]
+        public void Metadata_ProjectsStandaloneParameterAsLogicalI0AndO0()
+        {
+            var parameter = CreateDynamicParam(Guid.NewGuid());
+            var handler = CreateHandler(new FakeDocument(parameter));
+            var method = typeof(GrasshopperHandler).GetMethod(
+                "GetComponentParams",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            var metadata = Element(method.Invoke(handler, new[] { parameter }));
+
+            Assert.True(metadata.GetProperty("IsSimpleParam").GetBoolean());
+            var input = Assert.Single(metadata.GetProperty("Inputs").EnumerateArray());
+            var output = Assert.Single(metadata.GetProperty("Outputs").EnumerateArray());
+            Assert.Equal(0, input.GetProperty("Index").GetInt32());
+            Assert.Equal(0, output.GetProperty("Index").GetInt32());
+        }
+
+        [Fact]
+        public void ApplyEdit_ConventionalComponentInputConfirmsConnectionAndSnapshotFlow()
+        {
+            var source = CreateDynamicParam(Guid.NewGuid());
+            var input = CreateDynamicParam(Guid.NewGuid());
+            var target = new FakeParamComponent(Guid.NewGuid(), input);
+            var document = new FakeDocument(source, target);
+            var handler = CreateHandler(document);
+            var epoch = Element(handler.TakeSnapshot(null).Data).GetProperty("epoch").GetInt32();
+
+            var response = handler.ApplyEdit(JsonSerializer.Serialize(new
+            {
+                epoch,
+                connect = new[] { "C1.O0>C2.I0" },
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(1, data.GetProperty("edit_summary").GetProperty("connected").GetInt32());
+            Assert.Equal(1, GetDynamicParamCount(input, "AddCalls"));
+            var snapshot = Element(handler.TakeSnapshot(null).Data);
+            Assert.Contains(
+                "C1.O0>C2.I0",
+                snapshot.GetProperty("flows").EnumerateArray().Select(flow => flow.GetString()));
+        }
+
+        [Fact]
         public void ApplyEdit_MissingConnectMutatorIsZeroCommitInsteadOfPhantomCommit()
         {
             var source = new FakeSimpleParam(Guid.NewGuid());
@@ -1052,6 +1239,8 @@ namespace Rook.Tests.Handlers
             var guidField = type.DefineField("_instanceGuid", typeof(Guid), FieldAttributes.Private);
             var addCallsField = type.DefineField("_addCalls", typeof(int), FieldAttributes.Private);
             var removeCallsField = type.DefineField("_removeCalls", typeof(int), FieldAttributes.Private);
+            var sourcesField = type.DefineField("_sources", typeof(List<object>), FieldAttributes.Private);
+            var retainSourcesField = type.DefineField("_retainSources", typeof(bool), FieldAttributes.Private);
             var constructor = type.DefineConstructor(
                 MethodAttributes.Public,
                 CallingConventions.Standard,
@@ -1062,15 +1251,36 @@ namespace Rook.Tests.Handlers
             constructorIl.Emit(OpCodes.Ldarg_0);
             constructorIl.Emit(OpCodes.Ldarg_1);
             constructorIl.Emit(OpCodes.Stfld, guidField);
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Newobj, typeof(List<object>).GetConstructor(Type.EmptyTypes)!);
+            constructorIl.Emit(OpCodes.Stfld, sourcesField);
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Ldc_I4_1);
+            constructorIl.Emit(OpCodes.Stfld, retainSourcesField);
             constructorIl.Emit(OpCodes.Ret);
 
             DefineReadOnlyProperty(type, "InstanceGuid", typeof(Guid), guidField);
             DefineReadOnlyProperty(type, "AddCalls", typeof(int), addCallsField);
             DefineReadOnlyProperty(type, "RemoveCalls", typeof(int), removeCallsField);
-            DefineNullProperty(type, "Sources");
+            DefineReadOnlyProperty(type, "Sources", typeof(List<object>), sourcesField);
+            DefineReadWriteProperty(type, "RetainSources", typeof(bool), retainSourcesField);
             DefineNullProperty(type, "Recipients");
-            DefineCountingMethod(type, "AddSource", paramInterface, addCallsField);
-            DefineCountingMethod(type, "RemoveSource", paramInterface, removeCallsField);
+            DefineSourceMutationMethod(
+                type,
+                "AddSource",
+                paramInterface,
+                addCallsField,
+                sourcesField,
+                retainSourcesField,
+                add: true);
+            DefineSourceMutationMethod(
+                type,
+                "RemoveSource",
+                paramInterface,
+                removeCallsField,
+                sourcesField,
+                retainSourcesField,
+                add: false);
             var expire = type.DefineMethod("ExpireSolution", MethodAttributes.Public, typeof(void), new[] { typeof(bool) });
             var expireIl = expire.GetILGenerator();
             expireIl.Emit(OpCodes.Ret);
@@ -1140,20 +1350,40 @@ namespace Rook.Tests.Handlers
             property.SetSetMethod(setter);
         }
 
-        private static void DefineCountingMethod(
+        private static void DefineSourceMutationMethod(
             TypeBuilder type,
             string name,
             Type paramInterface,
-            FieldBuilder counter)
+            FieldBuilder counter,
+            FieldBuilder sources,
+            FieldBuilder retainSources,
+            bool add)
         {
             var method = type.DefineMethod(name, MethodAttributes.Public, typeof(void), new[] { paramInterface });
             var il = method.GetILGenerator();
+            var returnLabel = il.DefineLabel();
             il.Emit(OpCodes.Ldarg_0);
             il.Emit(OpCodes.Ldarg_0);
             il.Emit(OpCodes.Ldfld, counter);
             il.Emit(OpCodes.Ldc_I4_1);
             il.Emit(OpCodes.Add);
             il.Emit(OpCodes.Stfld, counter);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, retainSources);
+            il.Emit(OpCodes.Brfalse_S, returnLabel);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, sources);
+            il.Emit(OpCodes.Ldarg_1);
+            if (add)
+            {
+                il.Emit(OpCodes.Callvirt, typeof(List<object>).GetMethod(nameof(List<object>.Add))!);
+            }
+            else
+            {
+                il.Emit(OpCodes.Callvirt, typeof(List<object>).GetMethod(nameof(List<object>.Remove))!);
+                il.Emit(OpCodes.Pop);
+            }
+            il.MarkLabel(returnLabel);
             il.Emit(OpCodes.Ret);
         }
 
@@ -1366,6 +1596,28 @@ namespace Rook.Tests.Handlers
             public object? Sources => null;
             public object? Recipients => null;
             public void ExpireSolution(bool recompute) { }
+        }
+
+        public sealed class FakeParamComponent
+        {
+            public FakeParamComponent(Guid instanceGuid, object input)
+            {
+                InstanceGuid = instanceGuid;
+                Params = new FakeParamServer(input);
+            }
+
+            public Guid InstanceGuid { get; }
+            public string Name => "Conventional Component";
+            public string NickName => "Conventional Component";
+            public FakeParamServer Params { get; }
+            public void ExpireSolution(bool recompute) { }
+        }
+
+        public sealed class FakeParamServer
+        {
+            public FakeParamServer(object input) => Input = new[] { input };
+            public IReadOnlyList<object> Input { get; }
+            public IReadOnlyList<object> Output { get; } = Array.Empty<object>();
         }
 
         public sealed class GH_Group

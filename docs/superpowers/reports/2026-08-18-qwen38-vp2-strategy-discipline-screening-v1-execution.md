@@ -133,15 +133,26 @@ return input or output ports. A later live exploration returned empty input and
 output maps. Qwen nevertheless treated it as the curve-evaluation component,
 attempted indexed connections, and then tried to infer the missing contract.
 
-That is not yet enough to assign a product defect. The retained evidence
-supports two narrower possibilities that must be separated offline:
+Qwen made material judgment mistakes: it ignored `isSimpleParam`, inferred a
+nonexistent `I1`, and initially called `gh_explore_component` with an
+unsupported `name` field. The retained evidence and implementation also
+establish a separate Rook defect rather than an unresolved ownership question:
 
-1. Rook correctly exposed that Qwen selected a portless or unsuitable object,
-   and Qwen failed to act on that evidence.
-2. Rook's component identity, connection result, or metadata projection was
-   misleading for this object.
+- `gh_edit` bypassed the bounded connection-selector resolver and treated any
+  standalone parameter as every requested input index.
+- Both local edits reported `connected: 1`; the attempted `I1` could not name a
+  real endpoint, while the valid logical `I0` outcome remained absent from the
+  observed flow set.
+- The initial edit reported 42 connections while the snapshot exposed only 40.
+- Connection reporting incremented after invoking `AddSource` without checking
+  that the requested source was present afterward.
+- Snapshot flow projection recognized only a short type-name allowlist instead
+  of every supported standalone parameter, hiding incoming sources for this
+  object.
 
-No additional live call is needed to audit those owners.
+Rook therefore supplied misleading mutation and observation feedback during
+Qwen's bounded local investigation. This is a closed-semantics interface defect;
+it does not require another reasoning rule or semantic acceptance mechanism.
 
 ## Conclusion
 
@@ -152,10 +163,10 @@ failed to complete within budget.
 
 Do not promote either experimental guidance rule to the canonical product
 skill. Do not rerun VP2 yet and do not add another reasoning rule. The next KISS
-slice is an offline audit of the selected `Point On Curve` identity, its
-metadata projection, and the two apparently accepted but unverified connection
-edits. That audit should decide whether the next smallest correction belongs to
-Rook's observation surface or whether this is a qualified Qwen judgment limit.
+slice is to unify standalone-parameter classification across metadata,
+connection admission, and snapshots; reject nonexistent indices before
+mutation; confirm source membership before reporting a connection; and qualify
+the repair against live Grasshopper before another VP2 run.
 
 ## Custody
 

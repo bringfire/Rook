@@ -6016,6 +6016,13 @@ namespace Rook.Handlers
 
         #region Wiring & Connections
 
+        private static bool ParameterHasSource(object targetInput, object sourceOutput)
+        {
+            var sources = targetInput.GetType().GetProperty("Sources")?
+                .GetValue(targetInput) as System.Collections.IEnumerable;
+            return sources != null && sources.Cast<object>().Any(source => ReferenceEquals(source, sourceOutput));
+        }
+
         /// <summary>
         /// POST /gh/connect - Wire two components together
         /// Body: { sourceGuid: string, sourceParam?: string|int, sourceIndex?: int,
@@ -6081,6 +6088,12 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "AddSource method not found" };
 
                 addSourceMethod.Invoke(targetInput, new[] { sourceOutput });
+                if (!ParameterHasSource(targetInput, sourceOutput))
+                    return new ApiResponse
+                    {
+                        Success = false,
+                        Data = "AddSource did not establish the requested connection"
+                    };
 
                 // Expire solution to recalculate
                 var expireMethod = targetObj.GetType().GetMethod("ExpireSolution", new[] { typeof(bool) });
@@ -6184,6 +6197,12 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "RemoveSource method not found" };
 
                 var result = removeSourceMethod.Invoke(targetInput, new[] { sourceOutput });
+                if (ParameterHasSource(targetInput, sourceOutput))
+                    return new ApiResponse
+                    {
+                        Success = false,
+                        Data = "RemoveSource did not remove the requested connection"
+                    };
 
                 var expireMethod = targetObj.GetType().GetMethod("ExpireSolution", new[] { typeof(bool) });
                 expireMethod?.Invoke(targetObj, new object[] { true });
@@ -6423,18 +6442,55 @@ namespace Rook.Handlers
                 var paramsProp = component.GetType().GetProperty("Params");
                 if (paramsProp == null)
                 {
-                    // It might be a simple param object (like slider, panel)
-                    // Check if it implements IGH_Param directly
-                    var nicknameProp = component.GetType().GetProperty("NickName");
-                    if (nicknameProp != null)
+                    if (!GhParameterContract.IsStandaloneParameter(component))
+                        return null;
+
+                    var type = component.GetType();
+                    var name = type.GetProperty("Name")?.GetValue(component)?.ToString();
+                    var nickname = type.GetProperty("NickName")?.GetValue(component)?.ToString();
+                    var typeName = type.GetProperty("TypeName")?.GetValue(component)?.ToString();
+                    var description = type.GetProperty("Description")?.GetValue(component)?.ToString();
+                    var hidden = type.GetProperty("Hidden")?.GetValue(component) is bool isHidden && isHidden;
+                    var sourceCount = (type.GetProperty("Sources")?.GetValue(component) as System.Collections.IEnumerable)
+                        ?.Cast<object>().Count() ?? 0;
+                    var recipientCount = (type.GetProperty("Recipients")?.GetValue(component) as System.Collections.IEnumerable)
+                        ?.Cast<object>().Count() ?? 0;
+
+                    return new
                     {
-                        return new
+                        IsSimpleParam = true,
+                        NickName = nickname,
+                        Inputs = new[]
                         {
-                            IsSimpleParam = true,
-                            NickName = nicknameProp.GetValue(component)?.ToString()
-                        };
-                    }
-                    return null;
+                            new
+                            {
+                                Index = 0,
+                                Name = name,
+                                NickName = nickname,
+                                TypeName = typeName,
+                                Access = GetParamAccessString(component),
+                                Optional = GetParamOptionalFlag(component),
+                                Description = description,
+                                Hidden = hidden,
+                                SourceCount = sourceCount,
+                            }
+                        },
+                        Outputs = new[]
+                        {
+                            new
+                            {
+                                Index = 0,
+                                Name = name,
+                                NickName = nickname,
+                                TypeName = typeName,
+                                Access = GetParamAccessString(component),
+                                Optional = GetParamOptionalFlag(component),
+                                Description = description,
+                                Hidden = hidden,
+                                RecipientCount = recipientCount,
+                            }
+                        },
+                    };
                 }
 
                 var paramsServer = paramsProp.GetValue(component);
@@ -6626,78 +6682,6 @@ namespace Rook.Handlers
             {
                 if (debug)
                     return new { Debug = new List<string> { $"Exception: {ex.Message}" }, Warnings = new List<string>(), Errors = new List<string>() };
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// Get a param from a component by index or name.
-        /// isInput=true for input params, false for output params.
-        /// </summary>
-        private object? GetParam(object component, bool isInput, int? index, string? name)
-        {
-            try
-            {
-                // Check if component is itself a param (like GH_NumberSlider)
-                var paramsProp = component.GetType().GetProperty("Params");
-
-                if (paramsProp == null)
-                {
-                    // Component might BE a param (slider, panel, etc.)
-                    // For output (isInput=false), return the component itself if it's a param
-                    // For input, check if it has Sources property
-                    if (!isInput)
-                    {
-                        // Check if it implements IGH_Param by looking for Recipients property
-                        if (component.GetType().GetProperty("Recipients") != null)
-                            return component;
-                    }
-                    else
-                    {
-                        // For input, check if it has Sources property
-                        if (component.GetType().GetProperty("Sources") != null)
-                            return component;
-                    }
-                    return null;
-                }
-
-                var paramsServer = paramsProp.GetValue(component);
-                if (paramsServer == null) return null;
-
-                var listProp = isInput
-                    ? paramsServer.GetType().GetProperty("Input")
-                    : paramsServer.GetType().GetProperty("Output");
-
-                var list = listProp?.GetValue(paramsServer) as System.Collections.IEnumerable;
-                if (list == null) return null;
-
-                var paramList = list.Cast<object>().ToList();
-
-                if (index.HasValue && index.Value >= 0 && index.Value < paramList.Count)
-                {
-                    return paramList[index.Value];
-                }
-
-                if (!string.IsNullOrEmpty(name))
-                {
-                    var nameLower = name.ToLowerInvariant();
-                    foreach (var p in paramList)
-                    {
-                        var pName = p.GetType().GetProperty("Name")?.GetValue(p)?.ToString()?.ToLowerInvariant();
-                        var pNickname = p.GetType().GetProperty("NickName")?.GetValue(p)?.ToString()?.ToLowerInvariant();
-                        if (pName == nameLower || pNickname == nameLower)
-                            return p;
-                    }
-                }
-
-                // If no specific param requested, return first one
-                if (!index.HasValue && string.IsNullOrEmpty(name) && paramList.Count > 0)
-                    return paramList[0];
-
-                return null;
-            }
-            catch
-            {
                 return null;
             }
         }
@@ -7446,8 +7430,8 @@ namespace Rook.Handlers
                             continue;
                         }
 
-                        // Determine if this is a simple param (slider, panel, toggle, value list)
-                        bool isSimpleParam = IsSimpleParam(typeName);
+                        // Standalone IGH_Param objects expose one logical input and output.
+                        bool isSimpleParam = GhParameterContract.IsStandaloneParameter(obj);
 
                         // Extract position
                         float[]? pos = GetPosition(obj);
@@ -7577,12 +7561,6 @@ namespace Rook.Handlers
             return TakeSnapshot("{\"include_data\":false,\"max_preview_items\":0}");
         }
 
-        private bool IsSimpleParam(string typeName)
-        {
-            return typeName is "GH_NumberSlider" or "GH_Panel" or "GH_BooleanToggle"
-                or "GH_ValueList" or "GH_ColourSwatch" or "GH_MultiDimensionalSlider";
-        }
-
         private float[]? GetPosition(object obj)
         {
             try
@@ -7600,8 +7578,17 @@ namespace Rook.Handlers
         private object? BuildSimpleParamEntry(object obj, string shortId, string typeName,
             float[]? pos, List<string> errors, List<string> warnings)
         {
-            var name = obj.GetType().GetProperty("Name")?.GetValue(obj)?.ToString();
-            var nick = obj.GetType().GetProperty("NickName")?.GetValue(obj)?.ToString();
+            var type = obj.GetType();
+            var name = type.GetProperty("Name")?.GetValue(obj)?.ToString();
+            var nick = type.GetProperty("NickName")?.GetValue(obj)?.ToString();
+            var componentGuid = type.GetProperty("ComponentGuid")?.GetValue(obj)?.ToString();
+            var parameterType = type.GetProperty("TypeName")?.GetValue(obj)?.ToString();
+            var description = type.GetProperty("Description")?.GetValue(obj)?.ToString();
+            var hidden = type.GetProperty("Hidden")?.GetValue(obj) is bool isHidden && isHidden;
+            var sourceCount = (type.GetProperty("Sources")?.GetValue(obj) as System.Collections.IEnumerable)
+                ?.Cast<object>().Count() ?? 0;
+            var recipientCount = (type.GetProperty("Recipients")?.GetValue(obj) as System.Collections.IEnumerable)
+                ?.Cast<object>().Count() ?? 0;
 
             // Clean type name: strip "GH_" prefix for readability
             var cleanType = typeName.StartsWith("GH_") ? typeName.Substring(3) : typeName;
@@ -7610,10 +7597,44 @@ namespace Rook.Handlers
             {
                 ["id"] = shortId,
                 ["type"] = cleanType,
+                ["name"] = name,
                 ["nick"] = nick ?? name,
                 ["pos"] = pos,
-                ["is_param"] = true
+                ["is_param"] = true,
+                ["inputs"] = new[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["idx"] = 0,
+                        ["name"] = name,
+                        ["nick"] = nick,
+                        ["type"] = parameterType,
+                        ["access"] = GetParamAccessString(obj),
+                        ["optional"] = GetParamOptionalFlag(obj),
+                        ["description"] = description,
+                        ["hidden"] = hidden,
+                        ["sources"] = sourceCount,
+                    }
+                },
+                ["outputs"] = new[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["idx"] = 0,
+                        ["name"] = name,
+                        ["nick"] = nick,
+                        ["type"] = parameterType,
+                        ["access"] = GetParamAccessString(obj),
+                        ["optional"] = GetParamOptionalFlag(obj),
+                        ["description"] = description,
+                        ["hidden"] = hidden,
+                        ["recipients"] = recipientCount,
+                    }
+                },
             };
+
+            if (componentGuid != null)
+                entry["componentGuid"] = componentGuid;
 
             // Extract value based on type
             var value = ExtractParamValue(obj, typeName);
@@ -8394,9 +8415,29 @@ namespace Rook.Handlers
                             var tgtObj = FindObjectById(gh.Document!, tgtGuid.Value.ToString());
                             if (srcObj == null || tgtObj == null) { errors.Add($"disconnect: object not found for '{flowStr}'"); continue; }
 
-                            var sourceOutput = GetParam(srcObj, false, srcIdx, null);
-                            var targetInput = GetParam(tgtObj, true, tgtIdx, null);
-                            if (sourceOutput == null || targetInput == null) { errors.Add($"disconnect: param not found for '{flowStr}'"); continue; }
+                            if (!GhConnectionSelectorResolver.TryResolve(
+                                    srcObj,
+                                    isInput: false,
+                                    new GhConnectionSelector(srcIdx, null),
+                                    out var resolvedSource,
+                                    out var sourceError))
+                            {
+                                errors.Add($"disconnect '{flowStr}': {sourceError}");
+                                continue;
+                            }
+                            if (!GhConnectionSelectorResolver.TryResolve(
+                                    tgtObj,
+                                    isInput: true,
+                                    new GhConnectionSelector(tgtIdx, null),
+                                    out var resolvedTarget,
+                                    out var targetError))
+                            {
+                                errors.Add($"disconnect '{flowStr}': {targetError}");
+                                continue;
+                            }
+
+                            var sourceOutput = resolvedSource.Value!;
+                            var targetInput = resolvedTarget.Value!;
 
                             disconnectOps.Add((sourceOutput, targetInput, flowStr));
                             disconnectParams.Add(targetInput);
@@ -8434,6 +8475,12 @@ namespace Rook.Handlers
                                 continue;
                             }
 
+                            if (!ParameterHasSource(targetInput, sourceOutput))
+                            {
+                                errors.Add($"disconnect '{flowStr}': connection does not exist");
+                                continue;
+                            }
+
                             try
                             {
                                 removeMethod.Invoke(targetInput, new[] { sourceOutput });
@@ -8442,6 +8489,11 @@ namespace Rook.Handlers
                             {
                                 mutationCommitUnknown = true;
                                 throw;
+                            }
+                            if (ParameterHasSource(targetInput, sourceOutput))
+                            {
+                                errors.Add($"disconnect '{flowStr}': RemoveSource did not remove the requested connection");
+                                continue;
                             }
                             disconnected++;
                             AddDirty(targetInput);
@@ -8699,9 +8751,29 @@ namespace Rook.Handlers
                             var tgtObj = FindObjectById(gh.Document!, tgtGuid.Value.ToString());
                             if (srcObj == null || tgtObj == null) { errors.Add($"connect: object not found for '{flowStr}'"); continue; }
 
-                            var sourceOutput = GetParam(srcObj, false, srcIdx, null);
-                            var targetInput = GetParam(tgtObj, true, tgtIdx, null);
-                            if (sourceOutput == null || targetInput == null) { errors.Add($"connect: param not found for '{flowStr}'"); continue; }
+                            if (!GhConnectionSelectorResolver.TryResolve(
+                                    srcObj,
+                                    isInput: false,
+                                    new GhConnectionSelector(srcIdx, null),
+                                    out var resolvedSource,
+                                    out var sourceError))
+                            {
+                                errors.Add($"connect '{flowStr}': {sourceError}");
+                                continue;
+                            }
+                            if (!GhConnectionSelectorResolver.TryResolve(
+                                    tgtObj,
+                                    isInput: true,
+                                    new GhConnectionSelector(tgtIdx, null),
+                                    out var resolvedTarget,
+                                    out var targetError))
+                            {
+                                errors.Add($"connect '{flowStr}': {targetError}");
+                                continue;
+                            }
+
+                            var sourceOutput = resolvedSource.Value!;
+                            var targetInput = resolvedTarget.Value!;
 
                             connectOps.Add((sourceOutput, targetInput, flowStr));
                             connectParams.Add(targetInput);
@@ -8739,6 +8811,12 @@ namespace Rook.Handlers
                                 continue;
                             }
 
+                            if (ParameterHasSource(targetInput, sourceOutput))
+                            {
+                                errors.Add($"connect '{flowStr}': connection already exists");
+                                continue;
+                            }
+
                             try
                             {
                                 addMethod.Invoke(targetInput, new[] { sourceOutput });
@@ -8747,6 +8825,11 @@ namespace Rook.Handlers
                             {
                                 mutationCommitUnknown = true;
                                 throw;
+                            }
+                            if (!ParameterHasSource(targetInput, sourceOutput))
+                            {
+                                errors.Add($"connect '{flowStr}': AddSource did not establish the requested connection");
+                                continue;
                             }
                             connected++;
                             AddDirty(targetInput);

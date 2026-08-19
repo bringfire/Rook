@@ -6,6 +6,45 @@ using System.Text.Json;
 
 namespace Rook.Handlers
 {
+    internal static class GhParameterContract
+    {
+        internal static bool IsStandaloneParameter(object candidate)
+        {
+            var type = candidate.GetType();
+            if (type.GetProperty("Params") != null)
+                return false;
+
+            return type.GetProperty("Sources") != null &&
+                   type.GetProperty("Recipients") != null;
+        }
+
+        internal static bool TryGetParameters(
+            object component,
+            bool isInput,
+            out IReadOnlyList<object> parameters)
+        {
+            parameters = Array.Empty<object>();
+            var paramsProperty = component.GetType().GetProperty("Params");
+            if (paramsProperty == null)
+            {
+                if (!IsStandaloneParameter(component))
+                    return false;
+
+                parameters = new[] { component };
+                return true;
+            }
+
+            var parameterServer = paramsProperty.GetValue(component);
+            var listProperty = parameterServer?.GetType().GetProperty(isInput ? "Input" : "Output");
+            var values = listProperty?.GetValue(parameterServer) as IEnumerable;
+            if (values == null)
+                return false;
+
+            parameters = values.Cast<object>().ToList();
+            return true;
+        }
+    }
+
     internal readonly struct GhConnectionSelector
     {
         internal GhConnectionSelector(int? index, string? name)
@@ -116,41 +155,19 @@ namespace Rook.Handlers
 
             try
             {
-                var paramsProperty = component.GetType().GetProperty("Params");
-                if (paramsProperty == null)
+                if (!GhParameterContract.TryGetParameters(component, isInput, out var parameterList))
                 {
-                    var markerProperty = component.GetType().GetProperty(isInput ? "Sources" : "Recipients");
-                    if (markerProperty == null)
-                    {
-                        error = $"{side} parameter not found";
-                        return false;
-                    }
-
-                    return TryResolveSingleParameter(
-                        component,
-                        selector,
-                        side,
-                        singular,
-                        out resolved,
-                        out error);
-                }
-
-                var parameterServer = paramsProperty.GetValue(component);
-                var listProperty = parameterServer?.GetType().GetProperty(isInput ? "Input" : "Output");
-                var parameters = listProperty?.GetValue(parameterServer) as IEnumerable;
-                if (parameters == null)
-                {
-                    error = $"{side} parameter collection not found";
+                    error = $"{side} parameter not found";
                     return false;
                 }
 
-                var parameterList = parameters.Cast<object>().ToList();
                 if (selector.Index.HasValue)
                 {
                     var index = selector.Index.Value;
                     if (index < 0 || index >= parameterList.Count)
                     {
-                        error = $"{side} index {index} is out of range for {parameterList.Count} {plural}";
+                        var countLabel = parameterList.Count == 1 ? singular : plural;
+                        error = $"{side} index {index} is out of range for {parameterList.Count} {countLabel}";
                         return false;
                     }
 
@@ -270,33 +287,6 @@ namespace Rook.Handlers
             return element.ValueKind == JsonValueKind.Number &&
                    element.TryGetInt32(out value) &&
                    value >= 0;
-        }
-
-        private static bool TryResolveSingleParameter(
-            object parameter,
-            GhConnectionSelector selector,
-            string side,
-            string singular,
-            out GhResolvedConnectionParameter resolved,
-            out string? error)
-        {
-            resolved = default;
-            error = null;
-
-            if (selector.Index.HasValue && selector.Index.Value != 0)
-            {
-                error = $"{side} index {selector.Index.Value} is out of range for 1 {singular}";
-                return false;
-            }
-
-            if (selector.Name != null && !MatchesName(parameter, selector.Name))
-            {
-                error = $"{side} parameter not found: {selector.Name}";
-                return false;
-            }
-
-            resolved = BuildResolved(parameter, 0);
-            return true;
         }
 
         private static GhResolvedConnectionParameter BuildResolved(object parameter, int index)
