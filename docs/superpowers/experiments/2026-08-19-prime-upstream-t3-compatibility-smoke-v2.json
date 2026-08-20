@@ -1,0 +1,229 @@
+{
+  "schema": "rook.experiment.prime_upstream_t3_compatibility_smoke:v2",
+  "status": "frozen_precontact",
+  "purpose": "Admit the unchanged sealed-kernel goal skill by exact path and byte equivalence while preserving branch-local custody for fork-modified Prime runtime code before the same bounded T3 compatibility smoke.",
+  "evidenceRootPrefix": "C:/UDEV/RookEvidence",
+  "smokeTask": "T3",
+  "executionOrder": [
+    "T3"
+  ],
+  "limits": {
+    "wallClockSecondsPerRun": 1800,
+    "gatewayEventsPerRun": 150,
+    "providerReportedTokensPerRun": 2000000,
+    "primeGoalTokenBudget": 2000000
+  },
+  "prime": {
+    "sourceRoot": "D:/prime-agent/.worktrees/rook-upstream-evaluation",
+    "commit": "739400844f8f3f280414b0c7b9c65797208815d3",
+    "bashPath": "C:/Program Files/Git/bin/bash.exe",
+    "launcherPath": "D:/prime-agent/.worktrees/rook-upstream-evaluation/prime-agent.sh",
+    "nodePath": "C:/Program Files/nodejs/node.exe",
+    "nodeVersion": "v24.11.1",
+    "nodeSha256": "F13AC3CA23248DC389507E8FE38C34489AB7EDB3E6D6700EB6DA6A0B7E128EAF",
+    "runtimeBundle": {
+      "root": "D:/prime-agent/.worktrees/rook-upstream-evaluation/packages/coding-agent/dist",
+      "subtrees": [
+        "bundle",
+        "skills"
+      ],
+      "entryCount": 84,
+      "totalBytes": 13990452,
+      "manifestSha256": "4C5BC52CDAE882144E851600048711756E4BB28B400DF4A25B206D0F1263A106"
+    },
+    "sealedKernelPython": "C:/Users/bring/.prime/agent/kernel-venv/Scripts/python.exe",
+    "thinkingLevel": "medium",
+    "model": "ollama_chat/qwen3.8:27b",
+    "settings": {
+      "enableBuiltinSkills": true,
+      "packages": [],
+      "extensions": []
+    },
+    "models": {
+      "providers": {
+        "ollama_chat": {
+          "baseUrl": "http://127.0.0.1:11434/v1",
+          "api": "openai-completions",
+          "apiKey": "ollama",
+          "compat": {
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": true
+          },
+          "models": [
+            {
+              "id": "qwen3.8:27b",
+              "reasoning": true
+            }
+          ]
+        }
+      }
+    }
+  },
+  "upstreamCustody": {
+    "baseCommit": "f8f0036cc2da1a640aad990ae8dcb7c4820ce32e",
+    "baseTree": "3ff69db27820afc0f3addc2089f6c04f10808d21",
+    "patchCommit": "30a6621bca698ef14f64e5e45c5b1b6364148789",
+    "patchTree": "05021548c143700b1b24045d29e712f784797798",
+    "resultCommit": "739400844f8f3f280414b0c7b9c65797208815d3",
+    "resultTree": "4d782187c6898aa8352045dd597bab6a3819029c",
+    "dependencyLockSha256": "C0AEC1FE34A5CFE0E601C8EFC1E5B0A96D4E8D76773633F76425F4F0829AA69D"
+  },
+  "pythonEnvironment": {
+    "pythonPathEntries": [
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/win32",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/win32/lib",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pythonwin"
+    ],
+    "dllPathEntries": [
+      "C:/Users/bring/AppData/Local/Rook/venv",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pywin32_system32"
+    ],
+    "manifestRoots": {
+      "kernelSitePackages": {
+        "path": "C:/Users/bring/.prime/agent/kernel-venv/Lib/site-packages",
+        "entryCount": 14915,
+        "totalBytes": 302687750,
+        "manifestSha256": "019A431AA3EC558A0068215D513E59AB732FDDCCFD20DDCADD7B58E56A0153ED"
+      },
+      "rookPackage": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook",
+        "entryCount": 477,
+        "totalBytes": 11533113,
+        "manifestSha256": "D9A29CCAD53D93B0702E8BB4FD893C52BB93F98667F0139B6FED72502D23A2C7"
+      },
+      "mcpPackage": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/mcp",
+        "entryCount": 221,
+        "totalBytes": 1784567,
+        "manifestSha256": "227DAD1C14848D2500785BFB87EEB2FD00A78867082192DA85B83ABD7207657A"
+      },
+      "win32Package": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/win32",
+        "entryCount": 332,
+        "totalBytes": 5484932,
+        "manifestSha256": "8FC3F9406D0EE0B74309F0624DF0357B018D09D4F04007F64BBA1BA7648EAABF"
+      },
+      "pythonwinPackage": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pythonwin",
+        "entryCount": 219,
+        "totalBytes": 4999870,
+        "manifestSha256": "578E20F011D0CD30E30039EE8B9E61F92318A51A64FAE45E0F8A98B2AE9DA7FD"
+      },
+      "pywin32System32": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pywin32_system32",
+        "entryCount": 2,
+        "totalBytes": 816128,
+        "manifestSha256": "BCF11A2AA7DDF9A4113B51C4433292C2CF02C5203E760F73146CA087DBBAF85D"
+      }
+    }
+  },
+  "modelCustody": {
+    "ollamaVersion": "0.32.14",
+    "runtimePath": "C:/Users/bring/AppData/Local/Programs/Ollama/ollama.exe",
+    "runtimeSha256": "11D7729CB18BB4876AD91A14FBE9BA3B6985EAABC3475A62D47D874BE24A9B54",
+    "manifestPath": "C:/Users/bring/.ollama/models/manifests/registry.ollama.ai/library/qwen3.8/27b",
+    "manifestSha256": "22130167C4C20E20C7B71454612966CA8E8171E9B3CC8AB6CE8AA6CBFEC79643",
+    "blobRoot": "C:/Users/bring/.ollama/models/blobs",
+    "config": {
+      "digest": "sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f",
+      "size": 215
+    },
+    "layers": [
+      {
+        "digest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e",
+        "size": 931146016
+      },
+      {
+        "digest": "sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d",
+        "size": 16810714464
+      },
+      {
+        "digest": "sha256:4c6a8e842ef0d8504549facfb03f1273a8d0022991519bc1888522cc1a5517d1",
+        "size": 11345
+      },
+      {
+        "digest": "sha256:906ee87bde6cff7bf3c3b1550f55cbbec261e027187fbb9f511f908ffc418334",
+        "size": 114
+      }
+    ]
+  },
+  "rookCustody": {
+    "nativePluginPath": "C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp",
+    "nativePluginSha256": "2E2B5B3EA0AD8CA0FDAA5DFC4945F35EDE4B58C59EC11E6D59EF88BCF7C69FB9",
+    "managedNet8PluginPath": "C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net8.0/Rook.rhp",
+    "managedNet8PluginSha256": "0BD2BEFA35D1532F291D5B5592FD526C240F6B339EF2D1668CD2BDE8D7ABEE2B",
+    "installedPythonRoot": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages",
+    "serverPath": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/server.py",
+    "serverSha256": "C02358F5AF5091A5C0E8EDBC7004CCFD9FB1E941BAD9361C7547CEEDD56909F5",
+    "behavioralAcceptancePath": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/gh_behavioral_acceptance.py",
+    "behavioralAcceptanceSha256": "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
+  },
+  "versionedInputs": {
+    "skillPath": "docs/superpowers/experiments/inputs/2026-08-19-prime-upstream-t3-compatibility-smoke-v1/prime-execute-grasshopper/SKILL.md",
+    "skillSha256": "13FB486CE69C0681CF2F12A7D8F391AAEBF146363DD7A37B04C50E08A9D81696",
+    "checkpointPath": "docs/superpowers/experiments/inputs/2026-08-19-prime-upstream-t3-compatibility-smoke-v1/prime-execute-grasshopper/references/checkpoint-protocol.md",
+    "checkpointSha256": "2FCF16E0B6C58B1D0390CCF16D28DD62D142AC20CCF9AEC81D3B916BD251CBD8",
+    "adapterRoot": "integrations/prime/skills/rook-full",
+    "adapterInitSha256": "06F1CB4AA58FD8C4C6F61F96CE7B8A5F4FEF7B6B126D00C0550B2CB3AA0BBF74"
+  },
+  "toolSurface": {
+    "profile": "full",
+    "serializedCatalogCount": 382,
+    "serializedCatalogBytes": 320743,
+    "serializedCatalogSha256": "64796B23E123368F1F9CC509206A879783195223D81165C70D7226CB154B86FA"
+  },
+  "tasks": {
+    "T3": {
+      "id": "T3",
+      "class": "repair_in_place",
+      "targetBaseline": "operator_seeded_divide_by_zero_point_row_v1",
+      "evaluator": "point_row_v1",
+      "prompt": "The current Grasshopper document contains a partially broken adjustable X-axis point-row definition. Repair it in place so the existing Start, Step, and Count controls determine the first X coordinate, spacing, and point count, with Y and Z fixed at zero. Preserve working components where practical, resolve any current errors or warnings, and verify the behavior before stopping."
+    }
+  },
+  "singleRowSmoke": {
+    "retryCount": 0,
+    "evaluatorFeedbackDuringRun": false,
+    "comparisonKind": "compatibility_screen"
+  },
+  "sourceCampaignProtocol": {
+    "path": "docs/superpowers/experiments/2026-08-18-qwen38-self-termination-campaign-v3.json",
+    "sha256": "F6957493F808C8C780F17282274490CD968611B4456CCB4629B25133DC982E1A"
+  },
+  "offlineEvaluator": {
+    "runnerPath": "scripts/qwen38_self_termination_campaign_runner.py",
+    "runnerSha256": "F294B1BFA8B3E7F4A1F688B4B352A7B3F9FD8251CC72367919FB4C1C50D9E770",
+    "acceptanceArtifactPath": "scripts/grasshopper_point_row_acceptance.json",
+    "acceptanceArtifactSha256": "A4836173494C2396FB60E0C0FAF889161980C26C078987F8CA5CA847B6A4367F"
+  },
+  "smokeAdjudication": {
+    "path": "docs/superpowers/experiments/2026-08-19-prime-upstream-t3-compatibility-smoke-v1-adjudication.json",
+    "sha256": "211B3345822021B17EEB04B14060A1914B2BEDFDA75FB4B685D7E2FF72C4A814"
+  },
+  "precontactVerification": {
+    "pythonPath": "C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe",
+    "arguments": [
+      "-m",
+      "pytest",
+      "mcp_server/tests/test_qwen38_self_termination_campaign_runner.py",
+      "mcp_server/tests/test_gh_behavioral_acceptance.py",
+      "-q"
+    ]
+  },
+  "goalSkillCustody": {
+    "sealedKernel": {
+      "path": "C:/Users/bring/.prime/agent/kernel-venv/Lib/site-packages/goal/__init__.py",
+      "sha256": "9A6F39CCD05DD8A6F64E9F36F38C6ECCC9C333904CEA7F3CE7E95CEC48214D4A"
+    },
+    "upstreamSource": {
+      "path": "D:/prime-agent/.worktrees/rook-upstream-evaluation/packages/coding-agent/skills/goal/src/goal/__init__.py",
+      "sha256": "9A6F39CCD05DD8A6F64E9F36F38C6ECCC9C333904CEA7F3CE7E95CEC48214D4A"
+    }
+  },
+  "precontactGate": {
+    "mode": "model_free_only",
+    "evidenceRoot": "C:/UDEV/RookEvidence/2026-08-19-prime-upstream-t3-compatibility-smoke-v2",
+    "actorContactAuthorized": false
+  }
+}

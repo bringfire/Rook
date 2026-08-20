@@ -165,6 +165,13 @@ PRIME_UPSTREAM_SMOKE_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-19-prime-upstream-t3-compatibility-smoke-v1.json"
 )
+PRIME_UPSTREAM_SMOKE_V2_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-prime-upstream-t3-compatibility-smoke-v2.json"
+)
 PRIME_UPSTREAM_SMOKE_ADJUDICATION_PATH = (
     ROOT
     / "docs"
@@ -429,6 +436,12 @@ def _prime_upstream_smoke_protocol() -> dict:
     return json.loads(PRIME_UPSTREAM_SMOKE_PROTOCOL_PATH.read_text(encoding="utf-8"))
 
 
+def _prime_upstream_smoke_v2_protocol() -> dict:
+    return json.loads(
+        PRIME_UPSTREAM_SMOKE_V2_PROTOCOL_PATH.read_text(encoding="utf-8")
+    )
+
+
 def test_prime_upstream_smoke_freezes_one_historical_t3_row():
     runner = _runner()
     historical = _protocol()
@@ -571,6 +584,158 @@ def test_prime_upstream_preflight_requires_branch_local_prime_python():
     )
     with pytest.raises(ValueError, match="preflight_invalid"):
         runner.validate_preflight_record(record, python, 2_000_000, root)
+
+
+def test_prime_upstream_v2_preserves_v1_and_freezes_goal_equivalence():
+    runner = _runner()
+    v1 = _prime_upstream_smoke_protocol()
+    v2 = _prime_upstream_smoke_v2_protocol()
+
+    assert hashlib.sha256(PRIME_UPSTREAM_SMOKE_PROTOCOL_PATH.read_bytes()).hexdigest().upper() == (
+        "512A0843FB8D59DC25F5C8C81B40C296C06DA7DA06778CA86AC82C6C2B711BCD"
+    )
+    assert runner.validate_protocol(v2) is v2
+    assert v2["schema"] == runner.PRIME_UPSTREAM_SMOKE_V2_SCHEMA
+    assert v2["precontactGate"] == {
+        "mode": "model_free_only",
+        "evidenceRoot": (
+            "C:/UDEV/RookEvidence/"
+            "2026-08-19-prime-upstream-t3-compatibility-smoke-v2"
+        ),
+        "actorContactAuthorized": False,
+    }
+    assert v2["goalSkillCustody"] == {
+        "sealedKernel": {
+            "path": (
+                "C:/Users/bring/.prime/agent/kernel-venv/"
+                "Lib/site-packages/goal/__init__.py"
+            ),
+            "sha256": (
+                "9A6F39CCD05DD8A6F64E9F36F38C6ECCC9C333904CEA7F3CE7E95CEC48214D4A"
+            ),
+        },
+        "upstreamSource": {
+            "path": (
+                "D:/prime-agent/.worktrees/rook-upstream-evaluation/"
+                "packages/coding-agent/skills/goal/src/goal/__init__.py"
+            ),
+            "sha256": (
+                "9A6F39CCD05DD8A6F64E9F36F38C6ECCC9C333904CEA7F3CE7E95CEC48214D4A"
+            ),
+        },
+    }
+    ignored = {
+        "schema",
+        "purpose",
+        "goalSkillCustody",
+        "precontactGate",
+        "offlineEvaluator",
+    }
+    assert {key: value for key, value in v2.items() if key not in ignored} == {
+        key: value
+        for key, value in v1.items()
+        if key not in {"schema", "purpose", "offlineEvaluator"}
+    }
+    assert v2["offlineEvaluator"]["runnerPath"] == v1["offlineEvaluator"]["runnerPath"]
+    assert v2["offlineEvaluator"]["acceptanceArtifactPath"] == (
+        v1["offlineEvaluator"]["acceptanceArtifactPath"]
+    )
+    assert v2["offlineEvaluator"]["acceptanceArtifactSha256"] == (
+        v1["offlineEvaluator"]["acceptanceArtifactSha256"]
+    )
+
+
+def _goal_preflight_record(protocol: dict) -> dict:
+    root = Path(protocol["prime"]["sourceRoot"])
+    return {
+        "schema": "rook.experiment.prime_goal_preflight:v2",
+        "pythonExecutable": protocol["prime"]["sealedKernelPython"],
+        "goalFile": protocol["goalSkillCustody"]["sealedKernel"]["path"],
+        "rlmFile": str(root / "prime-agent-runtime" / "src" / "rlm" / "__init__.py"),
+        "rookFullFile": (
+            "C:/qualified-row/agent/skills/rook-full/src/rook_full/__init__.py"
+        ),
+        "goalPreimported": True,
+        "getStatus": "active",
+        "getTokenBudget": protocol["limits"]["primeGoalTokenBudget"],
+        "completeStatus": "complete",
+        "requests": ["goal.get", "goal.complete"],
+        "kernelClosed": True,
+    }
+
+
+def test_prime_upstream_v2_preflight_admits_exact_installed_goal():
+    runner = _runner()
+    protocol = _prime_upstream_smoke_v2_protocol()
+    record = _goal_preflight_record(protocol)
+
+    assert runner.validate_preflight_record(
+        record,
+        Path(protocol["prime"]["sealedKernelPython"]),
+        protocol["limits"]["primeGoalTokenBudget"],
+        Path(protocol["prime"]["sourceRoot"]),
+        protocol["goalSkillCustody"],
+    ) == record
+
+    record["goalFile"] = str(Path(record["goalFile"]).with_name("shadow.py"))
+    with pytest.raises(ValueError, match="preflight_invalid"):
+        runner.validate_preflight_record(
+            record,
+            Path(protocol["prime"]["sealedKernelPython"]),
+            protocol["limits"]["primeGoalTokenBudget"],
+            Path(protocol["prime"]["sourceRoot"]),
+            protocol["goalSkillCustody"],
+        )
+
+
+@pytest.mark.parametrize("changed_side", ["sealedKernel", "upstreamSource"])
+def test_goal_skill_equivalence_rejects_one_byte_drift(tmp_path, changed_side):
+    runner = _runner()
+    sealed = tmp_path / "sealed" / "goal" / "__init__.py"
+    upstream = tmp_path / "prime" / "goal" / "src" / "goal" / "__init__.py"
+    sealed.parent.mkdir(parents=True)
+    upstream.parent.mkdir(parents=True)
+    sealed.write_text("VALUE = 1\n", encoding="utf-8")
+    upstream.write_bytes(sealed.read_bytes())
+    digest = hashlib.sha256(sealed.read_bytes()).hexdigest().upper()
+    custody = {
+        "sealedKernel": {"path": str(sealed), "sha256": digest},
+        "upstreamSource": {"path": str(upstream), "sha256": digest},
+    }
+
+    assert runner.verify_goal_skill_equivalence(custody)["equivalent"] is True
+    Path(custody[changed_side]["path"]).write_text("VALUE = 2\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="custody_mismatch:goal_skill"):
+        runner.verify_goal_skill_equivalence(custody)
+
+
+def test_goal_skill_equivalence_rejects_missing_file(tmp_path):
+    runner = _runner()
+    missing = tmp_path / "missing.py"
+    custody = {
+        "sealedKernel": {"path": str(missing), "sha256": "A" * 64},
+        "upstreamSource": {"path": str(missing), "sha256": "A" * 64},
+    }
+
+    with pytest.raises(RuntimeError, match="custody_mismatch:goal_skill"):
+        runner.verify_goal_skill_equivalence(custody)
+
+
+def test_prime_upstream_v2_exposes_model_free_preflight_command(tmp_path):
+    runner = _runner()
+
+    args = runner._parser().parse_args(
+        [
+            "preflight",
+            "--protocol",
+            str(PRIME_UPSTREAM_SMOKE_V2_PROTOCOL_PATH),
+            "--evidence-root",
+            str(tmp_path / "evidence"),
+        ]
+    )
+
+    assert args.command == "preflight"
 
 
 def _committed_prime_test_repository(root: Path) -> Path:
