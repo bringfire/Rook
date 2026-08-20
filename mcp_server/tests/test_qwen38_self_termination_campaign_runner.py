@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import json
@@ -203,6 +204,32 @@ OPTIONAL_PYTHON_CONFIRMATION_ADJUDICATION_PATH = (
     / "superpowers"
     / "experiments"
     / "2026-08-19-qwen38-optional-python-skill-sine-wave-confirmation-v1-adjudication.json"
+)
+MULTIMODAL_VESSEL_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-multimodal-vessel-massing-v1.json"
+)
+MULTIMODAL_VESSEL_ADJUDICATION_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-multimodal-vessel-massing-v1-adjudication.json"
+)
+MULTIMODAL_VESSEL_IMAGE_ROOT = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "inputs"
+    / "2026-08-19-qwen38-multimodal-vessel-massing-v1"
+    / "images"
+)
+MULTIMODAL_ATTACHMENT_PREFLIGHT_PATH = (
+    ROOT / "scripts" / "prime_multimodal_attachment_preflight.ts"
 )
 PRIME_UPSTREAM_SMOKE_ADJUDICATION_PATH = (
     ROOT
@@ -486,6 +513,10 @@ def _optional_python_confirmation_protocol() -> dict:
     )
 
 
+def _multimodal_vessel_protocol() -> dict:
+    return json.loads(MULTIMODAL_VESSEL_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
 def _skill_body(path: Path) -> str:
     content = path.read_text(encoding="utf-8")
     assert content.startswith("---\n")
@@ -565,7 +596,7 @@ def test_optional_python_skill_remains_explicitly_loadable_and_nondefault(
     row_root = tmp_path / "row"
     runner._copy_versioned_inputs(protocol, task, row_root)
     monkeypatch.setattr(runner, "validate_protocol", lambda candidate: candidate)
-    command, _ = runner.build_prime_launch(
+    command, environment = runner.build_prime_launch(
         protocol,
         task=task,
         row_root=row_root,
@@ -666,6 +697,252 @@ def test_optional_python_confirmation_uses_the_existing_silent_evaluator():
     assert hashlib.sha256(source.read_bytes()).hexdigest().upper() == (
         evaluator["behavioralAcceptanceSha256"]
     )
+
+
+def test_multimodal_vessel_protocol_freezes_images_runtime_and_scope():
+    runner = _runner()
+    protocol = _multimodal_vessel_protocol()
+    adjudication = json.loads(
+        MULTIMODAL_VESSEL_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["schema"] == runner.MULTIMODAL_VESSEL_SCHEMA
+    assert protocol["executionOrder"] == ["MV1"]
+    assert protocol["prime"]["commit"] == (
+        "739400844f8f3f280414b0c7b9c65797208815d3"
+    )
+    assert protocol["prime"]["thinkingLevel"] == "low"
+    assert protocol["prime"]["settings"]["compaction"] == {
+        "enabled": True,
+        "reserveTokens": 16_384,
+        "keepRecentTokens": 20_000,
+        "agentCallable": True,
+    }
+    assert protocol["modelCustody"]["modelConfiguration"] == {
+        "contextWindow": 131_072,
+        "input": ["text", "image"],
+        "reasoning": True,
+    }
+    assert protocol["limits"] == {
+        "wallClockSecondsPerRun": 10_800,
+        "gatewayEventsPerRun": 500,
+        "providerReportedTokensPerRun": 10_000_000,
+        "primeGoalTokenBudget": 9_500_000,
+    }
+    assert [item["sourceSha256"] for item in protocol["multimodal"]["images"]] == [
+        "0516B550433493CCA528762659F4209219B4F9A0D07AD002AEC86CEAAD5E75AA",
+        "8A58E062A99DA5E3F25242B7483B97C0CA459A7ABDBC089DEFCEBBDD59737BA0",
+    ]
+    assert [item["dimensions"] for item in protocol["multimodal"]["images"]] == [
+        [1080, 1226],
+        [1080, 1440],
+    ]
+    assert protocol["multimodal"]["minimumFreeGpuMiB"] == 27_000
+    assert protocol["multimodal"]["requiredLoadedContext"] == 131_072
+    assert protocol["multimodal"]["requiredProcessor"] == "100% GPU"
+    attachment_preflight = protocol["multimodal"]["attachmentPreflight"]
+    assert attachment_preflight["path"] == (
+        "scripts/prime_multimodal_attachment_preflight.ts"
+    )
+    assert hashlib.sha256(MULTIMODAL_ATTACHMENT_PREFLIGHT_PATH.read_bytes()).hexdigest().upper() == (
+        attachment_preflight["sha256"]
+    )
+    assert protocol["optionalSkill"]["packageSha256"] == (
+        "2312DBF60EF17F9AA0B6503EDC281C7D367A5379F200ADEADB4747FD58A34F66"
+    )
+    prompt = protocol["tasks"]["MV1"]["prompt"]
+    assert "8 stacked horizontal polygonal annular walkway platforms" in prompt
+    assert "exactly one connected flight between every adjacent level" in prompt
+    assert "Do not add railings" in prompt
+    assert adjudication["tasks"].keys() == {"MV1"}
+    assert protocol["singleRun"]["retryCount"] == 0
+    assert protocol["singleRun"]["evaluatorFeedbackDuringRun"] is False
+
+
+def test_multimodal_launch_requires_both_images_as_first_ipython_action(tmp_path):
+    runner = _runner()
+    protocol = _multimodal_vessel_protocol()
+    task = protocol["tasks"]["MV1"]
+    row_root = tmp_path / "row"
+    runner._copy_versioned_inputs(protocol, task, row_root)
+
+    command, environment = runner.build_prime_launch(
+        protocol,
+        task=task,
+        row_root=row_root,
+        target={"processId": 1, "documentSerialNumber": 2},
+    )
+
+    selected = row_root / "explicit-skills" / "prime-execute-grasshopper-python"
+    assert command[command.index("--skill") + 1] == str(selected)
+    assert command[-1] == protocol["multimodal"]["initialInstruction"]
+    assert protocol["multimodal"]["attachmentCode"] in command[-1]
+    assert command[-1].index("TheVessel-01.png") < command[-1].index(
+        "TheVessel-02.png"
+    )
+    assert "before any Rook call" in command[-1]
+    assert (
+        "D:/prime-agent/.worktrees/rook-upstream-evaluation/packages/"
+        "coding-agent/dist/skills/attach-image/src"
+    ) in environment["PYTHONPATH"].split(";")
+    assert environment["PYTHONDONTWRITEBYTECODE"] == "1"
+
+
+def test_multimodal_attachment_audit_proves_order_and_retained_image_bytes(tmp_path):
+    runner = _runner()
+    protocol = _multimodal_vessel_protocol()
+    prime = tmp_path / "prime.jsonl"
+    attachment_code = protocol["multimodal"]["attachmentCode"]
+    first = b"first image"
+    second = b"second image"
+    events = [
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "attach-call",
+            "toolName": "ipython",
+            "args": {"code": attachment_code},
+        },
+        {
+            "type": "message_start",
+            "message": {
+                "role": "toolResult",
+                "toolCallId": "attach-call",
+                "toolName": "ipython",
+                "content": [
+                    {"type": "text", "text": "Loaded 2 image(s) into context"},
+                    {
+                        "type": "image",
+                        "data": base64.b64encode(first).decode("ascii"),
+                        "mimeType": "image/png",
+                    },
+                    {
+                        "type": "image",
+                        "data": base64.b64encode(second).decode("ascii"),
+                        "mimeType": "image/jpeg",
+                    },
+                ],
+            },
+        },
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "rook-call",
+            "toolName": "ipython",
+            "args": {"code": "await rook_full.call('gh_snapshot', {})"},
+        },
+    ]
+    prime.write_text(
+        "".join(json.dumps(event) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+    result = runner.audit_multimodal_attachment_sequence(prime, protocol)
+
+    assert result["status"] == "pass"
+    assert result["attachmentToolCallId"] == "attach-call"
+    assert [item["bytes"] for item in result["attachments"]] == [len(first), len(second)]
+    assert [item["sha256"] for item in result["attachments"]] == [
+        hashlib.sha256(first).hexdigest().upper(),
+        hashlib.sha256(second).hexdigest().upper(),
+    ]
+
+
+@pytest.mark.parametrize(
+    "events,error",
+    [
+        (
+            [
+                {
+                    "type": "tool_execution_start",
+                    "toolCallId": "rook-call",
+                    "toolName": "ipython",
+                    "args": {"code": "await rook_full.call('gh_snapshot', {})"},
+                }
+            ],
+            "multimodal_attachment_not_first_ipython_action",
+        ),
+        (
+            [
+                {
+                    "type": "tool_execution_start",
+                    "toolCallId": "attach-call",
+                    "toolName": "ipython",
+                    "args": {"code": "print(await attach_image('wrong.png'))"},
+                }
+            ],
+            "multimodal_attachment_code_mismatch",
+        ),
+    ],
+)
+def test_multimodal_attachment_audit_fails_closed(events, error, tmp_path):
+    runner = _runner()
+    protocol = _multimodal_vessel_protocol()
+    prime = tmp_path / "prime.jsonl"
+    prime.write_text(
+        "".join(json.dumps(event) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match=error):
+        runner.audit_multimodal_attachment_sequence(prime, protocol)
+
+
+def test_multimodal_post_load_custody_requires_full_gpu_and_131072_context():
+    runner = _runner()
+    valid = """NAME           ID              SIZE      PROCESSOR    CONTEXT    UNTIL
+qwen3.8:27b    123456789abc    20 GB     100% GPU      131072     4 minutes
+"""
+
+    result = runner.validate_multimodal_ollama_ps(
+        valid, model="qwen3.8:27b", context=131_072, processor="100% GPU"
+    )
+
+    assert result["status"] == "pass"
+    assert result["matchedLine"].startswith("qwen3.8:27b")
+    for invalid in (
+        valid.replace("131072", "65536"),
+        valid.replace("100% GPU", "90% GPU 10% CPU"),
+        valid.replace("qwen3.8:27b", "other:latest"),
+    ):
+        with pytest.raises(RuntimeError, match="multimodal_model_load_invalid"):
+            runner.validate_multimodal_ollama_ps(
+                invalid,
+                model="qwen3.8:27b",
+                context=131_072,
+                processor="100% GPU",
+            )
+
+
+def test_multimodal_safety_preflight_requires_gpu_idle_sleep_and_compaction():
+    runner = _runner()
+    record = runner.validate_multimodal_safety_observations(
+        free_gpu_mib=[31_245],
+        ollama_ps="NAME ID SIZE PROCESSOR CONTEXT UNTIL\n",
+        standby_ac_seconds=0,
+        compaction_test_exit_code=0,
+        attachment_preflight_exit_code=0,
+        minimum_free_gpu_mib=27_000,
+    )
+
+    assert record["status"] == "pass"
+    for changed in (
+        {"free_gpu_mib": [26_999]},
+        {"ollama_ps": "NAME ID SIZE PROCESSOR CONTEXT UNTIL\nqwen3.8:27b x 20GB 100% GPU 131072 4m\n"},
+        {"standby_ac_seconds": 1800},
+        {"compaction_test_exit_code": 1},
+        {"attachment_preflight_exit_code": 1},
+    ):
+        arguments = {
+            "free_gpu_mib": [31_245],
+            "ollama_ps": "NAME ID SIZE PROCESSOR CONTEXT UNTIL\n",
+            "standby_ac_seconds": 0,
+            "compaction_test_exit_code": 0,
+            "attachment_preflight_exit_code": 0,
+            "minimum_free_gpu_mib": 27_000,
+        }
+        arguments.update(changed)
+        with pytest.raises(RuntimeError, match="multimodal_preflight_failed"):
+            runner.validate_multimodal_safety_observations(**arguments)
 
 
 def test_prime_upstream_smoke_freezes_one_historical_t3_row():

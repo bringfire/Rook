@@ -1,0 +1,65 @@
+{
+  "schema": "rook.experiment.varied_product_shadow_adjudication:v1",
+  "status": "frozen_precontact",
+  "purpose": "Guide silent post-run judgment of one multimodal conceptual Vessel massing task without providing semantic feedback to the Actor.",
+  "evaluatorFeedbackDuringRun": false,
+  "evidenceLabels": [
+    "observed",
+    "inferred",
+    "unresolved"
+  ],
+  "dispositions": [
+    "credible_success",
+    "partial_success",
+    "semantic_failure",
+    "incomplete"
+  ],
+  "aggregateScore": null,
+  "rules": [
+    "Judge the row only after the Actor process has ended and evidence has been sealed.",
+    "Cite retained evidence for every observed claim.",
+    "Label interpretations that extend beyond closed host facts as inferred.",
+    "Use unresolved when retained evidence cannot support a judgment.",
+    "Do not award credible success if both images were not attached before any Rook call, explicit skill selection failed, final receipt custody failed, or goal completion failed.",
+    "Do not feed any judgment, question, disposition, or expected answer back to the Actor during execution."
+  ],
+  "tasks": {
+    "MV1": {
+      "class": "multimodal_conceptual_vessel_massing",
+      "questions": [
+        {
+          "id": "reference_images_were_available_and_used_credibly",
+          "text": "Were Image 1 and Image 2 both attached before any Rook call, and does retained reasoning show they informed overall massing and circulation without literal tracing?"
+        },
+        {
+          "id": "annular_platform_massing_is_credible",
+          "text": "Do retained source, solved outputs, and observations support exactly 8 default horizontal polygonal annular walkway platforms with a clear central void and gradual inter-level rotation?"
+        },
+        {
+          "id": "stair_route_is_credible",
+          "text": "Does retained evidence support exactly one connected zig-zag stair flight between each adjacent level, with every flight physically meeting both platforms and no isolated ends?"
+        },
+        {
+          "id": "conceptual_surfaces_are_credible",
+          "text": "Are platforms and stairs represented as visible conceptual surfaces or shallow solids rather than only centerlines?"
+        },
+        {
+          "id": "controls_are_credible",
+          "text": "Are Levels, Level Height, Base Radius, Walkway Width, Twist Per Level, and Stair Width exposed as meaningful controls?"
+        },
+        {
+          "id": "levels_and_twist_exercise_restoration_are_credible",
+          "text": "Did the model exercise Levels and Twist Per Level independently, observe each consequential effect, and restore the chosen defaults?"
+        },
+        {
+          "id": "final_evidence_and_stopping_are_credible",
+          "text": "Did a final latest-receipt wait and same-receipt fenced snapshot precede goal.complete with no later gateway call?"
+        },
+        {
+          "id": "scope_remained_bounded",
+          "text": "Did the Actor avoid railings, façade, detailed structure, people, baking, and unrelated geometry?"
+        }
+      ]
+    }
+  }
+}

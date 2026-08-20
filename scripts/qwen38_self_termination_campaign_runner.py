@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 from dataclasses import dataclass
 import hashlib
 import json
 import os
 from pathlib import Path
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -43,6 +45,7 @@ PRIME_UPSTREAM_SMOKE_V3_SCHEMA = (
 OPTIONAL_PYTHON_CONFIRMATION_SCHEMA = (
     "rook.experiment.qwen38_optional_python_skill_confirmation:v1"
 )
+MULTIMODAL_VESSEL_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v1"
 PRIME_UPSTREAM_SMOKE_SCHEMAS = {
     PRIME_UPSTREAM_SMOKE_SCHEMA,
     PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
@@ -51,10 +54,12 @@ PRIME_UPSTREAM_SMOKE_SCHEMAS = {
 PRIME_UPSTREAM_CUSTODY_SCHEMAS = {
     *PRIME_UPSTREAM_SMOKE_SCHEMAS,
     OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+    MULTIMODAL_VESSEL_SCHEMA,
 }
 SHADOW_JUDGMENT_SCHEMAS = {
     VARIED_COHORT_SCHEMA,
     OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+    MULTIMODAL_VESSEL_SCHEMA,
 }
 TARGET_FIXTURE_SCHEMA = "rook.experiment.gh_target_fixture:v1"
 SHADOW_ADJUDICATION_SCHEMA = (
@@ -1268,6 +1273,234 @@ def _validate_optional_python_confirmation(
     return ["PY1"]
 
 
+def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
+    expected_keys = {
+        "schema",
+        "status",
+        "purpose",
+        "evidenceRootPrefix",
+        "executionOrder",
+        "limits",
+        "prime",
+        "upstreamCustody",
+        "goalSkillCustody",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "toolSurface",
+        "versionedInputs",
+        "optionalSkill",
+        "canonicalNativeSkill",
+        "baselineEvidence",
+        "multimodal",
+        "tasks",
+        "shadowAdjudication",
+        "singleRun",
+        "offlineEvaluator",
+        "precontactVerification",
+        "contactMode",
+    }
+    if set(protocol) != expected_keys or protocol.get("status") != "frozen_precontact":
+        raise ValueError("multimodal_vessel_invalid")
+    if protocol.get("executionOrder") != ["MV1"] or protocol.get("limits") != {
+        "wallClockSecondsPerRun": 10_800,
+        "gatewayEventsPerRun": 500,
+        "providerReportedTokensPerRun": 10_000_000,
+        "primeGoalTokenBudget": 9_500_000,
+    }:
+        raise ValueError("multimodal_vessel_invalid")
+
+    prime = protocol.get("prime")
+    expected_settings = {
+        "enableBuiltinSkills": True,
+        "packages": [],
+        "extensions": [],
+        "compaction": {
+            "enabled": True,
+            "reserveTokens": 16_384,
+            "keepRecentTokens": 20_000,
+            "agentCallable": True,
+        },
+    }
+    expected_model = {
+        "id": "qwen3.8:27b",
+        "reasoning": True,
+        "input": ["text", "image"],
+        "contextWindow": 131_072,
+    }
+    if (
+        type(prime) is not dict
+        or prime.get("commit")
+        != "739400844f8f3f280414b0c7b9c65797208815d3"
+        or prime.get("sourceRoot")
+        != "D:/prime-agent/.worktrees/rook-upstream-evaluation"
+        or prime.get("thinkingLevel") != "low"
+        or prime.get("settings") != expected_settings
+        or prime.get("models", {})
+        .get("providers", {})
+        .get("ollama_chat", {})
+        .get("models")
+        != [expected_model]
+    ):
+        raise ValueError("multimodal_vessel_invalid")
+    model_configuration = protocol.get("modelCustody", {}).get("modelConfiguration")
+    if model_configuration != {
+        "reasoning": True,
+        "input": ["text", "image"],
+        "contextWindow": 131_072,
+    }:
+        raise ValueError("multimodal_vessel_invalid")
+
+    optional = protocol.get("optionalSkill")
+    if optional != {
+        "name": _OPTIONAL_PYTHON_SKILL_NAME,
+        "packagePath": "integrations/prime/skills/prime-execute-grasshopper-python",
+        "packageSha256": (
+            "2312DBF60EF17F9AA0B6503EDC281C7D367A5379F200ADEADB4747FD58A34F66"
+        ),
+        "selectionMode": "explicit_cli_path_and_slash_command",
+        "defaultInstalled": False,
+        "automaticRouting": False,
+    }:
+        raise ValueError("multimodal_vessel_invalid")
+    package_path = ROOT / _OPTIONAL_PYTHON_SKILL
+    if not package_path.is_file() or _sha(package_path) != optional["packageSha256"]:
+        raise ValueError("multimodal_vessel_invalid")
+    versioned = protocol.get("versionedInputs")
+    if (
+        type(versioned) is not dict
+        or versioned.get("skillPath") != _OPTIONAL_PYTHON_SKILL
+        or versioned.get("skillSha256") != optional["packageSha256"]
+        or versioned.get("checkpointSha256")
+        != "2D574EABF45EC1EB9B9BBCFCBD68F1CBE311E466CD922DF312F88A51925D63E7"
+        or versioned.get("adapterInitSha256")
+        != "06F1CB4AA58FD8C4C6F61F96CE7B8A5F4FEF7B6B126D00C0550B2CB3AA0BBF74"
+    ):
+        raise ValueError("multimodal_vessel_invalid")
+
+    multimodal = protocol.get("multimodal")
+    expected_paths = [
+        "C:/Users/bring/OneDrive/Desktop/Qwen38/Images/Reduced/TheVessel-01.png",
+        "C:/Users/bring/OneDrive/Desktop/Qwen38/Images/Reduced/TheVessel-02.png",
+    ]
+    expected_hashes = [
+        "0516B550433493CCA528762659F4209219B4F9A0D07AD002AEC86CEAAD5E75AA",
+        "8A58E062A99DA5E3F25242B7483B97C0CA459A7ABDBC089DEFCEBBDD59737BA0",
+    ]
+    expected_dimensions = [[1080, 1226], [1080, 1440]]
+    images = multimodal.get("images") if type(multimodal) is dict else None
+    if type(images) is not list or len(images) != 2:
+        raise ValueError("multimodal_vessel_invalid")
+    for index, image in enumerate(images):
+        if (
+            type(image) is not dict
+            or image.get("sourcePath") != expected_paths[index]
+            or image.get("sourceSha256") != expected_hashes[index]
+            or image.get("frozenSha256") != expected_hashes[index]
+            or image.get("dimensions") != expected_dimensions[index]
+        ):
+            raise ValueError("multimodal_vessel_invalid")
+        source = Path(image["sourcePath"])
+        frozen = ROOT / image["frozenPath"]
+        if (
+            not source.is_file()
+            or not frozen.is_file()
+            or source.stat().st_size != image.get("bytes")
+            or frozen.stat().st_size != image.get("bytes")
+            or _sha(source) != expected_hashes[index]
+            or _sha(frozen) != expected_hashes[index]
+        ):
+            raise ValueError("multimodal_vessel_invalid")
+    expected_code = (
+        'print(await attach_image("C:/Users/bring/OneDrive/Desktop/Qwen38/Images/'
+        'Reduced/TheVessel-01.png", "C:/Users/bring/OneDrive/Desktop/Qwen38/Images/'
+        'Reduced/TheVessel-02.png"))'
+    )
+    if (
+        multimodal.get("attachmentCode") != expected_code
+        or expected_code not in multimodal.get("initialInstruction", "")
+        or "before any Rook call" not in multimodal.get("initialInstruction", "")
+        or multimodal.get("minimumFreeGpuMiB") != 27_000
+        or multimodal.get("requiredLoadedContext") != 131_072
+        or multimodal.get("requiredProcessor") != "100% GPU"
+        or multimodal.get("sleepPolicy") != "ac_standby_disabled"
+        or multimodal.get("preRunOllamaPolicy") != "no_loaded_models"
+    ):
+        raise ValueError("multimodal_vessel_invalid")
+    attachment_preflight = multimodal.get("attachmentPreflight")
+    if (
+        type(attachment_preflight) is not dict
+        or attachment_preflight.get("path")
+        != "scripts/prime_multimodal_attachment_preflight.ts"
+        or not _is_sha256(attachment_preflight.get("sha256"))
+        or not (ROOT / attachment_preflight["path"]).is_file()
+        or _sha(ROOT / attachment_preflight["path"])
+        != attachment_preflight["sha256"]
+    ):
+        raise ValueError("multimodal_vessel_invalid")
+    package = multimodal.get("attachImagePackage")
+    if type(package) is not dict:
+        raise ValueError("multimodal_vessel_invalid")
+    observed_package = directory_manifest(Path(package.get("path", "")))
+    if observed_package["summary"] != {
+        "entryCount": package.get("entryCount"),
+        "totalBytes": package.get("totalBytes"),
+        "manifestSha256": package.get("manifestSha256"),
+    }:
+        raise ValueError("multimodal_vessel_invalid")
+
+    task = protocol.get("tasks", {}).get("MV1")
+    if (
+        type(task) is not dict
+        or task.get("id") != "MV1"
+        or task.get("class") != "multimodal_conceptual_vessel_massing"
+        or task.get("targetBaseline") != "fresh_empty_grasshopper_document"
+        or task.get("evaluator") != "independent_shadow_judgment"
+        or task.get("prompt")
+        != "Use Image 1 for the overall stacked, twisting exterior massing and Image 2 for circulation. They are conceptual references, not literal geometry. Create an adjustable Grasshopper conceptual massing with 8 stacked horizontal polygonal annular walkway platforms around a clear central void. Rotate successive levels gradually. Create one continuous zig-zag stair route with exactly one connected flight between every adjacent level; each flight must physically meet both platforms without gaps or isolated ends. Represent platforms and stairs as visible conceptual surfaces or shallow solids, not only centerlines. Expose Levels, Level Height, Base Radius, Walkway Width, Twist Per Level, and Stair Width controls. Exercise Levels and Twist Per Level independently, observe each effect, restore defaults, retain a final same-receipt fenced snapshot, and call goal.complete() as the final tool call. Then emit text only. Do not add railings, façade, detailed structure, people, baking, or unrelated geometry."
+    ):
+        raise ValueError("multimodal_vessel_invalid")
+    validate_target_fixture(task.get("targetFixture"))
+    single_run = protocol.get("singleRun")
+    if (
+        type(single_run) is not dict
+        or single_run.get("retryCount") != 0
+        or single_run.get("evaluatorFeedbackDuringRun") is not False
+    ):
+        raise ValueError("multimodal_vessel_invalid")
+    contact = protocol.get("contactMode")
+    if contact != {
+        "mode": "single_multimodal_vessel_live_contact",
+        "evidenceRoot": (
+            "C:/UDEV/RookEvidence/2026-08-19-qwen38-multimodal-vessel-massing-v1"
+        ),
+        "actorContactAuthorized": True,
+    }:
+        raise ValueError("multimodal_vessel_invalid")
+    evaluator = protocol.get("offlineEvaluator")
+    if (
+        type(evaluator) is not dict
+        or evaluator.get("runnerPath")
+        != "scripts/qwen38_self_termination_campaign_runner.py"
+        or evaluator.get("runnerSha256") != _sha(Path(__file__).resolve())
+        or evaluator.get("behavioralAcceptanceSha256")
+        != "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
+        or evaluator.get("mode") != "silent_post_run_independent_judgment"
+    ):
+        raise ValueError("multimodal_vessel_invalid")
+    adjudication = protocol.get("shadowAdjudication")
+    if type(adjudication) is not dict or not _is_sha256(adjudication.get("sha256")):
+        raise ValueError("multimodal_vessel_invalid")
+    adjudication_path = ROOT / adjudication.get("path", "")
+    if (
+        not adjudication_path.is_file()
+        or _sha(adjudication_path) != adjudication["sha256"]
+    ):
+        raise ValueError("multimodal_vessel_invalid")
+    validate_shadow_adjudication(_load_json(adjudication_path), protocol)
+    return ["MV1"]
+
+
 def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     schema = protocol.get("schema") if type(protocol) is dict else None
     if schema not in {
@@ -1280,20 +1513,31 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+        MULTIMODAL_VESSEL_SCHEMA,
     }:
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
     prime = protocol.get("prime")
-    if type(prime) is not dict or prime.get("settings") != {
+    expected_prime_settings = {
         "enableBuiltinSkills": True,
         "packages": [],
         "extensions": [],
-    }:
+    }
+    if schema == MULTIMODAL_VESSEL_SCHEMA:
+        expected_prime_settings["compaction"] = {
+            "enabled": True,
+            "reserveTokens": 16_384,
+            "keepRecentTokens": 20_000,
+            "agentCallable": True,
+        }
+    if type(prime) is not dict or prime.get("settings") != expected_prime_settings:
         raise ValueError("builtin_skills_not_enabled")
     tasks = protocol.get("tasks")
     order = protocol.get("executionOrder")
     if schema == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
         expected_order = _validate_optional_python_confirmation(protocol)
+    elif schema == MULTIMODAL_VESSEL_SCHEMA:
+        expected_order = _validate_multimodal_vessel(protocol)
     else:
         expected_order = {
             "rook.experiment.qwen38_self_termination_campaign:v3": [
@@ -1330,6 +1574,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+        MULTIMODAL_VESSEL_SCHEMA,
     }:
         if (
             schema not in PRIME_UPSTREAM_SMOKE_SCHEMAS
@@ -1785,12 +2030,17 @@ def build_prime_launch(
     prime = protocol["prime"]
     explicit_skill: Path | None = None
     initial_prompt = "Begin the active goal now."
-    if protocol.get("schema") == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+    if protocol.get("schema") in {
+        OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+        MULTIMODAL_VESSEL_SCHEMA,
+    }:
         explicit_skill = (
             row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
         )
         initial_prompt = (
-            f"/skill:{_OPTIONAL_PYTHON_SKILL_NAME} Begin the active goal now."
+            protocol["multimodal"]["initialInstruction"]
+            if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA
+            else f"/skill:{_OPTIONAL_PYTHON_SKILL_NAME} Begin the active goal now."
         )
     command = [
         prime["bashPath"],
@@ -1842,7 +2092,10 @@ def build_prime_launch(
 def verify_prime_explicit_skill_loading(
     protocol: dict[str, Any], selected_skill_root: Path
 ) -> dict[str, Any]:
-    if protocol.get("schema") != OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+    if protocol.get("schema") not in {
+        OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+        MULTIMODAL_VESSEL_SCHEMA,
+    }:
         raise ValueError("optional_python_confirmation_required")
     selected_skill_root = Path(selected_skill_root).resolve()
     expected_skill = selected_skill_root / "SKILL.md"
@@ -1939,6 +2192,14 @@ def python_runtime_environment(
                 / "src"
             ).as_posix()
         )
+    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+        source_paths.append(
+            (
+                Path(protocol["multimodal"]["attachImagePackage"]["path"])
+                / "src"
+            ).as_posix()
+        )
+        result["PYTHONDONTWRITEBYTECODE"] = "1"
     result["PYTHONPATH"] = os.pathsep.join([*source_paths, *python_paths])
     existing_path = result.get("PATH", "")
     result["PATH"] = os.pathsep.join(
@@ -2254,7 +2515,10 @@ def _copy_versioned_inputs(
     versioned = _row_versioned_inputs(protocol, task)
     skill_source = ROOT / versioned["skillPath"]
     checkpoint_source = ROOT / versioned["checkpointPath"]
-    if protocol.get("schema") == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+    if protocol.get("schema") in {
+        OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+        MULTIMODAL_VESSEL_SCHEMA,
+    }:
         skill_target = row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
         shutil.copytree(skill_source.parent, skill_target)
     else:
@@ -2267,6 +2531,11 @@ def _copy_versioned_inputs(
         )
     adapter_source = ROOT / versioned["adapterRoot"]
     shutil.copytree(adapter_source, agent / "skills" / "rook-full")
+    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+        image_root = row_root / "inputs" / "images"
+        image_root.mkdir(parents=True)
+        for image in protocol["multimodal"]["images"]:
+            shutil.copy2(ROOT / image["frozenPath"], image_root / Path(image["frozenPath"]).name)
     (agent / "sessions").mkdir()
 
 
@@ -2275,9 +2544,10 @@ def _write_row_input_custody(
 ) -> dict[str, Any]:
     agent = row_root / "agent"
     operator = row_root / "operator"
-    optional_confirmation = (
-        protocol.get("schema") == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA
-    )
+    optional_confirmation = protocol.get("schema") in {
+        OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+        MULTIMODAL_VESSEL_SCHEMA,
+    }
     skill_root = (
         row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
         if optional_confirmation
@@ -2294,6 +2564,11 @@ def _write_row_input_custody(
     fixture_path = operator / "task-fixture.json"
     if fixture_path.is_file():
         files["targetFixture"] = fixture_path
+    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+        for index, image in enumerate(protocol["multimodal"]["images"], start=1):
+            files[f"referenceImage{index}"] = (
+                row_root / "inputs" / "images" / Path(image["frozenPath"]).name
+            )
     custody = {
         "schema": "rook.experiment.qwen38_campaign_row_input_custody:v1",
         "task": task,
@@ -2317,6 +2592,10 @@ def _write_row_input_custody(
     for name, digest in expected.items():
         if custody["files"][name]["sha256"] != digest:
             raise RuntimeError(f"staged_input_mismatch:{name}")
+    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+        for index, image in enumerate(protocol["multimodal"]["images"], start=1):
+            if custody["files"][f"referenceImage{index}"]["sha256"] != image["frozenSha256"]:
+                raise RuntimeError(f"staged_input_mismatch:reference_image_{index}")
     _write_json(operator / "input-custody.json", custody)
     return custody
 
@@ -2780,6 +3059,53 @@ def _runtime_custody(
                 reference["sha256"],
                 f"baseline:{name}",
             )
+    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+        optional = protocol["optionalSkill"]
+        evaluator = protocol["offlineEvaluator"]
+        package_root = ROOT / optional["packagePath"]
+        files["offlineBehavioralAcceptance"] = _verify_sha(
+            ROOT / evaluator["behavioralAcceptancePath"],
+            evaluator["behavioralAcceptanceSha256"],
+            "offline_behavioral_acceptance",
+        )
+        files["optionalPythonSkill"] = _verify_sha(
+            package_root / "SKILL.md",
+            optional["packageSha256"],
+            "optional_python_skill",
+        )
+        canonical = protocol["canonicalNativeSkill"]
+        files["canonicalNativeSkill"] = _verify_sha(
+            ROOT / canonical["path"], canonical["sha256"], "canonical_native_skill"
+        )
+        adjudication = protocol["shadowAdjudication"]
+        files["shadowAdjudication"] = _verify_sha(
+            ROOT / adjudication["path"], adjudication["sha256"], "shadow_adjudication"
+        )
+        for index, image in enumerate(protocol["multimodal"]["images"], start=1):
+            files[f"referenceImageSource{index}"] = _verify_sha(
+                Path(image["sourcePath"]), image["sourceSha256"], f"reference_image_source_{index}"
+            )
+            files[f"referenceImageFrozen{index}"] = _verify_sha(
+                ROOT / image["frozenPath"], image["frozenSha256"], f"reference_image_frozen_{index}"
+            )
+        attach_package = protocol["multimodal"]["attachImagePackage"]
+        attach_manifest = directory_manifest(Path(attach_package["path"]))
+        if attach_manifest["summary"] != {
+            "entryCount": attach_package["entryCount"],
+            "totalBytes": attach_package["totalBytes"],
+            "manifestSha256": attach_package["manifestSha256"],
+        }:
+            raise RuntimeError("custody_mismatch:attach_image_package")
+        files["attachImagePackage"] = {
+            "path": attach_package["path"],
+            **attach_manifest["summary"],
+        }
+        attachment_preflight = protocol["multimodal"]["attachmentPreflight"]
+        files["multimodalAttachmentPreflight"] = _verify_sha(
+            ROOT / attachment_preflight["path"],
+            attachment_preflight["sha256"],
+            "multimodal_attachment_preflight",
+        )
     record = {
         "schema": "rook.experiment.qwen38_campaign_runtime_custody:v1",
         "campaignRepositoryCommit": repository_commit,
@@ -2793,7 +3119,10 @@ def _runtime_custody(
         record["primeUpstream"] = upstream_observed
     if goal_skill_equivalence is not None:
         record["goalSkillEquivalence"] = goal_skill_equivalence
-    if protocol.get("schema") == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+    if protocol.get("schema") in {
+        OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+        MULTIMODAL_VESSEL_SCHEMA,
+    }:
         selected = ROOT / protocol["optionalSkill"]["packagePath"]
         record["explicitSkillLoading"] = verify_prime_explicit_skill_loading(
             protocol, selected
@@ -2848,17 +3177,131 @@ def _run_preflight(
         protocol["limits"]["primeGoalTokenBudget"],
         (
             Path(protocol["prime"]["sourceRoot"])
-            if protocol.get("schema") in PRIME_UPSTREAM_SMOKE_SCHEMAS
+            if protocol.get("schema") in PRIME_UPSTREAM_CUSTODY_SCHEMAS
             else None
         ),
         (
             protocol["goalSkillCustody"]
             if protocol.get("schema")
-            in {PRIME_UPSTREAM_SMOKE_V2_SCHEMA, PRIME_UPSTREAM_SMOKE_V3_SCHEMA}
+            in {
+                PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
+                PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
+                OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+                MULTIMODAL_VESSEL_SCHEMA,
+            }
             else None
         ),
     )
     _write_json(preflight_root / "result.json", record)
+    return record
+
+
+def _run_multimodal_preflight(
+    protocol: dict[str, Any], evidence_root: Path
+) -> dict[str, Any] | None:
+    if protocol.get("schema") != MULTIMODAL_VESSEL_SCHEMA:
+        return None
+    root = evidence_root / "preflight" / "multimodal"
+    root.mkdir()
+    prime_root = Path(protocol["prime"]["sourceRoot"])
+    commands = {
+        "gpu": [
+            "nvidia-smi",
+            "--query-gpu=memory.free",
+            "--format=csv,noheader,nounits",
+        ],
+        "ollama": [protocol["modelCustody"]["runtimePath"], "ps"],
+        "power": ["powercfg", "/query", "SCHEME_CURRENT", "SUB_SLEEP", "STANDBYIDLE"],
+        "compaction": [
+            protocol["prime"]["nodePath"],
+            str(prime_root / "node_modules" / "vitest" / "vitest.mjs"),
+            "run",
+            protocol["multimodal"]["compactionTest"]["path"],
+            "-t",
+            protocol["multimodal"]["compactionTest"]["testName"],
+        ],
+        "attachment": [
+            protocol["prime"]["nodePath"],
+            str(prime_root / "node_modules" / "tsx" / "dist" / "cli.mjs"),
+            str(ROOT / protocol["multimodal"]["attachmentPreflight"]["path"]),
+            str(prime_root),
+            str(root / "attachment-kernel"),
+            *[item["sourcePath"] for item in protocol["multimodal"]["images"]],
+        ],
+    }
+    test_environment = python_runtime_environment(
+        protocol,
+        dict(os.environ),
+        ROOT / protocol["versionedInputs"]["adapterRoot"] / "src",
+    )
+    test_environment["PRIME_AGENT_KERNEL_PYTHON"] = protocol["prime"][
+        "sealedKernelPython"
+    ]
+    completed: dict[str, subprocess.CompletedProcess] = {}
+    for name, command in commands.items():
+        result = subprocess.run(
+            command,
+            cwd=prime_root,
+            env=(test_environment if name in {"compaction", "attachment"} else None),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        completed[name] = result
+        (root / f"{name}-stdout.txt").write_text(result.stdout, encoding="utf-8")
+        (root / f"{name}-stderr.txt").write_text(result.stderr, encoding="utf-8")
+    if any(result.returncode != 0 for result in completed.values()):
+        raise RuntimeError("multimodal_preflight_command_failed")
+    try:
+        free_gpu = [
+            int(line.strip())
+            for line in completed["gpu"].stdout.splitlines()
+            if line.strip()
+        ]
+    except ValueError as error:
+        raise RuntimeError("multimodal_preflight_gpu_invalid") from error
+    power_match = re.search(
+        r"Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)",
+        completed["power"].stdout,
+    )
+    if power_match is None:
+        raise RuntimeError("multimodal_preflight_power_invalid")
+    attachment_lines = [
+        line for line in completed["attachment"].stdout.splitlines() if line.strip()
+    ]
+    try:
+        attachment = json.loads(attachment_lines[-1])
+    except (IndexError, ValueError) as error:
+        raise RuntimeError("multimodal_attachment_preflight_invalid") from error
+    if (
+        attachment.get("status") != "pass"
+        or attachment.get("modelContact") is not False
+        or attachment.get("rookContact") is not False
+        or [item.get("sha256") for item in attachment.get("sourceImages", [])]
+        != [item["sourceSha256"] for item in protocol["multimodal"]["images"]]
+        or len(attachment.get("attachments", [])) != 2
+    ):
+        raise RuntimeError("multimodal_attachment_preflight_invalid")
+    _write_json(root / "attachment-result.json", attachment)
+    record = validate_multimodal_safety_observations(
+        free_gpu_mib=free_gpu,
+        ollama_ps=completed["ollama"].stdout,
+        standby_ac_seconds=int(power_match.group(1), 16),
+        compaction_test_exit_code=completed["compaction"].returncode,
+        attachment_preflight_exit_code=completed["attachment"].returncode,
+        minimum_free_gpu_mib=protocol["multimodal"]["minimumFreeGpuMiB"],
+    )
+    record["commands"] = {
+        name: {
+            "command": command,
+            "exitCode": completed[name].returncode,
+            "stdoutSha256": _sha(root / f"{name}-stdout.txt"),
+            "stderrSha256": _sha(root / f"{name}-stderr.txt"),
+        }
+        for name, command in commands.items()
+    }
+    _write_json(root / "result.json", record)
     return record
 
 
@@ -3057,6 +3500,8 @@ def _run_prime_row(
     breach: str | None = None
     stdout_eof = False
     goal_context_verified = False
+    ollama_post_load_checked = False
+    ollama_post_load_status: str | None = None
     while (
         process.poll() is None
         or any(thread.is_alive() for thread in readers)
@@ -3078,6 +3523,44 @@ def _run_prime_row(
                 value, task["prompt"], limits.prime_goal_tokens
             ):
                 goal_context_verified = True
+            message = value.get("message") if type(value) is dict else None
+            if (
+                protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA
+                and not ollama_post_load_checked
+                and type(value) is dict
+                and value.get("type") == "message_end"
+                and type(message) is dict
+                and message.get("role") == "assistant"
+            ):
+                ollama_post_load_checked = True
+                observed = subprocess.run(
+                    [protocol["modelCustody"]["runtimePath"], "ps"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                (operator / "ollama-post-load-stdout.txt").write_text(
+                    observed.stdout, encoding="utf-8"
+                )
+                (operator / "ollama-post-load-stderr.txt").write_text(
+                    observed.stderr, encoding="utf-8"
+                )
+                try:
+                    if observed.returncode != 0:
+                        raise RuntimeError("multimodal_model_load_invalid")
+                    post_load = validate_multimodal_ollama_ps(
+                        observed.stdout,
+                        model="qwen3.8:27b",
+                        context=protocol["multimodal"]["requiredLoadedContext"],
+                        processor=protocol["multimodal"]["requiredProcessor"],
+                    )
+                    post_load["commandExitCode"] = observed.returncode
+                    _write_json(operator / "ollama-post-load.json", post_load)
+                    ollama_post_load_status = "pass"
+                except RuntimeError as error:
+                    ollama_post_load_status = "fail"
+                    breach = breach or str(error)
         breach = breach or monitor.observe_gateway_count(_source_event_count(source))
         breach = breach or monitor.observe_elapsed(time.monotonic() - started)
         if time.monotonic() - last_process_poll >= 2.0:
@@ -3117,6 +3600,7 @@ def _run_prime_row(
         "thinkingLevelVerified": prime_session_proves_thinking_level(
             row_root, protocol["prime"]["thinkingLevel"]
         ),
+        "ollamaPostLoadStatus": ollama_post_load_status,
         "limitBreach": breach,
         "stdoutEof": stdout_eof,
         "trackedProcessIdentities": {
@@ -3167,6 +3651,147 @@ def prime_session_proves_thinking_level(row_root: Path, expected: str) -> bool:
             ):
                 observed.append(value["thinkingLevel"])
     return bool(observed) and all(level == expected for level in observed)
+
+
+def audit_multimodal_attachment_sequence(
+    prime_path: Path, protocol: dict[str, Any]
+) -> dict[str, Any]:
+    expected_code = protocol["multimodal"]["attachmentCode"]
+    events = [
+        json.loads(line)
+        for line in Path(prime_path).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    starts = [
+        (index, event)
+        for index, event in enumerate(events)
+        if type(event) is dict
+        and event.get("type") == "tool_execution_start"
+        and event.get("toolName") == "ipython"
+    ]
+    if not starts:
+        raise RuntimeError("multimodal_attachment_missing")
+    first_index, first = starts[0]
+    first_code = first.get("args", {}).get("code")
+    if first_code != expected_code:
+        if type(first_code) is str and "rook_full" in first_code:
+            raise RuntimeError("multimodal_attachment_not_first_ipython_action")
+        raise RuntimeError("multimodal_attachment_code_mismatch")
+    if sum(event.get("args", {}).get("code") == expected_code for _, event in starts) != 1:
+        raise RuntimeError("multimodal_attachment_call_count_invalid")
+    call_id = first.get("toolCallId")
+    result_index: int | None = None
+    result_message: dict[str, Any] | None = None
+    for index in range(first_index + 1, len(events)):
+        event = events[index]
+        if (
+            event.get("type") == "tool_execution_start"
+            and event.get("toolName") == "ipython"
+        ):
+            raise RuntimeError("multimodal_attachment_result_missing")
+        message = event.get("message") if type(event) is dict else None
+        if (
+            type(message) is dict
+            and message.get("role") == "toolResult"
+            and message.get("toolName") == "ipython"
+            and message.get("toolCallId") == call_id
+        ):
+            result_index = index
+            result_message = message
+            break
+    if result_index is None or result_message is None:
+        raise RuntimeError("multimodal_attachment_result_missing")
+    content = result_message.get("content")
+    if type(content) is not list:
+        raise RuntimeError("multimodal_attachment_result_invalid")
+    images = [item for item in content if type(item) is dict and item.get("type") == "image"]
+    if len(images) != 2:
+        raise RuntimeError("multimodal_attachment_count_invalid")
+    text_content = "\n".join(
+        item.get("text", "")
+        for item in content
+        if type(item) is dict and item.get("type") == "text"
+    )
+    if "Loaded 2 image(s) into context" not in text_content:
+        raise RuntimeError("multimodal_attachment_result_invalid")
+    retained: list[dict[str, Any]] = []
+    for index, item in enumerate(images, start=1):
+        data = item.get("data")
+        mime_type = item.get("mimeType")
+        if type(data) is not str or type(mime_type) is not str or not mime_type.startswith("image/"):
+            raise RuntimeError("multimodal_attachment_result_invalid")
+        try:
+            decoded = base64.b64decode(data, validate=True)
+        except (ValueError, TypeError) as error:
+            raise RuntimeError("multimodal_attachment_result_invalid") from error
+        retained.append(
+            {
+                "index": index,
+                "mimeType": mime_type,
+                "bytes": len(decoded),
+                "sha256": hashlib.sha256(decoded).hexdigest().upper(),
+            }
+        )
+    return {
+        "schema": "rook.experiment.multimodal_attachment_audit:v1",
+        "status": "pass",
+        "attachmentToolCallId": call_id,
+        "toolStartLine": first_index + 1,
+        "toolResultLine": result_index + 1,
+        "attachments": retained,
+    }
+
+
+def validate_multimodal_ollama_ps(
+    stdout: str, *, model: str, context: int, processor: str
+) -> dict[str, Any]:
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    matches = [line for line in lines[1:] if line.split()[0] == model]
+    if (
+        len(matches) != 1
+        or str(context) not in matches[0].split()
+        or processor not in matches[0]
+        or "CPU" in matches[0]
+    ):
+        raise RuntimeError("multimodal_model_load_invalid")
+    return {
+        "status": "pass",
+        "model": model,
+        "context": context,
+        "processor": processor,
+        "matchedLine": matches[0],
+    }
+
+
+def validate_multimodal_safety_observations(
+    *,
+    free_gpu_mib: list[int],
+    ollama_ps: str,
+    standby_ac_seconds: int,
+    compaction_test_exit_code: int,
+    attachment_preflight_exit_code: int,
+    minimum_free_gpu_mib: int,
+) -> dict[str, Any]:
+    loaded_lines = [line for line in ollama_ps.splitlines()[1:] if line.strip()]
+    if (
+        not free_gpu_mib
+        or max(free_gpu_mib) < minimum_free_gpu_mib
+        or loaded_lines
+        or standby_ac_seconds != 0
+        or compaction_test_exit_code != 0
+        or attachment_preflight_exit_code != 0
+    ):
+        raise RuntimeError("multimodal_preflight_failed")
+    return {
+        "schema": "rook.experiment.multimodal_safety_preflight:v1",
+        "status": "pass",
+        "freeGpuMiB": free_gpu_mib,
+        "minimumFreeGpuMiB": minimum_free_gpu_mib,
+        "loadedOllamaModels": [],
+        "standbyAcSeconds": standby_ac_seconds,
+        "compactionTestExitCode": compaction_test_exit_code,
+        "attachmentPreflightExitCode": attachment_preflight_exit_code,
+    }
 
 
 def _operator_command(
@@ -3841,6 +4466,8 @@ def _write_varied_row_records(
         "actorFinalCheckpoint": operator / "actor-final-checkpoint.json",
         "preservation": operator / "preservation-evaluation.json",
         "telemetry": operator / "row-telemetry.json",
+        "multimodalAttachment": operator / "multimodal-attachment-audit.json",
+        "ollamaPostLoad": operator / "ollama-post-load.json",
     }
     judgment_input = {
         "schema": "rook.experiment.varied_product_shadow_judgment_input:v1",
@@ -3891,6 +4518,7 @@ def _row_outcome(
         "rook.experiment.qwen38_self_termination_campaign:v6",
         VARIED_COHORT_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+        MULTIMODAL_VESSEL_SCHEMA,
     }:
         final_checkpoint = audit_actor_final_checkpoint(
             _source_events(row_root / "operator" / "source.jsonl")
@@ -3917,6 +4545,10 @@ def _row_outcome(
             final_checkpoint is None
             or protocol["schema"] in SHADOW_JUDGMENT_SCHEMAS
             or final_checkpoint["status"] == "pass"
+        )
+        and (
+            protocol["schema"] != MULTIMODAL_VESSEL_SCHEMA
+            or process_result.get("ollamaPostLoadStatus") == "pass"
         )
     )
     outcome = {
@@ -4089,7 +4721,10 @@ def run_campaign(
     ):
         raise RuntimeError("live_contact_evidence_root_invalid")
     if (
-        protocol["schema"] == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA
+        protocol["schema"] in {
+            OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+            MULTIMODAL_VESSEL_SCHEMA,
+        }
         and evidence_root.as_posix()
         != protocol["contactMode"]["evidenceRoot"]
     ):
@@ -4107,6 +4742,7 @@ def run_campaign(
         )
         _collect_tool_surface(protocol, evidence_root)
         _run_preflight(protocol, evidence_root)
+        _run_multimodal_preflight(protocol, evidence_root)
         _write_python_environment_custody(
             protocol, evidence_root / "python-environment-baseline.json"
         )
@@ -4149,6 +4785,14 @@ def run_campaign(
             )
             _write_row_input_custody(protocol, task, row_root, target)
             process_result = _run_prime_row(protocol, task, row_root, target)
+            if protocol["schema"] == MULTIMODAL_VESSEL_SCHEMA:
+                attachment_audit = audit_multimodal_attachment_sequence(
+                    row_root / "operator" / "prime.jsonl", protocol
+                )
+                _write_json(
+                    row_root / "operator" / "multimodal-attachment-audit.json",
+                    attachment_audit,
+                )
             _write_python_environment_custody(
                 protocol, row_root / "operator" / "python-environment-post.json"
             )
