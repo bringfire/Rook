@@ -226,6 +226,13 @@ MULTIMODAL_VESSEL_V3_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-20-qwen38-multimodal-vessel-massing-v3.json"
 )
+MULTIMODAL_VESSEL_V4_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-20-qwen38-multimodal-vessel-massing-v4.json"
+)
 MULTIMODAL_VESSEL_ADJUDICATION_PATH = (
     ROOT
     / "docs"
@@ -537,6 +544,10 @@ def _multimodal_vessel_v2_protocol() -> dict:
 
 def _multimodal_vessel_v3_protocol() -> dict:
     return json.loads(MULTIMODAL_VESSEL_V3_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
+def _multimodal_vessel_v4_protocol() -> dict:
+    return json.loads(MULTIMODAL_VESSEL_V4_PROTOCOL_PATH.read_text(encoding="utf-8"))
 
 
 def _skill_body(path: Path) -> str:
@@ -875,6 +886,48 @@ def test_multimodal_vessel_v3_freezes_corrected_brief_and_visual_review():
         "skillSha256"
     ]
     assert v3["singleRun"] == v2["singleRun"]
+
+
+def test_multimodal_vessel_v4_forbids_the_observed_belt_and_wall_panel_failure():
+    runner = _runner()
+    v3 = _multimodal_vessel_v3_protocol()
+    v4 = _multimodal_vessel_v4_protocol()
+
+    assert runner.validate_protocol(v4) is v4
+    assert v4["schema"] == runner.MULTIMODAL_VESSEL_V4_SCHEMA
+    assert v4["contactMode"]["evidenceRoot"] == (
+        "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v4"
+    )
+
+    prompt = v4["tasks"]["MV1"]["prompt"]
+    for required in (
+        "six separate landing pads",
+        "open-air gaps between neighboring pads",
+        "continuous annular ring or complete polygonal belt is a failure",
+        "long direction rises",
+        "not a side-wide wall panel",
+        "clearly show separate pads, open gaps, and an open center",
+    ):
+        assert required in prompt
+    for excluded in (
+        "smoothstep",
+        "theta_",
+        "2*pi",
+        "CreateBooleanDifference",
+        "exactly six stairs",
+    ):
+        assert excluded not in prompt
+
+    for owner in (
+        "limits",
+        "prime",
+        "modelCustody",
+        "rookCustody",
+        "toolSurface",
+        "versionedInputs",
+        "optionalSkill",
+    ):
+        assert v4[owner] == v3[owner]
 
 
 def test_multimodal_launch_requires_both_images_as_first_ipython_action(tmp_path):
@@ -3708,6 +3761,82 @@ def test_exact_readiness_snapshot_refusal_gets_offline_no_commit_projection():
 def test_near_readiness_snapshot_refusals_remain_fail_closed(alter):
     runner = _runner()
     event = alter(_readiness_snapshot_refusal_event())
+    trace = {"events": [event], "schema": "trace", "source_closure": {}}
+
+    assert runner.normalize_known_readonly_refusals(trace) == trace
+
+
+def _viewport_observation_event() -> dict:
+    return {
+        "arguments": {
+            "height": 900,
+            "view": "Top",
+            "width": 1200,
+            "zoomExtents": True,
+        },
+        "dispatch": {"status": "dispatched", "target_call_count": 1},
+        "exception": None,
+        "ingress": "canonical_gateway",
+        "mutation": {
+            "classification": "unknown",
+            "commit_evidence": None,
+            "commit_status": "unknown",
+            "solve_readiness_receipt": None,
+        },
+        "result": {
+            "data": {
+                "displayMode": "current",
+                "filePath": "C:/evidence/top.png",
+                "format": "png",
+                "height": 900,
+                "message": "Image saved to file. Use the Read tool to view the image.",
+                "savedToFile": True,
+                "viewName": "Top",
+                "width": 1200,
+            },
+            "success": True,
+        },
+        "sequence": 34,
+        "target": "rhino_viewport",
+    }
+
+
+def test_exact_successful_viewport_capture_gets_offline_observational_projection():
+    runner = _runner()
+    event = _viewport_observation_event()
+    trace = {"events": [event], "schema": "trace", "source_closure": {}}
+
+    normalized = runner.normalize_known_readonly_refusals(trace)
+
+    assert normalized["events"][0]["mutation"] == {
+        "classification": "observational",
+        "commit_evidence": None,
+        "commit_status": "none",
+        "solve_readiness_receipt": None,
+    }
+    assert trace["events"][0] == event
+
+
+@pytest.mark.parametrize(
+    "alter",
+    [
+        lambda event: event | {"target": "rhino_capture"},
+        lambda event: event
+        | {"arguments": event["arguments"] | {"unexpected": True}},
+        lambda event: event
+        | {"result": event["result"] | {"success": False}},
+        lambda event: event
+        | {
+            "result": {
+                "success": True,
+                "data": event["result"]["data"] | {"savedToFile": False},
+            }
+        },
+    ],
+)
+def test_near_viewport_observations_remain_fail_closed(alter):
+    runner = _runner()
+    event = alter(_viewport_observation_event())
     trace = {"events": [event], "schema": "trace", "source_closure": {}}
 
     assert runner.normalize_known_readonly_refusals(trace) == trace

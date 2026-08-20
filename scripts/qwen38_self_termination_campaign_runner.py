@@ -48,10 +48,12 @@ OPTIONAL_PYTHON_CONFIRMATION_SCHEMA = (
 MULTIMODAL_VESSEL_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v1"
 MULTIMODAL_VESSEL_V2_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v2"
 MULTIMODAL_VESSEL_V3_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v3"
+MULTIMODAL_VESSEL_V4_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v4"
 MULTIMODAL_VESSEL_SCHEMAS = {
     MULTIMODAL_VESSEL_SCHEMA,
     MULTIMODAL_VESSEL_V2_SCHEMA,
     MULTIMODAL_VESSEL_V3_SCHEMA,
+    MULTIMODAL_VESSEL_V4_SCHEMA,
 }
 PRIME_UPSTREAM_SMOKE_SCHEMAS = {
     PRIME_UPSTREAM_SMOKE_SCHEMA,
@@ -1501,10 +1503,45 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         "Do not add railings, façade, detailed structure, people, baking, or "
         "unrelated geometry."
     )
+    discrete_lattice_prompt = (
+        "Study both reference images before authoring. Create an adjustable "
+        "Grasshopper conceptual massing of the Vessel as a flared six-sided "
+        "circulation lattice around an open central atrium. The outer envelope "
+        "and the central void should both widen from a narrow base toward a broad "
+        "top. At each tier create six separate landing pads, with open-air gaps "
+        "between neighboring pads except for visibly narrower walkway connections. "
+        "A continuous annular ring or complete polygonal belt is a failure, even "
+        "when it contains an atrium. Successive tiers should alternate between two "
+        "staggered angular states rather than accumulate a continuous helix. Use "
+        "multiple separate diagonal stair ribbons between every adjacent tier so "
+        "the massing reads as a dense pattern of V, X, and chevron forms. Each "
+        "stair ribbon must read as a long, narrow inclined circulation element "
+        "whose long direction rises from one landing to a neighboring landing "
+        "above, not a side-wide wall panel or twisted facade sheet. The landing-and-"
+        "stair network must contain at least one connected base-to-top circulation "
+        "route, and every flight must overlap its departure and arrival landings. "
+        "Do not accept or silently fall back to solid slabs or continuous skins. "
+        "Expose Levels, Level Height, Base Radius, Top Radius, Walkway Depth, Tier "
+        "Stagger Angle, and Stair Width controls, beginning with 8 tiers. Exercise "
+        "Levels and Tier Stagger Angle independently, observe each effect, and "
+        "restore the chosen defaults. The `rhino_viewport` capability is admitted "
+        "for this task: read its contract directly once without searching for it. "
+        "After restoration, capture Top and Perspective views, pass both returned "
+        "image paths to `attach_image`, and inspect them before the final receipt "
+        "wait and fenced snapshot. The Top view must clearly show separate pads, "
+        "open gaps, and an open center; the Perspective view must read as usable "
+        "landings and stairs rather than enclosing skins. Correct a filled atrium, "
+        "continuous tier belt, wall-like flight, disconnected circulation, missing "
+        "flare, or full-plate massing before completing. Then retain the final "
+        "same-receipt fenced snapshot, call goal.complete() as the final tool call, "
+        "and emit text only. Do not add railings, facade, detailed structure, "
+        "people, baking, or unrelated geometry."
+    )
     expected_prompt = {
         MULTIMODAL_VESSEL_SCHEMA: original_prompt,
         MULTIMODAL_VESSEL_V2_SCHEMA: original_prompt,
         MULTIMODAL_VESSEL_V3_SCHEMA: corrected_prompt,
+        MULTIMODAL_VESSEL_V4_SCHEMA: discrete_lattice_prompt,
     }.get(protocol.get("schema"))
     if (
         type(task) is not dict
@@ -1533,6 +1570,9 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         MULTIMODAL_VESSEL_V3_SCHEMA: (
             "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v3"
         ),
+        MULTIMODAL_VESSEL_V4_SCHEMA: (
+            "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v4"
+        ),
     }.get(protocol.get("schema"))
     contact = protocol.get("contactMode")
     if contact != {
@@ -1549,15 +1589,31 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         MULTIMODAL_VESSEL_V2_SCHEMA: (
             "BADC04D9A630D6285A2961738C55507D0CD4AE91449E0383D775EBE81839DCFF"
         ),
-        MULTIMODAL_VESSEL_V3_SCHEMA: _sha(Path(__file__).resolve()),
+        MULTIMODAL_VESSEL_V3_SCHEMA: (
+            "A80B97A801A89DA676E1AFA7802DC0A946B206E1C16FF0268F837CC30984F4BC"
+        ),
+        MULTIMODAL_VESSEL_V4_SCHEMA: _sha(Path(__file__).resolve()),
+    }.get(protocol.get("schema"))
+    expected_acceptance_sha = {
+        MULTIMODAL_VESSEL_SCHEMA: (
+            "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
+        ),
+        MULTIMODAL_VESSEL_V2_SCHEMA: (
+            "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
+        ),
+        MULTIMODAL_VESSEL_V3_SCHEMA: (
+            "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
+        ),
+        MULTIMODAL_VESSEL_V4_SCHEMA: _sha(
+            ROOT / "mcp_server" / "src" / "rook" / "gh_behavioral_acceptance.py"
+        ),
     }.get(protocol.get("schema"))
     if (
         type(evaluator) is not dict
         or evaluator.get("runnerPath")
         != "scripts/qwen38_self_termination_campaign_runner.py"
         or evaluator.get("runnerSha256") != expected_runner_sha
-        or evaluator.get("behavioralAcceptanceSha256")
-        != "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
+        or evaluator.get("behavioralAcceptanceSha256") != expected_acceptance_sha
         or evaluator.get("mode") != "silent_post_run_independent_judgment"
     ):
         raise ValueError("multimodal_vessel_invalid")
@@ -3965,12 +4021,84 @@ def _is_known_readiness_snapshot_refusal(event: Any) -> bool:
     )
 
 
+def _is_known_viewport_observation(event: Any) -> bool:
+    arguments = event.get("arguments") if type(event) is dict else None
+    result = event.get("result") if type(event) is dict else None
+    data = result.get("data") if type(result) is dict else None
+    file_path = data.get("filePath") if type(data) is dict else None
+    return (
+        type(event) is dict
+        and set(event)
+        == {
+            "arguments",
+            "dispatch",
+            "exception",
+            "ingress",
+            "mutation",
+            "result",
+            "sequence",
+            "target",
+        }
+        and event["target"] == "rhino_viewport"
+        and event["ingress"] == "canonical_gateway"
+        and event["exception"] is None
+        and event["dispatch"] == {"status": "dispatched", "target_call_count": 1}
+        and type(event["sequence"]) is int
+        and event["sequence"] >= 0
+        and type(arguments) is dict
+        and set(arguments) == {"height", "view", "width", "zoomExtents"}
+        and type(arguments["height"]) is int
+        and arguments["height"] > 0
+        and arguments["view"] in {"Top", "Perspective"}
+        and type(arguments["width"]) is int
+        and arguments["width"] > 0
+        and arguments["zoomExtents"] is True
+        and type(result) is dict
+        and set(result) == {"data", "success"}
+        and result["success"] is True
+        and type(data) is dict
+        and set(data)
+        == {
+            "displayMode",
+            "filePath",
+            "format",
+            "height",
+            "message",
+            "savedToFile",
+            "viewName",
+            "width",
+        }
+        and type(data["displayMode"]) is str
+        and bool(data["displayMode"])
+        and type(file_path) is str
+        and Path(file_path).is_absolute()
+        and Path(file_path).suffix.lower() == ".png"
+        and data["format"] == "png"
+        and data["height"] == arguments["height"]
+        and data["message"]
+        == "Image saved to file. Use the Read tool to view the image."
+        and data["savedToFile"] is True
+        and data["viewName"] == arguments["view"]
+        and data["width"] == arguments["width"]
+        and event["mutation"]
+        == {
+            "classification": "unknown",
+            "commit_evidence": None,
+            "commit_status": "unknown",
+            "solve_readiness_receipt": None,
+        }
+    )
+
+
 def normalize_known_readonly_refusals(trace: dict[str, Any]) -> dict[str, Any]:
-    """Refine exact authenticated read-only refusals without changing raw evidence."""
+    """Refine exact authenticated read-only outcomes without changing raw evidence."""
 
     normalized_events: list[dict[str, Any]] | None = None
     for index, event in enumerate(trace["events"]):
-        if not _is_known_readiness_snapshot_refusal(event):
+        if not (
+            _is_known_readiness_snapshot_refusal(event)
+            or _is_known_viewport_observation(event)
+        ):
             continue
         if normalized_events is None:
             normalized_events = list(trace["events"])
