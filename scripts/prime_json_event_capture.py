@@ -600,11 +600,13 @@ def capture_binary_stream(
             else None
         ),
     }
+    custody_path = _resolved_path(row_root, config.custody_path)
+    custody_staging_path = custody_path.with_name(custody_path.name + ".pending")
     custody_stream: BinaryIO | None = None
     try:
-        custody_stream = _open_exclusive(
-            _resolved_path(row_root, config.custody_path)
-        )
+        if custody_path.exists():
+            raise PrimeCaptureError("capture_custody_write_failed")
+        custody_stream = _open_exclusive(custody_staging_path)
         _write_all(
             custody_stream,
             _canonical_line(custody),
@@ -612,7 +614,21 @@ def capture_binary_stream(
         )
         _flush(custody_stream, "capture_custody_write_failed")
         _close(custody_stream, "capture_custody_write_failed")
+        custody_stream = None
+        try:
+            custody_staging_path.rename(custody_path)
+        except OSError as error:
+            raise PrimeCaptureError("capture_custody_write_failed") from error
     except PrimeCaptureError as error:
+        if custody_stream is not None:
+            try:
+                custody_stream.close()
+            except Exception:
+                pass
+        try:
+            custody_staging_path.unlink()
+        except (FileNotFoundError, OSError):
+            pass
         _best_effort_failure(
             row_root,
             code=error.code,
@@ -626,6 +642,15 @@ def capture_binary_stream(
     except Exception as error:
         failure = PrimeCaptureError("capture_custody_write_failed")
         failure.__cause__ = error
+        if custody_stream is not None:
+            try:
+                custody_stream.close()
+            except Exception:
+                pass
+        try:
+            custody_staging_path.unlink()
+        except (FileNotFoundError, OSError):
+            pass
         _best_effort_failure(
             row_root,
             code=failure.code,

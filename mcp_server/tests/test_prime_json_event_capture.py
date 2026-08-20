@@ -679,6 +679,53 @@ def test_injected_retained_writer_failure_is_incomplete(
     assert not (tmp_path / "operator" / "prime-event-capture-custody.json").exists()
 
 
+@pytest.mark.parametrize("phase", ["write", "flush", "close"])
+def test_failed_custody_finalization_never_publishes_admissible_custody(
+    capture, monkeypatch, tmp_path, phase
+):
+    real_write = capture._write_all
+    real_flush = capture._flush
+    real_close = capture._close
+
+    def injected_write(stream, value: bytes, code: str) -> None:
+        if phase == "write" and code == "capture_custody_write_failed":
+            raise capture.PrimeCaptureError(code)
+        real_write(stream, value, code)
+
+    def injected_flush(stream, code: str) -> None:
+        if phase == "flush" and code == "capture_custody_write_failed":
+            raise capture.PrimeCaptureError(code)
+        real_flush(stream, code)
+
+    def injected_close(stream, code: str) -> None:
+        if phase == "close" and code == "capture_custody_write_failed":
+            stream.close()
+            raise capture.PrimeCaptureError(code)
+        real_close(stream, code)
+
+    monkeypatch.setattr(capture, "_write_all", injected_write)
+    monkeypatch.setattr(capture, "_flush", injected_flush)
+    monkeypatch.setattr(capture, "_close", injected_close)
+
+    with pytest.raises(capture.PrimeCaptureError) as caught:
+        capture.capture_binary_stream(
+            io.BytesIO(b'{"type":"session"}\n'),
+            config=capture_config(capture),
+            row_root=tmp_path,
+            publish=lambda event: None,
+        )
+
+    assert caught.value.code == "capture_custody_write_failed"
+    custody_path = tmp_path / "operator" / "prime-event-capture-custody.json"
+    assert not custody_path.exists()
+    with pytest.raises(capture.PrimeCaptureError):
+        capture.verify_capture_custody(capture_config(capture), tmp_path)
+    with pytest.raises(capture.PrimeCaptureError):
+        capture.resolve_prime_event_path(
+            {"primeEventCapture": approved_capture_config()}, tmp_path
+        )
+
+
 def retained_row_count(root: Path) -> int:
     path = root / "operator" / "prime-events.compact.jsonl"
     if not path.exists():

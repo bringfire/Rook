@@ -1,7 +1,7 @@
 # Prime JSON Event Capture Offline Qualification
 
 **Date:** 2026-08-20
-**Status:** V3 offline qualification passed; renewed independent review pending
+**Status:** V3 offline qualification retained; custody finalization follow-up verified offline
 **Contact:** offline only; no Prime, model, Rook MCP, Rhino, or Grasshopper contact
 
 ## Scope
@@ -152,8 +152,12 @@ The V3 qualification established:
 - equal lifecycle and same-session compaction classification;
 - equal tool execution, result, error, checkpoint, and terminal history;
 - equal latest terminal receipt selection;
-- equal final fenced observation; and
-- unchanged shadow status `unproven: independent_judgment_required`.
+- equal final fenced observation.
+
+Raw and compact representations produced identical normalized source events,
+receipt selection, and fenced-observation selection. Shadow evaluation was not
+independently recomputed by this storage qualification and remains owned by the
+unchanged V2 evaluator.
 
 The selected receipt on both paths is:
 
@@ -221,7 +225,8 @@ mismatches.
 
 | Owner | SHA-256 |
 |---|---|
-| Capture module | `6D5537386F391578650B276A4A25FC224F7ECBE14B7767BE5AB886B780439F94` |
+| V3 replay capture module | `6D5537386F391578650B276A4A25FC224F7ECBE14B7767BE5AB886B780439F94` |
+| Current capture module after custody finalization follow-up | `3C565D1264C01951B8ED65CF868F536F758537F989500EB3FAF2751B3F159329` |
 | Campaign runner | `CB0F4076A6812ABF6C8356DB874F1A04E90B37EA029B1C9E5262780E5C9A221F` |
 | Qualification harness | `1F542B1CE056776719495883DBFF78B74BF028EB6EFEEB1C23DD6F29FD9F7E6A` |
 | Unchanged V2 owner | `55211B778B44C96729A21D9DAE430B2883F4636520C030E1EBFD3B8F896508FF` |
@@ -245,7 +250,7 @@ f64f255a  feat: integrate compact Prime capture
 The full offline suite passed:
 
 ```text
-366 passed, 11 existing dependency warnings
+369 passed, 11 existing dependency warnings
 ```
 
 The V3 archive retains its own precontact result:
@@ -269,8 +274,11 @@ server, Rhino process, or Grasshopper process was launched or contacted.
 
 The V3 harness qualified the compact capture path offline for this sealed
 74,473-row Vessel specimen and for the named current consumer boundaries. It is
-opt-in and does not change historical capture behavior. Final implementation
-qualification remains pending renewed independent review of the V3 corrections.
+opt-in and does not change historical capture behavior. The staging-only
+follow-up publishes complete custody only after its temporary file closes
+successfully; causal write, flush, and close failures leave no admissible
+custody path. It does not change compact transformation or retained-stream bytes,
+so V3 evidence remains unchanged and no V4 replay was performed.
 
 This result does not prove byte reconstruction of discarded cumulative
 `message_update` rows, universal compatibility with future Prime event shapes,
