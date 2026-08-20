@@ -20,11 +20,13 @@ same-receipt fenced snapshot was the last Rook gateway call.
 The campaign-time hidden evaluator remains honestly `incomplete`. Prime
 performed one successful threshold compaction and continued the active goal,
 but the frozen acceptance owner admits only one `agent_end`. The retained Prime
-runtime therefore contains two authentic run boundaries and is refused as
-`invalid_prime_terminal_marker` before semantic evaluation. This is a
-Prime-compaction trace-admission compatibility gap, not an ambiguity in the
-final Grasshopper mutation or checkpoint. No Qwen or Grasshopper failure was
-observed; semantic evaluation did not run, so neither was formally ruled out.
+JSON event stream therefore contains two authentic run boundaries and is
+refused as `invalid_prime_terminal_marker` before semantic evaluation. This is
+a Prime-compaction trace-admission compatibility gap, not an ambiguity in the
+final Grasshopper mutation or checkpoint. No campaign-level Qwen failure or
+Grasshopper solve/semantic failure was observed; two recoverable Qwen argument
+errors occurred. Semantic evaluation did not run, so no formal semantic
+verdict is supported.
 
 ## Operational Result
 
@@ -143,7 +145,7 @@ MV1/operator/final-top.png
 
 ## Prime Compaction Boundary
 
-The 3.54 GB Prime runtime contains this authentic lifecycle:
+The 3.54 GB captured Prime JSON event stream contains this authentic lifecycle:
 
 ```text
 agent_start
@@ -190,7 +192,7 @@ Key retained hashes:
 | Protocol | `4D6FBBBF7329189FAC4A48C5DC28603D33B2248AE489503D549336059190DB2D` |
 | Runner | `F18E0FFC3C86B6CF0A93F356EB714FCA188BCCCAD5FFA3D81635514F81CC1B14` |
 | Source log | `E86FDB1F88B1357F8811F3FC8F3DDBEC078C4949B873615E0CE1D98A98B966C8` |
-| Prime runtime | `F79FF8A329993C9770B7E103B3F10620A6E118C5AD58E6184E9777EDFBFCAA3B` |
+| Prime JSON event stream | `F79FF8A329993C9770B7E103B3F10620A6E118C5AD58E6184E9777EDFBFCAA3B` |
 | Process result | `4920BA546D4FFF73C1C8DDEB8887E5C1CABA3762A5775C75C516683D54342F70` |
 | Actor final checkpoint | `CD45C4990CE59EDE623D92F41F462897FDB70CDBB9DE3230E6E626688F8D2365` |
 | Attachment audit | `97C43510AAA4B2E1667FB58015582E4F58C316FCCE7E1550114C59577F1D3B98` |

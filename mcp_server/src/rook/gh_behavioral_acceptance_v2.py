@@ -98,7 +98,7 @@ def _goal_identity(agent_end: Any) -> tuple[str, str, int] | None:
 
 
 def _valid_compaction_bridge(rows: list[Any]) -> bool:
-    if len(rows) < 4:
+    if len(rows) != 6:
         return False
     start, message_start, message_end, end = rows[:4]
     return (
@@ -108,12 +108,8 @@ def _valid_compaction_bridge(rows: list[Any]) -> bool:
         and message_start["message"] == message_end["message"]
         and v1._valid_compaction_end(end)
         and start["reason"] == end["reason"]
-        and all(
-            _valid_session_action_update(
-                row, {"preparing", "committing"}
-            )
-            for row in rows[4:]
-        )
+        and _valid_session_action_update(rows[4], {"preparing"})
+        and _valid_session_action_update(rows[5], {"committing"})
     )
 
 

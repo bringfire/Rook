@@ -6,9 +6,9 @@
 
 ## Result
 
-The sealed Vessel V5 source and Prime runtime now pass a separately versioned
-trace-admission owner. The original V5 evidence and its campaign-time
-`incomplete` classification remain byte-for-byte unchanged.
+The sealed Vessel V5 source and captured Prime JSON event stream now pass a
+separately versioned trace-admission owner. The original V5 evidence and its
+campaign-time `incomplete` classification remain byte-for-byte unchanged.
 
 The offline shadow result is:
 
@@ -27,8 +27,10 @@ semantic reason             independent_judgment_required
 
 This closes the infrastructure classification. It does not convert the open
 architectural task into a formal semantic pass. V5 remains a credible-success
-and qualified Actor final-checkpoint specimen. No Qwen or Grasshopper failure
-was observed; semantic evaluation still requires independent judgment.
+and qualified Actor final-checkpoint specimen. No campaign-level Qwen failure
+or Grasshopper solve/semantic failure was observed; two recoverable Qwen
+argument errors occurred. Semantic evaluation still requires independent
+judgment.
 
 ## Versioned Ownership
 
@@ -43,7 +45,7 @@ The new V2 owner is additive:
 
 ```text
 mcp_server/src/rook/gh_behavioral_acceptance_v2.py
-SHA-256 85E6B175F939EFB728A2E36D686995F1CA3339AECE9CB06CDCE831F302F01D23
+SHA-256 55211B778B44C96729A21D9DAE430B2883F4636520C030E1EBFD3B8F896508FF
 ```
 
 V2 delegates source-event, closure, receipt, and mutation semantics to V1. It
@@ -72,13 +74,15 @@ closed over the public request fields and exact retained success shape. The
 failed derived attempt is preserved separately and is not part of the sealed
 result.
 
-V2 streams the 3.54 GB runtime and retains only bounded lifecycle projections.
-It does not load the runtime into memory or rewrite it.
+V2 streams the 3.54 GB captured Prime JSON event stream and retains only bounded
+lifecycle projections. It does not load the event stream into memory or rewrite
+it.
 
 ## Custody And Shadow Evaluation
 
 The reconciliation protocol froze both original manifests plus the exact V5
-source, runtime, process result, historical evaluation, and V1/V2 owner bytes.
+source, Prime JSON event stream, process result, historical evaluation, and
+V1/V2 owner bytes.
 Both original manifests were independently verified before the output root was
 created:
 
@@ -86,13 +90,13 @@ created:
 V5 global manifest       66/66
 V5 row manifest          39/39
 source SHA-256           E86FDB1F88B1357F8811F3FC8F3DDBEC078C4949B873615E0CE1D98A98B966C8
-runtime SHA-256          F79FF8A329993C9770B7E103B3F10620A6E118C5AD58E6184E9777EDFBFCAA3B
+event stream SHA-256     F79FF8A329993C9770B7E103B3F10620A6E118C5AD58E6184E9777EDFBFCAA3B
 ```
 
 Only the 143,793-byte source log was copied. V2 appended a closure to the copy,
-normalized that copy against the original retained runtime, selected the final
-receipt, and inspected the already-retained final snapshot. No host call was
-available in this execution path.
+normalized that copy against the original retained event stream, selected the
+final receipt, and inspected the already-retained final snapshot. No host call
+was available in this execution path.
 
 The final derived evidence is at:
 
@@ -100,7 +104,7 @@ The final derived evidence is at:
 C:/UDEV/RookEvidence/2026-08-20-prime-compaction-trace-reconciliation-v1
 
 entries                    9/9
-manifest SHA-256           87F03B34230DE38B16C53D90CC6DF42DA5688574D7DCC4D3EE0D4F4E6507AABE
+manifest SHA-256           24C81DCEF68FA4510D13A47D498F606DAF516847397C8CEB807CE795875BFE04
 closure SHA-256            A2873069C69FD68D5C5B9D5740830126C67C77E3E1648EFC8D1610FB7A245F90
 trace SHA-256              DE2337FCAF355E3C75C2215AEFB8B89971A027012E164D52A0BC8E72D627D376
 shadow result SHA-256      BD5693D5D13A3FCC289B0019B2AE523C5525CB71F2B8111FF158840CF28956C6
@@ -109,12 +113,12 @@ mismatches                 0
 
 ## Prime Trace Size
 
-The 3.54 GB runtime is dominated by cumulative stream records, not embedded
-images:
+The 3.54 GB captured Prime JSON event stream is dominated by cumulative stream
+records, not embedded images:
 
 ```text
-runtime rows                         74,473
-runtime bytes                 3,543,087,572
+event stream rows                    74,473
+event stream bytes            3,543,087,572
 message_update rows                  74,143
 message_update bytes          3,521,830,701   99.40%
 thinking_delta rows                  71,686
@@ -140,7 +144,7 @@ utility before altering the trace contract.
 ## Verification
 
 ```text
-focused and historical tests     269 passed
+focused and historical tests     274 passed
 existing dependency warnings      11
 Python compilation              passed
 V1 owner hash                   unchanged
@@ -149,7 +153,7 @@ live contact                    none
 ```
 
 The reconciliation protocol SHA-256 is
-`7822FBADDDF8F6989194790AA1A1DCE5C5CA3576E0F06D476603588C67807939`.
+`C9C05A4A320CA36968E39B29EB72823917A4ADF1AF6A72CEB8964D5F848B1A18`.
 The offline runner SHA-256 is
 `6B45F0DA15C81272A53BC6F09419729FA35F3DCB36EE59BFABBF2DBCB03D119D`.
 

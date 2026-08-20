@@ -104,6 +104,37 @@ def _compacted_runtime() -> list[dict]:
     ]
 
 
+def _three_segment_runtime() -> list[dict]:
+    state_one = _ipython_state()
+    state_two = copy.deepcopy(state_one)
+    state_two["timestamp"] += 1
+    return [
+        {"type": "session", "id": "same-session"},
+        {"type": "agent_start"},
+        {"type": "message"},
+        _agent_end(0),
+        {"type": "compaction_start", "reason": "threshold"},
+        {"type": "message_start", "message": state_one},
+        {"type": "message_end", "message": state_one},
+        _compaction_end(),
+        _action("preparing"),
+        _action("committing"),
+        {"type": "agent_start"},
+        {"type": "message"},
+        _agent_end(1),
+        {"type": "compaction_start", "reason": "threshold"},
+        {"type": "message_start", "message": state_two},
+        {"type": "message_end", "message": state_two},
+        _compaction_end(),
+        _action("preparing"),
+        _action("committing"),
+        {"type": "agent_start"},
+        {"type": "message"},
+        _agent_end(2),
+        _action(),
+    ]
+
+
 def _write_prime_fixture(tmp_path: Path, runtime_rows: list[dict]) -> tuple[Path, Path]:
     source = tmp_path / "source.jsonl"
     runtime = tmp_path / "prime.jsonl"
@@ -158,6 +189,41 @@ def test_v2_preserves_v1_single_segment_admission(tmp_path):
     )
 
     assert closure["terminal_marker"] == "agent_end"
+
+
+def test_v2_accepts_three_actor_segments_linked_by_two_exact_compactions(tmp_path):
+    acceptance_v2 = _acceptance_v2()
+    source, runtime = _write_prime_fixture(tmp_path, _three_segment_runtime())
+
+    closure = acceptance_v2.seal_prime_source_log(
+        source, runtime, _terminal_process_state()
+    )
+
+    assert closure["terminal_marker"] == "agent_end"
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["missing", "reversed", "duplicated", "wrong_phase"],
+)
+def test_v2_requires_exact_preparing_then_committing_handoff(tmp_path, case):
+    acceptance_v2 = _acceptance_v2()
+    rows = _compacted_runtime()
+    if case == "missing":
+        del rows[8:10]
+    elif case == "reversed":
+        rows[8], rows[9] = rows[9], rows[8]
+    elif case == "duplicated":
+        rows.insert(9, _action("preparing"))
+    elif case == "wrong_phase":
+        rows[8] = _action("running")
+    source, runtime = _write_prime_fixture(tmp_path, rows)
+
+    with pytest.raises(ValueError, match="invalid_prime_terminal_marker"):
+        acceptance_v2.seal_prime_source_log(
+            source, runtime, _terminal_process_state()
+        )
+    assert b'"type":"closure"' not in source.read_bytes()
 
 
 @pytest.mark.parametrize(
