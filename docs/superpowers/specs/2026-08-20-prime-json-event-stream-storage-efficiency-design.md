@@ -1,6 +1,6 @@
 # Prime JSON Event-Stream Storage Efficiency
 
-**Status:** DESIGN APPROVED; IMPLEMENTATION UNSTARTED AND UNQUALIFIED
+**Status:** USER-APPROVED; INDEPENDENT REVIEW PENDING; IMPLEMENTATION UNSTARTED AND UNQUALIFIED
 
 **Date:** 2026-08-20
 
@@ -131,7 +131,7 @@ Only the third format changes in this slice.
 
 | Consumer | Evidence used | Compact impact |
 |---|---|---|
-| Live budget monitor | Complete `message_end.message.usage` | Retained exactly and also consumed live before persistence |
+| Live budget monitor | Complete `message_end.message.usage` | Retained exactly and consumed from the original parsed event immediately after that row is persisted |
 | Goal-context preflight | `goal_update`, `message_start`, `message_end`, session actions | Retained exactly |
 | Model-load check | First assistant `message_end` | Retained exactly |
 | Multimodal attachment audit | `tool_execution_start`, `tool_execution_end` | Retained exactly |
@@ -202,6 +202,20 @@ cumulative snapshots, and leaves the evidence representation structurally
 misaligned with streaming semantics. Compression may be an optional raw-debug
 transport, not the default correction.
 
+Independent design review measured gzip level 6 directly over the sealed source
+without writing a retained artifact:
+
+```text
+source bytes                    3,543,087,572
+gzip level 6 bytes                727,134,876
+reduction                              79.48%
+elapsed                                68.8 s
+```
+
+This measurement is descriptive review evidence, not a new custody artifact.
+It materially misses the required 95% persisted-size reduction and confirms
+that compression-only containment does not satisfy this slice.
+
 ## Scope
 
 ### In scope
@@ -264,15 +278,50 @@ no historical artifact is rewritten.
 
 ## Binary Ingress And Live Monitoring
 
-Prime stdout is opened in binary mode. For each raw row, the capture owner:
+Prime stdout is opened in binary mode. Three runner-owned constants are frozen
+for V1 and are not caller-configurable:
+
+```text
+MAX_SOURCE_ROW_BYTES       67,108,864 bytes  (64 MiB, including LF)
+SOURCE_READ_CHUNK_BYTES        65,536 bytes  (64 KiB)
+MONITOR_QUEUE_MAX_EVENTS            1 event
+```
+
+The row ceiling is more than seventeen times the sealed Vessel maximum row of
+3,806,566 bytes. It is a resource boundary, not a semantic claim. A future
+legitimate event exceeding it requires a separately reviewed schema version;
+the limit cannot be raised through a campaign protocol or environment variable.
+
+The capture reader never calls unbounded `readline()`. It reads at most
+`SOURCE_READ_CHUNK_BYTES`, searches incrementally for LF, and refuses as soon
+as the current row would exceed `MAX_SOURCE_ROW_BYTES`, whether or not a later
+chunk might contain LF. Bytes following the first complete LF remain framed for
+the next row without combining the rows.
+
+For each admitted raw row, the capture owner:
 
 1. receives the exact bytes from the pipe;
 2. updates one cumulative SHA-256 and byte count before decoding;
 3. requires a terminating LF;
 4. decodes strict UTF-8 without replacement;
 5. parses exactly one JSON object while rejecting duplicate object keys;
-6. publishes the parsed event to the existing live monitor; and
-7. writes exactly one retained row.
+6. writes exactly one retained row; and
+7. publishes the parsed original event to the existing live monitor.
+
+The reader publishes parsed stdout events through
+`queue.Queue(maxsize=1)`. A full queue blocks the reader before it reads another
+stdout chunk, allowing the operating-system pipe to provide backpressure to
+Prime. The queue contains the parsed event only, never an additional raw-byte
+or decoded-line copy. At most one event is queued while one event is being
+framed or blocked while publishing. The reader may therefore hold at most one
+parsed event while one earlier event occupies the queue; it cannot read a third
+event or request another pipe chunk until the consumer advances. Bytes already
+read ahead in the current fixed-size chunk remain bounded by
+`SOURCE_READ_CHUNK_BYTES`; no third row is parsed, admitted, or persisted.
+Stderr lines are written by their own
+reader and are not placed on the stdout monitor queue. A separate bounded
+control handoff carries only the closed signals `stdout_eof`, `stderr_eof`, and
+`capture_error`, each at most once.
 
 The live monitor therefore continues to enforce budgets and inspect goal or
 model-load events from the complete Prime event, not from the compact retained
@@ -321,6 +370,8 @@ A `message_update` is compactable only when all of these are true:
 - `assistantMessageEvent.partial` exists and is structurally equal to
   `message`;
 - the subtype and its fields match one of the closed shapes below;
+- after removing the required `partial`, the source subtype has exactly the
+  retained `assistantMessageEvent` keys defined below;
 - `contentIndex` is a nonnegative integer and resolves to the required content
   kind in `message`; and
 - no non-finite JSON number is present.
@@ -358,14 +409,113 @@ the frozen V1 or V2 module an implementation dependency.
 support attribution and line correspondence; they do not establish the content
 of discarded bytes independently of the capture owner.
 
-For start events, the record also contains `contentStart` derived with Prime's
-existing daemon rules:
+### Closed delta-record shapes
 
-- `text_start`: the exact content block with `text` replaced by `""`;
-- `thinking_start`: the exact content block with `thinking` replaced by `""`;
-- `toolcall_start`: the exact tool-call identity and name with `arguments`
-  replaced by `{}`.
+Every compact record has these required common fields and no other common
+fields:
 
+```text
+schema                         exact string rook.prime_assistant_stream_delta:v1
+type                           exact string assistant_stream_delta
+sourceRow                      JSON integer >= 1
+sourceBytes                    JSON integer in [1, MAX_SOURCE_ROW_BYTES]
+assistantMessageEvent          one closed subtype object below
+```
+
+Start records additionally require `contentStart`. Delta and end records
+forbid it. There are no optional root fields.
+
+The exact subtype matrix is:
+
+| Subtype | Exact `assistantMessageEvent` keys | Exact root keys beyond common | Forbidden subtype fields |
+|---|---|---|---|
+| `text_start` | `type`, `contentIndex` | `contentStart` as closed text start | `delta`, `content`, `toolCall`, `partial` |
+| `thinking_start` | `type`, `contentIndex` | `contentStart` as closed thinking start | `delta`, `content`, `toolCall`, `partial` |
+| `toolcall_start` | `type`, `contentIndex` | `contentStart` as closed tool-call start | `delta`, `content`, `toolCall`, `partial` |
+| `text_delta` | `type`, `contentIndex`, `delta` | none | `content`, `toolCall`, `partial` |
+| `thinking_delta` | `type`, `contentIndex`, `delta` | none | `content`, `toolCall`, `partial` |
+| `toolcall_delta` | `type`, `contentIndex`, `delta` | none | `content`, `toolCall`, `partial` |
+| `text_end` | `type`, `contentIndex`, `content` | none | `delta`, `toolCall`, `partial` |
+| `thinking_end` | `type`, `contentIndex`, `content` | none | `delta`, `toolCall`, `partial` |
+| `toolcall_end` | `type`, `contentIndex`, `toolCall` | none | `delta`, `content`, `partial` |
+
+For every subtype, `type` is the exact row's subtype and `contentIndex` is a
+nonnegative JSON integer. Booleans are not integers. `delta` and `content` are
+JSON strings. Empty strings remain valid because Prime's transport type permits
+them.
+
+The three closed `contentStart` variants are:
+
+```text
+text start
+  required keys: type, text
+  optional keys: textSignature
+  invariants: type == text; text == ""; textSignature is a string when present
+
+thinking start
+  required keys: type, thinking
+  optional keys: thinkingSignature, redacted
+  invariants: type == thinking; thinking == "";
+              thinkingSignature is a string when present;
+              redacted is a JSON boolean when present
+
+tool-call start
+  required keys: type, id, name, arguments
+  optional keys: thoughtSignature
+  invariants: type == toolCall; id and name are nonempty strings;
+              arguments == {};
+              thoughtSignature is a string when present
+```
+
+No other `contentStart` key is admitted. Optional means any subset of the named
+optional keys, not an open object.
+
+The pinned Prime build may expose two transient provider scratch fields on the
+source message's tool-call content block during streaming:
+
+```text
+partialArgs                   JSON string
+streamIndex                   nonnegative JSON integer; booleans forbidden
+```
+
+For source admission, a tool-call start block has the stable required and
+optional fields above plus either or both of these exact optional scratch
+fields, and no others. The retained `contentStart` deliberately omits
+`partialArgs` and `streamIndex`; Prime itself removes them before the final
+`toolcall_end`. Text and thinking source blocks have exactly the corresponding
+required and optional `contentStart` keys above. Any additional source-content
+key takes raw fallback rather than being silently discarded.
+
+A streaming, read-only shape audit of all 74,143 sealed V5 update rows confirmed:
+
+```text
+root key sets                         1 (assistantMessageEvent,message,type)
+assistant event key sets              9 (the nine declared source subtypes)
+message/partial structural mismatches 0
+text-start content keys               text,type
+thinking-start content keys           thinking,thinkingSignature,type
+tool-start content keys               arguments,id,name,partialArgs,streamIndex,type
+tool-end value keys                   arguments,id,name,type
+```
+
+This specimen evidence justifies the V1 shapes; the optional typed fields also
+preserve the pinned Prime interfaces when absent from this particular run.
+
+The closed `toolCall` value on `toolcall_end` has required keys `type`, `id`,
+`name`, and `arguments`, with optional `thoughtSignature` only. `type` must be
+`toolCall`; `id` and `name` must be nonempty strings; `arguments` must be a JSON
+object; and `thoughtSignature`, when present, must be a string. No other key is
+admitted.
+
+At the compact-record root, `message`, `partial`, `activeSessionId`, `meta`,
+`toolCallArguments`, raw bytes, and any unlisted field are forbidden. Inside
+`assistantMessageEvent`, `partial` and every field not named by its matrix row
+are forbidden.
+
+Start records follow Prime's daemon compaction principle: dynamic text or
+thinking is replaced by `""`, tool arguments are replaced by `{}`, and the two
+known provider scratch fields above are excluded from the retained semantic
+record.
 Delta records retain the exact delta string. End records retain the complete
 `content` or `toolCall` already present in `assistantMessageEvent`. No cumulative
 tool-argument snapshot is retained; the complete `toolcall_end` and
@@ -390,8 +540,14 @@ After stdout EOF and successful compact-file close, the runner writes:
 {
   "schema": "rook.prime_event_capture_custody:v1",
   "status": "complete",
+  "limits": {
+    "maxSourceRowBytes": 67108864,
+    "monitorQueueMaxEvents": 1,
+    "sourceReadChunkBytes": 65536
+  },
   "source": {
     "bytes": 3543087572,
+    "maxRowBytes": 3806566,
     "rows": 74473,
     "sha256": "F79F...AA3B",
     "stdoutEof": true
@@ -409,7 +565,10 @@ After stdout EOF and successful compact-file close, the runner writes:
 ```
 
 The final schema uses actual measured retained values; zero above illustrates
-the field shape only.
+the field shape only. All custody objects are closed. `limits` must equal the
+runner-owned V1 constants, and `source.maxRowBytes` is the largest admitted row
+including LF. Post-run verification refuses if the observed maximum exceeds the
+recorded limit or any applied limit differs from the compiled constants.
 
 The custody record is deterministic: it contains no timestamp, PID, absolute
 output path, random identifier, or host-dependent separator. Its relative paths
@@ -509,21 +668,31 @@ The capture is complete only when:
 - the custody record is written successfully; and
 - post-run verification matches the custody record.
 
-Failure codes are closed and include at least:
+The V1 failure codes are exactly:
 
 ```text
+stdout_read_failed
 stdout_invalid_utf8
 stdout_missing_final_lf
+stdout_row_too_large
 stdout_json_invalid
 stdout_json_object_required
 stdout_json_duplicate_key
+compact_transform_failed
 compact_write_failed
 compact_close_failed
+raw_debug_write_failed
+raw_debug_close_failed
+capture_custody_write_failed
 capture_custody_missing
 capture_custody_mismatch
 capture_row_count_mismatch
 raw_debug_mismatch
 ```
+
+An unfamiliar but valid event shape is not `compact_transform_failed`; it takes
+the declared byte-exact raw fallback. `compact_transform_failed` is reserved for
+an internal transformation invariant failing after exact compact admission.
 
 The reader thread reports failures to the execution owner. The owner terminates
 the process tree if still live, records the incomplete prefix when possible,
@@ -542,9 +711,28 @@ outside scope.
 
 ## Consumer Handoff
 
-The runner gains one shared retained-event iterator. Normal consumers receive
-exact passthrough events and may skip `assistant_stream_delta` unless they need
-stream reconstruction.
+The runner gains one protocol-aware path resolver and one shared retained-event
+iterator. The resolver is the sole owner of telemetry-path selection:
+
+```text
+resolve_prime_event_path(protocol, row_root)
+  historical protocol without primeEventCapture
+    -> row_root/operator/prime.jsonl
+  admitted rook.prime_event_capture_config:v1
+    -> row_root/<exact retainedPath>
+```
+
+The resolver never guesses from file existence, aliases a compact stream to the
+historical filename, or accepts a caller-supplied path. Protocol admission has
+already proved that `retainedPath` is a closed relative path inside the row's
+operator directory. For a compact protocol, the resolver returns only after the
+complete custody record verifies the retained relative path, hash, bytes, rows,
+limits, and source/retained row equality. Every post-run consumer below receives
+the resolver's result or the shared iterator; no compact-aware call site
+independently joins `operator/prime.jsonl`.
+
+Normal consumers receive exact passthrough events and skip
+`assistant_stream_delta` unless they explicitly request stream reconstruction.
 
 Specific handoffs are:
 
@@ -560,6 +748,25 @@ Specific handoffs are:
 The current filename `operator/prime.jsonl` remains historical. New protocols
 name `operator/prime-events.compact.jsonl` explicitly so consumers cannot
 mistake compact telemetry for Prime's native JSON mode.
+
+Function-level parity is mandatory, not inferred from equivalent parsed data.
+The test suite invokes each existing entry point once with a raw retained stream
+and once with its compact replay:
+
+| Entry point | Required parity |
+|---|---|
+| `RunMonitor.consume_prime_line` | Identical cumulative provider tokens and identical ceiling decision from exact passthrough `message_end` rows |
+| `prime_log_proves_goal_context` | Identical goal-context result |
+| `summarize_row_telemetry` through `_write_varied_row_records` | Identical per-turn usage, mutation/discovery attribution, and evidence-path selection |
+| `audit_multimodal_attachment_sequence` | Identical attachment ordering, call identity, and image result |
+| `admit_retained_smoke` | Identical budget, goal, process, semantic, and custody disposition |
+| `_operator_normalize` | Identical lifecycle projection, normalized source events, and terminal-receipt selection; only the predeclared retained-stream path/hash representation may differ |
+| `_operator_evaluate` | Identical final fenced snapshot selection, criteria/status, and reason; only the predeclared retained-stream path/hash representation may differ |
+
+These are direct calls through the named functions, not tests of a substitute
+parser. Tests also enumerate the runner's compact-aware call sites and fail if a
+new protocol path bypasses `resolve_prime_event_path`. Historical branches keep
+their existing path and byte behavior.
 
 ## Implementation Shape
 
@@ -616,12 +823,39 @@ Tests cover:
 - unknown update subtypes falling back raw;
 - deterministic canonical delta output;
 - compact and compact-with-raw-debug modes;
+- protocol attempts to override any runner-owned ingress or queue limit;
 - malformed JSON, invalid UTF-8, scalar JSON, blank rows, and missing LF;
+- an LF-terminated row that exceeds `MAX_SOURCE_ROW_BYTES`, refused before
+  parsing, retention, or monitor publication;
+- an unterminated row that exceeds `MAX_SOURCE_ROW_BYTES`, refused immediately
+  at the same byte boundary rather than waiting for EOF;
+- a deliberately stalled monitor consumer proving the queue never exceeds one
+  event, the reader holds at most one subsequent parsed event, read-ahead stays
+  within one fixed chunk, and no third row is parsed, admitted, or persisted
+  until the consumer advances;
+- boundary rows of exactly `MAX_SOURCE_ROW_BYTES`, including LF, remaining
+  admissible when their content is otherwise valid;
 - injected write and close failures;
 - missing or altered custody;
 - removed, duplicated, reordered, or changed compact rows;
 - truncated raw-debug output; and
 - missing terminal checkpoints remaining lifecycle-incomplete.
+
+Closed-schema tests cover every required, optional, and forbidden field for all
+nine compact subtypes. They include boolean-as-integer refusal, invalid
+`contentStart` placement, admitted and invalid tool-call scratch fields, open
+nested content objects, and raw passthrough for otherwise valid but unfamiliar
+source-update shapes.
+
+### Current-consumer parity
+
+Synthetic and sealed-replay tests exercise the exact seven entry points named
+in **Consumer Handoff** against both representations. They prove the path
+resolver preserves historical `operator/prime.jsonl` behavior, selects the
+protocol-declared compact stream for the new schema, and refuses missing,
+outside-root, or mismatched paths before a post-run disposition is produced.
+The tests retain each function's raw and compact outputs so parity is auditable
+at the function boundary.
 
 ### Vessel replay assertions
 
@@ -725,12 +959,16 @@ The correction is qualified only when retained evidence proves:
 6. identical unchanged-V2 trace-admission outcome apart from the expected
    runtime-log digest;
 7. deterministic compact stream and custody bytes;
-8. fail-closed truncation, malformed-row, writer-failure, missing-custody, and
+8. bounded ingress under oversized terminated rows, oversized unterminated
+   rows, and a stalled consumer;
+9. function-level parity for goal context, budget monitoring, telemetry,
+   attachments, retained-smoke admission, normalization, and evaluation;
+10. fail-closed truncation, malformed-row, writer-failure, missing-custody, and
    missing-terminal behavior;
-9. source and historical manifest preservation;
-10. no Prime, V1, V2, model guidance, Rook mutation, Rhino, Grasshopper, or
-    Vessel changes; and
-11. a clean bounded worktree with exact implementation, test, protocol,
+11. source and historical manifest preservation;
+12. no Prime, V1, V2, model guidance, Rook mutation, Rhino, Grasshopper, or
+   Vessel changes; and
+13. a clean bounded worktree with exact implementation, test, protocol,
     evidence, and report hashes.
 
 ## Adoption Boundary
