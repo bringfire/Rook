@@ -38,6 +38,9 @@ FROZEN_PROTOCOL_V1_PATH = (
 FROZEN_PROTOCOL_V2_PATH = FROZEN_PROTOCOL_V1_PATH.with_name(
     "2026-08-20-prime-json-event-capture-offline-qualification-v2.json"
 )
+FROZEN_PROTOCOL_V3_PATH = FROZEN_PROTOCOL_V1_PATH.with_name(
+    "2026-08-20-prime-json-event-capture-offline-qualification-v3.json"
+)
 
 
 @pytest.fixture
@@ -577,3 +580,26 @@ def test_v2_protocol_changes_only_capture_owner_and_evidence_root(qualification)
 
     assert v2 == expected
     assert qualification.validate_qualification_protocol(v2) == v2
+
+
+def test_v3_protocol_preserves_v2_and_changes_only_reviewed_capture_owner(
+    qualification,
+):
+    assert sha256(FROZEN_PROTOCOL_V2_PATH) == (
+        "76B30EF754A383FC4327A9C18F5FCCB0"
+        "E74823BAD6F02050AB857799F0842E14"
+    )
+    v2 = json.loads(FROZEN_PROTOCOL_V2_PATH.read_text(encoding="utf-8"))
+    v3 = json.loads(FROZEN_PROTOCOL_V3_PATH.read_text(encoding="utf-8"))
+    expected = copy.deepcopy(v2)
+    expected["outputRoot"] = (
+        "C:/UDEV/RookEvidence/"
+        "2026-08-20-prime-json-event-capture-offline-qualification-v3"
+    )
+    expected["owners"]["captureModule"]["sha256"] = (
+        "6D5537386F391578650B276A4A25FC224"
+        "F7ECBE14B7767BE5AB886B780439F94"
+    )
+
+    assert v3 == expected
+    assert qualification.validate_qualification_protocol(v3) == v3
