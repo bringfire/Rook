@@ -1990,6 +1990,24 @@ def require_python_environment_custody(record: dict[str, Any]) -> dict[str, Any]
     return record
 
 
+def require_clean_prime_worktree(root: Path) -> None:
+    status = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if status:
+        raise RuntimeError("custody_mismatch:prime_worktree_dirty")
+
+
 def _write_python_environment_custody(
     protocol: dict[str, Any], path: Path
 ) -> dict[str, Any] | None:
@@ -2004,6 +2022,7 @@ def _runtime_custody(
     protocol: dict[str, Any], protocol_path: Path = DEFAULT_PROTOCOL
 ) -> dict[str, Any]:
     prime = protocol["prime"]
+    require_clean_prime_worktree(Path(prime["sourceRoot"]))
     upstream_observed: dict[str, str] | None = None
     prime_commit = subprocess.run(
         ["git", "-C", prime["sourceRoot"], "rev-parse", "HEAD"],

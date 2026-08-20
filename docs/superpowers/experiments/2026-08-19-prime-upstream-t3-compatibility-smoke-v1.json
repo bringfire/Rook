@@ -193,7 +193,7 @@
   },
   "offlineEvaluator": {
     "runnerPath": "scripts/qwen38_self_termination_campaign_runner.py",
-    "runnerSha256": "864534D181DE2971184DE4E3E4DCB9A0D494EF3DE5EFD1FE358D8D9F29951F6F",
+    "runnerSha256": "5BD04F22B3DD2B1F22247AA0761E38AD0373F995ECDDCF73D13DA288E6E45AE9",
     "acceptanceArtifactPath": "scripts/grasshopper_point_row_acceptance.json",
     "acceptanceArtifactSha256": "A4836173494C2396FB60E0C0FAF889161980C26C078987F8CA5CA847B6A4367F"
   },

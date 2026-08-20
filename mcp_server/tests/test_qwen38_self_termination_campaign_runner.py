@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import types
 
@@ -570,6 +571,50 @@ def test_prime_upstream_preflight_requires_branch_local_prime_python():
     )
     with pytest.raises(ValueError, match="preflight_invalid"):
         runner.validate_preflight_record(record, python, 2_000_000, root)
+
+
+def _committed_prime_test_repository(root: Path) -> Path:
+    source = root / "prime-agent-runtime" / "src" / "rlm" / "mcp_base.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.name", "Prime Custody Test"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "prime@example.invalid"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", "baseline"],
+        check=True,
+        capture_output=True,
+    )
+    return source
+
+
+def test_prime_runtime_custody_rejects_modified_tracked_source(tmp_path):
+    runner = _runner()
+    source = _committed_prime_test_repository(tmp_path / "prime")
+
+    runner.require_clean_prime_worktree(source.parents[3])
+    source.write_text("VALUE = 2\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="custody_mismatch:prime_worktree_dirty"):
+        runner.require_clean_prime_worktree(source.parents[3])
+
+
+def test_prime_runtime_custody_rejects_untracked_source(tmp_path):
+    runner = _runner()
+    source = _committed_prime_test_repository(tmp_path / "prime")
+
+    shadow = source.with_name("shadow.py")
+    shadow.write_text("VALUE = 2\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="custody_mismatch:prime_worktree_dirty"):
+        runner.require_clean_prime_worktree(source.parents[3])
 
 
 def test_vp2_evidence_reuse_skill_delta_is_exactly_one_reviewed_rule():

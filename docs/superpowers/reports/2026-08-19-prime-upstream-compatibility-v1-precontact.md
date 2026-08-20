@@ -213,9 +213,9 @@ The one-row contact package is now explicit and committed for spot review:
 
 | Artifact | SHA-256 |
 |---|---|
-| Protocol | `7F7A3CA976F3929CD01F9251467066B4DC06D4B307875D3C76D63300B6D0DA59` |
+| Protocol | `512A0843FB8D59DC25F5C8C81B40C296C06DA7DA06778CA86AC82C6C2B711BCD` |
 | Adjudication | `211B3345822021B17EEB04B14060A1914B2BEDFDA75FB4B685D7E2FF72C4A814` |
-| Campaign runner | `864534D181DE2971184DE4E3E4DCB9A0D494EF3DE5EFD1FE358D8D9F29951F6F` |
+| Campaign runner | `5BD04F22B3DD2B1F22247AA0761E38AD0373F995ECDDCF73D13DA288E6E45AE9` |
 | Historical T3 skill | `13FB486CE69C0681CF2F12A7D8F391AAEBF146363DD7A37B04C50E08A9D81696` |
 | Historical checkpoint | `2FCF16E0B6C58B1D0390CCF16D28DD62D142AC20CCF9AEC81D3B916BD251CBD8` |
 | Historical adapter | `06F1CB4AA58FD8C4C6F61F96CE7B8A5F4FEF7B6B126D00C0550B2CB3AA0BBF74` |
@@ -229,7 +229,8 @@ The protocol freezes:
 - zero retries and no evaluator feedback during execution;
 - current deployed Rook hashes and the current serialized tool surface;
 - the exact upstream base, patch, result commit/tree, dependency lock, and
-  84-file runtime bundle; and
+  84-file runtime bundle;
+- a clean Prime source worktree, including no untracked source shadows; and
 - branch-local Prime launcher, Node module, goal skill, and `rlm` Python paths.
 
 The current deployed Rook bytes differ from historical V3. This is therefore a
