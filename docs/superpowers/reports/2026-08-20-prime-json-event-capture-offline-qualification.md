@@ -1,7 +1,7 @@
 # Prime JSON Event Capture Offline Qualification
 
 **Date:** 2026-08-20
-**Status:** `qualified` on the sealed Vessel specimen
+**Status:** V3 offline qualification passed; renewed independent review pending
 **Contact:** offline only; no Prime, model, Rook MCP, Rhino, or Grasshopper contact
 
 ## Scope
@@ -73,10 +73,17 @@ authoritative for final envelope metadata and is returned as the terminal
 message. A RED regression reproduced this exact case before the implementation
 changed. V1 evidence and protocol bytes were not rewritten or reused.
 
-## V2 Result
+## V2 Result And Review Refusal
 
-V2 used a fresh protocol and evidence root. Its only operational changes from
-V1 were the corrected capture-owner hash and the fresh output root.
+V2 used a fresh protocol and evidence root. Its harness returned `qualified`,
+but independent implementation review refused that result. The reviewer found
+that custody verification retained all rows in memory, the passthrough oracle
+called the transformer under test, and the size ratio omitted the custody
+sidecar. The reviewer independently confirmed that V2's captured specimen was
+substantively exact, but its proof boundary was insufficient.
+
+V2 remains preserved unchanged. The figures produced by its original harness
+were:
 
 | Fact | Value |
 |---|---:|
@@ -90,7 +97,35 @@ V1 were the corrected capture-owner hash and the fresh output root.
 | Size reduction | 98.9686117473% |
 | Qualification phase duration | 47.75 seconds |
 
-The retained result exceeds the frozen 95% reduction requirement. The earlier
+The ratio above is the historical V2 stream-only figure. Including V2's
+564-byte custody sidecar gives 1.0314041710% retained and 98.9685958290%
+reduction.
+
+## V3 Result
+
+V3 used a fresh protocol and evidence root after two bounded corrections:
+
+- custody verification now streams hashes, counts, maxima, and retained-row
+  validation without accumulating row bodies; and
+- a qualification-owned row-paired oracle independently projects every compact
+  source event without calling `transform_prime_row`.
+
+| Fact | Value |
+|---|---:|
+| Harness status | `qualified` |
+| Source and retained rows | 74,473 / 74,473 |
+| Compact stream bytes | 36,542,989 |
+| Custody bytes | 564 |
+| Total persisted bytes | 36,543,553 |
+| Retained SHA-256 | `90407E778688FC945AFD32B3F5D8AB3F4A00582DED072CA1E9FC3866088246C1` |
+| Exact compact projections | 74,143 |
+| Byte-identical passthrough rows | 330 |
+| Raw-fallback updates | 0 |
+| Retained ratio | 1.0314041710% |
+| Size reduction | 98.9685958290% |
+| Qualification phase duration | 57.266 seconds |
+
+The V3 persisted result exceeds the frozen 95% reduction requirement. The earlier
 gzip-only measurement retained 727,134,876 bytes and reduced the stream by only
 79.48%, so compression alone would not have met that requirement.
 
@@ -107,10 +142,12 @@ FBF53094799E849A45B2361D830682A6E0A0DD4E2E68D2D81D4AD8548408C850
 
 ## Semantic Parity
 
-The qualification established:
+The V3 qualification established:
 
 - exact reconstruction of all 29 terminal assistant message values;
-- exact passthrough-byte parity for non-compacted rows;
+- 74,143 independently projected compact rows with exact subtype, content
+  index, delta, end content, tool-call, source-row, and source-byte equality;
+- 330 byte-identical passthrough rows;
 - equal normalized V2 source events;
 - equal lifecycle and same-session compaction classification;
 - equal tool execution, result, error, checkpoint, and terminal history;
@@ -148,7 +185,10 @@ monitor queue                     1 event
 ```
 
 Oversized terminated rows, oversized unterminated rows, and a stalled consumer
-have causal tests. The sealed specimen's largest row was 3,806,566 bytes.
+have causal tests. A separate raw-debug regression verifies that custody
+admission remains below a fixed memory ceiling when both retained and raw files
+are much larger than that ceiling. The sealed specimen's largest row was
+3,806,566 bytes.
 
 No operating-system peak-memory measurement was retained, so this report makes
 no empirical peak-RSS claim. The bounded-memory claim is instead the qualified
@@ -158,21 +198,21 @@ unbounded queue.
 
 ## Evidence
 
-V2 evidence root:
+V3 evidence root:
 
 ```text
-C:/UDEV/RookEvidence/2026-08-20-prime-json-event-capture-offline-qualification-v2
+C:/UDEV/RookEvidence/2026-08-20-prime-json-event-capture-offline-qualification-v3
 ```
 
 Key hashes:
 
 | Artifact | SHA-256 |
 |---|---|
-| V2 protocol | `76B30EF754A383FC4327A9C18F5FCCB0E74823BAD6F02050AB857799F0842E14` |
-| Qualification result | `A6047BA25952DD73A83C1AA5CF51ADB8A9DFE7420B4379BCAF452490BFF8527E` |
-| Source custody | `46D23C3575374624E58EC2C4F75891A6B65F8ED0219610A1C3184E1E0362F947` |
+| V3 protocol | `949119BC1959E4E937CAEE97198470FA32E07BAB297D7F3C679BDFC7AEE066EC` |
+| Qualification result | `C7E18129C1E72A6CFB4CA60B7034B2664CE4BDE6093DAB03D9C613B1A0D3D426` |
+| Source custody | `159B350C389E0EE9C461A46C252E434511EDE77348026293290A6C7A459CFAF7` |
 | V2 parity | `8DDE60736EE4636DCE066A118000794CCFA39E62FEEEF5F97CB97C51B74F642B` |
-| Evidence manifest | `19E1D63D7CD549CD515789646D2BB14E8C3CCEB47A362236CC56FADCF17A1216` |
+| Evidence manifest | `1063B396B0BD580C52D30096FDB0A30D5D194D9ADF7D620E216645BD92C653FB` |
 
 The sealed evidence manifest independently verifies 13/13 entries with zero
 mismatches.
@@ -181,9 +221,9 @@ mismatches.
 
 | Owner | SHA-256 |
 |---|---|
-| Capture module | `2B9E86BD544092E74D34C19AC9F33183A1CA56A2D97E574973DEAB8E7D4EFAFF` |
+| Capture module | `6D5537386F391578650B276A4A25FC224F7ECBE14B7767BE5AB886B780439F94` |
 | Campaign runner | `CB0F4076A6812ABF6C8356DB874F1A04E90B37EA029B1C9E5262780E5C9A221F` |
-| Qualification harness | `A5739845A2F6D42EABC58B44640763A3AC822EAC059923672E9EFB0A1EE85CF6` |
+| Qualification harness | `1F542B1CE056776719495883DBFF78B74BF028EB6EFEEB1C23DD6F29FD9F7E6A` |
 | Unchanged V2 owner | `55211B778B44C96729A21D9DAE430B2883F4636520C030E1EBFD3B8F896508FF` |
 | Approved design | `E5FAAE11FDCB40C184F0478E611D77F777B2C8E552B99A6736555592BC0FDC63` |
 | Implementation plan | `C1EDF40BCD66505819CBA49FDAC2E9706B3287245A3B826523602F7FF2FF16F5` |
@@ -196,6 +236,8 @@ be3b4de0  feat: add compact Prime event transformation
 f64f255a  feat: integrate compact Prime capture
 092acc83  test: freeze Prime capture qualification
 0ac26452  fix: reconstruct terminal Prime message metadata
+0749eec8  fix: bound and independently verify Prime capture
+7dd4a1a1  test: freeze reviewed Prime capture qualification
 ```
 
 ## Verification
@@ -203,18 +245,18 @@ f64f255a  feat: integrate compact Prime capture
 The full offline suite passed:
 
 ```text
-363 passed, 11 existing dependency warnings
+366 passed, 11 existing dependency warnings
 ```
 
-The V2 archive retains its own precontact result:
+The V3 archive retains its own precontact result:
 
 ```text
-248 passed in 4.75s
+251 passed in 5.71s
 stderr: empty
 ```
 
 All three Python owners compile. JSON protocols parse. Git whitespace checks
-pass. The Rook worktree at `0ac264526a116ec0e2cc70d774ab4c61af27a4ee`
+pass. The Rook worktree at `7dd4a1a1`
 and the untouched Prime evaluation worktree at
 `739400844f8f3f280414b0c7b9c65797208815d3` were clean before this report.
 
@@ -225,9 +267,10 @@ server, Rhino process, or Grasshopper process was launched or contacted.
 
 ## Disposition
 
-The compact capture path is qualified offline for this sealed 74,473-row Vessel
-specimen and for the named current consumer boundaries. It is opt-in and does
-not change historical capture behavior.
+The V3 harness qualified the compact capture path offline for this sealed
+74,473-row Vessel specimen and for the named current consumer boundaries. It is
+opt-in and does not change historical capture behavior. Final implementation
+qualification remains pending renewed independent review of the V3 corrections.
 
 This result does not prove byte reconstruction of discarded cumulative
 `message_update` rows, universal compatibility with future Prime event shapes,
