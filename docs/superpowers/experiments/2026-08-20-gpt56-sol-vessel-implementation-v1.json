@@ -1,0 +1,280 @@
+{
+  "schema": "rook.experiment.gpt56_sol_vessel_implementation:v1",
+  "status": "frozen_precontact",
+  "purpose": "Execute one live Sol implementation attempt from the sealed Vessel design hypothesis and topology refinement without adding orchestration or semantic machinery.",
+  "evidenceRootPrefix": "C:/UDEV/RookEvidence",
+  "executionOrder": [
+    "MV1"
+  ],
+  "limits": {
+    "wallClockSecondsPerRun": 10800,
+    "gatewayEventsPerRun": 500,
+    "providerReportedTokensPerRun": 2000000,
+    "primeGoalTokenBudget": 1800000
+  },
+  "prime": {
+    "sourceRoot": "D:/prime-agent/.worktrees/rook-upstream-evaluation",
+    "commit": "739400844f8f3f280414b0c7b9c65797208815d3",
+    "bashPath": "C:/Program Files/Git/bin/bash.exe",
+    "launcherPath": "D:/prime-agent/.worktrees/rook-upstream-evaluation/prime-agent.sh",
+    "nodePath": "C:/Program Files/nodejs/node.exe",
+    "nodeVersion": "v24.11.1",
+    "nodeSha256": "F13AC3CA23248DC389507E8FE38C34489AB7EDB3E6D6700EB6DA6A0B7E128EAF",
+    "runtimeBundle": {
+      "root": "D:/prime-agent/.worktrees/rook-upstream-evaluation/packages/coding-agent/dist",
+      "subtrees": [
+        "bundle",
+        "skills"
+      ],
+      "entryCount": 84,
+      "totalBytes": 13990452,
+      "manifestSha256": "4C5BC52CDAE882144E851600048711756E4BB28B400DF4A25B206D0F1263A106"
+    },
+    "sealedKernelPython": "C:/Users/bring/.prime/agent/kernel-venv/Scripts/python.exe",
+    "thinkingLevel": "xhigh",
+    "model": "openai-codex/gpt-5.6-sol",
+    "settings": {
+      "enableBuiltinSkills": true,
+      "packages": [],
+      "extensions": [],
+      "compaction": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 20000,
+        "agentCallable": true
+      }
+    },
+    "models": {}
+  },
+  "upstreamCustody": {
+    "baseCommit": "f8f0036cc2da1a640aad990ae8dcb7c4820ce32e",
+    "baseTree": "3ff69db27820afc0f3addc2089f6c04f10808d21",
+    "patchCommit": "30a6621bca698ef14f64e5e45c5b1b6364148789",
+    "patchTree": "05021548c143700b1b24045d29e712f784797798",
+    "resultCommit": "739400844f8f3f280414b0c7b9c65797208815d3",
+    "resultTree": "4d782187c6898aa8352045dd597bab6a3819029c",
+    "dependencyLockSha256": "C0AEC1FE34A5CFE0E601C8EFC1E5B0A96D4E8D76773633F76425F4F0829AA69D"
+  },
+  "goalSkillCustody": {
+    "sealedKernel": {
+      "path": "C:/Users/bring/.prime/agent/kernel-venv/Lib/site-packages/goal/__init__.py",
+      "sha256": "9A6F39CCD05DD8A6F64E9F36F38C6ECCC9C333904CEA7F3CE7E95CEC48214D4A"
+    },
+    "upstreamSource": {
+      "path": "D:/prime-agent/.worktrees/rook-upstream-evaluation/packages/coding-agent/skills/goal/src/goal/__init__.py",
+      "sha256": "9A6F39CCD05DD8A6F64E9F36F38C6ECCC9C333904CEA7F3CE7E95CEC48214D4A"
+    }
+  },
+  "pythonEnvironment": {
+    "pythonPathEntries": [
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/win32",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/win32/lib",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pythonwin"
+    ],
+    "dllPathEntries": [
+      "C:/Users/bring/AppData/Local/Rook/venv",
+      "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pywin32_system32"
+    ],
+    "manifestRoots": {
+      "kernelSitePackages": {
+        "path": "C:/Users/bring/.prime/agent/kernel-venv/Lib/site-packages",
+        "entryCount": 14915,
+        "totalBytes": 302687750,
+        "manifestSha256": "019A431AA3EC558A0068215D513E59AB732FDDCCFD20DDCADD7B58E56A0153ED"
+      },
+      "rookPackage": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook",
+        "entryCount": 477,
+        "totalBytes": 11533113,
+        "manifestSha256": "D9A29CCAD53D93B0702E8BB4FD893C52BB93F98667F0139B6FED72502D23A2C7"
+      },
+      "mcpPackage": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/mcp",
+        "entryCount": 221,
+        "totalBytes": 1784567,
+        "manifestSha256": "227DAD1C14848D2500785BFB87EEB2FD00A78867082192DA85B83ABD7207657A"
+      },
+      "win32Package": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/win32",
+        "entryCount": 332,
+        "totalBytes": 5484932,
+        "manifestSha256": "8FC3F9406D0EE0B74309F0624DF0357B018D09D4F04007F64BBA1BA7648EAABF"
+      },
+      "pythonwinPackage": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pythonwin",
+        "entryCount": 219,
+        "totalBytes": 4999870,
+        "manifestSha256": "578E20F011D0CD30E30039EE8B9E61F92318A51A64FAE45E0F8A98B2AE9DA7FD"
+      },
+      "pywin32System32": {
+        "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/pywin32_system32",
+        "entryCount": 2,
+        "totalBytes": 816128,
+        "manifestSha256": "BCF11A2AA7DDF9A4113B51C4433292C2CF02C5203E760F73146CA087DBBAF85D"
+      }
+    }
+  },
+  "modelCustody": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "api": "openai-codex-responses",
+    "credentialType": "oauth",
+    "authPath": "C:/Users/bring/.prime/agent/auth.json",
+    "apiKeyProhibited": true,
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "contextWindow": 272000,
+    "maxTokens": 128000
+  },
+  "rookCustody": {
+    "nativePluginPath": "C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/RookNative.rhp",
+    "nativePluginSha256": "2E2B5B3EA0AD8CA0FDAA5DFC4945F35EDE4B58C59EC11E6D59EF88BCF7C69FB9",
+    "managedNet8PluginPath": "C:/Users/bring/AppData/Roaming/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net8.0/Rook.rhp",
+    "managedNet8PluginSha256": "0BD2BEFA35D1532F291D5B5592FD526C240F6B339EF2D1668CD2BDE8D7ABEE2B",
+    "installedPythonRoot": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages",
+    "serverPath": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/server.py",
+    "serverSha256": "C02358F5AF5091A5C0E8EDBC7004CCFD9FB1E941BAD9361C7547CEEDD56909F5",
+    "behavioralAcceptancePath": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook/gh_behavioral_acceptance.py",
+    "behavioralAcceptanceSha256": "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
+  },
+  "toolSurface": {
+    "profile": "full",
+    "serializedCatalogCount": 382,
+    "serializedCatalogBytes": 320743,
+    "serializedCatalogSha256": "64796B23E123368F1F9CC509206A879783195223D81165C70D7226CB154B86FA"
+  },
+  "versionedInputs": {
+    "skillPath": "integrations/prime/skills/prime-execute-grasshopper-python/SKILL.md",
+    "skillSha256": "2312DBF60EF17F9AA0B6503EDC281C7D367A5379F200ADEADB4747FD58A34F66",
+    "checkpointPath": "integrations/prime/skills/prime-execute-grasshopper-python/references/checkpoint-protocol.md",
+    "checkpointSha256": "2D574EABF45EC1EB9B9BBCFCBD68F1CBE311E466CD922DF312F88A51925D63E7",
+    "adapterRoot": "integrations/prime/skills/rook-full",
+    "adapterInitSha256": "06F1CB4AA58FD8C4C6F61F96CE7B8A5F4FEF7B6B126D00C0550B2CB3AA0BBF74"
+  },
+  "optionalSkill": {
+    "name": "prime-execute-grasshopper-python",
+    "packagePath": "integrations/prime/skills/prime-execute-grasshopper-python",
+    "packageSha256": "2312DBF60EF17F9AA0B6503EDC281C7D367A5379F200ADEADB4747FD58A34F66",
+    "selectionMode": "explicit_cli_path_and_slash_command",
+    "defaultInstalled": false,
+    "automaticRouting": false
+  },
+  "canonicalNativeSkill": {
+    "path": "integrations/prime/skills/prime-execute-grasshopper/SKILL.md",
+    "sha256": "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07",
+    "selected": false
+  },
+  "baselineEvidence": {
+    "solDesignBaselineManifest": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-design-baseline-v2/evidence-manifest.json",
+      "sha256": "98D2BC463F7C1045829C564BA0175300D2A4E82C8D9767E4121302173C490115"
+    },
+    "solDesignBaselineAnswer": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-design-baseline-v2/operator/stdout.txt",
+      "sha256": "00A074E20AA21F9345AAD5CE7336BF8CE1D3B325BBFB062145D63B1FE2D66D8A"
+    },
+    "solTopologyRefinementManifest": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-topology-refinement-v1/evidence-manifest.json",
+      "sha256": "A07F522E5F58BFB4ED5C8F76B624FE4CB7E6D7E0134912AE034F53B619318963"
+    },
+    "solTopologyRefinementAnswer": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-topology-refinement-v1/operator/stdout.txt",
+      "sha256": "133DC8BA3EE8A1E00C9863583DF01C632A07D84B8A8F27C4756E40E404A6F3FC"
+    }
+  },
+  "multimodal": {
+    "images": [
+      {
+        "sourcePath": "C:/Users/bring/OneDrive/Desktop/Qwen38/Images/Reduced/TheVessel-01.png",
+        "frozenPath": "docs/superpowers/experiments/inputs/2026-08-19-qwen38-multimodal-vessel-massing-v1/images/TheVessel-01.png",
+        "sourceSha256": "0516B550433493CCA528762659F4209219B4F9A0D07AD002AEC86CEAAD5E75AA",
+        "frozenSha256": "0516B550433493CCA528762659F4209219B4F9A0D07AD002AEC86CEAAD5E75AA",
+        "bytes": 2794738,
+        "dimensions": [
+          1080,
+          1226
+        ]
+      },
+      {
+        "sourcePath": "C:/Users/bring/OneDrive/Desktop/Qwen38/Images/Reduced/TheVessel-02.png",
+        "frozenPath": "docs/superpowers/experiments/inputs/2026-08-19-qwen38-multimodal-vessel-massing-v1/images/TheVessel-02.png",
+        "sourceSha256": "8A58E062A99DA5E3F25242B7483B97C0CA459A7ABDBC089DEFCEBBDD59737BA0",
+        "frozenSha256": "8A58E062A99DA5E3F25242B7483B97C0CA459A7ABDBC089DEFCEBBDD59737BA0",
+        "bytes": 2930563,
+        "dimensions": [
+          1080,
+          1440
+        ]
+      }
+    ],
+    "attachmentCode": "print(await attach_image(\"C:/Users/bring/OneDrive/Desktop/Qwen38/Images/Reduced/TheVessel-01.png\", \"C:/Users/bring/OneDrive/Desktop/Qwen38/Images/Reduced/TheVessel-02.png\"))",
+    "initialInstruction": "/skill:prime-execute-grasshopper-python Your first IPython action must be exactly: print(await attach_image(\"C:/Users/bring/OneDrive/Desktop/Qwen38/Images/Reduced/TheVessel-01.png\", \"C:/Users/bring/OneDrive/Desktop/Qwen38/Images/Reduced/TheVessel-02.png\")) . Wait until both attachment results are present before any Rook call. If attachment fails or the order differs, report blocked and make no mutation. Do not use subagents. Then begin the active goal.",
+    "attachImagePackage": {
+      "path": "D:/prime-agent/.worktrees/rook-upstream-evaluation/packages/coding-agent/dist/skills/attach-image",
+      "entryCount": 4,
+      "totalBytes": 12113,
+      "manifestSha256": "08AA5A8E6FC2D3BD908EE2A2A224C399E7DFF182C0152FD2F7572C30EF5B7459"
+    },
+    "attachmentPreflight": {
+      "path": "scripts/prime_multimodal_attachment_preflight.ts",
+      "sha256": "C0E15D71651D2E59E2461A7D3F9A3E83AA194B0E26676AFFEDD759DFF8355DB2"
+    }
+  },
+  "tasks": {
+    "MV1": {
+      "id": "MV1",
+      "class": "multimodal_conceptual_vessel_massing",
+      "targetBaseline": "fresh_empty_grasshopper_document",
+      "evaluator": "independent_shadow_judgment",
+      "prompt": "Implement the approved conceptual Vessel strategy in the currently pinned fresh empty Grasshopper document. First inspect the two attached reference images. Then read these already-custodied design inputs directly once: C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-design-baseline-v2/operator/stdout.txt and C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-topology-refinement-v1/operator/stdout.txt. The topology refinement supersedes the baseline wherever they differ. Use the explicitly selected Python Grasshopper lane and ordinary controls; do not compare implementation modes. Do not use subagents. Build an adjustable flared six-sided circulation lattice around an expanding open central atrium. Use discrete landing pads and explicit walkway strips separated by substantial open gaps; complete annular rings, implicit perimeter routes, filled slabs, and continuous skins are failures. Every graph edge must correspond to actual walkable geometry. Between every adjacent tier create at least six valid stair flights, targeting eight to twelve flights where feasible, distributed in both diagonal directions with lift-to-lift stagger. Preserve at least one continuous ground-to-top route through actual pads, walkways, and flights. Expose meaningful controls for tier count, vertical spacing, base and top radius, pad or walkway depth, tier stagger, stair width, and stair density as appropriate to your implementation. Exercise consequential independent controls, observe their effects, and restore chosen defaults. Use authentic Rook diagnostics and solved observations to repair locally. Capture useful Top and Perspective Rhino viewport images, pass their returned image paths to attach_image, and inspect them yourself. Correct material geometric or visual failures you observe. After the final mutation, retain its receipt, wait for that same receipt, and obtain a same-receipt fenced snapshot. That snapshot must be the last Rook gateway call. Immediately call goal.complete() as the final tool action and then emit text only. Do not add railings, facade detail, people, baking, or unrelated geometry.",
+      "targetFixture": {
+        "schema": "rook.experiment.gh_target_fixture:v1",
+        "baseline": "fresh_empty",
+        "seedEdit": null,
+        "seedExpectations": null,
+        "preservation": null
+      }
+    }
+  },
+  "shadowAdjudication": {
+    "path": "docs/superpowers/experiments/2026-08-19-qwen38-multimodal-vessel-massing-v1-adjudication.json",
+    "sha256": "AEAADD89691CCF7FD355ABD42A606B6BDD6DDD35691069DD84AE639311C9B288"
+  },
+  "singleRun": {
+    "retryCount": 0,
+    "evaluatorFeedbackDuringRun": false
+  },
+  "offlineEvaluator": {
+    "runnerPath": "scripts/qwen38_self_termination_campaign_runner.py",
+    "runnerSha256": "97C339A19C8F2C18AE0793AE206AAB0062586A33E718F6ED4B211EBA3178DBFD",
+    "behavioralAcceptancePath": "mcp_server/src/rook/gh_behavioral_acceptance.py",
+    "behavioralAcceptanceSha256": "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5",
+    "mode": "silent_post_run_independent_judgment"
+  },
+  "precontactVerification": {
+    "pythonPath": "C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe",
+    "arguments": [
+      "-m",
+      "pytest",
+      "mcp_server/tests/test_qwen38_self_termination_campaign_runner.py",
+      "mcp_server/tests/test_gh_behavioral_acceptance.py",
+      "-q"
+    ]
+  },
+  "contactMode": {
+    "mode": "single_sol_vessel_live_contact",
+    "evidenceRoot": "C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-implementation-v1",
+    "actorContactAuthorized": true
+  },
+  "primeEventCapture": {
+    "schema": "rook.prime_event_capture_config:v1",
+    "mode": "compact",
+    "retainedPath": "operator/prime-events.compact.jsonl",
+    "custodyPath": "operator/prime-event-capture-custody.json",
+    "rawDebugPath": null
+  }
+}

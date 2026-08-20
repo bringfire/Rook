@@ -241,6 +241,13 @@ MULTIMODAL_VESSEL_V5_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-20-qwen38-multimodal-vessel-massing-v5.json"
 )
+SOL_VESSEL_IMPLEMENTATION_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-20-gpt56-sol-vessel-implementation-v1.json"
+)
 MULTIMODAL_VESSEL_ADJUDICATION_PATH = (
     ROOT
     / "docs"
@@ -1229,6 +1236,12 @@ def _multimodal_vessel_v5_protocol() -> dict:
     return json.loads(MULTIMODAL_VESSEL_V5_PROTOCOL_PATH.read_text(encoding="utf-8"))
 
 
+def _sol_vessel_implementation_protocol() -> dict:
+    return json.loads(
+        SOL_VESSEL_IMPLEMENTATION_PROTOCOL_PATH.read_text(encoding="utf-8")
+    )
+
+
 def _skill_body(path: Path) -> str:
     content = path.read_text(encoding="utf-8")
     assert content.startswith("---\n")
@@ -1641,6 +1654,145 @@ def test_multimodal_vessel_v5_freezes_the_post_snapshot_no_call_boundary():
         "optionalSkill",
     ):
         assert v5[owner] == v4[owner]
+
+
+def test_sol_vessel_protocol_reuses_the_live_path_with_frozen_design_custody():
+    runner = _runner()
+    protocol = _sol_vessel_implementation_protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["schema"] == runner.SOL_VESSEL_IMPLEMENTATION_SCHEMA
+    assert protocol["executionOrder"] == ["MV1"]
+    assert protocol["prime"]["commit"] == (
+        "739400844f8f3f280414b0c7b9c65797208815d3"
+    )
+    assert protocol["prime"]["model"] == "openai-codex/gpt-5.6-sol"
+    assert protocol["prime"]["thinkingLevel"] == "xhigh"
+    assert protocol["modelCustody"] == {
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+        "api": "openai-codex-responses",
+        "credentialType": "oauth",
+        "authPath": "C:/Users/bring/.prime/agent/auth.json",
+        "apiKeyProhibited": True,
+        "reasoning": True,
+        "input": ["text", "image"],
+        "contextWindow": 272_000,
+        "maxTokens": 128_000,
+    }
+    assert protocol["primeEventCapture"] == {
+        "schema": "rook.prime_event_capture_config:v1",
+        "mode": "compact",
+        "retainedPath": "operator/prime-events.compact.jsonl",
+        "custodyPath": "operator/prime-event-capture-custody.json",
+        "rawDebugPath": None,
+    }
+    assert protocol["baselineEvidence"].keys() == {
+        "solDesignBaselineManifest",
+        "solDesignBaselineAnswer",
+        "solTopologyRefinementManifest",
+        "solTopologyRefinementAnswer",
+    }
+    prompt = protocol["tasks"]["MV1"]["prompt"]
+    for required in (
+        "discrete landing pads",
+        "explicit walkway strips",
+        "at least six valid stair flights",
+        "eight to twelve flights",
+        "same-receipt fenced snapshot",
+        "Do not use subagents",
+    ):
+        assert required in prompt
+
+
+def test_sol_vessel_launch_uses_direct_node_global_oauth_and_explicit_skill(
+    tmp_path, monkeypatch
+):
+    runner = _runner()
+    protocol = _sol_vessel_implementation_protocol()
+    task = protocol["tasks"]["MV1"]
+    row_root = tmp_path / "row"
+    runner._copy_versioned_inputs(protocol, task, row_root)
+    for name in ("OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "PRIME_API_KEY"):
+        monkeypatch.setenv(name, "prohibited")
+
+    command, environment = runner.build_prime_launch(
+        protocol,
+        task=task,
+        row_root=row_root,
+        target={"processId": 1, "documentSerialNumber": 2},
+    )
+
+    assert command[:2] == [
+        protocol["prime"]["nodePath"],
+        "D:/prime-agent/.worktrees/rook-upstream-evaluation/packages/coding-agent/dist/bundle/cli.js",
+    ]
+    assert "--session-dir" in command
+    assert command[command.index("--session-dir") + 1] == str(
+        row_root / "agent" / "sessions"
+    )
+    for flag in (
+        "--no-extensions",
+        "--no-skills",
+        "--no-context-files",
+        "--no-prompt-templates",
+    ):
+        assert flag in command
+    selected = row_root / "explicit-skills" / "prime-execute-grasshopper-python"
+    assert command[command.index("--skill") + 1] == str(selected)
+    assert command[command.index("--model") + 1] == "openai-codex/gpt-5.6-sol"
+    assert command[command.index("--thinking") + 1] == "xhigh"
+    assert "--api-key" not in command
+    assert "PRIME_AGENT_CODING_AGENT_DIR" not in environment
+    for name in ("OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "PRIME_API_KEY"):
+        assert name not in environment
+
+
+def test_sol_oauth_custody_accepts_only_the_admitted_path_and_type(
+    tmp_path, monkeypatch
+):
+    runner = _runner()
+    auth = tmp_path / "auth.json"
+    auth.write_text(
+        json.dumps(
+            {
+                "openai-codex": {
+                    "type": "oauth",
+                    "access": "not-retained",
+                    "refresh": "not-retained",
+                    "expires": 1,
+                    "accountId": "not-retained",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    custody = {
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+        "api": "openai-codex-responses",
+        "credentialType": "oauth",
+        "authPath": auth.as_posix(),
+        "apiKeyProhibited": True,
+        "reasoning": True,
+        "input": ["text", "image"],
+        "contextWindow": 272_000,
+        "maxTokens": 128_000,
+    }
+
+    assert runner.verify_openai_codex_oauth_custody(custody) == {
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+        "credentialType": "oauth",
+        "authPath": auth.as_posix(),
+    }
+
+    auth.write_text(
+        json.dumps({"openai-codex": {"type": "api_key", "key": "prohibited"}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="custody_mismatch:openai_codex_oauth"):
+        runner.verify_openai_codex_oauth_custody(custody)
 
 
 def test_multimodal_launch_requires_both_images_as_first_ipython_action(tmp_path):

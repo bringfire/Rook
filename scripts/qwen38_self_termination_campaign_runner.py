@@ -68,12 +68,19 @@ MULTIMODAL_VESSEL_V2_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:
 MULTIMODAL_VESSEL_V3_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v3"
 MULTIMODAL_VESSEL_V4_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v4"
 MULTIMODAL_VESSEL_V5_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v5"
+SOL_VESSEL_IMPLEMENTATION_SCHEMA = (
+    "rook.experiment.gpt56_sol_vessel_implementation:v1"
+)
 MULTIMODAL_VESSEL_SCHEMAS = {
     MULTIMODAL_VESSEL_SCHEMA,
     MULTIMODAL_VESSEL_V2_SCHEMA,
     MULTIMODAL_VESSEL_V3_SCHEMA,
     MULTIMODAL_VESSEL_V4_SCHEMA,
     MULTIMODAL_VESSEL_V5_SCHEMA,
+}
+MULTIMODAL_PRODUCT_SCHEMAS = {
+    *MULTIMODAL_VESSEL_SCHEMAS,
+    SOL_VESSEL_IMPLEMENTATION_SCHEMA,
 }
 PRIME_UPSTREAM_SMOKE_SCHEMAS = {
     PRIME_UPSTREAM_SMOKE_SCHEMA,
@@ -83,12 +90,12 @@ PRIME_UPSTREAM_SMOKE_SCHEMAS = {
 PRIME_UPSTREAM_CUSTODY_SCHEMAS = {
     *PRIME_UPSTREAM_SMOKE_SCHEMAS,
     OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-    *MULTIMODAL_VESSEL_SCHEMAS,
+    *MULTIMODAL_PRODUCT_SCHEMAS,
 }
 SHADOW_JUDGMENT_SCHEMAS = {
     VARIED_COHORT_SCHEMA,
     OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-    *MULTIMODAL_VESSEL_SCHEMAS,
+    *MULTIMODAL_PRODUCT_SCHEMAS,
 }
 TARGET_FIXTURE_SCHEMA = "rook.experiment.gh_target_fixture:v1"
 SHADOW_ADJUDICATION_SCHEMA = (
@@ -1669,6 +1676,229 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
     return ["MV1"]
 
 
+def _validate_sol_vessel_implementation(protocol: dict[str, Any]) -> list[str]:
+    expected_keys = {
+        "schema",
+        "status",
+        "purpose",
+        "evidenceRootPrefix",
+        "executionOrder",
+        "limits",
+        "prime",
+        "upstreamCustody",
+        "goalSkillCustody",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "toolSurface",
+        "versionedInputs",
+        "optionalSkill",
+        "canonicalNativeSkill",
+        "baselineEvidence",
+        "multimodal",
+        "tasks",
+        "shadowAdjudication",
+        "singleRun",
+        "offlineEvaluator",
+        "precontactVerification",
+        "contactMode",
+        "primeEventCapture",
+    }
+    if set(protocol) != expected_keys or protocol.get("status") != "frozen_precontact":
+        raise ValueError("sol_vessel_implementation_invalid")
+    if protocol.get("executionOrder") != ["MV1"] or protocol.get("limits") != {
+        "wallClockSecondsPerRun": 10_800,
+        "gatewayEventsPerRun": 500,
+        "providerReportedTokensPerRun": 2_000_000,
+        "primeGoalTokenBudget": 1_800_000,
+    }:
+        raise ValueError("sol_vessel_implementation_invalid")
+
+    prime = protocol.get("prime")
+    expected_settings = {
+        "enableBuiltinSkills": True,
+        "packages": [],
+        "extensions": [],
+        "compaction": {
+            "enabled": True,
+            "reserveTokens": 16_384,
+            "keepRecentTokens": 20_000,
+            "agentCallable": True,
+        },
+    }
+    if (
+        type(prime) is not dict
+        or prime.get("commit")
+        != "739400844f8f3f280414b0c7b9c65797208815d3"
+        or prime.get("sourceRoot")
+        != "D:/prime-agent/.worktrees/rook-upstream-evaluation"
+        or prime.get("model") != "openai-codex/gpt-5.6-sol"
+        or prime.get("thinkingLevel") != "xhigh"
+        or prime.get("settings") != expected_settings
+        or prime.get("models") != {}
+    ):
+        raise ValueError("sol_vessel_implementation_invalid")
+
+    expected_model_custody = {
+        "provider": "openai-codex",
+        "model": "gpt-5.6-sol",
+        "api": "openai-codex-responses",
+        "credentialType": "oauth",
+        "authPath": "C:/Users/bring/.prime/agent/auth.json",
+        "apiKeyProhibited": True,
+        "reasoning": True,
+        "input": ["text", "image"],
+        "contextWindow": 272_000,
+        "maxTokens": 128_000,
+    }
+    if protocol.get("modelCustody") != expected_model_custody:
+        raise ValueError("sol_vessel_implementation_invalid")
+
+    optional = protocol.get("optionalSkill")
+    if optional != {
+        "name": _OPTIONAL_PYTHON_SKILL_NAME,
+        "packagePath": "integrations/prime/skills/prime-execute-grasshopper-python",
+        "packageSha256": (
+            "2312DBF60EF17F9AA0B6503EDC281C7D367A5379F200ADEADB4747FD58A34F66"
+        ),
+        "selectionMode": "explicit_cli_path_and_slash_command",
+        "defaultInstalled": False,
+        "automaticRouting": False,
+    }:
+        raise ValueError("sol_vessel_implementation_invalid")
+    versioned = protocol.get("versionedInputs")
+    if (
+        type(versioned) is not dict
+        or versioned.get("skillPath") != _OPTIONAL_PYTHON_SKILL
+        or versioned.get("skillSha256") != optional["packageSha256"]
+        or versioned.get("checkpointSha256")
+        != "2D574EABF45EC1EB9B9BBCFCBD68F1CBE311E466CD922DF312F88A51925D63E7"
+        or versioned.get("adapterInitSha256")
+        != "06F1CB4AA58FD8C4C6F61F96CE7B8A5F4FEF7B6B126D00C0550B2CB3AA0BBF74"
+    ):
+        raise ValueError("sol_vessel_implementation_invalid")
+
+    baseline = protocol.get("baselineEvidence")
+    if type(baseline) is not dict or set(baseline) != {
+        "solDesignBaselineManifest",
+        "solDesignBaselineAnswer",
+        "solTopologyRefinementManifest",
+        "solTopologyRefinementAnswer",
+    }:
+        raise ValueError("sol_vessel_implementation_invalid")
+    for name, reference in baseline.items():
+        if (
+            type(reference) is not dict
+            or set(reference) != {"path", "sha256"}
+            or type(reference.get("path")) is not str
+            or not Path(reference["path"]).is_absolute()
+            or not _is_sha256(reference.get("sha256"))
+            or not Path(reference["path"]).is_file()
+            or _sha(Path(reference["path"])) != reference["sha256"]
+        ):
+            raise ValueError(f"sol_vessel_baseline_invalid:{name}")
+
+    multimodal = protocol.get("multimodal")
+    images = multimodal.get("images") if type(multimodal) is dict else None
+    expected_hashes = [
+        "0516B550433493CCA528762659F4209219B4F9A0D07AD002AEC86CEAAD5E75AA",
+        "8A58E062A99DA5E3F25242B7483B97C0CA459A7ABDBC089DEFCEBBDD59737BA0",
+    ]
+    if type(images) is not list or len(images) != 2:
+        raise ValueError("sol_vessel_implementation_invalid")
+    for index, image in enumerate(images):
+        source = Path(image.get("sourcePath", ""))
+        frozen = ROOT / image.get("frozenPath", "")
+        if (
+            image.get("sourceSha256") != expected_hashes[index]
+            or image.get("frozenSha256") != expected_hashes[index]
+            or not source.is_file()
+            or not frozen.is_file()
+            or _sha(source) != expected_hashes[index]
+            or _sha(frozen) != expected_hashes[index]
+        ):
+            raise ValueError("sol_vessel_implementation_invalid")
+    if (
+        "before any Rook call" not in multimodal.get("initialInstruction", "")
+        or multimodal.get("attachmentCode")
+        not in multimodal.get("initialInstruction", "")
+        or "Do not use subagents" not in multimodal.get("initialInstruction", "")
+    ):
+        raise ValueError("sol_vessel_implementation_invalid")
+    package = multimodal.get("attachImagePackage")
+    attachment_preflight = multimodal.get("attachmentPreflight")
+    if type(package) is not dict or type(attachment_preflight) is not dict:
+        raise ValueError("sol_vessel_implementation_invalid")
+    observed_package = directory_manifest(Path(package.get("path", "")))
+    if observed_package["summary"] != {
+        "entryCount": package.get("entryCount"),
+        "totalBytes": package.get("totalBytes"),
+        "manifestSha256": package.get("manifestSha256"),
+    }:
+        raise ValueError("sol_vessel_implementation_invalid")
+    preflight_path = ROOT / attachment_preflight.get("path", "")
+    if (
+        not preflight_path.is_file()
+        or _sha(preflight_path) != attachment_preflight.get("sha256")
+    ):
+        raise ValueError("sol_vessel_implementation_invalid")
+
+    task = protocol.get("tasks", {}).get("MV1")
+    required_prompt_text = (
+        "discrete landing pads",
+        "explicit walkway strips",
+        "at least six valid stair flights",
+        "eight to twelve flights",
+        "same-receipt fenced snapshot",
+        "Do not use subagents",
+    )
+    if (
+        type(task) is not dict
+        or task.get("id") != "MV1"
+        or task.get("class") != "multimodal_conceptual_vessel_massing"
+        or task.get("targetBaseline") != "fresh_empty_grasshopper_document"
+        or task.get("evaluator") != "independent_shadow_judgment"
+        or any(text not in task.get("prompt", "") for text in required_prompt_text)
+    ):
+        raise ValueError("sol_vessel_implementation_invalid")
+    validate_target_fixture(task.get("targetFixture"))
+    if protocol.get("singleRun") != {
+        "retryCount": 0,
+        "evaluatorFeedbackDuringRun": False,
+    }:
+        raise ValueError("sol_vessel_implementation_invalid")
+    if protocol.get("contactMode") != {
+        "mode": "single_sol_vessel_live_contact",
+        "evidenceRoot": (
+            "C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-implementation-v1"
+        ),
+        "actorContactAuthorized": True,
+    }:
+        raise ValueError("sol_vessel_implementation_invalid")
+    evaluator = protocol.get("offlineEvaluator")
+    if (
+        type(evaluator) is not dict
+        or evaluator.get("runnerPath")
+        != "scripts/qwen38_self_termination_campaign_runner.py"
+        or evaluator.get("runnerSha256") != _sha(Path(__file__).resolve())
+        or evaluator.get("behavioralAcceptanceSha256")
+        != _sha(ROOT / "mcp_server" / "src" / "rook" / "gh_behavioral_acceptance.py")
+        or evaluator.get("mode") != "silent_post_run_independent_judgment"
+    ):
+        raise ValueError("sol_vessel_implementation_invalid")
+    adjudication = protocol.get("shadowAdjudication")
+    adjudication_path = ROOT / adjudication.get("path", "") if type(adjudication) is dict else ROOT
+    if (
+        type(adjudication) is not dict
+        or not _is_sha256(adjudication.get("sha256"))
+        or not adjudication_path.is_file()
+        or _sha(adjudication_path) != adjudication["sha256"]
+    ):
+        raise ValueError("sol_vessel_implementation_invalid")
+    validate_shadow_adjudication(_load_json(adjudication_path), protocol)
+    return ["MV1"]
+
+
 def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     schema = protocol.get("schema") if type(protocol) is dict else None
     if schema not in {
@@ -1681,7 +1911,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        *MULTIMODAL_VESSEL_SCHEMAS,
+        *MULTIMODAL_PRODUCT_SCHEMAS,
     }:
         raise ValueError("protocol_invalid")
     if "primeEventCapture" in protocol:
@@ -1694,7 +1924,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         "packages": [],
         "extensions": [],
     }
-    if schema in MULTIMODAL_VESSEL_SCHEMAS:
+    if schema in MULTIMODAL_PRODUCT_SCHEMAS:
         expected_prime_settings["compaction"] = {
             "enabled": True,
             "reserveTokens": 16_384,
@@ -1707,6 +1937,8 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     order = protocol.get("executionOrder")
     if schema == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
         expected_order = _validate_optional_python_confirmation(protocol)
+    elif schema == SOL_VESSEL_IMPLEMENTATION_SCHEMA:
+        expected_order = _validate_sol_vessel_implementation(protocol)
     elif schema in MULTIMODAL_VESSEL_SCHEMAS:
         expected_order = _validate_multimodal_vessel(protocol)
     else:
@@ -1745,10 +1977,10 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        *MULTIMODAL_VESSEL_SCHEMAS,
+        *MULTIMODAL_PRODUCT_SCHEMAS,
     }:
         if (
-            schema not in PRIME_UPSTREAM_SMOKE_SCHEMAS
+            schema not in {*PRIME_UPSTREAM_SMOKE_SCHEMAS, SOL_VESSEL_IMPLEMENTATION_SCHEMA}
             and prime.get("thinkingLevel") != "low"
         ):
             raise ValueError("thinking_level_invalid")
@@ -2203,24 +2435,35 @@ def build_prime_launch(
     initial_prompt = "Begin the active goal now."
     if protocol.get("schema") in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        *MULTIMODAL_VESSEL_SCHEMAS,
+        *MULTIMODAL_PRODUCT_SCHEMAS,
     }:
         explicit_skill = (
             row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
         )
         initial_prompt = (
             protocol["multimodal"]["initialInstruction"]
-            if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS
+            if protocol.get("schema") in MULTIMODAL_PRODUCT_SCHEMAS
             else f"/skill:{_OPTIONAL_PYTHON_SKILL_NAME} Begin the active goal now."
         )
+    is_sol = protocol.get("schema") == SOL_VESSEL_IMPLEMENTATION_SCHEMA
+    executable = [prime["bashPath"], prime["launcherPath"], "--dist"]
+    if is_sol:
+        executable = [
+            prime["nodePath"],
+            (Path(prime["runtimeBundle"]["root"]) / "bundle" / "cli.js").as_posix(),
+        ]
     command = [
-        prime["bashPath"],
-        prime["launcherPath"],
-        "--dist",
+        *executable,
         "--cwd",
         str(row_root),
+        *(["--session-dir", str(row_root / "agent" / "sessions")] if is_sol else []),
         "--offline",
         "--no-extensions",
+        *(
+            ["--no-skills", "--no-context-files", "--no-prompt-templates"]
+            if is_sol
+            else []
+        ),
         "--mode",
         "json",
         "--model",
@@ -2255,8 +2498,13 @@ def build_prime_launch(
             "PI_SKIP_VERSION_CHECK": "1",
         }
     )
+    if is_sol:
+        environment.pop("PRIME_AGENT_CODING_AGENT_DIR", None)
     environment.pop("ANTHROPIC_API_KEY", None)
     environment.pop("ANTHROPIC_OAUTH_TOKEN", None)
+    if is_sol:
+        for name in ("OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "PRIME_API_KEY"):
+            environment.pop(name, None)
     return command, environment
 
 
@@ -2265,7 +2513,7 @@ def verify_prime_explicit_skill_loading(
 ) -> dict[str, Any]:
     if protocol.get("schema") not in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        *MULTIMODAL_VESSEL_SCHEMAS,
+        *MULTIMODAL_PRODUCT_SCHEMAS,
     }:
         raise ValueError("optional_python_confirmation_required")
     selected_skill_root = Path(selected_skill_root).resolve()
@@ -2363,7 +2611,7 @@ def python_runtime_environment(
                 / "src"
             ).as_posix()
         )
-    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
+    if protocol.get("schema") in MULTIMODAL_PRODUCT_SCHEMAS:
         source_paths.append(
             (
                 Path(protocol["multimodal"]["attachImagePackage"]["path"])
@@ -2691,7 +2939,7 @@ def _copy_versioned_inputs(
     checkpoint_source = ROOT / versioned["checkpointPath"]
     if protocol.get("schema") in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        *MULTIMODAL_VESSEL_SCHEMAS,
+        *MULTIMODAL_PRODUCT_SCHEMAS,
     }:
         skill_target = row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
         shutil.copytree(skill_source.parent, skill_target)
@@ -2705,7 +2953,7 @@ def _copy_versioned_inputs(
         )
     adapter_source = ROOT / versioned["adapterRoot"]
     shutil.copytree(adapter_source, agent / "skills" / "rook-full")
-    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
+    if protocol.get("schema") in MULTIMODAL_PRODUCT_SCHEMAS:
         image_root = row_root / "inputs" / "images"
         image_root.mkdir(parents=True)
         for image in protocol["multimodal"]["images"]:
@@ -2720,7 +2968,7 @@ def _write_row_input_custody(
     operator = row_root / "operator"
     optional_confirmation = protocol.get("schema") in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        *MULTIMODAL_VESSEL_SCHEMAS,
+        *MULTIMODAL_PRODUCT_SCHEMAS,
     }
     skill_root = (
         row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
@@ -2738,7 +2986,7 @@ def _write_row_input_custody(
     fixture_path = operator / "task-fixture.json"
     if fixture_path.is_file():
         files["targetFixture"] = fixture_path
-    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
+    if protocol.get("schema") in MULTIMODAL_PRODUCT_SCHEMAS:
         for index, image in enumerate(protocol["multimodal"]["images"], start=1):
             files[f"referenceImage{index}"] = (
                 row_root / "inputs" / "images" / Path(image["frozenPath"]).name
@@ -2766,7 +3014,7 @@ def _write_row_input_custody(
     for name, digest in expected.items():
         if custody["files"][name]["sha256"] != digest:
             raise RuntimeError(f"staged_input_mismatch:{name}")
-    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
+    if protocol.get("schema") in MULTIMODAL_PRODUCT_SCHEMAS:
         for index, image in enumerate(protocol["multimodal"]["images"], start=1):
             if custody["files"][f"referenceImage{index}"]["sha256"] != image["frozenSha256"]:
                 raise RuntimeError(f"staged_input_mismatch:reference_image_{index}")
@@ -2781,6 +3029,27 @@ def _verify_sha(path: Path, expected: str, label: str) -> dict[str, Any]:
     if actual != expected:
         raise RuntimeError(f"custody_mismatch:{label}")
     return {"path": path.as_posix(), "sha256": actual, "bytes": path.stat().st_size}
+
+
+def verify_openai_codex_oauth_custody(
+    model_custody: dict[str, Any],
+) -> dict[str, Any]:
+    auth_path = Path(model_custody.get("authPath", ""))
+    if not auth_path.is_file():
+        raise RuntimeError("custody_missing:openai_codex_oauth")
+    try:
+        auth = _load_json(auth_path)
+    except (OSError, ValueError) as error:
+        raise RuntimeError("custody_mismatch:openai_codex_oauth") from error
+    credential = auth.get("openai-codex") if type(auth) is dict else None
+    if type(credential) is not dict or credential.get("type") != "oauth":
+        raise RuntimeError("custody_mismatch:openai_codex_oauth")
+    return {
+        "provider": model_custody["provider"],
+        "model": model_custody["model"],
+        "credentialType": credential["type"],
+        "authPath": auth_path.as_posix(),
+    }
 
 
 def _verify_model_blobs(model_custody: dict[str, Any]) -> dict[str, Any]:
@@ -3070,7 +3339,26 @@ def _runtime_custody(
     skill_path = ROOT / versioned["skillPath"]
     checkpoint_path = ROOT / versioned["checkpointPath"]
     adapter_path = ROOT / versioned["adapterRoot"] / "src" / "rook_full" / "__init__.py"
+    model_files: dict[str, Any] = {}
+    model_content: dict[str, Any]
+    if protocol.get("schema") == SOL_VESSEL_IMPLEMENTATION_SCHEMA:
+        model_content = verify_openai_codex_oauth_custody(protocol["modelCustody"])
+    else:
+        model_files = {
+            "ollama": _verify_sha(
+                Path(protocol["modelCustody"]["runtimePath"]),
+                protocol["modelCustody"]["runtimeSha256"],
+                "ollama",
+            ),
+            "ollamaManifest": _verify_sha(
+                Path(protocol["modelCustody"]["manifestPath"]),
+                protocol["modelCustody"]["manifestSha256"],
+                "ollama_manifest",
+            ),
+        }
+        model_content = _verify_model_blobs(protocol["modelCustody"])
     files = {
+        **model_files,
         "rookNativePlugin": _verify_sha(
             Path(protocol["rookCustody"]["nativePluginPath"]),
             protocol["rookCustody"]["nativePluginSha256"],
@@ -3080,16 +3368,6 @@ def _runtime_custody(
             Path(protocol["rookCustody"]["managedNet8PluginPath"]),
             protocol["rookCustody"]["managedNet8PluginSha256"],
             "rook_managed_net8_plugin",
-        ),
-        "ollama": _verify_sha(
-            Path(protocol["modelCustody"]["runtimePath"]),
-            protocol["modelCustody"]["runtimeSha256"],
-            "ollama",
-        ),
-        "ollamaManifest": _verify_sha(
-            Path(protocol["modelCustody"]["manifestPath"]),
-            protocol["modelCustody"]["manifestSha256"],
-            "ollama_manifest",
         ),
         "rookServer": _verify_sha(
             Path(protocol["rookCustody"]["serverPath"]),
@@ -3168,6 +3446,7 @@ def _runtime_custody(
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+        SOL_VESSEL_IMPLEMENTATION_SCHEMA,
     }:
         goal_skill_equivalence = verify_goal_skill_equivalence(
             protocol["goalSkillCustody"]
@@ -3233,7 +3512,7 @@ def _runtime_custody(
                 reference["sha256"],
                 f"baseline:{name}",
             )
-    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
+    if protocol.get("schema") in MULTIMODAL_PRODUCT_SCHEMAS:
         optional = protocol["optionalSkill"]
         evaluator = protocol["offlineEvaluator"]
         package_root = ROOT / optional["packagePath"]
@@ -3255,6 +3534,13 @@ def _runtime_custody(
         files["shadowAdjudication"] = _verify_sha(
             ROOT / adjudication["path"], adjudication["sha256"], "shadow_adjudication"
         )
+        if protocol.get("schema") == SOL_VESSEL_IMPLEMENTATION_SCHEMA:
+            for name, reference in protocol["baselineEvidence"].items():
+                files[f"baseline:{name}"] = _verify_sha(
+                    Path(reference["path"]),
+                    reference["sha256"],
+                    f"baseline:{name}",
+                )
         for index, image in enumerate(protocol["multimodal"]["images"], start=1):
             files[f"referenceImageSource{index}"] = _verify_sha(
                 Path(image["sourcePath"]), image["sourceSha256"], f"reference_image_source_{index}"
@@ -3286,7 +3572,7 @@ def _runtime_custody(
         "primeCommit": prime_commit,
         "node": node | {"version": node_version},
         "primeRuntimeBundle": _verify_prime_runtime_bundle(prime["runtimeBundle"]),
-        "modelContent": _verify_model_blobs(protocol["modelCustody"]),
+        "modelContent": model_content,
         "files": files,
     }
     if upstream_observed is not None:
@@ -3295,7 +3581,7 @@ def _runtime_custody(
         record["goalSkillEquivalence"] = goal_skill_equivalence
     if protocol.get("schema") in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        *MULTIMODAL_VESSEL_SCHEMAS,
+        *MULTIMODAL_PRODUCT_SCHEMAS,
     }:
         selected = ROOT / protocol["optionalSkill"]["packagePath"]
         record["explicitSkillLoading"] = verify_prime_explicit_skill_loading(
@@ -3361,7 +3647,7 @@ def _run_preflight(
                 PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
                 PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
                 OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-                *MULTIMODAL_VESSEL_SCHEMAS,
+                *MULTIMODAL_PRODUCT_SCHEMAS,
             }
             else None
         ),
@@ -3373,11 +3659,69 @@ def _run_preflight(
 def _run_multimodal_preflight(
     protocol: dict[str, Any], evidence_root: Path
 ) -> dict[str, Any] | None:
-    if protocol.get("schema") not in MULTIMODAL_VESSEL_SCHEMAS:
+    if protocol.get("schema") not in MULTIMODAL_PRODUCT_SCHEMAS:
         return None
     root = evidence_root / "preflight" / "multimodal"
     root.mkdir()
     prime_root = Path(protocol["prime"]["sourceRoot"])
+    attachment_command = [
+        protocol["prime"]["nodePath"],
+        str(prime_root / "node_modules" / "tsx" / "dist" / "cli.mjs"),
+        str(ROOT / protocol["multimodal"]["attachmentPreflight"]["path"]),
+        str(prime_root),
+        str(root / "attachment-kernel"),
+        *[item["sourcePath"] for item in protocol["multimodal"]["images"]],
+    ]
+    if protocol.get("schema") == SOL_VESSEL_IMPLEMENTATION_SCHEMA:
+        environment = python_runtime_environment(
+            protocol,
+            dict(os.environ),
+            ROOT / protocol["versionedInputs"]["adapterRoot"] / "src",
+        )
+        environment["PRIME_AGENT_KERNEL_PYTHON"] = protocol["prime"][
+            "sealedKernelPython"
+        ]
+        result = subprocess.run(
+            attachment_command,
+            cwd=prime_root,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        stdout_path = root / "attachment-stdout.txt"
+        stderr_path = root / "attachment-stderr.txt"
+        stdout_path.write_text(result.stdout, encoding="utf-8")
+        stderr_path.write_text(result.stderr, encoding="utf-8")
+        lines = [line for line in result.stdout.splitlines() if line.strip()]
+        try:
+            attachment = json.loads(lines[-1])
+        except (IndexError, ValueError) as error:
+            raise RuntimeError("multimodal_attachment_preflight_invalid") from error
+        if (
+            result.returncode != 0
+            or attachment.get("status") != "pass"
+            or attachment.get("modelContact") is not False
+            or attachment.get("rookContact") is not False
+            or [item.get("sha256") for item in attachment.get("sourceImages", [])]
+            != [item["sourceSha256"] for item in protocol["multimodal"]["images"]]
+            or len(attachment.get("attachments", [])) != 2
+        ):
+            raise RuntimeError("multimodal_attachment_preflight_invalid")
+        _write_json(root / "attachment-result.json", attachment)
+        record = {
+            "schema": "rook.experiment.sol_multimodal_preflight:v1",
+            "status": "pass",
+            "modelContact": False,
+            "rookContact": False,
+            "command": attachment_command,
+            "exitCode": result.returncode,
+            "stdoutSha256": _sha(stdout_path),
+            "stderrSha256": _sha(stderr_path),
+        }
+        _write_json(root / "result.json", record)
+        return record
     commands = {
         "gpu": [
             "nvidia-smi",
@@ -3394,14 +3738,7 @@ def _run_multimodal_preflight(
             "-t",
             protocol["multimodal"]["compactionTest"]["testName"],
         ],
-        "attachment": [
-            protocol["prime"]["nodePath"],
-            str(prime_root / "node_modules" / "tsx" / "dist" / "cli.mjs"),
-            str(ROOT / protocol["multimodal"]["attachmentPreflight"]["path"]),
-            str(prime_root),
-            str(root / "attachment-kernel"),
-            *[item["sourcePath"] for item in protocol["multimodal"]["images"]],
-        ],
+        "attachment": attachment_command,
     }
     test_environment = python_runtime_environment(
         protocol,
@@ -4884,7 +5221,7 @@ def _row_outcome(
         "rook.experiment.qwen38_self_termination_campaign:v6",
         VARIED_COHORT_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        *MULTIMODAL_VESSEL_SCHEMAS,
+        *MULTIMODAL_PRODUCT_SCHEMAS,
     }:
         final_checkpoint = audit_actor_final_checkpoint(
             _source_events(row_root / "operator" / "source.jsonl")
@@ -5099,7 +5436,7 @@ def run_campaign(
     if (
         protocol["schema"] in {
             OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-            *MULTIMODAL_VESSEL_SCHEMAS,
+            *MULTIMODAL_PRODUCT_SCHEMAS,
         }
         and evidence_root.as_posix()
         != protocol["contactMode"]["evidenceRoot"]
@@ -5161,7 +5498,7 @@ def run_campaign(
             )
             _write_row_input_custody(protocol, task, row_root, target)
             process_result = _run_prime_row(protocol, task, row_root, target)
-            if protocol["schema"] in MULTIMODAL_VESSEL_SCHEMAS:
+            if protocol["schema"] in MULTIMODAL_PRODUCT_SCHEMAS:
                 attachment_audit = audit_multimodal_attachment_sequence(
                     resolve_prime_event_path(protocol, row_root), protocol
                 )
