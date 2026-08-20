@@ -1493,7 +1493,9 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         MULTIMODAL_VESSEL_SCHEMA: (
             "F46A2D71708B1114FD29F480B656874FF6C2D1757CC657C3CE33785DF07023C9"
         ),
-        MULTIMODAL_VESSEL_V2_SCHEMA: _sha(Path(__file__).resolve()),
+        MULTIMODAL_VESSEL_V2_SCHEMA: (
+            "BADC04D9A630D6285A2961738C55507D0CD4AE91449E0383D775EBE81839DCFF"
+        ),
     }.get(protocol.get("schema"))
     if (
         type(evaluator) is not dict
@@ -4109,7 +4111,7 @@ def audit_actor_final_checkpoint(events: list[dict[str, Any]]) -> dict[str, Any]
             receipt_id,
             mutation["sequence"],
         )
-    wait = waits[0]
+    wait = waits[-1]
 
     snapshots = [
         event
@@ -4127,7 +4129,7 @@ def audit_actor_final_checkpoint(events: list[dict[str, Any]]) -> dict[str, Any]
             mutation["sequence"],
             wait["sequence"],
         )
-    snapshot = snapshots[0]
+    snapshot = snapshots[-1]
     if any(event["sequence"] > snapshot["sequence"] for event in ordered):
         return result(
             "fail",

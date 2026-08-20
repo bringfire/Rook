@@ -771,7 +771,7 @@ def test_multimodal_vessel_protocol_freezes_images_runtime_and_scope():
     assert protocol["singleRun"]["evaluatorFeedbackDuringRun"] is False
 
 
-def test_multimodal_vessel_v2_preserves_task_and_requires_fresh_evidence_root():
+def test_multimodal_vessel_v2_preserves_executed_runner_and_fresh_evidence_root():
     runner = _runner()
     protocol = _multimodal_vessel_protocol()
     protocol["schema"] = (
@@ -780,9 +780,9 @@ def test_multimodal_vessel_v2_preserves_task_and_requires_fresh_evidence_root():
     protocol["contactMode"]["evidenceRoot"] = (
         "C:/UDEV/RookEvidence/2026-08-19-qwen38-multimodal-vessel-massing-v2"
     )
-    protocol["offlineEvaluator"]["runnerSha256"] = hashlib.sha256(
-        RUNNER_PATH.read_bytes()
-    ).hexdigest().upper()
+    protocol["offlineEvaluator"]["runnerSha256"] = (
+        "BADC04D9A630D6285A2961738C55507D0CD4AE91449E0383D775EBE81839DCFF"
+    )
 
     assert runner.validate_protocol(protocol) is protocol
     assert protocol["executionOrder"] == ["MV1"]
@@ -807,9 +807,9 @@ def test_multimodal_vessel_v2_file_changes_only_retry_custody_fields():
     assert v2["contactMode"]["evidenceRoot"].endswith(
         "qwen38-multimodal-vessel-massing-v2"
     )
-    assert v2["offlineEvaluator"]["runnerSha256"] == hashlib.sha256(
-        RUNNER_PATH.read_bytes()
-    ).hexdigest().upper()
+    assert v2["offlineEvaluator"]["runnerSha256"] == (
+        "BADC04D9A630D6285A2961738C55507D0CD4AE91449E0383D775EBE81839DCFF"
+    )
 
     for protocol in (v1, v2):
         protocol.pop("schema")
@@ -3122,6 +3122,67 @@ def test_actor_final_checkpoint_requires_wait_snapshot_order_and_no_later_call()
         ),
     ):
         assert runner.audit_actor_final_checkpoint(changed)["reason"] == reason
+
+
+def test_actor_final_checkpoint_selects_latest_repeated_checkpoint():
+    runner = _runner()
+    receipt = {
+        "receipt_id": "receipt-1",
+        "status": "pending",
+        "mutation_epoch": 7,
+    }
+    ready_event = {
+        "target": "gh_wait_for_solve_readiness",
+        "arguments": {"readiness_receipt_id": "receipt-1"},
+        "dispatch": {"status": "dispatched"},
+        "mutation": {"classification": "observational"},
+        "result": {
+            "success": True,
+            "data": {
+                "wait_status": "ready",
+                "receipt": receipt | {"status": "ready"},
+            },
+        },
+    }
+    snapshot_event = {
+        "target": "gh_snapshot",
+        "arguments": {
+            "include_data": True,
+            "readiness_receipt_id": "receipt-1",
+        },
+        "dispatch": {"status": "dispatched"},
+        "mutation": {"classification": "observational"},
+        "result": {"success": True, "data": {"epoch": 21}},
+    }
+    events = [
+        {
+            "sequence": 1,
+            "target": "gh_edit",
+            "arguments": {"epoch": 6},
+            "dispatch": {"status": "dispatched"},
+            "mutation": {
+                "classification": "terminal",
+                "commit_status": "committed",
+                "solve_readiness_receipt": receipt,
+            },
+            "result": {"success": True, "data": {}},
+        },
+        ready_event | {"sequence": 2},
+        snapshot_event | {"sequence": 3},
+        ready_event | {"sequence": 4},
+        snapshot_event | {"sequence": 5},
+    ]
+
+    assert runner.audit_actor_final_checkpoint(events) == {
+        "schema": "rook.experiment.actor_final_checkpoint:v1",
+        "status": "pass",
+        "reason": None,
+        "receiptId": "receipt-1",
+        "mutationSequence": 1,
+        "waitSequence": 4,
+        "snapshotSequence": 5,
+        "gatewayEventCount": 5,
+    }
 
 
 def test_v5_protocol_freezes_one_low_thinking_t4_retest(tmp_path: Path):
