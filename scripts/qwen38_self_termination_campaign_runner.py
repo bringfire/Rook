@@ -46,6 +46,11 @@ OPTIONAL_PYTHON_CONFIRMATION_SCHEMA = (
     "rook.experiment.qwen38_optional_python_skill_confirmation:v1"
 )
 MULTIMODAL_VESSEL_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v1"
+MULTIMODAL_VESSEL_V2_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v2"
+MULTIMODAL_VESSEL_SCHEMAS = {
+    MULTIMODAL_VESSEL_SCHEMA,
+    MULTIMODAL_VESSEL_V2_SCHEMA,
+}
 PRIME_UPSTREAM_SMOKE_SCHEMAS = {
     PRIME_UPSTREAM_SMOKE_SCHEMA,
     PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
@@ -54,12 +59,12 @@ PRIME_UPSTREAM_SMOKE_SCHEMAS = {
 PRIME_UPSTREAM_CUSTODY_SCHEMAS = {
     *PRIME_UPSTREAM_SMOKE_SCHEMAS,
     OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-    MULTIMODAL_VESSEL_SCHEMA,
+    *MULTIMODAL_VESSEL_SCHEMAS,
 }
 SHADOW_JUDGMENT_SCHEMAS = {
     VARIED_COHORT_SCHEMA,
     OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-    MULTIMODAL_VESSEL_SCHEMA,
+    *MULTIMODAL_VESSEL_SCHEMAS,
 }
 TARGET_FIXTURE_SCHEMA = "rook.experiment.gh_target_fixture:v1"
 SHADOW_ADJUDICATION_SCHEMA = (
@@ -1468,21 +1473,33 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         or single_run.get("evaluatorFeedbackDuringRun") is not False
     ):
         raise ValueError("multimodal_vessel_invalid")
+    evidence_root = {
+        MULTIMODAL_VESSEL_SCHEMA: (
+            "C:/UDEV/RookEvidence/2026-08-19-qwen38-multimodal-vessel-massing-v1"
+        ),
+        MULTIMODAL_VESSEL_V2_SCHEMA: (
+            "C:/UDEV/RookEvidence/2026-08-19-qwen38-multimodal-vessel-massing-v2"
+        ),
+    }.get(protocol.get("schema"))
     contact = protocol.get("contactMode")
     if contact != {
         "mode": "single_multimodal_vessel_live_contact",
-        "evidenceRoot": (
-            "C:/UDEV/RookEvidence/2026-08-19-qwen38-multimodal-vessel-massing-v1"
-        ),
+        "evidenceRoot": evidence_root,
         "actorContactAuthorized": True,
     }:
         raise ValueError("multimodal_vessel_invalid")
     evaluator = protocol.get("offlineEvaluator")
+    expected_runner_sha = {
+        MULTIMODAL_VESSEL_SCHEMA: (
+            "F46A2D71708B1114FD29F480B656874FF6C2D1757CC657C3CE33785DF07023C9"
+        ),
+        MULTIMODAL_VESSEL_V2_SCHEMA: _sha(Path(__file__).resolve()),
+    }.get(protocol.get("schema"))
     if (
         type(evaluator) is not dict
         or evaluator.get("runnerPath")
         != "scripts/qwen38_self_termination_campaign_runner.py"
-        or evaluator.get("runnerSha256") != _sha(Path(__file__).resolve())
+        or evaluator.get("runnerSha256") != expected_runner_sha
         or evaluator.get("behavioralAcceptanceSha256")
         != "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
         or evaluator.get("mode") != "silent_post_run_independent_judgment"
@@ -1513,7 +1530,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        MULTIMODAL_VESSEL_SCHEMA,
+        *MULTIMODAL_VESSEL_SCHEMAS,
     }:
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
@@ -1523,7 +1540,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         "packages": [],
         "extensions": [],
     }
-    if schema == MULTIMODAL_VESSEL_SCHEMA:
+    if schema in MULTIMODAL_VESSEL_SCHEMAS:
         expected_prime_settings["compaction"] = {
             "enabled": True,
             "reserveTokens": 16_384,
@@ -1536,7 +1553,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     order = protocol.get("executionOrder")
     if schema == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
         expected_order = _validate_optional_python_confirmation(protocol)
-    elif schema == MULTIMODAL_VESSEL_SCHEMA:
+    elif schema in MULTIMODAL_VESSEL_SCHEMAS:
         expected_order = _validate_multimodal_vessel(protocol)
     else:
         expected_order = {
@@ -1574,7 +1591,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        MULTIMODAL_VESSEL_SCHEMA,
+        *MULTIMODAL_VESSEL_SCHEMAS,
     }:
         if (
             schema not in PRIME_UPSTREAM_SMOKE_SCHEMAS
@@ -2032,14 +2049,14 @@ def build_prime_launch(
     initial_prompt = "Begin the active goal now."
     if protocol.get("schema") in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        MULTIMODAL_VESSEL_SCHEMA,
+        *MULTIMODAL_VESSEL_SCHEMAS,
     }:
         explicit_skill = (
             row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
         )
         initial_prompt = (
             protocol["multimodal"]["initialInstruction"]
-            if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA
+            if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS
             else f"/skill:{_OPTIONAL_PYTHON_SKILL_NAME} Begin the active goal now."
         )
     command = [
@@ -2094,7 +2111,7 @@ def verify_prime_explicit_skill_loading(
 ) -> dict[str, Any]:
     if protocol.get("schema") not in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        MULTIMODAL_VESSEL_SCHEMA,
+        *MULTIMODAL_VESSEL_SCHEMAS,
     }:
         raise ValueError("optional_python_confirmation_required")
     selected_skill_root = Path(selected_skill_root).resolve()
@@ -2192,7 +2209,7 @@ def python_runtime_environment(
                 / "src"
             ).as_posix()
         )
-    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
         source_paths.append(
             (
                 Path(protocol["multimodal"]["attachImagePackage"]["path"])
@@ -2517,7 +2534,7 @@ def _copy_versioned_inputs(
     checkpoint_source = ROOT / versioned["checkpointPath"]
     if protocol.get("schema") in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        MULTIMODAL_VESSEL_SCHEMA,
+        *MULTIMODAL_VESSEL_SCHEMAS,
     }:
         skill_target = row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
         shutil.copytree(skill_source.parent, skill_target)
@@ -2531,7 +2548,7 @@ def _copy_versioned_inputs(
         )
     adapter_source = ROOT / versioned["adapterRoot"]
     shutil.copytree(adapter_source, agent / "skills" / "rook-full")
-    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
         image_root = row_root / "inputs" / "images"
         image_root.mkdir(parents=True)
         for image in protocol["multimodal"]["images"]:
@@ -2546,7 +2563,7 @@ def _write_row_input_custody(
     operator = row_root / "operator"
     optional_confirmation = protocol.get("schema") in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        MULTIMODAL_VESSEL_SCHEMA,
+        *MULTIMODAL_VESSEL_SCHEMAS,
     }
     skill_root = (
         row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
@@ -2564,7 +2581,7 @@ def _write_row_input_custody(
     fixture_path = operator / "task-fixture.json"
     if fixture_path.is_file():
         files["targetFixture"] = fixture_path
-    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
         for index, image in enumerate(protocol["multimodal"]["images"], start=1):
             files[f"referenceImage{index}"] = (
                 row_root / "inputs" / "images" / Path(image["frozenPath"]).name
@@ -2592,7 +2609,7 @@ def _write_row_input_custody(
     for name, digest in expected.items():
         if custody["files"][name]["sha256"] != digest:
             raise RuntimeError(f"staged_input_mismatch:{name}")
-    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
         for index, image in enumerate(protocol["multimodal"]["images"], start=1):
             if custody["files"][f"referenceImage{index}"]["sha256"] != image["frozenSha256"]:
                 raise RuntimeError(f"staged_input_mismatch:reference_image_{index}")
@@ -3059,7 +3076,7 @@ def _runtime_custody(
                 reference["sha256"],
                 f"baseline:{name}",
             )
-    if protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA:
+    if protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS:
         optional = protocol["optionalSkill"]
         evaluator = protocol["offlineEvaluator"]
         package_root = ROOT / optional["packagePath"]
@@ -3121,7 +3138,7 @@ def _runtime_custody(
         record["goalSkillEquivalence"] = goal_skill_equivalence
     if protocol.get("schema") in {
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        MULTIMODAL_VESSEL_SCHEMA,
+        *MULTIMODAL_VESSEL_SCHEMAS,
     }:
         selected = ROOT / protocol["optionalSkill"]["packagePath"]
         record["explicitSkillLoading"] = verify_prime_explicit_skill_loading(
@@ -3187,7 +3204,7 @@ def _run_preflight(
                 PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
                 PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
                 OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-                MULTIMODAL_VESSEL_SCHEMA,
+                *MULTIMODAL_VESSEL_SCHEMAS,
             }
             else None
         ),
@@ -3199,7 +3216,7 @@ def _run_preflight(
 def _run_multimodal_preflight(
     protocol: dict[str, Any], evidence_root: Path
 ) -> dict[str, Any] | None:
-    if protocol.get("schema") != MULTIMODAL_VESSEL_SCHEMA:
+    if protocol.get("schema") not in MULTIMODAL_VESSEL_SCHEMAS:
         return None
     root = evidence_root / "preflight" / "multimodal"
     root.mkdir()
@@ -3525,7 +3542,7 @@ def _run_prime_row(
                 goal_context_verified = True
             message = value.get("message") if type(value) is dict else None
             if (
-                protocol.get("schema") == MULTIMODAL_VESSEL_SCHEMA
+                protocol.get("schema") in MULTIMODAL_VESSEL_SCHEMAS
                 and not ollama_post_load_checked
                 and type(value) is dict
                 and value.get("type") == "message_end"
@@ -4518,7 +4535,7 @@ def _row_outcome(
         "rook.experiment.qwen38_self_termination_campaign:v6",
         VARIED_COHORT_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-        MULTIMODAL_VESSEL_SCHEMA,
+        *MULTIMODAL_VESSEL_SCHEMAS,
     }:
         final_checkpoint = audit_actor_final_checkpoint(
             _source_events(row_root / "operator" / "source.jsonl")
@@ -4547,7 +4564,7 @@ def _row_outcome(
             or final_checkpoint["status"] == "pass"
         )
         and (
-            protocol["schema"] != MULTIMODAL_VESSEL_SCHEMA
+            protocol["schema"] not in MULTIMODAL_VESSEL_SCHEMAS
             or process_result.get("ollamaPostLoadStatus") == "pass"
         )
     )
@@ -4723,7 +4740,7 @@ def run_campaign(
     if (
         protocol["schema"] in {
             OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
-            MULTIMODAL_VESSEL_SCHEMA,
+            *MULTIMODAL_VESSEL_SCHEMAS,
         }
         and evidence_root.as_posix()
         != protocol["contactMode"]["evidenceRoot"]
@@ -4785,7 +4802,7 @@ def run_campaign(
             )
             _write_row_input_custody(protocol, task, row_root, target)
             process_result = _run_prime_row(protocol, task, row_root, target)
-            if protocol["schema"] == MULTIMODAL_VESSEL_SCHEMA:
+            if protocol["schema"] in MULTIMODAL_VESSEL_SCHEMAS:
                 attachment_audit = audit_multimodal_attachment_sequence(
                     row_root / "operator" / "prime.jsonl", protocol
                 )

@@ -212,6 +212,13 @@ MULTIMODAL_VESSEL_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-19-qwen38-multimodal-vessel-massing-v1.json"
 )
+MULTIMODAL_VESSEL_V2_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-multimodal-vessel-massing-v2.json"
+)
 MULTIMODAL_VESSEL_ADJUDICATION_PATH = (
     ROOT
     / "docs"
@@ -517,6 +524,10 @@ def _multimodal_vessel_protocol() -> dict:
     return json.loads(MULTIMODAL_VESSEL_PROTOCOL_PATH.read_text(encoding="utf-8"))
 
 
+def _multimodal_vessel_v2_protocol() -> dict:
+    return json.loads(MULTIMODAL_VESSEL_V2_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
 def _skill_body(path: Path) -> str:
     content = path.read_text(encoding="utf-8")
     assert content.startswith("---\n")
@@ -758,6 +769,54 @@ def test_multimodal_vessel_protocol_freezes_images_runtime_and_scope():
     assert adjudication["tasks"].keys() == {"MV1"}
     assert protocol["singleRun"]["retryCount"] == 0
     assert protocol["singleRun"]["evaluatorFeedbackDuringRun"] is False
+
+
+def test_multimodal_vessel_v2_preserves_task_and_requires_fresh_evidence_root():
+    runner = _runner()
+    protocol = _multimodal_vessel_protocol()
+    protocol["schema"] = (
+        "rook.experiment.qwen38_multimodal_vessel_massing:v2"
+    )
+    protocol["contactMode"]["evidenceRoot"] = (
+        "C:/UDEV/RookEvidence/2026-08-19-qwen38-multimodal-vessel-massing-v2"
+    )
+    protocol["offlineEvaluator"]["runnerSha256"] = hashlib.sha256(
+        RUNNER_PATH.read_bytes()
+    ).hexdigest().upper()
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["executionOrder"] == ["MV1"]
+    assert protocol["tasks"]["MV1"]["prompt"] == (
+        _multimodal_vessel_protocol()["tasks"]["MV1"]["prompt"]
+    )
+
+    protocol["contactMode"]["evidenceRoot"] = (
+        "C:/UDEV/RookEvidence/2026-08-19-qwen38-multimodal-vessel-massing-v1"
+    )
+    with pytest.raises(ValueError, match="multimodal_vessel_invalid"):
+        runner.validate_protocol(protocol)
+
+
+def test_multimodal_vessel_v2_file_changes_only_retry_custody_fields():
+    runner = _runner()
+    v1 = _multimodal_vessel_protocol()
+    v2 = _multimodal_vessel_v2_protocol()
+
+    assert runner.validate_protocol(v2) is v2
+    assert v2["schema"] == runner.MULTIMODAL_VESSEL_V2_SCHEMA
+    assert v2["contactMode"]["evidenceRoot"].endswith(
+        "qwen38-multimodal-vessel-massing-v2"
+    )
+    assert v2["offlineEvaluator"]["runnerSha256"] == hashlib.sha256(
+        RUNNER_PATH.read_bytes()
+    ).hexdigest().upper()
+
+    for protocol in (v1, v2):
+        protocol.pop("schema")
+        protocol.pop("purpose")
+        protocol["contactMode"].pop("evidenceRoot")
+        protocol["offlineEvaluator"].pop("runnerSha256")
+    assert v2 == v1
 
 
 def test_multimodal_launch_requires_both_images_as_first_ipython_action(tmp_path):
