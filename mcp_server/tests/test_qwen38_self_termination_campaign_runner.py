@@ -179,6 +179,31 @@ PRIME_UPSTREAM_SMOKE_V3_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-19-prime-upstream-t3-compatibility-smoke-v3.json"
 )
+OPTIONAL_PYTHON_SKILL_PATH = (
+    ROOT
+    / "integrations"
+    / "prime"
+    / "skills"
+    / "prime-execute-grasshopper-python"
+    / "SKILL.md"
+)
+OPTIONAL_PYTHON_SKILL_CHECKPOINT_PATH = (
+    OPTIONAL_PYTHON_SKILL_PATH.parent / "references" / "checkpoint-protocol.md"
+)
+OPTIONAL_PYTHON_CONFIRMATION_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-optional-python-skill-sine-wave-confirmation-v1.json"
+)
+OPTIONAL_PYTHON_CONFIRMATION_ADJUDICATION_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-qwen38-optional-python-skill-sine-wave-confirmation-v1-adjudication.json"
+)
 PRIME_UPSTREAM_SMOKE_ADJUDICATION_PATH = (
     ROOT
     / "docs"
@@ -452,6 +477,165 @@ def _prime_upstream_smoke_v2_protocol() -> dict:
 def _prime_upstream_smoke_v3_protocol() -> dict:
     return json.loads(
         PRIME_UPSTREAM_SMOKE_V3_PROTOCOL_PATH.read_text(encoding="utf-8")
+    )
+
+
+def _optional_python_confirmation_protocol() -> dict:
+    return json.loads(
+        OPTIONAL_PYTHON_CONFIRMATION_PROTOCOL_PATH.read_text(encoding="utf-8")
+    )
+
+
+def _skill_body(path: Path) -> str:
+    content = path.read_text(encoding="utf-8")
+    assert content.startswith("---\n")
+    return content.split("---\n", 2)[2]
+
+
+def test_optional_python_skill_packages_the_qualified_lane_without_native_drift():
+    protocol = _optional_python_confirmation_protocol()
+    packaged = OPTIONAL_PYTHON_SKILL_PATH.read_text(encoding="utf-8")
+
+    assert hashlib.sha256(SKILL_PATH.read_bytes()).hexdigest().upper() == (
+        "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
+    )
+    assert _skill_body(OPTIONAL_PYTHON_SKILL_PATH) == _skill_body(
+        PYTHON_LANE_SKILL_PATH
+    )
+    assert "name: prime-execute-grasshopper-python" in packaged
+    assert (
+        "Explicitly selected Python scripting lane for Grasshopper authoring"
+        in packaged
+    )
+    assert protocol["optionalSkill"]["packageSha256"] == hashlib.sha256(
+        OPTIONAL_PYTHON_SKILL_PATH.read_bytes()
+    ).hexdigest().upper()
+    assert protocol["optionalSkill"]["qualifiedFixtureSha256"] == (
+        "E70095B557A2C55FDA33FCA7BC7830A4D2FD54F98E7B66A861AC87DB9C4B4AD6"
+    )
+
+
+def test_optional_python_skill_preserves_receipt_fenced_completion_order():
+    content = OPTIONAL_PYTHON_SKILL_PATH.read_text(encoding="utf-8")
+    receipt = content.index("Retain the `solve_readiness_receipt.receipt_id`")
+    wait = content.index("call `gh_wait_for_solve_readiness`", receipt)
+    snapshot = content.index("then call `gh_snapshot`", wait)
+    complete = content.index("Call `goal.complete()`", snapshot)
+
+    assert receipt < wait < snapshot < complete
+    assert "Do not perform a later Rook mutation" in content
+
+
+def test_optional_python_skill_is_explicitly_loaded_only_for_confirmation(tmp_path):
+    runner = _runner()
+    protocol = _optional_python_confirmation_protocol()
+    task = protocol["tasks"]["PY1"]
+    row_root = tmp_path / "row"
+    runner._copy_versioned_inputs(protocol, task, row_root)
+    command, _ = runner.build_prime_launch(
+        protocol,
+        task=task,
+        row_root=row_root,
+        target={"processId": 1, "documentSerialNumber": 2},
+    )
+
+    selected = row_root / "explicit-skills" / "prime-execute-grasshopper-python"
+    assert command[command.index("--skill") + 1] == str(selected)
+    assert command[-1] == (
+        "/skill:prime-execute-grasshopper-python Begin the active goal now."
+    )
+    assert (selected / "SKILL.md").is_file()
+    assert not (
+        row_root
+        / "agent"
+        / "skills"
+        / "prime-execute-grasshopper-python"
+    ).exists()
+    loading = runner.verify_prime_explicit_skill_loading(protocol, selected)
+    assert loading["selectedSkillNames"] == ["prime-execute-grasshopper-python"]
+    assert loading["unselectedSkillNames"] == []
+
+    historical = _python_lane_confirmation_protocol()
+    old_command, _ = runner.build_prime_launch(
+        historical,
+        task=historical["tasks"]["P2"],
+        row_root=tmp_path / "historical",
+        target={"processId": 1, "documentSerialNumber": 2},
+    )
+    assert "--skill" not in old_command
+    assert not old_command[-1].startswith("/skill:")
+
+
+def test_optional_python_confirmation_freezes_upstream_and_lane_custody():
+    runner = _runner()
+    protocol = _optional_python_confirmation_protocol()
+    adjudication = json.loads(
+        OPTIONAL_PYTHON_CONFIRMATION_ADJUDICATION_PATH.read_text(encoding="utf-8")
+    )
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["schema"] == runner.OPTIONAL_PYTHON_CONFIRMATION_SCHEMA
+    assert protocol["executionOrder"] == ["PY1"]
+    assert protocol["prime"]["commit"] == (
+        "739400844f8f3f280414b0c7b9c65797208815d3"
+    )
+    assert protocol["prime"]["thinkingLevel"] == "low"
+    assert protocol["limits"] == {
+        "wallClockSecondsPerRun": 1800,
+        "gatewayEventsPerRun": 150,
+        "providerReportedTokensPerRun": 2_000_000,
+        "primeGoalTokenBudget": 1_900_000,
+    }
+    assert protocol["goalSkillCustody"] == _prime_upstream_smoke_v3_protocol()[
+        "goalSkillCustody"
+    ]
+    assert protocol["upstreamCustody"] == _prime_upstream_smoke_v3_protocol()[
+        "upstreamCustody"
+    ]
+    assert protocol["versionedInputs"]["adapterInitSha256"] == (
+        "06F1CB4AA58FD8C4C6F61F96CE7B8A5F4FEF7B6B126D00C0550B2CB3AA0BBF74"
+    )
+    assert protocol["tasks"]["PY1"]["prompt"].startswith(
+        "Create an adjustable sine-wave polyline in the XZ plane."
+    )
+    assert adjudication["tasks"].keys() == {"PY1"}
+    assert protocol["confirmation"]["retries"] == 0
+    assert protocol["confirmation"]["evaluatorFeedbackDuringRun"] is False
+
+
+def test_optional_python_confirmation_rejects_selection_or_custody_drift():
+    runner = _runner()
+    protocol = _optional_python_confirmation_protocol()
+
+    changed = json.loads(json.dumps(protocol))
+    changed["optionalSkill"]["selectionMode"] = "default"
+    with pytest.raises(ValueError, match="optional_python_confirmation_invalid"):
+        runner.validate_protocol(changed)
+
+    changed = json.loads(json.dumps(protocol))
+    changed["prime"]["commit"] = "27b5be22cf0e0e81e324a59ebabbb41edfee6ec0"
+    with pytest.raises(ValueError, match="optional_python_confirmation_invalid"):
+        runner.validate_protocol(changed)
+
+    changed = json.loads(json.dumps(protocol))
+    changed["goalSkillCustody"]["sealedKernel"]["sha256"] = "A" * 64
+    with pytest.raises(ValueError, match="optional_python_confirmation_invalid"):
+        runner.validate_protocol(changed)
+
+
+def test_optional_python_confirmation_uses_the_existing_silent_evaluator():
+    runner = _runner()
+    protocol = _optional_python_confirmation_protocol()
+
+    environment = runner.offline_evaluator_environment(protocol, {})
+
+    assert environment["PYTHONPATH"].split(";")[0] == (
+        ROOT / "mcp_server" / "src"
+    ).as_posix()
+    evaluator = protocol["offlineEvaluator"]
+    source = ROOT / evaluator["behavioralAcceptancePath"]
+    assert hashlib.sha256(source.read_bytes()).hexdigest().upper() == (
+        evaluator["behavioralAcceptanceSha256"]
     )
 
 
@@ -801,7 +985,11 @@ def test_prime_upstream_v3_is_only_the_reviewable_live_contact_transition():
     }
     assert v3["offlineEvaluator"] == (
         v2["offlineEvaluator"]
-        | {"runnerSha256": hashlib.sha256(RUNNER_PATH.read_bytes()).hexdigest().upper()}
+        | {
+            "runnerSha256": (
+                "7A81222EA54B0E70BA506EACA4EA805E9132945BC0C83AB1FDDD008ECF292085"
+            )
+        }
     )
 
 

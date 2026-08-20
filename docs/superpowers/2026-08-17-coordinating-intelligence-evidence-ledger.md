@@ -818,3 +818,26 @@ found in the searched evidence set.
 
 These unknowns bound the ledger. They are inputs to a later interpretive pass,
 not defects silently converted into recommendations here.
+
+## 28. Active Prime Experimental Baseline
+
+The single-row upstream compatibility smoke recorded in
+`docs/superpowers/reports/2026-08-19-prime-upstream-t3-compatibility-smoke-v3-execution.md`
+qualified Prime commit `739400844f8f3f280414b0c7b9c65797208815d3` for the
+frozen Rook/Qwen point-row path. The commit is retained by branch
+`codex/rook-upstream-evaluation-v2` in the dedicated Prime worktree
+`D:/prime-agent/.worktrees/rook-upstream-evaluation`.
+
+Effective 2026-08-19, `739400844f8f3f280414b0c7b9c65797208815d3`
+is the sole active Prime baseline for new Rook/Qwen experiments. Prime commit
+`27b5be22cf0e0e81e324a59ebabbb41edfee6ec0` remains a read-only historical
+comparison and rollback point. Its worktree and retained campaign evidence are
+not rewritten, rebased, or used for new campaigns except to diagnose a
+regression.
+
+This is an operational baseline decision bounded by the evidence. It does not
+claim universal Prime qualification. The V3 run qualified the reconciled
+Prime/Rook/Qwen path, but did not qualify model-facing receipt-fenced completion
+discipline, live structured-error handling, or upstream compaction efficiency.
+Those boundaries remain attached to the individual experiments that exercise
+them.

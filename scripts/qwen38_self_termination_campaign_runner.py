@@ -40,10 +40,21 @@ PRIME_UPSTREAM_SMOKE_V2_SCHEMA = (
 PRIME_UPSTREAM_SMOKE_V3_SCHEMA = (
     "rook.experiment.prime_upstream_t3_compatibility_smoke:v3"
 )
+OPTIONAL_PYTHON_CONFIRMATION_SCHEMA = (
+    "rook.experiment.qwen38_optional_python_skill_confirmation:v1"
+)
 PRIME_UPSTREAM_SMOKE_SCHEMAS = {
     PRIME_UPSTREAM_SMOKE_SCHEMA,
     PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
     PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
+}
+PRIME_UPSTREAM_CUSTODY_SCHEMAS = {
+    *PRIME_UPSTREAM_SMOKE_SCHEMAS,
+    OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
+}
+SHADOW_JUDGMENT_SCHEMAS = {
+    VARIED_COHORT_SCHEMA,
+    OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
 }
 TARGET_FIXTURE_SCHEMA = "rook.experiment.gh_target_fixture:v1"
 SHADOW_ADJUDICATION_SCHEMA = (
@@ -117,6 +128,19 @@ _CANONICAL_PRIME_GH_SKILL = (
 )
 _CANONICAL_PRIME_GH_SKILL_SHA256 = (
     "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
+)
+_OPTIONAL_PYTHON_SKILL = (
+    "integrations/prime/skills/prime-execute-grasshopper-python/SKILL.md"
+)
+_OPTIONAL_PYTHON_SKILL_NAME = "prime-execute-grasshopper-python"
+_OPTIONAL_PYTHON_PROMPT = (
+    "Create an adjustable sine-wave polyline in the XZ plane. Expose Length, "
+    "Amplitude, Waves, and integer Samples controls. Produce exactly Samples "
+    "ordered points from X=0 to Length with Y=0 and "
+    "Z=Amplitude*sin(2*pi*Waves*X/Length), plus one polyline curve through them. "
+    "Exercise Amplitude and Waves independently, observe each effect, restore "
+    "defaults, obtain a final same-receipt fenced observation, and call "
+    "goal.complete(). Do not bake or add unrelated geometry."
 )
 
 
@@ -979,6 +1003,271 @@ def _varied_execution_order(protocol: dict[str, Any]) -> list[str]:
     return ["VP2"]
 
 
+def _skill_body(path: Path) -> str:
+    content = path.read_text(encoding="utf-8")
+    parts = content.split("---\n", 2)
+    if len(parts) != 3 or parts[0] != "":
+        raise ValueError("optional_python_confirmation_invalid")
+    return parts[2]
+
+
+def _validate_optional_python_confirmation(
+    protocol: dict[str, Any],
+) -> list[str]:
+    expected_keys = {
+        "schema",
+        "status",
+        "purpose",
+        "evidenceRootPrefix",
+        "executionOrder",
+        "limits",
+        "prime",
+        "upstreamCustody",
+        "goalSkillCustody",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "toolSurface",
+        "versionedInputs",
+        "optionalSkill",
+        "canonicalNativeSkill",
+        "baselineEvidence",
+        "tasks",
+        "shadowAdjudication",
+        "confirmation",
+        "offlineEvaluator",
+        "precontactVerification",
+        "contactMode",
+    }
+    if set(protocol) != expected_keys:
+        raise ValueError("optional_python_confirmation_invalid")
+    baseline = protocol.get("baselineEvidence")
+    expected_baselines = {
+        "reconciledPrimeSmoke": {
+            "path": (
+                "docs/superpowers/experiments/"
+                "2026-08-19-prime-upstream-t3-compatibility-smoke-v3.json"
+            ),
+            "sha256": (
+                "41213B8823A90EA4FF95F815A74C815037FBE3CB34D8DC984541394B57D962A5"
+            ),
+        },
+        "pairedAuthoringLane": {
+            "path": (
+                "docs/superpowers/experiments/"
+                "2026-08-19-qwen38-native-python-authoring-lane-screen-v1.json"
+            ),
+            "sha256": (
+                "D75537826C764A254928279420AEA045FB8AFBD9F60BDBE692A0B8A506CDEFB6"
+            ),
+        },
+        "pointLatticeConfirmation": {
+            "path": (
+                "docs/superpowers/experiments/"
+                "2026-08-19-qwen38-python-lane-point-lattice-confirmation-v1.json"
+            ),
+            "sha256": (
+                "8247806CC2C95887898BD127A906438D8431BE198445E729D6908775FD739666"
+            ),
+        },
+    }
+    if baseline != expected_baselines:
+        raise ValueError("optional_python_confirmation_invalid")
+    loaded_baselines: dict[str, dict[str, Any]] = {}
+    for name, reference in expected_baselines.items():
+        path = ROOT / reference["path"]
+        if not path.is_file() or _sha(path) != reference["sha256"]:
+            raise ValueError("optional_python_confirmation_invalid")
+        loaded_baselines[name] = _load_json(path)
+
+    upstream = loaded_baselines["reconciledPrimeSmoke"]
+    python_lane = loaded_baselines["pointLatticeConfirmation"]
+    expected_prime = json.loads(json.dumps(upstream["prime"]))
+    expected_prime["thinkingLevel"] = "low"
+    unchanged_upstream = (
+        "upstreamCustody",
+        "goalSkillCustody",
+        "pythonEnvironment",
+        "modelCustody",
+        "rookCustody",
+        "toolSurface",
+    )
+    if protocol.get("prime") != expected_prime or any(
+        protocol.get(owner) != upstream.get(owner) for owner in unchanged_upstream
+    ):
+        raise ValueError("optional_python_confirmation_invalid")
+    if protocol.get("limits") != {
+        "wallClockSecondsPerRun": 1800,
+        "gatewayEventsPerRun": 150,
+        "providerReportedTokensPerRun": 2_000_000,
+        "primeGoalTokenBudget": 1_900_000,
+    }:
+        raise ValueError("optional_python_confirmation_invalid")
+
+    optional = protocol.get("optionalSkill")
+    expected_optional_shape = {
+        "name",
+        "packagePath",
+        "packageSha256",
+        "qualifiedFixturePath",
+        "qualifiedFixtureSha256",
+        "selectionMode",
+        "defaultInstalled",
+        "automaticRouting",
+    }
+    if (
+        type(optional) is not dict
+        or set(optional) != expected_optional_shape
+        or optional.get("name") != _OPTIONAL_PYTHON_SKILL_NAME
+        or optional.get("packagePath")
+        != "integrations/prime/skills/prime-execute-grasshopper-python"
+        or optional.get("qualifiedFixturePath") != _AUTHORING_LANE_PYTHON_SKILL
+        or optional.get("qualifiedFixtureSha256")
+        != "E70095B557A2C55FDA33FCA7BC7830A4D2FD54F98E7B66A861AC87DB9C4B4AD6"
+        or optional.get("selectionMode")
+        != "explicit_cli_path_and_slash_command"
+        or optional.get("defaultInstalled") is not False
+        or optional.get("automaticRouting") is not False
+        or not _is_sha256(optional.get("packageSha256"))
+    ):
+        raise ValueError("optional_python_confirmation_invalid")
+    package_path = ROOT / _OPTIONAL_PYTHON_SKILL
+    fixture_path = ROOT / _AUTHORING_LANE_PYTHON_SKILL
+    checkpoint_path = package_path.parent / "references" / "checkpoint-protocol.md"
+    if (
+        not package_path.is_file()
+        or _sha(package_path) != optional["packageSha256"]
+        or not fixture_path.is_file()
+        or _sha(fixture_path) != optional["qualifiedFixtureSha256"]
+        or _skill_body(package_path) != _skill_body(fixture_path)
+        or not checkpoint_path.is_file()
+    ):
+        raise ValueError("optional_python_confirmation_invalid")
+
+    expected_versioned = {
+        "skillPath": _OPTIONAL_PYTHON_SKILL,
+        "skillSha256": optional["packageSha256"],
+        "checkpointPath": (
+            "integrations/prime/skills/prime-execute-grasshopper-python/"
+            "references/checkpoint-protocol.md"
+        ),
+        "checkpointSha256": _sha(checkpoint_path),
+        "adapterRoot": python_lane["versionedInputs"]["adapterRoot"],
+        "adapterInitSha256": python_lane["versionedInputs"]["adapterInitSha256"],
+    }
+    if protocol.get("versionedInputs") != expected_versioned:
+        raise ValueError("optional_python_confirmation_invalid")
+    canonical = protocol.get("canonicalNativeSkill")
+    if canonical != {
+        "path": _CANONICAL_PRIME_GH_SKILL,
+        "sha256": _CANONICAL_PRIME_GH_SKILL_SHA256,
+        "selected": False,
+    }:
+        raise ValueError("optional_python_confirmation_invalid")
+    canonical_path = ROOT / canonical["path"]
+    if not canonical_path.is_file() or _sha(canonical_path) != canonical["sha256"]:
+        raise ValueError("optional_python_confirmation_invalid")
+
+    task = protocol.get("tasks", {}).get("PY1")
+    if task != {
+        "id": "PY1",
+        "class": "sine_wave_polyline_xz",
+        "targetBaseline": "fresh_empty_grasshopper_document",
+        "evaluator": "independent_shadow_judgment",
+        "prompt": _OPTIONAL_PYTHON_PROMPT,
+        "targetFixture": {
+            "schema": TARGET_FIXTURE_SCHEMA,
+            "baseline": "fresh_empty",
+            "seedEdit": None,
+            "seedExpectations": None,
+            "preservation": None,
+        },
+    } or protocol.get("executionOrder") != ["PY1"]:
+        raise ValueError("optional_python_confirmation_invalid")
+    validate_target_fixture(task["targetFixture"])
+    if protocol.get("confirmation") != {
+        "classification": "single_prospective_optional_skill_confirmation",
+        "retries": 0,
+        "evaluatorFeedbackDuringRun": False,
+        "changedOperationalInputs": [
+            "prime_baseline",
+            "skill_packaging_and_explicit_selection",
+            "task",
+        ],
+        "unchangedOperationalInputs": [
+            "qualified_python_lane_body",
+            "model",
+            "thinking_level",
+            "rook_build",
+            "rook_full_adapter",
+            "budgets",
+            "target_preparation",
+            "silent_evaluation",
+            "evidence_capture",
+            "receipt_fenced_completion_discipline",
+        ],
+        "successCriteria": [
+            "credible_result_or_honest_failure",
+            "explicit_optional_skill_selection",
+            "python_lane_respected",
+            "amplitude_and_waves_independently_exercised_and_restored",
+            "final_same_receipt_fenced_snapshot_before_goal_complete",
+            "no_later_gateway_call",
+            "budget_and_custody_pass",
+        ],
+        "interpretation": "single_product_path_confirmation_not_general_proof",
+    }:
+        raise ValueError("optional_python_confirmation_invalid")
+    contact = protocol.get("contactMode")
+    if contact != {
+        "mode": "single_optional_python_skill_live_contact",
+        "evidenceRoot": (
+            "C:/UDEV/RookEvidence/"
+            "2026-08-19-qwen38-optional-python-skill-sine-wave-confirmation-v1"
+        ),
+        "actorContactAuthorized": True,
+    }:
+        raise ValueError("optional_python_confirmation_invalid")
+    evaluator = protocol.get("offlineEvaluator")
+    if (
+        type(evaluator) is not dict
+        or set(evaluator)
+        != {
+            "runnerPath",
+            "runnerSha256",
+            "behavioralAcceptancePath",
+            "behavioralAcceptanceSha256",
+            "mode",
+        }
+        or evaluator.get("runnerPath")
+        != "scripts/qwen38_self_termination_campaign_runner.py"
+        or evaluator.get("behavioralAcceptancePath")
+        != "mcp_server/src/rook/gh_behavioral_acceptance.py"
+        or evaluator.get("behavioralAcceptanceSha256")
+        != "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
+        or evaluator.get("mode") != "silent_post_run_independent_judgment"
+        or evaluator.get("runnerSha256") != _sha(Path(__file__).resolve())
+    ):
+        raise ValueError("optional_python_confirmation_invalid")
+    adjudication = protocol.get("shadowAdjudication")
+    if (
+        type(adjudication) is not dict
+        or set(adjudication) != {"path", "sha256"}
+        or not _is_sha256(adjudication.get("sha256"))
+    ):
+        raise ValueError("optional_python_confirmation_invalid")
+    adjudication_path = ROOT / adjudication["path"]
+    if (
+        not adjudication_path.is_file()
+        or _sha(adjudication_path) != adjudication["sha256"]
+    ):
+        raise ValueError("optional_python_confirmation_invalid")
+    validate_shadow_adjudication(_load_json(adjudication_path), protocol)
+    if protocol.get("status") != "frozen_precontact":
+        raise ValueError("optional_python_confirmation_invalid")
+    return ["PY1"]
+
+
 def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     schema = protocol.get("schema") if type(protocol) is dict else None
     if schema not in {
@@ -990,6 +1279,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         PRIME_UPSTREAM_SMOKE_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
+        OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
     }:
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
@@ -1002,26 +1292,29 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("builtin_skills_not_enabled")
     tasks = protocol.get("tasks")
     order = protocol.get("executionOrder")
-    expected_order = {
-        "rook.experiment.qwen38_self_termination_campaign:v3": [
-            "T3",
-            "T1",
-            "T2",
-            "T4",
-        ],
-        "rook.experiment.qwen38_self_termination_campaign:v4": ["T3", "T2", "T4"],
-        "rook.experiment.qwen38_self_termination_campaign:v5": ["T4"],
-        "rook.experiment.qwen38_self_termination_campaign:v6": ["T4"],
-        VARIED_COHORT_SCHEMA: _varied_execution_order(protocol),
-        PRIME_UPSTREAM_SMOKE_SCHEMA: ["T3"],
-        PRIME_UPSTREAM_SMOKE_V2_SCHEMA: ["T3"],
-        PRIME_UPSTREAM_SMOKE_V3_SCHEMA: ["T3"],
-    }[schema]
+    if schema == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+        expected_order = _validate_optional_python_confirmation(protocol)
+    else:
+        expected_order = {
+            "rook.experiment.qwen38_self_termination_campaign:v3": [
+                "T3",
+                "T1",
+                "T2",
+                "T4",
+            ],
+            "rook.experiment.qwen38_self_termination_campaign:v4": ["T3", "T2", "T4"],
+            "rook.experiment.qwen38_self_termination_campaign:v5": ["T4"],
+            "rook.experiment.qwen38_self_termination_campaign:v6": ["T4"],
+            VARIED_COHORT_SCHEMA: _varied_execution_order(protocol),
+            PRIME_UPSTREAM_SMOKE_SCHEMA: ["T3"],
+            PRIME_UPSTREAM_SMOKE_V2_SCHEMA: ["T3"],
+            PRIME_UPSTREAM_SMOKE_V3_SCHEMA: ["T3"],
+        }[schema]
     if type(tasks) is not dict or order != expected_order:
         raise ValueError("focused_retest_invalid" if schema.endswith(":v5") else "task_order_invalid")
     if set(tasks) != set(order):
         raise ValueError("task_order_invalid")
-    if schema == VARIED_COHORT_SCHEMA:
+    if schema in SHADOW_JUDGMENT_SCHEMAS:
         if "smokeTask" in protocol:
             raise ValueError("varied_cohort_smoke_forbidden")
     else:
@@ -1036,6 +1329,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         PRIME_UPSTREAM_SMOKE_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
+        OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
     }:
         if (
             schema not in PRIME_UPSTREAM_SMOKE_SCHEMAS
@@ -1158,6 +1452,11 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
                 "acceptanceArtifactSha256",
             }
             or not _is_sha256(evaluator.get("runnerSha256"))
+            or (
+                schema == PRIME_UPSTREAM_SMOKE_V3_SCHEMA
+                and evaluator.get("runnerSha256")
+                != "7A81222EA54B0E70BA506EACA4EA805E9132945BC0C83AB1FDDD008ECF292085"
+            )
             or not _is_sha256(evaluator.get("acceptanceArtifactSha256"))
             or evaluator.get("runnerPath")
             != "scripts/qwen38_self_termination_campaign_runner.py"
@@ -1223,10 +1522,6 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
             or not evaluator_path.is_file()
             or _sha(evaluator_path) != evaluator["acceptanceArtifactSha256"]
             or not runner_path.is_file()
-            or (
-                schema == PRIME_UPSTREAM_SMOKE_V3_SCHEMA
-                and _sha(runner_path) != evaluator["runnerSha256"]
-            )
             or not adjudication_path.is_file()
             or _sha(adjudication_path) != adjudication["sha256"]
         ):
@@ -1488,6 +1783,15 @@ def build_prime_launch(
     validate_protocol(protocol)
     limits = CampaignLimits.from_mapping(protocol["limits"])
     prime = protocol["prime"]
+    explicit_skill: Path | None = None
+    initial_prompt = "Begin the active goal now."
+    if protocol.get("schema") == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+        explicit_skill = (
+            row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
+        )
+        initial_prompt = (
+            f"/skill:{_OPTIONAL_PYTHON_SKILL_NAME} Begin the active goal now."
+        )
     command = [
         prime["bashPath"],
         prime["launcherPath"],
@@ -1502,11 +1806,12 @@ def build_prime_launch(
         prime["model"],
         "--thinking",
         prime["thinkingLevel"],
+        *(["--skill", str(explicit_skill)] if explicit_skill is not None else []),
         "--goal",
         task["prompt"],
         "--goal-token-budget",
         str(limits.prime_goal_tokens),
-        "Begin the active goal now.",
+        initial_prompt,
     ]
     source_log = row_root / "operator" / "source.jsonl"
     adapter_source = row_root / "agent" / "skills" / "rook-full" / "src"
@@ -1534,6 +1839,76 @@ def build_prime_launch(
     return command, environment
 
 
+def verify_prime_explicit_skill_loading(
+    protocol: dict[str, Any], selected_skill_root: Path
+) -> dict[str, Any]:
+    if protocol.get("schema") != OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+        raise ValueError("optional_python_confirmation_required")
+    selected_skill_root = Path(selected_skill_root).resolve()
+    expected_skill = selected_skill_root / "SKILL.md"
+    if not expected_skill.is_file():
+        raise RuntimeError("custody_missing:explicit_skill")
+    prime = protocol["prime"]
+    bundle_root = Path(prime["runtimeBundle"]["root"]) / "bundle"
+    modules = sorted(bundle_root.glob("bundled-modules-*.js"))
+    if len(modules) != 1:
+        raise RuntimeError("custody_mismatch:prime_skill_loader")
+    module_uri = modules[0].resolve().as_uri()
+    script = "\n".join(
+        [
+            f"import {{ VIRTUAL_MODULES }} from {json.dumps(module_uri)};",
+            "const api = VIRTUAL_MODULES['@earendil-works/pi-coding-agent'];",
+            "const load = (paths) => api.loadSkills({",
+            f"  cwd: {json.dumps(selected_skill_root.parent.as_posix())},",
+            f"  agentDir: {json.dumps((selected_skill_root.parent / 'empty-agent').as_posix())},",
+            "  skillPaths: paths,",
+            "  includeDefaults: false,",
+            "});",
+            f"const selected = load([{json.dumps(selected_skill_root.as_posix())}]);",
+            "const unselected = load([]);",
+            "console.log(JSON.stringify({",
+            "  selectedSkillNames: selected.skills.map((item) => item.name).sort(),",
+            "  selectedSkillFiles: selected.skills.map((item) => item.filePath.replaceAll('\\\\', '/')).sort(),",
+            "  selectedDiagnostics: selected.diagnostics,",
+            "  unselectedSkillNames: unselected.skills.map((item) => item.name).sort(),",
+            "  unselectedDiagnostics: unselected.diagnostics,",
+            "}));",
+        ]
+    )
+    completed = subprocess.run(
+        [prime["nodePath"], "--input-type=module", "--eval", script],
+        cwd=Path(prime["sourceRoot"]),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        observed = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError("custody_mismatch:prime_skill_loader") from None
+    if (
+        completed.returncode != 0
+        or observed.get("selectedSkillNames") != [_OPTIONAL_PYTHON_SKILL_NAME]
+        or observed.get("selectedSkillFiles") != [expected_skill.as_posix()]
+        or observed.get("selectedDiagnostics") != []
+        or observed.get("unselectedSkillNames") != []
+        or observed.get("unselectedDiagnostics") != []
+    ):
+        raise RuntimeError("custody_mismatch:prime_skill_loader")
+    return {
+        "schema": "rook.experiment.prime_explicit_skill_loading:v1",
+        "primeCommit": prime["commit"],
+        "loaderModule": {
+            "path": modules[0].as_posix(),
+            "sha256": _sha(modules[0]),
+        },
+        "selectedSkillNames": observed["selectedSkillNames"],
+        "selectedSkillFiles": observed["selectedSkillFiles"],
+        "unselectedSkillNames": observed["unselectedSkillNames"],
+        "stderr": completed.stderr,
+    }
+
+
 def python_runtime_environment(
     protocol: dict[str, Any],
     environment: dict[str, str],
@@ -1556,7 +1931,7 @@ def python_runtime_environment(
         raise ValueError("python_environment_paths_invalid")
     result = dict(environment)
     source_paths = [Path(adapter_source).as_posix()]
-    if protocol.get("schema") in PRIME_UPSTREAM_SMOKE_SCHEMAS:
+    if protocol.get("schema") in PRIME_UPSTREAM_CUSTODY_SCHEMAS:
         source_paths.append(
             (
                 Path(protocol["prime"]["sourceRoot"])
@@ -1575,8 +1950,8 @@ def python_runtime_environment(
 def offline_evaluator_environment(
     protocol: dict[str, Any], environment: dict[str, str]
 ) -> dict[str, str]:
-    if protocol.get("schema") != VARIED_COHORT_SCHEMA:
-        raise ValueError("varied_cohort_protocol_required")
+    if protocol.get("schema") not in SHADOW_JUDGMENT_SCHEMAS:
+        raise ValueError("shadow_judgment_protocol_required")
     evaluator = protocol["offlineEvaluator"]
     source = ROOT / evaluator["behavioralAcceptancePath"]
     if not source.is_file() or _sha(source) != evaluator["behavioralAcceptanceSha256"]:
@@ -1879,13 +2254,17 @@ def _copy_versioned_inputs(
     versioned = _row_versioned_inputs(protocol, task)
     skill_source = ROOT / versioned["skillPath"]
     checkpoint_source = ROOT / versioned["checkpointPath"]
-    skill_target = agent / "skills" / "prime-execute-grasshopper"
-    (skill_target / "references").mkdir(parents=True)
-    shutil.copy2(skill_source, skill_target / "SKILL.md")
-    shutil.copy2(
-        checkpoint_source,
-        skill_target / "references" / "checkpoint-protocol.md",
-    )
+    if protocol.get("schema") == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+        skill_target = row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
+        shutil.copytree(skill_source.parent, skill_target)
+    else:
+        skill_target = agent / "skills" / "prime-execute-grasshopper"
+        (skill_target / "references").mkdir(parents=True)
+        shutil.copy2(skill_source, skill_target / "SKILL.md")
+        shutil.copy2(
+            checkpoint_source,
+            skill_target / "references" / "checkpoint-protocol.md",
+        )
     adapter_source = ROOT / versioned["adapterRoot"]
     shutil.copytree(adapter_source, agent / "skills" / "rook-full")
     (agent / "sessions").mkdir()
@@ -1896,15 +2275,19 @@ def _write_row_input_custody(
 ) -> dict[str, Any]:
     agent = row_root / "agent"
     operator = row_root / "operator"
+    optional_confirmation = (
+        protocol.get("schema") == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA
+    )
+    skill_root = (
+        row_root / "explicit-skills" / _OPTIONAL_PYTHON_SKILL_NAME
+        if optional_confirmation
+        else agent / "skills" / "prime-execute-grasshopper"
+    )
     files = {
         "settings": agent / "settings.json",
         "models": agent / "models.json",
-        "skill": agent / "skills" / "prime-execute-grasshopper" / "SKILL.md",
-        "checkpoint": agent
-        / "skills"
-        / "prime-execute-grasshopper"
-        / "references"
-        / "checkpoint-protocol.md",
+        "skill": skill_root / "SKILL.md",
+        "checkpoint": skill_root / "references" / "checkpoint-protocol.md",
         "adapter": agent / "skills" / "rook-full" / "src" / "rook_full" / "__init__.py",
         "target": operator / "target.json",
     }
@@ -2162,7 +2545,7 @@ def _runtime_custody(
     ).stdout.strip()
     if prime_commit != prime["commit"]:
         raise RuntimeError("custody_mismatch:prime_commit")
-    if protocol.get("schema") in PRIME_UPSTREAM_SMOKE_SCHEMAS:
+    if protocol.get("schema") in PRIME_UPSTREAM_CUSTODY_SCHEMAS:
         upstream = protocol["upstreamCustody"]
         root = Path(prime["sourceRoot"]).resolve()
         if root.as_posix().lower() != (
@@ -2331,6 +2714,7 @@ def _runtime_custody(
     if protocol.get("schema") in {
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
+        OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
     }:
         goal_skill_equivalence = verify_goal_skill_equivalence(
             protocol["goalSkillCustody"]
@@ -2359,6 +2743,43 @@ def _runtime_custody(
             adjudication["sha256"],
             "smoke_adjudication",
         )
+    if protocol.get("schema") == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+        optional = protocol["optionalSkill"]
+        evaluator = protocol["offlineEvaluator"]
+        package_root = ROOT / optional["packagePath"]
+        files["offlineBehavioralAcceptance"] = _verify_sha(
+            ROOT / evaluator["behavioralAcceptancePath"],
+            evaluator["behavioralAcceptanceSha256"],
+            "offline_behavioral_acceptance",
+        )
+        files["optionalPythonSkill"] = _verify_sha(
+            package_root / "SKILL.md",
+            optional["packageSha256"],
+            "optional_python_skill",
+        )
+        files["qualifiedPythonFixture"] = _verify_sha(
+            ROOT / optional["qualifiedFixturePath"],
+            optional["qualifiedFixtureSha256"],
+            "qualified_python_fixture",
+        )
+        canonical = protocol["canonicalNativeSkill"]
+        files["canonicalNativeSkill"] = _verify_sha(
+            ROOT / canonical["path"],
+            canonical["sha256"],
+            "canonical_native_skill",
+        )
+        adjudication = protocol["shadowAdjudication"]
+        files["shadowAdjudication"] = _verify_sha(
+            ROOT / adjudication["path"],
+            adjudication["sha256"],
+            "shadow_adjudication",
+        )
+        for name, reference in protocol["baselineEvidence"].items():
+            files[f"baseline:{name}"] = _verify_sha(
+                ROOT / reference["path"],
+                reference["sha256"],
+                f"baseline:{name}",
+            )
     record = {
         "schema": "rook.experiment.qwen38_campaign_runtime_custody:v1",
         "campaignRepositoryCommit": repository_commit,
@@ -2372,6 +2793,11 @@ def _runtime_custody(
         record["primeUpstream"] = upstream_observed
     if goal_skill_equivalence is not None:
         record["goalSkillEquivalence"] = goal_skill_equivalence
+    if protocol.get("schema") == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
+        selected = ROOT / protocol["optionalSkill"]["packagePath"]
+        record["explicitSkillLoading"] = verify_prime_explicit_skill_loading(
+            protocol, selected
+        )
     return record
 
 
@@ -2912,7 +3338,7 @@ def _prepare_target(
 def _post_actor_evaluation(
     protocol: dict[str, Any], task: dict[str, Any], row_root: Path, process_result: dict[str, Any]
 ) -> str:
-    presealed = protocol.get("schema") == VARIED_COHORT_SCHEMA
+    presealed = protocol.get("schema") in SHADOW_JUDGMENT_SCHEMAS
     infrastructure_path = row_root / "operator" / "evaluation-infrastructure.json"
     if presealed:
         normalize_arguments = [
@@ -3464,6 +3890,7 @@ def _row_outcome(
     if protocol["schema"] in {
         "rook.experiment.qwen38_self_termination_campaign:v6",
         VARIED_COHORT_SCHEMA,
+        OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
     }:
         final_checkpoint = audit_actor_final_checkpoint(
             _source_events(row_root / "operator" / "source.jsonl")
@@ -3488,7 +3915,7 @@ def _row_outcome(
         )
         and (
             final_checkpoint is None
-            or protocol["schema"] == VARIED_COHORT_SCHEMA
+            or protocol["schema"] in SHADOW_JUDGMENT_SCHEMAS
             or final_checkpoint["status"] == "pass"
         )
     )
@@ -3500,7 +3927,7 @@ def _row_outcome(
     }
     if final_checkpoint is not None:
         outcome["actorFinalCheckpointStatus"] = final_checkpoint["status"]
-    if protocol["schema"] == VARIED_COHORT_SCHEMA:
+    if protocol["schema"] in SHADOW_JUDGMENT_SCHEMAS:
         infrastructure = _load_json(
             row_root / "operator" / "evaluation-infrastructure.json"
         )
@@ -3661,6 +4088,12 @@ def run_campaign(
         != protocol["contactMode"]["evidenceRoot"]
     ):
         raise RuntimeError("live_contact_evidence_root_invalid")
+    if (
+        protocol["schema"] == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA
+        and evidence_root.as_posix()
+        != protocol["contactMode"]["evidenceRoot"]
+    ):
+        raise RuntimeError("live_contact_evidence_root_invalid")
     evidence_root = validate_evidence_root(evidence_root)
     evidence_root.mkdir(parents=True, exist_ok=False)
     shutil.copy2(protocol_path, evidence_root / "protocol.json")
@@ -3678,9 +4111,9 @@ def run_campaign(
             protocol, evidence_root / "python-environment-baseline.json"
         )
 
-        if protocol["schema"] == VARIED_COHORT_SCHEMA:
+        if protocol["schema"] in SHADOW_JUDGMENT_SCHEMAS:
             if accepted_smoke_root is not None:
-                raise RuntimeError("varied_cohort_retained_smoke_forbidden")
+                raise RuntimeError("shadow_campaign_retained_smoke_forbidden")
             tasks_to_run = list(protocol["executionOrder"])
         elif accepted_smoke_root is None:
             tasks_to_run = [protocol["smokeTask"]]
@@ -3726,13 +4159,18 @@ def run_campaign(
                 row_root / "operator" / "runtime-custody-postrun.json",
                 _runtime_custody(protocol, protocol_path),
             )
-            if protocol["schema"] == VARIED_COHORT_SCHEMA:
+            if protocol["schema"] in SHADOW_JUDGMENT_SCHEMAS:
                 _seal_row_evidence(row_root)
                 if outcome.get("evaluationInfrastructureStatus") != "pass":
                     raise RuntimeError(
                         f"evaluator_infrastructure_failure:{task_id}"
                     )
-                if not varied_row_allows_continuation(protocol, outcomes[task_id]):
+                if (
+                    protocol["schema"] == VARIED_COHORT_SCHEMA
+                    and not varied_row_allows_continuation(
+                        protocol, outcomes[task_id]
+                    )
+                ):
                     raise RuntimeError(f"process_custody_failure:{task_id}")
             elif task_id == protocol["smokeTask"]:
                 tasks_to_run.extend(cohort_after_smoke(protocol, outcome))

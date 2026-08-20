@@ -1,0 +1,61 @@
+{
+  "schema": "rook.experiment.varied_product_shadow_adjudication:v1",
+  "status": "frozen_precontact",
+  "purpose": "Guide silent post-run judgment of the explicitly selected optional Python Grasshopper skill on one sine-wave polyline task without providing semantic feedback to the Actor.",
+  "evaluatorFeedbackDuringRun": false,
+  "evidenceLabels": [
+    "observed",
+    "inferred",
+    "unresolved"
+  ],
+  "dispositions": [
+    "credible_success",
+    "partial_success",
+    "semantic_failure",
+    "incomplete"
+  ],
+  "aggregateScore": null,
+  "rules": [
+    "Judge the row only after the Actor process has ended and evidence has been sealed.",
+    "Cite retained evidence for every observed claim.",
+    "Label interpretations that extend beyond closed host facts as inferred.",
+    "Use unresolved when retained evidence cannot support a judgment.",
+    "Do not award packaging success if explicit skill selection, final receipt custody, or goal completion fails.",
+    "Do not feed any judgment, question, disposition, or expected answer back to the Actor during execution."
+  ],
+  "tasks": {
+    "PY1": {
+      "class": "sine_wave_polyline_xz",
+      "questions": [
+        {
+          "id": "point_count_and_plane_are_credible",
+          "text": "Did the final definition produce exactly Samples ordered points from X=0 to Length with every Y coordinate equal to zero?"
+        },
+        {
+          "id": "sine_relation_is_credible",
+          "text": "Do retained point coordinates and script source support Z=Amplitude*sin(2*pi*Waves*X/Length) across the ordered sample sequence?"
+        },
+        {
+          "id": "polyline_is_credible",
+          "text": "Did the script produce one polyline curve through the ordered point sequence without baking or unrelated geometry?"
+        },
+        {
+          "id": "integer_samples_behavior_is_credible",
+          "text": "Does retained source enforce integer Samples and does solved output count match it, without inferring unobserved slider step granularity?"
+        },
+        {
+          "id": "amplitude_and_waves_exercise_restoration_are_credible",
+          "text": "Did the model exercise Amplitude and Waves independently, observe each consequential effect, and restore the chosen defaults?"
+        },
+        {
+          "id": "optional_python_skill_selection_is_credible",
+          "text": "Did Prime load and invoke the explicitly selected optional Python authoring skill while the canonical native skill remained unselected and unchanged?"
+        },
+        {
+          "id": "final_evidence_and_stopping_are_credible",
+          "text": "Did a final latest-receipt wait and same-receipt fenced snapshot precede goal.complete with no later gateway call?"
+        }
+      ]
+    }
+  }
+}
