@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
+import hashlib
 import json
 import math
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, BinaryIO, Callable, Iterator
 
 
 MAX_SOURCE_ROW_BYTES = 67_108_864
@@ -37,6 +39,9 @@ FAILURE_CODES = frozenset(
 
 _CONFIG_SCHEMA = "rook.prime_event_capture_config:v1"
 _DELTA_SCHEMA = "rook.prime_assistant_stream_delta:v1"
+_CUSTODY_SCHEMA = "rook.prime_event_capture_custody:v1"
+_FAILURE_SCHEMA = "rook.prime_event_capture_failure:v1"
+_FAILURE_PATH = PurePosixPath("operator/prime-event-capture-failure.json")
 _CONFIG_KEYS = {
     "schema",
     "mode",
@@ -369,3 +374,598 @@ def transform_prime_row(raw_row: bytes, source_row: int) -> CapturedPrimeRow:
             parsed.get("type") == "message_update" and compact is None
         ),
     )
+
+
+def _append_bounded(pending: bytearray, value: bytes) -> None:
+    if len(pending) + len(value) > MAX_SOURCE_ROW_BYTES:
+        raise PrimeCaptureError("stdout_row_too_large")
+    pending.extend(value)
+
+
+def iter_bounded_lf_rows(stream: BinaryIO) -> Iterator[bytes]:
+    pending = bytearray()
+    while True:
+        try:
+            chunk = stream.read(SOURCE_READ_CHUNK_BYTES)
+        except Exception as error:
+            raise PrimeCaptureError("stdout_read_failed") from error
+        if type(chunk) is not bytes:
+            raise PrimeCaptureError("stdout_read_failed")
+        if not chunk:
+            break
+        cursor = 0
+        while cursor < len(chunk):
+            newline = chunk.find(b"\n", cursor)
+            if newline < 0:
+                _append_bounded(pending, chunk[cursor:])
+                break
+            _append_bounded(pending, chunk[cursor : newline + 1])
+            yield bytes(pending)
+            pending.clear()
+            cursor = newline + 1
+    if pending:
+        raise PrimeCaptureError("stdout_missing_final_lf")
+
+
+def _resolved_path(row_root: Path, relative: PurePosixPath) -> Path:
+    root = Path(row_root).resolve()
+    candidate = root.joinpath(*relative.parts).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as error:
+        raise ValueError("capture_config_invalid") from error
+    return candidate
+
+
+def _open_exclusive(path: Path) -> BinaryIO:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path.open("xb")
+
+
+def _write_all(stream: BinaryIO, value: bytes, code: str) -> None:
+    try:
+        written = stream.write(value)
+    except Exception as error:
+        raise PrimeCaptureError(code) from error
+    if written != len(value):
+        raise PrimeCaptureError(code)
+
+
+def _flush(stream: BinaryIO, code: str) -> None:
+    try:
+        stream.flush()
+    except Exception as error:
+        raise PrimeCaptureError(code) from error
+
+
+def _close(stream: BinaryIO | None, code: str) -> None:
+    if stream is None:
+        return
+    try:
+        stream.close()
+    except Exception as error:
+        raise PrimeCaptureError(code) from error
+
+
+def _best_effort_failure(
+    row_root: Path,
+    *,
+    code: str,
+    source_bytes: int,
+    source_rows: int,
+    retained_bytes: int,
+    retained_rows: int,
+    stdout_eof: bool,
+) -> None:
+    value = {
+        "schema": _FAILURE_SCHEMA,
+        "status": "incomplete",
+        "code": code,
+        "sourcePrefixBytes": source_bytes,
+        "sourcePrefixRows": source_rows,
+        "retainedPrefixBytes": retained_bytes,
+        "retainedPrefixRows": retained_rows,
+        "stdoutEof": stdout_eof,
+    }
+    try:
+        stream = _open_exclusive(_resolved_path(row_root, _FAILURE_PATH))
+        try:
+            _write_all(stream, _canonical_line(value), "capture_custody_write_failed")
+            _flush(stream, "capture_custody_write_failed")
+        finally:
+            stream.close()
+    except Exception:
+        pass
+
+
+def capture_binary_stream(
+    stream: BinaryIO,
+    *,
+    config: PrimeEventCaptureConfig,
+    row_root: Path,
+    publish: Callable[[dict[str, Any]], None],
+) -> dict[str, Any]:
+    if not isinstance(config, PrimeEventCaptureConfig):
+        raise ValueError("capture_config_invalid")
+    retained_stream: BinaryIO | None = None
+    raw_stream: BinaryIO | None = None
+    source_hash = hashlib.sha256()
+    retained_hash = hashlib.sha256()
+    raw_hash = hashlib.sha256()
+    source_bytes = 0
+    source_rows = 0
+    source_max_row = 0
+    retained_bytes = 0
+    retained_rows = 0
+    compacted = 0
+    raw_fallback = 0
+    raw_bytes = 0
+    stdout_eof = False
+    active_error: PrimeCaptureError | None = None
+    try:
+        try:
+            retained_stream = _open_exclusive(
+                _resolved_path(row_root, config.retained_path)
+            )
+        except Exception as error:
+            raise PrimeCaptureError("compact_write_failed") from error
+        if config.raw_debug_path is not None:
+            try:
+                raw_stream = _open_exclusive(
+                    _resolved_path(row_root, config.raw_debug_path)
+                )
+            except Exception as error:
+                raise PrimeCaptureError("raw_debug_write_failed") from error
+        for raw_row in iter_bounded_lf_rows(stream):
+            source_rows += 1
+            source_bytes += len(raw_row)
+            source_max_row = max(source_max_row, len(raw_row))
+            source_hash.update(raw_row)
+            result = transform_prime_row(raw_row, source_rows)
+            if raw_stream is not None:
+                _write_all(raw_stream, raw_row, "raw_debug_write_failed")
+                raw_hash.update(raw_row)
+                raw_bytes += len(raw_row)
+            _write_all(retained_stream, result.retained_bytes, "compact_write_failed")
+            retained_hash.update(result.retained_bytes)
+            retained_bytes += len(result.retained_bytes)
+            retained_rows += 1
+            compacted += int(result.compacted)
+            raw_fallback += int(result.raw_fallback_message_update)
+            _flush(retained_stream, "compact_write_failed")
+            if raw_stream is not None:
+                _flush(raw_stream, "raw_debug_write_failed")
+            publish(result.parsed_event)
+        stdout_eof = True
+        _flush(retained_stream, "compact_write_failed")
+        if raw_stream is not None:
+            _flush(raw_stream, "raw_debug_write_failed")
+    except PrimeCaptureError as error:
+        active_error = error
+    except Exception as error:
+        active_error = PrimeCaptureError("compact_transform_failed")
+        active_error.__cause__ = error
+    try:
+        _close(raw_stream, "raw_debug_close_failed")
+    except PrimeCaptureError as error:
+        if active_error is None:
+            active_error = error
+    try:
+        _close(retained_stream, "compact_close_failed")
+    except PrimeCaptureError as error:
+        if active_error is None:
+            active_error = error
+    if active_error is not None:
+        _best_effort_failure(
+            row_root,
+            code=active_error.code,
+            source_bytes=source_bytes,
+            source_rows=source_rows,
+            retained_bytes=retained_bytes,
+            retained_rows=retained_rows,
+            stdout_eof=(stdout_eof or active_error.code == "stdout_missing_final_lf"),
+        )
+        raise active_error
+
+    custody = {
+        "schema": _CUSTODY_SCHEMA,
+        "status": "complete",
+        "limits": {
+            "maxSourceRowBytes": MAX_SOURCE_ROW_BYTES,
+            "monitorQueueMaxEvents": MONITOR_QUEUE_MAX_EVENTS,
+            "sourceReadChunkBytes": SOURCE_READ_CHUNK_BYTES,
+        },
+        "source": {
+            "bytes": source_bytes,
+            "maxRowBytes": source_max_row,
+            "rows": source_rows,
+            "sha256": source_hash.hexdigest().upper(),
+            "stdoutEof": True,
+        },
+        "retained": {
+            "bytes": retained_bytes,
+            "compactedMessageUpdates": compacted,
+            "path": config.retained_path.as_posix(),
+            "rawFallbackMessageUpdates": raw_fallback,
+            "rows": retained_rows,
+            "sha256": retained_hash.hexdigest().upper(),
+        },
+        "rawDebug": (
+            {
+                "bytes": raw_bytes,
+                "path": config.raw_debug_path.as_posix(),
+                "sha256": raw_hash.hexdigest().upper(),
+            }
+            if config.raw_debug_path is not None
+            else None
+        ),
+    }
+    custody_stream: BinaryIO | None = None
+    try:
+        custody_stream = _open_exclusive(
+            _resolved_path(row_root, config.custody_path)
+        )
+        _write_all(
+            custody_stream,
+            _canonical_line(custody),
+            "capture_custody_write_failed",
+        )
+        _flush(custody_stream, "capture_custody_write_failed")
+        _close(custody_stream, "capture_custody_write_failed")
+    except PrimeCaptureError as error:
+        _best_effort_failure(
+            row_root,
+            code=error.code,
+            source_bytes=source_bytes,
+            source_rows=source_rows,
+            retained_bytes=retained_bytes,
+            retained_rows=retained_rows,
+            stdout_eof=True,
+        )
+        raise
+    except Exception as error:
+        failure = PrimeCaptureError("capture_custody_write_failed")
+        failure.__cause__ = error
+        _best_effort_failure(
+            row_root,
+            code=failure.code,
+            source_bytes=source_bytes,
+            source_rows=source_rows,
+            retained_bytes=retained_bytes,
+            retained_rows=retained_rows,
+            stdout_eof=True,
+        )
+        raise failure
+    return verify_capture_custody(config, row_root)
+
+
+def _plain_int(value: Any, *, minimum: int = 0) -> bool:
+    return type(value) is int and value >= minimum
+
+
+def _sha256_text(value: Any) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789ABCDEF" for character in value)
+    )
+
+
+def _read_single_json_object(path: Path) -> dict[str, Any]:
+    try:
+        value = path.read_bytes()
+    except FileNotFoundError as error:
+        raise PrimeCaptureError("capture_custody_missing") from error
+    except OSError as error:
+        raise PrimeCaptureError("capture_custody_mismatch") from error
+    try:
+        parsed = _strict_source_row(value)
+    except PrimeCaptureError as error:
+        raise PrimeCaptureError("capture_custody_mismatch") from error
+    return parsed
+
+
+def _valid_compact_event(value: Any, retained_row: int) -> bool:
+    if type(value) is not dict:
+        return False
+    event = value.get("assistantMessageEvent")
+    subtype = event.get("type") if type(event) is dict else None
+    is_start = subtype in {"text_start", "thinking_start", "toolcall_start"}
+    expected_root = {
+        "schema",
+        "type",
+        "sourceRow",
+        "sourceBytes",
+        "assistantMessageEvent",
+    } | ({"contentStart"} if is_start else set())
+    if set(value) != expected_root:
+        return False
+    if (
+        value["schema"] != _DELTA_SCHEMA
+        or value["type"] != "assistant_stream_delta"
+        or value["sourceRow"] != retained_row
+        or not _plain_int(value["sourceBytes"], minimum=1)
+        or value["sourceBytes"] > MAX_SOURCE_ROW_BYTES
+        or subtype not in _EVENT_KEYS
+        or set(event) != _EVENT_KEYS[subtype] - {"partial"}
+        or not _plain_int(event.get("contentIndex"))
+    ):
+        return False
+    if subtype.endswith("_delta") and type(event.get("delta")) is not str:
+        return False
+    if subtype in {"text_end", "thinking_end"} and type(event.get("content")) is not str:
+        return False
+    if subtype == "toolcall_end" and not _tool_block(
+        event.get("toolCall"), streaming=False
+    ):
+        return False
+    if is_start:
+        block = value["contentStart"]
+        if subtype == "text_start":
+            return _text_block(block) and block["text"] == ""
+        if subtype == "thinking_start":
+            return _thinking_block(block) and block["thinking"] == ""
+        return _tool_block(block, streaming=False) and block["arguments"] == {}
+    return True
+
+
+def _capture_file_measurements(path: Path) -> tuple[str, int, list[bytes]]:
+    digest = hashlib.sha256()
+    byte_count = 0
+    rows: list[bytes] = []
+    try:
+        with path.open("rb") as stream:
+            for row in iter_bounded_lf_rows(stream):
+                digest.update(row)
+                byte_count += len(row)
+                rows.append(row)
+    except FileNotFoundError as error:
+        raise PrimeCaptureError("capture_custody_missing") from error
+    except PrimeCaptureError as error:
+        raise PrimeCaptureError("capture_custody_mismatch") from error
+    except OSError as error:
+        raise PrimeCaptureError("capture_custody_mismatch") from error
+    return digest.hexdigest().upper(), byte_count, rows
+
+
+def _validate_custody_shape(
+    custody: Any, config: PrimeEventCaptureConfig
+) -> bool:
+    if type(custody) is not dict or set(custody) != {
+        "schema",
+        "status",
+        "limits",
+        "source",
+        "retained",
+        "rawDebug",
+    }:
+        return False
+    limits = custody.get("limits")
+    source = custody.get("source")
+    retained = custody.get("retained")
+    raw_debug = custody.get("rawDebug")
+    if (
+        custody.get("schema") != _CUSTODY_SCHEMA
+        or custody.get("status") != "complete"
+        or limits
+        != {
+            "maxSourceRowBytes": MAX_SOURCE_ROW_BYTES,
+            "monitorQueueMaxEvents": MONITOR_QUEUE_MAX_EVENTS,
+            "sourceReadChunkBytes": SOURCE_READ_CHUNK_BYTES,
+        }
+        or type(source) is not dict
+        or set(source)
+        != {"bytes", "maxRowBytes", "rows", "sha256", "stdoutEof"}
+        or not _plain_int(source.get("bytes"))
+        or not _plain_int(source.get("maxRowBytes"))
+        or source["maxRowBytes"] > MAX_SOURCE_ROW_BYTES
+        or not _plain_int(source.get("rows"))
+        or not _sha256_text(source.get("sha256"))
+        or source.get("stdoutEof") is not True
+        or type(retained) is not dict
+        or set(retained)
+        != {
+            "bytes",
+            "compactedMessageUpdates",
+            "path",
+            "rawFallbackMessageUpdates",
+            "rows",
+            "sha256",
+        }
+        or not _plain_int(retained.get("bytes"))
+        or not _plain_int(retained.get("compactedMessageUpdates"))
+        or retained.get("path") != config.retained_path.as_posix()
+        or not _plain_int(retained.get("rawFallbackMessageUpdates"))
+        or not _plain_int(retained.get("rows"))
+        or not _sha256_text(retained.get("sha256"))
+    ):
+        return False
+    if config.raw_debug_path is None:
+        return raw_debug is None
+    return (
+        type(raw_debug) is dict
+        and set(raw_debug) == {"bytes", "path", "sha256"}
+        and _plain_int(raw_debug.get("bytes"))
+        and raw_debug.get("path") == config.raw_debug_path.as_posix()
+        and _sha256_text(raw_debug.get("sha256"))
+    )
+
+
+def verify_capture_custody(
+    config: PrimeEventCaptureConfig, row_root: Path
+) -> dict[str, Any]:
+    if not isinstance(config, PrimeEventCaptureConfig):
+        raise ValueError("capture_config_invalid")
+    custody = _read_single_json_object(_resolved_path(row_root, config.custody_path))
+    if not _validate_custody_shape(custody, config):
+        raise PrimeCaptureError("capture_custody_mismatch")
+
+    retained_hash, retained_bytes, retained_rows = _capture_file_measurements(
+        _resolved_path(row_root, config.retained_path)
+    )
+    retained = custody["retained"]
+    if retained["bytes"] != retained_bytes or retained["sha256"] != retained_hash:
+        raise PrimeCaptureError("capture_custody_mismatch")
+    if retained["rows"] != len(retained_rows) or custody["source"]["rows"] != len(
+        retained_rows
+    ):
+        raise PrimeCaptureError("capture_row_count_mismatch")
+
+    attributed_source_bytes = 0
+    attributed_source_max = 0
+    compacted = 0
+    raw_fallback = 0
+    for retained_index, raw_row in enumerate(retained_rows, start=1):
+        try:
+            value = _strict_source_row(raw_row)
+        except PrimeCaptureError as error:
+            raise PrimeCaptureError("capture_custody_mismatch") from error
+        if value.get("schema") == _DELTA_SCHEMA or value.get("type") == "assistant_stream_delta":
+            if not _valid_compact_event(value, retained_index):
+                raise PrimeCaptureError("capture_custody_mismatch")
+            source_bytes = value["sourceBytes"]
+            compacted += 1
+        else:
+            source_bytes = len(raw_row)
+            raw_fallback += int(value.get("type") == "message_update")
+        attributed_source_bytes += source_bytes
+        attributed_source_max = max(attributed_source_max, source_bytes)
+
+    source = custody["source"]
+    if (
+        source["bytes"] != attributed_source_bytes
+        or source["maxRowBytes"] != attributed_source_max
+        or retained["compactedMessageUpdates"] != compacted
+        or retained["rawFallbackMessageUpdates"] != raw_fallback
+    ):
+        raise PrimeCaptureError("capture_custody_mismatch")
+
+    if config.raw_debug_path is not None:
+        raw_hash, raw_bytes, raw_rows = _capture_file_measurements(
+            _resolved_path(row_root, config.raw_debug_path)
+        )
+        raw_debug = custody["rawDebug"]
+        raw_max = max((len(row) for row in raw_rows), default=0)
+        if (
+            raw_debug["bytes"] != raw_bytes
+            or raw_debug["sha256"] != raw_hash
+            or source["bytes"] != raw_bytes
+            or source["rows"] != len(raw_rows)
+            or source["maxRowBytes"] != raw_max
+            or source["sha256"] != raw_hash
+        ):
+            raise PrimeCaptureError("raw_debug_mismatch")
+    return custody
+
+
+def resolve_prime_event_path(protocol: dict[str, Any], row_root: Path) -> Path:
+    if type(protocol) is not dict:
+        raise ValueError("capture_config_invalid")
+    if "primeEventCapture" not in protocol:
+        return Path(row_root) / "operator" / "prime.jsonl"
+    config = validate_capture_config(protocol["primeEventCapture"])
+    if config is None:
+        raise ValueError("capture_config_invalid")
+    verify_capture_custody(config, row_root)
+    return _resolved_path(row_root, config.retained_path)
+
+
+def iter_retained_prime_events(
+    protocol: dict[str, Any], row_root: Path
+) -> Iterator[dict[str, Any]]:
+    path = resolve_prime_event_path(protocol, row_root)
+    try:
+        with path.open("rb") as stream:
+            for raw_row in iter_bounded_lf_rows(stream):
+                yield _strict_source_row(raw_row)
+    except FileNotFoundError as error:
+        raise PrimeCaptureError("capture_custody_missing") from error
+
+
+def _require_content_index(message: dict[str, Any], index: int) -> list[dict[str, Any]]:
+    content = message.get("content")
+    if type(content) is not list or index < 0 or index >= len(content):
+        raise ValueError("assistant_reconstruction_incomplete")
+    return content
+
+
+def _apply_compact_delta(message: dict[str, Any], value: dict[str, Any]) -> None:
+    event = value["assistantMessageEvent"]
+    subtype = event["type"]
+    index = event["contentIndex"]
+    content = message.get("content")
+    if type(content) is not list:
+        raise ValueError("assistant_reconstruction_incomplete")
+    if subtype.endswith("_start"):
+        if index != len(content):
+            raise ValueError("assistant_reconstruction_incomplete")
+        content.append(copy.deepcopy(value["contentStart"]))
+        return
+    content = _require_content_index(message, index)
+    block = content[index]
+    if subtype == "text_delta":
+        if type(block) is not dict or block.get("type") != "text":
+            raise ValueError("assistant_reconstruction_incomplete")
+        block["text"] += event["delta"]
+    elif subtype == "thinking_delta":
+        if type(block) is not dict or block.get("type") != "thinking":
+            raise ValueError("assistant_reconstruction_incomplete")
+        block["thinking"] += event["delta"]
+    elif subtype == "toolcall_delta":
+        if type(block) is not dict or block.get("type") != "toolCall":
+            raise ValueError("assistant_reconstruction_incomplete")
+    elif subtype == "text_end":
+        if type(block) is not dict or block.get("type") != "text":
+            raise ValueError("assistant_reconstruction_incomplete")
+        block["text"] = event["content"]
+    elif subtype == "thinking_end":
+        if type(block) is not dict or block.get("type") != "thinking":
+            raise ValueError("assistant_reconstruction_incomplete")
+        block["thinking"] = event["content"]
+    elif subtype == "toolcall_end":
+        content[index] = copy.deepcopy(event["toolCall"])
+    else:
+        raise ValueError("assistant_reconstruction_incomplete")
+
+
+def reconstruct_terminal_assistant_messages(
+    protocol: dict[str, Any], row_root: Path
+) -> list[dict[str, Any]]:
+    current: dict[str, Any] | None = None
+    terminal: list[dict[str, Any]] = []
+    for value in iter_retained_prime_events(protocol, row_root):
+        event_type = value.get("type")
+        if event_type == "message_start":
+            message = value.get("message")
+            if (
+                current is not None
+                or type(message) is not dict
+                or message.get("role") != "assistant"
+            ):
+                raise ValueError("assistant_reconstruction_incomplete")
+            current = copy.deepcopy(message)
+        elif event_type == "assistant_stream_delta":
+            if current is None:
+                raise ValueError("assistant_reconstruction_incomplete")
+            _apply_compact_delta(current, value)
+        elif event_type == "message_update":
+            message = value.get("message")
+            if type(message) is dict and message.get("role") == "assistant":
+                if current is None:
+                    raise ValueError("assistant_reconstruction_incomplete")
+                current = copy.deepcopy(message)
+        elif event_type == "message_end":
+            message = value.get("message")
+            if (
+                current is None
+                or type(message) is not dict
+                or message.get("role") != "assistant"
+            ):
+                raise ValueError("assistant_reconstruction_incomplete")
+            if not _same_value(current, message):
+                raise ValueError("assistant_reconstruction_mismatch")
+            terminal.append(copy.deepcopy(message))
+            current = None
+    if current is not None:
+        raise ValueError("assistant_reconstruction_incomplete")
+    return terminal

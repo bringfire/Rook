@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
+import queue
 import sys
+import threading
+import time
 from typing import Any
 
 import pytest
@@ -403,3 +408,375 @@ def test_source_row_must_be_one_based(capture):
     with pytest.raises(capture.PrimeCaptureError) as caught:
         capture.transform_prime_row(b'{"type":"session"}\n', 0)
     assert caught.value.code == "compact_transform_failed"
+
+
+def json_row_of_size(size: int, *, lf: bool = True) -> bytes:
+    prefix, suffix = b'{"payload":"', b'"}'
+    newline = b"\n" if lf else b""
+    fill = size - len(prefix) - len(suffix) - len(newline)
+    assert fill >= 0
+    return prefix + (b"a" * fill) + suffix + newline
+
+
+class RecordingBytesIO(io.BytesIO):
+    def __init__(self, value: bytes):
+        super().__init__(value)
+        self.requested_sizes: list[int] = []
+
+    def read(self, size: int = -1) -> bytes:
+        self.requested_sizes.append(size)
+        return super().read(size)
+
+
+def test_exact_maximum_row_is_admitted_in_fixed_chunks(capture):
+    row = json_row_of_size(capture.MAX_SOURCE_ROW_BYTES)
+    stream = RecordingBytesIO(row)
+    assert list(capture.iter_bounded_lf_rows(stream)) == [row]
+    assert set(stream.requested_sizes) == {capture.SOURCE_READ_CHUNK_BYTES}
+
+
+@pytest.mark.parametrize("terminated", [True, False])
+def test_oversized_row_refuses_at_frozen_boundary(capture, terminated):
+    row = json_row_of_size(capture.MAX_SOURCE_ROW_BYTES + 1, lf=terminated)
+    stream = RecordingBytesIO(row)
+    with pytest.raises(capture.PrimeCaptureError) as caught:
+        list(capture.iter_bounded_lf_rows(stream))
+    assert caught.value.code == "stdout_row_too_large"
+    assert max(stream.requested_sizes) == capture.SOURCE_READ_CHUNK_BYTES
+
+
+def test_capture_failure_code_catalog_is_exact(capture):
+    assert capture.FAILURE_CODES == {
+        "stdout_read_failed",
+        "stdout_invalid_utf8",
+        "stdout_missing_final_lf",
+        "stdout_row_too_large",
+        "stdout_json_invalid",
+        "stdout_json_object_required",
+        "stdout_json_duplicate_key",
+        "compact_transform_failed",
+        "compact_write_failed",
+        "compact_close_failed",
+        "raw_debug_write_failed",
+        "raw_debug_close_failed",
+        "capture_custody_write_failed",
+        "capture_custody_missing",
+        "capture_custody_mismatch",
+        "capture_row_count_mismatch",
+        "raw_debug_mismatch",
+    }
+
+
+def text_delta_source_row(delta: str) -> bytes:
+    return source_update_row("text_delta", {"delta": delta}, [text_block(delta)])
+
+
+def capture_config(capture, *, mode: str = "compact"):
+    return capture.validate_capture_config(approved_capture_config(mode=mode))
+
+
+def test_complete_capture_writes_and_verifies_deterministic_custody(
+    capture, tmp_path
+):
+    rows = [b'{"type":"session"}\n', text_delta_source_row("hello")]
+    published: list[dict[str, Any]] = []
+    custody = capture.capture_binary_stream(
+        io.BytesIO(b"".join(rows)),
+        config=capture_config(capture),
+        row_root=tmp_path,
+        publish=published.append,
+    )
+    retained = tmp_path / "operator" / "prime-events.compact.jsonl"
+    custody_path = tmp_path / "operator" / "prime-event-capture-custody.json"
+    assert custody == capture.verify_capture_custody(capture_config(capture), tmp_path)
+    assert custody_path.read_bytes() == canonical_test_line(custody)
+    assert custody["source"] == {
+        "bytes": sum(map(len, rows)),
+        "maxRowBytes": max(map(len, rows)),
+        "rows": 2,
+        "sha256": hashlib.sha256(b"".join(rows)).hexdigest().upper(),
+        "stdoutEof": True,
+    }
+    assert custody["retained"]["rows"] == 2
+    assert custody["retained"]["compactedMessageUpdates"] == 1
+    assert custody["retained"]["rawFallbackMessageUpdates"] == 0
+    assert custody["retained"]["bytes"] == retained.stat().st_size
+    assert custody["rawDebug"] is None
+    assert [event["type"] for event in published] == ["session", "message_update"]
+
+
+def test_raw_debug_is_exact_and_bound_to_source(capture, tmp_path):
+    rows = [b'{"type":"session"}\n', text_delta_source_row("hello")]
+    config = capture_config(capture, mode="compact_with_raw_debug")
+    custody = capture.capture_binary_stream(
+        io.BytesIO(b"".join(rows)),
+        config=config,
+        row_root=tmp_path,
+        publish=lambda event: None,
+    )
+    raw = tmp_path / "operator" / "prime-events.raw.jsonl"
+    assert raw.read_bytes() == b"".join(rows)
+    assert custody["rawDebug"] == {
+        "bytes": raw.stat().st_size,
+        "path": "operator/prime-events.raw.jsonl",
+        "sha256": hashlib.sha256(raw.read_bytes()).hexdigest().upper(),
+    }
+    assert capture.verify_capture_custody(config, tmp_path) == custody
+
+
+def test_two_captures_are_byte_deterministic(capture, tmp_path):
+    source = b'{"type":"session"}\n' + text_delta_source_row("hello")
+    outputs = []
+    for name in ("a", "b"):
+        root = tmp_path / name
+        capture.capture_binary_stream(
+            io.BytesIO(source),
+            config=capture_config(capture),
+            row_root=root,
+            publish=lambda event: None,
+        )
+        outputs.append(
+            (
+                (root / "operator" / "prime-events.compact.jsonl").read_bytes(),
+                (root / "operator" / "prime-event-capture-custody.json").read_bytes(),
+            )
+        )
+    assert outputs[0] == outputs[1]
+
+
+@pytest.mark.parametrize("corruption", ["missing", "changed", "duplicate", "reordered"])
+def test_retained_corruption_refuses_custody(capture, tmp_path, corruption):
+    config = capture_config(capture)
+    source = b'{"type":"session"}\n' + text_delta_source_row("hello")
+    capture.capture_binary_stream(
+        io.BytesIO(source),
+        config=config,
+        row_root=tmp_path,
+        publish=lambda event: None,
+    )
+    retained = tmp_path / "operator" / "prime-events.compact.jsonl"
+    rows = retained.read_bytes().splitlines(keepends=True)
+    if corruption == "missing":
+        retained.unlink()
+    elif corruption == "changed":
+        retained.write_bytes(rows[0] + rows[1].replace(b"hello", b"hullo"))
+    elif corruption == "duplicate":
+        retained.write_bytes(rows[0] + rows[1] + rows[1])
+    else:
+        retained.write_bytes(rows[1] + rows[0])
+    with pytest.raises(capture.PrimeCaptureError) as caught:
+        capture.verify_capture_custody(config, tmp_path)
+    assert caught.value.code in {"capture_custody_missing", "capture_custody_mismatch"}
+
+
+def test_existing_destination_refuses_without_overwrite(capture, tmp_path):
+    retained = tmp_path / "operator" / "prime-events.compact.jsonl"
+    retained.parent.mkdir(parents=True)
+    retained.write_bytes(b"protected\n")
+    with pytest.raises(capture.PrimeCaptureError) as caught:
+        capture.capture_binary_stream(
+            io.BytesIO(b'{"type":"session"}\n'),
+            config=capture_config(capture),
+            row_root=tmp_path,
+            publish=lambda event: None,
+        )
+    assert caught.value.code == "compact_write_failed"
+    assert retained.read_bytes() == b"protected\n"
+    failure = json.loads(
+        (tmp_path / "operator" / "prime-event-capture-failure.json").read_bytes()
+    )
+    assert failure["status"] == "incomplete"
+    assert failure["code"] == "compact_write_failed"
+
+
+class WriteFailure(io.BytesIO):
+    def write(self, value: bytes) -> int:
+        raise OSError("injected")
+
+
+class CloseFailure(io.BytesIO):
+    def close(self) -> None:
+        raise OSError("injected")
+
+
+@pytest.mark.parametrize(
+    ("writer", "code"),
+    [(WriteFailure, "compact_write_failed"), (CloseFailure, "compact_close_failed")],
+)
+def test_injected_retained_writer_failure_is_incomplete(
+    capture, monkeypatch, tmp_path, writer, code
+):
+    real_open = capture._open_exclusive
+
+    def injected(path: Path):
+        if path.name == "prime-events.compact.jsonl":
+            return writer()
+        return real_open(path)
+
+    monkeypatch.setattr(capture, "_open_exclusive", injected)
+    with pytest.raises(capture.PrimeCaptureError) as caught:
+        capture.capture_binary_stream(
+            io.BytesIO(b'{"type":"session"}\n'),
+            config=capture_config(capture),
+            row_root=tmp_path,
+            publish=lambda event: None,
+        )
+    assert caught.value.code == code
+    assert not (tmp_path / "operator" / "prime-event-capture-custody.json").exists()
+
+
+def retained_row_count(root: Path) -> int:
+    path = root / "operator" / "prime-events.compact.jsonl"
+    if not path.exists():
+        return 0
+    with path.open("rb") as stream:
+        return sum(1 for _ in stream)
+
+
+def wait_until(predicate, timeout: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline:
+            raise AssertionError("condition_not_reached")
+        time.sleep(0.01)
+
+
+def test_stalled_consumer_applies_one_event_backpressure(capture, tmp_path):
+    events: queue.Queue = queue.Queue(maxsize=capture.MONITOR_QUEUE_MAX_EVENTS)
+    stream = RecordingBytesIO(
+        b"".join(b'{"type":"event_' + str(i).encode() + b'"}\n' for i in range(3))
+    )
+    outcome: dict[str, Any] = {}
+
+    def run_capture() -> None:
+        try:
+            outcome["custody"] = capture.capture_binary_stream(
+                stream,
+                config=capture_config(capture),
+                row_root=tmp_path,
+                publish=events.put,
+            )
+        except BaseException as error:  # retained for assertion in the parent thread
+            outcome["error"] = error
+
+    thread = threading.Thread(target=run_capture)
+    thread.start()
+    wait_until(lambda: retained_row_count(tmp_path) == 2)
+    assert events.qsize() == 1
+    assert thread.is_alive()
+    assert max(stream.requested_sizes) <= capture.SOURCE_READ_CHUNK_BYTES
+    events.get(timeout=1)
+    wait_until(lambda: retained_row_count(tmp_path) == 3)
+    assert events.qsize() == 1
+    events.get(timeout=1)
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert "error" not in outcome
+    assert outcome["custody"]["retained"]["rows"] == 3
+
+
+def checkpoint_row(event_type: str, message: dict[str, Any]) -> bytes:
+    return canonical_test_line({"type": event_type, "message": message})
+
+
+def update_for_message(
+    subtype: str,
+    content_index: int,
+    event_payload: dict[str, Any],
+    message: dict[str, Any],
+    *,
+    root_extra: dict[str, Any] | None = None,
+) -> bytes:
+    value = {
+        "type": "message_update",
+        "message": copy.deepcopy(message),
+        "assistantMessageEvent": {
+            "type": subtype,
+            "contentIndex": content_index,
+            **copy.deepcopy(event_payload),
+            "partial": copy.deepcopy(message),
+        },
+    }
+    if root_extra:
+        value.update(root_extra)
+    return canonical_test_line(value)
+
+
+def two_message_reconstruction_fixture() -> tuple[bytes, list[dict[str, Any]]]:
+    empty = assistant_message([])
+    text_started = assistant_message([text_block("")])
+    text_complete = assistant_message([text_block("A")])
+    both_started = assistant_message([text_block("A"), thinking_block("")])
+    first_final = assistant_message([text_block("A"), thinking_block("B")])
+    tool_started = assistant_message([tool_block(streaming=True)])
+    tool_final = assistant_message([final_tool_call()])
+    rows = [
+        checkpoint_row("message_start", empty),
+        update_for_message("text_start", 0, {}, text_started),
+        update_for_message("text_delta", 0, {"delta": "A"}, text_complete),
+        update_for_message("thinking_start", 1, {}, both_started),
+        update_for_message("thinking_delta", 1, {"delta": "B"}, first_final),
+        update_for_message("text_end", 0, {"content": "A"}, first_final),
+        update_for_message("thinking_end", 1, {"content": "B"}, first_final),
+        checkpoint_row("message_end", first_final),
+        checkpoint_row("message_start", empty),
+        update_for_message("toolcall_start", 0, {}, tool_started),
+        update_for_message("toolcall_delta", 0, {"delta": "{}"}, tool_started),
+        update_for_message(
+            "toolcall_end", 0, {"toolCall": final_tool_call()}, tool_final
+        ),
+        checkpoint_row("message_end", tool_final),
+    ]
+    return b"".join(rows), [first_final, tool_final]
+
+
+def test_reconstruction_equals_exact_terminal_messages(capture, tmp_path):
+    source, expected = two_message_reconstruction_fixture()
+    protocol = {"primeEventCapture": approved_capture_config()}
+    capture.capture_binary_stream(
+        io.BytesIO(source),
+        config=capture_config(capture),
+        row_root=tmp_path,
+        publish=lambda event: None,
+    )
+    assert capture.reconstruct_terminal_assistant_messages(protocol, tmp_path) == expected
+
+
+def test_raw_fallback_update_remains_reconstructable(capture, tmp_path):
+    empty = assistant_message([])
+    final = assistant_message([text_block("raw")])
+    source = b"".join(
+        [
+            checkpoint_row("message_start", empty),
+            update_for_message(
+                "text_delta",
+                0,
+                {"delta": "raw"},
+                final,
+                root_extra={"future": True},
+            ),
+            checkpoint_row("message_end", final),
+        ]
+    )
+    protocol = {"primeEventCapture": approved_capture_config()}
+    custody = capture.capture_binary_stream(
+        io.BytesIO(source),
+        config=capture_config(capture),
+        row_root=tmp_path,
+        publish=lambda event: None,
+    )
+    assert custody["retained"]["rawFallbackMessageUpdates"] == 1
+    assert capture.reconstruct_terminal_assistant_messages(protocol, tmp_path) == [final]
+
+
+def test_missing_terminal_checkpoint_refuses_reconstruction(capture, tmp_path):
+    source = checkpoint_row("message_start", assistant_message([]))
+    protocol = {"primeEventCapture": approved_capture_config()}
+    capture.capture_binary_stream(
+        io.BytesIO(source),
+        config=capture_config(capture),
+        row_root=tmp_path,
+        publish=lambda event: None,
+    )
+    with pytest.raises(ValueError, match="assistant_reconstruction_incomplete"):
+        capture.reconstruct_terminal_assistant_messages(protocol, tmp_path)
