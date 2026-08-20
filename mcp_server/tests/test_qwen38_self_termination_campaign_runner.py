@@ -219,6 +219,13 @@ MULTIMODAL_VESSEL_V2_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-19-qwen38-multimodal-vessel-massing-v2.json"
 )
+MULTIMODAL_VESSEL_V3_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-20-qwen38-multimodal-vessel-massing-v3.json"
+)
 MULTIMODAL_VESSEL_ADJUDICATION_PATH = (
     ROOT
     / "docs"
@@ -528,6 +535,10 @@ def _multimodal_vessel_v2_protocol() -> dict:
     return json.loads(MULTIMODAL_VESSEL_V2_PROTOCOL_PATH.read_text(encoding="utf-8"))
 
 
+def _multimodal_vessel_v3_protocol() -> dict:
+    return json.loads(MULTIMODAL_VESSEL_V3_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
 def _skill_body(path: Path) -> str:
     content = path.read_text(encoding="utf-8")
     assert content.startswith("---\n")
@@ -817,6 +828,53 @@ def test_multimodal_vessel_v2_file_changes_only_retry_custody_fields():
         protocol["contactMode"].pop("evidenceRoot")
         protocol["offlineEvaluator"].pop("runnerSha256")
     assert v2 == v1
+
+
+def test_multimodal_vessel_v3_freezes_corrected_brief_and_visual_review():
+    runner = _runner()
+    v2 = _multimodal_vessel_v2_protocol()
+    v3 = _multimodal_vessel_v3_protocol()
+
+    assert runner.validate_protocol(v3) is v3
+    assert v3["schema"] == runner.MULTIMODAL_VESSEL_V3_SCHEMA
+    assert v3["contactMode"]["evidenceRoot"] == (
+        "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v3"
+    )
+
+    prompt = v3["tasks"]["MV1"]["prompt"]
+    for required in (
+        "flared six-sided circulation lattice",
+        "open central atrium",
+        "discrete broad landings and narrow connecting walkway strips",
+        "alternate between two staggered angular states",
+        "multiple wide diagonal stair ribbons",
+        "connected base-to-top circulation route",
+        "Do not use full floor plates",
+        "silently fall back to solid slabs",
+        "`rhino_viewport`",
+        "Top and Perspective",
+        "`attach_image`",
+        "before the final receipt wait and fenced snapshot",
+    ):
+        assert required in prompt
+    for excluded in (
+        "smoothstep",
+        "theta_",
+        "2*pi",
+        "CreateBooleanDifference",
+        "exactly six stairs",
+    ):
+        assert excluded not in prompt
+
+    assert v3["limits"] == v2["limits"]
+    assert v3["prime"] == v2["prime"]
+    assert v3["modelCustody"] == v2["modelCustody"]
+    assert v3["rookCustody"] == v2["rookCustody"]
+    assert v3["toolSurface"] == v2["toolSurface"]
+    assert v3["versionedInputs"]["skillSha256"] == v2["versionedInputs"][
+        "skillSha256"
+    ]
+    assert v3["singleRun"] == v2["singleRun"]
 
 
 def test_multimodal_launch_requires_both_images_as_first_ipython_action(tmp_path):

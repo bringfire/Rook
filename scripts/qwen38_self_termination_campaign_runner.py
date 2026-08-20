@@ -47,9 +47,11 @@ OPTIONAL_PYTHON_CONFIRMATION_SCHEMA = (
 )
 MULTIMODAL_VESSEL_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v1"
 MULTIMODAL_VESSEL_V2_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v2"
+MULTIMODAL_VESSEL_V3_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v3"
 MULTIMODAL_VESSEL_SCHEMAS = {
     MULTIMODAL_VESSEL_SCHEMA,
     MULTIMODAL_VESSEL_V2_SCHEMA,
+    MULTIMODAL_VESSEL_V3_SCHEMA,
 }
 PRIME_UPSTREAM_SMOKE_SCHEMAS = {
     PRIME_UPSTREAM_SMOKE_SCHEMA,
@@ -1455,14 +1457,62 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         raise ValueError("multimodal_vessel_invalid")
 
     task = protocol.get("tasks", {}).get("MV1")
+    original_prompt = (
+        "Use Image 1 for the overall stacked, twisting exterior massing and "
+        "Image 2 for circulation. They are conceptual references, not literal "
+        "geometry. Create an adjustable Grasshopper conceptual massing with 8 "
+        "stacked horizontal polygonal annular walkway platforms around a clear "
+        "central void. Rotate successive levels gradually. Create one continuous "
+        "zig-zag stair route with exactly one connected flight between every "
+        "adjacent level; each flight must physically meet both platforms without "
+        "gaps or isolated ends. Represent platforms and stairs as visible "
+        "conceptual surfaces or shallow solids, not only centerlines. Expose "
+        "Levels, Level Height, Base Radius, Walkway Width, Twist Per Level, and "
+        "Stair Width controls. Exercise Levels and Twist Per Level independently, "
+        "observe each effect, restore defaults, retain a final same-receipt fenced "
+        "snapshot, and call goal.complete() as the final tool call. Then emit text "
+        "only. Do not add railings, façade, detailed structure, people, baking, "
+        "or unrelated geometry."
+    )
+    corrected_prompt = (
+        "Study both reference images before authoring. Create an adjustable "
+        "Grasshopper conceptual massing of the Vessel as a flared six-sided "
+        "circulation lattice around an open central atrium. The outer envelope "
+        "and the central void should both widen from a narrow base toward a broad "
+        "top. Use discrete broad landings and narrow connecting walkway strips at "
+        "each tier. Do not use full floor plates. Successive tiers should alternate "
+        "between two staggered angular states rather than accumulate a continuous "
+        "helix. Use multiple wide diagonal stair ribbons between every adjacent "
+        "tier so the massing reads as a dense pattern of V, X, and chevron forms. "
+        "The landing-and-stair network must contain at least one connected "
+        "base-to-top circulation route, and every flight must overlap its departure "
+        "and arrival landings. Do not accept or silently fall back to solid slabs "
+        "if construction of the open atrium fails. Expose Levels, Level Height, "
+        "Base Radius, Top Radius, Walkway Depth, Tier Stagger Angle, and Stair Width "
+        "controls, beginning with 8 tiers. Exercise Levels and Tier Stagger Angle "
+        "independently, observe each effect, and restore the chosen defaults. The "
+        "`rhino_viewport` capability is admitted for this task: read its contract "
+        "directly once without searching for it. After restoration, capture Top and "
+        "Perspective views, pass both returned image paths to `attach_image`, and "
+        "inspect them before the final receipt wait and fenced snapshot. Correct a "
+        "filled atrium, disconnected circulation, missing flare, or full-plate "
+        "massing before completing. Then retain the final same-receipt fenced "
+        "snapshot, call goal.complete() as the final tool call, and emit text only. "
+        "Do not add railings, façade, detailed structure, people, baking, or "
+        "unrelated geometry."
+    )
+    expected_prompt = {
+        MULTIMODAL_VESSEL_SCHEMA: original_prompt,
+        MULTIMODAL_VESSEL_V2_SCHEMA: original_prompt,
+        MULTIMODAL_VESSEL_V3_SCHEMA: corrected_prompt,
+    }.get(protocol.get("schema"))
     if (
         type(task) is not dict
         or task.get("id") != "MV1"
         or task.get("class") != "multimodal_conceptual_vessel_massing"
         or task.get("targetBaseline") != "fresh_empty_grasshopper_document"
         or task.get("evaluator") != "independent_shadow_judgment"
-        or task.get("prompt")
-        != "Use Image 1 for the overall stacked, twisting exterior massing and Image 2 for circulation. They are conceptual references, not literal geometry. Create an adjustable Grasshopper conceptual massing with 8 stacked horizontal polygonal annular walkway platforms around a clear central void. Rotate successive levels gradually. Create one continuous zig-zag stair route with exactly one connected flight between every adjacent level; each flight must physically meet both platforms without gaps or isolated ends. Represent platforms and stairs as visible conceptual surfaces or shallow solids, not only centerlines. Expose Levels, Level Height, Base Radius, Walkway Width, Twist Per Level, and Stair Width controls. Exercise Levels and Twist Per Level independently, observe each effect, restore defaults, retain a final same-receipt fenced snapshot, and call goal.complete() as the final tool call. Then emit text only. Do not add railings, façade, detailed structure, people, baking, or unrelated geometry."
+        or task.get("prompt") != expected_prompt
     ):
         raise ValueError("multimodal_vessel_invalid")
     validate_target_fixture(task.get("targetFixture"))
@@ -1480,6 +1530,9 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         MULTIMODAL_VESSEL_V2_SCHEMA: (
             "C:/UDEV/RookEvidence/2026-08-19-qwen38-multimodal-vessel-massing-v2"
         ),
+        MULTIMODAL_VESSEL_V3_SCHEMA: (
+            "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v3"
+        ),
     }.get(protocol.get("schema"))
     contact = protocol.get("contactMode")
     if contact != {
@@ -1496,6 +1549,7 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         MULTIMODAL_VESSEL_V2_SCHEMA: (
             "BADC04D9A630D6285A2961738C55507D0CD4AE91449E0383D775EBE81839DCFF"
         ),
+        MULTIMODAL_VESSEL_V3_SCHEMA: _sha(Path(__file__).resolve()),
     }.get(protocol.get("schema"))
     if (
         type(evaluator) is not dict
