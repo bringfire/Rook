@@ -937,11 +937,9 @@ def reconstruct_terminal_assistant_messages(
         event_type = value.get("type")
         if event_type == "message_start":
             message = value.get("message")
-            if (
-                current is not None
-                or type(message) is not dict
-                or message.get("role") != "assistant"
-            ):
+            if type(message) is not dict or message.get("role") != "assistant":
+                continue
+            if current is not None:
                 raise ValueError("assistant_reconstruction_incomplete")
             current = copy.deepcopy(message)
         elif event_type == "assistant_stream_delta":
@@ -956,11 +954,9 @@ def reconstruct_terminal_assistant_messages(
                 current = copy.deepcopy(message)
         elif event_type == "message_end":
             message = value.get("message")
-            if (
-                current is None
-                or type(message) is not dict
-                or message.get("role") != "assistant"
-            ):
+            if type(message) is not dict or message.get("role") != "assistant":
+                continue
+            if current is None:
                 raise ValueError("assistant_reconstruction_incomplete")
             if not _same_value(current, message):
                 raise ValueError("assistant_reconstruction_mismatch")
