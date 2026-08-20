@@ -37,9 +37,13 @@ PRIME_UPSTREAM_SMOKE_SCHEMA = (
 PRIME_UPSTREAM_SMOKE_V2_SCHEMA = (
     "rook.experiment.prime_upstream_t3_compatibility_smoke:v2"
 )
+PRIME_UPSTREAM_SMOKE_V3_SCHEMA = (
+    "rook.experiment.prime_upstream_t3_compatibility_smoke:v3"
+)
 PRIME_UPSTREAM_SMOKE_SCHEMAS = {
     PRIME_UPSTREAM_SMOKE_SCHEMA,
     PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
+    PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
 }
 TARGET_FIXTURE_SCHEMA = "rook.experiment.gh_target_fixture:v1"
 SHADOW_ADJUDICATION_SCHEMA = (
@@ -985,6 +989,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         VARIED_COHORT_SCHEMA,
         PRIME_UPSTREAM_SMOKE_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
+        PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
     }:
         raise ValueError("protocol_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
@@ -1010,6 +1015,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         VARIED_COHORT_SCHEMA: _varied_execution_order(protocol),
         PRIME_UPSTREAM_SMOKE_SCHEMA: ["T3"],
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA: ["T3"],
+        PRIME_UPSTREAM_SMOKE_V3_SCHEMA: ["T3"],
     }[schema]
     if type(tasks) is not dict or order != expected_order:
         raise ValueError("focused_retest_invalid" if schema.endswith(":v5") else "task_order_invalid")
@@ -1029,6 +1035,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         VARIED_COHORT_SCHEMA,
         PRIME_UPSTREAM_SMOKE_SCHEMA,
         PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
+        PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
     }:
         if (
             schema not in PRIME_UPSTREAM_SMOKE_SCHEMAS
@@ -1062,6 +1069,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         )
         goal_custody = protocol.get("goalSkillCustody")
         precontact_gate = protocol.get("precontactGate")
+        contact_mode = protocol.get("contactMode")
         expected_goal_sha = (
             "9A6F39CCD05DD8A6F64E9F36F38C6ECCC9C333904CEA7F3CE7E95CEC48214D4A"
         )
@@ -1088,6 +1096,14 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
                 "2026-08-19-prime-upstream-t3-compatibility-smoke-v2"
             ),
             "actorContactAuthorized": False,
+        }
+        expected_contact_mode = {
+            "mode": "single_t3_live_contact",
+            "evidenceRoot": (
+                "C:/UDEV/RookEvidence/"
+                "2026-08-19-prime-upstream-t3-compatibility-smoke-v3"
+            ),
+            "actorContactAuthorized": True,
         }
         if (
             protocol.get("status") != "frozen_precontact"
@@ -1175,6 +1191,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
                 and (
                     goal_custody is not None
                     or precontact_gate is not None
+                    or contact_mode is not None
                 )
             )
             or (
@@ -1182,6 +1199,15 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
                 and (
                     goal_custody != expected_goal_custody
                     or precontact_gate != expected_precontact_gate
+                    or contact_mode is not None
+                )
+            )
+            or (
+                schema == PRIME_UPSTREAM_SMOKE_V3_SCHEMA
+                and (
+                    goal_custody != expected_goal_custody
+                    or precontact_gate is not None
+                    or contact_mode != expected_contact_mode
                 )
             )
         ):
@@ -1198,7 +1224,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
             or _sha(evaluator_path) != evaluator["acceptanceArtifactSha256"]
             or not runner_path.is_file()
             or (
-                schema == PRIME_UPSTREAM_SMOKE_V2_SCHEMA
+                schema == PRIME_UPSTREAM_SMOKE_V3_SCHEMA
                 and _sha(runner_path) != evaluator["runnerSha256"]
             )
             or not adjudication_path.is_file()
@@ -2302,7 +2328,10 @@ def _runtime_custody(
                     f"authoring_lane_skill:{task_id}",
                 )
     goal_skill_equivalence: dict[str, Any] | None = None
-    if protocol.get("schema") == PRIME_UPSTREAM_SMOKE_V2_SCHEMA:
+    if protocol.get("schema") in {
+        PRIME_UPSTREAM_SMOKE_V2_SCHEMA,
+        PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
+    }:
         goal_skill_equivalence = verify_goal_skill_equivalence(
             protocol["goalSkillCustody"]
         )
@@ -2398,7 +2427,8 @@ def _run_preflight(
         ),
         (
             protocol["goalSkillCustody"]
-            if protocol.get("schema") == PRIME_UPSTREAM_SMOKE_V2_SCHEMA
+            if protocol.get("schema")
+            in {PRIME_UPSTREAM_SMOKE_V2_SCHEMA, PRIME_UPSTREAM_SMOKE_V3_SCHEMA}
             else None
         ),
     )
@@ -3625,6 +3655,12 @@ def run_campaign(
     protocol = validate_protocol(_load_json(protocol_path))
     if protocol["schema"] == PRIME_UPSTREAM_SMOKE_V2_SCHEMA:
         raise RuntimeError("precontact_protocol_not_live_executable")
+    if (
+        protocol["schema"] == PRIME_UPSTREAM_SMOKE_V3_SCHEMA
+        and evidence_root.as_posix()
+        != protocol["contactMode"]["evidenceRoot"]
+    ):
+        raise RuntimeError("live_contact_evidence_root_invalid")
     evidence_root = validate_evidence_root(evidence_root)
     evidence_root.mkdir(parents=True, exist_ok=False)
     shutil.copy2(protocol_path, evidence_root / "protocol.json")

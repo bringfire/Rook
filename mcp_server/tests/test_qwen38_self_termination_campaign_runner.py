@@ -172,6 +172,13 @@ PRIME_UPSTREAM_SMOKE_V2_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-19-prime-upstream-t3-compatibility-smoke-v2.json"
 )
+PRIME_UPSTREAM_SMOKE_V3_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-19-prime-upstream-t3-compatibility-smoke-v3.json"
+)
 PRIME_UPSTREAM_SMOKE_ADJUDICATION_PATH = (
     ROOT
     / "docs"
@@ -439,6 +446,12 @@ def _prime_upstream_smoke_protocol() -> dict:
 def _prime_upstream_smoke_v2_protocol() -> dict:
     return json.loads(
         PRIME_UPSTREAM_SMOKE_V2_PROTOCOL_PATH.read_text(encoding="utf-8")
+    )
+
+
+def _prime_upstream_smoke_v3_protocol() -> dict:
+    return json.loads(
+        PRIME_UPSTREAM_SMOKE_V3_PROTOCOL_PATH.read_text(encoding="utf-8")
     )
 
 
@@ -736,6 +749,75 @@ def test_prime_upstream_v2_exposes_model_free_preflight_command(tmp_path):
     )
 
     assert args.command == "preflight"
+
+
+def test_prime_upstream_v2_cannot_enter_live_campaign(tmp_path):
+    runner = _runner()
+    evidence_root = tmp_path / "v2-live-evidence"
+
+    with pytest.raises(
+        RuntimeError, match="precontact_protocol_not_live_executable"
+    ):
+        runner.run_campaign(
+            PRIME_UPSTREAM_SMOKE_V2_PROTOCOL_PATH,
+            evidence_root,
+            268435457,
+            None,
+        )
+
+    assert not evidence_root.exists()
+
+
+def test_prime_upstream_v3_is_only_the_reviewable_live_contact_transition():
+    runner = _runner()
+    v2 = _prime_upstream_smoke_v2_protocol()
+    v3 = _prime_upstream_smoke_v3_protocol()
+
+    assert hashlib.sha256(PRIME_UPSTREAM_SMOKE_PROTOCOL_PATH.read_bytes()).hexdigest().upper() == (
+        "512A0843FB8D59DC25F5C8C81B40C296C06DA7DA06778CA86AC82C6C2B711BCD"
+    )
+    assert hashlib.sha256(PRIME_UPSTREAM_SMOKE_V2_PROTOCOL_PATH.read_bytes()).hexdigest().upper() == (
+        "D8F125BCFDC5E3D88E7845A6602FE46B52894652E3FF9FCB7D648FAF5B743687"
+    )
+    assert runner.validate_protocol(v3) is v3
+    assert v3["schema"] == runner.PRIME_UPSTREAM_SMOKE_V3_SCHEMA
+    assert v3["contactMode"] == {
+        "mode": "single_t3_live_contact",
+        "evidenceRoot": (
+            "C:/UDEV/RookEvidence/"
+            "2026-08-19-prime-upstream-t3-compatibility-smoke-v3"
+        ),
+        "actorContactAuthorized": True,
+    }
+    ignored = {
+        "schema",
+        "purpose",
+        "precontactGate",
+        "contactMode",
+        "offlineEvaluator",
+    }
+    assert {key: value for key, value in v3.items() if key not in ignored} == {
+        key: value for key, value in v2.items() if key not in ignored
+    }
+    assert v3["offlineEvaluator"] == (
+        v2["offlineEvaluator"]
+        | {"runnerSha256": hashlib.sha256(RUNNER_PATH.read_bytes()).hexdigest().upper()}
+    )
+
+
+def test_prime_upstream_v3_rejects_evidence_root_drift_before_creation(tmp_path):
+    runner = _runner()
+    evidence_root = tmp_path / "wrong-v3-evidence"
+
+    with pytest.raises(RuntimeError, match="live_contact_evidence_root_invalid"):
+        runner.run_campaign(
+            PRIME_UPSTREAM_SMOKE_V3_PROTOCOL_PATH,
+            evidence_root,
+            268435457,
+            None,
+        )
+
+    assert not evidence_root.exists()
 
 
 def _committed_prime_test_repository(root: Path) -> Path:
