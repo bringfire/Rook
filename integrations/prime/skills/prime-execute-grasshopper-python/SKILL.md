@@ -174,8 +174,13 @@ This is evidence and completion guidance, not a host-enforced semantic gate.
 
 ## Finalize and Return
 
-Do not run global cleanup. Apply requested grouping or layout only to execution-owned components.
+Any requested grouping or layout must already have been applied only to
+execution-owned components before the final checkpoint. Do not run global
+cleanup.
 
-Capture a final fresh snapshot, inspect errors, and verify the requested outputs and connections. Return a concise report of created and changed state, remaining warnings or failures, and cleanup of any disposable execution-owned fixtures.
+Use the already-inspected receipt-fenced snapshot to prepare the report; call
+`goal.complete()` as the last tool call; then emit only the textual response.
+Report created and changed state, remaining warnings or failures, and cleanup
+of any disposable execution-owned fixtures.
 
 Successful execution is terminal. Do not start any automatic knowledge-write or post-execution learning stage.

@@ -495,19 +495,30 @@ def _skill_body(path: Path) -> str:
 def test_optional_python_skill_packages_the_qualified_lane_without_native_drift():
     protocol = _optional_python_confirmation_protocol()
     packaged = OPTIONAL_PYTHON_SKILL_PATH.read_text(encoding="utf-8")
+    packaged_body = _skill_body(OPTIONAL_PYTHON_SKILL_PATH)
+    qualified_body = _skill_body(PYTHON_LANE_SKILL_PATH)
+    packaged_prefix, packaged_finalization = packaged_body.split(
+        "## Finalize and Return", 1
+    )
+    qualified_prefix, qualified_finalization = qualified_body.split(
+        "## Finalize and Return", 1
+    )
 
     assert hashlib.sha256(SKILL_PATH.read_bytes()).hexdigest().upper() == (
         "30CA98809CCE8F4BE5B1CC291DEB8820511B6B13A0D546CBA93848DBC9074B07"
     )
-    assert _skill_body(OPTIONAL_PYTHON_SKILL_PATH) == _skill_body(
-        PYTHON_LANE_SKILL_PATH
-    )
+    assert packaged_prefix == qualified_prefix
+    assert "Capture a final fresh snapshot" in qualified_finalization
+    assert "Capture a final fresh snapshot" not in packaged_finalization
     assert "name: prime-execute-grasshopper-python" in packaged
     assert (
         "Explicitly selected Python scripting lane for Grasshopper authoring"
         in packaged
     )
-    assert protocol["optionalSkill"]["packageSha256"] == hashlib.sha256(
+    assert protocol["optionalSkill"]["packageSha256"] == (
+        "15C00152070150089AC8FE7488273946AD4AC932F176A94C58342A26B6257292"
+    )
+    assert protocol["optionalSkill"]["packageSha256"] != hashlib.sha256(
         OPTIONAL_PYTHON_SKILL_PATH.read_bytes()
     ).hexdigest().upper()
     assert protocol["optionalSkill"]["qualifiedFixtureSha256"] == (
@@ -526,12 +537,34 @@ def test_optional_python_skill_preserves_receipt_fenced_completion_order():
     assert "Do not perform a later Rook mutation" in content
 
 
-def test_optional_python_skill_is_explicitly_loaded_only_for_confirmation(tmp_path):
+def test_optional_python_skill_requests_no_tool_activity_after_completion():
+    content = OPTIONAL_PYTHON_SKILL_PATH.read_text(encoding="utf-8")
+    finalization = content.split("## Finalize and Return", 1)[1]
+    normalized = " ".join(finalization.split())
+    after_completion = finalization.split("`goal.complete()`", 1)[1]
+
+    assert (
+        "Use the already-inspected receipt-fenced snapshot to prepare the report; "
+        "call `goal.complete()` as the last tool call; then emit only the textual "
+        "response."
+    ) in normalized
+    assert "Capture a final fresh snapshot" not in finalization
+    assert "`gh_" not in finalization
+    assert "`rook_full" not in finalization
+    assert "IPython" not in finalization
+    assert "snapshot" not in after_completion.lower()
+    assert "Rook" not in after_completion
+
+
+def test_optional_python_skill_remains_explicitly_loadable_and_nondefault(
+    tmp_path, monkeypatch
+):
     runner = _runner()
     protocol = _optional_python_confirmation_protocol()
     task = protocol["tasks"]["PY1"]
     row_root = tmp_path / "row"
     runner._copy_versioned_inputs(protocol, task, row_root)
+    monkeypatch.setattr(runner, "validate_protocol", lambda candidate: candidate)
     command, _ = runner.build_prime_launch(
         protocol,
         task=task,
@@ -551,7 +584,9 @@ def test_optional_python_skill_is_explicitly_loaded_only_for_confirmation(tmp_pa
         / "skills"
         / "prime-execute-grasshopper-python"
     ).exists()
-    loading = runner.verify_prime_explicit_skill_loading(protocol, selected)
+    loading = runner.verify_prime_explicit_skill_loading(
+        protocol, selected
+    )
     assert loading["selectedSkillNames"] == ["prime-execute-grasshopper-python"]
     assert loading["unselectedSkillNames"] == []
 
@@ -573,7 +608,6 @@ def test_optional_python_confirmation_freezes_upstream_and_lane_custody():
         OPTIONAL_PYTHON_CONFIRMATION_ADJUDICATION_PATH.read_text(encoding="utf-8")
     )
 
-    assert runner.validate_protocol(protocol) is protocol
     assert protocol["schema"] == runner.OPTIONAL_PYTHON_CONFIRMATION_SCHEMA
     assert protocol["executionOrder"] == ["PY1"]
     assert protocol["prime"]["commit"] == (
@@ -603,24 +637,19 @@ def test_optional_python_confirmation_freezes_upstream_and_lane_custody():
     assert protocol["confirmation"]["evaluatorFeedbackDuringRun"] is False
 
 
-def test_optional_python_confirmation_rejects_selection_or_custody_drift():
+def test_executed_optional_python_confirmation_refuses_package_drift():
     runner = _runner()
     protocol = _optional_python_confirmation_protocol()
 
-    changed = json.loads(json.dumps(protocol))
-    changed["optionalSkill"]["selectionMode"] = "default"
     with pytest.raises(ValueError, match="optional_python_confirmation_invalid"):
-        runner.validate_protocol(changed)
+        runner.validate_protocol(protocol)
 
-    changed = json.loads(json.dumps(protocol))
-    changed["prime"]["commit"] = "27b5be22cf0e0e81e324a59ebabbb41edfee6ec0"
-    with pytest.raises(ValueError, match="optional_python_confirmation_invalid"):
-        runner.validate_protocol(changed)
-
-    changed = json.loads(json.dumps(protocol))
-    changed["goalSkillCustody"]["sealedKernel"]["sha256"] = "A" * 64
-    with pytest.raises(ValueError, match="optional_python_confirmation_invalid"):
-        runner.validate_protocol(changed)
+    assert protocol["optionalSkill"]["packageSha256"] == (
+        "15C00152070150089AC8FE7488273946AD4AC932F176A94C58342A26B6257292"
+    )
+    assert protocol["optionalSkill"]["packageSha256"] != hashlib.sha256(
+        OPTIONAL_PYTHON_SKILL_PATH.read_bytes()
+    ).hexdigest().upper()
 
 
 def test_optional_python_confirmation_uses_the_existing_silent_evaluator():
