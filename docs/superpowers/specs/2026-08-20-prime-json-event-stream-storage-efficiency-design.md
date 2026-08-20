@@ -1,6 +1,6 @@
 # Prime JSON Event-Stream Storage Efficiency
 
-**Status:** USER-APPROVED; INDEPENDENT REVIEW PENDING; IMPLEMENTATION UNSTARTED AND UNQUALIFIED
+**Status:** INDEPENDENTLY APPROVED; IMPLEMENTATION UNSTARTED AND UNQUALIFIED
 
 **Date:** 2026-08-20
 
@@ -478,13 +478,15 @@ partialArgs                   JSON string
 streamIndex                   nonnegative JSON integer; booleans forbidden
 ```
 
-For source admission, a tool-call start block has the stable required and
-optional fields above plus either or both of these exact optional scratch
-fields, and no others. The retained `contentStart` deliberately omits
-`partialArgs` and `streamIndex`; Prime itself removes them before the final
-`toolcall_end`. Text and thinking source blocks have exactly the corresponding
-required and optional `contentStart` keys above. Any additional source-content
-key takes raw fallback rather than being silently discarded.
+For source admission, tool-call content blocks referenced by `toolcall_start`
+or `toolcall_delta` have the stable required and optional fields above plus
+either or both of these exact optional scratch fields, and no others. The
+retained `contentStart` deliberately omits `partialArgs` and `streamIndex`;
+Prime itself removes them before `toolcall_end`, whose `toolCall` requires the
+stable final shape without either scratch field. Text and thinking source
+blocks have exactly the corresponding required and optional `contentStart`
+keys above. Any additional source-content key takes raw fallback rather than
+being silently discarded.
 
 A streaming, read-only shape audit of all 74,143 sealed V5 update rows confirmed:
 
