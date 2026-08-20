@@ -233,6 +233,13 @@ MULTIMODAL_VESSEL_V4_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-20-qwen38-multimodal-vessel-massing-v4.json"
 )
+MULTIMODAL_VESSEL_V5_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-20-qwen38-multimodal-vessel-massing-v5.json"
+)
 MULTIMODAL_VESSEL_ADJUDICATION_PATH = (
     ROOT
     / "docs"
@@ -548,6 +555,10 @@ def _multimodal_vessel_v3_protocol() -> dict:
 
 def _multimodal_vessel_v4_protocol() -> dict:
     return json.loads(MULTIMODAL_VESSEL_V4_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
+def _multimodal_vessel_v5_protocol() -> dict:
+    return json.loads(MULTIMODAL_VESSEL_V5_PROTOCOL_PATH.read_text(encoding="utf-8"))
 
 
 def _skill_body(path: Path) -> str:
@@ -928,6 +939,40 @@ def test_multimodal_vessel_v4_forbids_the_observed_belt_and_wall_panel_failure()
         "optionalSkill",
     ):
         assert v4[owner] == v3[owner]
+
+
+def test_multimodal_vessel_v5_freezes_the_post_snapshot_no_call_boundary():
+    runner = _runner()
+    v4 = _multimodal_vessel_v4_protocol()
+    v5 = _multimodal_vessel_v5_protocol()
+
+    assert runner.validate_protocol(v5) is v5
+    assert v5["schema"] == runner.MULTIMODAL_VESSEL_V5_SCHEMA
+    assert v5["contactMode"]["evidenceRoot"] == (
+        "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5"
+    )
+    prompt = v5["tasks"]["MV1"]["prompt"]
+    assert "fenced snapshot must be the last Rook gateway call" in prompt
+    assert "do not call diagnostics, viewport, status, IPython, or any other tool" in prompt
+    assert "immediately call goal.complete(), then emit text only" in prompt
+
+    assert v5["tasks"]["MV1"]["prompt"].replace(
+        "The final same-receipt fenced snapshot must be the last Rook gateway call. "
+        "After it returns, do not call diagnostics, viewport, status, IPython, or "
+        "any other tool; immediately call goal.complete(), then emit text only. ",
+        "Then retain the final same-receipt fenced snapshot, call goal.complete() "
+        "as the final tool call, and emit text only. ",
+    ) == v4["tasks"]["MV1"]["prompt"]
+    for owner in (
+        "limits",
+        "prime",
+        "modelCustody",
+        "rookCustody",
+        "toolSurface",
+        "versionedInputs",
+        "optionalSkill",
+    ):
+        assert v5[owner] == v4[owner]
 
 
 def test_multimodal_launch_requires_both_images_as_first_ipython_action(tmp_path):
@@ -3817,6 +3862,27 @@ def test_exact_successful_viewport_capture_gets_offline_observational_projection
     assert trace["events"][0] == event
 
 
+def test_exact_successful_viewport_capture_with_display_mode_is_observational():
+    runner = _runner()
+    event = _viewport_observation_event()
+    event["arguments"] = event["arguments"] | {"displayMode": "Shaded"}
+    event["result"] = {
+        "success": True,
+        "data": event["result"]["data"] | {"displayMode": "Shaded"},
+    }
+    trace = {"events": [event], "schema": "trace", "source_closure": {}}
+
+    normalized = runner.normalize_known_readonly_refusals(trace)
+
+    assert normalized["events"][0]["mutation"] == {
+        "classification": "observational",
+        "commit_evidence": None,
+        "commit_status": "none",
+        "solve_readiness_receipt": None,
+    }
+    assert trace["events"][0] == event
+
+
 @pytest.mark.parametrize(
     "alter",
     [
@@ -3831,6 +3897,14 @@ def test_exact_successful_viewport_capture_gets_offline_observational_projection
                 "success": True,
                 "data": event["result"]["data"] | {"savedToFile": False},
             }
+        },
+        lambda event: event
+        | {
+            "arguments": event["arguments"] | {"displayMode": "Shaded"},
+            "result": {
+                "success": True,
+                "data": event["result"]["data"] | {"displayMode": "Rendered"},
+            },
         },
     ],
 )

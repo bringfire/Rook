@@ -49,11 +49,13 @@ MULTIMODAL_VESSEL_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v1"
 MULTIMODAL_VESSEL_V2_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v2"
 MULTIMODAL_VESSEL_V3_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v3"
 MULTIMODAL_VESSEL_V4_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v4"
+MULTIMODAL_VESSEL_V5_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:v5"
 MULTIMODAL_VESSEL_SCHEMAS = {
     MULTIMODAL_VESSEL_SCHEMA,
     MULTIMODAL_VESSEL_V2_SCHEMA,
     MULTIMODAL_VESSEL_V3_SCHEMA,
     MULTIMODAL_VESSEL_V4_SCHEMA,
+    MULTIMODAL_VESSEL_V5_SCHEMA,
 }
 PRIME_UPSTREAM_SMOKE_SCHEMAS = {
     PRIME_UPSTREAM_SMOKE_SCHEMA,
@@ -1537,11 +1539,19 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         "and emit text only. Do not add railings, facade, detailed structure, "
         "people, baking, or unrelated geometry."
     )
+    final_checkpoint_prompt = discrete_lattice_prompt.replace(
+        "Then retain the final same-receipt fenced snapshot, call goal.complete() "
+        "as the final tool call, and emit text only. ",
+        "The final same-receipt fenced snapshot must be the last Rook gateway call. "
+        "After it returns, do not call diagnostics, viewport, status, IPython, or "
+        "any other tool; immediately call goal.complete(), then emit text only. ",
+    )
     expected_prompt = {
         MULTIMODAL_VESSEL_SCHEMA: original_prompt,
         MULTIMODAL_VESSEL_V2_SCHEMA: original_prompt,
         MULTIMODAL_VESSEL_V3_SCHEMA: corrected_prompt,
         MULTIMODAL_VESSEL_V4_SCHEMA: discrete_lattice_prompt,
+        MULTIMODAL_VESSEL_V5_SCHEMA: final_checkpoint_prompt,
     }.get(protocol.get("schema"))
     if (
         type(task) is not dict
@@ -1573,6 +1583,9 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         MULTIMODAL_VESSEL_V4_SCHEMA: (
             "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v4"
         ),
+        MULTIMODAL_VESSEL_V5_SCHEMA: (
+            "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5"
+        ),
     }.get(protocol.get("schema"))
     contact = protocol.get("contactMode")
     if contact != {
@@ -1592,7 +1605,10 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         MULTIMODAL_VESSEL_V3_SCHEMA: (
             "A80B97A801A89DA676E1AFA7802DC0A946B206E1C16FF0268F837CC30984F4BC"
         ),
-        MULTIMODAL_VESSEL_V4_SCHEMA: _sha(Path(__file__).resolve()),
+        MULTIMODAL_VESSEL_V4_SCHEMA: (
+            "F9CEB10F23B9E61327EFE6E986A1A3D16239F04F5AC3D053B9D5D11C16930DFF"
+        ),
+        MULTIMODAL_VESSEL_V5_SCHEMA: _sha(Path(__file__).resolve()),
     }.get(protocol.get("schema"))
     expected_acceptance_sha = {
         MULTIMODAL_VESSEL_SCHEMA: (
@@ -1605,6 +1621,9 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
             "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
         ),
         MULTIMODAL_VESSEL_V4_SCHEMA: _sha(
+            ROOT / "mcp_server" / "src" / "rook" / "gh_behavioral_acceptance.py"
+        ),
+        MULTIMODAL_VESSEL_V5_SCHEMA: _sha(
             ROOT / "mcp_server" / "src" / "rook" / "gh_behavioral_acceptance.py"
         ),
     }.get(protocol.get("schema"))
@@ -4046,7 +4065,18 @@ def _is_known_viewport_observation(event: Any) -> bool:
         and type(event["sequence"]) is int
         and event["sequence"] >= 0
         and type(arguments) is dict
-        and set(arguments) == {"height", "view", "width", "zoomExtents"}
+        and set(arguments)
+        in (
+            {"height", "view", "width", "zoomExtents"},
+            {"displayMode", "height", "view", "width", "zoomExtents"},
+        )
+        and (
+            "displayMode" not in arguments
+            or (
+                type(arguments["displayMode"]) is str
+                and bool(arguments["displayMode"])
+            )
+        )
         and type(arguments["height"]) is int
         and arguments["height"] > 0
         and arguments["view"] in {"Top", "Perspective"}
@@ -4070,6 +4100,10 @@ def _is_known_viewport_observation(event: Any) -> bool:
         }
         and type(data["displayMode"]) is str
         and bool(data["displayMode"])
+        and (
+            "displayMode" not in arguments
+            or data["displayMode"] == arguments["displayMode"]
+        )
         and type(file_path) is str
         and Path(file_path).is_absolute()
         and Path(file_path).suffix.lower() == ".png"
