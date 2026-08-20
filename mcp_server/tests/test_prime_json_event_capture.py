@@ -12,6 +12,7 @@ import queue
 import sys
 import threading
 import time
+import tracemalloc
 from typing import Any
 
 import pytest
@@ -522,6 +523,59 @@ def test_raw_debug_is_exact_and_bound_to_source(capture, tmp_path):
         "sha256": hashlib.sha256(raw.read_bytes()).hexdigest().upper(),
     }
     assert capture.verify_capture_custody(config, tmp_path) == custody
+
+
+def test_raw_debug_custody_verification_has_bounded_memory(capture, tmp_path):
+    config = capture_config(capture, mode="compact_with_raw_debug")
+    retained = tmp_path / "operator" / "prime-events.compact.jsonl"
+    raw_debug = tmp_path / "operator" / "prime-events.raw.jsonl"
+    custody_path = tmp_path / "operator" / "prime-event-capture-custody.json"
+    retained.parent.mkdir(parents=True)
+    row = canonical_test_line({"type": "session", "padding": "x" * 1_024})
+    row_count = 8_192
+    stream_bytes = row * row_count
+    digest = hashlib.sha256(stream_bytes).hexdigest().upper()
+    retained.write_bytes(stream_bytes)
+    raw_debug.write_bytes(stream_bytes)
+    custody = {
+        "schema": "rook.prime_event_capture_custody:v1",
+        "status": "complete",
+        "limits": {
+            "maxSourceRowBytes": capture.MAX_SOURCE_ROW_BYTES,
+            "monitorQueueMaxEvents": capture.MONITOR_QUEUE_MAX_EVENTS,
+            "sourceReadChunkBytes": capture.SOURCE_READ_CHUNK_BYTES,
+        },
+        "source": {
+            "bytes": len(stream_bytes),
+            "maxRowBytes": len(row),
+            "rows": row_count,
+            "sha256": digest,
+            "stdoutEof": True,
+        },
+        "retained": {
+            "bytes": len(stream_bytes),
+            "compactedMessageUpdates": 0,
+            "path": "operator/prime-events.compact.jsonl",
+            "rawFallbackMessageUpdates": 0,
+            "rows": row_count,
+            "sha256": digest,
+        },
+        "rawDebug": {
+            "bytes": len(stream_bytes),
+            "path": "operator/prime-events.raw.jsonl",
+            "sha256": digest,
+        },
+    }
+    custody_path.write_bytes(canonical_test_line(custody))
+
+    tracemalloc.start()
+    try:
+        assert capture.verify_capture_custody(config, tmp_path) == custody
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert peak < 4 * 1024 * 1024
 
 
 def test_two_captures_are_byte_deterministic(capture, tmp_path):

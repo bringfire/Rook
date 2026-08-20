@@ -709,23 +709,76 @@ def _valid_compact_event(value: Any, retained_row: int) -> bool:
     return True
 
 
-def _capture_file_measurements(path: Path) -> tuple[str, int, list[bytes]]:
+def _capture_file_measurements(path: Path) -> dict[str, Any]:
     digest = hashlib.sha256()
     byte_count = 0
-    rows: list[bytes] = []
+    row_count = 0
+    max_row_bytes = 0
     try:
         with path.open("rb") as stream:
             for row in iter_bounded_lf_rows(stream):
                 digest.update(row)
                 byte_count += len(row)
-                rows.append(row)
+                row_count += 1
+                max_row_bytes = max(max_row_bytes, len(row))
     except FileNotFoundError as error:
         raise PrimeCaptureError("capture_custody_missing") from error
     except PrimeCaptureError as error:
         raise PrimeCaptureError("capture_custody_mismatch") from error
     except OSError as error:
         raise PrimeCaptureError("capture_custody_mismatch") from error
-    return digest.hexdigest().upper(), byte_count, rows
+    return {
+        "bytes": byte_count,
+        "maxRowBytes": max_row_bytes,
+        "rows": row_count,
+        "sha256": digest.hexdigest().upper(),
+    }
+
+
+def _retained_file_measurements(path: Path) -> dict[str, Any]:
+    measurements = {
+        "bytes": 0,
+        "rows": 0,
+        "sha256": hashlib.sha256(),
+        "attributedSourceBytes": 0,
+        "attributedSourceMaxRowBytes": 0,
+        "compactedMessageUpdates": 0,
+        "rawFallbackMessageUpdates": 0,
+    }
+    try:
+        with path.open("rb") as stream:
+            for retained_index, raw_row in enumerate(
+                iter_bounded_lf_rows(stream), start=1
+            ):
+                measurements["sha256"].update(raw_row)
+                measurements["bytes"] += len(raw_row)
+                measurements["rows"] = retained_index
+                value = _strict_source_row(raw_row)
+                if (
+                    value.get("schema") == _DELTA_SCHEMA
+                    or value.get("type") == "assistant_stream_delta"
+                ):
+                    if not _valid_compact_event(value, retained_index):
+                        raise PrimeCaptureError("capture_custody_mismatch")
+                    source_bytes = value["sourceBytes"]
+                    measurements["compactedMessageUpdates"] += 1
+                else:
+                    source_bytes = len(raw_row)
+                    measurements["rawFallbackMessageUpdates"] += int(
+                        value.get("type") == "message_update"
+                    )
+                measurements["attributedSourceBytes"] += source_bytes
+                measurements["attributedSourceMaxRowBytes"] = max(
+                    measurements["attributedSourceMaxRowBytes"], source_bytes
+                )
+    except FileNotFoundError as error:
+        raise PrimeCaptureError("capture_custody_missing") from error
+    except PrimeCaptureError as error:
+        raise PrimeCaptureError("capture_custody_mismatch") from error
+    except OSError as error:
+        raise PrimeCaptureError("capture_custody_mismatch") from error
+    measurements["sha256"] = measurements["sha256"].hexdigest().upper()
+    return measurements
 
 
 def _validate_custody_shape(
@@ -800,59 +853,45 @@ def verify_capture_custody(
     if not _validate_custody_shape(custody, config):
         raise PrimeCaptureError("capture_custody_mismatch")
 
-    retained_hash, retained_bytes, retained_rows = _capture_file_measurements(
+    retained_measurements = _retained_file_measurements(
         _resolved_path(row_root, config.retained_path)
     )
     retained = custody["retained"]
-    if retained["bytes"] != retained_bytes or retained["sha256"] != retained_hash:
+    if (
+        retained["bytes"] != retained_measurements["bytes"]
+        or retained["sha256"] != retained_measurements["sha256"]
+    ):
         raise PrimeCaptureError("capture_custody_mismatch")
-    if retained["rows"] != len(retained_rows) or custody["source"]["rows"] != len(
-        retained_rows
+    if (
+        retained["rows"] != retained_measurements["rows"]
+        or custody["source"]["rows"] != retained_measurements["rows"]
     ):
         raise PrimeCaptureError("capture_row_count_mismatch")
 
-    attributed_source_bytes = 0
-    attributed_source_max = 0
-    compacted = 0
-    raw_fallback = 0
-    for retained_index, raw_row in enumerate(retained_rows, start=1):
-        try:
-            value = _strict_source_row(raw_row)
-        except PrimeCaptureError as error:
-            raise PrimeCaptureError("capture_custody_mismatch") from error
-        if value.get("schema") == _DELTA_SCHEMA or value.get("type") == "assistant_stream_delta":
-            if not _valid_compact_event(value, retained_index):
-                raise PrimeCaptureError("capture_custody_mismatch")
-            source_bytes = value["sourceBytes"]
-            compacted += 1
-        else:
-            source_bytes = len(raw_row)
-            raw_fallback += int(value.get("type") == "message_update")
-        attributed_source_bytes += source_bytes
-        attributed_source_max = max(attributed_source_max, source_bytes)
-
     source = custody["source"]
     if (
-        source["bytes"] != attributed_source_bytes
-        or source["maxRowBytes"] != attributed_source_max
-        or retained["compactedMessageUpdates"] != compacted
-        or retained["rawFallbackMessageUpdates"] != raw_fallback
+        source["bytes"] != retained_measurements["attributedSourceBytes"]
+        or source["maxRowBytes"]
+        != retained_measurements["attributedSourceMaxRowBytes"]
+        or retained["compactedMessageUpdates"]
+        != retained_measurements["compactedMessageUpdates"]
+        or retained["rawFallbackMessageUpdates"]
+        != retained_measurements["rawFallbackMessageUpdates"]
     ):
         raise PrimeCaptureError("capture_custody_mismatch")
 
     if config.raw_debug_path is not None:
-        raw_hash, raw_bytes, raw_rows = _capture_file_measurements(
+        raw_measurements = _capture_file_measurements(
             _resolved_path(row_root, config.raw_debug_path)
         )
         raw_debug = custody["rawDebug"]
-        raw_max = max((len(row) for row in raw_rows), default=0)
         if (
-            raw_debug["bytes"] != raw_bytes
-            or raw_debug["sha256"] != raw_hash
-            or source["bytes"] != raw_bytes
-            or source["rows"] != len(raw_rows)
-            or source["maxRowBytes"] != raw_max
-            or source["sha256"] != raw_hash
+            raw_debug["bytes"] != raw_measurements["bytes"]
+            or raw_debug["sha256"] != raw_measurements["sha256"]
+            or source["bytes"] != raw_measurements["bytes"]
+            or source["rows"] != raw_measurements["rows"]
+            or source["maxRowBytes"] != raw_measurements["maxRowBytes"]
+            or source["sha256"] != raw_measurements["sha256"]
         ):
             raise PrimeCaptureError("raw_debug_mismatch")
     return custody

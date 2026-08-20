@@ -7,6 +7,7 @@ import copy
 import hashlib
 import importlib
 import importlib.util
+from itertools import zip_longest
 import json
 import math
 import os
@@ -34,6 +35,18 @@ _SPEC_PATH = (
     / "specs"
     / "2026-08-20-prime-json-event-stream-storage-efficiency-design.md"
 ).resolve()
+_ORACLE_DELTA_SCHEMA = "rook.prime_assistant_stream_delta:v1"
+_ORACLE_EVENT_KEYS = {
+    "text_start": {"type", "contentIndex", "partial"},
+    "text_delta": {"type", "contentIndex", "delta", "partial"},
+    "text_end": {"type", "contentIndex", "content", "partial"},
+    "thinking_start": {"type", "contentIndex", "partial"},
+    "thinking_delta": {"type", "contentIndex", "delta", "partial"},
+    "thinking_end": {"type", "contentIndex", "content", "partial"},
+    "toolcall_start": {"type", "contentIndex", "partial"},
+    "toolcall_delta": {"type", "contentIndex", "delta", "partial"},
+    "toolcall_end": {"type", "contentIndex", "toolCall", "partial"},
+}
 
 
 def _load_local_module(name: str, path: Path):
@@ -422,25 +435,243 @@ def _iter_jsonl(path: Path) -> Iterator[tuple[bytes, dict[str, Any]]]:
             yield raw, value
 
 
-def _passthrough_digest_raw(path: Path) -> dict[str, Any]:
-    digest = hashlib.sha256()
-    count = 0
-    for index, (raw, _) in enumerate(_iter_jsonl(path), start=1):
-        transformed = capture.transform_prime_row(raw, index)
-        if not transformed.compacted:
-            digest.update(raw)
-            count += 1
-    return {"rows": count, "sha256": digest.hexdigest().upper()}
+def _oracle_same_value(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if type(left) is dict:
+        return set(left) == set(right) and all(
+            _oracle_same_value(left[key], right[key]) for key in left
+        )
+    if type(left) is list:
+        return len(left) == len(right) and all(
+            _oracle_same_value(a, b) for a, b in zip(left, right)
+        )
+    return left == right
 
 
-def _passthrough_digest_retained(path: Path) -> dict[str, Any]:
-    digest = hashlib.sha256()
-    count = 0
-    for raw, value in _iter_jsonl(path):
-        if value.get("type") != "assistant_stream_delta":
-            digest.update(raw)
-            count += 1
-    return {"rows": count, "sha256": digest.hexdigest().upper()}
+def _oracle_optional_string(value: dict[str, Any], key: str) -> bool:
+    return key not in value or type(value[key]) is str
+
+
+def _oracle_text_block(value: Any) -> bool:
+    return (
+        type(value) is dict
+        and {"type", "text"} <= set(value)
+        and not set(value) - {"type", "text", "textSignature"}
+        and value["type"] == "text"
+        and type(value["text"]) is str
+        and _oracle_optional_string(value, "textSignature")
+    )
+
+
+def _oracle_thinking_block(value: Any) -> bool:
+    return (
+        type(value) is dict
+        and {"type", "thinking"} <= set(value)
+        and not set(value)
+        - {"type", "thinking", "thinkingSignature", "redacted"}
+        and value["type"] == "thinking"
+        and type(value["thinking"]) is str
+        and _oracle_optional_string(value, "thinkingSignature")
+        and ("redacted" not in value or type(value["redacted"]) is bool)
+    )
+
+
+def _oracle_tool_block(value: Any, *, streaming: bool) -> bool:
+    if type(value) is not dict:
+        return False
+    optional = {"thoughtSignature"}
+    if streaming:
+        optional |= {"partialArgs", "streamIndex"}
+    if set(value) != {"type", "id", "name", "arguments"} | (
+        set(value) & optional
+    ):
+        return False
+    return (
+        value["type"] == "toolCall"
+        and type(value["id"]) is str
+        and bool(value["id"])
+        and type(value["name"]) is str
+        and bool(value["name"])
+        and type(value["arguments"]) is dict
+        and _oracle_optional_string(value, "thoughtSignature")
+        and ("partialArgs" not in value or type(value["partialArgs"]) is str)
+        and (
+            "streamIndex" not in value
+            or (type(value["streamIndex"]) is int and value["streamIndex"] >= 0)
+        )
+    )
+
+
+def _oracle_content_start(
+    subtype: str, block: dict[str, Any]
+) -> dict[str, Any] | None:
+    if subtype == "text_start":
+        result = {"type": "text", "text": ""}
+        if "textSignature" in block:
+            result["textSignature"] = block["textSignature"]
+        return result
+    if subtype == "thinking_start":
+        result = {"type": "thinking", "thinking": ""}
+        for key in ("thinkingSignature", "redacted"):
+            if key in block:
+                result[key] = block[key]
+        return result
+    if subtype == "toolcall_start":
+        result = {
+            "type": "toolCall",
+            "id": block["id"],
+            "name": block["name"],
+            "arguments": {},
+        }
+        if "thoughtSignature" in block:
+            result["thoughtSignature"] = block["thoughtSignature"]
+        return result
+    return None
+
+
+def _oracle_compact_projection(
+    source: dict[str, Any], source_row: int, source_bytes: int
+) -> dict[str, Any] | None:
+    if set(source) != {"type", "message", "assistantMessageEvent"}:
+        return None
+    if source.get("type") != "message_update":
+        return None
+    message = source.get("message")
+    event = source.get("assistantMessageEvent")
+    if type(message) is not dict or type(event) is not dict:
+        return None
+    if (
+        message.get("role") != "assistant"
+        or "partial" not in event
+        or not _oracle_same_value(message, event["partial"])
+    ):
+        return None
+    subtype = event.get("type")
+    if subtype not in _ORACLE_EVENT_KEYS or set(event) != _ORACLE_EVENT_KEYS[subtype]:
+        return None
+    index = event.get("contentIndex")
+    content = message.get("content")
+    if (
+        type(index) is not int
+        or index < 0
+        or type(content) is not list
+        or index >= len(content)
+    ):
+        return None
+    block = content[index]
+    if subtype.startswith("text_"):
+        valid_block = _oracle_text_block(block)
+    elif subtype.startswith("thinking_"):
+        valid_block = _oracle_thinking_block(block)
+    elif subtype in {"toolcall_start", "toolcall_delta"}:
+        valid_block = _oracle_tool_block(block, streaming=True)
+    else:
+        valid_block = _oracle_tool_block(block, streaming=False)
+    if not valid_block:
+        return None
+    if subtype.endswith("_delta") and type(event.get("delta")) is not str:
+        return None
+    if subtype in {"text_end", "thinking_end"}:
+        if type(event.get("content")) is not str:
+            return None
+        block_value = block["text"] if subtype == "text_end" else block["thinking"]
+        if event["content"] != block_value:
+            return None
+    if subtype == "toolcall_end" and (
+        not _oracle_tool_block(event.get("toolCall"), streaming=False)
+        or not _oracle_same_value(event["toolCall"], block)
+    ):
+        return None
+    projection: dict[str, Any] = {
+        "schema": _ORACLE_DELTA_SCHEMA,
+        "type": "assistant_stream_delta",
+        "sourceRow": source_row,
+        "sourceBytes": source_bytes,
+        "assistantMessageEvent": {
+            key: copy.deepcopy(value)
+            for key, value in event.items()
+            if key != "partial"
+        },
+    }
+    content_start = _oracle_content_start(subtype, block)
+    if content_start is not None:
+        projection["contentStart"] = content_start
+    return projection
+
+
+def _oracle_canonical_line(value: Any) -> bytes:
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
+
+
+def _independent_row_parity(source_path: Path, retained_path: Path) -> dict[str, Any]:
+    result = {
+        "status": "pass",
+        "sourceRows": 0,
+        "retainedRows": 0,
+        "compactedMessageUpdates": 0,
+        "rawFallbackMessageUpdates": 0,
+        "passthroughRows": 0,
+        "firstMismatch": None,
+    }
+    source_rows = _iter_jsonl(source_path)
+    retained_rows = _iter_jsonl(retained_path)
+    for row_index, pair in enumerate(
+        zip_longest(source_rows, retained_rows), start=1
+    ):
+        source_item, retained_item = pair
+        if source_item is None or retained_item is None:
+            result["status"] = "fail"
+            result["firstMismatch"] = {
+                "row": row_index,
+                "reason": "row_count_mismatch",
+            }
+            break
+        source_raw, source = source_item
+        retained_raw, retained = retained_item
+        result["sourceRows"] += 1
+        result["retainedRows"] += 1
+        if retained.get("type") == "assistant_stream_delta":
+            projection = _oracle_compact_projection(
+                source, row_index, len(source_raw)
+            )
+            if projection is None:
+                result["status"] = "fail"
+                result["firstMismatch"] = {
+                    "row": row_index,
+                    "reason": "compact_source_invalid",
+                }
+                break
+            if retained_raw != _oracle_canonical_line(projection):
+                result["status"] = "fail"
+                result["firstMismatch"] = {
+                    "row": row_index,
+                    "reason": "compact_projection_mismatch",
+                }
+                break
+            result["compactedMessageUpdates"] += 1
+            continue
+        if retained_raw != source_raw:
+            result["status"] = "fail"
+            result["firstMismatch"] = {
+                "row": row_index,
+                "reason": "passthrough_mismatch",
+            }
+            break
+        result["passthroughRows"] += 1
+        result["rawFallbackMessageUpdates"] += int(
+            source.get("type") == "message_update"
+        )
+    return result
 
 
 def _raw_terminal_assistant_messages(path: Path) -> list[dict[str, Any]]:
@@ -582,15 +813,16 @@ def run_qualification(protocol_path: Path) -> dict[str, Any]:
     )
     raw_terminal = _raw_terminal_assistant_messages(raw_runtime)
     reconstruction_pass = reconstructed == raw_terminal
-    passthrough_pass = _passthrough_digest_raw(raw_runtime) == (
-        _passthrough_digest_retained(compact_a)
-    )
+    row_parity = _independent_row_parity(raw_runtime, compact_a)
+    passthrough_pass = row_parity["status"] == "pass"
     v2_parity = _run_v2_parity(
         protocol, output_root, raw_runtime, compact_a
     )
     expected = protocol["expected"]
     custody = replay_a["custody"]
-    retained_ratio = custody["retained"]["bytes"] / custody["source"]["bytes"]
+    custody_bytes = custody_a.stat().st_size
+    persisted_bytes = custody["retained"]["bytes"] + custody_bytes
+    retained_ratio = persisted_bytes / custody["source"]["bytes"]
     assertions = {
         "source": custody["source"]
         == {
@@ -607,6 +839,13 @@ def run_qualification(protocol_path: Path) -> dict[str, Any]:
         "retainedRatio": retained_ratio <= expected["maxRetainedRatio"],
         "determinism": deterministic,
         "terminalReconstruction": reconstruction_pass,
+        "independentRowParity": row_parity["status"] == "pass"
+        and row_parity["sourceRows"] == expected["sourceRows"]
+        and row_parity["retainedRows"] == expected["sourceRows"]
+        and row_parity["compactedMessageUpdates"]
+        == expected["compactedMessageUpdates"]
+        and row_parity["rawFallbackMessageUpdates"]
+        == expected["rawFallbackMessageUpdates"],
         "passthroughParity": passthrough_pass,
         "v2Parity": v2_parity["status"] == "pass",
         "liveContact": expected["liveContact"] is False,
@@ -616,11 +855,14 @@ def run_qualification(protocol_path: Path) -> dict[str, Any]:
         "status": "qualified" if all(assertions.values()) else "not_qualified",
         "source": custody["source"],
         "retained": custody["retained"],
+        "custodyBytes": custody_bytes,
+        "persistedBytes": persisted_bytes,
         "retainedRatio": retained_ratio,
         "reduction": 1 - retained_ratio,
         "determinism": "pass" if deterministic else "fail",
         "terminalReconstruction": "pass" if reconstruction_pass else "fail",
         "passthroughParity": "pass" if passthrough_pass else "fail",
+        "rowParity": row_parity,
         "v2Parity": v2_parity,
         "assertions": assertions,
         "elapsedSeconds": time.monotonic() - started,

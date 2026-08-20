@@ -348,12 +348,64 @@ def test_small_fixture_dual_replay_is_deterministic_and_offline(
     assert result["determinism"] == "pass"
     assert result["terminalReconstruction"] == "pass"
     assert result["passthroughParity"] == "pass"
+    assert result["rowParity"] == {
+        "status": "pass",
+        "sourceRows": len(rich_runtime_rows()),
+        "retainedRows": len(rich_runtime_rows()),
+        "compactedMessageUpdates": 9,
+        "rawFallbackMessageUpdates": 0,
+        "passthroughRows": len(rich_runtime_rows()) - 9,
+        "firstMismatch": None,
+    }
+    custody_path = output / "replay-a" / "operator" / (
+        "prime-event-capture-custody.json"
+    )
+    assert result["custodyBytes"] == custody_path.stat().st_size
+    assert result["persistedBytes"] == (
+        result["retained"]["bytes"] + custody_path.stat().st_size
+    )
+    assert result["retainedRatio"] == (
+        result["persistedBytes"] / result["source"]["bytes"]
+    )
     assert result["v2Parity"]["status"] == "pass"
     assert not list(output.rglob("prime.jsonl"))
     assert (output / "replay-a" / "operator" / "prime-events.compact.jsonl").is_file()
     assert qualification.verify_evidence_manifest(
         output, output / "evidence-manifest.json"
     )["mismatches"] == []
+
+
+def test_independent_row_oracle_rejects_faulty_compact_delta(
+    qualification, tmp_path: Path
+):
+    protocol_path = make_protocol(tmp_path)
+    protocol = json.loads(protocol_path.read_text(encoding="utf-8"))
+    replay = tmp_path / "oracle-replay"
+    qualification._run_replay(protocol, replay)
+    retained = replay / "operator" / "prime-events.compact.jsonl"
+    rows = retained.read_bytes().splitlines(keepends=True)
+    for index, raw in enumerate(rows):
+        value = json.loads(raw)
+        event = value.get("assistantMessageEvent")
+        if value.get("type") == "assistant_stream_delta" and (
+            type(event) is dict and event.get("type") == "text_delta"
+        ):
+            event["delta"] = "wrong"
+            rows[index] = line(value)
+            break
+    else:
+        pytest.fail("fixture did not contain a compact text delta")
+    retained.write_bytes(b"".join(rows))
+
+    parity = qualification._independent_row_parity(
+        Path(protocol["sourceEvidence"]["runtimeLog"]["path"]), retained
+    )
+
+    assert parity["status"] == "fail"
+    assert parity["firstMismatch"] == {
+        "row": 6,
+        "reason": "compact_projection_mismatch",
+    }
 
 
 def test_output_root_is_never_reused(qualification, tmp_path: Path):
@@ -369,6 +421,7 @@ def test_qualification_source_has_no_live_system_dependencies():
     for forbidden in ("ollama", "rhino", "grasshopper", "rook.server", "httpx", "requests"):
         assert forbidden not in source.lower()
     assert "subprocess.run" in source
+    assert "transform_prime_row" not in source
     assert math.isfinite(1.0)
 
 
