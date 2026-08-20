@@ -11,6 +11,7 @@ import asyncio
 import base64
 from dataclasses import dataclass
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,23 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+_PRIME_CAPTURE_PATH = (ROOT / "scripts" / "prime_json_event_capture.py").resolve()
+_PRIME_CAPTURE_SPEC = importlib.util.spec_from_file_location(
+    "rook_prime_json_event_capture", _PRIME_CAPTURE_PATH
+)
+if _PRIME_CAPTURE_SPEC is None or _PRIME_CAPTURE_SPEC.loader is None:
+    raise RuntimeError("prime_event_capture_import_failed")
+_PRIME_CAPTURE_MODULE = importlib.util.module_from_spec(_PRIME_CAPTURE_SPEC)
+sys.modules[_PRIME_CAPTURE_SPEC.name] = _PRIME_CAPTURE_MODULE
+_PRIME_CAPTURE_SPEC.loader.exec_module(_PRIME_CAPTURE_MODULE)
+if Path(_PRIME_CAPTURE_MODULE.__file__).resolve() != _PRIME_CAPTURE_PATH:
+    raise RuntimeError("prime_event_capture_import_mismatch")
+validate_capture_config = _PRIME_CAPTURE_MODULE.validate_capture_config
+capture_binary_stream = _PRIME_CAPTURE_MODULE.capture_binary_stream
+PrimeCaptureError = _PRIME_CAPTURE_MODULE.PrimeCaptureError
+resolve_prime_event_path = _PRIME_CAPTURE_MODULE.resolve_prime_event_path
+iter_retained_prime_events = _PRIME_CAPTURE_MODULE.iter_retained_prime_events
+verify_capture_custody = _PRIME_CAPTURE_MODULE.verify_capture_custody
 DEFAULT_PROTOCOL = (
     ROOT
     / "docs"
@@ -1608,7 +1626,9 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
         MULTIMODAL_VESSEL_V4_SCHEMA: (
             "F9CEB10F23B9E61327EFE6E986A1A3D16239F04F5AC3D053B9D5D11C16930DFF"
         ),
-        MULTIMODAL_VESSEL_V5_SCHEMA: _sha(Path(__file__).resolve()),
+        MULTIMODAL_VESSEL_V5_SCHEMA: (
+            "F18E0FFC3C86B6CF0A93F356EB714FCA188BCCCAD5FFA3D81635514F81CC1B14"
+        ),
     }.get(protocol.get("schema"))
     expected_acceptance_sha = {
         MULTIMODAL_VESSEL_SCHEMA: (
@@ -1664,6 +1684,9 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
         *MULTIMODAL_VESSEL_SCHEMAS,
     }:
         raise ValueError("protocol_invalid")
+    if "primeEventCapture" in protocol:
+        if validate_capture_config(protocol["primeEventCapture"]) is None:
+            raise ValueError("capture_config_invalid")
     limits = CampaignLimits.from_mapping(protocol.get("limits", {}))
     prime = protocol.get("prime")
     expected_prime_settings = {
@@ -2384,6 +2407,9 @@ class RunMonitor:
             value = json.loads(line)
         except (TypeError, ValueError):
             return None
+        return self.consume_prime_event(value)
+
+    def consume_prime_event(self, value: Any) -> str | None:
         if type(value) is not dict or value.get("type") != "message_end":
             return None
         message = value.get("message")
@@ -3477,6 +3503,33 @@ def _reader(stream, destination: Path, channel: str, output: queue.Queue) -> Non
     output.put((channel, None))
 
 
+def _binary_reader(stream, destination: Path, controls: queue.Queue) -> None:
+    with destination.open("xb") as retained:
+        for chunk in iter(lambda: stream.read(65_536), b""):
+            retained.write(chunk)
+            retained.flush()
+    controls.put(("stderr_eof", None))
+
+
+def _compact_stdout_reader(
+    stream,
+    config,
+    row_root: Path,
+    events: queue.Queue,
+    controls: queue.Queue,
+) -> None:
+    try:
+        custody = capture_binary_stream(
+            stream,
+            config=config,
+            row_root=row_root,
+            publish=events.put,
+        )
+        controls.put(("stdout_eof", custody))
+    except PrimeCaptureError as error:
+        controls.put(("capture_error", error.code))
+
+
 def _kill_tree(pid: int) -> None:
     subprocess.run(
         ["taskkill", "/PID", str(pid), "/T", "/F"],
@@ -3612,33 +3665,67 @@ def _run_prime_row(
     source.write_bytes(
         b'{"row_emitter":"prime_rook_adapter","schema":"rook.gh_authoring_source_log:v1"}\n'
     )
+    capture_config = (
+        validate_capture_config(protocol["primeEventCapture"])
+        if "primeEventCapture" in protocol
+        else None
+    )
     stdout_path = operator / "prime.jsonl"
     stderr_path = operator / "stderr.txt"
-    events: queue.Queue = queue.Queue()
-    process = subprocess.Popen(
-        command,
-        cwd=protocol["prime"]["sourceRoot"],
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
-    )
+    controls: queue.Queue | None = None
+    if capture_config is None:
+        events: queue.Queue = queue.Queue()
+        process = subprocess.Popen(
+            command,
+            cwd=protocol["prime"]["sourceRoot"],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+    else:
+        events = queue.Queue(maxsize=1)
+        controls = queue.Queue(maxsize=3)
+        process = subprocess.Popen(
+            command,
+            cwd=protocol["prime"]["sourceRoot"],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+            bufsize=0,
+        )
     assert process.stdout is not None and process.stderr is not None
-    readers = [
-        threading.Thread(
-            target=_reader,
-            args=(process.stdout, stdout_path, "stdout", events),
-            daemon=True,
-        ),
-        threading.Thread(
-            target=_reader,
-            args=(process.stderr, stderr_path, "stderr", events),
-            daemon=True,
-        ),
-    ]
+    if capture_config is None:
+        readers = [
+            threading.Thread(
+                target=_reader,
+                args=(process.stdout, stdout_path, "stdout", events),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=_reader,
+                args=(process.stderr, stderr_path, "stderr", events),
+                daemon=True,
+            ),
+        ]
+    else:
+        assert controls is not None
+        readers = [
+            threading.Thread(
+                target=_compact_stdout_reader,
+                args=(process.stdout, capture_config, row_root, events, controls),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=_binary_reader,
+                args=(process.stderr, stderr_path, controls),
+                daemon=True,
+            ),
+        ]
     for thread in readers:
         thread.start()
     monitor = RunMonitor(limits)
@@ -3647,6 +3734,7 @@ def _run_prime_row(
     tracked_processes: dict[int, str | None] = {}
     breach: str | None = None
     stdout_eof = False
+    capture_error: str | None = None
     goal_context_verified = False
     ollama_post_load_checked = False
     ollama_post_load_status: str | None = None
@@ -3654,22 +3742,43 @@ def _run_prime_row(
         process.poll() is None
         or any(thread.is_alive() for thread in readers)
         or not events.empty()
+        or (controls is not None and not controls.empty())
     ):
-        try:
-            channel, line = events.get(timeout=0.1)
-        except queue.Empty:
-            channel, line = None, None
-        if channel == "stdout" and line is None:
-            stdout_eof = True
-        elif channel == "stdout" and line is not None:
-            breach = breach or monitor.consume_prime_line(line)
+        value: Any = None
+        if capture_config is None:
             try:
-                value = json.loads(line)
-            except ValueError:
+                channel, line = events.get(timeout=0.1)
+            except queue.Empty:
+                channel, line = None, None
+            if channel == "stdout" and line is None:
+                stdout_eof = True
+            elif channel == "stdout" and line is not None:
+                breach = breach or monitor.consume_prime_line(line)
+                try:
+                    value = json.loads(line)
+                except ValueError:
+                    value = None
+        else:
+            try:
+                value = events.get(timeout=0.1)
+            except queue.Empty:
                 value = None
-            if type(value) is dict and goal_context_matches(
-                value, task["prompt"], limits.prime_goal_tokens
-            ):
+            assert controls is not None
+            while True:
+                try:
+                    control, payload = controls.get_nowait()
+                except queue.Empty:
+                    break
+                if control == "stdout_eof":
+                    stdout_eof = True
+                elif control == "capture_error":
+                    capture_error = payload
+                    breach = breach or f"prime_event_capture:{payload}"
+            if value is not None:
+                breach = breach or monitor.consume_prime_event(value)
+
+        if type(value) is dict:
+            if goal_context_matches(value, task["prompt"], limits.prime_goal_tokens):
                 goal_context_verified = True
             message = value.get("message") if type(value) is dict else None
             if (
@@ -3756,6 +3865,16 @@ def _run_prime_row(
         },
         "ownedChildPids": children,
     }
+    if capture_config is not None:
+        result["primeEventCapture"] = {
+            "custodyPath": capture_config.custody_path.as_posix(),
+            "retainedPath": capture_config.retained_path.as_posix(),
+            "status": (
+                "pass"
+                if capture_error is None and stdout_eof
+                else "fail"
+            ),
+        }
     _write_json(operator / "process-result.json", result)
     return result
 
@@ -4390,6 +4509,17 @@ def _jsonl_objects(path: Path) -> list[dict[str, Any]]:
     return values
 
 
+def _protocol_for_row(row_root: Path) -> dict[str, Any]:
+    protocol_path = Path(row_root).parent / "protocol.json"
+    if not protocol_path.is_file():
+        raise RuntimeError("row_protocol_missing")
+    try:
+        protocol = _load_json(protocol_path)
+        return validate_protocol(protocol)
+    except (OSError, ValueError) as error:
+        raise RuntimeError("row_protocol_mismatch") from error
+
+
 def _envelope_data(value: Any) -> Any:
     if type(value) is dict and value.get("success") is True:
         return value.get("data")
@@ -4653,7 +4783,8 @@ def _write_varied_row_records(
 ) -> dict[str, Any]:
     operator = row_root / "operator"
     source_events = _source_events(operator / "source.jsonl")
-    prime_events = _jsonl_objects(operator / "prime.jsonl")
+    prime_path = resolve_prime_event_path(protocol, row_root)
+    prime_events = list(iter_retained_prime_events(protocol, row_root))
     telemetry = summarize_row_telemetry(source_events, prime_events)
     snapshot = _final_observation_snapshot(row_root)
     diagnostics = snapshot.get("diagnostics") if type(snapshot) is dict else None
@@ -4692,7 +4823,7 @@ def _write_varied_row_records(
     _write_json(operator / "preservation-evaluation.json", preservation)
 
     evidence_paths = {
-        "primeRuntime": operator / "prime.jsonl",
+        "primeRuntime": prime_path,
         "sourceLog": operator / "source.jsonl",
         "processResult": operator / "process-result.json",
         "evaluationInfrastructure": operator / "evaluation-infrastructure.json",
@@ -4784,6 +4915,10 @@ def _row_outcome(
         and (
             protocol["schema"] not in MULTIMODAL_VESSEL_SCHEMAS
             or process_result.get("ollamaPostLoadStatus") == "pass"
+        )
+        and (
+            "primeEventCapture" not in protocol
+            or process_result.get("primeEventCapture", {}).get("status") == "pass"
         )
     )
     outcome = {
@@ -4885,7 +5020,9 @@ def admit_retained_smoke(
     objective = protocol["tasks"][protocol["smokeTask"]]["prompt"]
     limits = CampaignLimits.from_mapping(protocol["limits"])
     context_verified = prime_log_proves_goal_context(
-        operator / "prime.jsonl", objective, limits.prime_goal_tokens
+        resolve_prime_event_path(protocol, row_root),
+        objective,
+        limits.prime_goal_tokens,
     )
     goal_status = _goal_status(row_root)
     live_processes = retained_live_processes(
@@ -4909,6 +5046,10 @@ def admit_retained_smoke(
         and process.get("ownedChildPids") == []
         and process.get("exitCode") == 0
         and live_processes == []
+        and (
+            "primeEventCapture" not in protocol
+            or process.get("primeEventCapture", {}).get("status") == "pass"
+        )
     )
     admitted = {
         "semanticStatus": (
@@ -5022,7 +5163,7 @@ def run_campaign(
             process_result = _run_prime_row(protocol, task, row_root, target)
             if protocol["schema"] in MULTIMODAL_VESSEL_SCHEMAS:
                 attachment_audit = audit_multimodal_attachment_sequence(
-                    row_root / "operator" / "prime.jsonl", protocol
+                    resolve_prime_event_path(protocol, row_root), protocol
                 )
                 _write_json(
                     row_root / "operator" / "multimodal-attachment-audit.json",
@@ -5337,7 +5478,8 @@ async def _operator_normalize(args: argparse.Namespace) -> int:
     row_root = Path(args.row_root)
     operator = row_root / "operator"
     source = operator / "source.jsonl"
-    runtime = operator / "prime.jsonl"
+    protocol = _protocol_for_row(row_root)
+    runtime = resolve_prime_event_path(protocol, row_root)
     process = _load_json(operator / "process-result.json")
     process_state = {
         "terminated": True,
@@ -5378,11 +5520,12 @@ async def _operator_evaluate(args: argparse.Namespace) -> int:
 
     row_root = Path(args.row_root)
     operator = row_root / "operator"
+    protocol = _protocol_for_row(row_root)
     if args.presealed:
         trace = _load_json(operator / "authoring-trace.json")
     else:
         source = operator / "source.jsonl"
-        runtime = operator / "prime.jsonl"
+        runtime = resolve_prime_event_path(protocol, row_root)
         process = _load_json(operator / "process-result.json")
         process_state = {
             "terminated": True,

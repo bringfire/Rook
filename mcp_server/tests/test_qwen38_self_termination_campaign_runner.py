@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -401,6 +402,673 @@ def _runner():
     spec.loader.exec_module(module)
     return module
 
+
+def runner_capture_config() -> dict:
+    return {
+        "schema": "rook.prime_event_capture_config:v1",
+        "mode": "compact",
+        "retainedPath": "operator/prime-events.compact.jsonl",
+        "custodyPath": "operator/prime-event-capture-custody.json",
+        "rawDebugPath": None,
+    }
+
+
+def equivalent_prime_streams(
+    runner,
+    tmp_path: Path,
+    rows: list[dict],
+    base_protocol: dict | None = None,
+    *,
+    validate_compact: bool = True,
+):
+    raw_root = tmp_path / "raw"
+    compact_root = tmp_path / "compact"
+    (raw_root / "operator").mkdir(parents=True)
+    (compact_root / "operator").mkdir(parents=True)
+    source = b"".join(
+        json.dumps(
+            row,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+        for row in rows
+    )
+    (raw_root / "operator" / "prime.jsonl").write_bytes(source)
+    raw_protocol = runner.validate_protocol(base_protocol or _protocol())
+    compact_protocol = json.loads(json.dumps(raw_protocol)) | {
+        "primeEventCapture": runner_capture_config()
+    }
+    if validate_compact:
+        compact_protocol = runner.validate_protocol(compact_protocol)
+    runner.capture_binary_stream(
+        io.BytesIO(source),
+        config=runner.validate_capture_config(
+            compact_protocol["primeEventCapture"]
+        ),
+        row_root=compact_root,
+        publish=lambda event: None,
+    )
+    return raw_protocol, raw_root, compact_protocol, compact_root
+
+
+def test_historical_protocol_keeps_raw_runtime_contract(tmp_path: Path):
+    runner = _runner()
+    protocol = runner.validate_protocol(_protocol())
+
+    assert runner.resolve_prime_event_path(protocol, tmp_path) == (
+        tmp_path / "operator" / "prime.jsonl"
+    )
+    assert "primeEventCapture" not in protocol
+    source = RUNNER_PATH.read_text(encoding="utf-8")
+    assert 'text=True' in source
+    assert 'errors="replace"' in source
+
+
+def test_compact_protocol_admits_only_closed_versioned_capture_config():
+    runner = _runner()
+    protocol = _protocol() | {"primeEventCapture": runner_capture_config()}
+    assert runner.validate_protocol(protocol) is protocol
+
+    for changed in (
+        runner_capture_config() | {"maxSourceRowBytes": 1},
+        runner_capture_config() | {"retainedPath": "operator/../escape.jsonl"},
+        runner_capture_config() | {"mode": "compact_with_raw_debug"},
+    ):
+        candidate = _protocol() | {"primeEventCapture": changed}
+        with pytest.raises(ValueError, match="capture_config_invalid"):
+            runner.validate_protocol(candidate)
+
+
+def test_run_monitor_has_raw_and_parsed_event_parity():
+    runner = _runner()
+    limits = runner.CampaignLimits.from_mapping(_protocol()["limits"])
+    line_monitor = runner.RunMonitor(limits)
+    event_monitor = runner.RunMonitor(limits)
+    event = {
+        "type": "message_end",
+        "message": {"usage": {"totalTokens": 123}},
+    }
+
+    assert line_monitor.consume_prime_line(json.dumps(event)) == (
+        event_monitor.consume_prime_event(event)
+    )
+    assert line_monitor.provider_tokens == event_monitor.provider_tokens == 123
+
+
+def test_goal_context_entry_point_has_raw_compact_parity(tmp_path: Path):
+    runner = _runner()
+    objective = "build a row"
+    budget = 2_000_000
+    rows = [
+        {
+            "type": "goal_update",
+            "goal": {
+                "objective": objective,
+                "status": "active",
+                "tokenBudget": budget,
+            },
+        }
+    ]
+    raw_protocol, raw_root, compact_protocol, compact_root = (
+        equivalent_prime_streams(runner, tmp_path, rows)
+    )
+
+    assert runner.prime_log_proves_goal_context(
+        runner.resolve_prime_event_path(raw_protocol, raw_root), objective, budget
+    )
+    assert runner.prime_log_proves_goal_context(
+        runner.resolve_prime_event_path(compact_protocol, compact_root),
+        objective,
+        budget,
+    )
+
+
+class FakePrimeProcess:
+    def __init__(self, stdout: bytes, *, running: bool = False):
+        self.stdout = io.BytesIO(stdout)
+        self.stderr = io.BytesIO(b"")
+        self.pid = 4242
+        self.running = running
+
+    def poll(self):
+        return None if self.running else 0
+
+    def wait(self, timeout=None):
+        assert not self.running
+        return 0
+
+
+def _compact_run_dependencies(runner, monkeypatch, process):
+    monkeypatch.setattr(runner, "build_prime_launch", lambda *args, **kwargs: (["prime"], {}))
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runner, "_process_snapshot", lambda: [])
+    monkeypatch.setattr(runner, "prime_session_proves_thinking_level", lambda *args: True)
+
+
+def test_compact_prime_row_publishes_after_capture_and_records_custody(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = runner.validate_protocol(
+        _protocol() | {"primeEventCapture": runner_capture_config()}
+    )
+    task = protocol["tasks"]["T3"]
+    rows = [
+        {
+            "type": "goal_update",
+            "goal": {
+                "objective": task["prompt"],
+                "status": "active",
+                "tokenBudget": protocol["limits"]["primeGoalTokenBudget"],
+            },
+        },
+        {"type": "message_end", "message": {"usage": {"totalTokens": 123}}},
+    ]
+    source = b"".join(
+        json.dumps(row, separators=(",", ":")).encode("utf-8") + b"\n"
+        for row in rows
+    )
+    process = FakePrimeProcess(source)
+    _compact_run_dependencies(runner, monkeypatch, process)
+
+    result = runner._run_prime_row(protocol, task, tmp_path, {"target": "test"})
+
+    assert result["stdoutEof"] is True
+    assert result["goalContextVerified"] is True
+    assert result["providerReportedTokens"] == 123
+    assert result["primeEventCapture"] == {
+        "custodyPath": "operator/prime-event-capture-custody.json",
+        "retainedPath": "operator/prime-events.compact.jsonl",
+        "status": "pass",
+    }
+    assert runner.verify_capture_custody(
+        runner.validate_capture_config(protocol["primeEventCapture"]), tmp_path
+    )["status"] == "complete"
+
+
+def test_compact_capture_failure_terminates_live_process_and_stays_incomplete(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = runner.validate_protocol(
+        _protocol() | {"primeEventCapture": runner_capture_config()}
+    )
+    task = protocol["tasks"]["T3"]
+    process = FakePrimeProcess(b'{"type":"session"}', running=True)
+    _compact_run_dependencies(runner, monkeypatch, process)
+    killed: list[int] = []
+
+    def kill(pid: int):
+        killed.append(pid)
+        process.running = False
+
+    monkeypatch.setattr(runner, "_kill_tree", kill)
+
+    result = runner._run_prime_row(protocol, task, tmp_path, {"target": "test"})
+
+    assert killed == [process.pid]
+    assert result["stdoutEof"] is False
+    assert result["limitBreach"] == "prime_event_capture:stdout_missing_final_lf"
+    assert result["primeEventCapture"]["status"] == "fail"
+    assert not (
+        tmp_path / "operator" / "prime-event-capture-custody.json"
+    ).exists()
+
+
+def test_historical_prime_row_keeps_text_launch_and_process_shape(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = runner.validate_protocol(_protocol())
+    task = protocol["tasks"]["T3"]
+    event = {
+        "type": "goal_update",
+        "goal": {
+            "objective": task["prompt"],
+            "status": "active",
+            "tokenBudget": protocol["limits"]["primeGoalTokenBudget"],
+        },
+    }
+    process = FakePrimeProcess(json.dumps(event).encode() + b"\n")
+    process.stdout = io.StringIO(process.stdout.getvalue().decode())
+    process.stderr = io.StringIO("")
+    observed: dict = {}
+    monkeypatch.setattr(runner, "build_prime_launch", lambda *args, **kwargs: (["prime"], {}))
+
+    def popen(*args, **kwargs):
+        observed.update(kwargs)
+        return process
+
+    monkeypatch.setattr(runner.subprocess, "Popen", popen)
+    monkeypatch.setattr(runner, "_process_snapshot", lambda: [])
+    monkeypatch.setattr(runner, "prime_session_proves_thinking_level", lambda *args: True)
+
+    result = runner._run_prime_row(protocol, task, tmp_path, {"target": "test"})
+
+    assert observed["text"] is True
+    assert observed["encoding"] == "utf-8"
+    assert observed["errors"] == "replace"
+    assert "primeEventCapture" not in result
+    assert (tmp_path / "operator" / "prime.jsonl").is_file()
+
+
+def test_compact_process_custody_is_required_by_row_outcome(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    protocol = runner.validate_protocol(
+        _protocol() | {"primeEventCapture": runner_capture_config()}
+    )
+    task = protocol["tasks"]["T3"]
+    monkeypatch.setattr(runner, "_post_actor_evaluation", lambda *args: "pass")
+    monkeypatch.setattr(runner, "_goal_status", lambda *args: "complete")
+    base = {
+        "limitBreach": None,
+        "goalContextVerified": True,
+        "providerReportedTokens": 1,
+        "gatewayEvents": 1,
+        "elapsedSeconds": 1.0,
+        "stdoutEof": True,
+        "ownedChildPids": [],
+        "exitCode": 0,
+    }
+
+    failed = runner._row_outcome(
+        protocol,
+        task,
+        tmp_path,
+        base | {"primeEventCapture": {"status": "fail"}},
+    )
+    passed = runner._row_outcome(
+        protocol,
+        task,
+        tmp_path,
+        base | {"primeEventCapture": {"status": "pass"}},
+    )
+
+    assert failed["custodyStatus"] == "fail"
+    assert passed["custodyStatus"] == "pass"
+
+
+def compactible_text_update(text: str) -> dict:
+    message = {
+        "role": "assistant",
+        "content": [{"type": "text", "text": text}],
+        "api": "openai-completions",
+        "provider": "ollama",
+        "model": "qwen3.8:27b",
+        "usage": {"input": 1, "output": 1, "totalTokens": 2},
+        "stopReason": "stop",
+        "timestamp": 1,
+    }
+    return {
+        "type": "message_update",
+        "message": message,
+        "assistantMessageEvent": {
+            "type": "text_delta",
+            "contentIndex": 0,
+            "delta": text,
+            "partial": json.loads(json.dumps(message)),
+        },
+    }
+
+
+def test_write_varied_row_records_has_raw_compact_parity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    base = _varied_cohort_protocol()
+    rows = [
+        compactible_text_update("working"),
+        {
+            "type": "message_end",
+            "timestamp": 2,
+            "message": {
+                "usage": {"input": 10, "output": 2, "totalTokens": 12}
+            },
+        },
+    ]
+    raw_protocol, raw_root, compact_protocol, compact_root = (
+        equivalent_prime_streams(runner, tmp_path, rows, base)
+    )
+    source_event = {
+        "sequence": 1,
+        "target": "gh_edit",
+        "mutation": {"commit_status": "committed"},
+    }
+    for root in (raw_root, compact_root):
+        (root / "operator" / "source.jsonl").write_text(
+            json.dumps(source_event) + "\n", encoding="utf-8"
+        )
+    monkeypatch.setattr(
+        runner,
+        "_final_observation_snapshot",
+        lambda root: {"diagnostics": {"errors": 0, "warnings": 0}},
+    )
+    checkpoint = {"status": "pass"}
+
+    raw = runner._write_varied_row_records(
+        raw_protocol, raw_protocol["tasks"]["VP2"], raw_root, checkpoint
+    )
+    compact = runner._write_varied_row_records(
+        compact_protocol,
+        compact_protocol["tasks"]["VP2"],
+        compact_root,
+        checkpoint,
+    )
+
+    assert raw == compact
+    raw_input = json.loads(
+        (raw_root / "operator" / "shadow-judgment-input.json").read_text()
+    )
+    compact_input = json.loads(
+        (compact_root / "operator" / "shadow-judgment-input.json").read_text()
+    )
+    raw_input["evidence"]["primeRuntime"] = "<resolved-retained-stream>"
+    compact_input["evidence"]["primeRuntime"] = "<resolved-retained-stream>"
+    assert raw_input == compact_input
+
+
+def test_attachment_entry_point_has_raw_compact_parity(tmp_path: Path):
+    runner = _runner()
+    protocol = _multimodal_vessel_protocol()
+    first = b"first image"
+    second = b"second image"
+    rows = [
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "attach-call",
+            "toolName": "ipython",
+            "args": {"code": protocol["multimodal"]["attachmentCode"]},
+        },
+        {
+            "type": "message_start",
+            "message": {
+                "role": "toolResult",
+                "toolCallId": "attach-call",
+                "toolName": "ipython",
+                "content": [
+                    {"type": "text", "text": "Loaded 2 image(s) into context"},
+                    {
+                        "type": "image",
+                        "data": base64.b64encode(first).decode("ascii"),
+                        "mimeType": "image/png",
+                    },
+                    {
+                        "type": "image",
+                        "data": base64.b64encode(second).decode("ascii"),
+                        "mimeType": "image/jpeg",
+                    },
+                ],
+            },
+        },
+    ]
+    raw_protocol, raw_root, compact_protocol, compact_root = (
+        equivalent_prime_streams(
+            runner,
+            tmp_path,
+            rows,
+            protocol,
+            validate_compact=False,
+        )
+    )
+    assert runner.audit_multimodal_attachment_sequence(
+        runner.resolve_prime_event_path(raw_protocol, raw_root), raw_protocol
+    ) == runner.audit_multimodal_attachment_sequence(
+        runner.resolve_prime_event_path(compact_protocol, compact_root),
+        compact_protocol,
+    )
+
+
+def _build_retained_smoke_fixture(runner, root: Path, protocol: dict) -> None:
+    row_root = root / protocol["smokeTask"]
+    operator = row_root / "operator"
+    sessions = row_root / "agent" / "sessions"
+    operator.mkdir(parents=True)
+    sessions.mkdir(parents=True)
+    (root / "protocol.json").write_text(
+        json.dumps(protocol, separators=(",", ":")) + "\n", encoding="utf-8"
+    )
+    objective = protocol["tasks"][protocol["smokeTask"]]["prompt"]
+    goal_event = {
+        "type": "goal_update",
+        "goal": {
+            "objective": objective,
+            "status": "active",
+            "tokenBudget": protocol["limits"]["primeGoalTokenBudget"],
+        },
+    }
+    source = json.dumps(goal_event, separators=(",", ":")).encode() + b"\n"
+    if "primeEventCapture" in protocol:
+        runner.capture_binary_stream(
+            io.BytesIO(source),
+            config=runner.validate_capture_config(protocol["primeEventCapture"]),
+            row_root=row_root,
+            publish=lambda event: None,
+        )
+    else:
+        (operator / "prime.jsonl").write_bytes(source)
+    process = {
+        "limitBreach": None,
+        "providerReportedTokens": 100,
+        "gatewayEvents": 1,
+        "elapsedSeconds": 1.0,
+        "stdoutEof": True,
+        "ownedChildPids": [],
+        "exitCode": 0,
+    }
+    if "primeEventCapture" in protocol:
+        config = runner.validate_capture_config(protocol["primeEventCapture"])
+        process["primeEventCapture"] = {
+            "custodyPath": config.custody_path.as_posix(),
+            "retainedPath": config.retained_path.as_posix(),
+            "status": "pass",
+        }
+    outcome = {
+        "semanticStatus": "pass",
+        "goalStatus": "complete",
+        "budgetStatus": "pass",
+        "custodyStatus": "pass",
+        "process": process,
+    }
+    for name, value in (
+        ("process-result.json", process),
+        ("outcome.json", outcome),
+        ("hidden-evaluation.json", {"status": "pass"}),
+    ):
+        (operator / name).write_text(json.dumps(value) + "\n", encoding="utf-8")
+    (sessions / "session.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "custom",
+                "customType": "thread_goal_state",
+                "data": {"status": "complete"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runner.write_evidence_manifest(root, root / "evidence-manifest.json")
+
+
+def test_admit_retained_smoke_has_raw_compact_parity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    raw_protocol = runner.validate_protocol(_protocol())
+    compact_protocol = runner.validate_protocol(
+        _protocol() | {"primeEventCapture": runner_capture_config()}
+    )
+    raw_root = tmp_path / "raw-smoke"
+    compact_root = tmp_path / "compact-smoke"
+    _build_retained_smoke_fixture(runner, raw_root, raw_protocol)
+    _build_retained_smoke_fixture(runner, compact_root, compact_protocol)
+    monkeypatch.setattr(runner, "validate_evidence_root", lambda path: Path(path))
+    monkeypatch.setattr(runner, "_process_snapshot", lambda: [])
+
+    raw = runner.admit_retained_smoke(
+        raw_protocol, raw_root, raw_root / "protocol.json"
+    )
+    compact = runner.admit_retained_smoke(
+        compact_protocol, compact_root, compact_root / "protocol.json"
+    )
+
+    projection = ("semanticStatus", "goalStatus", "budgetStatus", "custodyStatus")
+    assert {key: raw[key] for key in projection} == {
+        key: compact[key] for key in projection
+    }
+
+
+def _operator_parity_roots(runner, tmp_path: Path, label: str):
+    rows = [{"type": "session"}, compactible_text_update("working")]
+    roots = []
+    for mode in ("raw", "compact"):
+        campaign = tmp_path / f"{label}-{mode}"
+        row_root = campaign / "T2"
+        operator = row_root / "operator"
+        operator.mkdir(parents=True)
+        protocol = _protocol()
+        if mode == "compact":
+            protocol["primeEventCapture"] = runner_capture_config()
+        protocol = runner.validate_protocol(protocol)
+        (campaign / "protocol.json").write_text(
+            json.dumps(protocol, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        source = b"".join(
+            json.dumps(row, separators=(",", ":")).encode("utf-8") + b"\n"
+            for row in rows
+        )
+        if mode == "compact":
+            runner.capture_binary_stream(
+                io.BytesIO(source),
+                config=runner.validate_capture_config(
+                    protocol["primeEventCapture"]
+                ),
+                row_root=row_root,
+                publish=lambda event: None,
+            )
+        else:
+            (operator / "prime.jsonl").write_bytes(source)
+        (operator / "source.jsonl").write_text(
+            '{"schema":"source"}\n', encoding="utf-8"
+        )
+        (operator / "process-result.json").write_text(
+            json.dumps(
+                {"stdoutEof": True, "ownedChildPids": [], "exitCode": 0}
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        roots.append((protocol, row_root))
+    return roots
+
+
+def _install_operator_fakes(runner, monkeypatch: pytest.MonkeyPatch):
+    acceptance = types.ModuleType("rook.gh_behavioral_acceptance")
+
+    def projected_types(runtime: Path) -> list[str]:
+        return [
+            value["type"]
+            for value in runner._jsonl_objects(runtime)
+            if value.get("type") not in {"message_update", "assistant_stream_delta"}
+        ]
+
+    acceptance.seal_prime_source_log = (
+        lambda source, runtime, process: {
+            "eventTypes": projected_types(runtime),
+            "process": process,
+        }
+    )
+    acceptance.normalize_authoring_trace = (
+        lambda source, runtime: {"events": [], "eventTypes": projected_types(runtime)}
+    )
+    acceptance._latest_terminal_receipt = lambda trace: (None, "receipt_missing")
+    acceptance.canonical_json_bytes = lambda value: b"{}"
+    acceptance.evaluate_behavioral_probe = lambda *args: {"status": "unused"}
+
+    async def unused_probe(*args):
+        return {"status": "unused"}
+
+    acceptance.run_behavioral_probe = unused_probe
+    server = types.ModuleType("rook.server")
+
+    async def unused_executor(*args):
+        raise AssertionError("unexpected_mcp_call")
+
+    server._mcp_tool_executor = unused_executor
+    package = types.ModuleType("rook")
+    package.__path__ = []
+    monkeypatch.setitem(sys.modules, "rook", package)
+    monkeypatch.setitem(sys.modules, "rook.gh_behavioral_acceptance", acceptance)
+    monkeypatch.setitem(sys.modules, "rook.server", server)
+
+
+@pytest.mark.asyncio
+async def test_operator_normalize_has_raw_compact_parity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    _install_operator_fakes(runner, monkeypatch)
+    roots = _operator_parity_roots(runner, tmp_path, "normalize")
+
+    for _, row_root in roots:
+        assert await runner._operator_normalize(
+            types.SimpleNamespace(row_root=row_root, exit_code=0)
+        ) == 0
+
+    raw_operator = roots[0][1] / "operator"
+    compact_operator = roots[1][1] / "operator"
+    for name in ("source-closure.json", "authoring-trace.json"):
+        assert json.loads((raw_operator / name).read_text()) == json.loads(
+            (compact_operator / name).read_text()
+        )
+
+
+@pytest.mark.asyncio
+async def test_operator_evaluate_has_raw_compact_parity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    runner = _runner()
+    _install_operator_fakes(runner, monkeypatch)
+    roots = _operator_parity_roots(runner, tmp_path, "evaluate")
+
+    for _, row_root in roots:
+        assert await runner._operator_evaluate(
+            types.SimpleNamespace(
+                row_root=row_root,
+                exit_code=0,
+                presealed=False,
+                task="T2",
+            )
+        ) == 0
+
+    raw_operator = roots[0][1] / "operator"
+    compact_operator = roots[1][1] / "operator"
+    for name in (
+        "source-closure.json",
+        "authoring-trace.json",
+        "hidden-evaluation.json",
+    ):
+        assert json.loads((raw_operator / name).read_text()) == json.loads(
+            (compact_operator / name).read_text()
+        )
+
+
+def test_compact_aware_runner_has_one_historical_prime_path_literal():
+    source = RUNNER_PATH.read_text(encoding="utf-8")
+    assert source.count('operator / "prime.jsonl"') == 1
+    for function in (
+        "_write_varied_row_records",
+        "admit_retained_smoke",
+        "_operator_normalize",
+        "_operator_evaluate",
+    ):
+        body = source.split(f"def {function}", 1)[1].split("\ndef ", 1)[0]
+        assert "resolve_prime_event_path" in body
 
 def _protocol() -> dict:
     return json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
