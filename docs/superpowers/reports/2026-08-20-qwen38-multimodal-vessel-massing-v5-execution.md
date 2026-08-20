@@ -23,7 +23,8 @@ but the frozen acceptance owner admits only one `agent_end`. The retained Prime
 runtime therefore contains two authentic run boundaries and is refused as
 `invalid_prime_terminal_marker` before semantic evaluation. This is a
 Prime-compaction trace-admission compatibility gap, not an ambiguity in the
-final Grasshopper mutation or checkpoint.
+final Grasshopper mutation or checkpoint. No Qwen or Grasshopper failure was
+observed; semantic evaluation did not run, so neither was formally ruled out.
 
 ## Operational Result
 

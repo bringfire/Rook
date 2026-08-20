@@ -1,0 +1,47 @@
+{
+  "mode": "offline_only",
+  "outputRoot": "C:/UDEV/RookEvidence/2026-08-20-prime-compaction-trace-reconciliation-v1",
+  "owners": {
+    "v1": {
+      "path": "C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger/mcp_server/src/rook/gh_behavioral_acceptance.py",
+      "sha256": "8A68408AD6216A7DEF638EAC962B28CA7A32735312DCD00C57D038EAD8DEBAF5"
+    },
+    "v2": {
+      "path": "C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger/mcp_server/src/rook/gh_behavioral_acceptance_v2.py",
+      "sha256": "85E6B175F939EFB728A2E36D686995F1CA3339AECE9CB06CDCE831F302F01D23"
+    }
+  },
+  "runner": {
+    "path": "C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger/scripts/reconcile_prime_compaction_trace.py",
+    "sha256": "6B45F0DA15C81272A53BC6F09419729FA35F3DCB36EE59BFABBF2DBCB03D119D"
+  },
+  "schema": "rook.experiment.prime_compaction_trace_reconciliation:v1",
+  "sourceEvidence": {
+    "globalManifest": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/evidence-manifest.json",
+      "sha256": "7BDD42FE284CDCF34AE101CE5550E9A1B5B7742A90F0437B5735C3FB5F67259D"
+    },
+    "historicalEvaluation": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1/operator/hidden-evaluation.json",
+      "sha256": "7044254CB3703194ADCD462595B0FDEE19E7BC75BA4F2805D839779CA9232C9A"
+    },
+    "processResult": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1/operator/process-result.json",
+      "sha256": "4920BA546D4FFF73C1C8DDEB8887E5C1CABA3762A5775C75C516683D54342F70"
+    },
+    "root": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5",
+    "rowManifest": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1/evidence-manifest.json",
+      "sha256": "FCD5205D361C1772ADB8C266CB33A9490F4679697CE28DE3B7D75636065B13A4"
+    },
+    "rowRoot": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1",
+    "runtimeLog": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1/operator/prime.jsonl",
+      "sha256": "F79FF8A329993C9770B7E103B3F10620A6E118C5AD58E6184E9777EDFBFCAA3B"
+    },
+    "sourceLog": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1/operator/source.jsonl",
+      "sha256": "E86FDB1F88B1357F8811F3FC8F3DDBEC078C4949B873615E0CE1D98A98B966C8"
+    }
+  }
+}
