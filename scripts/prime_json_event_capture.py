@@ -958,7 +958,13 @@ def reconstruct_terminal_assistant_messages(
                 continue
             if current is None:
                 raise ValueError("assistant_reconstruction_incomplete")
-            if not _same_value(current, message):
+            current_content = current.get("content")
+            terminal_content = message.get("content")
+            if (
+                type(current_content) is not list
+                or type(terminal_content) is not list
+                or not _same_value(current_content, terminal_content)
+            ):
                 raise ValueError("assistant_reconstruction_mismatch")
             terminal.append(copy.deepcopy(message))
             current = None

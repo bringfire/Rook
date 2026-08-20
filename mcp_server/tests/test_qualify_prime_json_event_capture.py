@@ -28,12 +28,15 @@ SPEC_PATH = (
     / "specs"
     / "2026-08-20-prime-json-event-stream-storage-efficiency-design.md"
 )
-FROZEN_PROTOCOL_PATH = (
+FROZEN_PROTOCOL_V1_PATH = (
     ROOT
     / "docs"
     / "superpowers"
     / "experiments"
     / "2026-08-20-prime-json-event-capture-offline-qualification-v1.json"
+)
+FROZEN_PROTOCOL_V2_PATH = FROZEN_PROTOCOL_V1_PATH.with_name(
+    "2026-08-20-prime-json-event-capture-offline-qualification-v2.json"
 )
 
 
@@ -370,7 +373,7 @@ def test_qualification_source_has_no_live_system_dependencies():
 
 
 def test_frozen_protocol_binds_exact_offline_qualification_inputs(qualification):
-    protocol = json.loads(FROZEN_PROTOCOL_PATH.read_text(encoding="utf-8"))
+    protocol = json.loads(FROZEN_PROTOCOL_V1_PATH.read_text(encoding="utf-8"))
     assert qualification.validate_qualification_protocol(protocol) == protocol
     assert protocol["mode"] == "offline_only"
     assert protocol["outputRoot"] == (
@@ -500,3 +503,24 @@ def test_frozen_protocol_binds_exact_offline_qualification_inputs(qualification)
         "maxRetainedRatio": 0.05,
         "liveContact": False,
     }
+
+
+def test_v2_protocol_changes_only_capture_owner_and_evidence_root(qualification):
+    assert sha256(FROZEN_PROTOCOL_V1_PATH) == (
+        "8082BA9D7133423FC2AC803097D373CC"
+        "B10E7883FA120519926231AF375126BF"
+    )
+    v1 = json.loads(FROZEN_PROTOCOL_V1_PATH.read_text(encoding="utf-8"))
+    v2 = json.loads(FROZEN_PROTOCOL_V2_PATH.read_text(encoding="utf-8"))
+    expected = copy.deepcopy(v1)
+    expected["outputRoot"] = (
+        "C:/UDEV/RookEvidence/"
+        "2026-08-20-prime-json-event-capture-offline-qualification-v2"
+    )
+    expected["owners"]["captureModule"]["sha256"] = (
+        "2B9E86BD544092E74D34C19AC9F33183"
+        "A1CA56A2D97E574973DEAB8E7D4EFAFF"
+    )
+
+    assert v2 == expected
+    assert qualification.validate_qualification_protocol(v2) == v2

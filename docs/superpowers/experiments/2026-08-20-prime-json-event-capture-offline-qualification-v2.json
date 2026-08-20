@@ -1,0 +1,78 @@
+{
+  "schema": "rook.experiment.prime_json_event_capture_offline_qualification:v1",
+  "mode": "offline_only",
+  "outputRoot": "C:/UDEV/RookEvidence/2026-08-20-prime-json-event-capture-offline-qualification-v2",
+  "captureConfig": {
+    "schema": "rook.prime_event_capture_config:v1",
+    "mode": "compact",
+    "retainedPath": "operator/prime-events.compact.jsonl",
+    "custodyPath": "operator/prime-event-capture-custody.json",
+    "rawDebugPath": null
+  },
+  "sourceEvidence": {
+    "root": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5",
+    "rowRoot": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1",
+    "globalManifest": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/evidence-manifest.json",
+      "sha256": "7BDD42FE284CDCF34AE101CE5550E9A1B5B7742A90F0437B5735C3FB5F67259D"
+    },
+    "rowManifest": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1/evidence-manifest.json",
+      "sha256": "FCD5205D361C1772ADB8C266CB33A9490F4679697CE28DE3B7D75636065B13A4"
+    },
+    "runtimeLog": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1/operator/prime.jsonl",
+      "sha256": "F79FF8A329993C9770B7E103B3F10620A6E118C5AD58E6184E9777EDFBFCAA3B",
+      "bytes": 3543087572,
+      "rows": 74473
+    },
+    "sourceLog": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1/operator/source.jsonl",
+      "sha256": "E86FDB1F88B1357F8811F3FC8F3DDBEC078C4949B873615E0CE1D98A98B966C8"
+    },
+    "processResult": {
+      "path": "C:/UDEV/RookEvidence/2026-08-20-qwen38-multimodal-vessel-massing-v5/MV1/operator/process-result.json",
+      "sha256": "4920BA546D4FFF73C1C8DDEB8887E5C1CABA3762A5775C75C516683D54342F70"
+    }
+  },
+  "owners": {
+    "captureModule": {
+      "path": "C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger/scripts/prime_json_event_capture.py",
+      "sha256": "2B9E86BD544092E74D34C19AC9F33183A1CA56A2D97E574973DEAB8E7D4EFAFF"
+    },
+    "campaignRunner": {
+      "path": "C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger/scripts/qwen38_self_termination_campaign_runner.py",
+      "sha256": "CB0F4076A6812ABF6C8356DB874F1A04E90B37EA029B1C9E5262780E5C9A221F"
+    },
+    "v2": {
+      "path": "C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger/mcp_server/src/rook/gh_behavioral_acceptance_v2.py",
+      "sha256": "55211B778B44C96729A21D9DAE430B2883F4636520C030E1EBFD3B8F896508FF"
+    },
+    "spec": {
+      "path": "C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger/docs/superpowers/specs/2026-08-20-prime-json-event-stream-storage-efficiency-design.md",
+      "sha256": "E5FAAE11FDCB40C184F0478E611D77F777B2C8E552B99A6736555592BC0FDC63"
+    }
+  },
+  "precontactVerification": {
+    "pythonPath": "C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe",
+    "arguments": [
+      "-m",
+      "pytest",
+      "mcp_server/tests/test_prime_json_event_capture.py",
+      "mcp_server/tests/test_qwen38_self_termination_campaign_runner.py",
+      "mcp_server/tests/test_qualify_prime_json_event_capture.py",
+      "mcp_server/tests/test_gh_behavioral_acceptance_v2.py",
+      "mcp_server/tests/test_reconcile_prime_compaction_trace.py",
+      "-q"
+    ]
+  },
+  "expected": {
+    "sourceRows": 74473,
+    "sourceBytes": 3543087572,
+    "sourceSha256": "F79FF8A329993C9770B7E103B3F10620A6E118C5AD58E6184E9777EDFBFCAA3B",
+    "compactedMessageUpdates": 74143,
+    "rawFallbackMessageUpdates": 0,
+    "maxRetainedRatio": 0.05,
+    "liveContact": false
+  }
+}

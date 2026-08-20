@@ -742,6 +742,49 @@ def test_reconstruction_equals_exact_terminal_messages(capture, tmp_path):
     assert capture.reconstruct_terminal_assistant_messages(protocol, tmp_path) == expected
 
 
+def test_reconstruction_uses_terminal_checkpoint_metadata(capture, tmp_path):
+    started = assistant_message([])
+    streaming = assistant_message([text_block("")])
+    partial = assistant_message([text_block("A")])
+    final = copy.deepcopy(partial)
+    final["responseId"] = "chatcmpl-final"
+    final["stopReason"] = "toolUse"
+    final["usage"] = {
+        "input": 8_128,
+        "output": 303,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 8_431,
+        "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0,
+        },
+    }
+    source = b"".join(
+        [
+            checkpoint_row("message_start", started),
+            update_for_message("text_start", 0, {}, streaming),
+            update_for_message("text_delta", 0, {"delta": "A"}, partial),
+            update_for_message("text_end", 0, {"content": "A"}, partial),
+            checkpoint_row("message_end", final),
+        ]
+    )
+    protocol = {"primeEventCapture": approved_capture_config()}
+    capture.capture_binary_stream(
+        io.BytesIO(source),
+        config=capture_config(capture),
+        row_root=tmp_path,
+        publish=lambda event: None,
+    )
+
+    assert capture.reconstruct_terminal_assistant_messages(protocol, tmp_path) == [
+        final
+    ]
+
+
 def test_raw_fallback_update_remains_reconstructable(capture, tmp_path):
     empty = assistant_message([])
     final = assistant_message([text_block("raw")])
