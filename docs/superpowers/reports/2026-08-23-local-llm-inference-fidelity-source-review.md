@@ -1,8 +1,11 @@
 # Local LLM Inference Fidelity: Source Review and Rook Implications
 
-**Date:** 2026-08-23  
-**Status:** Research note; no runtime change or qualification claim  
-**Primary source:** [Why your local LLM feels dumber than it is](https://forum.level1techs.com/t/why-your-local-llm-feels-dumber-than-it-is/253917), `thr3e`, Level1Techs Forums, begun 2026-08-16 and reviewed through the 2026-08-23 update  
+**Date:** 2026-08-23
+
+**Status:** Research note; no runtime change or qualification claim
+
+**Primary source:** [Why your local LLM feels dumber than it is](https://forum.level1techs.com/t/why-your-local-llm-feels-dumber-than-it-is/253917), `thr3e`, Level1Techs Forums, begun 2026-08-16 and reviewed through the 2026-08-23 update
+
 **Contact:** Read-only web and local-artifact inspection; no Prime, Ollama, Qwen, Rhino, Grasshopper, or Rook runtime contact
 
 ## Purpose and Source Custody
