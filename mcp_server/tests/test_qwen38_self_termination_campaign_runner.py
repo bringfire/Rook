@@ -248,6 +248,13 @@ SOL_VESSEL_IMPLEMENTATION_PROTOCOL_PATH = (
     / "experiments"
     / "2026-08-20-gpt56-sol-vessel-implementation-v1.json"
 )
+QWEN_SOL_PLAN_VESSEL_PROTOCOL_PATH = (
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "experiments"
+    / "2026-08-26-qwen38-sol-plan-vessel-execution-v1.json"
+)
 MULTIMODAL_VESSEL_ADJUDICATION_PATH = (
     ROOT
     / "docs"
@@ -1242,6 +1249,10 @@ def _sol_vessel_implementation_protocol() -> dict:
     )
 
 
+def _qwen_sol_plan_vessel_protocol() -> dict:
+    return json.loads(QWEN_SOL_PLAN_VESSEL_PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
 def _skill_body(path: Path) -> str:
     content = path.read_text(encoding="utf-8")
     assert content.startswith("---\n")
@@ -1703,6 +1714,35 @@ def test_sol_vessel_protocol_reuses_the_live_path_with_frozen_design_custody():
         "Do not use subagents",
     ):
         assert required in prompt
+
+
+def test_qwen_sol_plan_vessel_protocol_changes_only_the_actor_boundary():
+    assert QWEN_SOL_PLAN_VESSEL_PROTOCOL_PATH.is_file()
+
+    runner = _runner()
+    protocol = _qwen_sol_plan_vessel_protocol()
+    sol = _sol_vessel_implementation_protocol()
+    qwen = _multimodal_vessel_v5_protocol()
+
+    assert runner.validate_protocol(protocol) is protocol
+    assert protocol["schema"] == runner.QWEN_SOL_PLAN_VESSEL_SCHEMA
+    assert protocol["executionOrder"] == ["MV1"]
+    assert protocol["prime"]["model"] == "ollama_chat/qwen3.8:27b"
+    assert protocol["prime"]["thinkingLevel"] == "low"
+    assert protocol["prime"]["models"] == qwen["prime"]["models"]
+    assert protocol["modelCustody"] == qwen["modelCustody"]
+    assert protocol["tasks"] == sol["tasks"]
+    assert protocol["baselineEvidence"] == sol["baselineEvidence"]
+    assert protocol["multimodal"]["images"] == sol["multimodal"]["images"]
+    assert protocol["primeEventCapture"] == sol["primeEventCapture"]
+    assert protocol["contactMode"] == {
+        "mode": "single_qwen_sol_plan_vessel_live_contact",
+        "evidenceRoot": (
+            "C:/UDEV/RookEvidence/"
+            "2026-08-26-qwen38-sol-plan-vessel-execution-v1"
+        ),
+        "actorContactAuthorized": True,
+    }
 
 
 def test_sol_vessel_launch_uses_direct_node_global_oauth_and_explicit_skill(

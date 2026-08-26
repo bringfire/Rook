@@ -71,6 +71,9 @@ MULTIMODAL_VESSEL_V5_SCHEMA = "rook.experiment.qwen38_multimodal_vessel_massing:
 SOL_VESSEL_IMPLEMENTATION_SCHEMA = (
     "rook.experiment.gpt56_sol_vessel_implementation:v1"
 )
+QWEN_SOL_PLAN_VESSEL_SCHEMA = (
+    "rook.experiment.qwen38_sol_plan_vessel_execution:v1"
+)
 MULTIMODAL_VESSEL_SCHEMAS = {
     MULTIMODAL_VESSEL_SCHEMA,
     MULTIMODAL_VESSEL_V2_SCHEMA,
@@ -81,6 +84,7 @@ MULTIMODAL_VESSEL_SCHEMAS = {
 MULTIMODAL_PRODUCT_SCHEMAS = {
     *MULTIMODAL_VESSEL_SCHEMAS,
     SOL_VESSEL_IMPLEMENTATION_SCHEMA,
+    QWEN_SOL_PLAN_VESSEL_SCHEMA,
 }
 PRIME_UPSTREAM_SMOKE_SCHEMAS = {
     PRIME_UPSTREAM_SMOKE_SCHEMA,
@@ -1677,6 +1681,7 @@ def _validate_multimodal_vessel(protocol: dict[str, Any]) -> list[str]:
 
 
 def _validate_sol_vessel_implementation(protocol: dict[str, Any]) -> list[str]:
+    qwen_handoff = protocol.get("schema") == QWEN_SOL_PLAN_VESSEL_SCHEMA
     expected_keys = {
         "schema",
         "status",
@@ -1706,12 +1711,16 @@ def _validate_sol_vessel_implementation(protocol: dict[str, Any]) -> list[str]:
     }
     if set(protocol) != expected_keys or protocol.get("status") != "frozen_precontact":
         raise ValueError("sol_vessel_implementation_invalid")
-    if protocol.get("executionOrder") != ["MV1"] or protocol.get("limits") != {
+    expected_limits = {
         "wallClockSecondsPerRun": 10_800,
         "gatewayEventsPerRun": 500,
-        "providerReportedTokensPerRun": 2_000_000,
-        "primeGoalTokenBudget": 1_800_000,
-    }:
+        "providerReportedTokensPerRun": 10_000_000 if qwen_handoff else 2_000_000,
+        "primeGoalTokenBudget": 9_500_000 if qwen_handoff else 1_800_000,
+    }
+    if (
+        protocol.get("executionOrder") != ["MV1"]
+        or protocol.get("limits") != expected_limits
+    ):
         raise ValueError("sol_vessel_implementation_invalid")
 
     prime = protocol.get("prime")
@@ -1732,10 +1741,11 @@ def _validate_sol_vessel_implementation(protocol: dict[str, Any]) -> list[str]:
         != "739400844f8f3f280414b0c7b9c65797208815d3"
         or prime.get("sourceRoot")
         != "D:/prime-agent/.worktrees/rook-upstream-evaluation"
-        or prime.get("model") != "openai-codex/gpt-5.6-sol"
-        or prime.get("thinkingLevel") != "xhigh"
+        or prime.get("model")
+        != ("ollama_chat/qwen3.8:27b" if qwen_handoff else "openai-codex/gpt-5.6-sol")
+        or prime.get("thinkingLevel") != ("low" if qwen_handoff else "xhigh")
         or prime.get("settings") != expected_settings
-        or prime.get("models") != {}
+        or (not qwen_handoff and prime.get("models") != {})
     ):
         raise ValueError("sol_vessel_implementation_invalid")
 
@@ -1751,8 +1761,20 @@ def _validate_sol_vessel_implementation(protocol: dict[str, Any]) -> list[str]:
         "contextWindow": 272_000,
         "maxTokens": 128_000,
     }
-    if protocol.get("modelCustody") != expected_model_custody:
+    if not qwen_handoff and protocol.get("modelCustody") != expected_model_custody:
         raise ValueError("sol_vessel_implementation_invalid")
+    if qwen_handoff:
+        custody = protocol.get("modelCustody")
+        if (
+            type(custody) is not dict
+            or custody.get("modelConfiguration")
+            != {
+                "reasoning": True,
+                "input": ["text", "image"],
+                "contextWindow": 131_072,
+            }
+        ):
+            raise ValueError("sol_vessel_implementation_invalid")
 
     optional = protocol.get("optionalSkill")
     if optional != {
@@ -1867,20 +1889,32 @@ def _validate_sol_vessel_implementation(protocol: dict[str, Any]) -> list[str]:
         "evaluatorFeedbackDuringRun": False,
     }:
         raise ValueError("sol_vessel_implementation_invalid")
-    if protocol.get("contactMode") != {
-        "mode": "single_sol_vessel_live_contact",
+    expected_contact = {
+        "mode": (
+            "single_qwen_sol_plan_vessel_live_contact"
+            if qwen_handoff
+            else "single_sol_vessel_live_contact"
+        ),
         "evidenceRoot": (
-            "C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-implementation-v1"
+            "C:/UDEV/RookEvidence/2026-08-26-qwen38-sol-plan-vessel-execution-v1"
+            if qwen_handoff
+            else "C:/UDEV/RookEvidence/2026-08-20-gpt56-sol-vessel-implementation-v1"
         ),
         "actorContactAuthorized": True,
-    }:
+    }
+    if protocol.get("contactMode") != expected_contact:
         raise ValueError("sol_vessel_implementation_invalid")
     evaluator = protocol.get("offlineEvaluator")
+    expected_runner_sha = (
+        _sha(Path(__file__).resolve())
+        if qwen_handoff
+        else "97C339A19C8F2C18AE0793AE206AAB0062586A33E718F6ED4B211EBA3178DBFD"
+    )
     if (
         type(evaluator) is not dict
         or evaluator.get("runnerPath")
         != "scripts/qwen38_self_termination_campaign_runner.py"
-        or evaluator.get("runnerSha256") != _sha(Path(__file__).resolve())
+        or evaluator.get("runnerSha256") != expected_runner_sha
         or evaluator.get("behavioralAcceptanceSha256")
         != _sha(ROOT / "mcp_server" / "src" / "rook" / "gh_behavioral_acceptance.py")
         or evaluator.get("mode") != "silent_post_run_independent_judgment"
@@ -1937,7 +1971,7 @@ def validate_protocol(protocol: dict[str, Any]) -> dict[str, Any]:
     order = protocol.get("executionOrder")
     if schema == OPTIONAL_PYTHON_CONFIRMATION_SCHEMA:
         expected_order = _validate_optional_python_confirmation(protocol)
-    elif schema == SOL_VESSEL_IMPLEMENTATION_SCHEMA:
+    elif schema in {SOL_VESSEL_IMPLEMENTATION_SCHEMA, QWEN_SOL_PLAN_VESSEL_SCHEMA}:
         expected_order = _validate_sol_vessel_implementation(protocol)
     elif schema in MULTIMODAL_VESSEL_SCHEMAS:
         expected_order = _validate_multimodal_vessel(protocol)
@@ -3447,6 +3481,7 @@ def _runtime_custody(
         PRIME_UPSTREAM_SMOKE_V3_SCHEMA,
         OPTIONAL_PYTHON_CONFIRMATION_SCHEMA,
         SOL_VESSEL_IMPLEMENTATION_SCHEMA,
+        QWEN_SOL_PLAN_VESSEL_SCHEMA,
     }:
         goal_skill_equivalence = verify_goal_skill_equivalence(
             protocol["goalSkillCustody"]
@@ -3534,7 +3569,10 @@ def _runtime_custody(
         files["shadowAdjudication"] = _verify_sha(
             ROOT / adjudication["path"], adjudication["sha256"], "shadow_adjudication"
         )
-        if protocol.get("schema") == SOL_VESSEL_IMPLEMENTATION_SCHEMA:
+        if protocol.get("schema") in {
+            SOL_VESSEL_IMPLEMENTATION_SCHEMA,
+            QWEN_SOL_PLAN_VESSEL_SCHEMA,
+        }:
             for name, reference in protocol["baselineEvidence"].items():
                 files[f"baseline:{name}"] = _verify_sha(
                     Path(reference["path"]),
