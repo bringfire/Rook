@@ -1730,7 +1730,19 @@ def test_qwen_sol_plan_vessel_protocol_changes_only_the_actor_boundary():
     assert protocol["prime"]["model"] == "ollama_chat/qwen3.8:27b"
     assert protocol["prime"]["thinkingLevel"] == "low"
     assert protocol["prime"]["models"] == qwen["prime"]["models"]
-    assert protocol["modelCustody"] == qwen["modelCustody"]
+    assert protocol["modelCustody"]["ollamaVersion"] == "0.32.15"
+    assert protocol["modelCustody"]["runtimeSha256"] == (
+        "0A9D42EABC59FDAFDE8D2D3E7964F6050B31A17B3E3795BFACB367C12DF790F4"
+    )
+    for owner in (
+        "manifestPath",
+        "manifestSha256",
+        "blobRoot",
+        "config",
+        "layers",
+        "modelConfiguration",
+    ):
+        assert protocol["modelCustody"][owner] == qwen["modelCustody"][owner]
     assert protocol["tasks"] == sol["tasks"]
     assert protocol["baselineEvidence"] == sol["baselineEvidence"]
     assert protocol["multimodal"]["images"] == sol["multimodal"]["images"]

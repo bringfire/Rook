@@ -139,9 +139,9 @@
     }
   },
   "modelCustody": {
-    "ollamaVersion": "0.32.14",
+    "ollamaVersion": "0.32.15",
     "runtimePath": "C:/Users/bring/AppData/Local/Programs/Ollama/ollama.exe",
-    "runtimeSha256": "11D7729CB18BB4876AD91A14FBE9BA3B6985EAABC3475A62D47D874BE24A9B54",
+    "runtimeSha256": "0A9D42EABC59FDAFDE8D2D3E7964F6050B31A17B3E3795BFACB367C12DF790F4",
     "manifestPath": "C:/Users/bring/.ollama/models/manifests/registry.ollama.ai/library/qwen3.8/27b",
     "manifestSha256": "22130167C4C20E20C7B71454612966CA8E8171E9B3CC8AB6CE8AA6CBFEC79643",
     "blobRoot": "C:/Users/bring/.ollama/models/blobs",
