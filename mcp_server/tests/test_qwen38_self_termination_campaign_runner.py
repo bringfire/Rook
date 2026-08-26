@@ -1743,6 +1743,14 @@ def test_qwen_sol_plan_vessel_protocol_changes_only_the_actor_boundary():
         "modelConfiguration",
     ):
         assert protocol["modelCustody"][owner] == qwen["modelCustody"][owner]
+    assert protocol["pythonEnvironment"]["manifestRoots"]["kernelSitePackages"] == {
+        "path": "C:/Users/bring/.prime/agent/kernel-venv/Lib/site-packages",
+        "entryCount": 14_990,
+        "totalBytes": 303_696_527,
+        "manifestSha256": (
+            "B558B26942604B08989853528392F5A7E2724E547EA284F31ACF89765A7E1321"
+        ),
+    }
     assert protocol["tasks"] == sol["tasks"]
     assert protocol["baselineEvidence"] == sol["baselineEvidence"]
     assert protocol["multimodal"]["images"] == sol["multimodal"]["images"]

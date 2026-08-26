@@ -102,9 +102,9 @@
     "manifestRoots": {
       "kernelSitePackages": {
         "path": "C:/Users/bring/.prime/agent/kernel-venv/Lib/site-packages",
-        "entryCount": 14915,
-        "totalBytes": 302687750,
-        "manifestSha256": "019A431AA3EC558A0068215D513E59AB732FDDCCFD20DDCADD7B58E56A0153ED"
+        "entryCount": 14990,
+        "totalBytes": 303696527,
+        "manifestSha256": "B558B26942604B08989853528392F5A7E2724E547EA284F31ACF89765A7E1321"
       },
       "rookPackage": {
         "path": "C:/Users/bring/AppData/Local/Rook/venv/Lib/site-packages/rook",
