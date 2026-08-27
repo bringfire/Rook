@@ -48,7 +48,7 @@ service restarts.
 
 The broker owns:
 
-- one atomic durable conversation registry;
+- a durable registry of atomic per-conversation files;
 - one in-memory table of resident Prime RPC processes;
 - strict command correlation and event projection;
 - finite process residency and cleanup; and
@@ -74,7 +74,14 @@ that boundary.
 
 ## Durable conversation registry
 
-The broker persists only this closed record:
+Each Rhino process-generation namespace is a directory containing one atomic
+file per conversation:
+
+```text
+<registry-root>/<rhinoPid>-<rhinoProcessStartUtcTicks>/<conversationId>.json
+```
+
+Each conversation file contains only this closed record:
 
 ```json
 {
@@ -110,9 +117,10 @@ failed
 closed
 ```
 
-The registry is an atomically replaced identity/state record, not a transcript.
-It contains no credentials, messages, process handles, pipe objects, or model
-output.
+Each file is an atomically replaced identity/state record, not a transcript. It
+contains no credentials, messages, process handles, pipe objects, or model
+output. Updating one conversation must not rewrite, remove, or infer state for
+any sibling file.
 
 Each Rhino process generation has a separate registry namespace keyed by:
 
@@ -120,8 +128,9 @@ Each Rhino process generation has a separate registry namespace keyed by:
 Rhino PID + Rhino process-start UTC ticks
 ```
 
-Exactly one broker instance may hold the writer lock for that namespace. A
-second writer refuses startup rather than sharing or overwriting the record.
+Exactly one broker instance may hold the writer lock for that namespace. All
+conversation-file updates in the directory occur under that namespace-wide
+lock. A second writer refuses startup rather than sharing or overwriting files.
 
 ## In-memory runtime ownership
 
@@ -168,8 +177,8 @@ Raw `agent_end` is an agent-segment boundary. Prime may legitimately emit it
 before retry or compaction continuation. It must never produce RookChat `done`,
 return a conversation to `idle`, or admit another prompt.
 
-Slice 1 adds one public Prime RPC command backed by the existing
-`AgentSession.promptAndWait()` behavior:
+Slice 1 adds one public Prime RPC command backed by Prime's existing ACP
+headless-turn sequence:
 
 ```json
 {
@@ -181,8 +190,19 @@ Slice 1 adds one public Prime RPC command backed by the existing
 ```
 
 Prime continues streaming ordinary events while this command is pending. The
-command emits exactly one correlated terminal response only after
-`promptAndWait()` settles across any retry or compaction segments:
+command emits exactly one correlated terminal response only after this complete
+Prime-owned sequence:
+
+1. capture the pre-turn transcript boundary using ACP's message-identity and
+   stable-message-key approach, not a message count;
+2. call `AgentSession.promptAndWait()`;
+3. call `waitForHeadlessCompletion()` so queued compaction continuations and
+   autonomous headless work settle; and
+4. inspect only transcript messages not present at the pre-turn boundary,
+   classifying a terminal provider/model failure rather than treating normal
+   `promptAndWait()` resolution as success.
+
+The terminal response has this success shape:
 
 ```json
 {
@@ -196,10 +216,12 @@ command emits exactly one correlated terminal response only after
 }
 ```
 
-The only successful terminal outcomes are `completed` and `aborted`. Admission,
-execution, protocol, or settlement failure returns `success: false` with a
-stable error code. The broker does not retry a prompt whose settlement is
-unknown.
+The only Prime successful terminal outcomes are `completed` and `aborted`.
+Admission, transcript inspection, provider/model execution, protocol, or
+settlement failure returns `success: false` with a stable error code. The broker
+does not retry a prompt whose settlement is unknown. The result may include
+Prime's bounded autonomous-status projection, but no broker heuristic may
+replace transcript inspection or headless completion.
 
 The existing `abort` command remains independently dispatchable while
 `prompt_and_wait` is pending. An accepted abort response means cancellation was
@@ -211,9 +233,10 @@ while ordinary stream events and independently dispatched `abort` remain live.
 The implementation must not hold ordinary events until the terminal command
 response.
 
-The Prime patch must remain a small public-RPC adapter over existing
-`AgentSession.promptAndWait()`. It must not add a Rook-specific lifecycle inside
-Prime.
+The Prime patch must remain a small public-RPC exposure of the established ACP
+headless-turn sequence. Prefer extracting or reusing its boundary and terminal
+inspection helpers rather than implementing a second interpretation. It must
+not add a Rook-specific lifecycle inside Prime.
 
 ## Lifecycle
 
@@ -225,12 +248,21 @@ idle -> running                         prompt_and_wait dispatched
 running -> idle                         outcome completed
 running -> cancel_requested             user cancel accepted by broker
 cancel_requested -> idle                outcome aborted
+cancel_requested -> idle                outcome completed_before_abort
 running -> failed                       settlement failure or process/protocol loss
 cancel_requested -> failed              settlement failure or process/protocol loss
 idle | failed -> closed                 explicit tab/conversation close
 ```
 
 No prompt is admitted from `running`, `cancel_requested`, `failed`, or `closed`.
+
+`completed_before_abort` is a broker lifecycle outcome, not a third Prime
+semantic outcome. It occurs when the correlated `prompt_and_wait` response
+reports `completed` after the broker accepted the user's cancel request but
+before Prime's abort response settled that generation. The broker finalizes the
+turn once, persists `idle` with reason `completed_before_abort`, and ignores any
+later abort response carrying that completed command ID and launch generation.
+It does not send another abort or reinterpret the completed turn as stopped.
 
 On broker startup, a durable `running` or `cancel_requested` record is persisted
 as `failed` with reason `broker_restart_interrupted`. It never becomes `idle` by
@@ -252,6 +284,7 @@ The panel projects:
 | `prompt_and_wait` completed | Finalize stream, show `done`, enable input |
 | user cancel | Show `cancel_requested`; keep input disabled |
 | `prompt_and_wait` aborted | Show stopped state, enable input |
+| completed prompt wins cancel race | Show completed-before-cancel status, enable input |
 | settlement/process/protocol failure | Show failed state; require reopen/new conversation |
 
 Local HTTP cancellation or a disconnected NDJSON reader cannot mark the
@@ -287,21 +320,30 @@ residency.
 Slice 1 must pass model-free causal tests for:
 
 1. one prompt producing one correlated settlement;
-2. multiple `agent_end` segments around retry/compaction producing no UI `done`
+2. a compaction-created continuation running after the original
+   `promptAndWait()` resolves, with no UI `done` before headless completion and
+   the single terminal settlement;
+3. a provider/model failure for which `promptAndWait()` resolves normally being
+   returned as `success: false` from post-boundary transcript inspection;
+4. multiple `agent_end` segments around retry/compaction producing no UI `done`
    before the single terminal settlement;
-3. cancellation remaining `cancel_requested` until the aborted settlement;
-4. settlement loss or process death producing `failed` with no replay;
-5. saved `running` and `cancel_requested` restoring as `failed`;
-6. explicit reopen being the only path from `failed` to `idle`;
-7. PID reuse with a different process-start fingerprint being rejected;
-8. document-serial mismatch being rejected;
-9. one-writer registry enforcement;
-10. stale process-generation events being ignored;
-11. atomic registry write failure preserving the prior valid record; and
-12. capacity, idle retirement, tab/document close, and bounded shutdown.
+5. cancellation remaining `cancel_requested` until the aborted settlement;
+6. natural completion racing cancellation producing `completed_before_abort`,
+   with the later abort response ignored for that command generation;
+7. settlement loss or process death producing `failed` with no replay;
+8. saved `running` and `cancel_requested` restoring as `failed`;
+9. explicit reopen being the only path from `failed` to `idle`;
+10. PID reuse with a different process-start fingerprint being rejected;
+11. document-serial mismatch being rejected;
+12. one-writer registry enforcement;
+13. two conversation files surviving independent atomic updates without sibling
+    loss or rewrite;
+14. stale process-generation events being ignored;
+15. atomic registry write failure preserving the prior valid record; and
+16. capacity, idle retirement, tab/document close, and bounded shutdown.
 
 Use a fake Prime child for adversarial event ordering and branch-local Prime
-tests for the new RPC command over `AgentSession.promptAndWait()`. No model,
+tests for the new RPC command over the ACP headless-turn sequence. No model,
 provider, Rhino, Grasshopper, Rook mutation, or network contact is required.
 
 ## Explicit non-goals

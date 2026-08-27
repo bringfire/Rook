@@ -401,24 +401,26 @@ The Python chat service gains three small owners:
 
 1. **Prime RPC process:** starts the exact pinned Prime command, writes
    correlated JSONL commands, reads events, and stops the owned process.
-2. **Durable conversation registry:** atomically maps a panel-stable RookChat
-   conversation ID to a schema version, Prime session ID/file, selected model,
-   immutable Rhino target fingerprint, and last lifecycle state. The target
-   fingerprint is Rhino PID plus the Rhino process-start UTC fingerprint plus
-   document runtime serial. The Python broker owns this serializable registry.
+2. **Durable conversation registry:** stores one atomically replaced file per
+   panel-stable RookChat conversation ID, containing a schema version, Prime
+   session ID/file, selected model, immutable Rhino target fingerprint, and last
+   lifecycle state. The target fingerprint is Rhino PID plus the Rhino
+   process-start UTC fingerprint plus document runtime serial. The Python broker
+   owns this serializable registry.
    The C# tab creates and retains the stable ID across chat-service reconnects
    instead of discarding it. Prime, not the registry, remains the transcript
    owner.
 3. **Event projector:** converts Prime's public events to the existing RookChat
    stream without interpreting design meaning.
 
-The registry is a small atomically replaced broker record, not another message
-store or transcript database. Process handles, pipe objects, launch generation,
-pending command, and activity timestamp are owned only by the broker's in-memory
-runtime table and are never reconstructed from a persisted PID. Each Rhino
-process generation has one registry namespace and one writer. No generalized
-backend framework is needed. One narrow interface is enough to keep handlers
-testable:
+The registry is a directory of small atomically replaced broker records, not
+another message store or transcript database. A namespace-wide writer lock
+serializes updates without rewriting sibling conversation files. Process
+handles, pipe objects, launch generation, pending command, and activity
+timestamp are owned only by the broker's in-memory runtime table and are never
+reconstructed from a persisted PID. Each Rhino process generation has one
+registry namespace and one writer. No generalized backend framework is needed.
+One narrow interface is enough to keep handlers testable:
 
 ```text
 start
@@ -469,7 +471,7 @@ a Rook-produced viewport file that is not already in the prompt.
 | compaction/status | additive status event |
 | extension UI request | existing `ui_block` where shapes correspond |
 | `agent_end` | bounded agent-segment status only; never product `done` |
-| correlated `prompt_and_wait` settlement | existing `done`, cancelled, or failed |
+| correlated `prompt_and_wait` settlement | existing `done`, completed-before-cancel, cancelled, or failed |
 | runtime error | existing `error` |
 
 The projector retains only deltas needed for the live UI and the final terminal
@@ -481,20 +483,25 @@ The first vertical is deliberately single-flight. Its conversation lifecycle is:
 
 ```text
 idle -> running -> idle
-idle -> running -> cancel_requested -> idle | failed
+idle -> running -> cancel_requested -> idle (aborted | completed_before_abort) | failed
 idle | running | cancel_requested -> failed on process or protocol loss
 ```
 
 A normal panel message sends correlated `prompt_and_wait` only from `idle`.
-Slice 1 must expose Prime's existing `AgentSession.promptAndWait()` settlement
-through the public RPC surface. Raw `agent_end`, `isStreaming` polling, quiet
-timers, or counts of agent segments cannot settle a product turn. Submission remains
-disabled while `running` or `cancel_requested`; there is no mid-run `steer` or
-`follow_up` in the first vertical. One conversation-scoped abort endpoint sends
-Prime `abort`. The panel displays `cancel_requested` and refuses another prompt
-until the correlated Prime-owned prompt settlement reports completion, abort, or
-failure. Local stream cancellation, `agent_end`, and non-streaming observations
-alone never declare the conversation idle.
+Slice 1 must expose Prime's established ACP headless-turn sequence through the
+public RPC surface: capture a compaction-safe pre-turn transcript boundary, call
+`AgentSession.promptAndWait()`, await `waitForHeadlessCompletion()`, then inspect
+only the new terminal transcript for provider/model failure. Raw `agent_end`,
+`isStreaming` polling, quiet timers, or counts of agent segments cannot settle a
+product turn. Submission remains disabled while `running` or
+`cancel_requested`; there is no mid-run `steer` or `follow_up` in the first
+vertical. One conversation-scoped abort endpoint sends Prime `abort`. The panel
+displays `cancel_requested` and refuses another prompt until the correlated
+Prime-owned prompt settlement reports completion, abort, or failure. If natural
+completion wins the race after cancellation is requested, the broker records
+`completed_before_abort` and ignores the later abort response for that completed
+command generation. Local stream cancellation, `agent_end`, and non-streaming
+observations alone never declare the conversation idle.
 
 The C# tab keeps its stable conversation ID across a chat-service restart. The
 broker uses that ID to read the atomic registry, verifies the same Rhino PID,
@@ -552,9 +559,10 @@ policy rather than process-lifetime deletion.
 
 ### Qualification sequence
 
-1. Model-free RPC protocol, correlated prompt settlement across multiple
-   `agent_end` segments, exact skill allowlist, model catalog, image payload,
-   cancellation, and process cleanup tests.
+1. Model-free RPC protocol, ACP-equivalent headless prompt settlement across
+   compaction continuation and multiple `agent_end` segments, transcript-visible
+   provider failure, cancel-versus-completion races, exact skill allowlist, model
+   catalog, image payload, cancellation, and process cleanup tests.
 2. Recorded-event projection tests against the existing C# event parser.
 3. One text-only Sol session with no Rook access.
 4. One known read-only Rook inspection under the captured document lock.
@@ -716,13 +724,14 @@ while keeping the panel HTTP contract and Rook ownership unchanged.
 
 Freeze a short contract, not another broad North Star:
 
-- the Python broker's small atomic registry durably owns the mapping from one
-  panel-stable RookChat conversation ID to one schema version, Prime session
-  ID/file, selected model, immutable target fingerprint, and last lifecycle
-  state;
+- the Python broker's directory of atomic per-conversation records durably owns
+  the mapping from one panel-stable RookChat conversation ID to one schema
+  version, Prime session ID/file, selected model, immutable target fingerprint,
+  and last lifecycle state;
 - process handles, generations, pipes, pending commands, and activity timestamps
   are in-memory runtime state only;
-- each Rhino process generation owns one registry namespace and one writer;
+- each Rhino process generation owns one registry directory and one
+  namespace-wide writer lock, and sibling records survive independent updates;
 - the C# tab retains that stable conversation ID across service reconnects;
 - one captured Rhino PID/process-start fingerprint/document-serial tuple is
   immutable for that session's Rook authority;
@@ -732,10 +741,11 @@ Freeze a short contract, not another broad North Star:
 - Rook is the only host-truth owner;
 - the bridge translates but does not reason;
 - product completion requires a prompt-correlated settlement owned by Prime and
-  exposed from `AgentSession.promptAndWait()` through RPC; raw `agent_end` is
+  exposed through the existing ACP headless-turn sequence; raw `agent_end` is
   only an agent-segment boundary;
 - the initial lifecycle is `idle -> running -> cancel_requested -> idle/failed`,
-  with normal completion also returning `running -> idle`;
+  including explicit `aborted` and `completed_before_abort` race outcomes, with
+  normal completion also returning `running -> idle`;
 - persisted `running` or `cancel_requested` restores as `failed`, and recovery
   requires explicit reopen or a new conversation;
 - the first vertical has no mid-run steering or follow-up;
@@ -752,12 +762,14 @@ Freeze a short contract, not another broad North Star:
 ### Slice 1: model-free RPC backend
 
 Implement process startup, strict LF JSONL framing, request correlation, a
-Prime-owned correlated `prompt_and_wait` settlement, the atomic registry,
+Prime-owned correlated `prompt_and_wait` settlement, the per-conversation atomic
+registry,
 stable session/target identity, split durable/in-memory ownership, `get_state`,
 model catalog, set model/thinking, conversation-scoped abort, finite residency,
 and bounded clean shutdown. Use a fake Prime child and branch-local real offline
 probes. Do not begin Slice 2 until prompt settlement has a concrete RPC contract
-and causal tests spanning retry and compaction.
+and causal tests spanning compaction continuation, transcript-visible provider
+failure, and cancellation racing natural completion.
 
 No Rhino or provider contact is needed.
 
@@ -830,7 +842,7 @@ context rather than work authorized by that plan.
 | Area | Required evidence |
 |---|---|
 | Backend ownership | No LiteLLM call or ChatRunner loop on Prime path |
-| Session | Stable conversation ID and exact Prime session ID/file survive broker restart through the single-writer atomic registry |
+| Session | Stable conversation ID and exact Prime session ID/file survive broker restart through the single-writer, per-conversation atomic registry |
 | Target | Exact Rhino PID/process-start fingerprint/document serial bound before model contact |
 | Model | Prime catalog and selected provider/model/reasoning shown |
 | Auth | Credential status only; no secret copied through RookChat |
@@ -842,7 +854,7 @@ context rather than work authorized by that plan.
 | Rook | Structured failure survives through Prime and panel |
 | Mutation | Receipt, readiness, and same-receipt final observation |
 | Steering | Deferred; later addition cannot weaken the qualified single-flight lifecycle |
-| Cancellation | UI remains `cancel_requested` until correlated prompt settlement; no new prompt or automatic mutation replay |
+| Cancellation | UI remains `cancel_requested` until correlated prompt settlement; natural completion records `completed_before_abort`; no new prompt or automatic mutation replay |
 | Compaction | Session continues and UI receives a bounded status event |
 | Restart | Transcript reloads; in-flight ambiguity is reported honestly |
 | Storage | Prime session plus bounded logs; no cumulative stream archive |
