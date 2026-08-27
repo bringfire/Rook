@@ -16,7 +16,7 @@ namespace Rook.Tests.Services.Vision.Generation
     /// API response).
     ///
     /// Phase 0 evidence (B1): Gemini's
-    /// <c>gemini-3.1-flash-image-preview</c> returns
+    /// <c>gemini-3.1-flash-image</c> returns
     /// <c>candidates[0].content.parts[0].inlineData.data</c> as base64,
     /// no follow-up fetch.
     /// </summary>
@@ -44,7 +44,7 @@ namespace Rook.Tests.Services.Vision.Generation
                     Artifacts: new[] { artifact },
                     EnvelopeMetadata: new Dictionary<string, JsonNode>
                     {
-                        ["modelVersion"] = "gemini-3.1-flash-image-preview",
+                        ["modelVersion"] = "gemini-3.1-flash-image",
                         ["responseId"] = "resp-xyz",
                         ["usageMetadata"] = new JsonObject
                         {

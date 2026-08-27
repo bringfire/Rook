@@ -6,8 +6,8 @@ namespace Rook.Services.Vision.Image.Gemini
     public static class GeminiImageCapabilities
     {
         public const string ProviderName = "gemini";
-        public const string NanoBanana2 = "gemini-3.1-flash-image-preview";
-        public const string NanoBananaPro = "gemini-3-pro-image-preview";
+        public const string NanoBanana2 = "gemini-3.1-flash-image";
+        public const string NanoBananaPro = "gemini-3-pro-image";
         public const string DefaultModel = NanoBanana2;
         public const string DefaultShortName = "nano-banana-2";
 
@@ -31,7 +31,7 @@ namespace Rook.Services.Vision.Image.Gemini
                 [NanoBanana2] = new ImageCapability(
                     Id: NanoBanana2,
                     Name: "Nano Banana 2",
-                    Status: "preview",
+                    Status: "ga",
                     Resolutions: new[] { "512", "1K", "2K", "4K" },
                     AspectRatios: CommonAspectRatios,
                     MaxReferenceImages: 8,
@@ -40,7 +40,7 @@ namespace Rook.Services.Vision.Image.Gemini
                 [NanoBananaPro] = new ImageCapability(
                     Id: NanoBananaPro,
                     Name: "Nano Banana Pro",
-                    Status: "preview",
+                    Status: "ga",
                     Resolutions: new[] { "1K", "2K", "4K" },
                     AspectRatios: CommonAspectRatios,
                     MaxReferenceImages: 8,

@@ -2274,9 +2274,20 @@ namespace Rook.Tests.Handlers
                 GeminiImageCapabilities.ResolveShortName(GeminiImageCapabilities.DefaultShortName));
         }
 
+        [Fact]
+        public void Models_GaImageModels_ReportGaStatus()
+        {
+            Assert.Equal(
+                "ga",
+                GeminiImageCapabilities.Models["gemini-3.1-flash-image"].Status);
+            Assert.Equal(
+                "ga",
+                GeminiImageCapabilities.Models["gemini-3-pro-image"].Status);
+        }
+
         [Theory]
-        [InlineData("nano-banana-2", "gemini-3.1-flash-image-preview")]
-        [InlineData("nano-banana-pro", "gemini-3-pro-image-preview")]
+        [InlineData("nano-banana-2", "gemini-3.1-flash-image")]
+        [InlineData("nano-banana-pro", "gemini-3-pro-image")]
         public void Models_ResolveShortName_MapsKnownShortNames(string shortName, string expectedFullId)
         {
             Assert.Equal(expectedFullId, GeminiImageCapabilities.ResolveShortName(shortName));
@@ -2440,7 +2451,7 @@ namespace Rook.Tests.Handlers
         public void GenericizeProviderError_RedactsKeyInUrl()
         {
             var raw = "Error calling https://generativelanguage.googleapis.com/" +
-                      "v1beta/models/gemini-3.1-flash-image-preview:generateContent" +
+                      "v1beta/models/gemini-3.1-flash-image:generateContent" +
                       "?key=AIzaSyExample_SecretKey12345";
             var sanitized = VisionHandler.GenericizeProviderError(raw);
             Assert.DoesNotContain("AIzaSyExample_SecretKey12345", sanitized);

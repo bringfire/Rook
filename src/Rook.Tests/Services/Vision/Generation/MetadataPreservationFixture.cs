@@ -61,7 +61,7 @@ namespace Rook.Tests.Services.Vision.Generation
 
             var envelopeMeta = new Dictionary<string, JsonNode>
             {
-                ["modelVersion"] = "gemini-3.1-flash-image-preview",
+                ["modelVersion"] = "gemini-3.1-flash-image",
                 ["usageMetadata"] = usageMetadata,
             };
 

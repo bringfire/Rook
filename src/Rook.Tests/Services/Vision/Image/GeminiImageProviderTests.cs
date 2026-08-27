@@ -39,7 +39,7 @@ namespace Rook.Tests.Services.Vision.Image
                           }
                         }
                       ],
-                      "modelVersion": "gemini-3.1-flash-image-preview",
+                      "modelVersion": "gemini-3.1-flash-image",
                       "responseId": "resp-123",
                       "usageMetadata": {
                         "promptTokenCount": 12,
