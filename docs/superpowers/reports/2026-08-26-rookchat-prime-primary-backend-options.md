@@ -401,13 +401,18 @@ The Python chat service gains three small owners:
 
 1. **Prime RPC process:** starts the exact pinned Prime command, writes
    correlated JSONL commands, reads events, and stops the owned process.
-2. **Conversation map:** maps the existing conversation ID to Prime process,
-   Prime session ID/file, selected model, document identity, and current run.
+2. **Durable conversation registry:** atomically maps a panel-stable RookChat
+   conversation ID to the Prime session ID/file, selected model, immutable
+   Rhino process/document binding, lifecycle state, and optional resident
+   process. The Python broker owns this registry. The C# tab creates and retains
+   the stable ID across chat-service reconnects instead of discarding it. Prime,
+   not the registry, remains the transcript owner.
 3. **Event projector:** converts Prime's public events to the existing RookChat
    stream without interpreting design meaning.
 
-No generalized backend framework is needed. One narrow interface is enough to
-keep handlers testable:
+The registry is a small atomically replaced broker record, not another message
+store or transcript database. No generalized backend framework is needed. One
+narrow interface is enough to keep handlers testable:
 
 ```text
 start
@@ -436,11 +441,15 @@ The initial allowlist should be small and visible in product configuration:
 ```text
 Rook runtime skill
 goal skill only for explicit task mode
-attach-image
 websearch when configured
 compact when agent-callable compaction is desired
 optional Grasshopper Python lane only when explicitly selected
 ```
+
+User-uploaded images travel directly in RPC `prompt.images`; they do not need a
+model-visible filesystem skill. Keep `attach-image` disabled initially. It may
+be admitted later for a separately defined need, such as letting the model load
+a Rook-produced viewport file that is not already in the prompt.
 
 ### Event projection
 
@@ -461,14 +470,46 @@ message. Prime's own session is the durable transcript.
 
 ### Session behavior
 
-The RPC process remains open for the tab lifetime. A normal panel message sends
-`prompt`; a message during execution uses an explicit `steer` or `follow_up`
-choice. Cancel sends `abort`.
+The first vertical is deliberately single-flight. Its conversation lifecycle is:
 
-If the chat service restarts, the first implementation may reopen the saved
-Prime session in a new RPC process and refresh the panel from `get_messages`.
-It need not promise seamless in-flight recovery. That is Option B's main
-advantage.
+```text
+idle -> running -> idle
+idle -> running -> cancel_requested -> idle | failed
+idle | running | cancel_requested -> failed on process or protocol loss
+```
+
+A normal panel message sends `prompt` only from `idle`. Submission remains
+disabled while `running` or `cancel_requested`; there is no mid-run `steer` or
+`follow_up` in the first vertical. One conversation-scoped abort endpoint sends
+Prime `abort`. The panel displays `cancel_requested` and refuses another prompt
+until the broker observes `agent_end` or confirms Prime is non-streaming. An
+abort or state-confirmation failure enters `failed`; local stream cancellation
+alone never declares the conversation idle.
+
+The C# tab keeps its stable conversation ID across a chat-service restart. The
+broker uses that ID to read the atomic registry, verifies the same Rhino PID and
+document serial, opens the exact saved Prime session in a new RPC process, and
+refreshes the panel from `get_messages`. A missing registry/session or target
+mismatch fails restoration rather than silently creating new history or
+rebinding Rook authority. Seamless recovery of a turn that was in flight is not
+promised. That remains Option B's main advantage.
+
+Session persistence is separate from process residency. Initial resource policy
+preserves the current finite defaults: at most 10 resident Prime RPC children
+per broker and retirement after 30 idle minutes. Idle retirement closes the
+owned process/kernel but preserves the registry entry and Prime session. To
+admit another resident child, the broker retires the least-recently-used idle
+child; if all 10 are `running` or `cancel_requested`, launch is refused with a
+capacity error.
+
+Tab close marks the conversation closed and retires its child; it is not an
+automatic session deletion. Document close retires the child and marks the
+immutable target unavailable, so later restoration cannot acquire Rook mutation
+authority for a replacement document. Service shutdown atomically preserves the
+registry, requests abort for active children, and uses one 10-second global
+drain window before terminating remaining owned process trees. Cleanup is
+idempotent. Prime session files remain subject to an explicit product retention
+policy rather than process-lifetime deletion.
 
 ### Advantages
 
@@ -501,8 +542,10 @@ advantage.
 3. One text-only Sol session with no Rook access.
 4. One known read-only Rook inspection under the captured document lock.
 5. One previously qualified small Grasshopper smoke with final receipt custody.
-6. One image-plus-web design conversation and one user steering event.
+6. One image-plus-web design conversation using direct RPC image input.
 7. Service restart and saved-session restoration with no mutation in flight.
+8. Capacity, idle retirement, tab/document close, and bounded service-shutdown
+   cleanup tests.
 
 The cutover can proceed after these product behaviors pass. It does not require
 replaying the historical campaign corpus.
@@ -634,9 +677,9 @@ This recommendation is based on four facts:
    lifecycle and document scoping.
 2. Prime RPC is a supported, functioning Windows embedding path on the qualified
    baseline.
-3. RPC exposes the capabilities needed for the first product version, including
-   images, models, thinking, skills, sessions, steering, cancellation, and
-   compaction.
+3. RPC exposes the capabilities needed for the first product version and later
+   growth, including images, models, thinking, skills, sessions, cancellation,
+   compaction, and deferred steering.
 4. The unresolved question is product integration quality, not another agent
    architecture. Option A answers it with the fewest simultaneous changes.
 
@@ -656,12 +699,24 @@ while keeping the panel HTTP contract and Rook ownership unchanged.
 
 Freeze a short contract, not another broad North Star:
 
-- one RookChat conversation maps to one Prime session;
+- the Python broker's small atomic registry durably owns the mapping from one
+  panel-stable RookChat conversation ID to one Prime session ID/file;
+- the C# tab retains that stable conversation ID across service reconnects;
 - one captured Rhino process/document pair is immutable for that session's
   Rook authority;
+- target restoration requires the exact recorded Rhino PID/document pair and
+  never rebinds an old session to a replacement target;
 - Prime is the only model/history/tool-loop owner;
 - Rook is the only host-truth owner;
 - the bridge translates but does not reason;
+- the initial lifecycle is `idle -> running -> cancel_requested -> idle/failed`,
+  with normal completion also returning `running -> idle`;
+- the first vertical has no mid-run steering or follow-up;
+- session persistence is independent from bounded process residency;
+- user images use direct RPC prompt attachments while `attach-image` remains
+  disabled;
+- capacity, idle retirement, tab/document close, service shutdown, and bounded
+  process/kernel cleanup are deterministic;
 - ordinary prompts and explicit execution goals remain distinct;
 - no ambient skills, context files, extensions, or templates enter the initial
   runtime; and
@@ -669,18 +724,21 @@ Freeze a short contract, not another broad North Star:
 
 ### Slice 1: model-free RPC backend
 
-Implement process startup, strict LF JSONL framing, request correlation,
-`get_state`, model catalog, set model/thinking, abort, clean shutdown, and saved
-session identity. Use a fake Prime child and branch-local real offline probes.
+Implement process startup, strict LF JSONL framing, request correlation, the
+atomic registry, stable session/target identity, `get_state`, model catalog, set
+model/thinking, conversation-scoped abort, finite residency, and bounded clean
+shutdown. Use a fake Prime child and branch-local real offline probes.
 
 No Rhino or provider contact is needed.
 
 ### Slice 2: panel streaming cutover
 
 Route one existing `AgentChatTab` through Prime. Preserve text streaming,
-cancel, errors, done, status, and model selection. Replace personas with one
-Rook session identity for the first vertical rather than translating legacy
-persona prompts into Prime.
+errors, done, status, and model selection. Replace immediate local cancellation
+with `cancel_requested` until backend quiescence is confirmed. Keep submission
+disabled during `running` and `cancel_requested`; do not add steering. Replace
+personas with one Rook session identity for the first vertical rather than
+translating legacy persona prompts into Prime.
 
 At this point `ChatRunner` is bypassed but retained behind a rollback flag.
 
@@ -702,11 +760,13 @@ Grasshopper task. Require:
 - no hidden evaluator feedback; and
 - panel cancellation that stops future model activity.
 
-### Slice 5: images, web, and steering
+### Slice 5: images, web, and later steering
 
-Add panel attachments, image result rendering, explicit attach-image and Serper
-skills, and one user steering turn. Keep webpage fetching outside this slice
-unless a specific product need and containment policy are separately defined.
+Add direct RPC panel attachments, image result rendering, and the explicit
+Serper skill. Evaluate steering as a separate addition after the single-flight
+lifecycle is qualified. Admit `attach-image` only if a concrete model-requested
+local-file workflow requires it. Keep webpage fetching outside this slice unless
+a specific product need and containment policy are separately defined.
 
 ### Slice 6: persistence and cutover
 
@@ -732,7 +792,10 @@ bytes. Do not run the historical campaign suite as an installer gate.
 
 ## Validation matrix
 
-The first implementation plan should cover these observable product behaviors.
+This is the full product matrix. The first implementation plan covers only the
+Slice 1-2 rows: backend ownership, durable session/target identity, text and
+error projection, cancellation lifecycle, and cleanup. Later rows remain design
+context rather than work authorized by that plan.
 
 | Area | Required evidence |
 |---|---|
@@ -748,12 +811,12 @@ The first implementation plan should cover these observable product behaviors.
 | Tool | IPython start/result shown without parsing nested Python |
 | Rook | Structured failure survives through Prime and panel |
 | Mutation | Receipt, readiness, and same-receipt final observation |
-| Steering | User can steer or queue a follow-up during execution |
-| Cancellation | Abort stops future model work; no automatic mutation replay |
+| Steering | Deferred; later addition cannot weaken the qualified single-flight lifecycle |
+| Cancellation | UI remains `cancel_requested` until abort is confirmed; no new prompt or automatic mutation replay |
 | Compaction | Session continues and UI receives a bounded status event |
 | Restart | Transcript reloads; in-flight ambiguity is reported honestly |
 | Storage | Prime session plus bounded logs; no cumulative stream archive |
-| Cleanup | Owned Prime process or attachment is closed deterministically |
+| Cleanup | Capacity, idle retirement, tab/document close, and service shutdown close owned processes within the bounded policy |
 
 ## Primary risks and controls
 
@@ -799,9 +862,10 @@ not the suspended host terminalization design.
 ### Scope creep through UI parity
 
 The first vertical does not need every Prime TUI feature. Model catalog, prompt,
-images, tool activity, cancel, steering, compaction status, and session restore
-are sufficient. Session trees, schedules, subagent dashboards, and rich
-extension widgets can follow observed demand.
+tool activity, confirmed cancel, bounded process cleanup, and session restore
+are sufficient. Images, web search, steering, compaction status, session trees,
+schedules, subagent dashboards, and rich extension widgets can follow observed
+demand.
 
 ## What should not move into production
 
@@ -840,4 +904,5 @@ adequate, or adopt `DaemonAgentConnection` if resident reattachment proves
 materially valuable.
 
 The next artifact should be a concise Slice 0 product contract followed by an
-implementation plan for Option A. It should not be another architecture search.
+implementation plan for Slices 1-2 only. It should not plan all eight slices or
+become another architecture search.
