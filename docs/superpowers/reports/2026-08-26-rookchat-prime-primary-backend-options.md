@@ -402,22 +402,28 @@ The Python chat service gains three small owners:
 1. **Prime RPC process:** starts the exact pinned Prime command, writes
    correlated JSONL commands, reads events, and stops the owned process.
 2. **Durable conversation registry:** atomically maps a panel-stable RookChat
-   conversation ID to the Prime session ID/file, selected model, immutable
-   Rhino process/document binding, lifecycle state, and optional resident
-   process. The Python broker owns this registry. The C# tab creates and retains
-   the stable ID across chat-service reconnects instead of discarding it. Prime,
-   not the registry, remains the transcript owner.
+   conversation ID to a schema version, Prime session ID/file, selected model,
+   immutable Rhino target fingerprint, and last lifecycle state. The target
+   fingerprint is Rhino PID plus the Rhino process-start UTC fingerprint plus
+   document runtime serial. The Python broker owns this serializable registry.
+   The C# tab creates and retains the stable ID across chat-service reconnects
+   instead of discarding it. Prime, not the registry, remains the transcript
+   owner.
 3. **Event projector:** converts Prime's public events to the existing RookChat
    stream without interpreting design meaning.
 
 The registry is a small atomically replaced broker record, not another message
-store or transcript database. No generalized backend framework is needed. One
-narrow interface is enough to keep handlers testable:
+store or transcript database. Process handles, pipe objects, launch generation,
+pending command, and activity timestamp are owned only by the broker's in-memory
+runtime table and are never reconstructed from a persisted PID. Each Rhino
+process generation has one registry namespace and one writer. No generalized
+backend framework is needed. One narrow interface is enough to keep handlers
+testable:
 
 ```text
 start
 state/models
-prompt(images, streaming behavior)
+prompt_and_wait(images)
 set model/thinking
 abort
 close
@@ -462,7 +468,8 @@ a Rook-produced viewport file that is not already in the prompt.
 | model/thinking change | existing/additive model state event |
 | compaction/status | additive status event |
 | extension UI request | existing `ui_block` where shapes correspond |
-| `agent_end` | existing `done` |
+| `agent_end` | bounded agent-segment status only; never product `done` |
+| correlated `prompt_and_wait` settlement | existing `done`, cancelled, or failed |
 | runtime error | existing `error` |
 
 The projector retains only deltas needed for the live UI and the final terminal
@@ -478,21 +485,28 @@ idle -> running -> cancel_requested -> idle | failed
 idle | running | cancel_requested -> failed on process or protocol loss
 ```
 
-A normal panel message sends `prompt` only from `idle`. Submission remains
+A normal panel message sends correlated `prompt_and_wait` only from `idle`.
+Slice 1 must expose Prime's existing `AgentSession.promptAndWait()` settlement
+through the public RPC surface. Raw `agent_end`, `isStreaming` polling, quiet
+timers, or counts of agent segments cannot settle a product turn. Submission remains
 disabled while `running` or `cancel_requested`; there is no mid-run `steer` or
 `follow_up` in the first vertical. One conversation-scoped abort endpoint sends
 Prime `abort`. The panel displays `cancel_requested` and refuses another prompt
-until the broker observes `agent_end` or confirms Prime is non-streaming. An
-abort or state-confirmation failure enters `failed`; local stream cancellation
-alone never declares the conversation idle.
+until the correlated Prime-owned prompt settlement reports completion, abort, or
+failure. Local stream cancellation, `agent_end`, and non-streaming observations
+alone never declare the conversation idle.
 
 The C# tab keeps its stable conversation ID across a chat-service restart. The
-broker uses that ID to read the atomic registry, verifies the same Rhino PID and
-document serial, opens the exact saved Prime session in a new RPC process, and
-refreshes the panel from `get_messages`. A missing registry/session or target
-mismatch fails restoration rather than silently creating new history or
-rebinding Rook authority. Seamless recovery of a turn that was in flight is not
-promised. That remains Option B's main advantage.
+broker uses that ID to read the atomic registry, verifies the same Rhino PID,
+process-start fingerprint, and document serial, opens the exact saved Prime
+session in a new RPC process, and refreshes the panel from `get_messages`. A
+missing registry/session or target mismatch fails restoration rather than
+silently creating new history or rebinding Rook authority. A persisted
+`running` or `cancel_requested` state becomes `failed` with an interruption
+reason on broker restart; it never becomes `idle` by inference. Recovery from
+`failed` requires an explicit reopen operation or a new conversation. Seamless
+recovery of a turn that was in flight is not promised. That remains Option B's
+main advantage.
 
 Session persistence is separate from process residency. Initial resource policy
 preserves the current finite defaults: at most 10 resident Prime RPC children
@@ -502,7 +516,9 @@ admit another resident child, the broker retires the least-recently-used idle
 child; if all 10 are `running` or `cancel_requested`, launch is refused with a
 capacity error.
 
-Tab close marks the conversation closed and retires its child; it is not an
+The in-memory runtime table owns the process handle, monotonically increasing
+launch generation, pipes, pending command, and activity timestamp. Events from
+a retired generation are ignored. Tab close marks the conversation closed and retires its child; it is not an
 automatic session deletion. Document close retires the child and marks the
 immutable target unavailable, so later restoration cannot acquire Rook mutation
 authority for a replacement document. Service shutdown atomically preserves the
@@ -536,7 +552,8 @@ policy rather than process-lifetime deletion.
 
 ### Qualification sequence
 
-1. Model-free RPC protocol, exact skill allowlist, model catalog, image payload,
+1. Model-free RPC protocol, correlated prompt settlement across multiple
+   `agent_end` segments, exact skill allowlist, model catalog, image payload,
    cancellation, and process cleanup tests.
 2. Recorded-event projection tests against the existing C# event parser.
 3. One text-only Sol session with no Rook access.
@@ -700,17 +717,27 @@ while keeping the panel HTTP contract and Rook ownership unchanged.
 Freeze a short contract, not another broad North Star:
 
 - the Python broker's small atomic registry durably owns the mapping from one
-  panel-stable RookChat conversation ID to one Prime session ID/file;
+  panel-stable RookChat conversation ID to one schema version, Prime session
+  ID/file, selected model, immutable target fingerprint, and last lifecycle
+  state;
+- process handles, generations, pipes, pending commands, and activity timestamps
+  are in-memory runtime state only;
+- each Rhino process generation owns one registry namespace and one writer;
 - the C# tab retains that stable conversation ID across service reconnects;
-- one captured Rhino process/document pair is immutable for that session's
-  Rook authority;
-- target restoration requires the exact recorded Rhino PID/document pair and
-  never rebinds an old session to a replacement target;
+- one captured Rhino PID/process-start fingerprint/document-serial tuple is
+  immutable for that session's Rook authority;
+- target restoration requires that exact tuple and never rebinds an old session
+  to a replacement target;
 - Prime is the only model/history/tool-loop owner;
 - Rook is the only host-truth owner;
 - the bridge translates but does not reason;
+- product completion requires a prompt-correlated settlement owned by Prime and
+  exposed from `AgentSession.promptAndWait()` through RPC; raw `agent_end` is
+  only an agent-segment boundary;
 - the initial lifecycle is `idle -> running -> cancel_requested -> idle/failed`,
   with normal completion also returning `running -> idle`;
+- persisted `running` or `cancel_requested` restores as `failed`, and recovery
+  requires explicit reopen or a new conversation;
 - the first vertical has no mid-run steering or follow-up;
 - session persistence is independent from bounded process residency;
 - user images use direct RPC prompt attachments while `attach-image` remains
@@ -724,10 +751,13 @@ Freeze a short contract, not another broad North Star:
 
 ### Slice 1: model-free RPC backend
 
-Implement process startup, strict LF JSONL framing, request correlation, the
-atomic registry, stable session/target identity, `get_state`, model catalog, set
-model/thinking, conversation-scoped abort, finite residency, and bounded clean
-shutdown. Use a fake Prime child and branch-local real offline probes.
+Implement process startup, strict LF JSONL framing, request correlation, a
+Prime-owned correlated `prompt_and_wait` settlement, the atomic registry,
+stable session/target identity, split durable/in-memory ownership, `get_state`,
+model catalog, set model/thinking, conversation-scoped abort, finite residency,
+and bounded clean shutdown. Use a fake Prime child and branch-local real offline
+probes. Do not begin Slice 2 until prompt settlement has a concrete RPC contract
+and causal tests spanning retry and compaction.
 
 No Rhino or provider contact is needed.
 
@@ -800,19 +830,19 @@ context rather than work authorized by that plan.
 | Area | Required evidence |
 |---|---|
 | Backend ownership | No LiteLLM call or ChatRunner loop on Prime path |
-| Session | Prime session ID/file retained and reloadable |
-| Target | Exact Rhino PID/document bound before model contact |
+| Session | Stable conversation ID and exact Prime session ID/file survive broker restart through the single-writer atomic registry |
+| Target | Exact Rhino PID/process-start fingerprint/document serial bound before model contact |
 | Model | Prime catalog and selected provider/model/reasoning shown |
 | Auth | Credential status only; no secret copied through RookChat |
 | Skills | Exact allowlist reported; ambient resources excluded |
-| Text | Delta stream, final message, and error projection |
+| Text | Delta stream, final message, and error projection; raw `agent_end` never emits product `done` |
 | Images | User image reaches Prime; model image result reaches panel |
 | Web | Serper search succeeds or reports missing credential clearly |
 | Tool | IPython start/result shown without parsing nested Python |
 | Rook | Structured failure survives through Prime and panel |
 | Mutation | Receipt, readiness, and same-receipt final observation |
 | Steering | Deferred; later addition cannot weaken the qualified single-flight lifecycle |
-| Cancellation | UI remains `cancel_requested` until abort is confirmed; no new prompt or automatic mutation replay |
+| Cancellation | UI remains `cancel_requested` until correlated prompt settlement; no new prompt or automatic mutation replay |
 | Compaction | Session continues and UI receives a bounded status event |
 | Restart | Transcript reloads; in-flight ambiguity is reported honestly |
 | Storage | Prime session plus bounded logs; no cumulative stream archive |
@@ -825,7 +855,8 @@ context rather than work authorized by that plan.
 A Prime session may outlive its Rhino document. The bridge must treat target
 identity as immutable and Rook must refuse a missing/replaced target. Resuming a
 conversation does not automatically restore mutation authority to a new
-document.
+document. PID alone is insufficient: the binding includes the C# host-observed
+Rhino process-start UTC fingerprint and document runtime serial.
 
 ### Ambient Prime resources
 
@@ -903,6 +934,7 @@ clean evidence-driven decision later: remain on RPC if session reopen is
 adequate, or adopt `DaemonAgentConnection` if resident reattachment proves
 materially valuable.
 
-The next artifact should be a concise Slice 0 product contract followed by an
-implementation plan for Slices 1-2 only. It should not plan all eight slices or
+The concise [Slice 0 product contract](../specs/2026-08-26-rookchat-prime-primary-backend-slice-0-contract.md)
+is the next independent-review artifact. Only after it is approved should an
+implementation plan cover Slices 1-2. It should not plan all eight slices or
 become another architecture search.
