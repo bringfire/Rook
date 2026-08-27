@@ -22,6 +22,7 @@
 - Vertex errors retain only an allowlisted status identifier and fixed Rook message. `ProviderDetail` is null; raw Google bodies/messages never persist.
 - No new dependency, lockfile, installer behavior, credential store, generic lifecycle abstraction, service locator, provider framework, or token broker.
 - No Chirp, native C++, RookBIM, Grasshopper, video/Veo, chat-model, DSPy, public-repository, version-bump, or release-publication work.
+- Deselect only `mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_graph_returns_valid_payload` and `mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_note_found` from Vertex Python gates. They are independently reproduced baseline debt; their allowlisted test file does not authorize changing either knowledge contract or its implementation in this branch.
 - Installed acceptance uses 1K or 2K, never 4K; 4K remains explicitly Preview while the model is GA.
 - Stop on scope drift, baseline drift affecting an approved production path, unexpected dependency movement, or an environmental failure. Do not absorb adjacent repairs.
 
@@ -90,21 +91,26 @@ Do not add a path during execution merely because implementation would be easier
 
 - [ ] **Step 1: Verify plan ancestry and approval tag**
 
-After reviewer approval, create the annotated tag locally at the corrected plan commit:
+After reviewer approval of this amendment, preserve the original approval tag at `b2857a0fd4e75f757d404aefd2d0ded71f88e778` and create a second annotated tag locally at the amended plan commit:
 
 ```powershell
 $worktree = 'C:\Users\aryan\source\repos\Rook\.worktrees\vertex-rookvision-nano-banana-2-design'
 $spec = '53ed5b63d6363a3f2ec2326ee3fe2686dc8d46a2'
-$tag = 'plan/vertex-rookvision-nano-banana-2-2026-08-17-approved'
+$priorPlan = 'b2857a0fd4e75f757d404aefd2d0ded71f88e778'
+$priorTag = 'plan/vertex-rookvision-nano-banana-2-2026-08-17-approved'
+$tag = 'plan/vertex-rookvision-nano-banana-2-2026-08-27-approved'
 Set-Location $worktree
-git tag -a $tag -m 'Approved Vertex RookVision Nano Banana 2 implementation plan'
+if ((git rev-parse "$priorTag^{}").Trim() -ne $priorPlan) { throw 'Original approval tag moved' }
+if ((git rev-parse "$priorPlan^").Trim() -ne $spec) { throw 'Original approved plan is not directly atop the approved spec' }
+if (git tag --list $tag) { throw 'Amended approval tag already exists unexpectedly' }
+git tag -a $tag -m 'Approved amended Vertex RookVision Nano Banana 2 implementation plan'
 $planCommit = (git rev-parse "$tag^{}" ).Trim()
 $executionHead = (git rev-parse HEAD).Trim()
 if ($executionHead -ne $planCommit) {
     throw "Execution HEAD does not equal the approved plan tag: HEAD=$executionHead tag=$planCommit"
 }
 $parent = (git rev-parse "$planCommit^" ).Trim()
-if ($parent -ne $spec) { throw "Approved plan is not directly atop the approved spec: $parent" }
+if ($parent -ne $priorPlan) { throw "Amended plan is not directly atop the original approved plan: $parent" }
 $planPaths = @(git diff-tree --no-commit-id --name-only -r $planCommit)
 if ($planPaths.Count -ne 1 -or $planPaths[0] -ne 'docs/superpowers/plans/2026-08-17-vertex-rookvision-nano-banana-2.md') {
     throw "Approved plan commit scope is invalid: $($planPaths -join ', ')"
@@ -194,10 +200,16 @@ dotnet test src\Rook.Tests\Rook.Tests.csproj -c Release `
 if ($LASTEXITCODE -ne 0) { throw 'Managed baseline failed' }
 
 Set-Location "$worktree\mcp_server"
-.\.venv\Scripts\python.exe -m pytest tests/test_vertex_backend.py tests/test_chat_server.py -q
+.\.venv\Scripts\python.exe -m pytest `
+    tests/test_vertex_backend.py `
+    tests/test_chat_server.py `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_graph_returns_valid_payload" `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_note_found" -q
 if ($LASTEXITCODE -ne 0) { throw 'Python baseline failed' }
 Set-Location $worktree
 ```
+
+The unfiltered baseline produced `113 passed / 2 known baseline failures`. With only the two exact node IDs above deselected, require `113 passed / 2 deselected / 0 failed`. Do not change or reinterpret either knowledge test in this branch.
 
 - [ ] **Step 5: Capture immutable RED facts without editing**
 
@@ -393,7 +405,11 @@ The 200 test asserts a future integer expiry and exact five lease fields. Add a 
 
 ```powershell
 Set-Location "$worktree\mcp_server"
-.\.venv\Scripts\python.exe -m pytest tests/test_vertex_token_lease.py tests/test_chat_server.py -q
+.\.venv\Scripts\python.exe -m pytest `
+    tests/test_vertex_token_lease.py `
+    tests/test_chat_server.py `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_graph_returns_valid_payload" `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_note_found" -q
 ```
 
 Expected: missing module, missing route, or missing injected service failures only.
@@ -469,7 +485,9 @@ Do not alter existing WebView route behavior: the trusted WebView Origin remains
     tests/test_vertex_token_lease.py `
     tests/test_vertex_backend.py `
     tests/test_chat_server.py `
-    tests/test_vertex_runtime_integration.py -q
+    tests/test_vertex_runtime_integration.py `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_graph_returns_valid_payload" `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_note_found" -q
 uv pip check --python .\.venv\Scripts\python.exe
 Set-Location $worktree
 git diff --check
@@ -702,7 +720,9 @@ Set-Location "$worktree\mcp_server"
     tests/test_vertex_token_lease.py `
     tests/test_vertex_backend.py `
     tests/test_chat_server.py `
-    tests/test_vertex_runtime_integration.py -q
+    tests/test_vertex_runtime_integration.py `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_graph_returns_valid_payload" `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_note_found" -q
 uv pip check --python .\.venv\Scripts\python.exe
 Set-Location $worktree
 uv --directory mcp_server lock --check
@@ -771,7 +791,7 @@ git commit -m "feat(vision): add Vertex Nano Banana 2 provider"
 After commit, require:
 
 ```powershell
-$planCommit = (git rev-parse 'plan/vertex-rookvision-nano-banana-2-2026-08-17-approved^{}').Trim()
+$planCommit = (git rev-parse 'plan/vertex-rookvision-nano-banana-2-2026-08-27-approved^{}').Trim()
 $task1 = (git rev-parse HEAD^).Trim()
 $task2 = (git rev-parse HEAD).Trim()
 if ((git rev-list --count "$planCommit..$task2") -ne 2) { throw 'Production boundary is not exactly two commits' }
@@ -808,7 +828,9 @@ Set-Location "$worktree\mcp_server"
     tests/test_vertex_token_lease.py `
     tests/test_vertex_backend.py `
     tests/test_chat_server.py `
-    tests/test_vertex_runtime_integration.py -q
+    tests/test_vertex_runtime_integration.py `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_graph_returns_valid_payload" `
+    --deselect "mcp_server/tests/test_chat_server.py::TestKnowledgeGraphRoutes::test_knowledge_note_found" -q
 uv pip check --python .\.venv\Scripts\python.exe
 Set-Location $worktree
 uv --directory mcp_server lock --check
