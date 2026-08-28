@@ -597,6 +597,8 @@ async def handle_models(request: web.Request) -> web.Response:
         conv_id = request.query.get("conversation_id")
         if not conv_id:
             return _prime_error("missing_conversation_id")
+        if _PRIME_CONVERSATION_ID.fullmatch(conv_id) is None:
+            return _prime_error("invalid_prime_model_request")
         try:
             models = await _prime_backend(request).models(conv_id)
             record = _prime_backend(request).registry.load(conv_id)
@@ -794,6 +796,7 @@ async def handle_set_model(request: web.Request) -> web.Response:
         thinking = body.get("thinking")
         if (
             not isinstance(conv_id, str)
+            or _PRIME_CONVERSATION_ID.fullmatch(conv_id) is None
             or not isinstance(model_override, str)
             or model_override.count("/") != 1
             or (thinking is not None and not isinstance(thinking, str))
@@ -875,6 +878,7 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
             return _prime_error("invalid_prime_message_request")
         if (
             not isinstance(conv_id, str)
+            or _PRIME_CONVERSATION_ID.fullmatch(conv_id) is None
             or not isinstance(message, str)
             or not message
         ):
@@ -1131,18 +1135,23 @@ async def handle_stop(request: web.Request) -> web.Response:
             return _prime_error("invalid_prime_stop_request")
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
-    conv_id = body.get("conversation_id")
-    if not conv_id:
-        return web.json_response({"error": "Missing conversation_id"}, status=400)
-
     if _is_prime(request):
-        if frozenset(body) != frozenset({"conversation_id"}):
+        conv_id = body.get("conversation_id")
+        if (
+            frozenset(body) != frozenset({"conversation_id"})
+            or not isinstance(conv_id, str)
+            or _PRIME_CONVERSATION_ID.fullmatch(conv_id) is None
+        ):
             return _prime_error("invalid_prime_stop_request")
         try:
             lifecycle = await _prime_backend(request).close(conv_id)
         except PrimeBackendError as error:
             return _prime_backend_error_response(error)
         return web.json_response(_project_lifecycle(lifecycle))
+
+    conv_id = body.get("conversation_id")
+    if not conv_id:
+        return web.json_response({"error": "Missing conversation_id"}, status=400)
 
     store = request.app.get(_STORE_KEY) or _get_store()
     if store.stop(conv_id):
@@ -1162,6 +1171,7 @@ async def handle_cancel(request: web.Request) -> web.Response:
         not isinstance(body, dict)
         or frozenset(body) != frozenset({"conversation_id"})
         or not isinstance(body.get("conversation_id"), str)
+        or _PRIME_CONVERSATION_ID.fullmatch(body["conversation_id"]) is None
     ):
         return _prime_error("invalid_prime_cancel_request")
     try:

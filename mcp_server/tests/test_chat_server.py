@@ -2222,6 +2222,73 @@ class TestPrimeChatServer(AioHTTPTestCase):
             assert stopped.status == 400
             assert (await stopped.json())["code"] == "invalid_prime_stop_request"
 
+    async def test_prime_routes_reject_noncanonical_conversation_ids_before_backend(self):
+        malformed = (None, "", 42, "../conv_escape")
+
+        for conversation_id in malformed:
+            query = (
+                {}
+                if conversation_id is None
+                else {"conversation_id": str(conversation_id)}
+            )
+            models = await self.client.get(
+                "/agent/chat/models",
+                params=query,
+                headers=self._headers(),
+            )
+            models_payload = await models.json()
+            assert models.status == 400
+            assert models_payload["code"] in {
+                "missing_conversation_id",
+                "invalid_prime_model_request",
+            }
+
+            model_body = {
+                "model_override": "openai-codex/gpt-5.6-sol",
+                "thinking": "xhigh",
+            }
+            message_body = {"message": "hello"}
+            stop_body = {}
+            cancel_body = {}
+            if conversation_id is not None:
+                model_body["conversation_id"] = conversation_id
+                message_body["conversation_id"] = conversation_id
+                stop_body["conversation_id"] = conversation_id
+                cancel_body["conversation_id"] = conversation_id
+
+            requests = (
+                (
+                    "/agent/chat/model",
+                    model_body,
+                    "invalid_prime_model_request",
+                ),
+                (
+                    "/agent/chat/message",
+                    message_body,
+                    "invalid_prime_message_request",
+                ),
+                (
+                    "/agent/chat/stop",
+                    stop_body,
+                    "invalid_prime_stop_request",
+                ),
+                (
+                    "/agent/chat/cancel",
+                    cancel_body,
+                    "invalid_prime_cancel_request",
+                ),
+            )
+            for path, body, expected_code in requests:
+                response = await self.client.post(
+                    path,
+                    json=body,
+                    headers=self._headers(),
+                )
+                assert response.status == 400
+                assert (await response.json())["code"] == expected_code
+
+        assert self.backend.calls == []
+
     async def test_prime_rejects_execution_mode_and_ui_response(self):
         message = await self.client.post(
             "/agent/chat/message",
