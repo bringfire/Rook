@@ -14,7 +14,7 @@
 
 - This plan is unimplemented and requires independent review before any implementation step is executed.
 - Prime implementation starts from exact commit `739400844f8f3f280414b0c7b9c65797208815d3` in a new worktree; the qualified `rook-upstream-evaluation` worktree remains read-only.
-- Rook implementation starts from the exact `approvedPlanCommit` supplied by the independent review authorization after this amendment is committed. Task 0 never infers that value from `HEAD`.
+- The separately authorized implementation `/goal` names the exact reviewed plan commit. Task 0 verifies clean `HEAD` equality with that literal before creating the Rook implementation worktree.
 - One RookChat conversation maps to one saved Prime session and one immutable target tuple: Rhino PID, Rhino process-start UTC ticks, and document runtime serial.
 - Prime is the only model, provider, transcript, retry, compaction, and model-loop owner. The Python broker translates lifecycle and transport only.
 - Raw `agent_end`, HTTP stream closure, quiet time, process liveness, and message counts never settle a product prompt.
@@ -34,7 +34,7 @@ This is a planning checklist, not a runtime framework. Product lifecycle outcome
 
 | Flow | Facts bound before action | Terminal rule |
 |---|---|---|
-| Setup | Externally supplied `approvedPlanCommit`, Prime source commit, dependency lock/restore results, branch-local Node/Python/.NET paths, and contact policy | Any mismatch exits before implementation tests. Worktrees are created only from the admitted commits. |
+| Setup | Plan commit named literally in the active implementation `/goal`, Prime source commit, dependency lock/restore results, branch-local Node/Python/.NET paths, and contact policy | Any mismatch exits before implementation tests. Worktrees are created only from the admitted commits. |
 | Panel start | Backend identity from a nonce-authenticated health response | Select exactly one byte-defined request schema before `/start`; unauthenticated discovery health cannot select a backend. |
 | Prompt lifecycle | Conversation ID, target fingerprint, process generation, active prompt ID, and control-command deadline | Correlated settlement owns completion. `closed` is absorbing; stale/late callbacks cannot persist or publish. |
 | Offline qualification | Empty Prime auth directory, scrubbed provider environment, exact model-free test list, branch-local dependencies | Every test and control command has a terminal exit. No live-capable test is admitted. |
@@ -162,34 +162,29 @@ error         { code, content, terminal: true }
 - Creates worktree: `C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend`
 
 **Interfaces:**
-- Consumes: exact Prime baseline `739400844f8f3f280414b0c7b9c65797208815d3` and required environment input `ROOK_APPROVED_PLAN_COMMIT`, whose literal 40-character value is supplied by independent review after this amendment is committed.
+- Consumes: exact Prime baseline `739400844f8f3f280414b0c7b9c65797208815d3` and the exact reviewed plan commit stated literally in the active implementation `/goal`.
 - Produces: branch-local Prime dependencies, Rook Python imports, Rook .NET restore assets, and the exact model-free contact preflight repeated by every later Prime test block.
 
-- [ ] **Step 1: Capture the independently reviewed plan commit**
+- [ ] **Step 1: Verify the goal-named reviewed plan commit**
 
 Run only after the amended plan receives spot review:
 
 ```powershell
 $coord = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger'
-$approvedPlanCommit = $env:ROOK_APPROVED_PLAN_COMMIT
-if ($approvedPlanCommit -notmatch '^[0-9a-f]{40}$') {
-    throw 'ROOK_APPROVED_PLAN_COMMIT must be the literal lowercase commit supplied by independent review.'
-}
 $actualHead = (git -C $coord rev-parse HEAD).Trim()
-if ($actualHead -ne $approvedPlanCommit) {
-    throw "Expected approved plan commit $approvedPlanCommit, found $actualHead."
-}
 if ((git -C $coord status --porcelain).Length -ne 0) {
     throw 'Coordinating worktree must be clean before implementation setup.'
 }
-$approvedPlanCommit
+$actualHead
 ```
 
-The review authorization supplies the value only after the final plan amendment exists. Record the supplied value and successful equality check in the qualification report; never derive it from `HEAD`, a branch, or a parent commit.
+Expected: the printed full commit exactly equals the literal commit named in the active implementation `/goal`, and status is clean. Any mismatch stops before worktree creation. Record the goal literal, printed `HEAD`, and equality result in the qualification report. No environment variable, branch name, tag, or new authorization store participates.
 
 - [ ] **Step 2: Create both dedicated implementation worktrees**
 
 ```powershell
+$coord = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger'
+$rookSourceCommit = (git -C $coord rev-parse HEAD).Trim()
 git -C D:/prime-agent worktree add `
   D:/prime-agent/.worktrees/rookchat-primary-backend `
   -b codex/rookchat-primary-backend `
@@ -198,7 +193,7 @@ git -C D:/prime-agent worktree add `
 git -C C:/UDEV/Rook worktree add `
   C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend `
   -b codex/rookchat-prime-primary-backend `
-  $approvedPlanCommit
+  $rookSourceCommit
 ```
 
 Expected: both commands create new worktrees; neither historical qualification worktree is modified.
@@ -314,7 +309,7 @@ git -C C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend rev-parse HEAD^{tr
 Get-FileHash D:/prime-agent/.worktrees/rookchat-primary-backend/package-lock.json -Algorithm SHA256
 ```
 
-Expected: Prime HEAD is the exact baseline, Rook HEAD is `approvedPlanCommit`, and both worktrees are clean apart from ignored branch-local dependency assets. Task 0 creates no commit.
+Expected: Prime HEAD is the exact baseline, Rook HEAD is the goal-named reviewed plan commit verified in Step 1, and both worktrees are clean apart from ignored branch-local dependency assets. Task 0 creates no commit.
 
 ### Task 1: Share Prime's Proven Headless-Turn Sequence
 
@@ -1489,7 +1484,7 @@ State that the text-only `AgentChatTab` can use Prime RPC only when `ROOK_CHAT_B
 
 - [ ] **Step 7: Write the offline qualification report**
 
-Include the reviewer-supplied `approvedPlanCommit`, its successful equality check at Task 0, exact Rook and Prime implementation commits, tree hashes, changed-file scope, test counts, branch-local Node/Python/.NET custody, credential-scrub evidence, exact test-file lists, registry/process lifecycle rows, error-code matrix, control timeout result, authenticated backend negotiation bodies, absorbing-close race results, fake-child custody, and explicit non-claims. Record any failure honestly; do not weaken a gate to obtain a pass.
+Include the reviewed plan commit named in the implementation `/goal`, its successful clean-`HEAD` equality check at Task 0, exact Rook and Prime implementation commits, tree hashes, changed-file scope, test counts, branch-local Node/Python/.NET custody, credential-scrub evidence, exact test-file lists, registry/process lifecycle rows, error-code matrix, control timeout result, authenticated backend negotiation bodies, absorbing-close race results, fake-child custody, and explicit non-claims. Record any failure honestly; do not weaken a gate to obtain a pass.
 
 - [ ] **Step 8: Commit documentation and final verification**
 
@@ -1505,7 +1500,7 @@ Expected: clean Rook and Prime implementation worktrees. Stop for independent im
 
 ## Implementation Authorization Gate
 
-This plan is the stopping point for the current slice. After this amendment is committed, independent review supplies its literal commit as `ROOK_APPROVED_PLAN_COMMIT`; Task 0 refuses unless the clean coordinating worktree `HEAD` equals that external authorization input. Before Task 1 begins, the reviewer must verify:
+This plan is the stopping point for the current slice. After this amendment is committed and independently approved, the implementation `/goal` must name that full commit literally. Task 0 refuses unless the coordinating worktree is clean and its printed `HEAD` equals the goal literal. Before Task 1 begins, the reviewer must verify:
 
 1. the closed `prompt_and_wait` error object and phase ownership;
 2. ACP/helper/RPC reuse without a second Prime lifecycle interpretation;
@@ -1514,7 +1509,7 @@ This plan is the stopping point for the current slice. After this amendment is c
 5. target fingerprint and explicit reopen behavior;
 6. rollback exclusivity and text-only scope; and
 7. test coverage for compaction continuation, provider failure, cancel races, sibling registry files, stale generations, capacity, and bounded shutdown;
-8. setup admission from the external approved commit through branch-local Node, Python, and .NET dependencies;
+8. setup admission from the goal-named reviewed commit through branch-local Node, Python, and .NET dependencies;
 9. provider-credential scrubbing and the exact model-free Prime client test list;
 10. nonce-authenticated health negotiation before selection of the legacy or Prime `/start` schema;
 11. absorbing `closed` behavior under late completion and process-loss callbacks; and
