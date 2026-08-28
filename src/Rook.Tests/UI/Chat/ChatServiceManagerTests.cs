@@ -7,6 +7,30 @@ namespace Rook.Tests.UI.Chat
 {
     public sealed class ChatServiceManagerTests
     {
+        [Fact]
+        public void BuildServiceArguments_includes_process_generation_fingerprint()
+        {
+            Assert.Equal(
+                "-m rook.agent.chat.service_main --port 0 --owner rhino-panel " +
+                "--rhino-process-id 1234 --rhino-process-start-utc-ticks 638918000000000000",
+                ChatServiceManager.BuildServiceArguments(
+                    1234,
+                    "638918000000000000"));
+        }
+
+        [Theory]
+        [InlineData("legacy", true)]
+        [InlineData("", true)]
+        [InlineData("prime", false)]
+        public void Prime_launch_does_not_copy_legacy_credentials(
+            string backend,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                ChatServiceManager.ShouldCopyLegacyCredentials(backend));
+        }
+
         [Theory]
         [InlineData("net48")]
         [InlineData("net7.0")]

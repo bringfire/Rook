@@ -22,8 +22,10 @@ namespace Rook.UI.Chat
         private readonly string _personaLabel;
         private readonly Func<uint>? _documentSerialNumberProvider;
         private readonly uint _documentSerialNumber;
+        private readonly string _stableConversationId = "conv_" + Guid.NewGuid().ToString("N");
         private string? _conversationId;
         private Uri? _conversationBaseUri;
+        private string _backend = "";
         private CancellationTokenSource? _cts;
         private ChatServiceHealth? _lastHealth;
         private readonly SemaphoreSlim _initializeGate = new SemaphoreSlim(1, 1);
@@ -35,6 +37,20 @@ namespace Rook.UI.Chat
         private bool _suppressModelSelectionEvents;
         private bool _modelListAvailable;
         private bool _modelSelectionDirty;
+
+        internal static bool DefersLocalStopCompletion(string backend)
+            => string.Equals(backend, "prime", StringComparison.Ordinal);
+
+        internal static bool IsSettledTerminalEvent(string eventType)
+            => eventType == "done" || eventType == "cancelled" || eventType == "error";
+
+        internal static bool IsSupportedBackend(string backend)
+            => backend == "legacy" || backend == "prime";
+
+        internal static string SelectPrimeStartAction(bool reconnecting)
+            => reconnecting ? "reopen" : "create";
+
+        protected override bool DeferStopCompletion => DefersLocalStopCompletion(_backend);
 
         public AgentChatTab(
             string persona,
@@ -243,7 +259,11 @@ namespace Rook.UI.Chat
 
             try
             {
-                var result = await _client.SetModelAsync(baseUri, conversationId!, selected!, "panel selector");
+                var result = _backend == "prime"
+                    ? await _client.SetPrimeModelAsync(
+                        baseUri, conversationId!, selected!)
+                    : await _client.SetModelAsync(
+                        baseUri, conversationId!, selected!, "panel selector");
                 Application.Instance.Invoke(() =>
                 {
                     if (!IsCurrentConversation(conversationId!))
@@ -252,6 +272,22 @@ namespace Rook.UI.Chat
                     if (result.Success)
                     {
                         _ = RefreshModelStatusAsync(conversationId);
+                    }
+                    else if (result.ErrorCode == "model_update_failed_reconciled" &&
+                        result.Actual != null)
+                    {
+                        _activeModelLabel = result.Actual.QualifiedId;
+                        SetStatus(
+                            $"Model switch failed; actual model: {_activeModelLabel}",
+                            Color.FromArgb(0xd9, 0x77, 0x06));
+                        _ = RefreshModelStatusAsync(conversationId);
+                    }
+                    else if (result.ErrorCode == "model_reconciliation_failed")
+                    {
+                        SetStatus(
+                            "Model state could not be reconciled; reopen the conversation.",
+                            Colors.Red);
+                        UpdateApplyEnabled();
                     }
                     else if (result.StatusCode == 409 || result.ErrorCode == "conversation_processing")
                     {
@@ -320,58 +356,7 @@ namespace Rook.UI.Chat
                     await RefreshModelStatusAsync(_conversationId);
                     return;
                 }
-
-                SetStatus("Starting chat service...", Colors.Blue);
-
-                var health = await _client.GetHealthAsync(startIfNeeded: true);
-                if (!health.ServiceAvailable)
-                {
-                    SetStatus("Chat service unavailable", Colors.Red);
-                    AddMessageToChat("error", health.ServiceMessage);
-                    return;
-                }
-
-                // Attach session nonce so all HTTP calls include X-Rook-Session.
-                var nonce = ChatServiceManager.Instance.SessionNonce;
-                if (!string.IsNullOrEmpty(nonce))
-                    _client.SetSessionNonce(nonce);
-
-                if (!health.LlmConfigured)
-                {
-                    SetStatus("Chat service unavailable", Colors.Red);
-                    AddMessageToChat("error", string.IsNullOrWhiteSpace(health.LlmMessage)
-                        ? "Anthropic API key is missing. Configure ANTHROPIC_API_KEY for the Rhino-owned chat service."
-                        : health.LlmMessage);
-                    return;
-                }
-
-                var currentDocument = GetCurrentDocumentSerialNumber();
-                var info = await _client.StartAsync(_persona, currentDocument);
-                _conversationId = info.ConversationId;
-                _conversationBaseUri = info.BaseUri;
-                _activeModelLabel = info.Model;
-                ApplyHealthStatus(health);
-                await RefreshModelStatusAsync(_conversationId);
-
-                // Set persona color and initial on the WebView
-                var hex = $"#{(int)(TabColor.R * 255):X2}{(int)(TabColor.G * 255):X2}{(int)(TabColor.B * 255):X2}";
-                var initial = TabLabel.Length > 0 ? TabLabel[0].ToString() : "A";
-                ExecuteScript($"window.chatAPI.setPersona('{hex}', '{initial}')");
-
-                // Inject conversation context for JS fetch bridge (UI block responses)
-                var host = _conversationBaseUri?.Host ?? "127.0.0.1";
-                var port = _conversationBaseUri?.Port ?? 0;
-                ExecuteScript($"window.chatAPI.setConversation('{_conversationId}', '{host}', {port})");
-
-                if (!_connectionBannerShown)
-                {
-                    AddMessageToChat("system", $"Connected to {_personaLabel} agent");
-                    if (!health.RhinoConnected)
-                    {
-                        AddMessageToChat("system", "Chat service is running, but the Rhino bridge is currently unavailable.");
-                    }
-                    _connectionBannerShown = true;
-                }
+                await StartConversationAsync(reconnecting: false);
             }
             catch (Exception ex)
             {
@@ -389,28 +374,100 @@ namespace Rook.UI.Chat
             await _initializeGate.WaitAsync();
             try
             {
-                _conversationId = null;
+                var previousBackend = _backend;
                 _conversationBaseUri = null;
                 _activeModelLabel = null;
                 _connectionBannerShown = false;
+                await StartConversationAsync(
+                    reconnecting: string.Equals(
+                        previousBackend, "prime", StringComparison.Ordinal),
+                    requiredBackend: previousBackend);
+            }
+            catch (Exception ex)
+            {
+                SetStatus("Conversation reconnect failed", Colors.Red);
+                AddMessageToChat("error", $"Failed to reconnect conversation: {ex.Message}");
             }
             finally
             {
                 _initializeGate.Release();
             }
+        }
 
+        private async Task StartConversationAsync(
+            bool reconnecting,
+            string requiredBackend = "")
+        {
             Application.Instance.Invoke(ClearModelSelector);
-
             SetStatus("Starting chat service...", Colors.Blue);
             var health = await _client.GetHealthAsync(startIfNeeded: true);
-            if (!health.ServiceAvailable)
+            if (!health.ServiceAvailable || health.BaseUri == null)
+                throw new InvalidOperationException(health.ServiceMessage);
+
+            var nonce = ChatServiceManager.Instance.SessionNonce;
+            if (string.IsNullOrEmpty(nonce))
+                throw new InvalidOperationException("Authenticated chat service health is unavailable.");
+            _client.SetSessionNonce(nonce);
+
+            if (!IsSupportedBackend(health.Backend))
+                throw new InvalidOperationException("Chat backend identity was not authenticated.");
+            if (!string.IsNullOrEmpty(requiredBackend) &&
+                !string.Equals(requiredBackend, health.Backend, StringComparison.Ordinal))
+                throw new InvalidOperationException("Chat backend changed during reconnect.");
+            if (health.Backend == "legacy" && !health.LlmConfigured)
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(health.LlmMessage)
+                    ? "Anthropic API key is missing. Configure ANTHROPIC_API_KEY for the Rhino-owned chat service."
+                    : health.LlmMessage);
+
+            var currentDocument = GetCurrentDocumentSerialNumber();
+            ConversationInfo info;
+            if (health.Backend == "prime")
             {
-                SetStatus("Chat service unavailable", Colors.Red);
-                AddMessageToChat("error", health.ServiceMessage);
-                return;
+                var manager = ChatServiceManager.Instance;
+                var target = new ChatTargetFingerprint
+                {
+                    RhinoPid = manager.RhinoProcessId,
+                    RhinoProcessStartUtcTicks = manager.RhinoProcessStartUtcTicks,
+                    DocumentRuntimeSerial = currentDocument,
+                };
+                info = await _client.StartPrimeAsync(
+                    health.BaseUri,
+                    SelectPrimeStartAction(reconnecting),
+                    _stableConversationId,
+                    target);
+                if (!string.Equals(
+                    info.ConversationId, _stableConversationId, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Prime conversation identity changed.");
+            }
+            else
+            {
+                info = await _client.StartLegacyAsync(
+                    health.BaseUri, _persona, currentDocument);
             }
 
-            await InitializeAsync();
+            _backend = health.Backend;
+            _conversationId = info.ConversationId;
+            _conversationBaseUri = info.BaseUri;
+            _activeModelLabel = info.Model;
+            ApplyHealthStatus(health);
+            await RefreshModelStatusAsync(_conversationId);
+
+            var hex = $"#{(int)(TabColor.R * 255):X2}{(int)(TabColor.G * 255):X2}{(int)(TabColor.B * 255):X2}";
+            var initial = TabLabel.Length > 0 ? TabLabel[0].ToString() : "A";
+            ExecuteScript($"window.chatAPI.setPersona('{hex}', '{initial}')");
+            ExecuteScript(
+                $"window.chatAPI.setConversation('{_conversationId}', " +
+                $"'{_conversationBaseUri.Host}', {_conversationBaseUri.Port})");
+
+            if (!_connectionBannerShown)
+            {
+                AddMessageToChat("system", $"Connected to {_personaLabel} agent");
+                if (!health.RhinoConnected)
+                    AddMessageToChat(
+                        "system",
+                        "Chat service is running, but the Rhino bridge is currently unavailable.");
+                _connectionBannerShown = true;
+            }
         }
 
         private async Task RefreshModelStatusAsync(string? expectedConversationId = null, CancellationToken ct = default)
@@ -426,6 +483,28 @@ namespace Rook.UI.Chat
             try
             {
                 var models = await _client.GetModelsAsync(baseUri, currentConversationId, ct);
+                if (_backend == "prime")
+                {
+                    var actual = models.Actual;
+                    if (actual == null || string.IsNullOrEmpty(actual.QualifiedId))
+                        return;
+                    var primeActiveModel = actual.QualifiedId;
+                    var primeAllowed = models.PrimeModels
+                        .Select(model => model.QualifiedId)
+                        .Where(model => !string.IsNullOrEmpty(model))
+                        .ToList();
+                    if (!IsCurrentConversation(currentConversationId))
+                        return;
+                    Application.Instance.Invoke(() =>
+                    {
+                        if (!IsCurrentConversation(currentConversationId))
+                            return;
+                        _activeModelLabel = primeActiveModel;
+                        SetStatus($"Model: {primeActiveModel}", Colors.Blue);
+                        PopulateModelSelector(primeAllowed, primeActiveModel);
+                    });
+                    return;
+                }
                 var conversation = models.Conversation;
                 if (conversation == null || string.IsNullOrEmpty(conversation.ActiveModel))
                 {
@@ -523,7 +602,7 @@ namespace Rook.UI.Chat
                 return;
             }
 
-            if (!health.LlmConfigured)
+            if (health.Backend == "legacy" && !health.LlmConfigured)
             {
                 SetStatus("Chat service unavailable", Colors.Red);
                 return;
@@ -540,7 +619,17 @@ namespace Rook.UI.Chat
         }
 
         protected override Task OnSendMessage(string message)
-            => SendMessageAsync(message, _client.SendMessageStreamingAsync);
+        {
+            if (_backend == "prime")
+            {
+                return SendMessageAsync(
+                    message,
+                    (baseUri, conversationId, text, _document, onEvent, ct) =>
+                        _client.SendPrimeMessageStreamingAsync(
+                            baseUri, conversationId, text, onEvent, ct));
+            }
+            return SendMessageAsync(message, _client.SendMessageStreamingAsync);
+        }
 
         private Task OnBuildCSharpMessage(string message)
             => SendMessageAsync(message, _client.SendWorkerFirstCSharpStreamingAsync);
@@ -574,7 +663,13 @@ namespace Rook.UI.Chat
                     SetProcessing(false);
                     return;
                 }
-                if (!health.LlmConfigured)
+                if (!string.Equals(health.Backend, _backend, StringComparison.Ordinal))
+                {
+                    AddMessageToChat("error", "Chat backend identity changed. Use Restart Chat to reconnect.");
+                    SetProcessing(false);
+                    return;
+                }
+                if (_backend == "legacy" && !health.LlmConfigured)
                 {
                     AddMessageToChat("error", string.IsNullOrWhiteSpace(health.LlmMessage)
                         ? "Anthropic API key is missing. Configure ANTHROPIC_API_KEY for the Rhino-owned chat service."
@@ -668,6 +763,11 @@ namespace Rook.UI.Chat
                         _ = RefreshModelStatusAsync(_conversationId);
                         break;
 
+                    case "status":
+                        if (evt.Outcome == "cancel_requested")
+                            SetStatus("Cancelling...", Colors.Orange);
+                        break;
+
                     case "done":
                         if (_activeUIBlockId != null)
                         {
@@ -678,7 +778,11 @@ namespace Rook.UI.Chat
                         }
                         ShowTypingIndicator(false);
                         FinalizeStreaming();
-                        if (_lastHealth != null)
+                        if (evt.Outcome == "completed_before_abort")
+                        {
+                            SetStatus("Completed before cancellation", Colors.Green);
+                        }
+                        else if (_lastHealth != null)
                         {
                             ApplyHealthStatus(_lastHealth);
                         }
@@ -690,11 +794,21 @@ namespace Rook.UI.Chat
                         _ = RefreshModelStatusAsync(_conversationId);
                         break;
 
+                    case "cancelled":
+                        MarkActiveUIBlockStale();
+                        ShowTypingIndicator(false);
+                        FinalizeStreaming();
+                        SetStatus("Stopped", Colors.Orange);
+                        SetProcessing(false);
+                        break;
+
                     case "error":
                         MarkActiveUIBlockStale();
                         ShowTypingIndicator(false);
                         FinalizeStreaming();
-                        AddMessageToChat("error", evt.Content ?? "Unknown error");
+                        AddMessageToChat(
+                            "error",
+                            evt.Content ?? evt.Code ?? "Unknown error");
                         SetStatus("Error", Colors.Red);
                         SetProcessing(false);
                         break;
@@ -852,11 +966,47 @@ namespace Rook.UI.Chat
 
         protected override void OnStopRequested()
         {
-            _cts?.Cancel();
+            if (_backend != "prime")
+            {
+                _cts?.Cancel();
+                return;
+            }
+            var baseUri = _conversationBaseUri;
+            var conversationId = _conversationId;
+            if (baseUri == null || string.IsNullOrEmpty(conversationId))
+                return;
+            _ = RequestPrimeCancellationAsync(baseUri, conversationId!);
+        }
+
+        private async Task RequestPrimeCancellationAsync(
+            Uri baseUri,
+            string conversationId)
+        {
+            try
+            {
+                await _client.CancelAsync(baseUri, conversationId);
+            }
+            catch (Exception ex)
+            {
+                Application.Instance.Invoke(() =>
+                {
+                    if (!IsCurrentConversation(conversationId))
+                        return;
+                    AddMessageToChat("error", $"Cancellation request failed: {ex.Message}");
+                    SetStatus("Cancellation failed; reply still running", Colors.Red);
+                });
+            }
         }
 
         protected override async Task OnUIBlockSubmitAsync(string blockId, JsonNode? value)
         {
+            if (_backend == "prime")
+            {
+                AddMessageToChat(
+                    "error",
+                    "Adaptive UI responses are unavailable in the Prime text slice.");
+                return;
+            }
             // Capture refs into locals after the null check — fields can be
             // mutated (cleared on tab close) between check and use, and the
             // local-capture pattern also satisfies the C# 11 nullable analyzer

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -73,6 +74,7 @@ namespace Rook.UI.Chat
         public string PromptText { get; set; } = "";
         public bool LlmConfigured { get; set; }
         public string LlmMessage { get; set; } = "";
+        public string Backend { get; set; } = "";
     }
 
     internal class ChatServiceDiscoveryRecord
@@ -121,6 +123,9 @@ namespace Rook.UI.Chat
 
         [JsonPropertyName("rhinoProcessId")]
         public int RhinoProcessId { get; set; }
+
+        [JsonPropertyName("backend")]
+        public string? Backend { get; set; }
     }
 
     internal class ChatServiceHealthRuntime
@@ -190,6 +195,7 @@ namespace Rook.UI.Chat
 
         private Process? _ownedProcess;
         private CancellationTokenSource? _logTailerCts;
+        private readonly string _rhinoProcessStartUtcTicks;
 
         private const string ExpectedOwner = "rhino-panel";
         private const string NonceEnvVar = "ROOK_SESSION_NONCE";
@@ -206,9 +212,34 @@ namespace Rook.UI.Chat
 
         private ChatServiceManager()
         {
+            _rhinoProcessStartUtcTicks = Process.GetCurrentProcess()
+                .StartTime
+                .ToUniversalTime()
+                .Ticks
+                .ToString(CultureInfo.InvariantCulture);
         }
 
         public static ChatServiceManager Instance => _lazy.Value;
+
+        public int RhinoProcessId => CurrentRhinoProcessId;
+
+        public string RhinoProcessStartUtcTicks => _rhinoProcessStartUtcTicks;
+
+        internal static string BuildServiceArguments(
+            int rhinoProcessId,
+            string rhinoProcessStartUtcTicks)
+        {
+            if (rhinoProcessId <= 0)
+                throw new ArgumentOutOfRangeException(nameof(rhinoProcessId));
+            if (string.IsNullOrWhiteSpace(rhinoProcessStartUtcTicks) ||
+                !rhinoProcessStartUtcTicks.All(char.IsDigit))
+                throw new ArgumentException(
+                    "Rhino process start ticks must be a decimal string.",
+                    nameof(rhinoProcessStartUtcTicks));
+            return "-m rook.agent.chat.service_main --port 0 --owner rhino-panel " +
+                $"--rhino-process-id {rhinoProcessId} " +
+                $"--rhino-process-start-utc-ticks {rhinoProcessStartUtcTicks}";
+        }
 
         public async Task<ChatServiceHealth> EnsureStartedAsync(CancellationToken ct = default)
         {
@@ -1239,7 +1270,12 @@ namespace Rook.UI.Chat
         {
             try
             {
-                using var response = await _httpClient.GetAsync(new Uri(baseUri, "/agent/chat/health"), ct);
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    new Uri(baseUri, "/agent/chat/health"));
+                if (!string.IsNullOrEmpty(SessionNonce))
+                    request.Headers.TryAddWithoutValidation("X-Rook-Session", SessionNonce);
+                using var response = await _httpClient.SendAsync(request, ct);
                 response.EnsureSuccessStatusCode();
                 var json = await response.Content.ReadAsStringAsync();
                 var payload = JsonSerializer.Deserialize<ChatServiceHealthEnvelope>(json, JsonOptions);
@@ -1269,6 +1305,7 @@ namespace Rook.UI.Chat
                     PromptText = payload.Runtime?.Prompt?.Prompt ?? "",
                     LlmConfigured = payload.Runtime?.Llm?.Configured ?? false,
                     LlmMessage = payload.Runtime?.Llm?.Message ?? "",
+                    Backend = payload.Service.Backend ?? "",
                 };
             }
             catch
@@ -1330,12 +1367,19 @@ namespace Rook.UI.Chat
                 .ToList();
             if (pythonPathEntries.Count > 0)
                 envOverrides["PYTHONPATH"] = string.Join(";", pythonPathEntries);
-            foreach (var key in new[] { "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ROOK_LOG_LEVEL" })
+            envOverrides.TryGetValue("ROOK_CHAT_BACKEND", out var selectedBackend);
+            if (ShouldCopyLegacyCredentials(selectedBackend))
             {
-                var value = Environment.GetEnvironmentVariable(key);
-                if (!string.IsNullOrEmpty(value))
-                    envOverrides[key] = value;
+                foreach (var key in new[] { "ANTHROPIC_API_KEY", "OPENAI_API_KEY" })
+                {
+                    var value = Environment.GetEnvironmentVariable(key);
+                    if (!string.IsNullOrEmpty(value))
+                        envOverrides[key] = value;
+                }
             }
+            var logLevel = Environment.GetEnvironmentVariable("ROOK_LOG_LEVEL");
+            if (!string.IsNullOrEmpty(logLevel))
+                envOverrides["ROOK_LOG_LEVEL"] = logLevel;
             if (AllowProjectRootEnvironment(manifest))
             {
                 var projectRoot = Environment.GetEnvironmentVariable("ROOK_PROJECT_ROOT");
@@ -1365,7 +1409,9 @@ namespace Rook.UI.Chat
                 var psi = new ProcessStartInfo
                 {
                     FileName = manifest.PythonPath,
-                    Arguments = $"-m {manifest.Module} --port 0 --owner {manifest.Owner} --rhino-process-id {CurrentRhinoProcessId}",
+                    Arguments = BuildServiceArguments(
+                        CurrentRhinoProcessId,
+                        _rhinoProcessStartUtcTicks),
                     WorkingDirectory = manifest.WorkingDirectory,
                     UseShellExecute = true,
                     WindowStyle = ProcessWindowStyle.Hidden,
@@ -1398,6 +1444,11 @@ namespace Rook.UI.Chat
                     Environment.SetEnvironmentVariable(kv.Key, kv.Value);
                 }
             }
+        }
+
+        internal static bool ShouldCopyLegacyCredentials(string? backend)
+        {
+            return !string.Equals(backend, "prime", StringComparison.Ordinal);
         }
 
         private void StartLogTailer(string logFile)

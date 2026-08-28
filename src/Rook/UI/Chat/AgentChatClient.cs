@@ -34,6 +34,8 @@ namespace Rook.UI.Chat
         public string Color { get; set; } = "#1d9bf0";
         public string Model { get; set; } = "";
 
+        public string Backend { get; set; } = "";
+
         [JsonPropertyName("tool_access")]
         public string ToolAccess { get; set; } = "full";
 
@@ -42,6 +44,37 @@ namespace Rook.UI.Chat
 
         [JsonIgnore]
         public Uri? BaseUri { get; set; }
+    }
+
+    public sealed class ChatTargetFingerprint
+    {
+        public int RhinoPid { get; set; }
+        public string RhinoProcessStartUtcTicks { get; set; } = "";
+        public uint DocumentRuntimeSerial { get; set; }
+    }
+
+    public sealed class PrimeModelInfo
+    {
+        public string Provider { get; set; } = "";
+        public string Id { get; set; } = "";
+        public string? Thinking { get; set; }
+
+        [JsonIgnore]
+        public string QualifiedId => string.IsNullOrEmpty(Provider)
+            ? Id
+            : Provider + "/" + Id;
+    }
+
+    public sealed class PrimeAvailableModelInfo
+    {
+        public string Id { get; set; } = "";
+        public string Provider { get; set; } = "";
+        public string Model { get; set; } = "";
+        public int? ContextWindow { get; set; }
+        public bool? Reasoning { get; set; }
+
+        [JsonIgnore]
+        public string QualifiedId => Id;
     }
 
     public class ChatConversationModelInfo
@@ -98,8 +131,16 @@ namespace Rook.UI.Chat
 
     public class ChatModelsInfo
     {
+        public string Backend { get; set; } = "";
+
         [JsonPropertyName("conversation")]
         public ChatConversationModelInfo? Conversation { get; set; }
+
+        [JsonPropertyName("models")]
+        public List<PrimeAvailableModelInfo> PrimeModels { get; set; } = new();
+
+        [JsonPropertyName("actual")]
+        public PrimeModelInfo? Actual { get; set; }
 
         [JsonPropertyName("allowed_model_overrides")]
         public List<string> AllowedModelOverrides { get; set; } = new();
@@ -119,6 +160,7 @@ namespace Rook.UI.Chat
         public string? ErrorCode { get; set; }
         public string? Message { get; set; }
         public List<string>? AllowedModelOverrides { get; set; }
+        public PrimeModelInfo? Actual { get; set; }
     }
 
     public class ChatEvent
@@ -130,6 +172,11 @@ namespace Rook.UI.Chat
         public JsonElement? Params { get; set; }
         public string? Result { get; set; }
         public JsonElement? Usage { get; set; }
+        public string? Code { get; set; }
+        public bool? Terminal { get; set; }
+
+        [JsonPropertyName("reason")]
+        public string? Outcome { get; set; }
 
         [JsonPropertyName("applies_to")]
         public string? AppliesTo { get; set; }
@@ -235,10 +282,52 @@ namespace Rook.UI.Chat
             CancellationToken ct = default)
         {
             var baseUri = await GetBaseUriAsync(startIfNeeded: true, ct);
+            return await StartLegacyAsync(
+                baseUri, persona, documentSerialNumber, ct);
+        }
+
+        public async Task<ConversationInfo> StartLegacyAsync(
+            Uri baseUri,
+            string persona,
+            uint documentSerialNumber = 0,
+            CancellationToken ct = default)
+        {
             var body = JsonSerializer.Serialize(new
             {
                 persona,
                 documentSerialNumber,
+            });
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var resp = await _client.PostAsync(new Uri(baseUri, "/agent/chat/start"), content, ct);
+            resp.EnsureSuccessStatusCode();
+            var json = await resp.Content.ReadAsStringAsync();
+            var info = JsonSerializer.Deserialize<ConversationInfo>(json, JsonOptions)
+                       ?? new ConversationInfo();
+            info.BaseUri = baseUri;
+            return info;
+        }
+
+        public async Task<ConversationInfo> StartPrimeAsync(
+            Uri baseUri,
+            string action,
+            string conversationId,
+            ChatTargetFingerprint target,
+            CancellationToken ct = default)
+        {
+            if (action != "create" && action != "reopen")
+                throw new ArgumentException("Prime action must be create or reopen.", nameof(action));
+            if (target == null)
+                throw new ArgumentNullException(nameof(target));
+            var body = JsonSerializer.Serialize(new
+            {
+                action,
+                conversation_id = conversationId,
+                target = new
+                {
+                    rhinoPid = target.RhinoPid,
+                    rhinoProcessStartUtcTicks = target.RhinoProcessStartUtcTicks,
+                    documentRuntimeSerial = target.DocumentRuntimeSerial,
+                },
             });
             var content = new StringContent(body, Encoding.UTF8, "application/json");
             var resp = await _client.PostAsync(new Uri(baseUri, "/agent/chat/start"), content, ct);
@@ -308,6 +397,12 @@ namespace Rook.UI.Chat
                         }
                         result.AllowedModelOverrides = list;
                     }
+                    if (root.TryGetProperty("actual", out var actual)
+                        && actual.ValueKind == JsonValueKind.Object)
+                    {
+                        result.Actual = JsonSerializer.Deserialize<PrimeModelInfo>(
+                            actual.GetRawText(), JsonOptions);
+                    }
                 }
             }
             catch (JsonException)
@@ -341,6 +436,25 @@ namespace Rook.UI.Chat
             return ParseSetModelResult((int)resp.StatusCode, resp.IsSuccessStatusCode, respBody);
         }
 
+        public async Task<SetModelResult> SetPrimeModelAsync(
+            Uri baseUri,
+            string conversationId,
+            string modelOverride,
+            string? thinking = null,
+            CancellationToken ct = default)
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                conversation_id = conversationId,
+                model_override = modelOverride,
+                thinking,
+            });
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var resp = await _client.PostAsync(new Uri(baseUri, "/agent/chat/model"), content, ct);
+            var respBody = await resp.Content.ReadAsStringAsync();
+            return ParseSetModelResult((int)resp.StatusCode, resp.IsSuccessStatusCode, respBody);
+        }
+
         /// <summary>
         /// Send a message and yield streaming events.
         /// Uses HttpCompletionOption.ResponseHeadersRead for streaming.
@@ -358,6 +472,21 @@ namespace Rook.UI.Chat
                 conversation_id = conversationId,
                 message = message,
                 documentSerialNumber = documentSerialNumber,
+            });
+            await SendMessageBodyStreamingAsync(baseUri, body, onEvent, ct);
+        }
+
+        public async Task SendPrimeMessageStreamingAsync(
+            Uri baseUri,
+            string conversationId,
+            string message,
+            Action<ChatEvent> onEvent,
+            CancellationToken ct = default)
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                conversation_id = conversationId,
+                message,
             });
             await SendMessageBodyStreamingAsync(baseUri, body, onEvent, ct);
         }
@@ -508,6 +637,18 @@ namespace Rook.UI.Chat
             {
                 // Swallow errors — best-effort cleanup
             }
+        }
+
+        public async Task CancelAsync(
+            Uri baseUri,
+            string conversationId,
+            CancellationToken ct = default)
+        {
+            var body = JsonSerializer.Serialize(new { conversation_id = conversationId });
+            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var resp = await _client.PostAsync(
+                new Uri(baseUri, "/agent/chat/cancel"), content, ct);
+            resp.EnsureSuccessStatusCode();
         }
 
         /// <summary>

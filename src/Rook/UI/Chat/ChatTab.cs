@@ -71,6 +71,12 @@ namespace Rook.UI.Chat
         protected abstract void OnStopRequested();
 
         /// <summary>
+        /// When true, Stop requests remote cancellation and processing remains
+        /// active until a correlated terminal event arrives.
+        /// </summary>
+        protected virtual bool DeferStopCompletion => false;
+
+        /// <summary>
         /// Called when the tab is removed from the tab strip. Override to
         /// release resources. Safe to call multiple times.
         /// </summary>
@@ -456,6 +462,11 @@ namespace Rook.UI.Chat
         private void OnStopClicked(object? sender, EventArgs e)
         {
             OnStopRequested();
+            if (DeferStopCompletion)
+            {
+                SetStatus("Cancelling...", Colors.Orange);
+                return;
+            }
             ShowTypingIndicator(false);
             FinalizeStreaming();
             _isProcessing = false;

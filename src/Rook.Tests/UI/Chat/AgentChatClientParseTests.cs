@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +12,102 @@ namespace Rook.Tests.UI.Chat
 {
     public class AgentChatClientParseTests
     {
+        private static readonly Uri BaseUri = new Uri("http://localhost:8765");
+
+        [Fact]
+        public async Task Session_nonce_is_sent_before_backend_specific_requests()
+        {
+            var handler = new CapturingHandler
+            {
+                ResponseBody = "{\"conversation_id\":\"conv_0123456789abcdef0123456789abcdef\"}"
+            };
+            using var client = new AgentChatClient(new HttpClient(handler));
+            client.SetSessionNonce("owned-nonce");
+
+            await client.StartLegacyAsync(BaseUri, "Rook", 42);
+
+            Assert.Equal("owned-nonce", handler.SessionNonce);
+        }
+
+        [Fact]
+        public async Task Start_legacy_and_Prime_requests_use_disjoint_closed_schemas()
+        {
+            var handler = new CapturingHandler
+            {
+                ResponseBody = "{\"conversation_id\":\"conv_0123456789abcdef0123456789abcdef\"}"
+            };
+            using var client = new AgentChatClient(new HttpClient(handler));
+
+            await client.StartLegacyAsync(BaseUri, "Rook", 42);
+            using (var payload = JsonDocument.Parse(handler.Body!))
+            {
+                var root = payload.RootElement;
+                Assert.Equal("Rook", root.GetProperty("persona").GetString());
+                Assert.Equal(42u, root.GetProperty("documentSerialNumber").GetUInt32());
+                Assert.Equal(2, CountProperties(root));
+            }
+
+            await client.StartPrimeAsync(
+                BaseUri,
+                "create",
+                "conv_0123456789abcdef0123456789abcdef",
+                new ChatTargetFingerprint
+                {
+                    RhinoPid = 1234,
+                    RhinoProcessStartUtcTicks = "638918000000000000",
+                    DocumentRuntimeSerial = 42,
+                });
+            using (var payload = JsonDocument.Parse(handler.Body!))
+            {
+                var root = payload.RootElement;
+                Assert.Equal("create", root.GetProperty("action").GetString());
+                Assert.Equal(
+                    "conv_0123456789abcdef0123456789abcdef",
+                    root.GetProperty("conversation_id").GetString());
+                var target = root.GetProperty("target");
+                Assert.Equal(1234, target.GetProperty("rhinoPid").GetInt32());
+                Assert.Equal(
+                    "638918000000000000",
+                    target.GetProperty("rhinoProcessStartUtcTicks").GetString());
+                Assert.Equal(42u, target.GetProperty("documentRuntimeSerial").GetUInt32());
+                Assert.Equal(3, CountProperties(root));
+                Assert.False(root.TryGetProperty("persona", out _));
+            }
+        }
+
+        [Fact]
+        public async Task Prime_message_cancel_and_close_use_exact_text_slice_bodies()
+        {
+            var handler = new CapturingHandler();
+            using var client = new AgentChatClient(new HttpClient(handler));
+
+            await client.SendPrimeMessageStreamingAsync(
+                BaseUri,
+                "conv_0123456789abcdef0123456789abcdef",
+                "hello",
+                _ => { });
+            using (var payload = JsonDocument.Parse(handler.Body!))
+            {
+                Assert.Equal(2, CountProperties(payload.RootElement));
+                Assert.False(payload.RootElement.TryGetProperty("documentSerialNumber", out _));
+                Assert.False(payload.RootElement.TryGetProperty("execution_mode", out _));
+            }
+
+            await client.CancelAsync(
+                BaseUri,
+                "conv_0123456789abcdef0123456789abcdef");
+            Assert.Equal("/agent/chat/cancel", handler.Path);
+            using (var payload = JsonDocument.Parse(handler.Body!))
+                Assert.Equal(1, CountProperties(payload.RootElement));
+
+            await client.StopAsync(
+                BaseUri,
+                "conv_0123456789abcdef0123456789abcdef");
+            Assert.Equal("/agent/chat/stop", handler.Path);
+            using (var payload = JsonDocument.Parse(handler.Body!))
+                Assert.Equal(1, CountProperties(payload.RootElement));
+        }
+
         [Fact]
         public async Task Ordinary_send_omits_execution_mode()
         {
@@ -89,6 +186,30 @@ namespace Rook.Tests.UI.Chat
             Assert.False(r.Success);
             Assert.Equal("conversation_processing", r.ErrorCode);
             Assert.Equal("busy", r.Message);
+        }
+
+        [Fact]
+        public void Prime_reconciled_model_failure_preserves_actual_selection()
+        {
+            var body = "{\"code\":\"model_update_failed_reconciled\",\"error\":\"failed\",\"actual\":{\"provider\":\"openai-codex\",\"id\":\"gpt-5.6-sol\",\"thinking\":\"low\"}}";
+            var result = AgentChatClient.ParseSetModelResult(409, false, body);
+
+            Assert.Equal("model_update_failed_reconciled", result.ErrorCode);
+            Assert.NotNull(result.Actual);
+            Assert.Equal("openai-codex/gpt-5.6-sol", result.Actual!.QualifiedId);
+            Assert.Equal("low", result.Actual.Thinking);
+        }
+
+        [Fact]
+        public void Prime_terminal_event_fields_bind_from_closed_projection()
+        {
+            var evt = JsonSerializer.Deserialize<ChatEvent>(
+                "{\"type\":\"done\",\"reason\":\"completed_before_abort\",\"terminal\":true}",
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            Assert.NotNull(evt);
+            Assert.Equal("completed_before_abort", evt!.Outcome);
+            Assert.True(evt.Terminal);
         }
 
         [Fact]
@@ -185,17 +306,25 @@ namespace Rook.Tests.UI.Chat
         private sealed class CapturingHandler : HttpMessageHandler
         {
             public string? Body { get; private set; }
+            public string? Path { get; private set; }
+            public string ResponseBody { get; set; } = "";
+            public string? SessionNonce { get; private set; }
 
             protected override async Task<HttpResponseMessage> SendAsync(
                 HttpRequestMessage request,
                 CancellationToken cancellationToken)
             {
+                Path = request.RequestUri?.AbsolutePath;
+                SessionNonce = request.Headers.TryGetValues(
+                    "X-Rook-Session", out var values)
+                    ? System.Linq.Enumerable.FirstOrDefault(values)
+                    : null;
                 Body = request.Content == null
                     ? null
                     : await request.Content.ReadAsStringAsync();
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(string.Empty),
+                    Content = new StringContent(ResponseBody, Encoding.UTF8, "application/json"),
                 };
             }
         }
