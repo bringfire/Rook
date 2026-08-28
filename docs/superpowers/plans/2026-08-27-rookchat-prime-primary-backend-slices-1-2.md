@@ -158,14 +158,18 @@ Run only after the amended plan receives spot review:
 
 ```powershell
 $coord = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger'
-$reviewedPlanCommit = (git -C $coord rev-parse HEAD).Trim()
+$reviewedPlanCommit = '37879ba64479797ee9ea462a45b0fbf342d3ece1'
+$actualHead = (git -C $coord rev-parse HEAD).Trim()
+if ($actualHead -ne $reviewedPlanCommit) {
+    throw "Expected reviewed source baseline $reviewedPlanCommit, found $actualHead."
+}
 if ((git -C $coord status --porcelain).Length -ne 0) {
     throw 'Coordinating worktree must be clean before implementation setup.'
 }
 $reviewedPlanCommit
 ```
 
-Record this commit in the eventual qualification report; do not substitute a moving branch name.
+Record this literal source baseline in the eventual qualification report; do not substitute a moving branch name. The later plan-only hygiene correction does not change implementation source bytes, so Task 0 intentionally creates the implementation worktree from this independently reviewed source commit.
 
 - [ ] **Step 2: Create both dedicated implementation worktrees**
 
@@ -214,6 +218,7 @@ Expected: both package paths are under the new Prime worktree, the source import
 
 ```powershell
 $rook = [IO.Path]::GetFullPath('C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend')
+Set-Location $rook
 $env:PYTHONPATH = "$rook/mcp_server/src"
 $env:ROOK_IMPLEMENTATION_ROOT = $rook
 & C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -c @'
@@ -231,7 +236,7 @@ for module in (rook, rook.agent.chat.server):
 git -C $rook status --short
 ```
 
-Expected: both module paths are under the new Rook worktree and status is empty. Keep this `PYTHONPATH` for every later Python command.
+Expected: both module paths are under the new Rook worktree and status is empty. Every later Rook Python block repeats this exact worktree and `PYTHONPATH` preamble; no step relies on shell state surviving another invocation.
 
 - [ ] **Step 6: Record custody without committing generated dependencies**
 
@@ -576,6 +581,9 @@ def test_independent_updates_do_not_rewrite_sibling(tmp_path):
 - [ ] **Step 2: Run the RED registry tests**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH = "$rook/mcp_server/src"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_prime_registry.py -q
 ```
@@ -639,6 +647,9 @@ It returns the changed conversation IDs for health diagnostics. It never changes
 - [ ] **Step 6: Run registry tests and static compilation**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH = "$rook/mcp_server/src"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_prime_registry.py -q
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile `
@@ -711,6 +722,9 @@ Add `--model provider/id` and `--thinking level` only when configured. Resume ap
 - [ ] **Step 2: Run RED process tests**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH = "$rook/mcp_server/src"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_prime_rpc_protocol.py `
   mcp_server/tests/test_prime_process.py -q
@@ -770,6 +784,9 @@ It echoes `get_state`, `get_available_models`, `set_model`, `set_thinking_level`
 - [ ] **Step 7: Run focused process tests and compile**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH = "$rook/mcp_server/src"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_prime_rpc_protocol.py `
   mcp_server/tests/test_prime_process.py -q
@@ -808,6 +825,11 @@ class PromptSubscription:
 class PromptSubscriptionBuffer:
     MAX_ROWS = 128
     MAX_NONTERMINAL_ROWS = 127
+
+    def __init__(self) -> None:
+        self._ready = asyncio.Event()
+        self._terminal_published = False
+        self._closed = False
 
     def publish(self, row: dict[str, Any]) -> None: ...
     async def next(self) -> dict[str, Any]: ...
@@ -868,6 +890,8 @@ test_tab_close_cancels_and_closes
 test_document_retirement_never_rebinds_target
 test_shutdown_uses_one_global_ten_second_deadline
 test_slow_subscriber_coalesces_text_without_blocking_settlement
+test_close_wakes_waiting_subscription
+test_late_rows_after_terminal_are_ignored
 test_partial_model_update_reconciles_actual_runtime_state
 test_failed_model_reconciliation_marks_conversation_failed
 ```
@@ -892,6 +916,9 @@ assert stream.terminal_count == 1
 - [ ] **Step 2: Run RED backend tests**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH = "$rook/mcp_server/src"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_prime_backend.py -q
 ```
@@ -926,11 +953,11 @@ Each attached `PromptSubscription` uses a nonblocking `PromptSubscriptionBuffer`
 3. At pressure, pending `status` rows are discarded first because they are observational and cannot settle the turn.
 4. A new `model_update` replaces an older pending `model_update`; if no such row or status row can be replaced, it is omitted because the panel refreshes authoritative model state after settlement.
 5. After those reductions, all pending text rows are concatenated in original order into one `text_delta`; text bytes are never dropped.
-6. Exactly one terminal `done`, `cancelled`, or terminal `error` occupies the reserved slot. Publishing a second terminal row is a broker invariant failure and cannot alter durable lifecycle.
-7. `publish()` never awaits the UI consumer, so response correlation remains live. `next()` waits on an `asyncio.Condition` owned by the buffer.
-8. Closing the subscription clears its buffer, wakes its waiter, and unregisters it. It does not cancel the prompt task or change lifecycle.
+6. Exactly one terminal `done`, `cancelled`, or terminal `error` occupies the reserved slot. After that row is published, all later rows are ignored. A second terminal row cannot alter durable lifecycle.
+7. `publish()`, `next()`, and close are called only on the owning broker event-loop thread. `publish()` never awaits the UI consumer. After changing the buffer it calls an owned `asyncio.Event.set()`. `next()` loops over buffer/closed state, clears the event only after observing no available row, rechecks state, and then awaits the event. This keeps response correlation live without requiring an asynchronous lock in `publish()`.
+8. Closing the subscription marks it closed, clears its buffer, calls the event's `set()` to wake a waiting `next()`, and unregisters it. The awakened iterator terminates without a row. Close does not cancel the prompt task or change lifecycle.
 
-The slow-consumer regression publishes 1,000 numbered text deltas plus 200 duplicate segment statuses without consuming, then settles the prompt. It asserts `len(buffer) <= 128`, exact concatenated text `"0,1,...,999,"`, one terminal row, and a resolved command future before the consumer drains the buffer.
+The slow-consumer regression publishes 1,000 numbered text deltas plus 200 duplicate segment statuses without consuming, then settles the prompt. It asserts `len(buffer) <= 128`, exact concatenated text `"0,1,...,999,"`, one terminal row, and a resolved command future before the consumer drains the buffer. Separate causal tests start `next()` before close and prove it wakes and terminates, then publish rows after a terminal row and prove they are ignored.
 
 Map Prime results exactly:
 
@@ -971,6 +998,9 @@ At 10 residents, retire the least-recently-used `idle` child; refuse with `capac
 - [ ] **Step 9: Run the complete model-free broker suite**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH = "$rook/mcp_server/src"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_prime_registry.py `
   mcp_server/tests/test_prime_rpc_protocol.py `
@@ -1010,6 +1040,9 @@ Cover exact create/reopen target JSON, target mismatch, stable conversation ID, 
 - [ ] **Step 3: Run RED HTTP tests**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH = "$rook/mcp_server/src"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_chat_server.py -q
 ```
@@ -1070,6 +1103,9 @@ The Prime branch of `/message` sends one `prompt_and_wait` and forwards the rows
 - [ ] **Step 9: Run focused HTTP and broker tests**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH = "$rook/mcp_server/src"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_prime_registry.py `
   mcp_server/tests/test_prime_rpc_protocol.py `
@@ -1264,7 +1300,9 @@ git diff --check
 - [ ] **Step 3: Run all Rook broker/chat tests and compilation**
 
 ```powershell
-Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH = "$rook/mcp_server/src"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_prime_registry.py `
   mcp_server/tests/test_prime_rpc_protocol.py `
