@@ -14,7 +14,7 @@
 
 - This plan is unimplemented and requires independent review before any implementation step is executed.
 - Prime implementation starts from exact commit `739400844f8f3f280414b0c7b9c65797208815d3` in a new worktree; the qualified `rook-upstream-evaluation` worktree remains read-only.
-- Rook implementation starts from the independently reviewed plan commit in a new `codex/` worktree created with `superpowers:using-git-worktrees`.
+- Rook implementation starts from the exact `approvedPlanCommit` supplied by the independent review authorization after this amendment is committed. Task 0 never infers that value from `HEAD`.
 - One RookChat conversation maps to one saved Prime session and one immutable target tuple: Rhino PID, Rhino process-start UTC ticks, and document runtime serial.
 - Prime is the only model, provider, transcript, retry, compaction, and model-loop owner. The Python broker translates lifecycle and transport only.
 - Raw `agent_end`, HTTP stream closure, quiet time, process liveness, and message counts never settle a product prompt.
@@ -26,7 +26,18 @@
 - The broker defaults remain: 10 resident Prime children, 30-minute idle retirement, and one 10-second global service-shutdown drain.
 - The durable registry contains no process IDs used for ownership, process handles, pipes, pending commands, credentials, messages, or model output.
 - An absent `ROOK_CHAT_BACKEND` or `ROOK_CHAT_BACKEND=legacy` selects the existing default path. `ROOK_CHAT_BACKEND=prime` explicitly selects the new path. Product-default cutover remains Slice 6 work after packaging and live qualification. The two backends never run the same turn.
-- No provider, model, Rhino, Grasshopper, Rook mutation, or network contact is part of implementation qualification.
+- No provider, model, Rhino, Grasshopper, or Rook mutation contact is part of implementation qualification. Task 0 dependency installation is setup; every later Prime test runs with provider credentials scrubbed, an empty Prime agent directory, and a closed model-free test list.
+
+## Transition Admission Audit
+
+This is a planning checklist, not a runtime framework. Product lifecycle outcomes are persisted in the existing registry. Setup and qualification preflights retain their terminal command output and custody facts in the qualification report; they do not gain another journal.
+
+| Flow | Facts bound before action | Terminal rule |
+|---|---|---|
+| Setup | Externally supplied `approvedPlanCommit`, Prime source commit, dependency lock/restore results, branch-local Node/Python/.NET paths, and contact policy | Any mismatch exits before implementation tests. Worktrees are created only from the admitted commits. |
+| Panel start | Backend identity from a nonce-authenticated health response | Select exactly one byte-defined request schema before `/start`; unauthenticated discovery health cannot select a backend. |
+| Prompt lifecycle | Conversation ID, target fingerprint, process generation, active prompt ID, and control-command deadline | Correlated settlement owns completion. `closed` is absorbing; stale/late callbacks cannot persist or publish. |
+| Offline qualification | Empty Prime auth directory, scrubbed provider environment, exact model-free test list, branch-local dependencies | Every test and control command has a terminal exit. No live-capable test is admitted. |
 
 ## Closed Interfaces
 
@@ -112,15 +123,17 @@ error         { code, content, terminal: true }
 - Modify `packages/coding-agent/src/modes/rpc/rpc-client.ts`: add `promptAndWaitSettled()` and preserve `promptAndWait(): Promise<AgentEvent[]>`, collecting events through the new terminal response instead of the first `agent_end`.
 - Modify `packages/coding-agent/docs/rpc.md`: document the new command and explain that `agent_end` is not prompt settlement.
 - Modify `packages/coding-agent/test/rpc-prompt-response-semantics.test.ts`: causal command, failure, continuation, event-order, and abort tests.
+- Create `packages/coding-agent/test/fixtures/rpc-client-prompt-settlement-child.mjs`: model-free JSONL child for `RpcClient` compatibility tests.
+- Create `packages/coding-agent/test/rpc-client-prompt-settlement.test.ts`: preserve `promptAndWait(): Promise<AgentEvent[]>` and prove two segments are collected through correlated settlement without provider contact.
 - Modify `packages/coding-agent/test/suite/acp-features.test.ts`: prove ACP retains existing completion/failure behavior through the shared helper.
 
 ### Rook Python worktree
 
 - Create `mcp_server/src/rook/agent/chat/prime_rpc_protocol.py`: closed wire parsing, command IDs, response errors, and Slice 2 event projection.
 - Create `mcp_server/src/rook/agent/chat/prime_registry.py`: target/model/lifecycle records, namespace lock, strict load validation, and atomic per-conversation writes.
-- Create `mcp_server/src/rook/agent/chat/prime_process.py`: owned child launch, strict JSONL read/write, response correlation, generation filtering, and bounded termination.
+- Create `mcp_server/src/rook/agent/chat/prime_process.py`: owned child launch, strict JSONL read/write, response correlation, generation filtering, ten-second control-command deadlines, and bounded termination.
 - Create `mcp_server/src/rook/agent/chat/prime_backend.py`: resident table, lifecycle transitions, registry/process coordination, prompt streaming, cancel races, LRU retirement, and shutdown.
-- Modify `mcp_server/src/rook/agent/chat/server.py`: route prime/legacy requests without sharing a turn; add explicit cancel/reopen/close behavior.
+- Modify `mcp_server/src/rook/agent/chat/server.py`: expose nonce-authenticated backend identity, route prime/legacy requests without sharing a turn, and add explicit cancel/reopen/close behavior.
 - Modify `mcp_server/src/rook/agent/chat/service_main.py`: accept the Rhino process-start fingerprint and construct the configured backend.
 - Create `mcp_server/tests/fixtures/prime_rpc_fake_child.py`: deterministic JSONL child for adversarial event and process ordering.
 - Create `mcp_server/tests/test_prime_rpc_protocol.py`.
@@ -149,8 +162,8 @@ error         { code, content, terminal: true }
 - Creates worktree: `C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend`
 
 **Interfaces:**
-- Consumes: exact Prime baseline `739400844f8f3f280414b0c7b9c65797208815d3` and the independently approved plan commit.
-- Produces: branch-local Prime dependencies plus a Rook Python import environment used by every later task.
+- Consumes: exact Prime baseline `739400844f8f3f280414b0c7b9c65797208815d3` and required environment input `ROOK_APPROVED_PLAN_COMMIT`, whose literal 40-character value is supplied by independent review after this amendment is committed.
+- Produces: branch-local Prime dependencies, Rook Python imports, Rook .NET restore assets, and the exact model-free contact preflight repeated by every later Prime test block.
 
 - [ ] **Step 1: Capture the independently reviewed plan commit**
 
@@ -158,18 +171,21 @@ Run only after the amended plan receives spot review:
 
 ```powershell
 $coord = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger'
-$reviewedPlanCommit = '37879ba64479797ee9ea462a45b0fbf342d3ece1'
+$approvedPlanCommit = $env:ROOK_APPROVED_PLAN_COMMIT
+if ($approvedPlanCommit -notmatch '^[0-9a-f]{40}$') {
+    throw 'ROOK_APPROVED_PLAN_COMMIT must be the literal lowercase commit supplied by independent review.'
+}
 $actualHead = (git -C $coord rev-parse HEAD).Trim()
-if ($actualHead -ne $reviewedPlanCommit) {
-    throw "Expected reviewed source baseline $reviewedPlanCommit, found $actualHead."
+if ($actualHead -ne $approvedPlanCommit) {
+    throw "Expected approved plan commit $approvedPlanCommit, found $actualHead."
 }
 if ((git -C $coord status --porcelain).Length -ne 0) {
     throw 'Coordinating worktree must be clean before implementation setup.'
 }
-$reviewedPlanCommit
+$approvedPlanCommit
 ```
 
-Record this literal source baseline in the eventual qualification report; do not substitute a moving branch name. The later plan-only hygiene correction does not change implementation source bytes, so Task 0 intentionally creates the implementation worktree from this independently reviewed source commit.
+The review authorization supplies the value only after the final plan amendment exists. Record the supplied value and successful equality check in the qualification report; never derive it from `HEAD`, a branch, or a parent commit.
 
 - [ ] **Step 2: Create both dedicated implementation worktrees**
 
@@ -182,7 +198,7 @@ git -C D:/prime-agent worktree add `
 git -C C:/UDEV/Rook worktree add `
   C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend `
   -b codex/rookchat-prime-primary-backend `
-  $reviewedPlanCommit
+  $approvedPlanCommit
 ```
 
 Expected: both commands create new worktrees; neither historical qualification worktree is modified.
@@ -238,7 +254,57 @@ git -C $rook status --short
 
 Expected: both module paths are under the new Rook worktree and status is empty. Every later Rook Python block repeats this exact worktree and `PYTHONPATH` preamble; no step relies on shell state surviving another invocation.
 
-- [ ] **Step 6: Record custody without committing generated dependencies**
+- [ ] **Step 6: Restore managed test dependencies inside the Rook worktree**
+
+```powershell
+$rook = [IO.Path]::GetFullPath('C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend')
+Set-Location $rook
+dotnet restore src/Rook.Tests/Rook.Tests.csproj
+$assets = [IO.Path]::GetFullPath("$rook/src/Rook.Tests/obj/project.assets.json")
+if (-not (Test-Path -LiteralPath $assets)) {
+    throw "Managed restore did not produce $assets."
+}
+if (-not $assets.StartsWith($rook, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Managed restore escaped the Rook implementation worktree: $assets"
+}
+$assets
+```
+
+Expected: restore exits zero and the assets file is under the implementation worktree. Later managed test commands retain `--no-restore`.
+
+- [ ] **Step 7: Freeze the model-free Prime test preflight**
+
+Every later Prime test block repeats this exact preflight before test dispatch:
+
+```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-1-2-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialNamePattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern | ForEach-Object {
+    Remove-Item -LiteralPath "Env:$($_.Name)"
+}
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+$remainingCredentials = @(Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern)
+if ($remainingCredentials.Count -ne 0) {
+    throw "Provider credential variables remain: $($remainingCredentials.Name -join ', ')"
+}
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") {
+    throw 'The isolated Prime agent directory unexpectedly contains auth.json.'
+}
+[ordered]@{
+    agentDir = $env:PRIME_AGENT_CODING_AGENT_DIR
+    sessionDir = $env:PRIME_AGENT_SESSION_DIR
+    credentialVariablesPresent = @()
+} | ConvertTo-Json -Compress
+```
+
+The terminal JSON and each exact test-file argument list are retained in the qualification report. This preflight is execution evidence, not a durable product record.
+
+- [ ] **Step 8: Record custody without committing generated dependencies**
 
 ```powershell
 git -C D:/prime-agent/.worktrees/rookchat-primary-backend rev-parse HEAD
@@ -248,7 +314,7 @@ git -C C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend rev-parse HEAD^{tr
 Get-FileHash D:/prime-agent/.worktrees/rookchat-primary-backend/package-lock.json -Algorithm SHA256
 ```
 
-Expected: Prime HEAD is the exact baseline, Rook HEAD is the reviewed plan commit, and both worktrees are clean. Task 0 creates no commit.
+Expected: Prime HEAD is the exact baseline, Rook HEAD is `approvedPlanCommit`, and both worktrees are clean apart from ignored branch-local dependency assets. Task 0 creates no commit.
 
 ### Task 1: Share Prime's Proven Headless-Turn Sequence
 
@@ -286,6 +352,16 @@ it("classifies only the post-boundary assistant failure", async () => {
 - [ ] **Step 2: Run the RED tests**
 
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-1-2-offline-task1-red")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialNamePattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern).Count -ne 0 -or (Test-Path "$offlineRoot/agent/auth.json")) { throw 'Prime offline contact preflight failed.' }
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run `
   test/rpc-prompt-response-semantics.test.ts `
@@ -369,6 +445,16 @@ Map `HeadlessTurnError` back to ACP's existing thrown error behavior. Do not exp
 - [ ] **Step 5: Run focused Prime tests and build**
 
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-1-2-offline-task1-green")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialNamePattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern).Count -ne 0 -or (Test-Path "$offlineRoot/agent/auth.json")) { throw 'Prime offline contact preflight failed.' }
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run `
   test/rpc-prompt-response-semantics.test.ts `
@@ -396,7 +482,8 @@ git commit -m "refactor: share Prime headless turn settlement"
 - Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/modes/rpc/rpc-client.ts`
 - Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/docs/rpc.md`
 - Test: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/test/rpc-prompt-response-semantics.test.ts`
-- Test: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/test/rpc.test.ts`
+- Create: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/test/fixtures/rpc-client-prompt-settlement-child.mjs`
+- Create: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/test/rpc-client-prompt-settlement.test.ts`
 
 **Interfaces:**
 - Consumes: `runHeadlessTurn()` and `HeadlessTurnError` from Task 1.
@@ -435,6 +522,16 @@ Also prove `abort` returns its own correlated response while `prompt_and_wait` r
 - [ ] **Step 3: Run the RED RPC tests**
 
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-1-2-offline-task2-red")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialNamePattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern).Count -ne 0 -or (Test-Path "$offlineRoot/agent/auth.json")) { throw 'Prime offline contact preflight failed.' }
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/rpc-prompt-response-semantics.test.ts
 ```
@@ -517,9 +614,9 @@ async promptAndWait(
 }
 ```
 
-This uses the existing `send(command, timeout)` timer rather than adding another timer. Existing callers continue receiving `AgentEvent[]`; the only behavioral correction is that collection ends at the correlated terminal response instead of the first `agent_end`. Event listeners continue receiving stream events independently. `getPromptAndWaitData()` preserves `error.code` and `error.message` on a typed `RpcPromptAndWaitCommandError`.
+This preserves the existing public `RpcClient` timeout parameter and `AgentEvent[]` return contract for non-Rook callers; it does not define Rook lifecycle authority. Existing callers continue receiving `AgentEvent[]`, and collection ends at the correlated terminal response instead of the first `agent_end`. Event listeners continue receiving stream events independently. `getPromptAndWaitData()` preserves `error.code` and `error.message` on a typed `RpcPromptAndWaitCommandError`. The Rook broker speaks JSONL through `PrimeRpcProcess` rather than this client and dispatches `prompt_and_wait` with `timeout_seconds=None`, so its prompt lifetime remains governed only by settlement, cancel, close, or process loss.
 
-Extend `rpc.test.ts` to keep its existing returned-event assertions and add a two-segment case proving both segments are present before `promptAndWait()` resolves.
+Add a model-free client compatibility test whose `cliPath` is the branch-local `.mjs` fixture. The child ignores the appended RPC CLI arguments, speaks deterministic JSONL, emits two complete agent segments, and only then emits the correlated `prompt_and_wait` response. Assert that the unchanged public `promptAndWait(): Promise<AgentEvent[]>` returns both segments. The test must not load a provider, read auth, or inherit a model selector. The existing credential-gated live RPC integration test is excluded from every offline command.
 
 - [ ] **Step 7: Document the command and the non-authority of `agent_end`**
 
@@ -528,11 +625,21 @@ Add one `prompt_and_wait` section to `docs/rpc.md` with the exact command, succe
 - [ ] **Step 8: Run Prime RPC, ACP, client, and build verification**
 
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-1-2-offline-task2-green")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialNamePattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern).Count -ne 0 -or (Test-Path "$offlineRoot/agent/auth.json")) { throw 'Prime offline contact preflight failed.' }
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run `
   test/rpc-prompt-response-semantics.test.ts `
   test/rpc-jsonl.test.ts `
-  test/rpc.test.ts `
+  test/rpc-client-prompt-settlement.test.ts `
   test/suite/acp-features.test.ts
 npm run build
 git diff --check
@@ -548,7 +655,8 @@ git add packages/coding-agent/src/modes/rpc/rpc-types.ts `
   packages/coding-agent/src/modes/rpc/rpc-client.ts `
   packages/coding-agent/docs/rpc.md `
   packages/coding-agent/test/rpc-prompt-response-semantics.test.ts `
-  packages/coding-agent/test/rpc.test.ts
+  packages/coding-agent/test/fixtures/rpc-client-prompt-settlement-child.mjs `
+  packages/coding-agent/test/rpc-client-prompt-settlement.test.ts
 git commit -m "feat: expose settled prompt RPC command"
 ```
 
@@ -679,6 +787,7 @@ git commit -m "feat: add durable Prime chat registry"
 
 ```python
 class PrimeRpcProcess:
+    CONTROL_COMMAND_TIMEOUT_SECONDS = 10.0
     generation: int
 
     async def start(self) -> PrimeRuntimeState: ...
@@ -687,6 +796,7 @@ class PrimeRpcProcess:
         command: dict[str, Any],
         *,
         expected_command: str,
+        timeout_seconds: float | None = CONTROL_COMMAND_TIMEOUT_SECONDS,
     ) -> dict[str, Any]: ...
     def subscribe(
         self,
@@ -699,7 +809,7 @@ class PrimeRpcProcess:
 
 - [ ] **Step 1: Write RED strict-wire and launch tests**
 
-Cover LF-only JSON, duplicate/unknown response IDs, malformed response objects, wrong command correlation, structured prompt failures, stale-generation output, process exit with pending commands, a 64 MiB line ceiling, exact argument arrays, session resume, and idempotent retirement.
+Cover LF-only JSON, duplicate/unknown response IDs, malformed response objects, wrong command correlation, structured prompt failures, stale-generation output, process exit with pending commands, a stalled control response, a 64 MiB line ceiling, exact argument arrays, session resume, and idempotent retirement.
 
 The expected new-session argument array is exact:
 
@@ -759,6 +869,8 @@ Use `asyncio.create_subprocess_exec(*argv, stdin=PIPE, stdout=PIPE, stderr=PIPE)
 
 The strict reader uses chunked LF detection with a 64 MiB per-row ceiling. EOF with an unterminated non-empty row is a protocol failure. Stderr is retained in a bounded 256 KiB tail for diagnostics and never enters model/session records.
 
+Every control command binds its ten-second deadline before its request is written. Timeout removes the pending request and raises `PrimeControlTimeout(expected_command)`; a late response for that request is ignored as unknown/stale. `prompt_and_wait` is the sole exception and calls `command(..., timeout_seconds=None)`: its lifetime is governed only by correlated settlement, cancel, close, or process loss.
+
 - [ ] **Step 5: Implement bounded process retirement**
 
 `retire(grace_seconds)` closes stdin, waits within the caller's remaining deadline, calls `terminate()`, then on Windows uses `taskkill /PID <pid> /T /F` only for the process it created. It never acts on a PID restored from disk. Every pending command fails once with `PrimeProcessLost`.
@@ -777,9 +889,10 @@ malformed_json
 wrong_response_id
 exit_mid_prompt
 stale_generation
+stalled_control_response
 ```
 
-It echoes `get_state`, `get_available_models`, `set_model`, `set_thinking_level`, `prompt_and_wait`, and `abort` with deterministic IDs and no model/network access.
+It echoes `get_state`, `get_available_models`, `set_model`, `set_thinking_level`, `prompt_and_wait`, and `abort` with deterministic IDs and no model/network access. `stalled_control_response` accepts a named control command but never responds; its regression proves bounded failure and ignores a synthetic late response. No stalled-prompt timeout test is added because prompt settlement has no elapsed-time authority.
 
 - [ ] **Step 7: Run focused process tests and compile**
 
@@ -887,6 +1000,8 @@ test_capacity_retires_lru_idle_only
 test_capacity_refuses_when_every_child_is_active
 test_idle_retirement_preserves_session_record
 test_tab_close_cancels_and_closes
+test_close_remains_closed_after_late_completion
+test_close_remains_closed_after_process_loss
 test_document_retirement_never_rebinds_target
 test_shutdown_uses_one_global_ten_second_deadline
 test_slow_subscriber_coalesces_text_without_blocking_settlement
@@ -894,6 +1009,7 @@ test_close_wakes_waiting_subscription
 test_late_rows_after_terminal_are_ignored
 test_partial_model_update_reconciles_actual_runtime_state
 test_failed_model_reconciliation_marks_conversation_failed
+test_stalled_control_response_fails_boundedly
 ```
 
 The causal cancel-race test must assert broker-local correlation:
@@ -934,6 +1050,7 @@ class ResidentPrimeConversation:
     pending_abort: PendingAbort | None
     last_activity_monotonic: float
     prompt_task: asyncio.Task[None] | None
+    lifecycle_lock: asyncio.Lock
 ```
 
 This object is never serialized. `PrimeChatBackend` owns one dictionary keyed by conversation ID and one monotonically increasing generation counter.
@@ -944,7 +1061,7 @@ This object is never serialized. `PrimeChatBackend` owns one dictionary keyed by
 
 - [ ] **Step 5: Implement prompt settlement independently of the HTTP reader**
 
-`start_prompt()` changes `idle -> running` atomically before dispatch and creates a broker-owned background task. The task alone receives the correlated settlement and persists lifecycle; subscription buffering never owns settlement.
+`start_prompt()` binds the conversation ID, immutable target, current resident object, launch generation, and prompt request ID while holding `lifecycle_lock`; it changes `idle -> running` before dispatch and creates a broker-owned background task. The task alone receives the correlated settlement and persists lifecycle; subscription buffering never owns settlement. Before any callback persists or publishes, it reacquires the same lock and proves the resident object and generation are still current and the durable record is not `closed`. A stale callback returns without publication or persistence.
 
 Each attached `PromptSubscription` uses a nonblocking `PromptSubscriptionBuffer` with this exact overflow contract:
 
@@ -974,11 +1091,11 @@ No failure path replays the prompt.
 
 - [ ] **Step 6: Implement cancel with broker-local correlation**
 
-`cancel()` accepts only `running`, persists `cancel_requested`, records `PendingAbort`, and sends Prime's unchanged `abort`. It returns after the abort command response or transport refusal, not after prompt settlement. A repeated cancel is an idempotent `cancel_requested` response for the same generation. Natural completion retires the pending abort locally as defined in **Closed Interfaces**.
+`cancel()` accepts only `running`, persists `cancel_requested`, records `PendingAbort`, and sends Prime's unchanged `abort` with the control-command deadline. It returns after the abort command response or transport refusal, not after prompt settlement. A repeated cancel is an idempotent `cancel_requested` response for the same generation. Natural completion retires the pending abort locally as defined in **Closed Interfaces**. Abort timeout or process loss retires the owned child and lets the pending prompt settle through the existing process-loss path; it never fabricates `aborted`.
 
 - [ ] **Step 7: Implement models and finite residency**
 
-`models()` projects `get_available_models` to stable IDs `provider/model`. `set_model()` is allowed only from `idle` and follows one reconciliation rule:
+`models()` projects `get_available_models` to stable IDs `provider/model`. All `get_state`, `get_available_models`, `set_model`, and `set_thinking_level` calls use the control-command deadline. A create/reopen control timeout retires the child and fails the operation without writing `idle`. `set_model()` is allowed only from `idle` and follows one reconciliation rule:
 
 ```text
 attempt set_model
@@ -987,13 +1104,13 @@ attempt set_model
 -> persist the actual provider/model/thinking returned by Prime
 ```
 
-If both mutations and readback succeed, return success. If either mutation fails but readback succeeds, persist the actual state, keep lifecycle `idle` with reason `model_update_failed_reconciled`, and return a failed operation containing the actual selection. If readback fails after either mutation was attempted, persist lifecycle `failed/model_reconciliation_failed`, retire the child, and require explicit reopen before another prompt or model change. The causal regression makes `set_model` succeed, `set_thinking_level` fail, and `get_state` return the new model with the old thinking level; registry and response must both report that exact actual state.
+If both mutations and readback succeed, return success. If either mutation fails or times out but readback succeeds, persist the actual state, keep lifecycle `idle` with reason `model_update_failed_reconciled`, and return a failed operation containing the actual selection. If readback fails or times out after either mutation was attempted, persist lifecycle `failed/model_reconciliation_failed`, retire the child, and require explicit reopen before another prompt or model change. The causal regression makes `set_model` succeed, `set_thinking_level` fail, and `get_state` return the new model with the old thinking level; registry and response must both report that exact actual state.
 
 At 10 residents, retire the least-recently-used `idle` child; refuse with `capacity_exhausted` when all residents are `running` or `cancel_requested`. A periodic task retires children idle for 1,800 seconds without closing their records.
 
 - [ ] **Step 8: Implement close, document retirement, and global shutdown**
 
-`close()` persists `closed`, requests abort if active, and retires the child. `retire_document(target)` retires matching children and leaves records non-rebindable. `shutdown()` uses one absolute deadline 10 seconds from entry, requests cancel for all active children, awaits their prompt tasks within the shared remainder, then kills only still-owned process trees. Repeated calls are no-ops.
+`close()` makes `closed` absorbing under `lifecycle_lock`: increment/invalidate the resident generation, detach the resident from the active table, and persist `closed` before releasing the lock. It then requests abort when needed and retires that detached child outside the lock. Prompt completion, process-loss, abort, and stream callbacks from the retired generation fail the current-resident/generation/closed check and cannot publish or persist. The two close regressions hold completion and process-loss callbacks until after close and prove the durable record and terminal stream remain closed exactly once. `retire_document(target)` uses the same invalidation order for matching children and leaves records non-rebindable. `shutdown()` uses one absolute deadline 10 seconds from entry, requests cancel for all active children, awaits their prompt tasks within the shared remainder, then kills only still-owned process trees. Repeated calls are no-ops.
 
 - [ ] **Step 9: Run the complete model-free broker suite**
 
@@ -1029,13 +1146,13 @@ git commit -m "feat: add Prime chat broker lifecycle"
 - Consumes: `PrimeChatBackend` from Task 5.
 - Produces: stable HTTP/NDJSON endpoints consumed by `AgentChatClient` in Task 7.
 
-- [ ] **Step 1: Add RED HTTP tests for backend exclusivity**
+- [ ] **Step 1: Add RED HTTP tests for authenticated backend negotiation and exclusivity**
 
-Inject both a fake Prime backend and a fake legacy runner. Prove absent `ROOK_CHAT_BACKEND` and explicit `legacy` both select `ChatRunner`, explicit `prime` never calls `ChatRunner`, and an invalid value refuses application startup. Prime mode rejects `execution_mode` and `/agent/chat/ui-response` with `unsupported_in_prime_text_slice`.
+Inject both a fake Prime backend and a fake legacy runner. Prove absent `ROOK_CHAT_BACKEND` and explicit `legacy` both select `ChatRunner`, explicit `prime` never calls `ChatRunner`, and an invalid value refuses application startup. Preserve unauthenticated `/health` for process discovery, but omit backend identity unless `X-Rook-Session` exactly matches the service's existing session nonce. A correctly authenticated health response contains exactly one backend value, `legacy` or `prime`; missing, wrong, or stale nonces cannot select a request schema. Prime mode rejects `execution_mode` and `/agent/chat/ui-response` with `unsupported_in_prime_text_slice`.
 
 - [ ] **Step 2: Add RED request-custody and lifecycle tests**
 
-Cover exact create/reopen target JSON, target mismatch, stable conversation ID, model projection, set-model idle-only behavior, partial model-update reconciliation, failed model reconciliation, `cancel_requested`, completed-before-abort, aborted, process failure, stream disconnect not producing idle, explicit close, and app cleanup invoking one bounded backend shutdown.
+Cover exact legacy-start JSON and exact Prime create/reopen target JSON, target mismatch, stable conversation ID, model projection, set-model idle-only behavior, partial model-update reconciliation, failed model reconciliation, `cancel_requested`, completed-before-abort, aborted, process failure, stream disconnect not producing idle, explicit close, and app cleanup invoking one bounded backend shutdown. Assert that backend negotiation completes before `/start` and that no request containing fields from both schemas is admitted.
 
 - [ ] **Step 3: Run RED HTTP tests**
 
@@ -1066,6 +1183,8 @@ Prime mode refuses startup before binding HTTP if node, CLI, model syntax, think
 
 Add typed app keys for backend mode and `PrimeChatBackend`. App cleanup calls `shutdown()` once. Keep existing `ConversationStore`, `PromptBuilder`, and `ChatRunner` construction only on the legacy branch.
 
+`handle_health()` compares the optional `X-Rook-Session` header with the already-owned service nonce. Its public discovery response remains non-secret and does not advertise backend identity. Only an exact nonce match adds `backend: "legacy" | "prime"`. This is a narrow authenticated configuration projection, not a second backend registry.
+
 The model endpoint projects Task 5 reconciliation without hiding partial application:
 
 ```text
@@ -1090,7 +1209,7 @@ The HTTP tests assert both failure responses and the registry's corresponding ac
 }
 ```
 
-`action` is exactly `create` or `reopen`. Prime mode ignores persona routing and returns one identity label `Rook`; legacy mode retains its existing persona contract. The response includes `backend: "prime"` or `"legacy"` so the panel can select stop behavior.
+`action` is exactly `create` or `reopen`. Prime mode ignores persona routing and returns one identity label `Rook`; legacy mode retains its existing persona contract. `/start` responses repeat the already-negotiated backend only as a consistency check; they do not choose the request schema.
 
 - [ ] **Step 7: Add explicit cancel and preserve close**
 
@@ -1154,7 +1273,7 @@ The production value comes from `Process.GetCurrentProcess().StartTime.ToUnivers
 
 - [ ] **Step 2: Add RED client serialization and parsing tests**
 
-Use the existing injected `HttpClient` constructor to assert exact create, reopen, cancel, and close bodies. Add fields:
+Use the existing injected `HttpClient` constructor to assert authenticated health, exact legacy start, exact Prime create/reopen, cancel, and close bodies. Add fields:
 
 ```csharp
 public sealed class ChatTargetFingerprint
@@ -1172,6 +1291,15 @@ public class ChatEvent
 }
 ```
 
+`ChatServiceHealth` gains `Backend`. The exact admitted start bodies are:
+
+```json
+{"persona":"Rook","documentSerialNumber":42}
+{"action":"create","conversation_id":"conv_32_lowercase_hex_chars","target":{"rhinoPid":1234,"rhinoProcessStartUtcTicks":"638918000000000000","documentRuntimeSerial":42}}
+```
+
+The first is sent only after authenticated health reports `legacy`; the second only after it reports `prime`. Missing, unknown, or changed backend identity refuses before `/start`. Tests assert byte-equivalent parsed objects and prove neither method can emit the other schema.
+
 - [ ] **Step 3: Add RED UI-lifecycle tests through pure helpers**
 
 Add internal static helpers to `ChatTab`/`AgentChatTab` and test:
@@ -1184,11 +1312,13 @@ Assert.True(AgentChatTab.IsSettledTerminalEvent("cancelled"));
 Assert.False(AgentChatTab.IsSettledTerminalEvent("status"));
 ```
 
-Also assert that reconnect chooses `reopen`, keeps the same stable conversation ID, and does not clear it before the request.
+Also assert that reconnect first obtains a new nonce-authenticated health response, then chooses `reopen` only for `prime`, keeps the same stable conversation ID, and does not clear it before the request. Legacy reconnect retains its existing start behavior. An unauthenticated health response cannot select either path.
 
 - [ ] **Step 4: Run RED C# chat tests**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore `
   --filter "FullyQualifiedName~Rook.Tests.UI.Chat"
 ```
@@ -1205,7 +1335,7 @@ Create once in the `AgentChatTab` constructor:
 private readonly string _stableConversationId = "conv_" + Guid.NewGuid().ToString("N");
 ```
 
-Initial `InitializeAsync()` sends `action: "create"`. `ReconnectToServiceAsync()` keeps the ID, obtains the new service URI/nonce, and sends `action: "reopen"`. It never silently falls back from failed reopen to create. A user-visible action may create a new tab/conversation instead.
+`ChatServiceManager.QueryHealthAsync()` sends the owned session nonce and validates owner, Rhino PID, and backend. `InitializeAsync()` must receive that authenticated backend before calling either `StartLegacyAsync(persona, documentSerialNumber)` or `StartPrimeAsync("create", conversationId, target)`. `ReconnectToServiceAsync()` repeats health negotiation with the new service URI/nonce; for Prime it keeps the ID and sends `reopen`. It never silently falls back from failed reopen to create. A user-visible action may create a new tab/conversation instead.
 
 - [ ] **Step 7: Separate cancel from stream disposal and conversation close**
 
@@ -1241,6 +1371,8 @@ On HTTP 409 `model_update_failed_reconciled`, replace the selectors with the ret
 - [ ] **Step 10: Run focused and full managed tests**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore `
   --filter "FullyQualifiedName~Rook.Tests.UI.Chat"
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore
@@ -1287,11 +1419,21 @@ legacy runner call count remains zero
 - [ ] **Step 2: Run all Prime-focused tests and build**
 
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-1-2-offline-final")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialNamePattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialNamePattern).Count -ne 0 -or (Test-Path "$offlineRoot/agent/auth.json")) { throw 'Prime offline contact preflight failed.' }
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run `
   test/rpc-prompt-response-semantics.test.ts `
   test/rpc-jsonl.test.ts `
-  test/rpc.test.ts `
+  test/rpc-client-prompt-settlement.test.ts `
   test/suite/acp-features.test.ts
 npm run build
 git diff --check
@@ -1322,6 +1464,8 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile `
 - [ ] **Step 4: Run managed tests**
 
 ```powershell
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore `
   --filter "FullyQualifiedName~Rook.Tests.UI.Chat"
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore
@@ -1337,7 +1481,7 @@ git -C D:/prime-agent/.worktrees/rookchat-primary-backend diff --check
 Get-Process Rhino,ollama -ErrorAction SilentlyContinue
 ```
 
-The report records commands and results but makes no claim that Rhino/Ollama being absent proves network absence by itself. The test fixtures and launch arguments establish that no provider/model command was used.
+The report records commands and results but makes no claim that Rhino/Ollama being absent proves network absence by itself. It also retains the credential-scrub terminal JSON, empty Prime agent/session roots, exact Prime test-file list, model-free fake-child path, branch-local import/dependency paths, and every command exit result. These together establish that no provider/model command was admitted; no new preflight registry is created.
 
 - [ ] **Step 6: Update architecture status narrowly**
 
@@ -1345,7 +1489,7 @@ State that the text-only `AgentChatTab` can use Prime RPC only when `ROOK_CHAT_B
 
 - [ ] **Step 7: Write the offline qualification report**
 
-Include exact Rook and Prime commits, tree hashes, changed-file scope, test counts, registry/process lifecycle rows, error-code matrix, abort race result, fake-child custody, and explicit non-claims. Record any failure honestly; do not weaken a gate to obtain a pass.
+Include the reviewer-supplied `approvedPlanCommit`, its successful equality check at Task 0, exact Rook and Prime implementation commits, tree hashes, changed-file scope, test counts, branch-local Node/Python/.NET custody, credential-scrub evidence, exact test-file lists, registry/process lifecycle rows, error-code matrix, control timeout result, authenticated backend negotiation bodies, absorbing-close race results, fake-child custody, and explicit non-claims. Record any failure honestly; do not weaken a gate to obtain a pass.
 
 - [ ] **Step 8: Commit documentation and final verification**
 
@@ -1361,7 +1505,7 @@ Expected: clean Rook and Prime implementation worktrees. Stop for independent im
 
 ## Implementation Authorization Gate
 
-This plan is the stopping point for the current slice. Before Task 1 begins, an independent reviewer must verify:
+This plan is the stopping point for the current slice. After this amendment is committed, independent review supplies its literal commit as `ROOK_APPROVED_PLAN_COMMIT`; Task 0 refuses unless the clean coordinating worktree `HEAD` equals that external authorization input. Before Task 1 begins, the reviewer must verify:
 
 1. the closed `prompt_and_wait` error object and phase ownership;
 2. ACP/helper/RPC reuse without a second Prime lifecycle interpretation;
@@ -1369,6 +1513,11 @@ This plan is the stopping point for the current slice. Before Task 1 begins, an 
 4. durable registry versus in-memory process ownership;
 5. target fingerprint and explicit reopen behavior;
 6. rollback exclusivity and text-only scope; and
-7. test coverage for compaction continuation, provider failure, cancel races, sibling registry files, stale generations, capacity, and bounded shutdown.
+7. test coverage for compaction continuation, provider failure, cancel races, sibling registry files, stale generations, capacity, and bounded shutdown;
+8. setup admission from the external approved commit through branch-local Node, Python, and .NET dependencies;
+9. provider-credential scrubbing and the exact model-free Prime client test list;
+10. nonce-authenticated health negotiation before selection of the legacy or Prime `/start` schema;
+11. absorbing `closed` behavior under late completion and process-loss callbacks; and
+12. ten-second control-command deadlines with `prompt_and_wait` excluded from elapsed-time settlement.
 
 No implementation execution, live contact, or additional architecture work is authorized by this document alone.
