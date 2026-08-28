@@ -2175,6 +2175,53 @@ class TestPrimeChatServer(AioHTTPTestCase):
         assert [call[0] for call in self.backend.calls] == ["create", "message"]
         assert self.backend.records[self.conversation_id].last_lifecycle.state == "idle"
 
+    async def test_prime_stream_prepare_failure_closes_subscription(self):
+        class FailingPrepareResponse:
+            def __init__(self, *args, **kwargs):
+                self.status = kwargs.get("status", 200)
+
+            async def prepare(self, _request):
+                raise RuntimeError("prepare failed")
+
+        class Request:
+            def __init__(self, app):
+                self.app = app
+
+            async def json(self):
+                return {
+                    "conversation_id": TestPrimeChatServer.conversation_id,
+                    "message": "hello",
+                }
+
+        await self.backend.create(
+            self.conversation_id,
+            TargetFingerprint(2468, "638918000000000000", 42),
+        )
+        with patch("rook.agent.chat.server.web.StreamResponse", FailingPrepareResponse):
+            with pytest.raises(RuntimeError, match="prepare failed"):
+                await chat_server.handle_message(Request(self.app))
+
+        assert self.backend.subscription is not None
+        assert self.backend.subscription.closed is True
+
+    async def test_prime_message_and_stop_reject_non_object_json(self):
+        for body in ("null", "[]", '"scalar"', "42"):
+            message = await self.client.post(
+                "/agent/chat/message",
+                data=body,
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+            stopped = await self.client.post(
+                "/agent/chat/stop",
+                data=body,
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+
+            assert message.status == 400
+            assert (await message.json())["code"] == "invalid_prime_message_request"
+            assert stopped.status == 400
+            assert (await stopped.json())["code"] == "invalid_prime_stop_request"
+
     async def test_prime_rejects_execution_mode_and_ui_response(self):
         message = await self.client.post(
             "/agent/chat/message",
@@ -2373,6 +2420,14 @@ async def test_prime_vertical_http_cancel_race_is_correlated_and_model_free(
         assert record.last_lifecycle.state == "idle"
         assert record.last_lifecycle.reason == "completed_before_abort"
         assert legacy.calls == 0
+
+        stopped = await client.post(
+            "/agent/chat/stop",
+            json={"conversation_id": conversation_id},
+            headers=headers,
+        )
+        assert stopped.status == 200
+        assert registry.load(conversation_id).last_lifecycle.state == "closed"
     finally:
         await client.close()
         registry.close()

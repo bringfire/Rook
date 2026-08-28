@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -16,6 +17,21 @@ from .prime_rpc_protocol import PrimeProtocolError
 
 MAX_JSONL_ROW_BYTES = 64 * 1024 * 1024
 MAX_STDERR_TAIL_BYTES = 256 * 1024
+_CREDENTIAL_ENV_NAME = re.compile(
+    r"(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|"
+    r"BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|"
+    r"HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|"
+    r"GOOGLE_APPLICATION_CREDENTIALS)$",
+    re.IGNORECASE,
+)
+
+
+def _sanitized_prime_environment() -> dict[str, str]:
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if _CREDENTIAL_ENV_NAME.search(key) is None
+    }
 
 
 class PrimeProcessError(RuntimeError):
@@ -196,6 +212,7 @@ class PrimeRpcProcess:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=_sanitized_prime_environment(),
         )
         self._tasks = [
             asyncio.create_task(self._read_stdout()),

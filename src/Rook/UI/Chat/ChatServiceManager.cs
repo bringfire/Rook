@@ -225,6 +225,64 @@ namespace Rook.UI.Chat
 
         public string RhinoProcessStartUtcTicks => _rhinoProcessStartUtcTicks;
 
+        public async Task ClosePrimeConversationAsync(
+            Uri baseUri,
+            string conversationId)
+        {
+            var nonce = SessionNonce;
+            if (string.IsNullOrEmpty(nonce))
+            {
+                RhinoApp.WriteLine(
+                    "[RookChatService] Prime close refused: session nonce unavailable");
+                return;
+            }
+            try
+            {
+                await SendOwnedPrimeCloseAsync(
+                    _httpClient,
+                    baseUri,
+                    conversationId,
+                    nonce,
+                    TimeSpan.FromSeconds(10));
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine(
+                    $"[RookChatService] Prime close failed: {ex.Message}");
+            }
+        }
+
+        internal static async Task SendOwnedPrimeCloseAsync(
+            HttpClient client,
+            Uri baseUri,
+            string conversationId,
+            string sessionNonce,
+            TimeSpan timeout)
+        {
+            if (client == null)
+                throw new ArgumentNullException(nameof(client));
+            if (baseUri == null)
+                throw new ArgumentNullException(nameof(baseUri));
+            if (string.IsNullOrEmpty(conversationId))
+                throw new ArgumentException("Conversation ID is required.", nameof(conversationId));
+            if (string.IsNullOrEmpty(sessionNonce))
+                throw new ArgumentException("Session nonce is required.", nameof(sessionNonce));
+            if (timeout <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(timeout));
+
+            using var deadline = new CancellationTokenSource(timeout);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                new Uri(baseUri, "/agent/chat/stop"));
+            request.Headers.TryAddWithoutValidation("X-Rook-Session", sessionNonce);
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new { conversation_id = conversationId }),
+                Encoding.UTF8,
+                "application/json");
+            using var response = await client.SendAsync(request, deadline.Token);
+            response.EnsureSuccessStatusCode();
+        }
+
         internal static string BuildServiceArguments(
             int rhinoProcessId,
             string rhinoProcessStartUtcTicks)

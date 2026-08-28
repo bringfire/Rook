@@ -1154,7 +1154,16 @@ namespace Rook.UI.Chat
 
             if (_conversationId != null && _conversationBaseUri != null)
             {
-                _ = _client.StopAsync(_conversationBaseUri, _conversationId);
+                if (_backend == "prime")
+                {
+                    _ = ChatServiceManager.Instance.ClosePrimeConversationAsync(
+                        _conversationBaseUri,
+                        _conversationId);
+                }
+                else
+                {
+                    _ = _client.StopAsync(_conversationBaseUri, _conversationId);
+                }
                 _conversationId = null;
                 _conversationBaseUri = null;
             }

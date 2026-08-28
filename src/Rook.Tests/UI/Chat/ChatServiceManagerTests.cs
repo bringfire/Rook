@@ -1,5 +1,10 @@
 using System;
 using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Rook.UI.Chat;
 using Xunit;
 
@@ -7,6 +12,38 @@ namespace Rook.Tests.UI.Chat
 {
     public sealed class ChatServiceManagerTests
     {
+        [Fact]
+        public async Task Manager_owned_Prime_close_carries_nonce_and_has_a_deadline()
+        {
+            var handler = new CapturingHandler();
+            using var client = new HttpClient(handler);
+
+            await ChatServiceManager.SendOwnedPrimeCloseAsync(
+                client,
+                new Uri("http://localhost:8765"),
+                "conv_0123456789abcdef0123456789abcdef",
+                "owned-nonce",
+                TimeSpan.FromSeconds(1));
+
+            Assert.Equal("/agent/chat/stop", handler.Path);
+            Assert.Equal("owned-nonce", handler.Nonce);
+            Assert.Contains("conv_0123456789abcdef0123456789abcdef", handler.Body);
+        }
+
+        [Fact]
+        public async Task Manager_owned_Prime_close_refuses_an_unbounded_wait()
+        {
+            var handler = new CapturingHandler { NeverComplete = true };
+            using var client = new HttpClient(handler);
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                ChatServiceManager.SendOwnedPrimeCloseAsync(
+                    client,
+                    new Uri("http://localhost:8765"),
+                    "conv_0123456789abcdef0123456789abcdef",
+                    "owned-nonce",
+                    TimeSpan.FromMilliseconds(20)));
+        }
         [Fact]
         public void BuildServiceArguments_includes_process_generation_fingerprint()
         {
@@ -269,6 +306,34 @@ namespace Rook.Tests.UI.Chat
             var path = Path.Combine(dir, fileName);
             File.WriteAllText(path, "");
             return path;
+        }
+
+        private sealed class CapturingHandler : HttpMessageHandler
+        {
+            public bool NeverComplete { get; set; }
+            public string? Path { get; private set; }
+            public string? Nonce { get; private set; }
+            public string Body { get; private set; } = "";
+
+            protected override async Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                Path = request.RequestUri?.AbsolutePath;
+                Nonce = request.Headers.TryGetValues(
+                    "X-Rook-Session", out var values)
+                    ? System.Linq.Enumerable.FirstOrDefault(values)
+                    : null;
+                Body = request.Content == null
+                    ? ""
+                    : await request.Content.ReadAsStringAsync();
+                if (NeverComplete)
+                    await Task.Delay(Timeout.Infinite, cancellationToken);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+                };
+            }
         }
 
         private static void TryDeleteFile(string path)

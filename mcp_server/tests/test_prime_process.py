@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -88,6 +89,31 @@ async def test_api_key_argument_is_prohibited(tmp_path: Path) -> None:
             generation=1,
             extra_args=("--api-key", "secret"),
         )
+
+
+async def test_prime_child_strips_inherited_and_dotenv_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "effective-environment.json"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "inherited-anthropic")
+    monkeypatch.setenv("OPENAI_API_KEY", "dotenv-openai")
+    monkeypatch.setenv("SERPER_API_KEY", "web-key")
+    monkeypatch.setenv("AWS_PROFILE", "credential-profile")
+    monkeypatch.setenv("ROOK_SESSION_NONCE", "required-nonce")
+    process = PrimeRpcProcess(
+        node_path=sys.executable,
+        cli_path=FIXTURE,
+        session_dir=tmp_path / "sessions",
+        generation=1,
+        extra_args=("--environment-output", str(output)),
+    )
+
+    await process.start()
+    effective = json.loads(output.read_text(encoding="utf-8"))
+
+    assert effective == {"ROOK_SESSION_NONCE": "required-nonce"}
+    await process.retire(1.0)
 
 
 async def test_resume_appends_exact_registry_session_path(tmp_path: Path) -> None:

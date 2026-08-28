@@ -857,6 +857,11 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
     except json.JSONDecodeError:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
+    if not isinstance(body, dict):
+        if _is_prime(request):
+            return _prime_error("invalid_prime_message_request")
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
     conv_id = body.get("conversation_id")
     message = body.get("message", "")
     mode_supplied = "execution_mode" in body
@@ -888,8 +893,8 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
                 "Cache-Control": "no-cache",
             },
         )
-        await response.prepare(request)
         try:
+            await response.prepare(request)
             async for row in subscription:
                 await response.write(
                     (json.dumps(row, separators=(",", ":")) + "\n").encode("utf-8")
@@ -1119,6 +1124,11 @@ async def handle_stop(request: web.Request) -> web.Response:
     try:
         body = await request.json()
     except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    if not isinstance(body, dict):
+        if _is_prime(request):
+            return _prime_error("invalid_prime_stop_request")
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
     conv_id = body.get("conversation_id")

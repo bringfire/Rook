@@ -25,7 +25,27 @@ parser.add_argument("--model")
 parser.add_argument("--thinking")
 parser.add_argument("--resume")
 parser.add_argument("--scenario", default="complete")
+parser.add_argument("--environment-output")
 args, _unknown = parser.parse_known_args()
+
+if args.environment_output:
+    Path(args.environment_output).write_text(
+        json.dumps(
+            {
+                key: value
+                for key, value in __import__("os").environ.items()
+                if key in {
+                    "ANTHROPIC_API_KEY",
+                    "OPENAI_API_KEY",
+                    "SERPER_API_KEY",
+                    "AWS_PROFILE",
+                    "ROOK_SESSION_NONCE",
+                }
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
 session_path = Path(args.resume or (Path(args.session_dir) / "fixture-session.jsonl"))
 session_path.parent.mkdir(parents=True, exist_ok=True)
