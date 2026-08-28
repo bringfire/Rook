@@ -147,7 +147,7 @@ Future scene preview, timeline, rendering, and finalized-video export belongs in
 
 ### Agent System (`agent/`)
 
-The agent package retains Planner, Worker, Guardian, and Conductor internals, but autonomous MCP creation entry points are lifecycle-contained. Ordinary RookChat remains the active general model-driven path and selects supported explicit tools. See `AGENT_ARCHITECTURE.md` for details.
+The agent package retains Planner, Worker, Guardian, and Conductor internals, but autonomous MCP creation entry points are lifecycle-contained. RookChat still uses `ChatRunner` by default. When `ROOK_CHAT_BACKEND=prime` is explicitly configured, its text-only `AgentChatTab` path instead uses a Rhino-owned Prime RPC broker with durable conversation records, process-generation custody, settled prompt completion, and correlated cancellation. The Prime path is opt-in and offline-qualified only; product-default cutover, images, tools, Rook mutation, web, packaging, and live qualification remain deferred. See `AGENT_ARCHITECTURE.md` for details.
 
 | Component | Purpose |
 |-----------|---------|
@@ -156,6 +156,7 @@ The agent package retains Planner, Worker, Guardian, and Conductor internals, bu
 | Guardian | Per-agent trajectory monitor (stuck/loop/drift/budget detection) |
 | Conductor | Fleet coordinator for parallel swarms (systemic issue detection) |
 | ChatRunner | Interactive chat service for Rook panel (aiohttp, execution policy) |
+| PrimeChatBackend | Opt-in text-only Prime RPC conversation and process lifecycle broker |
 | IntentOrchestrator | Layered intent pipeline: plan → route → execute → reflect |
 
 #### Internal Worker-first specimen
