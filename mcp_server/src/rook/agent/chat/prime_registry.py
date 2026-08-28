@@ -332,6 +332,17 @@ class PrimeConversationRegistry:
     def _record_path(self, conversation_id: str) -> Path:
         return self.namespace / f"{_validate_conversation_id(conversation_id)}.json"
 
+    def exists(self, conversation_id: str) -> bool:
+        self._ensure_open()
+        return self._record_path(conversation_id).is_file()
+
+    def conversation_ids(self) -> tuple[str, ...]:
+        self._ensure_open()
+        conversation_ids = tuple(path.stem for path in sorted(self.namespace.glob("*.json")))
+        for conversation_id in conversation_ids:
+            _validate_conversation_id(conversation_id)
+        return conversation_ids
+
     def write(self, record: PrimeConversationRecord) -> Path:
         self._ensure_open()
         if not isinstance(record, PrimeConversationRecord):

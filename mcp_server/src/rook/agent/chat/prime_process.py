@@ -77,7 +77,7 @@ def _validate_response_shape(value: Any) -> dict[str, Any]:
     return cast(dict[str, Any], value)
 
 
-def _parse_runtime_state(response: Mapping[str, Any]) -> PrimeRuntimeState:
+def parse_runtime_state(response: Mapping[str, Any]) -> PrimeRuntimeState:
     if response.get("success") is not True:
         raise PrimeProtocolError("get_state did not succeed")
     data = response.get("data")
@@ -207,7 +207,7 @@ class PrimeRpcProcess:
                 {"type": "get_state"},
                 expected_command="get_state",
             )
-            return _parse_runtime_state(response)
+            return parse_runtime_state(response)
         except BaseException:
             await self.retire(0.5)
             raise
