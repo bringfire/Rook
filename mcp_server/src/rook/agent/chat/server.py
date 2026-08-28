@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import tempfile
 import uuid
 from collections.abc import Awaitable, Callable
@@ -16,6 +17,14 @@ from ...bridge import rhino_request_context
 from .conversation_store import ConversationStore
 from .prompt_builder import PromptBuilder
 from .chat_runner import ChatEvent, ChatRunner
+from .prime_backend import PrimeBackendError, PrimeChatBackend
+from .prime_registry import (
+    LifecycleRecord,
+    PrimeConversationRecord,
+    PrimeModelSelection,
+    RegistryValidationError,
+    TargetFingerprint,
+)
 from . import model_status
 from .runtime_health import collect_runtime_facts
 
@@ -43,17 +52,113 @@ _INCLUDE_GH_HEALTH_KEY: web.AppKey[bool] = web.AppKey("_include_gh_health", bool
 _OWNER_KEY: web.AppKey[str] = web.AppKey("_owner", str)
 _RHINO_PROCESS_ID_KEY: web.AppKey[int] = web.AppKey("_rhino_process_id", int)
 _SESSION_NONCE_KEY: web.AppKey[str] = web.AppKey("_session_nonce", str)
+_BACKEND_MODE_KEY: web.AppKey[str] = web.AppKey("_backend_mode", str)
+_PRIME_BACKEND_KEY: web.AppKey[PrimeChatBackend] = web.AppKey(
+    "_prime_backend", PrimeChatBackend
+)
+_RHINO_PROCESS_START_TICKS_KEY: web.AppKey[str] = web.AppKey(
+    "_rhino_process_start_utc_ticks", str
+)
 _WORKER_FIRST_APPLICATION_KEY: web.AppKey[object] = web.AppKey(
     "_worker_first_application", object
 )
 
 _WORKER_FIRST_CSHARP_MODE = "worker_first_csharp_v1"
 _MAX_WORKER_FIRST_INTENT_BYTES = 16_384
+_PRIME_CONVERSATION_ID = re.compile(r"^conv_[0-9a-f]{32}$")
+_PRIME_START_KEYS = frozenset({"action", "conversation_id", "target"})
+_PRIME_TARGET_KEYS = frozenset(
+    {"rhinoPid", "rhinoProcessStartUtcTicks", "documentRuntimeSerial"}
+)
 
 # Module-level singletons (initialized on first request or at startup)
 _store: Optional[ConversationStore] = None
 _builder: Optional[PromptBuilder] = None
 _runner: Optional[ChatRunner] = None
+
+
+def _resolve_backend_mode(value: str | None = None) -> str:
+    backend = (
+        value
+        if value is not None
+        else os.environ.get("ROOK_CHAT_BACKEND", "legacy")
+    )
+    if backend not in {"legacy", "prime"}:
+        raise ValueError("ROOK_CHAT_BACKEND must be exactly 'legacy' or 'prime'")
+    return backend
+
+
+def _is_prime(request: web.Request) -> bool:
+    return request.app.get(_BACKEND_MODE_KEY, "legacy") == "prime"
+
+
+def _prime_backend(request: web.Request) -> PrimeChatBackend:
+    return request.app[_PRIME_BACKEND_KEY]
+
+
+def _prime_error(
+    code: str,
+    *,
+    status: int = 400,
+    message: str | None = None,
+    actual: PrimeModelSelection | None = None,
+) -> web.Response:
+    payload: dict[str, Any] = {"code": code, "error": message or code}
+    if actual is not None:
+        payload["actual"] = _project_model(actual)
+    return web.json_response(payload, status=status)
+
+
+def _project_model(model: PrimeModelSelection) -> dict[str, Any]:
+    return {
+        "provider": model.provider,
+        "id": model.id,
+        "thinking": model.thinking,
+    }
+
+
+def _project_lifecycle(lifecycle: LifecycleRecord) -> dict[str, Any]:
+    return {
+        "state": lifecycle.state,
+        "reason": lifecycle.reason,
+        "updatedAtUtc": lifecycle.updated_at_utc,
+    }
+
+
+def _project_prime_start(record: PrimeConversationRecord) -> dict[str, Any]:
+    return {
+        "backend": "prime",
+        "conversation_id": record.conversation_id,
+        "persona": "Rook",
+        "label": "Rook",
+        "color": "#1d9bf0",
+        "model": f"{record.model.provider}/{record.model.id}",
+        "documentSerialNumber": record.target.document_runtime_serial,
+        "lifecycle": _project_lifecycle(record.last_lifecycle),
+    }
+
+
+def _prime_backend_error_response(error: PrimeBackendError) -> web.Response:
+    status = {
+        "conversation_not_found": 404,
+        "target_mismatch": 409,
+        "conversation_exists": 409,
+        "conversation_closed": 409,
+        "conversation_not_reopenable": 409,
+        "conversation_not_idle": 409,
+        "conversation_not_running": 409,
+        "explicit_reopen_required": 409,
+        "capacity_exhausted": 429,
+        "model_update_failed_reconciled": 409,
+        "model_reconciliation_failed": 502,
+        "settlement_unknown": 502,
+    }.get(error.code, 502)
+    return _prime_error(
+        error.code,
+        status=status,
+        message=str(error),
+        actual=error.actual_model,
+    )
 
 
 def _get_store() -> ConversationStore:
@@ -460,6 +565,18 @@ async def cors_and_session_middleware(request: web.Request, handler):
 
 async def handle_personas(request: web.Request) -> web.Response:
     """GET /agent/chat/personas — list available agent personas."""
+    if _is_prime(request):
+        return web.json_response(
+            [
+                {
+                    "persona": "Rook",
+                    "label": "Rook",
+                    "description": "Prime-backed Rook agent",
+                    "color": "#1d9bf0",
+                    "model_role": "agent",
+                }
+            ]
+        )
     personas = available_personas()
     result = []
     for p in personas:
@@ -476,6 +593,28 @@ async def handle_personas(request: web.Request) -> web.Response:
 
 async def handle_models(request: web.Request) -> web.Response:
     """GET /agent/chat/models — report active model routing and local models."""
+    if _is_prime(request):
+        conv_id = request.query.get("conversation_id")
+        if not conv_id:
+            return _prime_error("missing_conversation_id")
+        try:
+            models = await _prime_backend(request).models(conv_id)
+            record = _prime_backend(request).registry.load(conv_id)
+        except PrimeBackendError as error:
+            return _prime_backend_error_response(error)
+        return web.json_response(
+            {
+                "backend": "prime",
+                "models": models,
+                "actual": _project_model(record.model),
+                "lifecycle": _project_lifecycle(record.last_lifecycle),
+            },
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     builder = request.app.get(_BUILDER_KEY) or _get_builder()
     payload = await model_status.build_models_payload(builder=builder)
 
@@ -513,20 +652,19 @@ async def handle_health(request: web.Request) -> web.Response:
     include_gh = request.app.get(_INCLUDE_GH_HEALTH_KEY, False)
     runtime = await collect_runtime_facts(include_gh=include_gh)
     port_state = request.app.get(_PORT_STATE_KEY, {"value": 0})
-    return web.json_response(
-        {
-            "service": {
-                "ok": True,
-                "version": SERVICE_VERSION,
-                "host": CHAT_SERVER_BIND_HOST,
-                "port": port_state.get("value", 0),
-                "pid": os.getpid(),
-                "owner": request.app.get(_OWNER_KEY, "external"),
-                "rhinoProcessId": request.app.get(_RHINO_PROCESS_ID_KEY, 0),
-            },
-            "runtime": runtime,
-        }
-    )
+    service = {
+        "ok": True,
+        "version": SERVICE_VERSION,
+        "host": CHAT_SERVER_BIND_HOST,
+        "port": port_state.get("value", 0),
+        "pid": os.getpid(),
+        "owner": request.app.get(_OWNER_KEY, "external"),
+        "rhinoProcessId": request.app.get(_RHINO_PROCESS_ID_KEY, 0),
+    }
+    nonce = request.app.get(_SESSION_NONCE_KEY)
+    if nonce and request.headers.get(SESSION_HEADER) == nonce:
+        service["backend"] = request.app[_BACKEND_MODE_KEY]
+    return web.json_response({"service": service, "runtime": runtime})
 
 
 async def handle_start(request: web.Request) -> web.Response:
@@ -535,6 +673,47 @@ async def handle_start(request: web.Request) -> web.Response:
         body = await request.json()
     except json.JSONDecodeError:
         return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    if _is_prime(request):
+        if not isinstance(body, dict) or frozenset(body) != _PRIME_START_KEYS:
+            return _prime_error("invalid_prime_start_request")
+        action = body.get("action")
+        conversation_id = body.get("conversation_id")
+        target_body = body.get("target")
+        if (
+            action not in {"create", "reopen"}
+            or not isinstance(conversation_id, str)
+            or _PRIME_CONVERSATION_ID.fullmatch(conversation_id) is None
+            or not isinstance(target_body, dict)
+            or frozenset(target_body) != _PRIME_TARGET_KEYS
+        ):
+            return _prime_error("invalid_prime_start_request")
+        try:
+            target = TargetFingerprint(
+                rhino_pid=target_body["rhinoPid"],
+                rhino_process_start_utc_ticks=target_body[
+                    "rhinoProcessStartUtcTicks"
+                ],
+                document_runtime_serial=target_body["documentRuntimeSerial"],
+            )
+        except (RegistryValidationError, TypeError, ValueError):
+            return _prime_error("invalid_prime_start_request")
+        if (
+            target.rhino_pid != request.app[_RHINO_PROCESS_ID_KEY]
+            or target.rhino_process_start_utc_ticks
+            != request.app[_RHINO_PROCESS_START_TICKS_KEY]
+        ):
+            return _prime_error("target_mismatch", status=409)
+        try:
+            backend = _prime_backend(request)
+            record = (
+                await backend.create(conversation_id, target)
+                if action == "create"
+                else await backend.reopen(conversation_id, target)
+            )
+        except PrimeBackendError as error:
+            return _prime_backend_error_response(error)
+        return web.json_response(_project_prime_start(record))
 
     persona = body.get("persona", "worker")
     raw_document_serial_number = body.get("documentSerialNumber", 0) or 0
@@ -605,6 +784,38 @@ async def handle_set_model(request: web.Request) -> web.Response:
     except json.JSONDecodeError:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
+    if _is_prime(request):
+        if not isinstance(body, dict) or not frozenset(body).issubset(
+            {"conversation_id", "model_override", "thinking"}
+        ):
+            return _prime_error("invalid_prime_model_request")
+        conv_id = body.get("conversation_id")
+        model_override = body.get("model_override")
+        thinking = body.get("thinking")
+        if (
+            not isinstance(conv_id, str)
+            or not isinstance(model_override, str)
+            or model_override.count("/") != 1
+            or (thinking is not None and not isinstance(thinking, str))
+        ):
+            return _prime_error("invalid_prime_model_request")
+        provider, model_id = model_override.split("/", 1)
+        if not provider or not model_id:
+            return _prime_error("invalid_prime_model_request")
+        try:
+            actual = await _prime_backend(request).set_model(
+                conv_id, provider, model_id, thinking
+            )
+        except PrimeBackendError as error:
+            return _prime_backend_error_response(error)
+        return web.json_response(
+            {
+                "backend": "prime",
+                "conversation_id": conv_id,
+                "actual": _project_model(actual),
+            }
+        )
+
     conv_id = body.get("conversation_id")
     model_override = body.get("model_override")
     if not conv_id or not model_override:
@@ -651,6 +862,47 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
     mode_supplied = "execution_mode" in body
     execution_mode = body.get("execution_mode")
     raw_document_serial_number = body.get("documentSerialNumber", 0) or 0
+
+    if _is_prime(request):
+        if mode_supplied:
+            return _prime_error("unsupported_in_prime_text_slice")
+        if frozenset(body) != frozenset({"conversation_id", "message"}):
+            return _prime_error("invalid_prime_message_request")
+        if (
+            not isinstance(conv_id, str)
+            or not isinstance(message, str)
+            or not message
+        ):
+            return _prime_error("invalid_prime_message_request")
+        try:
+            subscription = await _prime_backend(request).start_prompt(
+                conv_id, message
+            )
+        except PrimeBackendError as error:
+            return _prime_backend_error_response(error)
+        response = web.StreamResponse(
+            status=200,
+            reason="OK",
+            headers={
+                "Content-Type": "application/x-ndjson",
+                "Cache-Control": "no-cache",
+            },
+        )
+        await response.prepare(request)
+        try:
+            async for row in subscription:
+                await response.write(
+                    (json.dumps(row, separators=(",", ":")) + "\n").encode("utf-8")
+                )
+        except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
+            logger.info("Prime chat reader disconnected for %s", conv_id)
+        finally:
+            await subscription.close()
+        try:
+            await response.write_eof()
+        except (ConnectionResetError, ConnectionError):
+            pass
+        return response
 
     if mode_supplied and (
         type(execution_mode) is not str
@@ -758,6 +1010,9 @@ async def handle_ui_response(request: web.Request) -> web.StreamResponse:
     `{type: ui_response, block_id, value}` and passed as the user_message to
     run_turn, which appends it to conversation history and runs the loop.
     """
+    if _is_prime(request):
+        return _prime_error("unsupported_in_prime_text_slice")
+
     try:
         body = await request.json()
     except json.JSONDecodeError:
@@ -870,10 +1125,40 @@ async def handle_stop(request: web.Request) -> web.Response:
     if not conv_id:
         return web.json_response({"error": "Missing conversation_id"}, status=400)
 
+    if _is_prime(request):
+        if frozenset(body) != frozenset({"conversation_id"}):
+            return _prime_error("invalid_prime_stop_request")
+        try:
+            lifecycle = await _prime_backend(request).close(conv_id)
+        except PrimeBackendError as error:
+            return _prime_backend_error_response(error)
+        return web.json_response(_project_lifecycle(lifecycle))
+
     store = request.app.get(_STORE_KEY) or _get_store()
     if store.stop(conv_id):
         return web.json_response({"stopped": True})
     return web.json_response({"error": "Conversation not found"}, status=404)
+
+
+async def handle_cancel(request: web.Request) -> web.Response:
+    """POST /agent/chat/cancel — request cancellation of the active Prime turn."""
+    if not _is_prime(request):
+        return _prime_error("unsupported_in_legacy_backend")
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return _prime_error("invalid_prime_cancel_request")
+    if (
+        not isinstance(body, dict)
+        or frozenset(body) != frozenset({"conversation_id"})
+        or not isinstance(body.get("conversation_id"), str)
+    ):
+        return _prime_error("invalid_prime_cancel_request")
+    try:
+        lifecycle = await _prime_backend(request).cancel(body["conversation_id"])
+    except PrimeBackendError as error:
+        return _prime_backend_error_response(error)
+    return web.json_response(_project_lifecycle(lifecycle))
 
 
 # --- Knowledge Graph Handlers ---
@@ -937,8 +1222,11 @@ def create_chat_app(
     include_gh_health: bool = False,
     owner: str = "external",
     rhino_process_id: int = 0,
+    rhino_process_start_utc_ticks: str = "0",
     session_nonce: Optional[str] = None,
     worker_first_application: Optional[Callable[[str], Awaitable[Any]]] = None,
+    backend_mode: str | None = None,
+    prime_backend: PrimeChatBackend | None = None,
 ) -> web.Application:
     """Create the aiohttp application for the chat server.
 
@@ -950,24 +1238,45 @@ def create_chat_app(
     ``X-Rook-Session`` header.  Read from the ``ROOK_SESSION_NONCE`` env
     var by default if not passed explicitly.
     """
+    mode = _resolve_backend_mode(backend_mode)
+    if mode == "prime" and prime_backend is None:
+        raise ValueError("prime_backend is required when RookChat uses Prime")
     nonce = session_nonce or os.environ.get(NONCE_ENV_VAR, "")
     app = web.Application(middlewares=[cors_and_session_middleware])
 
     # Store injected dependencies on app dict so handlers can find them
-    if store is not None:
-        app[_STORE_KEY] = store
-    if builder is not None:
-        app[_BUILDER_KEY] = builder
-    if runner is not None:
-        app[_RUNNER_KEY] = runner
-    if worker_first_application is not None:
-        app[_WORKER_FIRST_APPLICATION_KEY] = worker_first_application
+    if mode == "legacy":
+        if store is not None:
+            app[_STORE_KEY] = store
+        if builder is not None:
+            app[_BUILDER_KEY] = builder
+        if runner is not None:
+            app[_RUNNER_KEY] = runner
+        if worker_first_application is not None:
+            app[_WORKER_FIRST_APPLICATION_KEY] = worker_first_application
+    else:
+        assert prime_backend is not None
+        app[_PRIME_BACKEND_KEY] = prime_backend
     app[_PORT_STATE_KEY] = {"value": port}
     app[_INCLUDE_GH_HEALTH_KEY] = include_gh_health
     app[_OWNER_KEY] = owner
     app[_RHINO_PROCESS_ID_KEY] = rhino_process_id
+    app[_RHINO_PROCESS_START_TICKS_KEY] = rhino_process_start_utc_ticks
+    app[_BACKEND_MODE_KEY] = mode
     if nonce:
         app[_SESSION_NONCE_KEY] = nonce
+
+    if prime_backend is not None:
+        shutdown_complete = False
+
+        async def shutdown_prime(_app: web.Application) -> None:
+            nonlocal shutdown_complete
+            if shutdown_complete:
+                return
+            shutdown_complete = True
+            await prime_backend.shutdown()
+
+        app.on_shutdown.append(shutdown_prime)
 
     app.router.add_get("/agent/chat/health", handle_health)
     app.router.add_get("/agent/chat/personas", handle_personas)
@@ -975,6 +1284,7 @@ def create_chat_app(
     app.router.add_post("/agent/chat/start", handle_start)
     app.router.add_post("/agent/chat/model", handle_set_model)
     app.router.add_post("/agent/chat/message", handle_message)
+    app.router.add_post("/agent/chat/cancel", handle_cancel)
     app.router.add_post("/agent/chat/stop", handle_stop)
     app.router.add_post("/agent/chat/ui-response", handle_ui_response)
 
@@ -1046,6 +1356,9 @@ async def start_chat_server(
     include_gh_health: bool = False,
     owner: str = "external",
     rhino_process_id: int = 0,
+    rhino_process_start_utc_ticks: str = "0",
+    backend_mode: str | None = None,
+    prime_backend: PrimeChatBackend | None = None,
 ):
     """Start the chat server as a background task.
 
@@ -1065,6 +1378,9 @@ async def start_chat_server(
             include_gh_health=include_gh_health,
             owner=owner,
             rhino_process_id=rhino_process_id,
+            rhino_process_start_utc_ticks=rhino_process_start_utc_ticks,
+            backend_mode=backend_mode,
+            prime_backend=prime_backend,
         )
         _app_runner = web.AppRunner(app)
         await _app_runner.setup()

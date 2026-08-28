@@ -14,11 +14,19 @@ from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 from rook.agent.chat import server as chat_server
+from rook.agent.chat import service_main as chat_service_main
 from rook.agent.chat import model_status
 from rook.agent.chat.server import create_chat_app
 from rook.agent.chat.conversation_store import ConversationStore
 from rook.agent.chat.prompt_builder import PromptBuilder
 from rook.agent.chat.chat_runner import ChatRunner, ChatEvent
+from rook.agent.chat.prime_backend import PrimeBackendError
+from rook.agent.chat.prime_registry import (
+    LifecycleRecord,
+    PrimeConversationRecord,
+    PrimeModelSelection,
+    TargetFingerprint,
+)
 from rook.agent.minimal_intent_worker_integration import (
     MinimalPlannerDraftAdapter,
     run_minimal_intent_worker_initial_body_integration,
@@ -1801,6 +1809,19 @@ class TestChatServerWithNonce(AioHTTPTestCase):
         })):
             resp = await self.client.get("/agent/chat/health")
             assert resp.status == 200
+            assert "backend" not in (await resp.json())["service"]
+
+    async def test_authenticated_health_reports_legacy_backend(self):
+        with patch(
+            "rook.agent.chat.server.collect_runtime_facts",
+            new=AsyncMock(return_value={"rhino": {"connected": True}}),
+        ):
+            resp = await self.client.get(
+                "/agent/chat/health",
+                headers={"X-Rook-Session": self.nonce},
+            )
+        assert resp.status == 200
+        assert (await resp.json())["service"]["backend"] == "legacy"
 
     async def test_wrong_origin_rejected(self):
         """Requests from unexpected browser origins are rejected."""
@@ -1834,6 +1855,526 @@ class TestChatServerWithNonce(AioHTTPTestCase):
             headers={"X-Rook-Session": self.nonce},
         )
         assert resp.status == 200
+
+
+class _ExplodingLegacyRunner:
+    def run_turn(self, *_args, **_kwargs):
+        raise AssertionError("legacy ChatRunner must not run in Prime mode")
+
+
+class _FakePrimeSubscription:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self._rows = list(rows)
+        self.closed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._rows:
+            raise StopAsyncIteration
+        return self._rows.pop(0)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _FakePrimeRegistry:
+    def __init__(self, backend: "_FakePrimeBackend") -> None:
+        self.backend = backend
+
+    def load(self, conversation_id: str) -> PrimeConversationRecord:
+        try:
+            return self.backend.records[conversation_id]
+        except KeyError as error:
+            raise PrimeBackendError("conversation_not_found") from error
+
+
+class _FakePrimeBackend:
+    def __init__(self) -> None:
+        self.records: dict[str, PrimeConversationRecord] = {}
+        self.registry = _FakePrimeRegistry(self)
+        self.calls: list[tuple[str, Any]] = []
+        self.shutdown_calls = 0
+        self.subscription: _FakePrimeSubscription | None = None
+        self.model_error: PrimeBackendError | None = None
+        self.next_rows: list[dict[str, Any]] | None = None
+
+    @staticmethod
+    def _record(
+        conversation_id: str,
+        target: TargetFingerprint,
+        *,
+        lifecycle: str = "idle",
+    ) -> PrimeConversationRecord:
+        return PrimeConversationRecord(
+            schema_version=1,
+            conversation_id=conversation_id,
+            prime_session_id=f"session-{conversation_id}",
+            prime_session_path=f"C:/prime-sessions/{conversation_id}.jsonl",
+            model=PrimeModelSelection("openai-codex", "gpt-5.6-sol", "xhigh"),
+            target=target,
+            last_lifecycle=LifecycleRecord(
+                state=lifecycle,
+                reason=None,
+                updated_at_utc="2026-08-27T12:00:00Z",
+            ),
+        )
+
+    async def create(
+        self, conversation_id: str, target: TargetFingerprint
+    ) -> PrimeConversationRecord:
+        self.calls.append(("create", conversation_id, target))
+        record = self._record(conversation_id, target)
+        self.records[conversation_id] = record
+        return record
+
+    async def reopen(
+        self, conversation_id: str, target: TargetFingerprint
+    ) -> PrimeConversationRecord:
+        self.calls.append(("reopen", conversation_id, target))
+        record = self.records.get(conversation_id)
+        if record is None:
+            raise PrimeBackendError("conversation_not_found")
+        if record.target != target:
+            raise PrimeBackendError("target_mismatch")
+        return record
+
+    async def start_prompt(
+        self, conversation_id: str, message: str
+    ) -> _FakePrimeSubscription:
+        self.calls.append(("message", conversation_id, message))
+        self.subscription = _FakePrimeSubscription(
+            self.next_rows
+            or [
+                    {"type": "text_delta", "content": "hello"},
+                    {"type": "status", "status": "agent_segment"},
+                    {"type": "done", "reason": "completed"},
+                ]
+        )
+        return self.subscription
+
+    async def cancel(self, conversation_id: str) -> LifecycleRecord:
+        self.calls.append(("cancel", conversation_id))
+        return LifecycleRecord(
+            state="cancel_requested",
+            reason=None,
+            updated_at_utc="2026-08-27T12:00:01Z",
+        )
+
+    async def close(self, conversation_id: str) -> LifecycleRecord:
+        self.calls.append(("close", conversation_id))
+        return LifecycleRecord(
+            state="closed",
+            reason="user_closed",
+            updated_at_utc="2026-08-27T12:00:02Z",
+        )
+
+    async def models(self, conversation_id: str) -> list[dict[str, Any]]:
+        self.calls.append(("models", conversation_id))
+        return [
+            {
+                "id": "openai-codex/gpt-5.6-sol",
+                "provider": "openai-codex",
+                "model": "gpt-5.6-sol",
+                "contextWindow": 272000,
+                "reasoning": True,
+            }
+        ]
+
+    async def set_model(
+        self,
+        conversation_id: str,
+        provider: str,
+        model_id: str,
+        thinking: str | None,
+    ) -> PrimeModelSelection:
+        self.calls.append(("set_model", conversation_id, provider, model_id, thinking))
+        if self.model_error is not None:
+            raise self.model_error
+        return PrimeModelSelection(provider, model_id, thinking)
+
+    async def shutdown(self) -> None:
+        self.shutdown_calls += 1
+
+
+class TestPrimeChatServer(AioHTTPTestCase):
+    conversation_id = "conv_0123456789abcdef0123456789abcdef"
+    target_payload = {
+        "rhinoPid": 2468,
+        "rhinoProcessStartUtcTicks": "638918000000000000",
+        "documentRuntimeSerial": 42,
+    }
+
+    async def get_application(self):
+        self.nonce = "prime-test-nonce"
+        self.backend = _FakePrimeBackend()
+        return create_chat_app(
+            runner=_ExplodingLegacyRunner(),
+            backend_mode="prime",
+            prime_backend=self.backend,
+            rhino_process_id=2468,
+            rhino_process_start_utc_ticks="638918000000000000",
+            session_nonce=self.nonce,
+        )
+
+    def _headers(self) -> dict[str, str]:
+        return {"X-Rook-Session": self.nonce}
+
+    async def test_health_advertises_backend_only_to_exact_nonce(self):
+        with patch(
+            "rook.agent.chat.server.collect_runtime_facts",
+            new=AsyncMock(return_value={}),
+        ):
+            public = await self.client.get("/agent/chat/health")
+            wrong = await self.client.get(
+                "/agent/chat/health", headers={"X-Rook-Session": "wrong"}
+            )
+            admitted = await self.client.get(
+                "/agent/chat/health", headers=self._headers()
+            )
+
+        assert "backend" not in (await public.json())["service"]
+        assert "backend" not in (await wrong.json())["service"]
+        assert (await admitted.json())["service"]["backend"] == "prime"
+
+    async def test_prime_create_and_reopen_use_closed_target_schema(self):
+        create_body = {
+            "action": "create",
+            "conversation_id": self.conversation_id,
+            "target": dict(self.target_payload),
+        }
+        created = await self.client.post(
+            "/agent/chat/start", json=create_body, headers=self._headers()
+        )
+        reopened = await self.client.post(
+            "/agent/chat/start",
+            json={**create_body, "action": "reopen"},
+            headers=self._headers(),
+        )
+
+        assert created.status == 200
+        assert reopened.status == 200
+        assert (await created.json())["conversation_id"] == self.conversation_id
+        assert (await reopened.json())["backend"] == "prime"
+        assert [call[0] for call in self.backend.calls] == ["create", "reopen"]
+
+        mixed = await self.client.post(
+            "/agent/chat/start",
+            json={**create_body, "persona": "worker"},
+            headers=self._headers(),
+        )
+        assert mixed.status == 400
+        assert (await mixed.json())["code"] == "invalid_prime_start_request"
+
+    async def test_prime_rejects_wrong_target_before_backend_dispatch(self):
+        response = await self.client.post(
+            "/agent/chat/start",
+            json={
+                "action": "create",
+                "conversation_id": self.conversation_id,
+                "target": {
+                    **self.target_payload,
+                    "rhinoProcessStartUtcTicks": "638918000000000001",
+                },
+            },
+            headers=self._headers(),
+        )
+
+        assert response.status == 409
+        assert (await response.json())["code"] == "target_mismatch"
+        assert self.backend.calls == []
+
+    async def test_prime_streams_only_broker_rows_and_never_calls_legacy(self):
+        await self.backend.create(
+            self.conversation_id,
+            TargetFingerprint(2468, "638918000000000000", 42),
+        )
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={"conversation_id": self.conversation_id, "message": "hello"},
+            headers=self._headers(),
+        )
+
+        assert response.status == 200
+        rows = [json.loads(line) for line in (await response.text()).splitlines()]
+        assert rows == [
+            {"type": "text_delta", "content": "hello"},
+            {"type": "status", "status": "agent_segment"},
+            {"type": "done", "reason": "completed"},
+        ]
+        assert self.backend.subscription is not None
+        assert self.backend.subscription.closed is True
+
+    async def test_prime_forwards_only_correlated_terminal_outcomes(self):
+        await self.backend.create(
+            self.conversation_id,
+            TargetFingerprint(2468, "638918000000000000", 42),
+        )
+        for expected in (
+            {"type": "done", "reason": "completed_before_abort"},
+            {"type": "cancelled", "reason": "aborted"},
+            {
+                "type": "error",
+                "code": "settlement_unknown",
+                "message": "process lost",
+            },
+        ):
+            self.backend.next_rows = [expected]
+            response = await self.client.post(
+                "/agent/chat/message",
+                json={"conversation_id": self.conversation_id, "message": "hello"},
+                headers=self._headers(),
+            )
+            assert response.status == 200
+            assert json.loads((await response.text()).strip()) == expected
+
+    async def test_prime_stream_disconnect_only_unsubscribes(self):
+        class DisconnectingResponse:
+            def __init__(self, *args, **kwargs):
+                self.status = kwargs.get("status", 200)
+
+            async def prepare(self, _request):
+                return None
+
+            async def write(self, _data):
+                raise ConnectionResetError
+
+            async def write_eof(self):
+                return None
+
+        class Request:
+            def __init__(self, app):
+                self.app = app
+
+            async def json(self):
+                return {
+                    "conversation_id": TestPrimeChatServer.conversation_id,
+                    "message": "hello",
+                }
+
+        await self.backend.create(
+            self.conversation_id,
+            TargetFingerprint(2468, "638918000000000000", 42),
+        )
+        with patch(
+            "rook.agent.chat.server.web.StreamResponse", DisconnectingResponse
+        ):
+            response = await chat_server.handle_message(Request(self.app))
+
+        assert response.status == 200
+        assert self.backend.subscription is not None
+        assert self.backend.subscription.closed is True
+        assert [call[0] for call in self.backend.calls] == ["create", "message"]
+        assert self.backend.records[self.conversation_id].last_lifecycle.state == "idle"
+
+    async def test_prime_rejects_execution_mode_and_ui_response(self):
+        message = await self.client.post(
+            "/agent/chat/message",
+            json={
+                "conversation_id": self.conversation_id,
+                "message": "hello",
+                "execution_mode": "worker_first_csharp_v1",
+            },
+            headers=self._headers(),
+        )
+        ui = await self.client.post(
+            "/agent/chat/ui-response", json={}, headers=self._headers()
+        )
+
+        assert message.status == 400
+        assert ui.status == 400
+        assert (await message.json())["code"] == "unsupported_in_prime_text_slice"
+        assert (await ui.json())["code"] == "unsupported_in_prime_text_slice"
+
+    async def test_prime_models_cancel_close_and_model_reconciliation(self):
+        target = TargetFingerprint(2468, "638918000000000000", 42)
+        await self.backend.create(self.conversation_id, target)
+
+        models = await self.client.get(
+            f"/agent/chat/models?conversation_id={self.conversation_id}",
+            headers=self._headers(),
+        )
+        updated = await self.client.post(
+            "/agent/chat/model",
+            json={
+                "conversation_id": self.conversation_id,
+                "model_override": "openai-codex/gpt-5.6-sol",
+                "thinking": "high",
+            },
+            headers=self._headers(),
+        )
+        cancelled = await self.client.post(
+            "/agent/chat/cancel",
+            json={"conversation_id": self.conversation_id},
+            headers=self._headers(),
+        )
+        stopped = await self.client.post(
+            "/agent/chat/stop",
+            json={"conversation_id": self.conversation_id},
+            headers=self._headers(),
+        )
+
+        assert models.status == 200
+        assert (await models.json())["models"][0]["id"] == "openai-codex/gpt-5.6-sol"
+        assert updated.status == 200
+        assert (await updated.json())["actual"]["thinking"] == "high"
+        assert (await cancelled.json())["state"] == "cancel_requested"
+        assert (await stopped.json())["state"] == "closed"
+
+        actual = PrimeModelSelection("openai-codex", "gpt-5.6-sol", "low")
+        self.backend.model_error = PrimeBackendError(
+            "model_update_failed_reconciled", actual_model=actual
+        )
+        reconciled = await self.client.post(
+            "/agent/chat/model",
+            json={
+                "conversation_id": self.conversation_id,
+                "model_override": "openai-codex/gpt-5.6-sol",
+                "thinking": "xhigh",
+            },
+            headers=self._headers(),
+        )
+        assert reconciled.status == 409
+        assert (await reconciled.json())["actual"]["thinking"] == "low"
+
+        self.backend.model_error = PrimeBackendError("model_reconciliation_failed")
+        failed = await self.client.post(
+            "/agent/chat/model",
+            json={
+                "conversation_id": self.conversation_id,
+                "model_override": "openai-codex/gpt-5.6-sol",
+                "thinking": "xhigh",
+            },
+            headers=self._headers(),
+        )
+        assert failed.status == 502
+        assert (await failed.json())["code"] == "model_reconciliation_failed"
+
+    async def test_cleanup_shuts_prime_backend_down_once(self):
+        await self.app.shutdown()
+        assert self.backend.shutdown_calls == 1
+
+
+def test_invalid_chat_backend_refuses_app_creation(monkeypatch):
+    monkeypatch.setenv("ROOK_CHAT_BACKEND", "invalid")
+    with pytest.raises(ValueError, match="ROOK_CHAT_BACKEND"):
+        create_chat_app()
+
+
+def test_prime_chat_backend_requires_explicit_owner():
+    with pytest.raises(ValueError, match="prime_backend"):
+        create_chat_app(backend_mode="prime")
+
+
+def test_absent_chat_backend_remains_legacy(monkeypatch):
+    monkeypatch.delenv("ROOK_CHAT_BACKEND", raising=False)
+    app = create_chat_app(store=ConversationStore(), runner=ChatRunner())
+    assert app[chat_server._BACKEND_MODE_KEY] == "legacy"
+
+
+def test_explicit_legacy_chat_backend_remains_legacy(monkeypatch):
+    monkeypatch.setenv("ROOK_CHAT_BACKEND", "legacy")
+    app = create_chat_app(store=ConversationStore(), runner=ChatRunner())
+    assert app[chat_server._BACKEND_MODE_KEY] == "legacy"
+
+
+def test_prime_service_configuration_is_closed_and_absolute(tmp_path):
+    node = tmp_path / "node.exe"
+    cli = tmp_path / "cli.js"
+    node.write_bytes(b"node")
+    cli.write_text("// cli", encoding="utf-8")
+    registry = tmp_path / "registry"
+
+    config = chat_service_main._build_service_configuration(
+        rhino_process_id=2468,
+        rhino_process_start_utc_ticks="638918000000000000",
+        environment={
+            "ROOK_CHAT_BACKEND": "prime",
+            "ROOK_PRIME_NODE_PATH": str(node),
+            "ROOK_PRIME_CLI_PATH": str(cli),
+            "ROOK_PRIME_MODEL": "openai-codex/gpt-5.6-sol",
+            "ROOK_PRIME_THINKING": "xhigh",
+            "ROOK_PRIME_REGISTRY_ROOT": str(registry),
+        },
+    )
+
+    try:
+        assert config.backend_mode == "prime"
+        assert config.node_path == node.absolute()
+        assert config.cli_path == cli.absolute()
+        assert config.registry_root == registry.absolute()
+        assert config.default_model == PrimeModelSelection(
+            "openai-codex", "gpt-5.6-sol", "xhigh"
+        )
+    finally:
+        assert config.registry is not None
+        config.registry.close()
+
+
+@pytest.mark.parametrize(
+    ("override", "match"),
+    [
+        ({"ROOK_PRIME_NODE_PATH": "relative/node.exe"}, "absolute"),
+        ({"ROOK_PRIME_CLI_PATH": "relative/cli.js"}, "absolute"),
+        ({"ROOK_PRIME_MODEL": "missing-provider"}, "provider/model"),
+        ({"ROOK_PRIME_THINKING": "impossible"}, "thinking"),
+        ({"ROOK_PRIME_REGISTRY_ROOT": "relative/registry"}, "absolute"),
+    ],
+)
+def test_prime_service_configuration_refuses_drift(tmp_path, override, match):
+    node = tmp_path / "node.exe"
+    cli = tmp_path / "cli.js"
+    node.write_bytes(b"node")
+    cli.write_text("// cli", encoding="utf-8")
+    environment = {
+        "ROOK_CHAT_BACKEND": "prime",
+        "ROOK_PRIME_NODE_PATH": str(node),
+        "ROOK_PRIME_CLI_PATH": str(cli),
+        "ROOK_PRIME_MODEL": "openai-codex/gpt-5.6-sol",
+        "ROOK_PRIME_THINKING": "xhigh",
+        "ROOK_PRIME_REGISTRY_ROOT": str((tmp_path / "registry").absolute()),
+        **override,
+    }
+    with pytest.raises(ValueError, match=match):
+        chat_service_main._build_service_configuration(
+            rhino_process_id=2468,
+            rhino_process_start_utc_ticks="638918000000000000",
+            environment=environment,
+        )
+
+
+def test_legacy_service_configuration_needs_no_prime_values():
+    config = chat_service_main._build_service_configuration(
+        rhino_process_id=2468,
+        rhino_process_start_utc_ticks="638918000000000000",
+        environment={"ROOK_CHAT_BACKEND": "legacy"},
+    )
+    assert config.backend_mode == "legacy"
+    assert config.prime_backend is None
+
+
+def test_prime_service_configuration_can_inherit_prime_model(tmp_path):
+    node = tmp_path / "node.exe"
+    cli = tmp_path / "cli.js"
+    node.write_bytes(b"node")
+    cli.write_text("// cli", encoding="utf-8")
+    config = chat_service_main._build_service_configuration(
+        rhino_process_id=2468,
+        rhino_process_start_utc_ticks="638918000000000000",
+        environment={
+            "ROOK_CHAT_BACKEND": "prime",
+            "ROOK_PRIME_NODE_PATH": str(node),
+            "ROOK_PRIME_CLI_PATH": str(cli),
+            "ROOK_PRIME_REGISTRY_ROOT": str((tmp_path / "registry").absolute()),
+        },
+    )
+    try:
+        assert config.default_model is None
+        assert config.prime_backend is not None
+    finally:
+        assert config.registry is not None
+        config.registry.close()
 
 
 class TestKnowledgeGraphRoutes(AioHTTPTestCase):
