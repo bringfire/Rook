@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace RookChat's text-only `ChatRunner` path with one saved Prime RPC session per panel conversation while preserving single-flight completion, durable target/session custody, cancellation, model selection, and a rollback path.
+**Goal:** Add an explicitly selected Prime-backed text path to RookChat, using one saved Prime RPC session per panel conversation while preserving single-flight completion, durable target/session custody, cancellation, model selection, and the unchanged default `ChatRunner` path.
 
-**Architecture:** Prime gains one generic `prompt_and_wait` RPC command implemented from the same headless-turn sequence already used by ACP. The Python chat service becomes a narrow broker with an atomic per-conversation registry and ephemeral owned Prime processes; the existing C# panel keeps rendering the current NDJSON projection and learns only the new settled cancellation lifecycle. `ChatRunner` remains available solely through the explicit rollback flag.
+**Architecture:** Prime gains one generic `prompt_and_wait` RPC command implemented from the same headless-turn sequence already used by ACP. The Python chat service becomes a narrow broker with an atomic per-conversation registry and ephemeral owned Prime processes; the existing C# panel keeps rendering the current NDJSON projection and learns only the new settled cancellation lifecycle. `ChatRunner` remains the product default while the Prime path is explicitly opt-in through Slice 2.
 
 **Tech Stack:** TypeScript 7/Vitest (Prime), Python 3.11/aiohttp/pytest (Rook broker), C# net48/Eto/xUnit (RookChat panel), LF-delimited JSON RPC/NDJSON, Windows process ownership.
 
@@ -25,7 +25,7 @@
 - Abort correlation is broker-local. Prime's existing `abort` command and response are unchanged.
 - The broker defaults remain: 10 resident Prime children, 30-minute idle retirement, and one 10-second global service-shutdown drain.
 - The durable registry contains no process IDs used for ownership, process handles, pipes, pending commands, credentials, messages, or model output.
-- `ROOK_CHAT_BACKEND=prime` selects the new path and is the default after Slice 2; `ROOK_CHAT_BACKEND=legacy` is the sole rollback selector. The two backends never run the same turn.
+- An absent `ROOK_CHAT_BACKEND` or `ROOK_CHAT_BACKEND=legacy` selects the existing default path. `ROOK_CHAT_BACKEND=prime` explicitly selects the new path. Product-default cutover remains Slice 6 work after packaging and live qualification. The two backends never run the same turn.
 - No provider, model, Rhino, Grasshopper, Rook mutation, or network contact is part of implementation qualification.
 
 ## Closed Interfaces
@@ -109,7 +109,7 @@ error         { code, content, terminal: true }
 - Modify `packages/coding-agent/src/modes/acp/acp-mode.ts`: call the shared helper without changing ACP wire behavior.
 - Modify `packages/coding-agent/src/modes/rpc/rpc-types.ts`: add the command, closed outcomes, and command-specific failure object.
 - Modify `packages/coding-agent/src/modes/rpc/rpc-mode.ts`: validate, serialize, execute, stream, and settle `prompt_and_wait`; keep `abort` independently dispatchable.
-- Modify `packages/coding-agent/src/modes/rpc/rpc-client.ts`: make its public `promptAndWait()` await the new terminal response instead of the first `agent_end`.
+- Modify `packages/coding-agent/src/modes/rpc/rpc-client.ts`: add `promptAndWaitSettled()` and preserve `promptAndWait(): Promise<AgentEvent[]>`, collecting events through the new terminal response instead of the first `agent_end`.
 - Modify `packages/coding-agent/docs/rpc.md`: document the new command and explain that `agent_end` is not prompt settlement.
 - Modify `packages/coding-agent/test/rpc-prompt-response-semantics.test.ts`: causal command, failure, continuation, event-order, and abort tests.
 - Modify `packages/coding-agent/test/suite/acp-features.test.ts`: prove ACP retains existing completion/failure behavior through the shared helper.
@@ -141,6 +141,110 @@ error         { code, content, terminal: true }
 
 ---
 
+### Task 0: Create Hermetic Implementation Worktrees
+
+**Files:**
+- No repository file changes.
+- Creates worktree: `D:/prime-agent/.worktrees/rookchat-primary-backend`
+- Creates worktree: `C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend`
+
+**Interfaces:**
+- Consumes: exact Prime baseline `739400844f8f3f280414b0c7b9c65797208815d3` and the independently approved plan commit.
+- Produces: branch-local Prime dependencies plus a Rook Python import environment used by every later task.
+
+- [ ] **Step 1: Capture the independently reviewed plan commit**
+
+Run only after the amended plan receives spot review:
+
+```powershell
+$coord = 'C:/UDEV/Rook/.worktrees/coordinating-intelligence-evidence-ledger'
+$reviewedPlanCommit = (git -C $coord rev-parse HEAD).Trim()
+if ((git -C $coord status --porcelain).Length -ne 0) {
+    throw 'Coordinating worktree must be clean before implementation setup.'
+}
+$reviewedPlanCommit
+```
+
+Record this commit in the eventual qualification report; do not substitute a moving branch name.
+
+- [ ] **Step 2: Create both dedicated implementation worktrees**
+
+```powershell
+git -C D:/prime-agent worktree add `
+  D:/prime-agent/.worktrees/rookchat-primary-backend `
+  -b codex/rookchat-primary-backend `
+  739400844f8f3f280414b0c7b9c65797208815d3
+
+git -C C:/UDEV/Rook worktree add `
+  C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend `
+  -b codex/rookchat-prime-primary-backend `
+  $reviewedPlanCommit
+```
+
+Expected: both commands create new worktrees; neither historical qualification worktree is modified.
+
+- [ ] **Step 3: Install exact Prime dependencies from the lockfile**
+
+```powershell
+Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend
+npm ci
+```
+
+Expected: `package-lock.json` remains unchanged and worktree status stays clean.
+
+- [ ] **Step 4: Prove Node dependency resolution is branch-local**
+
+```powershell
+$prime = [IO.Path]::GetFullPath('D:/prime-agent/.worktrees/rookchat-primary-backend')
+Set-Location $prime
+$vitest = (& node -e "console.log(require.resolve('vitest/package.json'))").Trim()
+$tsx = (& node -e "console.log(require.resolve('tsx/package.json'))").Trim()
+foreach ($resolved in @($vitest, $tsx)) {
+    if (-not [IO.Path]::GetFullPath($resolved).StartsWith($prime, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Node dependency resolved outside Prime worktree: $resolved"
+    }
+}
+npx tsx -e "import './packages/coding-agent/src/modes/rpc/rpc-mode.ts'; console.log('prime-source-import-ok')"
+git status --short
+```
+
+Expected: both package paths are under the new Prime worktree, the source import prints `prime-source-import-ok`, and status is empty.
+
+- [ ] **Step 5: Prove Rook Python imports are branch-local**
+
+```powershell
+$rook = [IO.Path]::GetFullPath('C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend')
+$env:PYTHONPATH = "$rook/mcp_server/src"
+$env:ROOK_IMPLEMENTATION_ROOT = $rook
+& C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -c @'
+import os
+from pathlib import Path
+import rook
+import rook.agent.chat.server
+root = Path(os.environ["ROOK_IMPLEMENTATION_ROOT"]).resolve()
+for module in (rook, rook.agent.chat.server):
+    path = Path(module.__file__).resolve()
+    if root not in path.parents:
+        raise SystemExit(f"import escaped Rook worktree: {path}")
+    print(path)
+'@
+git -C $rook status --short
+```
+
+Expected: both module paths are under the new Rook worktree and status is empty. Keep this `PYTHONPATH` for every later Python command.
+
+- [ ] **Step 6: Record custody without committing generated dependencies**
+
+```powershell
+git -C D:/prime-agent/.worktrees/rookchat-primary-backend rev-parse HEAD
+git -C D:/prime-agent/.worktrees/rookchat-primary-backend rev-parse HEAD^{tree}
+git -C C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend rev-parse HEAD
+git -C C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend rev-parse HEAD^{tree}
+Get-FileHash D:/prime-agent/.worktrees/rookchat-primary-backend/package-lock.json -Algorithm SHA256
+```
+
+Expected: Prime HEAD is the exact baseline, Rook HEAD is the reviewed plan commit, and both worktrees are clean. Task 0 creates no commit.
+
 ### Task 1: Share Prime's Proven Headless-Turn Sequence
 
 **Files:**
@@ -153,20 +257,7 @@ error         { code, content, terminal: true }
 - Consumes: `AgentConnection.getMessages()`, `promptAndWait()`, `waitForHeadlessCompletion()`, and existing `AgentMessage` terminal fields.
 - Produces: `runHeadlessTurn(connection, message, options): Promise<HeadlessTurnResult>` and `HeadlessTurnError.code` for Task 2.
 
-- [ ] **Step 1: Create the isolated Prime implementation worktree**
-
-```powershell
-git -C D:/prime-agent worktree add `
-  D:/prime-agent/.worktrees/rookchat-primary-backend `
-  -b codex/rookchat-primary-backend `
-  739400844f8f3f280414b0c7b9c65797208815d3
-git -C D:/prime-agent/.worktrees/rookchat-primary-backend status --short
-git -C D:/prime-agent/.worktrees/rookchat-primary-backend rev-parse HEAD
-```
-
-Expected: empty status and exact baseline `739400844f8f3f280414b0c7b9c65797208815d3`.
-
-- [ ] **Step 2: Add RED tests for transcript identity and terminal classification**
+- [ ] **Step 1: Add RED tests for transcript identity and terminal classification**
 
 Add cases proving that the boundary survives copied message objects and compaction-rematerialized messages, ignores an old failed assistant message, classifies a new `stopReason: "error"` as `execution_failed`, and classifies a new `stopReason: "aborted"` as the successful `aborted` outcome.
 
@@ -187,7 +278,7 @@ it("classifies only the post-boundary assistant failure", async () => {
 });
 ```
 
-- [ ] **Step 3: Run the RED tests**
+- [ ] **Step 2: Run the RED tests**
 
 ```powershell
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
@@ -198,7 +289,7 @@ npx tsx ../../node_modules/vitest/dist/cli.js --run `
 
 Expected: failures because `headless-turn.ts` and `runHeadlessTurn` do not exist.
 
-- [ ] **Step 4: Implement the shared helper with phase-owned failures**
+- [ ] **Step 3: Implement the shared helper with phase-owned failures**
 
 Use this public surface:
 
@@ -243,7 +334,7 @@ Implementation order is fixed:
 
 If `promptAndWait()` throws, read messages and state once. Return `admission_failed` only when there is no post-boundary message and `getState()` proves `isStreaming === false` and `isCompacting === false`; otherwise return `settlement_unknown`. A failed verification read is `settlement_unknown`, because admission can no longer be disproven. A pre- or post-turn transcript read outside that recovery branch is `inspection_failed`. A `waitForHeadlessCompletion()` exception is always `settlement_unknown`.
 
-- [ ] **Step 5: Replace ACP's private boundary/failure helpers with the shared helper**
+- [ ] **Step 4: Replace ACP's private boundary/failure helpers with the shared helper**
 
 Keep ACP's local `AbortController`, notifications, and stop-reason mapping. Its request body becomes:
 
@@ -270,7 +361,7 @@ return {
 
 Map `HeadlessTurnError` back to ACP's existing thrown error behavior. Do not expose the new RPC code object through ACP.
 
-- [ ] **Step 6: Run focused Prime tests and build**
+- [ ] **Step 5: Run focused Prime tests and build**
 
 ```powershell
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
@@ -282,7 +373,7 @@ npm run build
 
 Expected: both files pass and the package builds.
 
-- [ ] **Step 7: Commit the shared Prime helper**
+- [ ] **Step 6: Commit the shared Prime helper**
 
 ```powershell
 git add packages/coding-agent/src/modes/headless-turn.ts `
@@ -300,6 +391,7 @@ git commit -m "refactor: share Prime headless turn settlement"
 - Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/modes/rpc/rpc-client.ts`
 - Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/docs/rpc.md`
 - Test: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/test/rpc-prompt-response-semantics.test.ts`
+- Test: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/test/rpc.test.ts`
 
 **Interfaces:**
 - Consumes: `runHeadlessTurn()` and `HeadlessTurnError` from Task 1.
@@ -382,25 +474,47 @@ case "prompt_and_wait": {
 
 Catch `HeadlessTurnError` and emit its closed object. Unexpected exceptions from this command become `settlement_unknown`; they must not fall through to the generic string-error helper.
 
-- [ ] **Step 6: Make `RpcClient.promptAndWait()` await settlement**
+- [ ] **Step 6: Add a settled client method without breaking `promptAndWait()`**
 
-Replace the current `collectEvents()`/first-`agent_end` implementation with:
+Add a distinctly named settlement method:
 
 ```typescript
-async promptAndWait(
+async promptAndWaitSettled(
   message: string,
   images?: ImageContent[],
+  timeout = 60000,
 ): Promise<RpcPromptAndWaitData> {
   const response = await this.send({
     type: "prompt_and_wait",
     message,
     images,
-  });
+  }, timeout);
   return this.getPromptAndWaitData(response);
 }
 ```
 
-Event listeners continue receiving stream events independently. `getPromptAndWaitData()` preserves `error.code` and `error.message` on a typed `RpcPromptAndWaitCommandError`.
+Preserve the existing public contract exactly:
+
+```typescript
+async promptAndWait(
+  message: string,
+  images?: ImageContent[],
+  timeout = 60000,
+): Promise<AgentEvent[]> {
+  const events: AgentEvent[] = [];
+  const unsubscribe = this.onEvent((event) => events.push(event));
+  try {
+    await this.promptAndWaitSettled(message, images, timeout);
+    return events;
+  } finally {
+    unsubscribe();
+  }
+}
+```
+
+This uses the existing `send(command, timeout)` timer rather than adding another timer. Existing callers continue receiving `AgentEvent[]`; the only behavioral correction is that collection ends at the correlated terminal response instead of the first `agent_end`. Event listeners continue receiving stream events independently. `getPromptAndWaitData()` preserves `error.code` and `error.message` on a typed `RpcPromptAndWaitCommandError`.
+
+Extend `rpc.test.ts` to keep its existing returned-event assertions and add a two-segment case proving both segments are present before `promptAndWait()` resolves.
 
 - [ ] **Step 7: Document the command and the non-authority of `agent_end`**
 
@@ -428,7 +542,8 @@ git add packages/coding-agent/src/modes/rpc/rpc-types.ts `
   packages/coding-agent/src/modes/rpc/rpc-mode.ts `
   packages/coding-agent/src/modes/rpc/rpc-client.ts `
   packages/coding-agent/docs/rpc.md `
-  packages/coding-agent/test/rpc-prompt-response-semantics.test.ts
+  packages/coding-agent/test/rpc-prompt-response-semantics.test.ts `
+  packages/coding-agent/test/rpc.test.ts
 git commit -m "feat: expose settled prompt RPC command"
 ```
 
@@ -690,6 +805,13 @@ class PromptSubscription:
     def __aiter__(self) -> AsyncIterator[dict[str, Any]]: ...
     async def close(self) -> None: ...
 
+class PromptSubscriptionBuffer:
+    MAX_ROWS = 128
+    MAX_NONTERMINAL_ROWS = 127
+
+    def publish(self, row: dict[str, Any]) -> None: ...
+    async def next(self) -> dict[str, Any]: ...
+
 class PrimeChatBackend:
     async def create(
         self,
@@ -745,6 +867,9 @@ test_idle_retirement_preserves_session_record
 test_tab_close_cancels_and_closes
 test_document_retirement_never_rebinds_target
 test_shutdown_uses_one_global_ten_second_deadline
+test_slow_subscriber_coalesces_text_without_blocking_settlement
+test_partial_model_update_reconciles_actual_runtime_state
+test_failed_model_reconciliation_marks_conversation_failed
 ```
 
 The causal cancel-race test must assert broker-local correlation:
@@ -792,7 +917,20 @@ This object is never serialized. `PrimeChatBackend` owns one dictionary keyed by
 
 - [ ] **Step 5: Implement prompt settlement independently of the HTTP reader**
 
-`start_prompt()` changes `idle -> running` atomically before dispatch and creates a broker-owned background task. The returned `PromptSubscription` has a bounded 128-row UI queue. Closing that subscription unregisters the queue and discards later UI-only deltas; it does not cancel the background task or change lifecycle. The task alone receives the correlated settlement, persists lifecycle, and publishes one terminal row to subscribers still attached.
+`start_prompt()` changes `idle -> running` atomically before dispatch and creates a broker-owned background task. The task alone receives the correlated settlement and persists lifecycle; subscription buffering never owns settlement.
+
+Each attached `PromptSubscription` uses a nonblocking `PromptSubscriptionBuffer` with this exact overflow contract:
+
+1. At most 127 nonterminal rows are retained, reserving one slot for a terminal row.
+2. Adjacent pending `text_delta` rows are concatenated in order.
+3. At pressure, pending `status` rows are discarded first because they are observational and cannot settle the turn.
+4. A new `model_update` replaces an older pending `model_update`; if no such row or status row can be replaced, it is omitted because the panel refreshes authoritative model state after settlement.
+5. After those reductions, all pending text rows are concatenated in original order into one `text_delta`; text bytes are never dropped.
+6. Exactly one terminal `done`, `cancelled`, or terminal `error` occupies the reserved slot. Publishing a second terminal row is a broker invariant failure and cannot alter durable lifecycle.
+7. `publish()` never awaits the UI consumer, so response correlation remains live. `next()` waits on an `asyncio.Condition` owned by the buffer.
+8. Closing the subscription clears its buffer, wakes its waiter, and unregisters it. It does not cancel the prompt task or change lifecycle.
+
+The slow-consumer regression publishes 1,000 numbered text deltas plus 200 duplicate segment statuses without consuming, then settles the prompt. It asserts `len(buffer) <= 128`, exact concatenated text `"0,1,...,999,"`, one terminal row, and a resolved command future before the consumer drains the buffer.
 
 Map Prime results exactly:
 
@@ -813,7 +951,18 @@ No failure path replays the prompt.
 
 - [ ] **Step 7: Implement models and finite residency**
 
-`models()` projects `get_available_models` to stable IDs `provider/model`. `set_model()` is allowed only from `idle`, calls `set_model` and then `set_thinking_level` when requested, verifies `get_state`, and atomically updates the record. At 10 residents, retire the least-recently-used `idle` child; refuse with `capacity_exhausted` when all residents are `running` or `cancel_requested`. A periodic task retires children idle for 1,800 seconds without closing their records.
+`models()` projects `get_available_models` to stable IDs `provider/model`. `set_model()` is allowed only from `idle` and follows one reconciliation rule:
+
+```text
+attempt set_model
+-> attempt set_thinking_level when requested
+-> always read get_state
+-> persist the actual provider/model/thinking returned by Prime
+```
+
+If both mutations and readback succeed, return success. If either mutation fails but readback succeeds, persist the actual state, keep lifecycle `idle` with reason `model_update_failed_reconciled`, and return a failed operation containing the actual selection. If readback fails after either mutation was attempted, persist lifecycle `failed/model_reconciliation_failed`, retire the child, and require explicit reopen before another prompt or model change. The causal regression makes `set_model` succeed, `set_thinking_level` fail, and `get_state` return the new model with the old thinking level; registry and response must both report that exact actual state.
+
+At 10 residents, retire the least-recently-used `idle` child; refuse with `capacity_exhausted` when all residents are `running` or `cancel_requested`. A periodic task retires children idle for 1,800 seconds without closing their records.
 
 - [ ] **Step 8: Implement close, document retirement, and global shutdown**
 
@@ -839,7 +988,7 @@ git add mcp_server/src/rook/agent/chat/prime_backend.py `
 git commit -m "feat: add Prime chat broker lifecycle"
 ```
 
-### Task 6: Route the Existing HTTP Service Through Prime Behind Rollback
+### Task 6: Add Prime as an Explicit HTTP Backend Option
 
 **Files:**
 - Modify: `mcp_server/src/rook/agent/chat/server.py`
@@ -852,11 +1001,11 @@ git commit -m "feat: add Prime chat broker lifecycle"
 
 - [ ] **Step 1: Add RED HTTP tests for backend exclusivity**
 
-Inject both a fake Prime backend and a fake legacy runner. Prove `ROOK_CHAT_BACKEND=prime` never calls `ChatRunner`, `legacy` never calls Prime, and an invalid value refuses application startup. Prime mode rejects `execution_mode` and `/agent/chat/ui-response` with `unsupported_in_prime_text_slice`.
+Inject both a fake Prime backend and a fake legacy runner. Prove absent `ROOK_CHAT_BACKEND` and explicit `legacy` both select `ChatRunner`, explicit `prime` never calls `ChatRunner`, and an invalid value refuses application startup. Prime mode rejects `execution_mode` and `/agent/chat/ui-response` with `unsupported_in_prime_text_slice`.
 
 - [ ] **Step 2: Add RED request-custody and lifecycle tests**
 
-Cover exact create/reopen target JSON, target mismatch, stable conversation ID, model projection, set-model idle-only behavior, `cancel_requested`, completed-before-abort, aborted, process failure, stream disconnect not producing idle, explicit close, and app cleanup invoking one bounded backend shutdown.
+Cover exact create/reopen target JSON, target mismatch, stable conversation ID, model projection, set-model idle-only behavior, partial model-update reconciliation, failed model reconciliation, `cancel_requested`, completed-before-abort, aborted, process failure, stream disconnect not producing idle, explicit close, and app cleanup invoking one bounded backend shutdown.
 
 - [ ] **Step 3: Run RED HTTP tests**
 
@@ -870,7 +1019,7 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
 `service_main.py` gains required `--rhino-process-start-utc-ticks` and reads:
 
 ```text
-ROOK_CHAT_BACKEND=prime|legacy
+ROOK_CHAT_BACKEND=prime|legacy  # optional; absent means legacy
 ROOK_PRIME_NODE_PATH=<absolute node.exe>
 ROOK_PRIME_CLI_PATH=<absolute cli.js>
 ROOK_PRIME_MODEL=<optional provider/model>
@@ -878,11 +1027,21 @@ ROOK_PRIME_THINKING=<optional valid Prime level>
 ROOK_PRIME_REGISTRY_ROOT=<optional absolute override for tests/development>
 ```
 
-Prime mode refuses startup before binding HTTP if node, CLI, model syntax, thinking level, or registry root is invalid. No credential value is read or copied by Rook.
+Prime mode refuses startup before binding HTTP if node, CLI, model syntax, thinking level, or registry root is invalid. The absent/legacy path does not require Prime configuration and preserves the existing product default. No credential value is read or copied by Rook.
 
 - [ ] **Step 5: Inject one backend owner into `create_chat_app`**
 
 Add typed app keys for backend mode and `PrimeChatBackend`. App cleanup calls `shutdown()` once. Keep existing `ConversationStore`, `PromptBuilder`, and `ChatRunner` construction only on the legacy branch.
+
+The model endpoint projects Task 5 reconciliation without hiding partial application:
+
+```text
+success                                 -> HTTP 200 with actual provider/model/thinking
+model_update_failed_reconciled          -> HTTP 409 with stable code, message, and actual provider/model/thinking
+model_reconciliation_failed             -> HTTP 502 with stable code and message; conversation requires reopen
+```
+
+The HTTP tests assert both failure responses and the registry's corresponding actual or failed state.
 
 - [ ] **Step 6: Freeze the start/reopen HTTP request**
 
@@ -920,16 +1079,16 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest `
   mcp_server/tests/test_chat_integration.py -q
 ```
 
-- [ ] **Step 10: Commit the server cutover**
+- [ ] **Step 10: Commit the opt-in server path**
 
 ```powershell
 git add mcp_server/src/rook/agent/chat/server.py `
   mcp_server/src/rook/agent/chat/service_main.py `
   mcp_server/tests/test_chat_server.py
-git commit -m "feat: route RookChat text through Prime"
+git commit -m "feat: add opt-in Prime RookChat backend"
 ```
 
-### Task 7: Cut Over `AgentChatTab` Without Premature Stop or Identity Loss
+### Task 7: Add the Opt-In Prime Path to `AgentChatTab`
 
 **Files:**
 - Modify: `src/Rook/UI/Chat/ChatServiceManager.cs`
@@ -942,7 +1101,7 @@ git commit -m "feat: route RookChat text through Prime"
 
 **Interfaces:**
 - Consumes: Task 6's HTTP request/response and NDJSON rows.
-- Produces: one text-only Prime-backed `AgentChatTab` with legacy rollback behavior unchanged.
+- Produces: one text-only Prime-backed `AgentChatTab` path selected only when the service reports `backend: "prime"`; the legacy path remains the unchanged default.
 
 - [ ] **Step 1: Add RED launch-argument tests**
 
@@ -1041,6 +1200,8 @@ Tab close still cancels the local stream token, calls `StopAsync` to close the c
 
 Consume the Prime-projected model list and call `/agent/chat/model`. Disable Apply while processing/cancelling. Do not use `model_status.py` routing on the Prime path and do not translate persona prompts.
 
+On HTTP 409 `model_update_failed_reconciled`, replace the selectors with the returned actual provider/model/thinking and show the operation failure. On HTTP 502 `model_reconciliation_failed`, show the failed/reopen-required state. Never leave the panel displaying the requested selection as though it were authoritative after a failed update.
+
 - [ ] **Step 10: Run focused and full managed tests**
 
 ```powershell
@@ -1049,7 +1210,7 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore `
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore
 ```
 
-- [ ] **Step 11: Commit the panel cutover**
+- [ ] **Step 11: Commit the opt-in panel path**
 
 ```powershell
 git add src/Rook/UI/Chat/ChatServiceManager.cs `
@@ -1059,7 +1220,7 @@ git add src/Rook/UI/Chat/ChatServiceManager.cs `
   src/Rook.Tests/UI/Chat/ChatServiceManagerTests.cs `
   src/Rook.Tests/UI/Chat/AgentChatClientParseTests.cs `
   src/Rook.Tests/UI/Chat/AgentChatPrimeLifecycleTests.cs
-git commit -m "feat: cut AgentChatTab over to Prime text streaming"
+git commit -m "feat: add opt-in Prime text streaming"
 ```
 
 ### Task 8: Model-Free End-to-End Qualification and Documentation
@@ -1142,7 +1303,7 @@ The report records commands and results but makes no claim that Rhino/Ollama bei
 
 - [ ] **Step 6: Update architecture status narrowly**
 
-State that the text-only `AgentChatTab` path uses Prime RPC behind `ROOK_CHAT_BACKEND`, that legacy remains rollback-only, and that images, tools, Rook mutation, web, packaging, and live qualification remain unimplemented.
+State that the text-only `AgentChatTab` can use Prime RPC only when `ROOK_CHAT_BACKEND=prime`, that absent/legacy configuration remains the product default, that product-default cutover remains deferred to Slice 6, and that images, tools, Rook mutation, web, packaging, and live qualification remain unimplemented.
 
 - [ ] **Step 7: Write the offline qualification report**
 
