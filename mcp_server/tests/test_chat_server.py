@@ -3,6 +3,7 @@ import asyncio
 import copy
 import json
 import socket
+import sys
 import threading
 from pathlib import Path
 from dataclasses import replace
@@ -11,7 +12,7 @@ from typing import Any
 import pytest
 import httpx
 from aiohttp import web
-from aiohttp.test_utils import AioHTTPTestCase
+from aiohttp.test_utils import AioHTTPTestCase, TestClient, TestServer
 from unittest.mock import AsyncMock, MagicMock, patch
 from rook.agent.chat import server as chat_server
 from rook.agent.chat import service_main as chat_service_main
@@ -20,10 +21,12 @@ from rook.agent.chat.server import create_chat_app
 from rook.agent.chat.conversation_store import ConversationStore
 from rook.agent.chat.prompt_builder import PromptBuilder
 from rook.agent.chat.chat_runner import ChatRunner, ChatEvent
-from rook.agent.chat.prime_backend import PrimeBackendError
+from rook.agent.chat.prime_backend import PrimeBackendError, PrimeChatBackend
+from rook.agent.chat.prime_process import PrimeRpcProcess
 from rook.agent.chat.prime_registry import (
     LifecycleRecord,
     PrimeConversationRecord,
+    PrimeConversationRegistry,
     PrimeModelSelection,
     TargetFingerprint,
 )
@@ -1858,7 +1861,11 @@ class TestChatServerWithNonce(AioHTTPTestCase):
 
 
 class _ExplodingLegacyRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
     def run_turn(self, *_args, **_kwargs):
+        self.calls += 1
         raise AssertionError("legacy ChatRunner must not run in Prime mode")
 
 
@@ -2254,6 +2261,124 @@ class TestPrimeChatServer(AioHTTPTestCase):
     async def test_cleanup_shuts_prime_backend_down_once(self):
         await self.app.shutdown()
         assert self.backend.shutdown_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_prime_vertical_http_cancel_race_is_correlated_and_model_free(
+    tmp_path: Path,
+) -> None:
+    conversation_id = "conv_abcdef0123456789abcdef0123456789"
+    target = TargetFingerprint(2468, "638918000000000000", 42)
+    registry = PrimeConversationRegistry(
+        tmp_path / "registry",
+        rhino_pid=target.rhino_pid,
+        rhino_process_start_utc_ticks=target.rhino_process_start_utc_ticks,
+    )
+    fixture = Path(__file__).parent / "fixtures" / "prime_rpc_fake_child.py"
+    processes: list[PrimeRpcProcess] = []
+
+    def process_factory(
+        generation: int,
+        model: PrimeModelSelection,
+        resume_session_path: str | None,
+    ) -> PrimeRpcProcess:
+        process = PrimeRpcProcess(
+            node_path=sys.executable,
+            cli_path=fixture,
+            session_dir=tmp_path / "sessions",
+            generation=generation,
+            provider=model.provider,
+            model_id=model.id,
+            thinking=model.thinking,
+            resume_session_path=resume_session_path,
+            extra_args=("--scenario", "vertical_cancel_race"),
+        )
+        processes.append(process)
+        return process
+
+    backend = PrimeChatBackend(
+        registry,
+        process_factory,
+        PrimeModelSelection("fixture", "model", None),
+        retirement_grace_seconds=0.1,
+    )
+    legacy = _ExplodingLegacyRunner()
+    nonce = "vertical-test-nonce"
+    app = create_chat_app(
+        runner=legacy,
+        backend_mode="prime",
+        prime_backend=backend,
+        rhino_process_id=target.rhino_pid,
+        rhino_process_start_utc_ticks=target.rhino_process_start_utc_ticks,
+        session_nonce=nonce,
+    )
+    client = TestClient(TestServer(app))
+    headers = {"X-Rook-Session": nonce}
+
+    try:
+        await client.start_server()
+        created = await client.post(
+            "/agent/chat/start",
+            json={
+                "action": "create",
+                "conversation_id": conversation_id,
+                "target": {
+                    "rhinoPid": target.rhino_pid,
+                    "rhinoProcessStartUtcTicks": (
+                        target.rhino_process_start_utc_ticks
+                    ),
+                    "documentRuntimeSerial": target.document_runtime_serial,
+                },
+            },
+            headers=headers,
+        )
+        assert created.status == 200
+
+        response = await client.post(
+            "/agent/chat/message",
+            json={"conversation_id": conversation_id, "message": "hello"},
+            headers=headers,
+        )
+        leading = [
+            json.loads((await asyncio.wait_for(response.content.readline(), 2)).decode())
+            for _ in range(4)
+        ]
+        assert leading == [
+            {"type": "text_delta", "content": "segment-1"},
+            {"type": "status", "status": "segment_end"},
+            {"type": "text_delta", "content": "segment-2"},
+            {"type": "status", "status": "segment_end"},
+        ]
+        assert not any(row.get("type") == "done" for row in leading)
+
+        cancelled = await client.post(
+            "/agent/chat/cancel",
+            json={"conversation_id": conversation_id},
+            headers=headers,
+        )
+        assert cancelled.status == 200
+        terminal_rows = [
+            json.loads(line)
+            for line in (await response.text()).splitlines()
+            if line
+        ]
+        assert terminal_rows == [
+            {"type": "done", "reason": "completed_before_abort"}
+        ]
+
+        record = registry.load(conversation_id)
+        assert record.conversation_id == conversation_id
+        assert record.prime_session_id == Path(record.prime_session_path).stem
+        assert record.target == target
+        assert record.last_lifecycle.state == "idle"
+        assert record.last_lifecycle.reason == "completed_before_abort"
+        assert legacy.calls == 0
+    finally:
+        await client.close()
+        registry.close()
+
+    assert processes
+    assert all(process._retired for process in processes)
 
 
 def test_invalid_chat_backend_refuses_app_creation(monkeypatch):

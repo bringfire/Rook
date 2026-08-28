@@ -130,6 +130,11 @@ for line in sys.stdin:
         )
         continue
     if command_type == "prompt_and_wait":
+        if args.scenario == "vertical_cancel_race":
+            segment(1)
+            segment(2)
+            pending_prompt_id = request_id
+            continue
         if args.scenario in {"prompt_pending_until_abort", "complete_before_abort_response"}:
             pending_prompt_id = request_id
             continue
@@ -220,7 +225,10 @@ for line in sys.stdin:
                 }
             )
             stalled_request_id = None
-        if pending_prompt_id is not None and args.scenario == "complete_before_abort_response":
+        if pending_prompt_id is not None and args.scenario in {
+            "complete_before_abort_response",
+            "vertical_cancel_race",
+        }:
             emit(
                 {
                     "id": pending_prompt_id,
