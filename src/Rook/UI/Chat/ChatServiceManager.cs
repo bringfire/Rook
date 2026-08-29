@@ -289,14 +289,28 @@ namespace Rook.UI.Chat
         {
             if (rhinoProcessId <= 0)
                 throw new ArgumentOutOfRangeException(nameof(rhinoProcessId));
-            if (string.IsNullOrWhiteSpace(rhinoProcessStartUtcTicks) ||
-                !rhinoProcessStartUtcTicks.All(char.IsDigit))
+            if (!IsCanonicalProcessStartUtcTicks(rhinoProcessStartUtcTicks))
                 throw new ArgumentException(
-                    "Rhino process start ticks must be a decimal string.",
+                    "Rhino process start ticks must be a canonical positive .NET UTC tick string.",
                     nameof(rhinoProcessStartUtcTicks));
             return "-m rook.agent.chat.service_main --port 0 --owner rhino-panel " +
                 $"--rhino-process-id {rhinoProcessId} " +
                 $"--rhino-process-start-utc-ticks {rhinoProcessStartUtcTicks}";
+        }
+
+        private static bool IsCanonicalProcessStartUtcTicks(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value[0] == '0')
+                return false;
+            if (value.Any(character => character < '0' || character > '9'))
+                return false;
+            return long.TryParse(
+                    value,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var ticks) &&
+                ticks > 0 &&
+                ticks <= DateTime.MaxValue.Ticks;
         }
 
         public async Task<ChatServiceHealth> EnsureStartedAsync(CancellationToken ct = default)

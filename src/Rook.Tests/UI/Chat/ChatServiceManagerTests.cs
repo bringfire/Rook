@@ -56,6 +56,20 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Theory]
+        [InlineData("")]
+        [InlineData("0")]
+        [InlineData("+1")]
+        [InlineData("01")]
+        [InlineData(" 1")]
+        [InlineData("3155378976000000000")]
+        public void BuildServiceArguments_rejects_noncanonical_process_start_ticks(
+            string ticks)
+        {
+            Assert.Throws<ArgumentException>(() =>
+                ChatServiceManager.BuildServiceArguments(1234, ticks));
+        }
+
+        [Theory]
         [InlineData("legacy", true)]
         [InlineData("", true)]
         [InlineData("prime", false)]

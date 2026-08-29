@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -63,7 +64,10 @@ class RhinoToolPolicy:
 class PanelTargetLock:
     mode: Literal["panel_locked"]
     process_id: int
-    document_serial_number: int | None
+    process_start_utc_ticks: str
+    document_serial_number: int
+    capability_profile: Literal["readonly", "full"]
+    grasshopper_document_id: str | None = None
     reason: str = "rook_chat_panel"
 
 
@@ -99,6 +103,39 @@ def _parse_positive_int(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
+_DOTNET_MAX_TICKS = 3155378975999999999
+_UINT32_MAX = 4294967295
+
+
+def _parse_canonical_positive_decimal(
+    value: Any,
+    *,
+    maximum: int | None = None,
+) -> tuple[str, int] | None:
+    if not isinstance(value, str) or not value.isascii() or not value.isdigit():
+        return None
+    if value.startswith("0"):
+        return None
+    parsed = int(value)
+    if parsed <= 0 or (maximum is not None and parsed > maximum):
+        return None
+    return value, parsed
+
+
+def _parse_optional_canonical_guid(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Grasshopper document id must be a canonical GUID.")
+    try:
+        parsed = uuid.UUID(value)
+    except ValueError as error:
+        raise ValueError("Grasshopper document id must be a canonical GUID.") from error
+    if parsed.int == 0 or str(parsed) != value:
+        raise ValueError("Grasshopper document id must be a canonical GUID.")
+    return value
+
+
 def _set_panel_config_error(message: str, *, mode: str | None = None) -> None:
     global _PANEL_TARGET_CONFIG_ERROR, _PANEL_TARGET_LOCK
     _PANEL_TARGET_LOCK = None
@@ -128,19 +165,56 @@ def initialize_from_environment(env: dict[str, str] | None = None) -> None:
             mode=mode,
         )
         return
-    process_id = _parse_positive_int(source.get("ROOK_MCP_TARGET_PROCESS_ID"))
-    if process_id is None:
+    process_id_value = _parse_canonical_positive_decimal(
+        source.get("ROOK_MCP_TARGET_PROCESS_ID"),
+        maximum=_UINT32_MAX,
+    )
+    if process_id_value is None:
         _set_panel_config_error(
             "This Rook MCP server was started in panel-locked mode without a valid Rhino process id."
         )
         return
-    document_serial = _parse_positive_int(
-        source.get("ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER")
+    ticks_value = _parse_canonical_positive_decimal(
+        source.get("ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS"),
+        maximum=_DOTNET_MAX_TICKS,
     )
+    if ticks_value is None:
+        _set_panel_config_error(
+            "This Rook MCP server was started in panel-locked mode without canonical Rhino process start ticks."
+        )
+        return
+    document_serial_value = _parse_canonical_positive_decimal(
+        source.get("ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER"),
+        maximum=_UINT32_MAX,
+    )
+    if document_serial_value is None:
+        _set_panel_config_error(
+            "This Rook MCP server was started in panel-locked mode without a valid Rhino document serial number."
+        )
+        return
+    profile = source.get("ROOK_MCP_TOOL_PROFILE")
+    if profile not in {"readonly", "full"}:
+        _set_panel_config_error(
+            "This Rook MCP server was started in panel-locked mode without a valid capability profile."
+        )
+        return
+    try:
+        grasshopper_document_id = _parse_optional_canonical_guid(
+            source.get("ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID")
+        )
+    except ValueError as error:
+        _set_panel_config_error(str(error))
+        return
+    _, process_id = process_id_value
+    process_start_utc_ticks, _ = ticks_value
+    _, document_serial = document_serial_value
     _PANEL_TARGET_LOCK = PanelTargetLock(
         mode="panel_locked",
         process_id=process_id,
+        process_start_utc_ticks=process_start_utc_ticks,
         document_serial_number=document_serial,
+        capability_profile=profile,
+        grasshopper_document_id=grasshopper_document_id,
     )
     _PANEL_TARGET_CONFIG_ERROR = None
 
@@ -849,7 +923,10 @@ def _lock_payload(lock: PanelTargetLock | None = None) -> dict[str, Any]:
     if current is not None:
         payload["target"] = {
             "processId": current.process_id,
+            "processStartUtcTicks": current.process_start_utc_ticks,
             "documentSerialNumber": current.document_serial_number,
+            "capabilityProfile": current.capability_profile,
+            "grasshopperDocumentId": current.grasshopper_document_id,
         }
     return payload
 
@@ -885,11 +962,34 @@ def _locked_process_instances(instances: list[dict[str, Any]]) -> list[dict[str,
     lock = _PANEL_TARGET_LOCK
     if lock is None:
         return []
+    matching_native = next(
+        (
+            instance
+            for instance in instances
+            if instance.get("processId") == lock.process_id
+            and instance.get("pluginType") == "native"
+            and _parse_canonical_positive_decimal(
+                instance.get("processStartUtcTicks"),
+                maximum=_DOTNET_MAX_TICKS,
+            )
+            == (lock.process_start_utc_ticks, int(lock.process_start_utc_ticks))
+        ),
+        None,
+    )
+    if matching_native is None:
+        return []
     return [
         instance
         for instance in instances
         if instance.get("processId") == lock.process_id
     ]
+
+
+def panel_locked_process_instances(
+    instances: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return one live process generation's records for the active panel lock."""
+    return _locked_process_instances(instances)
 
 
 def _resolve_locked_target(instances: list[dict[str, Any]]) -> tuple[InstanceRef, dict[str, Any]] | None:

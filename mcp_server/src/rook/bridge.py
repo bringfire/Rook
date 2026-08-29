@@ -384,13 +384,15 @@ def select_rhino_instance(
     endpoint: str | None = None,
     port: int | None = None,
     process_id: int | None = None,
+    *,
+    instances: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Select the best Rhino instance for an endpoint.
 
     If `port` is provided, it anchors selection to the same Rhino process when
     a companion native/managed server pair exists.
     """
-    instances = discover_instances()
+    instances = instances if instances is not None else discover_instances()
     if not instances:
         return None
 
@@ -929,31 +931,39 @@ def _apply_panel_lock_to_request(
     data: dict | None,
     port: int | None,
     process_id: int | None,
-) -> tuple[dict | None, int | None, int | None, dict[str, Any] | None]:
+) -> tuple[
+    dict | None,
+    int | None,
+    int | None,
+    dict[str, Any] | None,
+    list[dict[str, Any]] | None,
+]:
     targeting = _targeting_module()
     lock, config_error = _panel_lock_state()
     if config_error is not None:
-        return data, port, process_id, {"success": False, "data": config_error}
+        return data, port, process_id, {"success": False, "data": config_error}, None
     if lock is None:
-        return data, port, process_id, None
+        return data, port, process_id, None, None
 
     instances = discover_instances()
-    locked_instances = [
-        instance
-        for instance in instances
-        if instance.get("processId") == lock.process_id
-    ]
+    locked_instances = targeting.panel_locked_process_instances(instances)
     if not locked_instances:
-        return data, port, process_id, targeting.route_error_result(
-            targeting.ToolRoute(
-                success=False,
-                error="panel_target_stale",
-                instances=instances,
-            )
+        return (
+            data,
+            port,
+            process_id,
+            targeting.route_error_result(
+                targeting.ToolRoute(
+                    success=False,
+                    error="panel_target_stale",
+                    instances=instances,
+                )
+            ),
+            None,
         )
 
     if process_id is not None and process_id > 0 and process_id != lock.process_id:
-        return data, port, process_id, targeting.panel_target_locked_result()
+        return data, port, process_id, targeting.panel_target_locked_result(), None
 
     if port is not None and port > 0:
         explicit = next(
@@ -961,14 +971,14 @@ def _apply_panel_lock_to_request(
             None,
         )
         if explicit is None or explicit.get("processId") != lock.process_id:
-            return data, port, process_id, targeting.panel_target_locked_result()
+            return data, port, process_id, targeting.panel_target_locked_result(), None
         port = None
 
     applied = targeting.apply_locked_document_context(data)
     if isinstance(applied, dict) and applied.get("success") is False:
-        return data, port, process_id, applied
+        return data, port, process_id, applied, None
 
-    return applied, port, lock.process_id, None
+    return applied, port, lock.process_id, None, locked_instances
 
 
 async def call_rhino(
@@ -997,7 +1007,13 @@ async def call_rhino(
         resolved_port = None
     if resolved_process_id is not None and resolved_process_id <= 0:
         resolved_process_id = None
-    data, resolved_port, resolved_process_id, panel_error = _apply_panel_lock_to_request(
+    (
+        data,
+        resolved_port,
+        resolved_process_id,
+        panel_error,
+        panel_instances,
+    ) = _apply_panel_lock_to_request(
         endpoint,
         data,
         resolved_port,
@@ -1011,6 +1027,7 @@ async def call_rhino(
         endpoint=endpoint,
         port=resolved_port,
         process_id=resolved_process_id,
+        instances=panel_instances,
     )
     if normalized_endpoint and normalized_endpoint.startswith(RC_ROUTE_PREFIX) and selected_instance is None:
         return {
@@ -1026,7 +1043,7 @@ async def call_rhino(
         and normalized_endpoint.startswith(GH_ROUTE_PREFIX)
         and selected_instance is None
     ):
-        instances = discover_instances()
+        instances = panel_instances if panel_instances is not None else discover_instances()
         if instances:
             ports_info = ", ".join(
                 f"{inst['port']} ({inst.get('pluginType', 'unknown')})"
@@ -1050,7 +1067,7 @@ async def call_rhino(
         }
 
     if selected_instance is not None:
-        instances = discover_instances()
+        instances = panel_instances if panel_instances is not None else discover_instances()
         if _has_native_host_port_collision(selected_instance, instances):
             host = selected_instance.get("host") or DEFAULT_HOST
             port_value = selected_instance.get("port")
@@ -1065,7 +1082,7 @@ async def call_rhino(
             }
 
     if resolved_process_id is not None and selected_instance is None:
-        instances = discover_instances()
+        instances = panel_instances if panel_instances is not None else discover_instances()
         if instances:
             processes_info = ", ".join(
                 f"PID {inst.get('processId')} @ {inst.get('port')}"

@@ -9,6 +9,30 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from rook import targeting
 
 
+PROCESS_START_TICKS = "638918000000000000"
+GH_DOCUMENT_ID = "67b2942d-7a71-4c2d-ab72-e3df38d48dc4"
+
+
+def _panel_env(
+    process_id: int = 7101,
+    *,
+    ticks: str = PROCESS_START_TICKS,
+    document_serial: str = "42",
+    profile: str = "readonly",
+    grasshopper_document_id: str | None = None,
+) -> dict[str, str]:
+    env = {
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TOOL_PROFILE": profile,
+        "ROOK_MCP_TARGET_PROCESS_ID": str(process_id),
+        "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS": ticks,
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": document_serial,
+    }
+    if grasshopper_document_id is not None:
+        env["ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID"] = grasshopper_document_id
+    return env
+
+
 @pytest.fixture(autouse=True)
 def reset_targeting_state():
     targeting.reset_targeting_state_for_tests()
@@ -21,6 +45,7 @@ def _inst(port: int, pid: int, name: str) -> dict:
         "host": "127.0.0.1",
         "port": port,
         "processId": pid,
+        "processStartUtcTicks": PROCESS_START_TICKS,
         "pluginType": "native",
         "documentName": name,
     }
@@ -90,9 +115,10 @@ def test_solve_readiness_tools_are_explicit_rhino_reads():
 
 def test_panel_lock_initializes_from_valid_env(monkeypatch):
     targeting.reset_targeting_state_for_tests()
-    monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")
-    monkeypatch.setenv("ROOK_MCP_TARGET_PROCESS_ID", "7101")
-    monkeypatch.setenv("ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER", "42")
+    for name, value in _panel_env(
+        grasshopper_document_id=GH_DOCUMENT_ID
+    ).items():
+        monkeypatch.setenv(name, value)
 
     targeting.initialize_from_environment()
 
@@ -100,7 +126,10 @@ def test_panel_lock_initializes_from_valid_env(monkeypatch):
     assert lock is not None
     assert lock.mode == "panel_locked"
     assert lock.process_id == 7101
+    assert lock.process_start_utc_ticks == PROCESS_START_TICKS
     assert lock.document_serial_number == 42
+    assert lock.capability_profile == "readonly"
+    assert lock.grasshopper_document_id == GH_DOCUMENT_ID
     assert lock.reason == "rook_chat_panel"
     assert targeting.get_panel_target_config_error() is None
 
@@ -116,6 +145,51 @@ def test_panel_lock_missing_process_id_fails_closed(monkeypatch):
     error = targeting.get_panel_target_config_error()
     assert error is not None
     assert error["error"] == "panel_target_config_error"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS", ""),
+        ("ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS", "+1"),
+        ("ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS", "01"),
+        ("ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS", " 1"),
+        ("ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS", "0"),
+        (
+            "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS",
+            "3155378976000000000",
+        ),
+        ("ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER", ""),
+        ("ROOK_MCP_TOOL_PROFILE", "authoring"),
+        ("ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID", "NOT-A-GUID"),
+    ],
+)
+def test_panel_lock_rejects_missing_or_noncanonical_environment(field, value):
+    env = _panel_env(grasshopper_document_id=GH_DOCUMENT_ID)
+    env[field] = value
+
+    targeting.initialize_from_environment(env)
+
+    assert targeting.get_panel_target_lock() is None
+    error = targeting.get_panel_target_config_error()
+    assert error is not None
+    assert error["error"] == "panel_target_config_error"
+
+
+def test_panel_lock_requires_ticks_document_and_profile():
+    for field in {
+        "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER",
+        "ROOK_MCP_TOOL_PROFILE",
+    }:
+        targeting.reset_targeting_state_for_tests()
+        env = _panel_env()
+        del env[field]
+
+        targeting.initialize_from_environment(env)
+
+        assert targeting.get_panel_target_lock() is None
+        assert targeting.get_panel_target_config_error() is not None
 
 
 def test_unknown_target_mode_fails_closed(monkeypatch):
@@ -191,11 +265,7 @@ def test_gh_document_open_refuses_multiple_unbound_instances(monkeypatch):
 
 def test_panel_lock_routes_read_tool_to_locked_process_without_auto_pick(monkeypatch):
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "A.3dm"),
         _inst(9951, 7102, "B.3dm"),
@@ -210,13 +280,41 @@ def test_panel_lock_routes_read_tool_to_locked_process_without_auto_pick(monkeyp
     assert route.warning is None
 
 
+@pytest.mark.parametrize("discovered_ticks", [None, "638918000000000001"])
+def test_panel_lock_rejects_missing_or_mismatched_process_generation(
+    monkeypatch,
+    discovered_ticks,
+):
+    targeting.initialize_from_environment(_panel_env(7102))
+    instance = _inst(9951, 7102, "Replacement.3dm")
+    if discovered_ticks is None:
+        del instance["processStartUtcTicks"]
+    else:
+        instance["processStartUtcTicks"] = discovered_ticks
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [instance])
+
+    route = targeting.resolve_tool_route("rhino_document")
+
+    assert route.success is False
+    assert route.error == "panel_target_stale"
+    assert route.target is None
+
+
+def test_non_panel_legacy_discovery_does_not_require_process_ticks(monkeypatch):
+    targeting.initialize_from_environment({})
+    instance = _inst(9951, 7102, "Legacy.3dm")
+    del instance["processStartUtcTicks"]
+    monkeypatch.setattr(targeting, "discover_instances", lambda: [instance])
+
+    route = targeting.resolve_tool_route("rhino_document")
+
+    assert route.success is True
+    assert route.target == targeting.InstanceRef(9951, 7102)
+
+
 def test_panel_lock_rejects_explicit_different_process_port(monkeypatch):
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "A.3dm"),
         _inst(9951, 7102, "B.3dm"),
@@ -231,11 +329,7 @@ def test_panel_lock_rejects_explicit_different_process_port(monkeypatch):
 
 def test_panel_lock_stale_owner_wins_over_conflicting_explicit_port(monkeypatch):
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7109",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7109))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "A.3dm"),
     ])
@@ -249,11 +343,7 @@ def test_panel_lock_stale_owner_wins_over_conflicting_explicit_port(monkeypatch)
 
 def test_panel_lock_allows_same_process_roadcreator_peer(monkeypatch):
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "A.3dm"),
         {
@@ -392,11 +482,7 @@ async def test_bind_match_refuses_ambiguous_matches(monkeypatch):
 @pytest.mark.asyncio
 async def test_panel_lock_bind_match_prefers_same_process_match(monkeypatch):
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "SK-101-other.3dm"),
         _inst(9951, 7102, "SK-101-panel.3dm"),
@@ -412,11 +498,7 @@ async def test_panel_lock_bind_match_prefers_same_process_match(monkeypatch):
 @pytest.mark.asyncio
 async def test_panel_lock_bind_match_other_process_only_fails_locked(monkeypatch):
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9950, 7101, "SK-101-other.3dm"),
         _inst(9951, 7102, "Panel.3dm"),
@@ -431,11 +513,7 @@ async def test_panel_lock_bind_match_other_process_only_fails_locked(monkeypatch
 
 def test_panel_lock_clear_active_instance_fails():
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
     targeting.set_active_target(targeting.InstanceRef(9951, 7102))
 
     result = targeting.clear_active_instance_result()
@@ -448,11 +526,7 @@ def test_panel_lock_clear_active_instance_fails():
 @pytest.mark.asyncio
 async def test_panel_lock_instances_result_reports_lock(monkeypatch):
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9951, 7102, "B.3dm"),
     ])
@@ -467,11 +541,7 @@ async def test_panel_lock_instances_result_reports_lock(monkeypatch):
 
 def test_panel_document_allows_missing_or_matching_serial():
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
 
     assert targeting.apply_locked_document_context({}) == {"documentSerialNumber": 42}
     assert targeting.apply_locked_document_context({"documentSerialNumber": 42}) == {"documentSerialNumber": 42}
@@ -480,11 +550,7 @@ def test_panel_document_allows_missing_or_matching_serial():
 
 def test_panel_document_rejects_conflicting_positive_serial():
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
 
     result = targeting.apply_locked_document_context({"documentSerialNumber": 99})
 
@@ -818,11 +884,7 @@ async def test_get_active_instance_stale_error_reports_canonical_native_instance
 
 @pytest.mark.asyncio
 async def test_panel_lock_get_active_instance_reports_lock_when_active_binding_stale(monkeypatch):
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
         _inst(9951, 7102, "Panel.3dm"),
     ])

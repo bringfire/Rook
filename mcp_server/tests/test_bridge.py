@@ -11,6 +11,30 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from rook import bridge
 
 
+PROCESS_START_TICKS = "638918000000000000"
+
+
+def _panel_env(process_id: int) -> dict[str, str]:
+    return {
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TOOL_PROFILE": "readonly",
+        "ROOK_MCP_TARGET_PROCESS_ID": str(process_id),
+        "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS": PROCESS_START_TICKS,
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    }
+
+
+def _panel_instance(port: int, process_id: int, **extra) -> dict:
+    return {
+        "host": "127.0.0.1",
+        "port": port,
+        "processId": process_id,
+        "processStartUtcTicks": PROCESS_START_TICKS,
+        "pluginType": "native",
+        **extra,
+    }
+
+
 @pytest.fixture(autouse=True)
 def reset_targeting_state():
     from rook import targeting
@@ -501,13 +525,9 @@ async def test_call_tool_installs_locked_document_context(monkeypatch):
     from rook.bridge import get_rhino_request_context
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+        _panel_instance(9950, 7101),
     ])
 
     captured = {}
@@ -531,13 +551,9 @@ async def test_call_tool_rejects_conflicting_document_serial(monkeypatch):
     from rook import server, targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+        _panel_instance(9950, 7101),
     ])
 
     result = await server.call_tool("rhino_document", {"documentSerialNumber": 99})
@@ -548,22 +564,18 @@ async def test_call_tool_rejects_conflicting_document_serial(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_panel_lock_blocks_spawn_agent_before_background_task(monkeypatch):
+async def test_contained_spawn_agent_prevents_background_task_under_panel_lock(monkeypatch):
     from rook import server, targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+        _panel_instance(9950, 7101),
     ])
 
     result = await server.call_tool("spawn_agent", {"prompt": "create a box"})
 
-    assert "panel_target_locked" in result[0].text
+    assert "legacy_semantic_tool_contained" in result[0].text
 
 
 @pytest.mark.asyncio
@@ -571,13 +583,9 @@ async def test_panel_lock_launch_unreachable_requires_external_scope(monkeypatch
     from rook import server, targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7109",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7109))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+        _panel_instance(9950, 7101),
     ])
 
     async def failed_ping(endpoint, *args, **kwargs):
@@ -599,13 +607,9 @@ async def test_panel_lock_launch_live_owner_returns_already_running_without_auto
     from rook import server, targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+        _panel_instance(9950, 7101),
     ])
     called = {"bind": False}
     monkeypatch.setattr(
@@ -635,13 +639,9 @@ async def test_panel_lock_launch_ping_failure_does_not_launch_workbench(monkeypa
     from rook import server, targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
     monkeypatch.setattr(targeting, "discover_instances", lambda: [
-        {"host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native"},
+        _panel_instance(9950, 7101),
     ])
 
     async def failed_ping(endpoint, *args, **kwargs):
@@ -663,17 +663,15 @@ async def test_call_rhino_defaults_to_panel_locked_process(discovery_dir: Path, 
     from rook import targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
-    _write_instance(discovery_dir / "instance-7101-native.json", {
-        "host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native",
-    })
-    _write_instance(discovery_dir / "instance-7102-native.json", {
-        "host": "127.0.0.1", "port": 9951, "processId": 7102, "pluginType": "native",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        _panel_instance(9950, 7101),
+    )
+    _write_instance(
+        discovery_dir / "instance-7102-native.json",
+        _panel_instance(9951, 7102),
+    )
     captured = {}
     monkeypatch.setattr(
         bridge.httpx,
@@ -689,21 +687,47 @@ async def test_call_rhino_defaults_to_panel_locked_process(discovery_dir: Path, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("discovered_ticks", [None, "638918000000000001"])
+async def test_call_rhino_refuses_panel_generation_drift_before_http_dispatch(
+    discovery_dir: Path,
+    monkeypatch,
+    discovered_ticks,
+):
+    from rook import targeting
+
+    targeting.initialize_from_environment(_panel_env(7102))
+    instance = _panel_instance(9951, 7102)
+    if discovered_ticks is None:
+        del instance["processStartUtcTicks"]
+    else:
+        instance["processStartUtcTicks"] = discovered_ticks
+    _write_instance(discovery_dir / "instance-7102-native.json", instance)
+
+    def unexpected_http_client(*args, **kwargs):
+        raise AssertionError("HTTP dispatch must not begin for a stale process generation")
+
+    monkeypatch.setattr(bridge.httpx, "AsyncClient", unexpected_http_client)
+
+    result = await bridge.call_rhino("/document", "GET", {})
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "panel_target_stale"
+
+
+@pytest.mark.asyncio
 async def test_call_rhino_rejects_conflicting_panel_port(discovery_dir: Path):
     from rook import targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
-    _write_instance(discovery_dir / "instance-7101-native.json", {
-        "host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native",
-    })
-    _write_instance(discovery_dir / "instance-7102-native.json", {
-        "host": "127.0.0.1", "port": 9951, "processId": 7102, "pluginType": "native",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        _panel_instance(9950, 7101),
+    )
+    _write_instance(
+        discovery_dir / "instance-7102-native.json",
+        _panel_instance(9951, 7102),
+    )
 
     result = await bridge.call_rhino("/document", "GET", {}, port=9950)
 
@@ -716,14 +740,11 @@ async def test_call_rhino_rejects_conflicting_panel_document(discovery_dir: Path
     from rook import targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7102",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
-    _write_instance(discovery_dir / "instance-7102-native.json", {
-        "host": "127.0.0.1", "port": 9951, "processId": 7102, "pluginType": "native",
-    })
+    targeting.initialize_from_environment(_panel_env(7102))
+    _write_instance(
+        discovery_dir / "instance-7102-native.json",
+        _panel_instance(9951, 7102),
+    )
 
     result = await bridge.call_rhino("/document", "GET", {"documentSerialNumber": 99})
 
@@ -736,14 +757,11 @@ async def test_call_rhino_panel_lock_routes_rc_to_same_process_peer(discovery_di
     from rook import targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
-    _write_instance(discovery_dir / "instance-7101-native.json", {
-        "host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        _panel_instance(9950, 7101),
+    )
     _write_instance(discovery_dir / "instance-7101-roadcreator.json", {
         "host": "127.0.0.1", "port": 9960, "processId": 7101, "pluginType": "roadcreator",
     })
@@ -768,14 +786,11 @@ async def test_call_rhino_panel_lock_canonicalizes_same_process_extension_port_f
     from rook import targeting
 
     targeting.reset_targeting_state_for_tests()
-    targeting.initialize_from_environment({
-        "ROOK_MCP_TARGET_MODE": "panel_locked",
-        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
-        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
-    })
-    _write_instance(discovery_dir / "instance-7101-native.json", {
-        "host": "127.0.0.1", "port": 9950, "processId": 7101, "pluginType": "native",
-    })
+    targeting.initialize_from_environment(_panel_env(7101))
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        _panel_instance(9950, 7101),
+    )
     _write_instance(discovery_dir / "instance-7101-roadcreator.json", {
         "host": "127.0.0.1", "port": 9960, "processId": 7101, "pluginType": "roadcreator",
     })

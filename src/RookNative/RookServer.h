@@ -53,6 +53,7 @@ private:
     void RegisterRoutes();
     void WriteDiscoveryFile();
     void RemoveDiscoveryFile();
+    static std::string GetCurrentProcessStartUtcTicks();
     std::string GetDiscoveryFolder();
     std::string GetDiscoveryFilePath();
 

@@ -712,7 +712,9 @@ async def test_real_gateway_preserves_ingress_and_canonical_rhino_targeting(
         rook_server.targeting.PanelTargetLock(
             mode="panel_locked",
             process_id=7101,
+            process_start_utc_ticks="638918000000000000",
             document_serial_number=42,
+            capability_profile="full",
         ),
     )
     monkeypatch.setattr(
@@ -728,6 +730,7 @@ async def test_real_gateway_preserves_ingress_and_canonical_rhino_targeting(
                 "host": "127.0.0.1",
                 "port": 9950,
                 "processId": 7101,
+                "processStartUtcTicks": "638918000000000000",
                 "pluginType": "native",
                 "documentName": "Gateway.3dm",
             }

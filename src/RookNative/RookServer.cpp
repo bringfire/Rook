@@ -2265,6 +2265,37 @@ std::string CRookServer::GetDiscoveryFilePath()
     return PathToUtf8String(discoveryPath);
 }
 
+std::string CRookServer::GetCurrentProcessStartUtcTicks()
+{
+    FILETIME creationTime = {};
+    FILETIME exitTime = {};
+    FILETIME kernelTime = {};
+    FILETIME userTime = {};
+    if (!::GetProcessTimes(
+            ::GetCurrentProcess(),
+            &creationTime,
+            &exitTime,
+            &kernelTime,
+            &userTime))
+    {
+        return {};
+    }
+
+    ULARGE_INTEGER windowsTicks = {};
+    windowsTicks.LowPart = creationTime.dwLowDateTime;
+    windowsTicks.HighPart = creationTime.dwHighDateTime;
+
+    // FILETIME and .NET ticks are both 100-nanosecond intervals. FILETIME's
+    // epoch is 1601-01-01 UTC; DateTime's epoch is 0001-01-01 UTC.
+    constexpr ULONGLONG kDotNetEpochOffsetTicks = 504911232000000000ULL;
+    constexpr ULONGLONG kDotNetMaxTicks = 3155378975999999999ULL;
+    if (windowsTicks.QuadPart > kDotNetMaxTicks - kDotNetEpochOffsetTicks)
+    {
+        return {};
+    }
+    return std::to_string(windowsTicks.QuadPart + kDotNetEpochOffsetTicks);
+}
+
 void CRookServer::HandleCapabilities(const httplib::Request& /*req*/, httplib::Response& res)
 {
     const DiscoveryRootInfo rootInfo = ResolveDiscoveryRootInfo();
@@ -2291,6 +2322,7 @@ void CRookServer::WriteDiscoveryFile()
         info["port"] = m_port;
         info["pluginType"] = "native";
         info["processId"] = ::GetCurrentProcessId();
+        info["processStartUtcTicks"] = GetCurrentProcessStartUtcTicks();
         info["startTime"] = MakeLocalTimestamp();
         info["pluginVersion"] = kRookNativePluginVersion;
         info["rhinoInside"] = CRookNativePlugin::IsRhinoInside();
