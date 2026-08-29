@@ -38,7 +38,7 @@ Every phase boundary below is an executable artifact handoff, not an assertion t
 | --- | --- | --- | --- | --- | --- |
 | Review authorization -> Task 0 | exact approved plan commit and pinned Prime baseline | active implementation `/goal` supplies the plan commit directly to Task 0's invoked script block | Task 0 records both HEAD/tree identities and clean-status output | Task 0 compares clean Rook `HEAD` with the supplied literal and clean Prime `HEAD` with the pinned baseline | no test or edit begins |
 | Offline isolation -> every real Prime process | scrubbed provider environment, isolated agent/session roots, exact branch-local dependencies | the same PowerShell process removes credentials, creates isolated roots, and launches the Prime command | command output records roots, credential count zero, import paths, and terminal exit | every Prime-launching block repeats the complete preamble before dispatch | that invocation exits; no later shell inherits an assumed scrub |
-| Source build -> installed runtime | exact tested worktree bytes and worktree `uv.lock` environment promoted through the repository-owned local deployment path | Task 0 creates the worktree venv with `uv sync --frozen`; every Python gate uses it; Task 9 closes Rhino/owned workers, builds exact outputs, and deploys with `-UseRepoVenv` | lock hash, worktree interpreter path, deployment log, installed-file/hash inventory, and chat-service manifest | Tasks 10-12 run `uv sync --frozen --check`, rehash the installed inventory, and require the manifest to name the same interpreter before contact | contact remains unauthorized; previous installed bytes or a drifted environment are not treated as current |
+| Source build -> installed runtime | exact tested worktree bytes and worktree `uv.lock` environment promoted through the repository-owned local deployment path | Task 0 creates the worktree venv with `uv sync --frozen --extra test`; every Python gate uses it; Task 9 closes Rhino/owned workers, builds exact outputs, and deploys with `-UseRepoVenv` | lock hash, worktree interpreter path, deployment log, installed-file/hash inventory, and chat-service manifest | Tasks 10-12 run `uv sync --frozen --extra test --check`, rehash the installed inventory, and require the manifest to name the same interpreter before contact | contact remains unauthorized; previous installed bytes or a drifted environment are not treated as current |
 | Task changes -> commit -> frozen inputs | all files named by the task are staged together; evaluator owners remain unchanged | each task's explicit `git add` list includes every actual owner and its tests | focused commit and clean worktree | the next task checks clean status; Task 11 rehashes the four evaluator owners | unstaged or unexpected bytes stop the task before the next phase |
 | Live execution -> evidence seal -> report | Actor/evaluator ownership, terminal receipts, installed/runtime hashes, and process cleanup are complete | qualification owner seals the evidence root first; repository report is written afterward and is not an evidence-manifest member | independently verified evidence manifest plus report citing that manifest SHA-256 | result review recomputes the evidence manifest and checks the committed report against it | sealed evidence remains immutable; an incomplete report or failed commit cannot alter the evidence claim |
 
@@ -247,7 +247,7 @@ Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend
 npm ci
 $rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location "$rook/mcp_server"
-uv sync --frozen
+uv sync --frozen --extra test
 if ($LASTEXITCODE -ne 0) { throw 'Frozen worktree Python environment preparation failed.' }
 $python = "$rook/mcp_server/.venv/Scripts/python.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "Worktree Python interpreter missing: $python" }
@@ -296,7 +296,7 @@ Expected: no credentials remain and no auth file exists. Each later Prime test c
 
 - [ ] **Step 5: Record dependency and source custody**
 
-Record both HEAD/tree hashes, `package-lock.json` and `mcp_server/uv.lock` SHA-256 values, exact worktree `.venv` interpreter path, `uv sync --frozen` result, .NET assets path, and the selected MSVC toolset. Task 0 creates no commit.
+Record both HEAD/tree hashes, `package-lock.json` and `mcp_server/uv.lock` SHA-256 values, exact worktree `.venv` interpreter path, `uv sync --frozen --extra test` result, .NET assets path, and the selected MSVC toolset. Task 0 creates no commit.
 
 ---
 
@@ -1160,7 +1160,7 @@ if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prim
 
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location "$rook/mcp_server"
-uv sync --frozen --check
+uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
@@ -1169,7 +1169,7 @@ $python="$rook/mcp_server/.venv/Scripts/python.exe"
 if ($LASTEXITCODE -ne 0) { throw 'Offline runtime/package/deployment verification failed.' }
 ```
 
-`offline-verify` compares the complete admitted installed `mcp_server` payload against its worktree source under the deploy script's closed exclusions, compares native and all managed RHP/DLL outputs against the installed plugin paths, requires every generated `RookChatService.json` to name the exact checked worktree interpreter, and then verifies the built Prime bundle plus staged readonly/full packages. Retain the `uv.lock` hash, `uv sync --frozen --check` result, exact worktree interpreter, source/build/installed inventories, bundle/goal/package/contract hashes, actual root-kernel interpreter/import paths, recursion source/status, same-contract and old/new concurrency results, child cleanup, and zero provider credential facts. A missing or changed installed owner fails before protocol freeze.
+`offline-verify` compares the complete admitted installed `mcp_server` payload against its worktree source under the deploy script's closed exclusions, compares native and all managed RHP/DLL outputs against the installed plugin paths, requires every generated `RookChatService.json` to name the exact checked worktree interpreter, and then verifies the built Prime bundle plus staged readonly/full packages. Retain the `uv.lock` hash, `uv sync --frozen --extra test --check` result, exact worktree interpreter, source/build/installed inventories, bundle/goal/package/contract hashes, actual root-kernel interpreter/import paths, recursion source/status, same-contract and old/new concurrency results, child cleanup, and zero provider credential facts. A missing or changed installed owner fails before protocol freeze.
 
 - [ ] **Step 8: Freeze the exact Slice 3 protocol**
 
@@ -1198,7 +1198,7 @@ Report exact commands, counts, custody hashes, closed test matrices, branch-loca
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
 Set-Location "$rook/mcp_server"
-uv sync --frozen --check
+uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
 Set-Location $rook
 & $python scripts/rookchat_prime_slices_3_4_qualification.py prepare-slice3 --protocol docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json
@@ -1231,7 +1231,7 @@ Expected: both worktrees clean. Stop for independent implementation review. Do n
 
 - [ ] **Step 1: Reverify frozen bytes and absence of the evidence root**
 
-Require clean Rook and Prime worktrees; `uv sync --frozen --check` against the implementation-worktree environment; exact protocol, runner, package, bundle, goal, contract, `uv.lock`, worktree-interpreter, and installed-file manifest hashes; exact subscription-auth disclosure; the independent review authorization recorded outside the frozen protocol in the execution evidence/report; and no existing Slice 3 evidence root. Any mismatch stops before fixture preparation. Never rewrite the frozen protocol to record authorization or repair the environment during this check.
+Require clean Rook and Prime worktrees; `uv sync --frozen --extra test --check` against the implementation-worktree environment; exact protocol, runner, package, bundle, goal, contract, `uv.lock`, worktree-interpreter, and installed-file manifest hashes; exact subscription-auth disclosure; the independent review authorization recorded outside the frozen protocol in the execution evidence/report; and no existing Slice 3 evidence root. Any mismatch stops before fixture preparation. Never rewrite the frozen protocol to record authorization or repair the environment during this check.
 
 - [ ] **Step 2: Prepare the deterministic two-document fixture outside Actor custody**
 
@@ -1353,7 +1353,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Prime model-free gate failed.' }
 
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location "$rook/mcp_server"
-uv sync --frozen --check
+uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
@@ -1372,7 +1372,7 @@ The one authorized command after review will be:
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
 Set-Location "$rook/mcp_server"
-uv sync --frozen --check
+uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
 Set-Location $rook
 & $python scripts/rookchat_prime_slices_3_4_qualification.py run-slice4 --protocol docs/superpowers/experiments/2026-08-29-rookchat-prime-slice4-point-row-v1.json
@@ -1405,7 +1405,7 @@ Stop. Do not create the full conversation, contact the model, or mutate Grasshop
 
 - [ ] **Step 1: Reverify all frozen inputs before target or model contact**
 
-Require `uv sync --frozen --check` against the implementation-worktree environment; exact protocol, script, Rook/Prime commits, bundle, package/goal manifests, full contract, `uv.lock`, worktree interpreter, evaluator hashes, target identities, clean worktrees, installed paths, and absent evidence root. Refuse any extra CLI argument, process override, accepted root, retry count, environment repair, or configuration change.
+Require `uv sync --frozen --extra test --check` against the implementation-worktree environment; exact protocol, script, Rook/Prime commits, bundle, package/goal manifests, full contract, `uv.lock`, worktree interpreter, evaluator hashes, target identities, clean worktrees, installed paths, and absent evidence root. Refuse any extra CLI argument, process override, accepted root, retry count, environment repair, or configuration change.
 
 - [ ] **Step 2: Start one fresh full conversation and send the exact prompt**
 
@@ -1480,7 +1480,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Prime final model-free gate failed.' }
 
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location "$rook/mcp_server"
-uv sync --frozen --check
+uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
