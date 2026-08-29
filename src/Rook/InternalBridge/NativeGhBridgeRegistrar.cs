@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -1333,7 +1334,27 @@ namespace Rook.InternalBridge
             try
             {
                 var requestJson = ReadUtf8(requestJsonUtf8, requestJsonLength);
-                var result = operation(requestJson);
+                var grasshopperDocumentId = ParseGrasshopperDocumentId(requestJson);
+                ApiResponse result;
+                if (grasshopperDocumentId == null)
+                {
+                    result = operation(requestJson);
+                }
+                else
+                {
+                    var targetDoc = ParseDocumentSerialNumber(requestJson);
+                    if (!targetDoc.HasValue || targetDoc.Value == 0)
+                        throw new InvalidOperationException("A bound Rhino document serial number is required.");
+
+                    var capturedContext = CaptureGrasshopperContextOnUiThread(
+                        grasshopperDocumentId,
+                        TimeSpan.FromSeconds(30));
+                    result = DocumentContext.WithRequiredDocument(
+                        targetDoc.Value,
+                        () => GrasshopperRequestContext.Run(
+                            capturedContext,
+                            () => operation(requestJson)));
+                }
                 var responseJson = JsonSerializer.Serialize(new
                 {
                     success = result.Success,
@@ -2719,8 +2740,7 @@ namespace Rook.InternalBridge
                 {
                     try
                     {
-                        var targetDoc = ParseDocumentSerialNumber(requestJson);
-                        var result = DocumentContext.WithDocument(targetDoc, operation);
+                        var result = ExecuteWithManagedTargetContexts(requestJson, operation);
                         object? data = result.Success ? result.Data : result.Error;
                         responseJson = JsonSerializer.Serialize(new
                         {
@@ -2801,8 +2821,9 @@ namespace Rook.InternalBridge
                 {
                     try
                     {
-                        var targetDoc = ParseDocumentSerialNumber(requestJson);
-                        var result = DocumentContext.WithDocument(targetDoc, () => operation(requestJson));
+                        var result = ExecuteWithManagedTargetContexts(
+                            requestJson,
+                            () => operation(requestJson));
                         responseJson = JsonSerializer.Serialize(new
                         {
                             success = result.Success,
@@ -2873,6 +2894,91 @@ namespace Rook.InternalBridge
             }
 
             return null;
+        }
+
+        private static string? ParseGrasshopperDocumentId(string? requestJson)
+        {
+            var args = ParseRequestArgs(requestJson);
+            if (args == null || !args.TryGetValue("grasshopperDocumentId", out var value))
+                return null;
+            if (value.ValueKind != JsonValueKind.String)
+                throw new InvalidOperationException("The bound Grasshopper document id must be a canonical GUID.");
+
+            return value.GetString();
+        }
+
+        private static T ExecuteWithManagedTargetContexts<T>(
+            string requestJson,
+            Func<T> operation)
+        {
+            var targetDoc = ParseDocumentSerialNumber(requestJson);
+            var grasshopperDocumentId = ParseGrasshopperDocumentId(requestJson);
+            if (grasshopperDocumentId == null)
+                return DocumentContext.WithDocument(targetDoc, operation);
+            if (!targetDoc.HasValue || targetDoc.Value == 0)
+                throw new InvalidOperationException("A bound Rhino document serial number is required.");
+
+            var assembly = ResolveGrasshopperAssembly();
+            var activeCanvas = ResolveActiveCanvasGetter(assembly);
+            return DocumentContext.WithRequiredDocument(
+                targetDoc.Value,
+                () => GrasshopperRequestContext.CaptureAndRun(
+                    assembly,
+                    activeCanvas,
+                    grasshopperDocumentId,
+                    operation));
+        }
+
+        private static CapturedGrasshopperRequestContext CaptureGrasshopperContextOnUiThread(
+            string grasshopperDocumentId,
+            TimeSpan timeout)
+        {
+            CapturedGrasshopperRequestContext? captured = null;
+            Exception? captureError = null;
+            var waitHandle = new ManualResetEventSlim(false);
+            RhinoApp.InvokeOnUiThread(new Action(() =>
+            {
+                try
+                {
+                    var assembly = ResolveGrasshopperAssembly();
+                    captured = GrasshopperRequestContext.Capture(
+                        assembly,
+                        ResolveActiveCanvasGetter(assembly),
+                        grasshopperDocumentId);
+                }
+                catch (Exception ex)
+                {
+                    captureError = ex;
+                }
+                finally
+                {
+                    waitHandle.Set();
+                }
+            }));
+
+            if (!waitHandle.Wait(timeout))
+                throw new TimeoutException("Grasshopper target capture timed out.");
+            if (captureError != null)
+                throw captureError;
+            return captured ?? throw new InvalidOperationException("Grasshopper target capture failed.");
+        }
+
+        private static Assembly ResolveGrasshopperAssembly()
+        {
+            return AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(assembly => assembly.GetName().Name == "Grasshopper")
+                ?? throw new InvalidOperationException("Grasshopper assembly is not loaded.");
+        }
+
+        private static Func<object?> ResolveActiveCanvasGetter(Assembly assembly)
+        {
+            var instancesType = assembly.GetType("Grasshopper.Instances")
+                ?? throw new InvalidOperationException("Grasshopper.Instances type was not found.");
+            var activeCanvas = instancesType.GetProperty(
+                "ActiveCanvas",
+                BindingFlags.Public | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Grasshopper ActiveCanvas property was not found.");
+            return () => activeCanvas.GetValue(null);
         }
 
         private static Dictionary<string, JsonElement>? ParseRequestArgs(string? requestJson)

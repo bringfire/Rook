@@ -21311,6 +21311,15 @@ async def call_tool(
         return await _handle_meta_tool(name, arguments, _active_profile,
                                        _public_mcp=_public_mcp)
 
+    if (
+        targeting.get_panel_target_lock() is not None
+        and name in targeting.PANEL_LOCKED_GH_DOCUMENT_SWITCH_TOOLS
+    ):
+        return _project_tool_result(
+            targeting.panel_locked_gh_document_switch_result(name),
+            public_mcp=_public_mcp,
+        )
+
     # Model-facing authoring admission owns the caller's original arguments.
     # Apply it after containment/profile/meta enforcement but before Rhino
     # routing or panel document-context enrichment. The dispatcher repeats the
@@ -21394,7 +21403,10 @@ async def call_tool(
         )
 
     dispatch_arguments = dict(arguments)
-    doc_applied = targeting.apply_locked_document_context(dispatch_arguments)
+    doc_applied = targeting.apply_locked_document_context(
+        dispatch_arguments,
+        grasshopper_request=name.startswith("gh_"),
+    )
     if isinstance(doc_applied, dict) and doc_applied.get("success") is False:
         return _project_tool_result(doc_applied, public_mcp=_public_mcp)
     dispatch_arguments = doc_applied

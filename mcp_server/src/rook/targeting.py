@@ -78,6 +78,10 @@ _PANEL_TARGET_LOCK: PanelTargetLock | None = None
 _PANEL_TARGET_CONFIG_ERROR: dict[str, Any] | None = None
 _ENV_INITIALIZED = False
 
+PANEL_LOCKED_GH_DOCUMENT_SWITCH_TOOLS = frozenset(
+    {"gh_document_new", "gh_document_open", "gh_learn_directory"}
+)
+
 
 def reset_targeting_state_for_tests() -> None:
     global _ACTIVE_TARGET, _PANEL_TARGET_LOCK, _PANEL_TARGET_CONFIG_ERROR, _ENV_INITIALIZED
@@ -1000,7 +1004,11 @@ def _resolve_locked_target(instances: list[dict[str, Any]]) -> tuple[InstanceRef
     return targets[0] if targets else None
 
 
-def apply_locked_document_context(arguments: dict[str, Any] | None) -> dict[str, Any]:
+def apply_locked_document_context(
+    arguments: dict[str, Any] | None,
+    *,
+    grasshopper_request: bool = False,
+) -> dict[str, Any]:
     args = dict(arguments) if arguments else {}
     lock = _PANEL_TARGET_LOCK
     if lock is None or not lock.document_serial_number:
@@ -1013,7 +1021,37 @@ def apply_locked_document_context(arguments: dict[str, Any] | None) -> dict[str,
             requested={"requestedDocumentSerialNumber": requested},
         )
     args["documentSerialNumber"] = lock.document_serial_number
+    if grasshopper_request:
+        if lock.grasshopper_document_id is None:
+            return _panel_error(
+                "grasshopper_target_unbound",
+                "This panel-locked conversation has no bound Grasshopper document.",
+            )
+        requested_gh = args.get("grasshopperDocumentId")
+        try:
+            normalized_gh = _parse_optional_canonical_guid(requested_gh)
+        except ValueError:
+            return _panel_error(
+                "panel_grasshopper_document_locked",
+                "The requested Grasshopper document does not match the panel lock.",
+            )
+        if normalized_gh is not None and normalized_gh != lock.grasshopper_document_id:
+            return _panel_error(
+                "panel_grasshopper_document_locked",
+                "The requested Grasshopper document does not match the panel lock.",
+            )
+        args["grasshopperDocumentId"] = lock.grasshopper_document_id
     return args
+
+
+def panel_locked_gh_document_switch_result(tool_name: str) -> dict[str, Any]:
+    return {
+        "success": False,
+        "data": {
+            "error": "panel_grasshopper_document_locked",
+            "tool": tool_name,
+        },
+    }
 
 
 def resolve_active_target() -> ActiveTargetResolution:

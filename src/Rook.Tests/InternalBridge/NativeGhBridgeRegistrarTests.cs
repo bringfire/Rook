@@ -131,6 +131,35 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void CallbackExecutors_EnterStrictRhinoAndCapturedGrasshopperContexts()
+        {
+            var source = ReadRegistrarSource();
+            var readOnly = ExtractMethod(source, "private static int ExecuteReadOnlyCallback");
+            var apiResponse = ExtractMethod(source, "private static int ExecuteApiResponseCallback");
+            var readiness = ExtractMethod(source, "private static int ExecuteDirectReadinessCallback");
+            var targetScope = ExtractMethod(source, "private static T ExecuteWithManagedTargetContexts");
+
+            Assert.Contains("ExecuteWithManagedTargetContexts", readOnly);
+            Assert.Contains("ExecuteWithManagedTargetContexts", apiResponse);
+            Assert.Contains("ParseGrasshopperDocumentId", readiness);
+            Assert.Contains("WithRequiredDocument", readiness);
+            Assert.Contains("GrasshopperRequestContext", readiness);
+            Assert.Contains("WithRequiredDocument", targetScope);
+            Assert.Contains("GrasshopperRequestContext.CaptureAndRun", targetScope);
+        }
+
+        [Fact]
+        public void GrasshopperConsumers_PreferTheCapturedRequestContext()
+        {
+            var root = FindRepoRoot();
+            var core = File.ReadAllText(Path.Combine(root, "src", "Rook", "InternalBridge", "GrasshopperCore.cs"));
+            var handler = File.ReadAllText(Path.Combine(root, "src", "Rook", "Handlers", "GrasshopperHandler.cs"));
+
+            Assert.Contains("GrasshopperRequestContext.Current", core);
+            Assert.Contains("GrasshopperRequestContext.Current", handler);
+        }
+
+        [Fact]
         public void Batch_component_info_bridge_forwards_the_exact_request_body_once()
         {
             var source = ReadRegistrarSource();

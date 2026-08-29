@@ -974,7 +974,10 @@ def _apply_panel_lock_to_request(
             return data, port, process_id, targeting.panel_target_locked_result(), None
         port = None
 
-    applied = targeting.apply_locked_document_context(data)
+    applied = targeting.apply_locked_document_context(
+        data,
+        grasshopper_request=endpoint.startswith("/gh/"),
+    )
     if isinstance(applied, dict) and applied.get("success") is False:
         return data, port, process_id, applied, None
 

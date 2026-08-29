@@ -6317,6 +6317,17 @@ namespace Rook.Handlers
 
         private GrasshopperContext GetGrasshopper(bool requireDocument = true)
         {
+            var captured = GrasshopperRequestContext.Current;
+            if (captured != null)
+            {
+                return new GrasshopperContext(
+                    true,
+                    null,
+                    captured.Assembly,
+                    captured.Canvas,
+                    captured.Document);
+            }
+
             lock (_lock)
             {
                 _ghAssembly ??= AppDomain.CurrentDomain.GetAssemblies()

@@ -366,6 +366,87 @@ async def test_panel_locked_canonical_and_direct_handoffs_preserve_caller_reques
     assert request == _edit_with({"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]})
 
 
+def test_panel_locked_gh_context_injects_exact_bound_document_identity() -> None:
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TOOL_PROFILE": "full",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS": "638918000000000000",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+        "ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID": (
+            "01234567-89ab-cdef-0123-456789abcdef"
+        ),
+    })
+    try:
+        applied = targeting.apply_locked_document_context(
+            {"epoch": 7},
+            grasshopper_request=True,
+        )
+    finally:
+        targeting.reset_targeting_state_for_tests()
+
+    assert applied == {
+        "epoch": 7,
+        "documentSerialNumber": 42,
+        "grasshopperDocumentId": "01234567-89ab-cdef-0123-456789abcdef",
+    }
+
+
+@pytest.mark.parametrize(
+    "requested",
+    [
+        "fedcba98-7654-3210-fedc-ba9876543210",
+        "01234567-89AB-CDEF-0123-456789ABCDEF",
+        "not-a-guid",
+        17,
+    ],
+)
+def test_panel_locked_gh_context_refuses_payload_target_override(requested: object) -> None:
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TOOL_PROFILE": "full",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS": "638918000000000000",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+        "ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID": (
+            "01234567-89ab-cdef-0123-456789abcdef"
+        ),
+    })
+    try:
+        applied = targeting.apply_locked_document_context(
+            {"grasshopperDocumentId": requested},
+            grasshopper_request=True,
+        )
+    finally:
+        targeting.reset_targeting_state_for_tests()
+
+    assert applied["success"] is False
+    assert applied["data"]["error"] == "panel_grasshopper_document_locked"
+
+
+def test_panel_locked_gh_context_requires_bound_document_identity() -> None:
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TOOL_PROFILE": "full",
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS": "638918000000000000",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    try:
+        applied = targeting.apply_locked_document_context(
+            {},
+            grasshopper_request=True,
+        )
+    finally:
+        targeting.reset_targeting_state_for_tests()
+
+    assert applied["success"] is False
+    assert applied["data"]["error"] == "grasshopper_target_unbound"
+
+
 @pytest.mark.asyncio
 async def test_canonical_handoff_precedes_target_availability(
     monkeypatch: pytest.MonkeyPatch,

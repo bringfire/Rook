@@ -46,6 +46,15 @@ namespace Rook.InternalBridge
 
         private GrasshopperStatusDto ObserveStatus()
         {
+            var captured = GrasshopperRequestContext.Current;
+            if (captured != null)
+            {
+                return ObserveStatus(
+                    captured.Assembly,
+                    captured.Canvas,
+                    captured.Document);
+            }
+
             lock (_lock)
             {
                 _ghAssembly ??= AppDomain.CurrentDomain.GetAssemblies()
@@ -65,11 +74,21 @@ namespace Rook.InternalBridge
                 };
             }
 
-            var warnings = new List<string>();
             var instancesType = _ghAssembly.GetType("Grasshopper.Instances");
+            var canvasProp = instancesType?.GetProperty("ActiveCanvas", BindingFlags.Public | BindingFlags.Static);
+            var canvas = canvasProp?.GetValue(null);
+            var document = canvas?.GetType().GetProperty("Document")?.GetValue(canvas);
+            return ObserveStatus(_ghAssembly, canvas, document);
+        }
+
+        private static GrasshopperStatusDto ObserveStatus(
+            Assembly assembly,
+            object? canvas,
+            object? document)
+        {
+            var warnings = new List<string>();
+            var instancesType = assembly.GetType("Grasshopper.Instances");
             var available = instancesType != null;
-            object? canvas = null;
-            object? document = null;
             bool? canvasVisible = null;
             var visibilityUnknown = true;
 
@@ -79,12 +98,8 @@ namespace Rook.InternalBridge
             }
             else
             {
-                var canvasProp = instancesType.GetProperty("ActiveCanvas", BindingFlags.Public | BindingFlags.Static);
-                canvas = canvasProp?.GetValue(null);
                 if (canvas != null)
                 {
-                    var docProp = canvas.GetType().GetProperty("Document");
-                    document = docProp?.GetValue(canvas);
                     canvasVisible = DetectCanvasVisible(canvas, out visibilityUnknown);
                     if (visibilityUnknown)
                         warnings.Add("Grasshopper canvas visibility could not be detected.");
@@ -118,7 +133,7 @@ namespace Rook.InternalBridge
             return new GrasshopperStatusDto
             {
                 Available = available,
-                AssemblyVersion = _ghAssembly.GetName().Version?.ToString() ?? "",
+                AssemblyVersion = assembly.GetName().Version?.ToString() ?? "",
                 HasActiveCanvas = canvas != null,
                 CanvasVisible = canvasVisible,
                 VisibilityUnknown = visibilityUnknown,
@@ -252,6 +267,15 @@ namespace Rook.InternalBridge
 
         private ResolvedGrasshopperContext ResolveContext()
         {
+            var captured = GrasshopperRequestContext.Current;
+            if (captured != null)
+            {
+                return ResolvedGrasshopperContext.Ok(
+                    captured.Assembly,
+                    captured.Canvas,
+                    captured.Document);
+            }
+
             lock (_lock)
             {
                 _ghAssembly ??= AppDomain.CurrentDomain.GetAssemblies()
