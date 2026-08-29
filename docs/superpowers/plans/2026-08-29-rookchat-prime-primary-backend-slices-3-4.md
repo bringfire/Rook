@@ -38,7 +38,7 @@ Every phase boundary below is an executable artifact handoff, not an assertion t
 | --- | --- | --- | --- | --- | --- |
 | Review authorization -> Task 0 | exact approved plan commit and pinned Prime baseline | active implementation `/goal` supplies the plan commit directly to Task 0's invoked script block | Task 0 records both HEAD/tree identities and clean-status output | Task 0 compares clean Rook `HEAD` with the supplied literal and clean Prime `HEAD` with the pinned baseline | no test or edit begins |
 | Offline isolation -> every real Prime process | scrubbed provider environment, isolated agent/session roots, exact branch-local dependencies | the same PowerShell process removes credentials, creates isolated roots, and launches the Prime command | command output records roots, credential count zero, import paths, and terminal exit | every Prime-launching block repeats the complete preamble before dispatch | that invocation exits; no later shell inherits an assumed scrub |
-| Source build -> installed runtime | exact tested worktree bytes promoted through the repository-owned local deployment path | Task 9 closes Rhino/owned workers, builds exact outputs, runs `scripts/deploy-local-testing.ps1`, then hashes source/build and installed owners | deployment log plus installed-file/hash inventory and chat-service manifest | Tasks 10-12 rehash the installed inventory before fixture, target, provider, or model contact | contact remains unauthorized; previous installed bytes are not treated as current |
+| Source build -> installed runtime | exact tested worktree bytes and worktree `uv.lock` environment promoted through the repository-owned local deployment path | Task 0 creates the worktree venv with `uv sync --frozen`; every Python gate uses it; Task 9 closes Rhino/owned workers, builds exact outputs, and deploys with `-UseRepoVenv` | lock hash, worktree interpreter path, deployment log, installed-file/hash inventory, and chat-service manifest | Tasks 10-12 run `uv sync --frozen --check`, rehash the installed inventory, and require the manifest to name the same interpreter before contact | contact remains unauthorized; previous installed bytes or a drifted environment are not treated as current |
 | Task changes -> commit -> frozen inputs | all files named by the task are staged together; evaluator owners remain unchanged | each task's explicit `git add` list includes every actual owner and its tests | focused commit and clean worktree | the next task checks clean status; Task 11 rehashes the four evaluator owners | unstaged or unexpected bytes stop the task before the next phase |
 | Live execution -> evidence seal -> report | Actor/evaluator ownership, terminal receipts, installed/runtime hashes, and process cleanup are complete | qualification owner seals the evidence root first; repository report is written afterward and is not an evidence-manifest member | independently verified evidence manifest plus report citing that manifest SHA-256 | result review recomputes the evidence manifest and checks the committed report against it | sealed evidence remains immutable; an incomplete report or failed commit cannot alter the evidence claim |
 
@@ -245,11 +245,17 @@ Expected: no output and exit zero. The script block is explicitly invoked with t
 ```powershell
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend
 npm ci
-Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend
+$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location "$rook/mcp_server"
+uv sync --frozen
+if ($LASTEXITCODE -ne 0) { throw 'Frozen worktree Python environment preparation failed.' }
+$python = "$rook/mcp_server/.venv/Scripts/python.exe"
+if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "Worktree Python interpreter missing: $python" }
+Set-Location $rook
 dotnet restore src/Rook.Tests/Rook.Tests.csproj
 ```
 
-Expected: `package-lock.json` remains unchanged and `src/Rook.Tests/obj/project.assets.json` is created beneath the Rook worktree.
+Expected: `package-lock.json` and `mcp_server/uv.lock` remain unchanged; the authoritative Python interpreter exists beneath the implementation worktree; and `src/Rook.Tests/obj/project.assets.json` is created beneath the Rook worktree.
 
 - [ ] **Step 3: Prove branch-local Node and Python imports**
 
@@ -264,7 +270,8 @@ $rook = [IO.Path]::GetFullPath('C:/UDEV/Rook/.worktrees/rookchat-prime-primary-b
 Set-Location $rook
 $env:PYTHONPATH = "$rook/mcp_server/src"
 $env:ROOK_IMPLEMENTATION_ROOT = $rook
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -c "from pathlib import Path; import os, rook, rook.agent.chat.server as s; root=Path(os.environ['ROOK_IMPLEMENTATION_ROOT']).resolve(); assert root in Path(rook.__file__).resolve().parents; assert root in Path(s.__file__).resolve().parents"
+$python = "$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -c "from pathlib import Path; import os, rook, rook.agent.chat.server as s; root=Path(os.environ['ROOK_IMPLEMENTATION_ROOT']).resolve(); assert root in Path(rook.__file__).resolve().parents; assert root in Path(s.__file__).resolve().parents"
 ```
 
 Expected: `prime-source-import-ok`; both Rook modules resolve beneath the implementation worktree.
@@ -289,7 +296,7 @@ Expected: no credentials remain and no auth file exists. Each later Prime test c
 
 - [ ] **Step 5: Record dependency and source custody**
 
-Record both HEAD/tree hashes, `package-lock.json` SHA-256, Rook `.venv` interpreter path, .NET assets path, and the selected MSVC toolset. Task 0 creates no commit.
+Record both HEAD/tree hashes, `package-lock.json` and `mcp_server/uv.lock` SHA-256 values, exact worktree `.venv` interpreter path, `uv sync --frozen` result, .NET assets path, and the selected MSVC toolset. Task 0 creates no commit.
 
 ---
 
@@ -459,8 +466,9 @@ Race two staging/preparation owners for one contract and assert one stable packa
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_prime_runtime_contract.py -q
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/agent/chat/prime_runtime_contract.py
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -m pytest mcp_server/tests/test_prime_runtime_contract.py -q
+& $python -m py_compile mcp_server/src/rook/agent/chat/prime_runtime_contract.py
 git diff --check
 ```
 
@@ -549,8 +557,9 @@ Invoke it before prompt lifecycle mutation or Prime dispatch. Automatic Prime co
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_chat_server.py -q
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/agent/chat/prime_registry.py mcp_server/src/rook/agent/chat/prime_backend.py mcp_server/src/rook/agent/chat/server.py
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_chat_server.py -q
+& $python -m py_compile mcp_server/src/rook/agent/chat/prime_registry.py mcp_server/src/rook/agent/chat/prime_backend.py mcp_server/src/rook/agent/chat/server.py
 git diff --check
 ```
 
@@ -642,8 +651,9 @@ Use Task 2's canonical builder. Check the generated `package-manifest.json` into
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_prime_runtime_contract.py -q
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile integrations/prime/skills/rook-full/src/rook_full/__init__.py
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -m pytest mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_prime_runtime_contract.py -q
+& $python -m py_compile integrations/prime/skills/rook-full/src/rook_full/__init__.py
 git diff --check
 ```
 
@@ -706,7 +716,8 @@ Add `DocumentContext.WithRequiredDocument(uint, Func<T>)` or an equivalent scope
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py -q
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -m pytest mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py -q
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore --filter "FullyQualifiedName~DocumentContextTests|FullyQualifiedName~ChatServiceManagerTests"
 cmd /c "call \"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat\" x64 -vcvars_ver=14.44 && msbuild src\RookNative\RookNative.vcxproj /t:Build /p:Configuration=Debug /p:Platform=x64 /p:VCToolsVersion=14.44.35207"
 git diff --check
@@ -780,9 +791,10 @@ Keep the deny set local to panel-locked GH admission in `server.py`/targeting, a
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore --filter "FullyQualifiedName~NativeGhBridgeRegistrarTests|FullyQualifiedName~GrasshopperTargetContextTests"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py -q
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/server.py mcp_server/src/rook/bridge.py mcp_server/src/rook/targeting.py
+& $python -m pytest mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py -q
+& $python -m py_compile mcp_server/src/rook/server.py mcp_server/src/rook/bridge.py mcp_server/src/rook/targeting.py
 git diff --check
 ```
 
@@ -886,8 +898,9 @@ if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prim
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_chat_server.py -q
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/agent/chat/prime_process.py mcp_server/src/rook/agent/chat/prime_rpc_protocol.py mcp_server/src/rook/agent/chat/prime_backend.py mcp_server/src/rook/agent/chat/service_main.py
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -m pytest mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_chat_server.py -q
+& $python -m py_compile mcp_server/src/rook/agent/chat/prime_process.py mcp_server/src/rook/agent/chat/prime_rpc_protocol.py mcp_server/src/rook/agent/chat/prime_backend.py mcp_server/src/rook/agent/chat/service_main.py
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore --filter "FullyQualifiedName~ChatServiceManagerTests|FullyQualifiedName~AgentChatClientParseTests|FullyQualifiedName~AgentChatPrimeLifecycleTests"
 
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
@@ -998,7 +1011,8 @@ if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prim
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -m pytest mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore --filter "FullyQualifiedName~AgentChatClientParseTests|FullyQualifiedName~AgentChatPrimeLifecycleTests"
 
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
@@ -1046,7 +1060,7 @@ seal-slice4
 
 At this gate, `run-slice3` and all Slice 4 commands must refuse `precontact_not_authorized` before creating their evidence roots. Test exact evidence-root ownership, no retry field, frozen prompt bytes, trace owner labels, non-self-referential manifest verification, and zero product imports into the script's adjudication helpers.
 
-Add source-to-install transition tests with temporary source/build/install trees. Exact admitted MCP bytes, native RHP, all managed RHP/DLL files, and chat-service manifests pass; missing, stale, extra admitted, wrong-path, or wrong-hash installed owners fail before protocol preparation. Mirror the existing deploy script's closed cache/build/secret exclusions rather than inventing a second payload definition.
+Add source-to-install transition tests with temporary source/build/install trees. Exact admitted MCP bytes, native RHP, all managed RHP/DLL files, and chat-service manifests pass; missing, stale, extra admitted, wrong-path, wrong-hash, wrong-interpreter, or unsynchronized-worktree-environment owners fail before protocol preparation. Require every dev chat-service manifest to name the exact implementation-worktree `.venv` interpreter. Mirror the existing deploy script's closed cache/build/secret exclusions rather than inventing a second payload definition.
 
 Add one model-free vertical with the real broker and fake Prime/kernel/MCP children that proves: readonly nested mutator refusal before dispatch; full fake mutation admission; structured failure custody through panel parsing; Stop during adapter launch, initialize, and call reaps the child; no-envelope loss is uncertain and is not replayed; late completion cannot publish; and a closed conversation cannot reopen.
 
@@ -1093,8 +1107,9 @@ if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prim
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_runtime_contract.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_chat_integration.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m compileall -q mcp_server/src/rook integrations/prime/skills/rook-full/src scripts/rookchat_prime_slices_3_4_qualification.py
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_runtime_contract.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_chat_integration.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
+& $python -m compileall -q mcp_server/src/rook integrations/prime/skills/rook-full/src scripts/rookchat_prime_slices_3_4_qualification.py
 ```
 
 - [ ] **Step 5: Run the complete managed and native gate**
@@ -1144,13 +1159,17 @@ if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -n
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location "$rook/mcp_server"
+uv sync --frozen --check
+if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/rookchat_prime_slices_3_4_qualification.py offline-verify
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python scripts/rookchat_prime_slices_3_4_qualification.py offline-verify
 if ($LASTEXITCODE -ne 0) { throw 'Offline runtime/package/deployment verification failed.' }
 ```
 
-`offline-verify` compares the complete admitted installed `mcp_server` payload against its worktree source under the deploy script's closed exclusions, compares native and all managed RHP/DLL outputs against the installed plugin paths, validates every generated `RookChatService.json`, and then verifies the built Prime bundle plus staged readonly/full packages. Retain exact source/build/installed inventories, bundle/goal/package/contract hashes, actual root-kernel interpreter/import paths, recursion source/status, same-contract and old/new concurrency results, child cleanup, and zero provider credential facts. A missing or changed installed owner fails before protocol freeze.
+`offline-verify` compares the complete admitted installed `mcp_server` payload against its worktree source under the deploy script's closed exclusions, compares native and all managed RHP/DLL outputs against the installed plugin paths, requires every generated `RookChatService.json` to name the exact checked worktree interpreter, and then verifies the built Prime bundle plus staged readonly/full packages. Retain the `uv.lock` hash, `uv sync --frozen --check` result, exact worktree interpreter, source/build/installed inventories, bundle/goal/package/contract hashes, actual root-kernel interpreter/import paths, recursion source/status, same-contract and old/new concurrency results, child cleanup, and zero provider credential facts. A missing or changed installed owner fails before protocol freeze.
 
 - [ ] **Step 8: Freeze the exact Slice 3 protocol**
 
@@ -1158,6 +1177,7 @@ The protocol must bind:
 
 - exact Rook and Prime commits/tree/bundle manifests;
 - exact source/build/installed deployment inventory and chat-service manifest hashes;
+- exact `mcp_server/uv.lock` hash and implementation-worktree interpreter path;
 - exact goal and Rook package manifests;
 - `readonly` contract fingerprint and kernel path;
 - model/provider/thinking/auth disclosure selected for the live smoke;
@@ -1175,8 +1195,14 @@ Do not prepare Rhino or create either GH document yet.
 Report exact commands, counts, custody hashes, closed test matrices, branch-local imports, provider-contact exclusion, installed product paths, and explicit non-claims. Include the exact proposed commands:
 
 ```powershell
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/rookchat_prime_slices_3_4_qualification.py prepare-slice3 --protocol docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/rookchat_prime_slices_3_4_qualification.py run-slice3 --protocol docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json
+$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+Set-Location "$rook/mcp_server"
+uv sync --frozen --check
+if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
+Set-Location $rook
+& $python scripts/rookchat_prime_slices_3_4_qualification.py prepare-slice3 --protocol docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json
+& $python scripts/rookchat_prime_slices_3_4_qualification.py run-slice3 --protocol docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json
 ```
 
 - [ ] **Step 10: Commit the offline gate and stop**
@@ -1205,7 +1231,7 @@ Expected: both worktrees clean. Stop for independent implementation review. Do n
 
 - [ ] **Step 1: Reverify frozen bytes and absence of the evidence root**
 
-Require clean Rook and Prime worktrees; exact protocol, runner, package, bundle, goal, and contract hashes; exact installed-file manifests; exact subscription-auth disclosure; the independent review authorization recorded outside the frozen protocol in the execution evidence/report; and no existing Slice 3 evidence root. Any mismatch stops before fixture preparation. Never rewrite the frozen protocol to record authorization.
+Require clean Rook and Prime worktrees; `uv sync --frozen --check` against the implementation-worktree environment; exact protocol, runner, package, bundle, goal, contract, `uv.lock`, worktree-interpreter, and installed-file manifest hashes; exact subscription-auth disclosure; the independent review authorization recorded outside the frozen protocol in the execution evidence/report; and no existing Slice 3 evidence root. Any mismatch stops before fixture preparation. Never rewrite the frozen protocol to record authorization or repair the environment during this check.
 
 - [ ] **Step 2: Prepare the deterministic two-document fixture outside Actor custody**
 
@@ -1326,9 +1352,13 @@ npm run build
 if ($LASTEXITCODE -ne 0) { throw 'Prime model-free gate failed.' }
 
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location "$rook/mcp_server"
+uv sync --frozen --check
+if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_runtime_contract.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_chat_integration.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_runtime_contract.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_chat_integration.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
 if ($LASTEXITCODE -ne 0) { throw 'Rook model-free gate failed.' }
 ```
 
@@ -1339,7 +1369,13 @@ This is the required pre-mutation review evidence, not another architecture pass
 The one authorized command after review will be:
 
 ```powershell
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/rookchat_prime_slices_3_4_qualification.py run-slice4 --protocol docs/superpowers/experiments/2026-08-29-rookchat-prime-slice4-point-row-v1.json
+$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+Set-Location "$rook/mcp_server"
+uv sync --frozen --check
+if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
+Set-Location $rook
+& $python scripts/rookchat_prime_slices_3_4_qualification.py run-slice4 --protocol docs/superpowers/experiments/2026-08-29-rookchat-prime-slice4-point-row-v1.json
 ```
 
 The report records the absent evidence root, exact target identities, full runtime contract, evaluator hashes, clean worktrees, and explicit prohibition on retry/prompt repair.
@@ -1369,7 +1405,7 @@ Stop. Do not create the full conversation, contact the model, or mutate Grasshop
 
 - [ ] **Step 1: Reverify all frozen inputs before target or model contact**
 
-Require exact protocol, script, Rook/Prime commits, bundle, package/goal manifests, full contract, evaluator hashes, target identities, clean worktrees, installed paths, and absent evidence root. Refuse any extra CLI argument, process override, accepted root, retry count, or configuration change.
+Require `uv sync --frozen --check` against the implementation-worktree environment; exact protocol, script, Rook/Prime commits, bundle, package/goal manifests, full contract, `uv.lock`, worktree interpreter, evaluator hashes, target identities, clean worktrees, installed paths, and absent evidence root. Refuse any extra CLI argument, process override, accepted root, retry count, environment repair, or configuration change.
 
 - [ ] **Step 2: Start one fresh full conversation and send the exact prompt**
 
@@ -1443,9 +1479,13 @@ npm run build
 if ($LASTEXITCODE -ne 0) { throw 'Prime final model-free gate failed.' }
 
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location "$rook/mcp_server"
+uv sync --frozen --check
+if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_runtime_contract.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_chat_integration.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
+$python="$rook/mcp_server/.venv/Scripts/python.exe"
+& $python -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_runtime_contract.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_chat_integration.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
 if ($LASTEXITCODE -ne 0) { throw 'Rook final model-free gate failed.' }
 ```
 
