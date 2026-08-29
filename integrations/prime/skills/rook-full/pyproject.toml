@@ -1,6 +1,6 @@
 [project]
 name = "prime-agent-skill-rook-full"
-version = "0.0.0"
+version = "1.0.0"
 requires-python = ">=3.11"
 dependencies = ["mcp==1.28.1", "prime-agent-runtime"]
 

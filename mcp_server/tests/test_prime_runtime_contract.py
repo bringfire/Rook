@@ -20,6 +20,11 @@ from rook.agent.chat.prime_runtime_contract import (
 )
 
 
+PRODUCT_PACKAGE_ROOT = (
+    Path(__file__).parents[2] / "integrations" / "prime" / "skills" / "rook-full"
+)
+
+
 def _write_package(root: Path, *, body: str = "VALUE = 1\n") -> Path:
     (root / "src" / "rook_full").mkdir(parents=True)
     (root / "references").mkdir()
@@ -69,6 +74,15 @@ def test_goal_and_rook_packages_use_the_same_manifest_algorithm(tmp_path: Path) 
     goal = _write_package(tmp_path / "goal")
 
     assert canonical_json_bytes(build_package_manifest(rook)) == canonical_json_bytes(build_package_manifest(goal))
+
+
+def test_checked_in_product_manifest_exactly_reproduces_package_bytes() -> None:
+    manifest_path = PRODUCT_PACKAGE_ROOT / "package-manifest.json"
+    expected = canonical_json_bytes(build_package_manifest(PRODUCT_PACKAGE_ROOT))
+
+    assert manifest_path.read_bytes() == expected
+    verified = verify_package(PRODUCT_PACKAGE_ROOT)
+    assert verified.root == PRODUCT_PACKAGE_ROOT.resolve()
 
 
 @pytest.mark.parametrize(
