@@ -472,6 +472,13 @@ hashed bytes use this compact canonical encoding.
 The SHA-256 of the canonical manifest bytes is the package identity.
 Individual `SKILL.md`, adapter, and `pyproject.toml` hashes remain diagnostics.
 
+The pinned Prime goal-skill subtree uses this same schema, recursive file
+enumeration, exclusion set, validation rules, canonical JSON encoding, and
+SHA-256 construction. Its package root is the exact admitted
+`packages/coding-agent/skills/goal/` directory. The resulting canonical
+manifest hash is `goalSkill.manifestSha256`; no alternate file subset or
+serialization is permitted.
+
 The precise immutability claim is:
 
 > Admitted source files are immutable and manifest-bound. Excluded generated
@@ -843,16 +850,25 @@ compatibility version `1`, it refuses exactly these existing GH
 document-switching operations before nested dispatch:
 
 ```text
+gh_learn_directory
 gh_document_new
 gh_document_open
 ```
 
-No supported call may create, open, replace, or rebind the conversation's GH
-document. The implementation gate enumerates the installed v1 capability
-surface and requires these to be the complete document-switching set. A future
-document-switching capability must update the deny set under a new runtime
-compatibility version before entering `panel_locked`. Document creation, open,
-and rebinding are later product work.
+Within the mechanically governed typed and composite GH capability surface, no
+supported call may create, open, replace, or rebind the conversation's GH
+document. The implementation gate audits both direct handlers and transitive
+dispatch and requires these three to be the complete installed v1
+document-switching set. A future direct or composite document-switching
+capability must update the deny set under a new runtime compatibility version
+before entering `panel_locked`. Document creation, open, and rebinding are
+later product work.
+
+`rhino_execute` can run arbitrary Python inside Rhino and does not receive this
+GH containment claim. It remains admitted by the full product profile under
+the separately stated arbitrary-Python exclusion. If the Slice 4 Actor uses it
+to inspect, mutate, open, create, replace, or rebind Grasshopper state, the
+target-custody result is incomplete; that run cannot qualify the typed GH path.
 
 ## Structured result and failure semantics
 
@@ -1066,11 +1082,13 @@ The product contract requires:
 6. only final text follows.
 
 No executable statement may follow `goal.complete()` in that cell. Any
-adapter/Rook activity after the Prime goal-completion event or any new Actor
-tool call makes the Slice 4 live run incomplete. The completion cell's own
-normal return and tool-result closure are expected; only final assistant text
-may follow them. This is behavioral qualification, not a new terminalization
-mechanism or runtime execution fence.
+Actor-owned or unowned adapter/Rook activity after the Prime goal-completion
+event and before the Actor evidence seal, or any new Actor tool call, makes the
+Slice 4 live run incomplete. The completion cell's own normal return and
+tool-result closure are expected; only final assistant text may follow them.
+Separately identified evaluator activity after the seal remains valid. This is
+behavioral qualification, not a new terminalization mechanism or runtime
+execution fence.
 
 An audited no-op does not create a mutation receipt and cannot serve as the
 final committed mutation.
@@ -1152,7 +1170,10 @@ Slice 3 must pass model-free causal coverage before live contact.
 - full profile reaches an admitted fake mutation path;
 - `panel_locked` full profile refuses `gh_document_new` and
   `gh_document_open` before nested dispatch;
-- the installed capability audit finds no other document-switching operation;
+- `panel_locked` full profile refuses the composite `gh_learn_directory`
+  before its internal `/gh/document/open` dispatch;
+- the installed direct-and-transitive capability audit finds no other
+  document-switching operation;
 - child environment contains only the closed allowlist;
 - authentic Rook success survives later cleanup failure;
 - authentic Rook structured failure survives adapter, Prime, broker, and panel
@@ -1173,8 +1194,9 @@ Slice 3 must pass model-free causal coverage before live contact.
 - active, paused, complete, and cleared goals reopen unchanged;
 - document loss refuses Rook work without altering goal bytes; and
 - qualification rejects a completion cell with any executable statement after
-  `await goal.complete()`, any adapter/Rook activity after the completion
-  event, and any later Actor tool call; and
+  `await goal.complete()`, Actor-owned or unowned adapter/Rook activity after
+  completion and before the Actor evidence seal, and any later Actor tool
+  call; and
 - a closed conversation cannot reopen.
 
 ### Panel command custody
@@ -1301,9 +1323,11 @@ last actual committed mutation R leaves defaults restored
 ```
 
 No executable statement may follow `goal.complete()` in its cell. Any
-adapter/Rook activity after the goal-completion event or any new Actor tool
-call makes the run incomplete. The completion cell's own normal return and
-tool-result closure remain part of that final action.
+Actor-owned or unowned adapter/Rook activity after the goal-completion event
+and before the Actor evidence seal, or any new Actor tool call, makes the run
+incomplete. The completion cell's own normal return and tool-result closure
+remain part of that final action. Separately identified evaluator activity
+begins only after sealing and is not Actor activity.
 
 ## Actor/evaluator evidence boundary
 
@@ -1364,6 +1388,7 @@ The single live run passes only when:
 - a fresh `full` conversation is used;
 - the intended GH document remains the captured execution target;
 - the decoy remains unchanged;
+- the Actor does not use `rhino_execute` to inspect or alter Grasshopper;
 - the model creates a Prime goal before its first attempted admitted mutator;
 - the panel visibly projects the active goal objective/status;
 - all Actor mutations satisfy the bounded attribution rules;
@@ -1372,7 +1397,7 @@ The single live run passes only when:
 - readiness and final snapshot use `R`;
 - the completion cell contains only `await goal.complete()`;
 - after the goal-completion event, only that cell's normal return/tool-result
-  closure and final assistant text occur;
+  closure and final assistant text occur before the Actor evidence seal;
 - Prime reports the goal complete at settlement;
 - Actor evidence is sealed before evaluator activity;
 - the finite evaluator passes and restores structural equivalence;
@@ -1423,8 +1448,11 @@ Qualification correlates these owners by conversation, prompt generation,
 IPython tool-call identity, frozen adapter call descriptor, receipt, and GH
 document ID. Every admitted Actor mutation has one call/result chain and one
 unique authentic receipt. A duplicate descriptor without a named material
-reason, a duplicate receipt, an unowned call, activity after completion, or an
-ambiguous outcome followed by replay makes the run incomplete.
+reason, a duplicate receipt, an unowned call before the Actor seal,
+Actor-owned or unowned activity after completion but before that seal, or an
+ambiguous outcome followed by replay makes the run incomplete. Separately
+owned evaluator activity after the seal is evaluated only under the evaluator
+contract.
 
 Credentials, auth files, environment values containing secrets, unrelated
 sessions, and unrelated host state are excluded.
@@ -1461,8 +1489,8 @@ If Slice 4 passes, the qualified product statement is limited to:
 > Prime-backed RookChat conversation can receive the full Rook profile,
 > reason through Prime, create and complete a Prime-native goal for substantive
 > work, mutate the immutably bound Grasshopper definition through the
-> product-owned rook_full adapter, and complete from authentic receipt-fenced
-> evidence.
+> product-owned rook_full adapter's typed/composite GH surface, and complete
+> from authentic receipt-fenced evidence.
 
 It does not establish:
 
