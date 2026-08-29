@@ -29,6 +29,7 @@ _CANONICAL_DECIMAL = re.compile(r"^(0|[1-9][0-9]*)$")
 _UTC_TIMESTAMP = re.compile(
     r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z$"
 )
+_SHA256 = re.compile(r"^[0-9A-F]{64}$")
 _MAX_INT64 = (1 << 63) - 1
 
 
@@ -98,9 +99,49 @@ def _validate_utc_timestamp(value: Any) -> str:
     return timestamp
 
 
-def _absolute_path_without_resolution(value: Any) -> str:
-    session_path = _require_nonempty_string(value, "prime_session_path")
-    return str(Path(os.path.abspath(session_path)))
+def _absolute_path_without_resolution(value: Any, label: str = "prime_session_path") -> str:
+    path = _require_nonempty_string(value, label)
+    return str(Path(os.path.abspath(path)))
+
+
+def _require_persisted_absolute_path(value: Any, label: str) -> str:
+    path = _require_nonempty_string(value, label)
+    if not Path(path).is_absolute():
+        raise RegistryValidationError(f"persisted {label} must be absolute")
+    return str(Path(path))
+
+
+def _validate_sha256(value: Any, label: str) -> str:
+    if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+        raise RegistryValidationError(f"{label} must be an uppercase SHA-256")
+    return value
+
+
+def _validate_grasshopper_document_id(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise RegistryValidationError(
+            "Grasshopper document ID must be a canonical nonempty GUID"
+        )
+    try:
+        parsed = uuid.UUID(value)
+    except (ValueError, AttributeError) as error:
+        raise RegistryValidationError(
+            "Grasshopper document ID must be a canonical nonempty GUID"
+        ) from error
+    if parsed.int == 0 or str(parsed) != value:
+        raise RegistryValidationError(
+            "Grasshopper document ID must be a canonical nonempty GUID"
+        )
+    return value
+
+
+def _is_path_beneath(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath((path, root)) == root
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -174,6 +215,115 @@ class PrimeConversationRecord:
             raise RegistryValidationError("last_lifecycle must be LifecycleRecord")
 
 
+@dataclass(frozen=True)
+class RuntimePreparation:
+    status: Literal["pending", "prepared"]
+    interpreter_path: str | None
+    prepared_at_utc: str | None
+
+    def __post_init__(self) -> None:
+        if self.status == "pending":
+            if self.interpreter_path is not None or self.prepared_at_utc is not None:
+                raise RegistryValidationError(
+                    "pending preparation requires null interpreter and timestamp"
+                )
+            return
+        if self.status != "prepared":
+            raise RegistryValidationError("unsupported runtime preparation status")
+        if self.interpreter_path is None or self.prepared_at_utc is None:
+            raise RegistryValidationError(
+                "prepared preparation requires interpreter and timestamp"
+            )
+        object.__setattr__(
+            self,
+            "interpreter_path",
+            _absolute_path_without_resolution(
+                self.interpreter_path, "runtime preparation interpreter path"
+            ),
+        )
+        _validate_utc_timestamp(self.prepared_at_utc)
+
+
+@dataclass(frozen=True)
+class PrimeRuntimeContractRef:
+    contract_fingerprint_sha256: str
+    capability_profile: Literal["readonly", "full"]
+    kernel_environment_path: str
+    preparation: RuntimePreparation
+
+    def __post_init__(self) -> None:
+        _validate_sha256(
+            self.contract_fingerprint_sha256, "runtime contract fingerprint"
+        )
+        if self.capability_profile not in {"readonly", "full"}:
+            raise RegistryValidationError(
+                "capability profile must be readonly or full"
+            )
+        environment = _absolute_path_without_resolution(
+            self.kernel_environment_path, "kernel environment path"
+        )
+        object.__setattr__(self, "kernel_environment_path", environment)
+        if not isinstance(self.preparation, RuntimePreparation):
+            raise RegistryValidationError("preparation must be RuntimePreparation")
+        interpreter = self.preparation.interpreter_path
+        if interpreter is not None and not _is_path_beneath(interpreter, environment):
+            raise RegistryValidationError(
+                "prepared interpreter must be beneath the contract environment"
+            )
+
+
+@dataclass(frozen=True)
+class TargetFingerprintV2:
+    rhino_pid: int
+    rhino_process_start_utc_ticks: str
+    document_runtime_serial: int
+    grasshopper_document_id: str | None
+
+    def __post_init__(self) -> None:
+        _require_int(self.rhino_pid, "rhino_pid", minimum=1)
+        _validate_process_start_ticks(self.rhino_process_start_utc_ticks)
+        _require_int(
+            self.document_runtime_serial,
+            "document_runtime_serial",
+            minimum=1,
+        )
+        _validate_grasshopper_document_id(self.grasshopper_document_id)
+
+
+@dataclass(frozen=True)
+class PrimeConversationRecordV2:
+    schema_version: Literal[2]
+    conversation_id: str
+    prime_session_id: str
+    prime_session_path: str
+    model: PrimeModelSelection
+    runtime: PrimeRuntimeContractRef
+    target: TargetFingerprintV2
+    last_lifecycle: LifecycleRecord
+
+    def __post_init__(self) -> None:
+        if type(self.schema_version) is not int or self.schema_version != 2:
+            raise RegistryValidationError("schema_version must equal 2")
+        _validate_conversation_id(self.conversation_id)
+        _require_nonempty_string(self.prime_session_id, "prime_session_id")
+        object.__setattr__(
+            self,
+            "prime_session_path",
+            _absolute_path_without_resolution(self.prime_session_path),
+        )
+        if not isinstance(self.model, PrimeModelSelection):
+            raise RegistryValidationError("model must be PrimeModelSelection")
+        if not isinstance(self.runtime, PrimeRuntimeContractRef):
+            raise RegistryValidationError("runtime must be PrimeRuntimeContractRef")
+        if not isinstance(self.target, TargetFingerprintV2):
+            raise RegistryValidationError("target must be TargetFingerprintV2")
+        if not isinstance(self.last_lifecycle, LifecycleRecord):
+            raise RegistryValidationError("last_lifecycle must be LifecycleRecord")
+
+
+PrimeConversationRecordUnion = PrimeConversationRecord | PrimeConversationRecordV2
+
+
 _RECORD_KEYS = frozenset(
     {
         "schemaVersion",
@@ -190,6 +340,35 @@ _TARGET_KEYS = frozenset(
     {"rhinoPid", "rhinoProcessStartUtcTicks", "documentRuntimeSerial"}
 )
 _LIFECYCLE_KEYS = frozenset({"state", "reason", "updatedAtUtc"})
+_V2_RECORD_KEYS = frozenset(
+    {
+        "schemaVersion",
+        "conversationId",
+        "primeSessionId",
+        "primeSessionPath",
+        "model",
+        "runtime",
+        "target",
+        "lastLifecycle",
+    }
+)
+_RUNTIME_KEYS = frozenset(
+    {
+        "contractFingerprintSha256",
+        "capabilityProfile",
+        "kernelEnvironmentPath",
+        "preparation",
+    }
+)
+_PREPARATION_KEYS = frozenset({"status", "interpreterPath", "preparedAtUtc"})
+_V2_TARGET_KEYS = frozenset(
+    {
+        "rhinoPid",
+        "rhinoProcessStartUtcTicks",
+        "documentRuntimeSerial",
+        "grasshopperDocumentId",
+    }
+)
 
 
 def _record_to_dict(record: PrimeConversationRecord) -> dict[str, Any]:
@@ -209,6 +388,45 @@ def _record_to_dict(record: PrimeConversationRecord) -> dict[str, Any]:
                 record.target.rhino_process_start_utc_ticks
             ),
             "documentRuntimeSerial": record.target.document_runtime_serial,
+        },
+        "lastLifecycle": {
+            "state": record.last_lifecycle.state,
+            "reason": record.last_lifecycle.reason,
+            "updatedAtUtc": record.last_lifecycle.updated_at_utc,
+        },
+    }
+
+
+def _record_v2_to_dict(record: PrimeConversationRecordV2) -> dict[str, Any]:
+    return {
+        "schemaVersion": record.schema_version,
+        "conversationId": record.conversation_id,
+        "primeSessionId": record.prime_session_id,
+        "primeSessionPath": record.prime_session_path,
+        "model": {
+            "provider": record.model.provider,
+            "id": record.model.id,
+            "thinking": record.model.thinking,
+        },
+        "runtime": {
+            "contractFingerprintSha256": (
+                record.runtime.contract_fingerprint_sha256
+            ),
+            "capabilityProfile": record.runtime.capability_profile,
+            "kernelEnvironmentPath": record.runtime.kernel_environment_path,
+            "preparation": {
+                "status": record.runtime.preparation.status,
+                "interpreterPath": record.runtime.preparation.interpreter_path,
+                "preparedAtUtc": record.runtime.preparation.prepared_at_utc,
+            },
+        },
+        "target": {
+            "rhinoPid": record.target.rhino_pid,
+            "rhinoProcessStartUtcTicks": (
+                record.target.rhino_process_start_utc_ticks
+            ),
+            "documentRuntimeSerial": record.target.document_runtime_serial,
+            "grasshopperDocumentId": record.target.grasshopper_document_id,
         },
         "lastLifecycle": {
             "state": record.last_lifecycle.state,
@@ -270,6 +488,82 @@ def _record_from_dict(value: Any) -> PrimeConversationRecord:
             updated_at_utc=lifecycle["updatedAtUtc"],
         ),
     )
+
+
+def _record_v2_from_dict(value: Any) -> PrimeConversationRecordV2:
+    payload = _require_mapping(value, "v2 record")
+    _require_exact_keys(payload, _V2_RECORD_KEYS, "v2 record")
+    model = _require_mapping(payload["model"], "model")
+    runtime = _require_mapping(payload["runtime"], "runtime")
+    preparation = _require_mapping(runtime["preparation"], "preparation")
+    target = _require_mapping(payload["target"], "v2 target")
+    lifecycle = _require_mapping(payload["lastLifecycle"], "lifecycle")
+    _require_exact_keys(model, _MODEL_KEYS, "model")
+    _require_exact_keys(runtime, _RUNTIME_KEYS, "runtime")
+    _require_exact_keys(preparation, _PREPARATION_KEYS, "preparation")
+    _require_exact_keys(target, _V2_TARGET_KEYS, "v2 target")
+    _require_exact_keys(lifecycle, _LIFECYCLE_KEYS, "lifecycle")
+
+    session_path = _require_persisted_absolute_path(
+        payload["primeSessionPath"], "prime_session_path"
+    )
+    environment_path = _require_persisted_absolute_path(
+        runtime["kernelEnvironmentPath"], "kernel environment path"
+    )
+    interpreter_path = preparation["interpreterPath"]
+    if interpreter_path is not None:
+        interpreter_path = _require_persisted_absolute_path(
+            interpreter_path, "runtime preparation interpreter path"
+        )
+    thinking = model["thinking"]
+    if thinking is not None and not isinstance(thinking, str):
+        raise RegistryValidationError("model.thinking must be a string or null")
+    reason = lifecycle["reason"]
+    if reason is not None and not isinstance(reason, str):
+        raise RegistryValidationError("lifecycle.reason must be a string or null")
+
+    return PrimeConversationRecordV2(
+        schema_version=payload["schemaVersion"],
+        conversation_id=payload["conversationId"],
+        prime_session_id=payload["primeSessionId"],
+        prime_session_path=session_path,
+        model=PrimeModelSelection(
+            provider=model["provider"], id=model["id"], thinking=thinking
+        ),
+        runtime=PrimeRuntimeContractRef(
+            contract_fingerprint_sha256=runtime["contractFingerprintSha256"],
+            capability_profile=runtime["capabilityProfile"],
+            kernel_environment_path=environment_path,
+            preparation=RuntimePreparation(
+                status=preparation["status"],
+                interpreter_path=interpreter_path,
+                prepared_at_utc=preparation["preparedAtUtc"],
+            ),
+        ),
+        target=TargetFingerprintV2(
+            rhino_pid=target["rhinoPid"],
+            rhino_process_start_utc_ticks=target["rhinoProcessStartUtcTicks"],
+            document_runtime_serial=target["documentRuntimeSerial"],
+            grasshopper_document_id=target["grasshopperDocumentId"],
+        ),
+        last_lifecycle=LifecycleRecord(
+            state=lifecycle["state"],
+            reason=reason,
+            updated_at_utc=lifecycle["updatedAtUtc"],
+        ),
+    )
+
+
+def _record_union_from_dict(value: Any) -> PrimeConversationRecordUnion:
+    payload = _require_mapping(value, "record")
+    schema_version = payload.get("schemaVersion")
+    if type(schema_version) is not int:
+        raise RegistryValidationError("schemaVersion must be an integer")
+    if schema_version == 1:
+        return _record_from_dict(value)
+    if schema_version == 2:
+        return _record_v2_from_dict(value)
+    raise RegistryValidationError(f"unsupported schemaVersion: {schema_version}")
 
 
 def _reject_duplicate_keys(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
@@ -343,10 +637,9 @@ class PrimeConversationRegistry:
             _validate_conversation_id(conversation_id)
         return conversation_ids
 
-    def write(self, record: PrimeConversationRecord) -> Path:
-        self._ensure_open()
-        if not isinstance(record, PrimeConversationRecord):
-            raise RegistryValidationError("record must be PrimeConversationRecord")
+    def _validate_record_generation(
+        self, record: PrimeConversationRecordUnion
+    ) -> None:
         if (
             record.target.rhino_pid != self.rhino_pid
             or record.target.rhino_process_start_utc_ticks
@@ -356,6 +649,12 @@ class PrimeConversationRegistry:
                 "record target does not match registry process generation"
             )
 
+    def _write_atomic(self, record: PrimeConversationRecordUnion) -> Path:
+        self._ensure_open()
+        if not isinstance(record, (PrimeConversationRecord, PrimeConversationRecordV2)):
+            raise RegistryValidationError("record must be a supported conversation record")
+        self._validate_record_generation(record)
+
         target_path = self._record_path(record.conversation_id)
         temporary_path = self.namespace / (
             f".{record.conversation_id}.{uuid.uuid4().hex}.tmp"
@@ -363,7 +662,11 @@ class PrimeConversationRegistry:
         try:
             with temporary_path.open("x", encoding="utf-8", newline="\n") as stream:
                 json.dump(
-                    _record_to_dict(record),
+                    (
+                        _record_to_dict(record)
+                        if isinstance(record, PrimeConversationRecord)
+                        else _record_v2_to_dict(record)
+                    ),
                     stream,
                     ensure_ascii=False,
                     sort_keys=True,
@@ -381,7 +684,92 @@ class PrimeConversationRegistry:
             raise
         return target_path
 
-    def load(self, conversation_id: str) -> PrimeConversationRecord:
+    def write(self, record: PrimeConversationRecordUnion) -> Path:
+        self._ensure_open()
+        if isinstance(record, PrimeConversationRecord):
+            if self.exists(record.conversation_id):
+                current = self.load(record.conversation_id)
+                if not isinstance(current, PrimeConversationRecord):
+                    raise RegistryValidationError("record schema version is immutable")
+            return self._write_atomic(record)
+        if not isinstance(record, PrimeConversationRecordV2):
+            raise RegistryValidationError("record must be a supported conversation record")
+        if not self.exists(record.conversation_id):
+            raise RegistryValidationError("new v2 records require write_new_v2")
+        current = self.load(record.conversation_id)
+        if not isinstance(current, PrimeConversationRecordV2):
+            raise RegistryValidationError("record schema version is immutable")
+        if (
+            record.runtime.contract_fingerprint_sha256
+            != current.runtime.contract_fingerprint_sha256
+            or record.runtime.capability_profile
+            != current.runtime.capability_profile
+            or record.runtime.kernel_environment_path
+            != current.runtime.kernel_environment_path
+            or record.target != current.target
+        ):
+            raise RegistryValidationError(
+                "v2 runtime contract, capability profile, environment, and target are immutable"
+            )
+        if record.runtime.preparation != current.runtime.preparation:
+            raise RegistryValidationError(
+                "runtime preparation changes require an explicit transition"
+            )
+        return self._write_atomic(record)
+
+    def write_new_v2(self, record: PrimeConversationRecordV2) -> Path:
+        self._ensure_open()
+        if not isinstance(record, PrimeConversationRecordV2):
+            raise RegistryValidationError("record must be PrimeConversationRecordV2")
+        if self.exists(record.conversation_id):
+            raise RegistryValidationError("conversation already exists")
+        if record.runtime.preparation.status != "pending":
+            raise RegistryValidationError("new v2 runtime must be pending")
+        return self._write_atomic(record)
+
+    def mark_runtime_prepared(
+        self,
+        conversation_id: str,
+        interpreter_path: str,
+        prepared_at_utc: str,
+    ) -> PrimeConversationRecordV2:
+        current = self.load(conversation_id)
+        if not isinstance(current, PrimeConversationRecordV2):
+            raise RegistryValidationError("runtime preparation requires a v2 record")
+        if current.runtime.preparation.status != "pending":
+            raise RegistryValidationError("runtime is already prepared")
+        preparation = RuntimePreparation(
+            status="prepared",
+            interpreter_path=interpreter_path,
+            prepared_at_utc=prepared_at_utc,
+        )
+        updated = replace(
+            current,
+            runtime=replace(current.runtime, preparation=preparation),
+        )
+        self._write_atomic(updated)
+        return updated
+
+    def mark_pending_runtime_unavailable(
+        self, conversation_id: str
+    ) -> PrimeConversationRecordV2:
+        current = self.load(conversation_id)
+        if not isinstance(current, PrimeConversationRecordV2):
+            raise RegistryValidationError("runtime failure requires a v2 record")
+        if current.runtime.preparation.status != "pending":
+            raise RegistryValidationError("prepared runtime cannot become unavailable")
+        updated = replace(
+            current,
+            last_lifecycle=LifecycleRecord(
+                state="failed",
+                reason="runtime_contract_unavailable",
+                updated_at_utc=_utc_now(),
+            ),
+        )
+        self._write_atomic(updated)
+        return updated
+
+    def load(self, conversation_id: str) -> PrimeConversationRecordUnion:
         self._ensure_open()
         path = self._record_path(conversation_id)
         try:
@@ -396,7 +784,7 @@ class PrimeConversationRegistry:
                 f"unable to read registry record: {conversation_id}"
             ) from error
 
-        loaded = _record_from_dict(payload)
+        loaded = _record_union_from_dict(payload)
         if loaded.conversation_id != conversation_id:
             raise RegistryValidationError(
                 "conversation ID does not match registry filename"
@@ -417,6 +805,13 @@ class PrimeConversationRegistry:
         for path in sorted(self.namespace.glob("*.json")):
             conversation_id = path.stem
             current = self.load(conversation_id)
+            if (
+                isinstance(current, PrimeConversationRecordV2)
+                and current.runtime.preparation.status == "pending"
+            ):
+                self.mark_pending_runtime_unavailable(conversation_id)
+                changed.append(conversation_id)
+                continue
             if current.last_lifecycle.state not in {
                 "running",
                 "cancel_requested",

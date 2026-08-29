@@ -49,6 +49,15 @@ class PrimeBackendError(RuntimeError):
         self.actual_model = actual_model
 
 
+def admit_prime_panel_prompt(message: str) -> None:
+    remaining = message.lstrip()
+    if not remaining.startswith("/"):
+        return
+    token = remaining.split(maxsplit=1)[0]
+    if token != "/goal":
+        raise PrimeBackendError("prime_command_not_admitted")
+
+
 @dataclass(frozen=True)
 class PendingAbort:
     abort_request_id: str
@@ -457,6 +466,7 @@ class PrimeChatBackend:
         conversation_id: str,
         message: str,
     ) -> PromptSubscription:
+        admit_prime_panel_prompt(message)
         resident = self._require_resident(conversation_id)
         async with resident.lifecycle_lock:
             record = self.registry.load(conversation_id)

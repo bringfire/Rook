@@ -2113,6 +2113,23 @@ class TestPrimeChatServer(AioHTTPTestCase):
         assert self.backend.subscription is not None
         assert self.backend.subscription.closed is True
 
+    async def test_prime_refuses_unadmitted_slash_command_before_backend(self):
+        await self.backend.create(
+            self.conversation_id,
+            TargetFingerprint(2468, "638918000000000000", 42),
+        )
+        calls_before = list(self.backend.calls)
+
+        response = await self.client.post(
+            "/agent/chat/message",
+            json={"conversation_id": self.conversation_id, "message": "/compact"},
+            headers=self._headers(),
+        )
+
+        assert response.status == 409
+        assert (await response.json())["code"] == "prime_command_not_admitted"
+        assert self.backend.calls == calls_before
+
     async def test_prime_forwards_only_correlated_terminal_outcomes(self):
         await self.backend.create(
             self.conversation_id,

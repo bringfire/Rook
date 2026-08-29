@@ -325,6 +325,60 @@ async def test_one_prompt_has_one_correlated_settlement(harness: Harness) -> Non
     assert harness.registry.load("conv_one").last_lifecycle.state == "idle"
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "/goal",
+        "/goal status",
+        "/goal pause",
+        "/goal resume",
+        "/goal clear",
+        "/goal stop",
+        "  \t/goal status",
+        "ordinary conversation",
+    ],
+)
+async def test_panel_prompt_admits_only_goal_slash_family(
+    harness: Harness, message: str
+) -> None:
+    await harness.backend.create("conv_command", target())
+
+    subscription = await harness.backend.start_prompt("conv_command", message)
+    process = harness.factory.created[-1]
+    await wait_for_prompt(process)
+
+    assert process.commands[-1]["message"] == message
+    process.settle("completed")
+    assert (await drain(subscription))[-1]["type"] == "done"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "/compact",
+        "/refine",
+        "/autonomous",
+        "/rlm-max-depth 0",
+        "/goalkeeper",
+        "/GOAL status",
+        "/goal/status",
+        "/future-command",
+    ],
+)
+async def test_panel_prompt_refuses_other_slash_commands_before_state_or_dispatch(
+    harness: Harness, message: str
+) -> None:
+    await harness.backend.create("conv_refused", target())
+    process = harness.factory.created[-1]
+
+    with pytest.raises(PrimeBackendError) as caught:
+        await harness.backend.start_prompt("conv_refused", message)
+
+    assert caught.value.code == "prime_command_not_admitted"
+    assert harness.registry.load("conv_refused").last_lifecycle.state == "idle"
+    assert all(row["type"] != "prompt_and_wait" for row in process.commands)
+
+
 async def test_multiple_agent_end_events_do_not_settle_prompt(harness: Harness) -> None:
     await harness.backend.create("conv_segments", target())
     subscription = await harness.backend.start_prompt("conv_segments", "hello")

@@ -17,7 +17,11 @@ from ...bridge import rhino_request_context
 from .conversation_store import ConversationStore
 from .prompt_builder import PromptBuilder
 from .chat_runner import ChatEvent, ChatRunner
-from .prime_backend import PrimeBackendError, PrimeChatBackend
+from .prime_backend import (
+    PrimeBackendError,
+    PrimeChatBackend,
+    admit_prime_panel_prompt,
+)
 from .prime_registry import (
     LifecycleRecord,
     PrimeConversationRecord,
@@ -147,6 +151,7 @@ def _prime_backend_error_response(error: PrimeBackendError) -> web.Response:
         "conversation_not_reopenable": 409,
         "conversation_not_idle": 409,
         "conversation_not_running": 409,
+        "prime_command_not_admitted": 409,
         "explicit_reopen_required": 409,
         "capacity_exhausted": 429,
         "model_update_failed_reconciled": 409,
@@ -884,6 +889,7 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
         ):
             return _prime_error("invalid_prime_message_request")
         try:
+            admit_prime_panel_prompt(message)
             subscription = await _prime_backend(request).start_prompt(
                 conv_id, message
             )
