@@ -30,6 +30,20 @@
 - Live runs occur once, without retry, prompt repair, hidden tuning, or configuration drift. A failed or incomplete result is preserved honestly.
 - Live evidence is written directly to separate durable, non-temporary roots and verified before interpretation. Slice 3, Slice 4 Actor, and Slice 4 evaluator ownership never share an unfenced trace.
 
+## Execution Transition Closure
+
+Every phase boundary below is an executable artifact handoff, not an assertion that later work should infer. Each consumer reverifies the published fact before acting, and every mismatch stops before the next phase:
+
+| Transition | Fact bound before action | Establishing owner and transaction | Retained proof | Consumer reverification | Failure residue |
+| --- | --- | --- | --- | --- | --- |
+| Review authorization -> Task 0 | exact approved plan commit and pinned Prime baseline | active implementation `/goal` supplies the plan commit directly to Task 0's invoked script block | Task 0 records both HEAD/tree identities and clean-status output | Task 0 compares clean Rook `HEAD` with the supplied literal and clean Prime `HEAD` with the pinned baseline | no test or edit begins |
+| Offline isolation -> every real Prime process | scrubbed provider environment, isolated agent/session roots, exact branch-local dependencies | the same PowerShell process removes credentials, creates isolated roots, and launches the Prime command | command output records roots, credential count zero, import paths, and terminal exit | every Prime-launching block repeats the complete preamble before dispatch | that invocation exits; no later shell inherits an assumed scrub |
+| Source build -> installed runtime | exact tested worktree bytes promoted through the repository-owned local deployment path | Task 9 closes Rhino/owned workers, builds exact outputs, runs `scripts/deploy-local-testing.ps1`, then hashes source/build and installed owners | deployment log plus installed-file/hash inventory and chat-service manifest | Tasks 10-12 rehash the installed inventory before fixture, target, provider, or model contact | contact remains unauthorized; previous installed bytes are not treated as current |
+| Task changes -> commit -> frozen inputs | all files named by the task are staged together; evaluator owners remain unchanged | each task's explicit `git add` list includes every actual owner and its tests | focused commit and clean worktree | the next task checks clean status; Task 11 rehashes the four evaluator owners | unstaged or unexpected bytes stop the task before the next phase |
+| Live execution -> evidence seal -> report | Actor/evaluator ownership, terminal receipts, installed/runtime hashes, and process cleanup are complete | qualification owner seals the evidence root first; repository report is written afterward and is not an evidence-manifest member | independently verified evidence manifest plus report citing that manifest SHA-256 | result review recomputes the evidence manifest and checks the committed report against it | sealed evidence remains immutable; an incomplete report or failed commit cannot alter the evidence claim |
+
+After every task commit, in that same shell, run `git status --porcelain --untracked-files=all` in the owning worktree and refuse to begin the next task unless it is empty. Commit blocks below name every planned owner; unexpected modified or untracked files are never carried across a task boundary.
+
 ## Closed Product Interfaces
 
 ### Prime-generic RPC additions
@@ -175,7 +189,7 @@ Each call owns one bounded MCP/stdio child. An authentic Rook success or structu
 - Create `mcp_server/src/rook/agent/chat/prime_runtime_contract.py`: canonical manifests, immutable package staging, runtime-contract construction, and path verification.
 - Modify `mcp_server/src/rook/agent/chat/prime_registry.py`, `prime_process.py`, `prime_backend.py`, `prime_rpc_protocol.py`, `server.py`, and `service_main.py`.
 - Productize `integrations/prime/skills/rook-full/` with `SKILL.md`, `pyproject.toml`, `src/rook_full/__init__.py`, `references/`, and generated `package-manifest.json`.
-- Modify `mcp_server/src/rook/targeting.py`, `bridge.py`, `mcp_tool_profiles.py`, and `server.py` for process-generation custody, locked profile, selector agreement, and document-switch refusal.
+- Modify `mcp_server/src/rook/targeting.py`, `bridge.py`, and `server.py` for process-generation custody, locked profile, selector agreement, and document-switch refusal. Preserve `mcp_tool_profiles.py` byte-for-byte because it is an approved Slice 4 evaluator owner.
 - Create `mcp_server/tests/test_prime_runtime_contract.py` and `mcp_server/tests/test_rook_full_product_adapter.py`; extend existing Prime, targeting, bridge, profile, and server tests.
 
 ### Native and managed Rook
@@ -208,17 +222,23 @@ Each call owns one bounded MCP/stdio child. An authentic Rook success or structu
 - [ ] **Step 1: Verify exact reviewed heads before any test or edit**
 
 ```powershell
-$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
-$prime = 'D:/prime-agent/.worktrees/rookchat-primary-backend'
-$approvedPlanCommit = $args[0]
-if ($approvedPlanCommit -notmatch '^[0-9a-f]{40}$') { throw 'The implementation invocation must supply the 40-character plan commit named in the active /goal.' }
-if ((git -C $rook status --porcelain --untracked-files=all).Length -ne 0) { throw 'Rook worktree is dirty.' }
-if ((git -C $rook rev-parse HEAD).Trim() -ne $approvedPlanCommit) { throw 'Rook HEAD does not equal the reviewed plan commit.' }
-if ((git -C $prime status --porcelain --untracked-files=all).Length -ne 0) { throw 'Prime worktree is dirty.' }
-if ((git -C $prime rev-parse HEAD).Trim() -ne '7690c18479c909ddea67a34e86114f7f982179a8') { throw 'Prime baseline drifted.' }
+$verifyReviewedHeads = {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern('^[0-9a-f]{40}$')]
+        [string]$ApprovedPlanCommit
+    )
+    $rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+    $prime = 'D:/prime-agent/.worktrees/rookchat-primary-backend'
+    if ((git -C $rook status --porcelain --untracked-files=all).Length -ne 0) { throw 'Rook worktree is dirty.' }
+    if ((git -C $rook rev-parse HEAD).Trim() -ne $ApprovedPlanCommit) { throw 'Rook HEAD does not equal the reviewed plan commit.' }
+    if ((git -C $prime status --porcelain --untracked-files=all).Length -ne 0) { throw 'Prime worktree is dirty.' }
+    if ((git -C $prime rev-parse HEAD).Trim() -ne '7690c18479c909ddea67a34e86114f7f982179a8') { throw 'Prime baseline drifted.' }
+}
+& $verifyReviewedHeads (Read-Host 'Paste the exact approved plan commit named in the active /goal')
 ```
 
-Expected: no output and exit zero. The literal comes from the authorized `/goal`; it is not stored in an environment variable or inside this self-referential plan.
+Expected: no output and exit zero. The script block is explicitly invoked with the literal copied from the authorized `/goal`; it is not stored in an environment variable or inside this self-referential plan. A missing, malformed, stale, or unapproved literal stops before dependencies, tests, or edits.
 
 - [ ] **Step 2: Restore exact dependencies in their owning worktrees**
 
@@ -249,7 +269,7 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -c "from pathlib import Path; i
 
 Expected: `prime-source-import-ok`; both Rook modules resolve beneath the implementation worktree.
 
-- [ ] **Step 4: Freeze the model-free contact preflight used by every Task 1-9 Prime test block**
+- [ ] **Step 4: Freeze the model-free contact preflight repeated by every offline Prime execution block in Tasks 1-9, 11, and 12**
 
 ```powershell
 $offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
@@ -303,6 +323,18 @@ expect(parseArgs(["--append-system-prompt-file", promptPath]).appendSystemPrompt
 Run:
 
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts
 ```
@@ -346,9 +378,19 @@ Expose a narrow `AgentSession.prepareIpythonRuntime()` that awaits `IpythonKerne
 
 - [ ] **Step 7: Run Prime tests and build**
 
-Repeat Task 0 credential scrub, then:
-
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts
 npm run build
@@ -373,7 +415,6 @@ Expected: one focused Prime commit; no Rook-specific path, profile, or semantic 
 **Files:**
 - Create: `mcp_server/src/rook/agent/chat/prime_runtime_contract.py`
 - Create: `mcp_server/tests/test_prime_runtime_contract.py`
-- Modify: `mcp_server/src/rook/agent/chat/service_main.py`
 
 **Interfaces:**
 - Adds: one canonical manifest implementation shared by the Rook package and Prime goal subtree, immutable package staging, exact runtime-contract construction, and prelaunch/reopen verification.
@@ -692,7 +733,6 @@ git commit -m "feat(targeting): bind panel sessions to Rhino process generation"
 - Modify: `mcp_server/src/rook/bridge.py`
 - Modify: `mcp_server/src/rook/targeting.py`
 - Modify: `mcp_server/src/rook/server.py`
-- Modify: `mcp_server/src/rook/mcp_tool_profiles.py`
 - Test: `src/Rook.Tests/InternalBridge/NativeGhBridgeRegistrarTests.cs`
 - Create: `src/Rook.Tests/InternalBridge/GrasshopperTargetContextTests.cs`
 - Modify: `mcp_server/tests/test_gh_authoring_capability_routing.py`
@@ -732,7 +772,7 @@ Under `panel_locked` `full`, require `gh_document_new`, `gh_document_open`, and 
 
 - [ ] **Step 5: Implement the fixed v1 deny set and audit helper**
 
-Keep the deny set local to panel-locked GH admission. Do not remove tools from the global full profile and do not claim `rhino_execute` is contained. The audit is test/qualification code, not a runtime semantic evaluator.
+Keep the deny set local to panel-locked GH admission in `server.py`/targeting, after typed/composite capability resolution and before direct or transitive dispatch. Do not modify `mcp_tool_profiles.py`, remove tools from the global full profile, or claim `rhino_execute` is contained. The audit is test/qualification code, not a runtime semantic evaluator.
 
 - [ ] **Step 6: Run managed and Python target tests**
 
@@ -742,15 +782,20 @@ Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore --filter "FullyQualifiedName~NativeGhBridgeRegistrarTests|FullyQualifiedName~GrasshopperTargetContextTests"
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py -q
-C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/server.py mcp_server/src/rook/mcp_tool_profiles.py
+C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m py_compile mcp_server/src/rook/server.py mcp_server/src/rook/bridge.py mcp_server/src/rook/targeting.py
 git diff --check
 ```
 
 - [ ] **Step 7: Commit the indivisible GH target boundary**
 
 ```powershell
-git add src/Rook/InternalBridge/GrasshopperRequestContext.cs src/Rook/InternalBridge/GrasshopperCore.cs src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs src/Rook/Handlers/GrasshopperHandler.cs src/Rook.Tests/InternalBridge mcp_server/src/rook/server.py mcp_server/src/rook/mcp_tool_profiles.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py
+git add src/Rook/InternalBridge/GrasshopperRequestContext.cs src/Rook/InternalBridge/GrasshopperCore.cs src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs src/Rook/Handlers/GrasshopperHandler.cs src/Rook.Tests/InternalBridge/NativeGhBridgeRegistrarTests.cs src/Rook.Tests/InternalBridge/GrasshopperTargetContextTests.cs mcp_server/src/rook/bridge.py mcp_server/src/rook/targeting.py mcp_server/src/rook/server.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py
+git diff --quiet -- mcp_server/src/rook/mcp_tool_profiles.py
+if ($LASTEXITCODE -ne 0) { throw 'Approved evaluator owner mcp_tool_profiles.py changed.' }
+$profileHash = (Get-FileHash -Algorithm SHA256 mcp_server/src/rook/mcp_tool_profiles.py).Hash
+if ($profileHash -ne 'E08C6BF3E74758915336D4B2B9DDE5E986664DEBCF8DD82812657ECE99CA2329') { throw "Approved evaluator owner hash drifted: $profileHash" }
 git commit -m "feat(grasshopper): bind callbacks to one captured document"
+if ((git status --porcelain --untracked-files=all).Length -ne 0) { throw 'Task 6 left unstaged or uncommitted owners.' }
 ```
 
 ---
@@ -826,6 +871,18 @@ Using the isolated Prime agent/session roots and no auth, launch two real RPC se
 - [ ] **Step 7: Run broker preparation tests and Prime build**
 
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
@@ -926,6 +983,18 @@ Implement this as pure functions in `scripts/rookchat_prime_slices_3_4_qualifica
 - [ ] **Step 7: Run Python, Prime, and managed goal tests**
 
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
@@ -977,6 +1046,8 @@ seal-slice4
 
 At this gate, `run-slice3` and all Slice 4 commands must refuse `precontact_not_authorized` before creating their evidence roots. Test exact evidence-root ownership, no retry field, frozen prompt bytes, trace owner labels, non-self-referential manifest verification, and zero product imports into the script's adjudication helpers.
 
+Add source-to-install transition tests with temporary source/build/install trees. Exact admitted MCP bytes, native RHP, all managed RHP/DLL files, and chat-service manifests pass; missing, stale, extra admitted, wrong-path, or wrong-hash installed owners fail before protocol preparation. Mirror the existing deploy script's closed cache/build/secret exclusions rather than inventing a second payload definition.
+
 Add one model-free vertical with the real broker and fake Prime/kernel/MCP children that proves: readonly nested mutator refusal before dispatch; full fake mutation admission; structured failure custody through panel parsing; Stop during adapter launch, initialize, and call reaps the child; no-envelope loss is uncertain and is not replayed; late completion cannot publish; and a closed conversation cannot reopen.
 
 - [ ] **Step 2: Implement only offline verification and Slice 3 preparation**
@@ -985,9 +1056,19 @@ The script may create deterministic fixture setup requests and evidence descript
 
 - [ ] **Step 3: Run the complete Prime model-free gate**
 
-Repeat Task 0 credential scrub, then run exact Prime tests:
-
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+
 Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts test/suite/agent-session-goal.test.ts
 npm run build
@@ -997,6 +1078,18 @@ git diff --check
 - [ ] **Step 4: Run the complete Rook Python gate**
 
 ```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
@@ -1009,20 +1102,62 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m compileall -q mcp_server/src
 ```powershell
 $rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
 Set-Location $rook
+dotnet build src/Rook/Rook.csproj -c Debug --no-restore
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore
 cmd /c "call \"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat\" x64 -vcvars_ver=14.44 && msbuild src\RookNative\RookNative.vcxproj /t:Build /p:Configuration=Debug /p:Platform=x64 /p:VCToolsVersion=14.44.35207"
 git diff --check
 ```
 
-- [ ] **Step 6: Execute the model-free runtime/package preflight**
+- [ ] **Step 6: Promote the tested worktree through the existing local-deployment path**
 
-Run `offline-verify` against the built Prime bundle and staged readonly/full packages. Retain exact bundle/goal/package/contract hashes, actual root-kernel interpreter/import paths, recursion source/status, same-contract and old/new concurrency results, child cleanup, and zero provider credential facts.
+Rhino and all owned `python -m rook`/chat-service workers must be closed. The exact shell checks that condition, runs the repository-owned deploy script without rebuilding different bytes, and refuses on any failure:
 
-- [ ] **Step 7: Freeze the exact Slice 3 protocol**
+```powershell
+$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$blockers = @(Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -match '^Rhino(?:\.exe)?$' -or
+    ($_.CommandLine -and $_.CommandLine -match 'rook\.agent\.chat\.service_main|python(?:\.exe)?\s+-m\s+rook')
+})
+if ($blockers.Count -ne 0) { throw "Deployment blockers remain: $($blockers.ProcessId -join ',')" }
+Set-Location $rook
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-local-testing.ps1 -Configuration Debug -SkipBuild -UseRepoVenv
+if ($LASTEXITCODE -ne 0) { throw 'Local product deployment failed.' }
+```
+
+Expected: the script deploys the exact already-tested native and managed Debug outputs, syncs the worktree MCP/AppData payload, writes the dev `RookChatService.json`, verifies the effective branch-local runtime, and does not run a live smoke.
+
+- [ ] **Step 7: Execute the model-free runtime/package and installed-byte preflight**
+
+The command that can launch real Prime repeats the complete scrub in the same shell:
+
+```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+
+$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH="$rook/mcp_server/src"
+C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/rookchat_prime_slices_3_4_qualification.py offline-verify
+if ($LASTEXITCODE -ne 0) { throw 'Offline runtime/package/deployment verification failed.' }
+```
+
+`offline-verify` compares the complete admitted installed `mcp_server` payload against its worktree source under the deploy script's closed exclusions, compares native and all managed RHP/DLL outputs against the installed plugin paths, validates every generated `RookChatService.json`, and then verifies the built Prime bundle plus staged readonly/full packages. Retain exact source/build/installed inventories, bundle/goal/package/contract hashes, actual root-kernel interpreter/import paths, recursion source/status, same-contract and old/new concurrency results, child cleanup, and zero provider credential facts. A missing or changed installed owner fails before protocol freeze.
+
+- [ ] **Step 8: Freeze the exact Slice 3 protocol**
 
 The protocol must bind:
 
 - exact Rook and Prime commits/tree/bundle manifests;
+- exact source/build/installed deployment inventory and chat-service manifest hashes;
 - exact goal and Rook package manifests;
 - `readonly` contract fingerprint and kernel path;
 - model/provider/thinking/auth disclosure selected for the live smoke;
@@ -1035,7 +1170,7 @@ The protocol must bind:
 
 Do not prepare Rhino or create either GH document yet.
 
-- [ ] **Step 8: Write the offline and Slice 3 pre-contact reports**
+- [ ] **Step 9: Write the offline and Slice 3 pre-contact reports**
 
 Report exact commands, counts, custody hashes, closed test matrices, branch-local imports, provider-contact exclusion, installed product paths, and explicit non-claims. Include the exact proposed commands:
 
@@ -1044,7 +1179,7 @@ C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/rookchat_prime_slices_3
 C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe scripts/rookchat_prime_slices_3_4_qualification.py run-slice3 --protocol docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json
 ```
 
-- [ ] **Step 9: Commit the offline gate and stop**
+- [ ] **Step 10: Commit the offline gate and stop**
 
 ```powershell
 git add scripts/rookchat_prime_slices_3_4_qualification.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py docs/CURRENT_ARCHITECTURE.md docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json docs/superpowers/reports/2026-08-29-rookchat-prime-slices-3-4-offline-qualification.md docs/superpowers/reports/2026-08-29-rookchat-prime-slice3-precontact.md
@@ -1060,7 +1195,7 @@ Expected: both worktrees clean. Stop for independent implementation review. Do n
 ### Task 10: Execute and Seal the Single Slice 3 Observational Run
 
 **Files:**
-- Modify: `docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json` only to record predeclared contact authorization identity if the frozen schema includes it; otherwise preserve bytes.
+- Preserve byte-for-byte: `docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json`.
 - Create: `docs/superpowers/reports/2026-08-29-rookchat-prime-slice3-observational-v1-execution.md`
 - Evidence: durable root named exactly by the frozen protocol.
 
@@ -1070,7 +1205,7 @@ Expected: both worktrees clean. Stop for independent implementation review. Do n
 
 - [ ] **Step 1: Reverify frozen bytes and absence of the evidence root**
 
-Require clean Rook and Prime worktrees; exact protocol, runner, package, bundle, goal, and contract hashes; exact installed-file manifests; exact subscription-auth disclosure; and no existing Slice 3 evidence root. Any mismatch stops before fixture preparation.
+Require clean Rook and Prime worktrees; exact protocol, runner, package, bundle, goal, and contract hashes; exact installed-file manifests; exact subscription-auth disclosure; the independent review authorization recorded outside the frozen protocol in the execution evidence/report; and no existing Slice 3 evidence root. Any mismatch stops before fixture preparation. Never rewrite the frozen protocol to record authorization.
 
 - [ ] **Step 2: Prepare the deterministic two-document fixture outside Actor custody**
 
@@ -1094,7 +1229,7 @@ Evaluators remain silent. Do not retry, repair the prompt, switch the active def
 
 - [ ] **Step 4: Settle and seal before interpretation**
 
-After broker settlement, retain the registry record, Prime saved session, correlated relay rows, Rook structured results, target checks, per-call startup latency, and both post-run structural snapshots. Require no goal, no admitted mutation attempt, no mutation receipt, and no operation resolved against the decoy. Generate and independently verify the non-self-referential evidence manifest.
+After broker settlement, retain the registry record, Prime saved session, correlated relay rows, Rook structured results, target checks, per-call startup latency, and both post-run structural snapshots. Require no goal, no admitted mutation attempt, no mutation receipt, and no operation resolved against the decoy. Generate and independently verify the non-self-referential evidence manifest. The repository execution report is written afterward and is not a member of that manifest.
 
 - [ ] **Step 5: Perform the exterior finite-fact review**
 
@@ -1170,7 +1305,34 @@ The protocol must predeclare:
 
 - [ ] **Step 5: Run the complete model-free gate again**
 
-Rerun Task 9's exact Prime, Python, managed, native, manifest, runtime-preparation, target, Stop, goal, and cleanup commands. This is the required pre-mutation review evidence, not another architecture pass.
+Rerun Task 9's exact Python, managed, native, manifest, installed-byte, target, Stop, goal, and cleanup commands. For the Prime/kernel portion, use this complete preamble and command in one fresh shell rather than relying on Task 9's former process environment:
+
+```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+
+Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
+npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts test/suite/agent-session-goal.test.ts
+npm run build
+if ($LASTEXITCODE -ne 0) { throw 'Prime model-free gate failed.' }
+
+$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH="$rook/mcp_server/src"
+C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_runtime_contract.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_chat_integration.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
+if ($LASTEXITCODE -ne 0) { throw 'Rook model-free gate failed.' }
+```
+
+This is the required pre-mutation review evidence, not another architecture pass. It does not redeploy or alter the installed product; installed inventory is rehashed and must still equal the approved Task 9 deployment.
 
 - [ ] **Step 6: Write the exact pre-contact report and command**
 
@@ -1252,15 +1414,40 @@ A correct graph does not compensate for missing goal completion. Goal completion
 
 - [ ] **Step 7: Seal and independently verify the complete evidence root**
 
-Generate a non-self-referential manifest over frozen configuration, registry, Prime session/projections, package/runtime manifests, target records, Actor trace/seal, before-after snapshots, evaluator trace, latency, process cleanup, and reports. Recompute every entry and the manifest SHA-256 before interpretation claims success.
+Generate a non-self-referential manifest over frozen configuration, registry, Prime session/projections, package/runtime manifests, target records, Actor trace/seal, before-after snapshots, evaluator trace, latency, and process cleanup. The repository execution report does not exist yet and is explicitly outside this evidence manifest. Recompute every evidence entry and the manifest SHA-256 before interpretation claims success.
 
 - [ ] **Step 8: Write the execution report and narrow architecture status**
 
-If all four dimensions pass, use only the specification's bounded product statement. If any fail, preserve the exact incomplete result and diagnosis. Do not claim hostile-Python containment, universal correctness, semantic certification, default-backend cutover, subagents, images/web, pooling, or migration.
+Write the repository report only after Step 7 seals and verifies evidence. Cite the immutable evidence-manifest SHA-256 and exact entry count; do not add the report to that manifest. If all four dimensions pass, use only the specification's bounded product statement. If any fail, preserve the exact incomplete result and diagnosis. Do not claim hostile-Python containment, universal correctness, semantic certification, default-backend cutover, subagents, images/web, pooling, or migration.
 
 - [ ] **Step 9: Run final offline verification and commit**
 
-Rerun the exact Task 9 model-free suites, Prime build, .NET tests, native build, Python compilation, `git diff --check`, evidence-manifest verification, and zero-owned-process checks.
+Rerun the exact Task 9 model-free suites, Prime build, .NET tests, native build, Python compilation, installed-inventory comparison, `git diff --check`, evidence-manifest verification, and zero-owned-process checks. The Prime build/test shell is self-contained below; no live credentials are needed after Actor/evaluator settlement:
+
+```powershell
+$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
+Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
+$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
+Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
+$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
+$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
+if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
+if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+
+Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
+npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts test/suite/agent-session-goal.test.ts
+npm run build
+if ($LASTEXITCODE -ne 0) { throw 'Prime final model-free gate failed.' }
+
+$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+Set-Location $rook
+$env:PYTHONPATH="$rook/mcp_server/src"
+C:/UDEV/Rook/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_runtime_contract.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_chat_integration.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
+if ($LASTEXITCODE -ne 0) { throw 'Rook final model-free gate failed.' }
+```
 
 ```powershell
 git add docs/CURRENT_ARCHITECTURE.md docs/superpowers/reports/2026-08-29-rookchat-prime-slice4-point-row-v1-execution.md
