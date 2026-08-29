@@ -174,9 +174,26 @@ prepare_ipython_runtime
 ```
 
 The first two delegate to Prime's existing `AgentSession` methods. The third
-awaits Prime's existing kernel provisioner with a bounded deadline, surfaces
-failure, and returns the actual selected interpreter path. It exposes no
-arbitrary code execution.
+awaits Prime's existing root-session kernel provisioner with a bounded
+deadline, then executes one fixed Prime-owned probe inside that same persistent
+kernel. It surfaces failure and returns exactly:
+
+```json
+{
+  "interpreterPath": "C:/absolute/python.exe",
+  "rookFullFile": "C:/absolute/rook_full/__init__.py",
+  "goalFile": "C:/absolute/goal/__init__.py",
+  "callables": {
+    "search": true,
+    "read": true,
+    "call": true
+  }
+}
+```
+
+`interpreterPath` comes from `sys.executable`; module origins come from the
+modules imported by the actual Actor kernel. The command accepts no probe text,
+module name, path, or arbitrary-code input.
 
 Pinned Prime currently treats `--append-system-prompt` as literal text, not a
 file path. Slice 3 therefore also adds one generic CLI option:
@@ -258,6 +275,102 @@ are intended to receive the `full` profile automatically. Existing read-only
 conversations remain read-only. ChatRunner remains the product default until a
 separate cutover decision.
 
+## Durable conversation registry v2
+
+The existing closed `schemaVersion: 1` record remains readable byte-for-byte
+under its current key and validation rules. A v1 record represents only the
+qualified Slices 1-2 text contract. It cannot acquire a Rook package, IPython,
+capability profile, Grasshopper identity, or runtime preparation state by
+inference. Reopen never rewrites v1 as v2. Using the Slices 3-4 contract
+requires a newly created v2 conversation.
+
+The v2 record has exactly this shape:
+
+```json
+{
+  "schemaVersion": 2,
+  "conversationId": "conversation-id",
+  "primeSessionId": "prime-session-id",
+  "primeSessionPath": "C:/absolute/session/path.jsonl",
+  "model": {
+    "provider": "provider-id",
+    "id": "model-id",
+    "thinking": null
+  },
+  "runtime": {
+    "contractFingerprintSha256": "UPPERCASE SHA-256",
+    "capabilityProfile": "readonly",
+    "kernelEnvironmentPath": "C:/absolute/contract/environment",
+    "preparation": {
+      "status": "pending",
+      "interpreterPath": null,
+      "preparedAtUtc": null
+    }
+  },
+  "target": {
+    "rhinoPid": 1234,
+    "rhinoProcessStartUtcTicks": "638920000000000000",
+    "documentRuntimeSerial": 17,
+    "grasshopperDocumentId": "01234567-89ab-cdef-0123-456789abcdef"
+  },
+  "lastLifecycle": {
+    "state": "idle",
+    "reason": null,
+    "updatedAtUtc": "2026-08-29T12:00:00Z"
+  }
+}
+```
+
+The exact key sets are:
+
+```text
+record      = schemaVersion, conversationId, primeSessionId,
+              primeSessionPath, model, runtime, target, lastLifecycle
+model       = provider, id, thinking
+runtime     = contractFingerprintSha256, capabilityProfile,
+              kernelEnvironmentPath, preparation
+preparation = status, interpreterPath, preparedAtUtc
+target      = rhinoPid, rhinoProcessStartUtcTicks,
+              documentRuntimeSerial, grasshopperDocumentId
+lifecycle   = state, reason, updatedAtUtc
+```
+
+Unknown, duplicate, or missing keys refuse the record. `thinking` may be a
+nonempty string or null. `grasshopperDocumentId` may be a canonical GUID `D`
+string or null; Slices 3-4 require a nonnull value. `capabilityProfile` is
+exactly `readonly` or `full`. `preparation.status` is exactly `pending` or
+`prepared`.
+
+For `pending`, `interpreterPath` and `preparedAtUtc` are null. For `prepared`,
+the interpreter path is absolute and beneath the contract environment, and the
+timestamp is canonical UTC. The runtime contract fingerprint, profile,
+environment path, and complete target object become immutable with the first
+v2 write. Preparation may move only `pending -> prepared`. Model and lifecycle
+updates retain their existing explicit ownership.
+
+After Prime reports its saved-session identity but before runtime preparation
+or model contact, creation atomically writes the pending v2 record. Successful
+in-kernel preparation atomically writes `prepared`. A broker restart that finds
+`pending` treats the environment as unavailable; it does not infer success or
+silently continue preparation. It records lifecycle `failed` with
+`runtime_contract_unavailable`. Qualification or product setup must explicitly
+clean up that failed first-use attempt.
+
+## Panel command admission
+
+The settled prompt route is not an unrestricted Prime session-command route.
+Before Prime dispatch, the broker trims leading whitespace. If the first
+remaining character is `/`, the text is admitted only when the first token is
+exactly `/goal`, followed by end of input or whitespace. Every other
+slash-prefixed prompt refuses `prime_command_not_admitted` before Prime sees
+it.
+
+This preserves the approved native `/goal` surface while refusing `/compact`,
+`/refine`, `/autonomous`, `/rlm-max-depth`, aliases, unknown commands, and
+future session commands by default. Prime-owned automatic compaction and goal
+continuation are unaffected because they are not panel command dispatches.
+Changing the allowlist requires a reviewed product-contract version change.
+
 ## Exact Prime launch contract
 
 The broker replaces the current effective `--no-tools` configuration with one
@@ -315,23 +428,28 @@ The installed package layout is:
 belongs in `references/` and is read only when relevant. Slices 3-4 introduce
 no separate domain skill.
 
-The canonical package manifest has this closed conceptual shape:
+The canonical package manifest has exactly this shape:
 
 ```json
 {
-  "schemaVersion": 1,
   "files": [
     {
       "path": "SKILL.md",
-      "size": 123,
-      "sha256": "UPPERCASE SHA-256"
+      "sha256": "UPPERCASE SHA-256",
+      "size": 123
     }
-  ]
+  ],
+  "schemaVersion": 1
 }
 ```
 
 Rules:
 
+- the root key set is exactly `schemaVersion, files`;
+- `schemaVersion` is exactly integer `1`;
+- each file member key set is exactly `path, size, sha256`;
+- `size` is a nonnegative integer and `sha256` is uppercase hexadecimal
+  SHA-256;
 - paths are relative, forward-slash normalized, and sorted ordinally;
 - every admitted regular source file beneath the package root is included;
 - references are included recursively;
@@ -341,6 +459,15 @@ Rules:
 - exclusions are closed to `__pycache__`, `*.pyc`, `.pytest_cache`, `build`,
   and `dist`; and
 - no unlisted file is admitted as package authority.
+
+Canonical JSON is UTF-8 without BOM, duplicate keys, insignificant
+whitespace, or a trailing newline. Object keys are emitted in ordinal order,
+strings use JSON escaping with ASCII output, arrays retain their specified
+order, and numbers use their shortest valid decimal form. For this schema the
+root order is `files, schemaVersion`, member order is `path, sha256, size`, and
+`files` is sorted by `path`. Any additional field requires a new package
+manifest schema version. The indented block above displays the data shape; the
+hashed bytes use this compact canonical encoding.
 
 The SHA-256 of the canonical manifest bytes is the package identity.
 Individual `SKILL.md`, adapter, and `pyproject.toml` hashes remain diagnostics.
@@ -354,28 +481,28 @@ Package directories are never modified in place.
 
 ## Runtime-contract fingerprint
 
-One canonical runtime-contract record binds at least:
+The canonical runtime-contract record has exactly this shape:
 
 ```json
 {
-  "schemaVersion": 1,
+  "capabilityProfile": "readonly",
+  "goalSkill": {
+    "manifestSha256": "...",
+    "pathIdentity": "relative identity"
+  },
   "prime": {
     "bundleManifestSha256": "...",
     "gitCommitProvenance": "..."
   },
-  "goalSkill": {
-    "pathIdentity": "relative identity",
-    "manifestSha256": "..."
-  },
-  "rookPackage": {
-    "packageManifestSha256": "...",
-    "skillSha256": "...",
-    "adapterSha256": "...",
-    "projectMetadataSha256": "..."
-  },
-  "capabilityProfile": "readonly",
   "rlmMaxDepth": 0,
-  "runtimeCompatibilityVersion": 1
+  "rookPackage": {
+    "adapterSha256": "...",
+    "packageManifestSha256": "...",
+    "projectMetadataSha256": "...",
+    "skillSha256": "..."
+  },
+  "runtimeCompatibilityVersion": 1,
+  "schemaVersion": 1
 }
 ```
 
@@ -388,6 +515,31 @@ The canonical record's SHA-256 is the runtime-contract fingerprint. It selects:
 Conversations with the identical contract may share that environment.
 Different contracts never do. Prime's existing environment-scoped bootstrap
 lock serializes simultaneous preparation of the same environment.
+
+The exact key sets are:
+
+```text
+record      = schemaVersion, prime, goalSkill, rookPackage,
+              capabilityProfile, rlmMaxDepth,
+              runtimeCompatibilityVersion
+prime       = bundleManifestSha256, gitCommitProvenance
+goalSkill   = pathIdentity, manifestSha256
+rookPackage = packageManifestSha256, skillSha256,
+              adapterSha256, projectMetadataSha256
+```
+
+`schemaVersion` and `runtimeCompatibilityVersion` are exactly integer `1` for
+Slices 3-4. `capabilityProfile` is exactly `readonly` or `full` and
+`rlmMaxDepth` is exactly integer `0`. Hashes are uppercase hexadecimal
+SHA-256. `pathIdentity` and git provenance are nonempty strings. Unknown,
+duplicate, or missing keys refuse the contract.
+
+The runtime contract uses the same canonical JSON rules as the package
+manifest: UTF-8 without BOM or trailing newline, ordinal object-key order,
+ASCII JSON string escaping, no insignificant whitespace, and shortest valid
+decimal numbers. Adding or changing a field requires both a schema-version or
+runtime-compatibility-version change and renewed review. The indented block
+above displays the data shape; the fingerprint uses compact canonical bytes.
 
 Old package directories and environments remain retained while any durable
 conversation record references them. Migration and garbage collection are
@@ -406,18 +558,22 @@ The broker:
 4. calls `get_rlm_max_depth_status` and requires exactly
    `{maxDepth: 0, source: "chat"}`;
 5. calls `prepare_ipython_runtime` with a bounded deadline;
-6. requires successful preparation and an interpreter path beneath the exact
-   contract environment;
-7. runs a fixed model-free import probe with that interpreter; and
+6. requires the fixed response from the actual persistent root kernel;
+7. verifies its `sys.executable`, `rook_full.__file__`, `goal.__file__`, and
+   callable results against the exact contract environment and manifests; and
 8. records successful environment preparation in the durable conversation
    record before admitting the first model prompt.
 
-The import probe has no arbitrary input. It proves:
+The in-kernel probe has no arbitrary input. It proves:
 
 - `rook_full.__file__` resolves beneath the recorded immutable package path;
 - `goal.__file__` resolves beneath the recorded Prime goal-skill path;
 - `rook_full.search`, `rook_full.read`, and `rook_full.call` are callable; and
-- the interpreter is the one returned by Prime.
+- the Actor kernel is running the interpreter returned by Prime.
+
+The broker may additionally launch that interpreter for a supplementary
+model-free check, but an external process is not evidence of the persistent
+kernel's imports and cannot replace the in-kernel result.
 
 Preparation timeout, provisioning failure, partial environment state, wrong
 interpreter, or wrong import origin fails before model contact. A failed first
@@ -434,7 +590,7 @@ Reopen verifies all recorded bytes and paths before Prime starts. It then:
 4. requires exactly `{maxDepth: 0, source: "chat"}`;
 5. calls `prepare_ipython_runtime` only to await and inspect the existing
    selected runtime, not to reconstruct a missing environment; and
-6. repeats the fixed import-origin probe.
+6. repeats and verifies the fixed probe inside the actual persistent kernel.
 
 A missing or incomplete referenced environment fails
 `runtime_contract_unavailable`. Reopen never silently rebuilds it because
@@ -601,9 +757,14 @@ Each MCP child receives a closed allowlisted environment. It contains only:
   product-defined empty values where required);
 - `ROOK_MCP_TOOL_PROFILE`;
 - `ROOK_MCP_TARGET_MODE=panel_locked`;
-- the bound PID, process ticks, Rhino serial, and GH document ID; and
-- any other field explicitly added to the versioned runtime compatibility
-  contract after review.
+- `ROOK_MCP_TARGET_PROCESS_ID`;
+- `ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS`;
+- `ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER`; and
+- `ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID` when GH is bound.
+
+Those names are the complete admitted environment-key set for runtime
+compatibility version `1`; no additional key is accepted. Adding, removing, or
+renaming a field requires a compatibility-version change and renewed review.
 
 No ambient target/profile variables, provider API keys, arbitrary parent
 environment fields, or model-supplied environment values are inherited.
@@ -676,6 +837,22 @@ transport, and evidence discipline as Slice 3.
 
 The profile does not bypass canonical tool schemas, host admission, document
 resolution, receipts, solve readiness, or fenced observation.
+
+`panel_locked` adds an absorbing target guard even under `full`. For runtime
+compatibility version `1`, it refuses exactly these existing GH
+document-switching operations before nested dispatch:
+
+```text
+gh_document_new
+gh_document_open
+```
+
+No supported call may create, open, replace, or rebind the conversation's GH
+document. The implementation gate enumerates the installed v1 capability
+surface and requires these to be the complete document-switching set. A future
+document-switching capability must update the deny set under a new runtime
+compatibility version before entering `panel_locked`. Document creation, open,
+and rebinding are later product work.
 
 ## Structured result and failure semantics
 
@@ -884,12 +1061,16 @@ The product contract requires:
 2. readiness is awaited for that mutation's receipt;
 3. a fenced snapshot uses the same receipt;
 4. the model reasons from the retained evidence without another tool call;
-5. `goal.complete()` is the final Actor tool action; and
+5. a dedicated final IPython cell has exactly one executable statement,
+   `await goal.complete()`;
 6. only final text follows.
 
-Any later Actor tool action, including Rook, IPython, or goal operations, makes
-the Slice 4 live run incomplete. This is behavioral qualification, not a new
-terminalization mechanism.
+No executable statement may follow `goal.complete()` in that cell. Any
+adapter/Rook activity after the Prime goal-completion event or any new Actor
+tool call makes the Slice 4 live run incomplete. The completion cell's own
+normal return and tool-result closure are expected; only final assistant text
+may follow them. This is behavioral qualification, not a new terminalization
+mechanism or runtime execution fence.
 
 An audited no-op does not create a mutation receipt and cannot serve as the
 final committed mutation.
@@ -927,12 +1108,20 @@ Slice 3 must pass model-free causal coverage before live contact.
 
 - file-backed system-prompt loading preserves the exact valid UTF-8 content;
 - missing, unreadable, or invalid-UTF-8 system-prompt files fail startup;
+- v1 registry records retain their exact reader and text-only meaning;
+- v1 records cannot be inferred, rewritten, or reopened as v2;
+- v2 exact key/type/state validation rejects malformed records;
+- a pending v2 preparation cannot reopen as prepared;
 - valid manifest and runtime contract admit first preparation;
+- package and runtime canonical bytes reject extra, missing, duplicate, or
+  reordered authority fields;
 - package or diagnostic byte drift refuses before Prime;
 - path escape or unlisted source refuses;
 - preparation timeout and preparation failure are surfaced;
 - a partial environment after failed preparation is not admitted;
 - wrong interpreter or import origin refuses;
+- the in-kernel probe proves the actual persistent Actor kernel rather than
+  only a sibling process using the same interpreter;
 - referenced environment missing on reopen refuses without rebuild;
 - `set_rlm_max_depth(0, global:false)` plus exact readback succeeds for a new
   session;
@@ -961,6 +1150,9 @@ Slice 3 must pass model-free causal coverage before live contact.
 - readonly direct mutators refuse before dispatch;
 - readonly nested `rook_tools_call` cannot reach a mutator;
 - full profile reaches an admitted fake mutation path;
+- `panel_locked` full profile refuses `gh_document_new` and
+  `gh_document_open` before nested dispatch;
+- the installed capability audit finds no other document-switching operation;
 - child environment contains only the closed allowlist;
 - authentic Rook success survives later cleanup failure;
 - authentic Rook structured failure survives adapter, Prime, broker, and panel
@@ -980,7 +1172,19 @@ Slice 3 must pass model-free causal coverage before live contact.
   continuation;
 - active, paused, complete, and cleared goals reopen unchanged;
 - document loss refuses Rook work without altering goal bytes; and
+- qualification rejects a completion cell with any executable statement after
+  `await goal.complete()`, any adapter/Rook activity after the completion
+  event, and any later Actor tool call; and
 - a closed conversation cannot reopen.
+
+### Panel command custody
+
+- `/goal` followed by end of input or whitespace reaches the settled prompt
+  route;
+- leading whitespace does not bypass command classification;
+- `/compact`, `/refine`, `/autonomous`, `/rlm-max-depth`, aliases, unknown
+  slash commands, and near-matches refuse before Prime dispatch; and
+- Prime-owned automatic compaction and continuation remain available.
 
 ## Slice 3 live observational qualification
 
@@ -1054,7 +1258,7 @@ The standing product contract, not the user prompt, instructs the model to:
 
 1. orient with read-only evidence as needed;
 2. call `goal.get()`;
-3. create a real Prime goal before its first substantive mutation;
+3. create a real Prime goal before its first attempted admitted mutator;
 4. repair locally rather than replacing useful work without evidence;
 5. exercise consequential controls;
 6. restore selected defaults;
@@ -1079,6 +1283,11 @@ The Actor mutation trace is bounded and attributable:
 
 An audited no-op is not `R` and earns no mutation or completion credit.
 
+An attempted admitted mutator is a `rook_full.call` whose resolved capability
+is mutating and has passed adapter type, profile, target-lock, and capability
+admission, even if Rook later refuses the operation. Invalid payloads rejected
+before that admission do not qualify as mutation attempts.
+
 The Actor-owned terminal sequence is exactly:
 
 ```text
@@ -1086,12 +1295,15 @@ last actual committed mutation R leaves defaults restored
 -> readiness wait for R
 -> fenced snapshot for R
 -> model-only reasoning with no further tool call
--> goal.complete()
+-> dedicated IPython cell containing only await goal.complete()
 -> final text only
 -> broker settlement
 ```
 
-Any later Actor tool call makes the run incomplete.
+No executable statement may follow `goal.complete()` in its cell. Any
+adapter/Rook activity after the goal-completion event or any new Actor tool
+call makes the run incomplete. The completion cell's own normal return and
+tool-result closure remain part of that final action.
 
 ## Actor/evaluator evidence boundary
 
@@ -1113,11 +1325,18 @@ Evaluator receipts are never attributed to Prime, the Actor, its goal, or its
 completion evidence. Actor final-receipt selection is frozen before evaluator
 activity starts.
 
-The evaluator must be the existing finite point-row evaluator and remain
-byte-compatible with its previously qualified contract. If it is not
-byte-compatible, the live run stops before evaluator contact for renewed
-review. It is silent during Actor execution and supplies no feedback to the
-model.
+The evaluator is pinned to these exact baseline bytes:
+
+| File | SHA-256 |
+| --- | --- |
+| `scripts/grasshopper_point_row_acceptance.py` | `38DD024A0FDFF830BEFDFA5434976B350897C9C482141AB5D1D34CC182D40095` |
+| `scripts/grasshopper_point_row_acceptance.json` | `A4836173494C2396FB60E0C0FAF889161980C26C078987F8CA5CA847B6A4367F` |
+| `mcp_server/src/rook/gh_behavioral_acceptance.py` | `A3895FCE82A987DD06C2DA88F47663FBA689C7609FB85EAC151AC79F7872227D` |
+| `mcp_server/src/rook/mcp_tool_profiles.py` | `E08C6BF3E74758915336D4B2B9DDE5E986664DEBCF8DD82812657ECE99CA2329` |
+
+All four hashes must match before Actor contact and again before evaluator
+contact. A mismatch stops the live run for renewed review. The evaluator is
+silent during Actor execution and supplies no feedback to the model.
 
 Evaluator perturbations are qualification activity, not product behavior.
 
@@ -1145,13 +1364,15 @@ The single live run passes only when:
 - a fresh `full` conversation is used;
 - the intended GH document remains the captured execution target;
 - the decoy remains unchanged;
-- the model creates a Prime goal before its first mutation;
+- the model creates a Prime goal before its first attempted admitted mutator;
 - the panel visibly projects the active goal objective/status;
 - all Actor mutations satisfy the bounded attribution rules;
 - no mutation is replayed;
 - the final actual mutation receipt `R` leaves defaults restored;
 - readiness and final snapshot use `R`;
-- no Actor tool follows `goal.complete()`;
+- the completion cell contains only `await goal.complete()`;
+- after the goal-completion event, only that cell's normal return/tool-result
+  closure and final assistant text occur;
 - Prime reports the goal complete at settlement;
 - Actor evidence is sealed before evaluator activity;
 - the finite evaluator passes and restores structural equivalence;
@@ -1180,6 +1401,30 @@ interpret the result:
 - broker lifecycle and process cleanup result;
 - separate evaluator trace for Slice 4; and
 - per-call startup latency.
+
+Ordering and non-replay are proved from four exact trace owners:
+
+1. **Prime saved session:** Prime owns the assistant IPython cell source, each
+   corresponding IPython tool result, and persisted `thread_goal_state`
+   entries.
+2. **Correlated broker relay capture:** the external qualification client
+   retains the ordered RPC/SSE events for one conversation, prompt ID, and
+   launch generation, including IPython tool start/end, `goal_update`, Stop,
+   and settled result. This is capture of the existing product relay, not a new
+   broker lifecycle.
+3. **Rook authoritative result evidence:** the Actor's retained IPython results
+   carry the exact structured Rook envelopes, mutation receipts, readiness
+   result, and fenced snapshot; Rook's structural before/after evidence binds
+   those receipts to the intended GH document.
+4. **Evaluator trace:** the external evaluator owns its separately identified
+   later calls and receipts after Actor evidence is sealed.
+
+Qualification correlates these owners by conversation, prompt generation,
+IPython tool-call identity, frozen adapter call descriptor, receipt, and GH
+document ID. Every admitted Actor mutation has one call/result chain and one
+unique authentic receipt. A duplicate descriptor without a named material
+reason, a duplicate receipt, an unowned call, activity after completion, or an
+ambiguous outcome followed by replay makes the run incomplete.
 
 Credentials, auth files, environment values containing secrets, unrelated
 sessions, and unrelated host state are excluded.
