@@ -54,6 +54,16 @@ def test_gate_7b_uses_one_versioned_admission_wrapper() -> None:
     assert SCRIPT.is_file()
 
 
+def test_gate_7b_v2_uses_recovery_worktrees_and_fresh_evidence_roots() -> None:
+    gate = _load()
+
+    assert gate.ROOK_ROOT.name == "task7-runtime-topology-recovery"
+    assert gate.PRIME_ROOT.name == "task7-runtime-topology-recovery"
+    assert "gate-7b-v2" in str(gate.LEASE_ROOT)
+    assert "gate-7b-v2" in str(gate.DIRECT_ROOT)
+    assert gate.LEASE_ROOT != gate.DIRECT_ROOT
+
+
 def test_gate_7b_refuses_commit_or_hash_drift_before_any_entry_runs(tmp_path: Path) -> None:
     gate = _load()
     config = _configuration(gate, tmp_path)

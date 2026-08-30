@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Absorbing admission wrapper for the reviewed Gate 7B transaction."""
+"""Absorbing admission wrapper for the reviewed Gate 7B V2 transaction."""
 
 from __future__ import annotations
 
@@ -15,17 +15,17 @@ from types import ModuleType
 from typing import Callable, Mapping, Sequence
 
 
-ROOK_ROOT = Path("C:/UDEV/Rook/.worktrees/task7-runtime-topology-review")
-PRIME_ROOT = Path("D:/prime-agent/.worktrees/task7-runtime-topology-review")
-APPROVED_PRIME_COMMIT = "6f76ebd9d5c2f2a690c104313dd4cc92c58f3040"
+ROOK_ROOT = Path("C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery")
+PRIME_ROOT = Path("D:/prime-agent/.worktrees/task7-runtime-topology-recovery")
+APPROVED_PRIME_COMMIT = "8712f6dddfc1251d2c308380229555c87befda8e"
 LEASE_ROOT = Path(
-    "C:/RookEvidence/2026-08-29-rookchat-prime-runtime-topology-gate-7b-lease"
+    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v2-lease"
 )
 DIRECT_ROOT = Path(
-    "C:/RookEvidence/2026-08-29-rookchat-prime-runtime-topology-gate-7b-direct"
+    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v2-direct"
 )
 PRIME_BUNDLE_MANIFEST_SHA256 = (
-    "8CB71BB3EC174ABF0F4CDBC45DAB0C0058375F635712FC52E41B2FBC9E4A5029"
+    "9BEB93172D58D333BD5A13F5A5CFF07C3F44DB5F2657F29B41F513E87DDEC50C"
 )
 GOAL_SKILL_MANIFEST_SHA256 = (
     "D1BD71554A07F2A1DACA96FF4A683332B7B5D248769E4571E99D24B55DF8B3C7"
@@ -190,7 +190,7 @@ def production_configuration(
     uv_path = Path("C:/Users/bring/AppData/Local/hermes/bin/uv.exe")
     prime_bundle_manifest = (
         ROOK_ROOT
-        / "docs/superpowers/experiments/inputs/2026-08-29-rookchat-prime-runtime-topology-gate-7a/prime-bundle-manifest.json"
+        / "docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-runtime-topology-gate-7a-v2/prime-bundle-manifest.json"
     )
     goal_skill = PRIME_ROOT / "packages/coding-agent/skills/goal/SKILL.md"
     rook_skill = ROOK_ROOT / "integrations/prime/skills/rook-full/SKILL.md"
@@ -238,7 +238,7 @@ def production_configuration(
             ),
             FrozenFile(
                 prime_bundle_manifest,
-                "72002BAEE857DE9BE7E959A1EB3B6997F27EB98F7FDF2282B76BBFEA8813B12E",
+                "E7A82A0C71F1BCE3FFE33C74F03B6E01DC3C4C9632256513D3E83C23956D8294",
             ),
             FrozenFile(
                 goal_skill,

@@ -167,6 +167,173 @@ def test_session_file_must_be_the_exact_existing_file_beneath_root(tmp_path: Pat
         harness.admit_session_file(root, str(root / "missing.jsonl"))
 
 
+def test_session_file_is_admitted_only_after_prime_flushes_it(tmp_path: Path) -> None:
+    harness = _load()
+    root = (tmp_path / "sessions").resolve()
+    root.mkdir()
+    session = root / "saved.jsonl"
+    calls = []
+
+    class Child:
+        def command(self, command, _timeout):
+            calls.append(command["type"])
+            if command["type"] == "get_state":
+                return {
+                    "type": "response",
+                    "id": command["id"],
+                    "success": True,
+                    "command": "get_state",
+                    "data": {"sessionFile": str(session)},
+                }
+            session.write_text("persisted\n", encoding="utf-8")
+            return {
+                "type": "response",
+                "id": command["id"],
+                "success": True,
+                "command": "set_rlm_max_depth",
+                "data": {"maxDepth": 0, "source": "chat"},
+            }
+
+    state, depth, admitted = harness.persist_session_file(Child(), root)
+
+    assert calls == ["get_state", "set_rlm_max_depth"]
+    assert state["sessionFile"] == str(session)
+    assert depth == {"maxDepth": 0, "source": "chat"}
+    assert admitted == session
+
+
+def test_isolated_agent_root_refuses_daemon_artifacts(tmp_path: Path) -> None:
+    harness = _load()
+    agent = tmp_path / "agent"
+    (agent / "logs").mkdir(parents=True)
+
+    harness.require_no_daemon_artifacts(agent)
+
+    (agent / "daemon-workers").mkdir()
+    with pytest.raises(harness.HarnessFailure, match="daemon artifact"):
+        harness.require_no_daemon_artifacts(agent)
+
+    (agent / "daemon-workers").rmdir()
+    (agent / "logs" / "prime-agent-daemon.test.log").write_text("started", encoding="utf-8")
+    with pytest.raises(harness.HarnessFailure, match="daemon artifact"):
+        harness.require_no_daemon_artifacts(agent)
+
+    (agent / "logs" / "prime-agent-daemon.test.log").unlink()
+    (agent / "daemon-update-restart.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(harness.HarnessFailure, match="daemon artifact"):
+        harness.require_no_daemon_artifacts(agent)
+
+
+def test_harness_has_no_continuous_process_monitor() -> None:
+    harness = _load()
+
+    assert not hasattr(harness, "ProcessMonitor")
+
+
+def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _load()
+    roots = harness.HarnessRoots.create(tmp_path / "run")
+    session = roots.sessions / "saved.jsonl"
+    resumes = []
+    children = []
+
+    class Process:
+        def __init__(self, generation: int) -> None:
+            self.pid = 700 + generation
+            self.returncode = None
+
+        def wait(self, timeout=None) -> int:
+            assert self.returncode is not None
+            return self.returncode
+
+    class Child:
+        def __init__(self, generation: int, resume: Path | None) -> None:
+            self.generation = generation
+            self.resume = resume
+            self.argv = ("node.exe", "cli.js") + (("--resume", str(resume)) if resume else ())
+            self.process = Process(generation)
+            self.rows = []
+            self.stderr = []
+            self.close_record = None
+
+        def start(self) -> None:
+            pass
+
+        def command(self, command, _timeout):
+            if self.generation in {2, 5}:
+                self.process.returncode = 12
+                self.stderr.append("session lease is already held")
+                raise harness.HarnessFailure("lease refused")
+            command_type = command["type"]
+            if command_type == "set_rlm_max_depth":
+                session.write_text("persisted\n", encoding="utf-8")
+                data = {"maxDepth": 0, "source": "chat"}
+            else:
+                data = {"sessionFile": str(session)}
+            response = {
+                "type": "response",
+                "id": command["id"],
+                "success": True,
+                "command": command_type,
+                "data": data,
+            }
+            self.rows.append(response)
+            return response
+
+        def close(self):
+            if self.close_record is None:
+                if self.process.returncode is None:
+                    self.process.returncode = 0
+                self.close_record = {
+                    "result": "already_exited" if self.process.returncode else "graceful",
+                    "returnCode": self.process.returncode,
+                }
+            return dict(self.close_record)
+
+        def terminate_without_disposal(self):
+            self.process.returncode = -15
+            self.close_record = {
+                "result": "controlled_stale_owner_exit",
+                "returnCode": -15,
+            }
+            return dict(self.close_record)
+
+    def launch(_config, _environment, generation, resume):
+        resumes.append(resume)
+        child = Child(generation, resume)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(harness, "_build_runtime_environment", lambda _config: {})
+    monkeypatch.setattr(harness, "_launch", launch)
+    config = SimpleNamespace(entry_point="lease-sequence", roots=roots)
+
+    result = harness.run_lease_sequence(config)
+
+    assert resumes == [
+        None,
+        session.resolve(),
+        session.resolve(),
+        session.resolve(),
+        session.resolve(),
+        session.resolve(),
+    ]
+    assert [record["phase"] for record in result["records"]] == [
+        "first_session_persisted",
+        "live_owner_refusal",
+        "first_close",
+        "graceful_reopen_close",
+        "detached_live_owner_refusal",
+        "controlled_stale_owner",
+        "stale_owner_recovery_close",
+    ]
+    assert all(child.process.returncode is not None for child in children)
+    assert all(child.close_record is not None for child in children)
+
+
 def test_control_sequence_is_closed_and_contains_no_prompt() -> None:
     harness = _load()
 
@@ -185,72 +352,6 @@ def test_control_sequence_is_closed_and_contains_no_prompt() -> None:
         "global": False,
     }
     assert all("prompt" not in command["type"] for command in commands)
-
-
-def test_cleanup_admission_requires_exact_generation_and_identity() -> None:
-    harness = _load()
-    owner = harness.ProcessSnapshot(101, 55, "638880485801234567", "node.exe")
-
-    assert harness.admit_cleanup_target(owner, owner, expected_generation=7, generation=7) is owner
-    with pytest.raises(harness.HarnessFailure, match="generation"):
-        harness.admit_cleanup_target(owner, owner, expected_generation=7, generation=8)
-    with pytest.raises(harness.HarnessFailure, match="identity"):
-        harness.admit_cleanup_target(
-            owner,
-            harness.ProcessSnapshot(101, 55, "638880485801234568", "node.exe"),
-            expected_generation=7,
-            generation=7,
-        )
-
-
-def test_phase_observations_require_exact_uv_and_one_steady_kernel(tmp_path: Path) -> None:
-    harness = _load()
-    uv = (tmp_path / "uv.exe").resolve()
-    python = (tmp_path / "kernel" / "Scripts" / "python.exe").resolve()
-    uv.write_bytes(b"uv")
-    python.parent.mkdir(parents=True)
-    python.write_bytes(b"python")
-    observations = (
-        harness.ProcessObservation(
-            "cold_preparation",
-            harness.ProcessSnapshot(201, 101, "2", str(uv)),
-        ),
-        harness.ProcessObservation(
-            "cold_preparation",
-            harness.ProcessSnapshot(202, 101, "3", str(python)),
-        ),
-        harness.ProcessObservation(
-            "steady_state",
-            harness.ProcessSnapshot(202, 101, "3", str(python)),
-        ),
-    )
-
-    harness.validate_phase_observations(
-        observations,
-        uv_path=uv,
-        uv_sha256=hashlib.sha256(b"uv").hexdigest().upper(),
-        interpreter=python,
-    )
-    with pytest.raises(harness.HarnessFailure, match="uv"):
-        harness.validate_phase_observations(
-            observations,
-            uv_path=uv,
-            uv_sha256="A" * 64,
-            interpreter=python,
-        )
-    with pytest.raises(harness.HarnessFailure, match="steady"):
-        harness.validate_phase_observations(
-            observations
-            + (
-                harness.ProcessObservation(
-                    "steady_state",
-                    harness.ProcessSnapshot(203, 101, "4", "daemon-worker.exe"),
-                ),
-            ),
-            uv_path=uv,
-            uv_sha256=hashlib.sha256(b"uv").hexdigest().upper(),
-            interpreter=python,
-        )
 
 
 def test_runtime_preparation_uses_prime_reported_interpreter_and_import_origins(
@@ -380,7 +481,7 @@ def test_configuration_refuses_custody_drift_before_creating_the_run_root(
     assert not run_root.exists()
 
 
-def test_owned_process_start_closes_the_retained_child_when_identity_capture_raises(
+def test_owned_process_start_closes_the_retained_child_when_reader_start_raises(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -388,61 +489,28 @@ def test_owned_process_start_closes_the_retained_child_when_identity_capture_rai
     process = _FakePopen()
     monkeypatch.setattr(harness.subprocess, "Popen", lambda *_args, **_kwargs: process)
 
-    class Observer:
-        def snapshot(self, _pid: int):
-            raise RuntimeError("identity capture failed")
+    class FailingThread:
+        ident = None
 
-    child = harness.OwnedPrimeProcess(
-        argv=("node.exe", "cli.js"),
-        environment={},
-        cwd=tmp_path,
-        generation=1,
-        observer=Observer(),
-    )
-
-    with pytest.raises(RuntimeError, match="identity capture failed"):
-        child.start()
-
-    assert process.stdin.closed is True
-    assert process.wait_calls == 1
-    assert child.close() == {"result": "graceful", "returnCode": 0}
-
-
-def test_owned_process_start_closes_the_retained_child_when_monitor_start_fails(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    harness = _load()
-    process = _FakePopen()
-    owner = harness.ProcessSnapshot(process.pid, 55, "638880485801234567", "node.exe")
-    monkeypatch.setattr(harness.subprocess, "Popen", lambda *_args, **_kwargs: process)
-
-    class Observer:
-        def snapshot(self, _pid: int):
-            return owner
-
-    class FailingMonitor:
-        observations = ()
-
-        def __init__(self, _observer, _pid):
-            self.stopped = False
+        def __init__(self, *args, **kwargs):
+            pass
 
         def start(self) -> None:
-            raise RuntimeError("monitor start failed")
+            raise RuntimeError("reader start failed")
 
-        def stop(self) -> None:
-            self.stopped = True
+        def is_alive(self) -> bool:
+            return False
 
-    monkeypatch.setattr(harness, "ProcessMonitor", FailingMonitor)
+    monkeypatch.setattr(harness.threading, "Thread", FailingThread)
+
     child = harness.OwnedPrimeProcess(
         argv=("node.exe", "cli.js"),
         environment={},
         cwd=tmp_path,
         generation=1,
-        observer=Observer(),
     )
 
-    with pytest.raises(RuntimeError, match="monitor start failed"):
+    with pytest.raises(RuntimeError, match="reader start failed"):
         child.start()
 
     assert process.stdin.closed is True
@@ -450,39 +518,50 @@ def test_owned_process_start_closes_the_retained_child_when_monitor_start_fails(
     assert child.close() == {"result": "graceful", "returnCode": 0}
 
 
-def test_owned_process_evidence_retains_generation_argv_owner_rows_and_observations() -> None:
+def test_owned_process_close_escalates_only_the_direct_handle(tmp_path: Path) -> None:
     harness = _load()
-    owner = harness.ProcessSnapshot(701, 55, "638880485801234567", "node.exe")
-    observation = harness.ProcessObservation("admission", owner)
+
+    class StubbornPopen(_FakePopen):
+        def wait(self, timeout: float | None = None) -> int:
+            self.wait_calls += 1
+            if self.wait_calls < 3:
+                raise harness.subprocess.TimeoutExpired("node.exe", timeout)
+            self.returncode = -9
+            return -9
+
+    process = StubbornPopen()
+    child = harness.OwnedPrimeProcess(
+        argv=("node.exe", "cli.js"),
+        environment={},
+        cwd=tmp_path,
+        generation=1,
+    )
+    child.process = process
+
+    assert child.close() == {"result": "killed_direct_handle", "returnCode": -9}
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 1
+    assert process.wait_calls == 3
+    assert not hasattr(child, "_taskkill_fallback")
+
+
+def test_owned_process_evidence_retains_generation_argv_pid_rows_and_close() -> None:
+    harness = _load()
     child = SimpleNamespace(
         generation=4,
         argv=("node.exe", "cli.js", "--resume", "C:/sessions/exact.jsonl"),
-        owner=owner,
+        process=SimpleNamespace(pid=701, returncode=1),
         rows=[{"type": "response", "id": "state", "success": True}],
         stderr=["lease refused"],
-        monitor=SimpleNamespace(observations=[observation]),
         close_record={"result": "already_exited", "returnCode": 1},
     )
 
     assert harness.owned_process_evidence(child) == {
         "generation": 4,
         "argv": ["node.exe", "cli.js", "--resume", "C:/sessions/exact.jsonl"],
-        "owner": {
-            "pid": 701,
-            "parent_pid": 55,
-            "start_utc_ticks": "638880485801234567",
-            "executable": "node.exe",
-        },
+        "pid": 701,
+        "returnCode": 1,
         "rows": [{"type": "response", "id": "state", "success": True}],
         "stderr": ["lease refused"],
-        "processObservations": [
-            {
-                "phase": "admission",
-                "pid": 701,
-                "parent_pid": 55,
-                "start_utc_ticks": "638880485801234567",
-                "executable": "node.exe",
-            }
-        ],
         "close": {"result": "already_exited", "returnCode": 1},
     }
