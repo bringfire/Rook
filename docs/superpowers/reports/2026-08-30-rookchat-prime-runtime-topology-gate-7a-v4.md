@@ -92,16 +92,16 @@ Rook Gate 7A V4 implementation commit
 0e052ca69117b7bd851032e90cf726a300017711
 
 Prime bundle manifest identity
-8685FC1DB52E834DA19841D5F7BB539EA2BFECD0D574F242374D8A07D4022DFA
+76C322ABF5E33907DA6C44CFC9FCFF9E4AFBF6FDDBB46F81AAE50CDF86F6BCFD
 
 Prime bundle manifest file SHA-256
-0D5FE79029C89A6EC591146766DA253A0FD6582B0E1380BEB377546502F6FE7D
+D9D304742F71CEF6C5A89E68EF29D9F97D2FE60A99491C6C911D9CB5CA936585
 
 Harness SHA-256
 6607C6EDD2E5C7337C6CCD2EB614802BC2CE118B228120C45603E77E9CDD9DAF
 
 Wrapper SHA-256
-3CC910F95B9C4073B635E81B8DC73376C66A6A9EA9653B5C163CFA437BC52159
+02F32C58970FEA7C3AFB2D571A0141F3858F46CFFF984F4118E103BDE0BFAD3C
 
 Recovery amendment SHA-256
 E50B015B5DBA224BCFB35508C1FF230E10C4E04417A25D92FED4002952861E56
@@ -121,6 +121,11 @@ Rook uv.lock
 
 The V2, V3, and V4 Gate 7B evidence roots are absent. Historical V1 evidence,
 the rejected V3 report, and both quarantine worktrees remain unchanged.
+
+The bundle manifest was frozen only after Prime commit `51e047fc2` was clean.
+Prime embeds `git describe --dirty` in the bundle, so the pre-commit build was
+correctly rejected by final custody verification. Two clean same-commit bundle
+runs reproduced the final identity above.
 
 ## Offline Verification
 
@@ -157,7 +162,7 @@ Set-Location C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery/mcp_server
 
 $python = 'C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery/mcp_server/.venv/Scripts/python.exe'
 $wrapper = 'C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery/scripts/run_rookchat_prime_runtime_topology_gate_7b.py'
-$expectedWrapper = '3CC910F95B9C4073B635E81B8DC73376C66A6A9EA9653B5C163CFA437BC52159'
+$expectedWrapper = '02F32C58970FEA7C3AFB2D571A0141F3858F46CFFF984F4118E103BDE0BFAD3C'
 
 if ((Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash -ne $expectedWrapper) {
     throw 'Gate 7B V4 wrapper differs from the reviewed artifact.'
