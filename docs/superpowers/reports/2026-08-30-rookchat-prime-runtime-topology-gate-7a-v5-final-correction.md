@@ -12,15 +12,15 @@ direct in-process product topology or restoring process surveillance.
 Prime commit:
 
 ```text
-0a3ea490d7361836c57a275a17e853284f843332
-tree df6d137a870fe39989f4e3327f244aced5aff5b7
+46dbf2749d64446820fbf31e52d8766e5ee87be9
+tree 3e3f065683550f6ea90d474d266087230f55b9c7
 ```
 
 Rook implementation commit:
 
 ```text
-ca145c6e28d87b9325cc269dfba598072246c536
-tree 1eea94a682570d518174a4d0021c052e62f09c98
+d5e5cefaf43213f884bf88392faa5ac638267ae3
+tree 853b302a84cf2045278f1a50a083563915ac97bb
 ```
 
 ## Lease Admission Correction
@@ -29,7 +29,7 @@ Recoverable V1 owner metadata is now validated before any process-liveness
 check. Admission requires:
 
 - the exact contested canonical session path;
-- a positive safe-integer PID;
+- a positive integer PID no greater than `2_147_483_647`;
 - nonempty token and creation timestamp;
 - string, nonempty `processStartId` when present; and
 - string, nonempty `activeSessionId` when present.
@@ -43,43 +43,56 @@ The same strict reader protects best-effort recoverable release, so an owner
 cannot remove a lock whose recorded session path or metadata shape no longer
 matches its lease.
 
+Owner-process evidence now has three explicit states:
+
+```text
+owner_active
+owner_proven_dead
+owner_unknown
+```
+
+Only `owner_proven_dead` authorizes reclamation. Explicit `ESRCH` and a verified
+process-start mismatch establish that state. Matching or missing identity,
+`EPERM`, invalid arguments, unsupported or unexpected probe failures, and
+unexpected identity-query failures preserve the lock and refuse the contender.
+
 ## Plan Reconciliation
 
 Historical Tasks 0-7 retain their original recorded worktree paths. Every
-executable command from Task 8 onward now uses the active recovery worktrees:
+executable command in Tasks 8-12 now uses the active recovery worktrees:
 
 ```text
 C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery
 D:/prime-agent/.worktrees/task7-runtime-topology-recovery
 ```
 
-The obsolete hidden-identity/fallback-surveillance wording was removed. No
-promotion step from a quarantined worktree is implied.
+The obsolete hidden-identity, fallback-surveillance, and fallback-teardown
+wording was removed. No promotion step from a quarantined worktree is implied.
 
 ## Frozen Bundle Custody
 
 The Prime package was rebuilt from the clean new commit using the same
 package-local build path that avoids model-catalog generation. A new manifest
-was created; prior V5 manifests and reports remain unchanged.
+was created; prior V5 manifests remain unchanged.
 
 ```text
 Prime bundle identity:
-DF730612251DF94614D7D312DBA6C1ECB6ACA9712FAF9AA901459D6C1A5BAC95
+C5A4861EFFAED21EDA75C66C218F68057B6BAF116E75E620666CF1326CE69CB7
 
 Manifest file SHA-256:
-20BF89476F3BE8CE5B0F5B51D44A503CBF08661B85DD33D568739A1D3D92E84A
+6A1B43AFFB0EC1CC27B6402E50D71C9709D400604819922238F8E596FFEA04B0
 
 Entries: 86
-Bytes: 14,009,796
+Bytes: 14,010,196
 
 Harness SHA-256:
 FD2DB5B22CADBDE03BF840C66767E8CE59FA6538008B4BBC7E4DF546B2B9F188
 
 Wrapper SHA-256:
-CCB0C7BE745173BBB5F87F07A49ACE2C26DDFFD29C1A039671B674231C5B04E7
+48B5EFDA5B4A212ED4AB42A2225CF96CF1F7B6199FB4D7364C00AFF71F3C08D2
 
 Plan SHA-256:
-913E18ECB85548306D1298E1980BC2E4BEC0079BD726F97453BE95F841F97AFB
+BE2C0D3BD1E36E8746711A4BDF0E56D372A6C0C8F9BF02053D1254B5F5A2B252
 ```
 
 The wrapper now binds the exact Prime commit, bundle identity, manifest path,
@@ -92,40 +105,46 @@ RED:
 
 ```text
 Strict V1 owner regressions: 4 failed, 19 passed
+Out-of-range PID acquisition/release regressions: 4 failed, 27 passed
+Unexpected identity-query regression: 1 failed, 39 passed
 ```
 
 The wrong-session-path, non-integral-PID, and malformed optional-identity cases
 were reclaimed before the correction. The non-positive-PID case happened to
 refuse through OS liveness behavior, demonstrating why validation had to move
-ahead of that check.
+ahead of that check. The out-of-range cases then proved that acquisition and
+release both destroyed the contested lock, and the identity-query case proved
+that an unexpected reader exception escaped the authority classifier.
 
 GREEN:
 
 ```text
-Prime lease and compatibility suites: 149 passed
+Prime lease and compatibility suites: 162 passed
 Prime repository-wide source and test TypeScript check: passed
 Prime Biome check for changed files: passed
 Prime package-local AI, agent, and coding-agent build: passed
 Rook runtime contract, product adapter, harness, and wrapper: 85 passed
 Harness and wrapper Python compilation: passed
 Prime bundle replay: 86/86 entries
-Future Task 8-13 quarantine-path search: zero matches
+Future Task 8-12 quarantine-path search: zero matches
 Obsolete surveillance-wording search: zero matches
 git diff/show whitespace checks: passed
 ```
 
-One incorrectly rooted verification command invoked the repository workspace
-test script with coding-agent file filters. The coding-agent subset passed and
-the unrelated TUI suite passed, while the agent and AI workspaces reported
-that no matching test files existed. That command is excluded from the gate;
-the exact package-scoped 149-test command was rerun independently and passed.
+Two incorrectly rooted verification commands across the correction history
+invoked the repository workspace test script with coding-agent file filters.
+The coding-agent subsets and unrelated TUI suite passed, while the agent and AI
+workspaces reported that no matching test files existed. Those commands are
+excluded from the gate; the exact package-scoped final 162-test command was run
+independently and passed.
 
 No Prime CLI, daemon, kernel, provider, model, Rhino, Grasshopper, MCP,
 deployment, process cleanup, or Gate 7B transaction was launched by this pass.
 
 ## Disposition
 
-The final reviewed issue was outcome attribution at recoverable-owner
-admission. That boundary is now closed before liveness, while valid legacy
-daemon recovery remains intact. Gate 7B remains unauthorized pending review of
-this frozen correction package.
+The final reviewed issue was authorization at the reclamation sink. Metadata
+admission is range-bound, and failure to establish liveness is no longer
+converted into proof of death. Valid legacy daemon recovery remains intact only
+for positively proven owner death. Gate 7B remains unauthorized pending review
+of this frozen correction package.
