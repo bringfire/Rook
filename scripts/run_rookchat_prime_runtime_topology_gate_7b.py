@@ -17,7 +17,7 @@ from typing import Callable, Mapping, Sequence
 
 ROOK_ROOT = Path("C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery")
 PRIME_ROOT = Path("D:/prime-agent/.worktrees/task7-runtime-topology-recovery")
-APPROVED_PRIME_COMMIT = "0a3ea490d7361836c57a275a17e853284f843332"
+APPROVED_PRIME_COMMIT = "46dbf2749d64446820fbf31e52d8766e5ee87be9"
 LEASE_ROOT = Path(
     "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v5-lease"
 )
@@ -25,7 +25,7 @@ DIRECT_ROOT = Path(
     "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v5-direct"
 )
 PRIME_BUNDLE_MANIFEST_SHA256 = (
-    "DF730612251DF94614D7D312DBA6C1ECB6ACA9712FAF9AA901459D6C1A5BAC95"
+    "C5A4861EFFAED21EDA75C66C218F68057B6BAF116E75E620666CF1326CE69CB7"
 )
 GOAL_SKILL_MANIFEST_SHA256 = (
     "D1BD71554A07F2A1DACA96FF4A683332B7B5D248769E4571E99D24B55DF8B3C7"
@@ -190,7 +190,7 @@ def production_configuration(
     uv_path = Path("C:/Users/bring/AppData/Local/hermes/bin/uv.exe")
     prime_bundle_manifest = (
         ROOK_ROOT
-        / "docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-runtime-topology-gate-7a-v5-final-correction/prime-bundle-manifest.json"
+        / "docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-runtime-topology-gate-7a-v5-authority-correction/prime-bundle-manifest.json"
     )
     goal_skill = PRIME_ROOT / "packages/coding-agent/skills/goal/SKILL.md"
     rook_skill = ROOK_ROOT / "integrations/prime/skills/rook-full/SKILL.md"
@@ -238,7 +238,7 @@ def production_configuration(
             ),
             FrozenFile(
                 prime_bundle_manifest,
-                "20BF89476F3BE8CE5B0F5B51D44A503CBF08661B85DD33D568739A1D3D92E84A",
+                "6A1B43AFFB0EC1CC27B6402E50D71C9709D400604819922238F8E596FFEA04B0",
             ),
             FrozenFile(
                 goal_skill,

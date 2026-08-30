@@ -1775,8 +1775,8 @@ stops. Each is separately required:
 1. **Task 7 entry:** the exact continuation commit is independently approved,
    named in the implementation `/goal`, and admitted by Task 7 Step 0.
 2. **Gate 7A, before any Task 7 process execution:** selector, lease,
-   Windows-bootstrap, process-identity, fallback-teardown, and unexecuted harness
-   changes receive independent review.
+   Windows-bootstrap, recoverable-owner authority, direct-handle cleanup, and
+   unexecuted harness changes receive independent review.
 3. **Gate 7B, before broker integration:** the one-shot lease sequence and direct
    in-process vertical are sealed and independently accepted.
 4. **Gate 7C, before concurrency:** the one-shot broker vertical is sealed and
