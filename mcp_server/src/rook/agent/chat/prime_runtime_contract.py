@@ -19,6 +19,17 @@ _MANIFEST_NAME = "package-manifest.json"
 _EXCLUDED_DIRECTORIES = frozenset({"__pycache__", ".pytest_cache", "build", "dist"})
 _ROOT_KEYS = frozenset({"files", "schemaVersion"})
 _FILE_KEYS = frozenset({"path", "sha256", "size"})
+_PRIME_BUNDLE_SUBTREES = ("bundle", "skills")
+_PRIME_BUNDLE_ROOT_KEYS = frozenset(
+    {
+        "entryCount",
+        "entries",
+        "manifestSha256",
+        "schemaVersion",
+        "subtrees",
+        "totalBytes",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -30,6 +41,16 @@ class VerifiedPackage:
     skill_sha256: str
     adapter_sha256: str
     project_metadata_sha256: str
+
+
+@dataclass(frozen=True)
+class VerifiedPrimeBundle:
+    root: Path
+    entries: dict[str, dict[str, int | str]]
+    manifest_sha256: str
+    entry_count: int
+    total_bytes: int
+    cli_path: Path
 
 
 @dataclass(frozen=True)
@@ -57,6 +78,162 @@ def canonical_json_bytes(value: object) -> bytes:
         ).encode("ascii")
     except (TypeError, ValueError) as exc:
         raise RuntimeContractError(f"value is not canonical JSON: {exc}") from exc
+
+
+def _iter_prime_bundle_files(root: Path) -> list[tuple[str, Path]]:
+    resolved_root = _require_regular_package_root(root)
+    files: list[tuple[str, Path]] = []
+
+    def visit(directory: Path) -> None:
+        try:
+            children = sorted(os.scandir(directory), key=lambda item: item.name)
+        except OSError as exc:
+            raise RuntimeContractError(
+                f"cannot enumerate Prime bundle directory {directory}: {exc}"
+            ) from exc
+        for child in children:
+            path = Path(child.path)
+            relative = path.relative_to(root).as_posix()
+            if _is_reparse_point(path):
+                raise RuntimeContractError(
+                    f"Prime bundle contains a symlink or reparse point: {relative}"
+                )
+            if child.is_dir(follow_symlinks=False):
+                visit(path)
+                continue
+            if not child.is_file(follow_symlinks=False):
+                raise RuntimeContractError(
+                    f"Prime bundle contains a non-regular file: {relative}"
+                )
+            try:
+                resolved = path.resolve(strict=True)
+                resolved.relative_to(resolved_root)
+            except (OSError, ValueError) as exc:
+                raise RuntimeContractError(
+                    f"Prime bundle entry escapes its root: {relative}"
+                ) from exc
+            files.append((_validate_relative_path(relative), path))
+
+    for subtree_name in _PRIME_BUNDLE_SUBTREES:
+        subtree = root / subtree_name
+        if not subtree.is_dir() or _is_reparse_point(subtree):
+            raise RuntimeContractError(
+                f"Prime bundle subtree is missing or unsafe: {subtree_name}"
+            )
+        visit(subtree)
+
+    files.sort(key=lambda item: item[0])
+    folded: set[str] = set()
+    for relative, _path in files:
+        normalized = relative.casefold()
+        if normalized in folded:
+            raise RuntimeContractError(
+                f"duplicate normalized Prime bundle path: {relative}"
+            )
+        folded.add(normalized)
+    return files
+
+
+def build_prime_bundle_manifest(root: Path) -> VerifiedPrimeBundle:
+    root = Path(root)
+    entries: dict[str, dict[str, int | str]] = {}
+    total_bytes = 0
+    for relative, path in _iter_prime_bundle_files(root):
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise RuntimeContractError(
+                f"cannot read Prime bundle file {relative}: {exc}"
+            ) from exc
+        entries[relative] = {"bytes": len(raw), "sha256": _sha256_bytes(raw)}
+        total_bytes += len(raw)
+
+    if "bundle/cli.js" not in entries:
+        raise RuntimeContractError("Prime bundle requires bundle/cli.js")
+    manifest_sha256 = _sha256_bytes(canonical_json_bytes(entries))
+    resolved_root = root.resolve(strict=True)
+    return VerifiedPrimeBundle(
+        root=resolved_root,
+        entries=entries,
+        manifest_sha256=manifest_sha256,
+        entry_count=len(entries),
+        total_bytes=total_bytes,
+        cli_path=(resolved_root / "bundle" / "cli.js"),
+    )
+
+
+def _prime_bundle_descriptor(bundle: VerifiedPrimeBundle) -> dict[str, Any]:
+    return {
+        "entryCount": bundle.entry_count,
+        "entries": bundle.entries,
+        "manifestSha256": bundle.manifest_sha256,
+        "schemaVersion": 1,
+        "subtrees": list(_PRIME_BUNDLE_SUBTREES),
+        "totalBytes": bundle.total_bytes,
+    }
+
+
+def write_prime_bundle_manifest(root: Path, manifest_path: Path) -> VerifiedPrimeBundle:
+    bundle = build_prime_bundle_manifest(Path(root))
+    manifest_path = Path(manifest_path)
+    try:
+        manifest_path.resolve(strict=False).relative_to(bundle.root)
+    except ValueError:
+        pass
+    else:
+        raise RuntimeContractError("Prime bundle manifest must be external to the dist root")
+
+    raw = canonical_json_bytes(_prime_bundle_descriptor(bundle))
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    pending = manifest_path.parent / f".{manifest_path.name}.{uuid.uuid4().hex}.pending"
+    try:
+        with pending.open("xb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(pending, manifest_path)
+    finally:
+        pending.unlink(missing_ok=True)
+    return bundle
+
+
+def verify_prime_bundle_manifest(
+    root: Path,
+    manifest_path: Path,
+    *,
+    expected_manifest_sha256: str,
+) -> VerifiedPrimeBundle:
+    expected_manifest_sha256 = _require_upper_sha256(
+        expected_manifest_sha256,
+        "Prime bundle manifest",
+    )
+    manifest_path = Path(manifest_path)
+    if not manifest_path.is_file() or _is_reparse_point(manifest_path):
+        raise RuntimeContractError("Prime bundle manifest is missing or unsafe")
+    raw = manifest_path.read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf") or raw.endswith((b"\n", b"\r")):
+        raise RuntimeContractError("Prime bundle manifest has a BOM or trailing newline")
+    try:
+        parsed = json.loads(
+            raw.decode("utf-8", errors="strict"),
+            object_pairs_hook=_no_duplicate_object,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeContractError(
+            f"Prime bundle manifest is not strict UTF-8 JSON: {exc}"
+        ) from exc
+    if not isinstance(parsed, dict) or set(parsed) != _PRIME_BUNDLE_ROOT_KEYS:
+        raise RuntimeContractError("Prime bundle manifest root schema is invalid")
+    if canonical_json_bytes(parsed) != raw:
+        raise RuntimeContractError("Prime bundle manifest bytes are not canonical")
+
+    actual = build_prime_bundle_manifest(Path(root))
+    expected = _prime_bundle_descriptor(actual)
+    if parsed != expected:
+        raise RuntimeContractError("Prime bundle manifest does not match present bytes")
+    if actual.manifest_sha256 != expected_manifest_sha256:
+        raise RuntimeContractError("Prime bundle manifest SHA-256 does not match admitted identity")
+    return actual
 
 
 def _is_reparse_point(path: Path) -> bool:

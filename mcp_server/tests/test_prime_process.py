@@ -62,6 +62,8 @@ async def test_exact_new_session_and_configured_argument_arrays(tmp_path: Path) 
         "D:/prime/dist/cli.js",
         "--mode",
         "rpc",
+        "--rpc-runtime",
+        "in-process",
         "--session-dir",
         str(tmp_path / "sessions"),
         "--no-tools",

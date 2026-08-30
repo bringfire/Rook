@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import json
 import os
 import re
+import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from ctypes import wintypes
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, cast
@@ -55,6 +58,207 @@ class PrimeRuntimeState:
     provider: str
     model_id: str
     thinking: str | None
+
+
+@dataclass(frozen=True)
+class ProcessIdentity:
+    pid: int
+    parent_pid: int
+    start_utc_ticks: str
+
+
+@dataclass(frozen=True)
+class OwnedProcessGeneration:
+    launch_generation: int
+    identity: ProcessIdentity
+
+
+@dataclass(frozen=True)
+class HiddenTaskkillSpec:
+    argv: tuple[str, ...]
+    creationflags: int
+
+
+@dataclass(frozen=True)
+class OwnedCleanupResult:
+    succeeded: bool
+    uncertain: bool
+    message: str | None = None
+
+
+_DOTNET_FILETIME_EPOCH_TICKS = 504_911_232_000_000_000
+
+
+def _query_windows_process_identity(pid: int) -> ProcessIdentity | None:
+    if sys.platform != "win32" or type(pid) is not int or pid <= 0:
+        return None
+
+    class ProcessEntry32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32W)]
+    kernel32.Process32FirstW.restype = wintypes.BOOL
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32W)]
+    kernel32.Process32NextW.restype = wintypes.BOOL
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetProcessTimes.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    ]
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+    invalid_handle = ctypes.c_void_p(-1).value
+    if snapshot == invalid_handle:
+        return None
+    parent_pid: int | None = None
+    try:
+        entry = ProcessEntry32W()
+        entry.dwSize = ctypes.sizeof(ProcessEntry32W)
+        present = bool(kernel32.Process32FirstW(snapshot, ctypes.byref(entry)))
+        while present:
+            if int(entry.th32ProcessID) == pid:
+                parent_pid = int(entry.th32ParentProcessID)
+                break
+            present = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    if parent_pid is None:
+        return None
+
+    process_handle = kernel32.OpenProcess(0x1000, False, pid)
+    if not process_handle:
+        return None
+    creation = wintypes.FILETIME()
+    exit_time = wintypes.FILETIME()
+    kernel_time = wintypes.FILETIME()
+    user_time = wintypes.FILETIME()
+    try:
+        if not kernel32.GetProcessTimes(
+            process_handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        ):
+            return None
+    finally:
+        kernel32.CloseHandle(process_handle)
+    filetime_ticks = (int(creation.dwHighDateTime) << 32) | int(
+        creation.dwLowDateTime
+    )
+    return ProcessIdentity(
+        pid=pid,
+        parent_pid=parent_pid,
+        start_utc_ticks=str(filetime_ticks + _DOTNET_FILETIME_EPOCH_TICKS),
+    )
+
+
+async def _run_hidden_taskkill(spec: HiddenTaskkillSpec) -> int:
+    killer = await asyncio.create_subprocess_exec(
+        *spec.argv,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+        creationflags=spec.creationflags,
+    )
+    try:
+        return await killer.wait()
+    except asyncio.CancelledError:
+        if killer.returncode is None:
+            killer.kill()
+            await killer.wait()
+        raise
+
+
+async def run_owned_windows_fallback(
+    *,
+    process: Any,
+    expected_owner: OwnedProcessGeneration,
+    launch_generation: int,
+    identity_query: Callable[[int], ProcessIdentity | None],
+    taskkill: Callable[[HiddenTaskkillSpec], Awaitable[int]],
+    timeout_seconds: float,
+) -> OwnedCleanupResult:
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    if process.returncode is not None:
+        return OwnedCleanupResult(True, False, "process already exited")
+    if process.pid != expected_owner.identity.pid:
+        return OwnedCleanupResult(False, True, "direct-child PID changed")
+    if launch_generation != expected_owner.launch_generation:
+        return OwnedCleanupResult(False, True, "launch generation changed")
+    try:
+        observed = identity_query(process.pid)
+    except Exception as exc:
+        return OwnedCleanupResult(False, True, f"identity query failed: {exc}")
+    if observed != expected_owner.identity:
+        return OwnedCleanupResult(False, True, "direct-child identity is uncertain")
+
+    spec = HiddenTaskkillSpec(
+        argv=("taskkill.exe", "/PID", str(process.pid), "/T", "/F"),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+    )
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    try:
+        return_code = await asyncio.wait_for(taskkill(spec), timeout_seconds)
+    except Exception as exc:
+        return OwnedCleanupResult(False, True, f"taskkill did not settle: {exc}")
+    if return_code != 0:
+        return OwnedCleanupResult(
+            False,
+            True,
+            f"taskkill exited with code {return_code}",
+        )
+    if process.returncode is None:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return OwnedCleanupResult(
+                False,
+                True,
+                "taskkill settled but the direct child exit was not observed",
+            )
+        try:
+            await asyncio.wait_for(process.wait(), remaining)
+        except asyncio.TimeoutError:
+            return OwnedCleanupResult(
+                False,
+                True,
+                "taskkill settled but the direct child exit was not observed",
+            )
+        except Exception as exc:
+            return OwnedCleanupResult(
+                False,
+                True,
+                f"direct-child wait failed after taskkill: {exc}",
+            )
+    if process.returncode is None:
+        return OwnedCleanupResult(
+            False,
+            True,
+            "direct-child wait returned without an exit result",
+        )
+    return OwnedCleanupResult(True, False)
 
 
 @dataclass
@@ -137,6 +341,9 @@ class PrimeRpcProcess:
         extra_args: Sequence[str] = (),
         control_timeout_seconds: float = CONTROL_COMMAND_TIMEOUT_SECONDS,
         max_row_bytes: int = MAX_JSONL_ROW_BYTES,
+        identity_query: Callable[[int], ProcessIdentity | None] = _query_windows_process_identity,
+        taskkill: Callable[[HiddenTaskkillSpec], Awaitable[int]] = _run_hidden_taskkill,
+        fallback_timeout_seconds: float = 2.0,
     ) -> None:
         if type(generation) is not int or generation < 1:
             raise ValueError("generation must be a positive integer")
@@ -146,10 +353,13 @@ class PrimeRpcProcess:
             raise ValueError("control_timeout_seconds must be positive")
         if max_row_bytes < 1 or max_row_bytes > MAX_JSONL_ROW_BYTES:
             raise ValueError("max_row_bytes must be within the 64 MiB ceiling")
+        if fallback_timeout_seconds <= 0:
+            raise ValueError("fallback_timeout_seconds must be positive")
 
         self.generation = generation
         self.control_timeout_seconds = float(control_timeout_seconds)
         self.max_row_bytes = max_row_bytes
+        self.fallback_timeout_seconds = float(fallback_timeout_seconds)
         self._node_path = str(node_path)
         self._cli_path = str(cli_path)
         self._session_dir = str(session_dir)
@@ -174,6 +384,10 @@ class PrimeRpcProcess:
         self._retiring = False
         self._retired = False
         self._stderr_tail = bytearray()
+        self._identity_query = identity_query
+        self._taskkill = taskkill
+        self._owned_process_generation: OwnedProcessGeneration | None = None
+        self._cleanup_result: OwnedCleanupResult | None = None
 
     @property
     def argv(self) -> list[str]:
@@ -182,6 +396,8 @@ class PrimeRpcProcess:
             self._cli_path,
             "--mode",
             "rpc",
+            "--rpc-runtime",
+            "in-process",
             "--session-dir",
             self._session_dir,
             "--no-tools",
@@ -203,6 +419,10 @@ class PrimeRpcProcess:
     def stderr_tail(self) -> str:
         return bytes(self._stderr_tail).decode("utf-8", errors="replace")
 
+    @property
+    def cleanup_result(self) -> OwnedCleanupResult | None:
+        return self._cleanup_result
+
     async def start(self) -> PrimeRuntimeState:
         if self._process is not None or self._retired:
             raise PrimeProcessError("Prime process has already been started")
@@ -214,6 +434,21 @@ class PrimeRpcProcess:
             stderr=asyncio.subprocess.PIPE,
             env=_sanitized_prime_environment(),
         )
+        if sys.platform == "win32":
+            identity = self._identity_query(self._process.pid)
+            if identity is None or identity.pid != self._process.pid:
+                self._process.terminate()
+                try:
+                    await asyncio.wait_for(self._process.wait(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    pass
+                raise PrimeProcessError(
+                    "Prime direct-child process identity could not be retained"
+                )
+            self._owned_process_generation = OwnedProcessGeneration(
+                launch_generation=self.generation,
+                identity=identity,
+            )
         self._tasks = [
             asyncio.create_task(self._read_stdout()),
             asyncio.create_task(self._read_stderr()),
@@ -498,20 +733,32 @@ class PrimeRpcProcess:
                         except ProcessLookupError:
                             pass
                 if process.returncode is None and sys.platform == "win32":
-                    killer = await asyncio.create_subprocess_exec(
-                        "taskkill",
-                        "/PID",
-                        str(process.pid),
-                        "/T",
-                        "/F",
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                    )
-                    await killer.wait()
+                    owner = self._owned_process_generation
+                    if owner is None:
+                        self._cleanup_result = OwnedCleanupResult(
+                            False,
+                            True,
+                            "Prime direct-child identity was not retained",
+                        )
+                    else:
+                        self._cleanup_result = await run_owned_windows_fallback(
+                            process=process,
+                            expected_owner=owner,
+                            launch_generation=self.generation,
+                            identity_query=self._identity_query,
+                            taskkill=self._taskkill,
+                            timeout_seconds=self.fallback_timeout_seconds,
+                        )
                 elif process.returncode is None:
                     process.kill()
-                if process.returncode is None:
+                if process.returncode is None and sys.platform != "win32":
                     await process.wait()
+                elif process.returncode is not None and self._cleanup_result is None:
+                    self._cleanup_result = OwnedCleanupResult(
+                        True,
+                        False,
+                        "Prime direct child exited during graceful retirement",
+                    )
 
             current = asyncio.current_task()
             for task in self._tasks:

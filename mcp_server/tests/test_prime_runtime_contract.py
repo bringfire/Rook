@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from rook.agent.chat import prime_runtime_contract as runtime_contract
 
 from rook.agent.chat.prime_runtime_contract import (
     RuntimeContractError,
@@ -33,6 +35,103 @@ def _write_package(root: Path, *, body: str = "VALUE = 1\n") -> Path:
     (root / "src" / "rook_full" / "__init__.py").write_text(body, encoding="utf-8")
     (root / "references" / "grasshopper.md").write_text("Grasshopper.\n", encoding="utf-8")
     return root
+
+
+def _write_prime_dist(root: Path) -> Path:
+    (root / "bundle").mkdir(parents=True)
+    (root / "skills" / "goal").mkdir(parents=True)
+    (root / "bundle" / "cli.js").write_text("console.log('prime');\n", encoding="utf-8")
+    (root / "bundle" / "runtime.js").write_text("export {};\n", encoding="utf-8")
+    (root / "skills" / "goal" / "SKILL.md").write_text("Goal.\n", encoding="utf-8")
+    return root
+
+
+def test_prime_bundle_manifest_is_closed_recursive_and_cli_bound(tmp_path: Path) -> None:
+    dist = _write_prime_dist(tmp_path / "dist")
+
+    bundle = runtime_contract.build_prime_bundle_manifest(dist)
+
+    assert list(bundle.entries) == [
+        "bundle/cli.js",
+        "bundle/runtime.js",
+        "skills/goal/SKILL.md",
+    ]
+    assert all(set(value) == {"bytes", "sha256"} for value in bundle.entries.values())
+    assert bundle.entry_count == 3
+    assert bundle.total_bytes == sum(value["bytes"] for value in bundle.entries.values())
+    assert bundle.manifest_sha256 == hashlib.sha256(
+        canonical_json_bytes(bundle.entries)
+    ).hexdigest().upper()
+    assert bundle.cli_path == (dist / "bundle" / "cli.js").resolve()
+
+
+def test_prime_bundle_manifest_roundtrip_recomputes_admitted_bytes(tmp_path: Path) -> None:
+    dist = _write_prime_dist(tmp_path / "dist")
+    manifest_path = tmp_path / "prime-bundle-manifest.json"
+
+    written = runtime_contract.write_prime_bundle_manifest(dist, manifest_path)
+    verified = runtime_contract.verify_prime_bundle_manifest(
+        dist,
+        manifest_path,
+        expected_manifest_sha256=written.manifest_sha256,
+    )
+
+    assert verified == written
+    descriptor = json.loads(manifest_path.read_bytes())
+    assert set(descriptor) == {
+        "entryCount",
+        "entries",
+        "manifestSha256",
+        "schemaVersion",
+        "subtrees",
+        "totalBytes",
+    }
+    assert descriptor["subtrees"] == ["bundle", "skills"]
+    assert manifest_path.read_bytes() == canonical_json_bytes(descriptor)
+
+
+@pytest.mark.parametrize("tamper", ("missing", "extra", "changed"))
+def test_prime_bundle_verification_rejects_byte_set_drift(tmp_path: Path, tamper: str) -> None:
+    dist = _write_prime_dist(tmp_path / "dist")
+    manifest_path = tmp_path / "prime-bundle-manifest.json"
+    written = runtime_contract.write_prime_bundle_manifest(dist, manifest_path)
+
+    if tamper == "missing":
+        (dist / "bundle" / "runtime.js").unlink()
+    elif tamper == "extra":
+        (dist / "skills" / "extra.md").write_text("extra\n", encoding="utf-8")
+    elif tamper == "changed":
+        (dist / "bundle" / "cli.js").write_text("changed\n", encoding="utf-8")
+    else:  # pragma: no cover
+        raise AssertionError(tamper)
+
+    with pytest.raises(RuntimeContractError, match="Prime bundle"):
+        runtime_contract.verify_prime_bundle_manifest(
+            dist,
+            manifest_path,
+            expected_manifest_sha256=written.manifest_sha256,
+        )
+
+
+def test_prime_bundle_manifest_rejects_missing_cli_or_reparse_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dist = _write_prime_dist(tmp_path / "dist")
+    (dist / "bundle" / "cli.js").unlink()
+    with pytest.raises(RuntimeContractError, match="bundle/cli.js"):
+        runtime_contract.build_prime_bundle_manifest(dist)
+
+    (dist / "bundle" / "cli.js").write_text("restored\n", encoding="utf-8")
+    target = dist / "skills" / "goal"
+    original = runtime_contract._is_reparse_point
+    monkeypatch.setattr(
+        runtime_contract,
+        "_is_reparse_point",
+        lambda path: path == target or original(path),
+    )
+    with pytest.raises(RuntimeContractError, match="reparse"):
+        runtime_contract.build_prime_bundle_manifest(dist)
 
 
 def test_manifest_is_recursive_closed_and_canonical(tmp_path: Path) -> None:
