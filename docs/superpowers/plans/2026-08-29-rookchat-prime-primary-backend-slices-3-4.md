@@ -213,7 +213,7 @@ Each call owns one bounded MCP/stdio child. An authentic Rook success or structu
 
 **Files:**
 - No repository file changes.
-- Uses existing worktrees `C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend` and `D:/prime-agent/.worktrees/rookchat-primary-backend`.
+- Uses clean successor worktrees `C:/UDEV/Rook/.worktrees/task7-runtime-topology-review` and `D:/prime-agent/.worktrees/task7-runtime-topology-review`; the original Task 7 worktrees remain quarantine evidence.
 
 **Interfaces:**
 - Consumes: the exact plan commit named in the implementation `/goal`, Prime commit `7690c18479c909ddea67a34e86114f7f982179a8`, existing dependency lockfiles, and the approved credential-scrub rule.
@@ -228,8 +228,8 @@ $verifyReviewedHeads = {
         [ValidatePattern('^[0-9a-f]{40}$')]
         [string]$ApprovedPlanCommit
     )
-    $rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
-    $prime = 'D:/prime-agent/.worktrees/rookchat-primary-backend'
+    $rook = 'C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+    $prime = 'D:/prime-agent/.worktrees/task7-runtime-topology-review'
     if ((git -C $rook status --porcelain --untracked-files=all).Length -ne 0) { throw 'Rook worktree is dirty.' }
     if ((git -C $rook rev-parse HEAD).Trim() -ne $ApprovedPlanCommit) { throw 'Rook HEAD does not equal the reviewed plan commit.' }
     if ((git -C $prime status --porcelain --untracked-files=all).Length -ne 0) { throw 'Prime worktree is dirty.' }
@@ -243,9 +243,9 @@ Expected: no output and exit zero. The script block is explicitly invoked with t
 - [ ] **Step 2: Restore exact dependencies in their owning worktrees**
 
 ```powershell
-Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review
 npm ci
-$rook = 'C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook = 'C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test
 if ($LASTEXITCODE -ne 0) { throw 'Frozen worktree Python environment preparation failed.' }
@@ -260,13 +260,13 @@ Expected: `package-lock.json` and `mcp_server/uv.lock` remain unchanged; the aut
 - [ ] **Step 3: Prove branch-local Node and Python imports**
 
 ```powershell
-$prime = [IO.Path]::GetFullPath('D:/prime-agent/.worktrees/rookchat-primary-backend')
+$prime = [IO.Path]::GetFullPath('D:/prime-agent/.worktrees/task7-runtime-topology-review')
 Set-Location $prime
 $vitest = (& node -e "console.log(require.resolve('vitest/package.json'))").Trim()
 if (-not [IO.Path]::GetFullPath($vitest).StartsWith($prime, [StringComparison]::OrdinalIgnoreCase)) { throw "Prime dependency escaped: $vitest" }
 npx tsx -e "import './packages/coding-agent/src/modes/rpc/rpc-mode.ts'; console.log('prime-source-import-ok')"
 
-$rook = [IO.Path]::GetFullPath('C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend')
+$rook = [IO.Path]::GetFullPath('C:/UDEV/Rook/.worktrees/task7-runtime-topology-review')
 Set-Location $rook
 $env:PYTHONPATH = "$rook/mcp_server/src"
 $env:ROOK_IMPLEMENTATION_ROOT = $rook
@@ -303,17 +303,17 @@ Record both HEAD/tree hashes, `package-lock.json` and `mcp_server/uv.lock` SHA-2
 ### Task 1: Add Prime-Generic Runtime Custody Commands
 
 **Files:**
-- Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/cli/args.ts`
-- Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/cli.ts`
-- Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/modes/rpc/rpc-types.ts`
-- Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/modes/rpc/rpc-mode.ts`
-- Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/modes/rpc/rpc-client.ts`
-- Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/modes/agent-connection/in-process-agent-connection.ts`
-- Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/core/agent-session.ts`
-- Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/src/core/tools/ipython.ts`
-- Modify: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/docs/rpc.md`
-- Test: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/test/args.test.ts`
-- Create: `D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent/test/rpc-rookchat-runtime.test.ts`
+- Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/src/cli/args.ts`
+- Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/src/cli.ts`
+- Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/src/modes/rpc/rpc-types.ts`
+- Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/src/modes/rpc/rpc-mode.ts`
+- Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/src/modes/rpc/rpc-client.ts`
+- Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/src/modes/agent-connection/in-process-agent-connection.ts`
+- Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/src/core/agent-session.ts`
+- Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/src/core/tools/ipython.ts`
+- Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/docs/rpc.md`
+- Test: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/test/args.test.ts`
+- Create: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/test/rpc-rookchat-runtime.test.ts`
 
 **Interfaces:**
 - Adds: `--append-system-prompt-file`, `set_rlm_max_depth`, `get_rlm_max_depth_status`, and `prepare_ipython_runtime`.
@@ -342,7 +342,7 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts
 ```
 
@@ -398,7 +398,7 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts
 npm run build
 git diff --check
@@ -463,7 +463,7 @@ Race two staging/preparation owners for one contract and assert one stable packa
 - [ ] **Step 6: Run focused tests and compilation**
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
@@ -554,7 +554,7 @@ Invoke it before prompt lifecycle mutation or Prime dispatch. Automatic Prime co
 - [ ] **Step 7: Run registry/backend/server tests**
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
@@ -648,7 +648,7 @@ Use Task 2's canonical builder. Check the generated `package-manifest.json` into
 - [ ] **Step 7: Run package and manifest tests**
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
@@ -713,7 +713,7 @@ Add `DocumentContext.WithRequiredDocument(uint, Func<T>)` or an equivalent scope
 - [ ] **Step 6: Run Python, managed, and native build gates**
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
@@ -788,7 +788,7 @@ Keep the deny set local to panel-locked GH admission in `server.py`/targeting, a
 - [ ] **Step 6: Run managed and Python target tests**
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
@@ -812,110 +812,329 @@ if ((git status --porcelain --untracked-files=all).Length -ne 0) { throw 'Task 6
 
 ---
 
-### Task 7: Launch and Reopen Prime from the Complete Runtime Contract
+### Task 7: Prove and Integrate the Explicit In-Process Prime Runtime
 
-**Files:**
-- Modify: `mcp_server/src/rook/agent/chat/prime_process.py`
-- Modify: `mcp_server/src/rook/agent/chat/prime_rpc_protocol.py`
-- Modify: `mcp_server/src/rook/agent/chat/prime_backend.py`
-- Modify: `mcp_server/src/rook/agent/chat/service_main.py`
-- Modify: `mcp_server/src/rook/agent/chat/server.py`
-- Modify: `src/Rook/UI/Chat/ChatServiceManager.cs`
-- Modify: `src/Rook/UI/Chat/AgentChatClient.cs`
-- Modify: `src/Rook/UI/Chat/AgentChatTab.cs`
-- Test: `mcp_server/tests/fixtures/prime_rpc_fake_child.py`
-- Test: `mcp_server/tests/test_prime_process.py`
-- Test: `mcp_server/tests/test_prime_rpc_protocol.py`
-- Test: `mcp_server/tests/test_prime_backend.py`
-- Test: `mcp_server/tests/test_chat_server.py`
-- Create: `mcp_server/tests/test_prime_runtime_preparation.py`
-- Test: `src/Rook.Tests/UI/Chat/ChatServiceManagerTests.cs`
-- Test: `src/Rook.Tests/UI/Chat/AgentChatClientParseTests.cs`
-- Test: `src/Rook.Tests/UI/Chat/AgentChatPrimeLifecycleTests.cs`
+**Incident prerequisite:** Read
+[`2026-08-29-rookchat-prime-task7-process-storm-incident.md`](../reports/2026-08-29-rookchat-prime-task7-process-storm-incident.md)
+and
+[`2026-08-29-rookchat-prime-runtime-topology-amendment.md`](../specs/2026-08-29-rookchat-prime-runtime-topology-amendment.md).
+The previous Task 7 is rejected. Its two dirty worktrees remain quarantine
+evidence and are never used by this replacement.
 
-**Interfaces:**
-- Replaces the Slice 2 effective `--no-tools` launch with the exact pinned goal skill, immutable Rook package, `--tools ipython`, and file-backed product contract.
-- Adds first-use `pending -> prepared` custody and fail-closed reopen verification.
-- Preserves one saved Prime session per conversation, single-flight prompt settlement, process generation, and existing Stop races.
-
-- [ ] **Step 1: Write RED exact-launch tests**
-
-Capture `create_subprocess_exec()` arguments and environment. Require exactly one tool configuration (`--tools ipython`), no `--no-tools`, `--no-skills` plus exactly two `--skill` paths, exact appended system-prompt file, no extensions/context/templates, exact `PRIME_AGENT_KERNEL_VENV`, and immutable profile/target variables. Reject any argument path outside the verified Prime/product roots.
-
-- [ ] **Step 2: Extend `PrimeRpcProcess` with closed runtime responses**
-
-Add parsers for recursion status and runtime preparation that require exact response key sets and absolute paths. Keep generic RPC failure strings for existing commands; do not broaden `prompt_and_wait`'s closed error object.
-
-Add managed RED tests proving the service launch supplies validated installed product roots and one service-level capability profile from product/qualification configuration. The panel's v2 start body carries PID/ticks/Rhino serial/GH GUID, but no user-selectable profile. The broker binds its configured profile when it creates the record; there is no user-facing Inspection mode.
-
-- [ ] **Step 3: Write RED first-use ordering tests**
-
-Use the fake child to assert the exact sequence:
+After independent approval, the clean review worktrees become the Task 7
+implementation worktrees:
 
 ```text
-launch Prime
--> get_state yields saved-session identity
--> atomic pending v2 record
--> set_rlm_max_depth(0,false)
--> get_rlm_max_depth_status == {0,chat}
--> prepare_ipython_runtime
--> verify persistent-kernel response and installed manifests
--> atomic prepared v2 record
--> first model prompt may be admitted
+Rook:  C:/UDEV/Rook/.worktrees/task7-runtime-topology-review
+Prime: D:/prime-agent/.worktrees/task7-runtime-topology-review
 ```
 
-Inject failure at every boundary. Assert no prompt reaches Prime, partial environment is not admitted, and the record remains honest.
+Tasks 8 onward use these same roots. They never silently return to the
+quarantined `rookchat-prime-primary-backend` worktrees.
 
-- [ ] **Step 4: Write RED reopen tests**
+**Files:**
 
-Before launch, require exact saved contract/package/goal/bundle bytes and an existing prepared environment. After launch, read recursion status without writing, await/inspect the existing runtime, and repeat in-kernel path/callable checks. Missing environment, pending record, wrong source/depth, wrong import origin, wrong interpreter, package drift, goal drift, bundle drift, or target drift must fail `runtime_contract_unavailable` without rebuilding or altering goal/session bytes.
+- Prime modify: `packages/coding-agent/src/cli/args.ts`
+- Prime modify: `packages/coding-agent/src/main.ts`
+- Prime modify: `packages/coding-agent/src/core/session-lease.ts`
+- Prime reconcile: `packages/coding-agent/src/core/kernel/bootstrap.ts`
+- Prime reconcile: `packages/coding-agent/docs/windows.md`
+- Prime reconcile: `packages/coding-agent/CHANGELOG.md`
+- Prime test: exact argument/startup decision tests already neighboring those owners
+- Prime test: `packages/coding-agent/test/session-lease.test.ts`
+- Prime test: `packages/coding-agent/test/suite/regressions/660-windows-kernel-bootstrap.test.ts`
+- Prime test: `packages/coding-agent/test/rpc.test.ts`
+- Rook modify: `mcp_server/src/rook/agent/chat/prime_process.py`
+- Rook modify: `mcp_server/src/rook/agent/chat/prime_rpc_protocol.py`
+- Rook modify: `mcp_server/src/rook/agent/chat/prime_backend.py`
+- Rook modify: `mcp_server/src/rook/agent/chat/prime_runtime_contract.py`
+- Rook modify: `mcp_server/src/rook/agent/chat/service_main.py`
+- Rook modify: `mcp_server/src/rook/agent/chat/server.py`
+- Rook modify: `src/Rook/UI/Chat/ChatServiceManager.cs`
+- Rook modify: `src/Rook/UI/Chat/AgentChatClient.cs`
+- Rook modify: `src/Rook/UI/Chat/AgentChatTab.cs`
+- Rook test: existing fake-child, process, protocol, backend, server, and managed chat tests
+- Rook create: one replacement runtime-topology harness and its causal unit tests
 
-- [ ] **Step 5: Implement runtime preparation in `PrimeChatBackend`**
+**Interfaces:**
 
-Keep launch/configuration in the process factory and contract decisions in the backend/runtime-contract owner. Add no second process manager. Retirement on preparation failure uses the existing owned-process path and marks lifecycle failed with the precise reason.
+- Adds Prime-generic `--rpc-runtime daemon|in-process`; current `daemon` behavior remains the default.
+- Makes RookChat pass `--mode rpc --rpc-runtime in-process` explicitly.
+- Makes Prime's selected in-process branch acquire and retain the existing saved-session lease without Rook supplying Prime-internal lease flags.
+- Reconciles only upstream Prime commit `142045138b8679ec077f8f032d2befe66ca5606b` for Windows kernel bootstrap; the resulting commit and bundle manifest become the runtime-contract executable identity.
+- Replaces Slice 2's effective `--no-tools` launch with the pinned goal skill,
+  immutable Rook package, `--tools ipython`, and appended product contract.
+- Preserves one saved Prime session per conversation, settled prompts, process
+  generations, goal/compaction ownership, and existing Stop races.
+- Adds no daemon command, private daemon, supervisor, worker recovery, or socket ownership.
 
-Update `ChatServiceManager` to pass only validated installed product/runtime paths and the qualification/product profile to the broker. Update `AgentChatClient`/`AgentChatTab` to capture and send the exact v2 target once at creation. Reopen uses the recorded profile/contract and never substitutes the service's current defaults.
+- [ ] **Step 0: Re-establish clean implementation custody**
 
-- [ ] **Step 6: Prove real bootstrap concurrency without provider contact**
+Verify the Rook worktree descends from
+`cf760498cb51895013c7f2163e6faaa7b66255bf`, contains only the independently
+approved documentation commit beyond it, and is clean. Verify the Prime
+worktree is exactly `3e3c9da18911f3ecffd56fe99eb7bab552fcd81e` and clean. Verify both
+quarantined worktrees still contain their original uncommitted Task 7 diffs.
+Any mismatch stops before editing or dependency use.
 
-Using the isolated Prime agent/session roots and no auth, launch two real RPC sessions against the same contract environment and invoke only the three broker-control commands. Assert both report the same interpreter/import bytes and no partial bootstrap. Repeat with old/new staged package contracts and assert each kernel imports its own package. Dispose all kernels and record zero owned child processes.
+- [ ] **Step 1: Write RED topology, lease, bootstrap, and Windows-boundary tests without launching a process**
 
-- [ ] **Step 7: Run broker preparation tests and Prime build**
+Require:
 
-```powershell
-$offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
-Remove-Item -LiteralPath $offlineRoot -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path "$offlineRoot/agent" -Force | Out-Null
-New-Item -ItemType Directory -Path "$offlineRoot/sessions" -Force | Out-Null
-$credentialPattern = '(API_KEY|OAUTH_TOKEN|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|BEARER_TOKEN_BEDROCK|WEB_IDENTITY_TOKEN_FILE|GITHUB_TOKEN|GH_TOKEN|HF_TOKEN|COPILOT_GITHUB_TOKEN|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS)$'
-Get-ChildItem Env: | Where-Object Name -Match $credentialPattern | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
-Remove-Item Env:PI_CODING_AGENT_DIR -ErrorAction SilentlyContinue
-$env:PRIME_AGENT_CODING_AGENT_DIR = "$offlineRoot/agent"
-$env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
-if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
-if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
+- `--rpc-runtime` accepts only `daemon` or `in-process`;
+- it is rejected outside `--mode rpc`;
+- `in-process` rejects `--daemon-socket` and every daemon-attachment form before daemon readiness or runtime creation;
+- omission preserves daemon selection;
+- `in-process` reaches `runRpcMode(runtime)` and never calls
+  `createDaemonClientConnection()`;
+- for a saved session, the in-process selector makes Prime create an internal
+  lease-owner identity and enables the existing lease before `AgentSession` or
+  kernel creation, without accepting those internal fields from Rook;
+- lease contention refuses before runtime creation, graceful disposal releases,
+  a simulated live owner refuses reopen, and injected dead-owner identity
+  follows Prime's existing conservative stale-lease recovery;
+- the exact Windows path/hidden-launch regressions from upstream commit
+  `142045138b8679ec077f8f032d2befe66ca5606b` fail on the pinned baseline;
+- the Windows identity query uses `-NoLogo -NoProfile -NonInteractive`,
+  `windowsHide: true`, one finite deadline, and no retry; and
+- timeout/failure returns one terminal identity result without starting another query;
+- Windows fallback teardown requires the retained direct-child handle and an
+  exact launch-generation match, invokes one hidden bounded `taskkill` against
+  only that PID tree, and records uncertainty without retrying or widening.
 
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
-Set-Location $rook
-$env:PYTHONPATH="$rook/mcp_server/src"
-$python="$rook/mcp_server/.venv/Scripts/python.exe"
-& $python -m pytest mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_chat_server.py -q
-& $python -m py_compile mcp_server/src/rook/agent/chat/prime_process.py mcp_server/src/rook/agent/chat/prime_rpc_protocol.py mcp_server/src/rook/agent/chat/prime_backend.py mcp_server/src/rook/agent/chat/service_main.py
-dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore --filter "FullyQualifiedName~ChatServiceManagerTests|FullyQualifiedName~AgentChatClientParseTests|FullyQualifiedName~AgentChatPrimeLifecycleTests"
+Inject the process-query function in tests. Do not spawn PowerShell.
 
-Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
-npm run build
+- [ ] **Step 2: Implement the finite direct-owner prerequisites**
+
+Add the closed CLI field and route it through the existing startup decision.
+Reuse `createAgentSessionRuntime()`, `runRpcMode()`, and
+`InProcessAgentConnection` unchanged. Do not add a second RPC mode or copy
+session logic. In Prime, derive saved-session lease activation and a fresh
+lease-owner identity from the selected in-process topology before runtime
+creation; do not require or admit Rook-supplied internal lease variables.
+
+Replay the exact four-file Windows bootstrap correction from upstream commit
+`142045138b8679ec077f8f032d2befe66ca5606b` onto the pinned baseline. Do not
+advance Prime more broadly. If the patch cannot be reconciled without semantic
+conflict, stop for review. Record the resulting Prime commit and bundle-manifest
+hash and use them in every later runtime-contract fixture.
+
+Harden the existing Windows process query in place. Replace Rook's fallback
+teardown with the retained-handle, immediately generation-checked, hidden,
+finite, single-attempt rule. Do not install `ntsecuritycon`, add a process
+dependency, widen cleanup, or add a generic process supervisor.
+
+Run only Prime unit tests that use fakes/injected queries, plus TypeScript
+compilation. No CLI, daemon, kernel, provider, or process-boundary test runs in
+this step.
+
+- [ ] **Step 3: Author the model-free lease sequence and direct harness, but do not run them**
+
+Author two fixed entry points in one bounded harness: the saved-session lease
+sequence specified in Step 4 and the one-session direct vertical. Neither entry
+point retries or launches the other automatically. Both use the same reviewed
+hidden process owner, generation identity, evidence format, and exact teardown.
+
+The harness uses a process API with an argument array and hidden-window flags.
+It creates unique test-owned agent, session, data, package, and kernel roots.
+Its exact child environment is built from a closed allowlist in the same
+process that launches Prime. Provider credentials are absent, the isolated
+agent root contains no auth file, no `--api-key` is present, Prime's internal
+lease flags are absent from the supplied environment, and no prompt is sent.
+Preflight one exact `uv.exe`, set `PRIME_AGENT_INSTALL_UV=0`, and retain that
+path; Prime must not launch an installer shell.
+
+The harness starts exactly one Prime process with:
+
+```text
+--mode rpc
+--rpc-runtime in-process
+--offline
+--model <frozen offline catalog selector>
+--tools ipython
+--no-extensions
+--no-skills plus the two exact skill paths
+--no-context-files
+--no-prompt-templates
+--session-dir <unique test root>
 ```
 
-Expected: all model-free tests pass; no provider request is possible in the scrubbed environment.
+It sends only:
 
-- [ ] **Step 8: Commit broker runtime integration**
-
-```powershell
-Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend
-git add mcp_server/src/rook/agent/chat src/Rook/UI/Chat/ChatServiceManager.cs src/Rook/UI/Chat/AgentChatClient.cs src/Rook/UI/Chat/AgentChatTab.cs src/Rook.Tests/UI/Chat mcp_server/tests/fixtures/prime_rpc_fake_child.py mcp_server/tests/test_prime_process.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_prime_runtime_preparation.py mcp_server/tests/test_chat_server.py
-git commit -m "feat(chat): launch Prime from immutable Rook contracts"
+```text
+get_state
+set_rlm_max_depth(0, global=false)
+get_rlm_max_depth_status
+prepare_ipython_runtime
+EOF/close
 ```
+
+It retains the argv, sanitized environment names, session path, runtime
+topology, interpreter, import origins, command responses, PIDs, parent PIDs,
+start identities, close result, and zero-descendant result. Secrets and
+credential values are never retained.
+
+Process custody is phase-specific rather than a speculative transient count:
+
+```text
+admission and lease:
+  one directly owned Prime Node process
+  plus at most one hidden bounded identity probe per lease acquisition
+
+cold preparation:
+  Prime plus only the preflight-resolved `uv.exe` and Python executables used
+  for Python installation, venv creation, readiness/package checks, and kernel
+
+steady state:
+  exactly Prime plus the contract-selected IPython kernel
+
+shutdown:
+  graceful disposal, or one generation-verified hidden `taskkill.exe` fallback
+  followed by zero descendants owned by the Prime launch generation
+```
+
+Record executable path, PID, parent PID, and process-start identity using a
+stdlib `ctypes` Windows Toolhelp/process-time snapshot in the harness. The
+observer launches no process. Do not poll by repeatedly launching PowerShell.
+A daemon supervisor, daemon worker, visible console, repeated identity probe,
+unlisted executable type, or preparation helper surviving into steady state is
+an absorbing failure.
+
+`--offline` prohibits Prime startup/provider/model traffic. First-use `uv`
+Python/package traffic is a separately authorized cold-preparation activity and
+must be retained distinctly; it is not a provider call. No prompt is admitted.
+
+Cleanup may signal only PIDs recorded for that launch generation after matching
+PID, parent PID, and process-start identity. It never kills by process name and
+never targets a console host. Graceful close comes first. Any Windows fallback
+must revalidate the still-running direct child immediately before one hidden,
+bounded `taskkill /PID <direct-child> /T /F`. Timeout, mismatch, or uncertainty
+is retained as failure and permits neither retry nor broader cleanup.
+
+- [ ] **Gate 7A: Independent harness review before first execution**
+
+Commit the Prime selector, Prime-owned lease activation, exact Windows bootstrap
+reconciliation, hidden/bounded identity and fallback fixes, and unexecuted
+harness.
+Record test and build output from the non-process unit gate. Stop for independent
+review. Do not execute the harness in the same turn that changes it.
+
+- [ ] **Step 4: Execute the reviewed lease sequence and direct in-process vertical exactly once**
+
+After explicit authorization, first run the reviewed saved-session lease
+sequence once. It uses only exact hidden task-owned processes and proves:
+
+```text
+first direct owner holds the saved-session lease
+-> second direct child refuses before AgentSession or kernel creation
+-> graceful close releases the lease
+-> explicit reopen succeeds and closes
+-> a logically detached but still task-owned live lease holder refuses reopen
+-> the same holder's controlled exit leaves a dead owner
+-> Prime recovers that stale lease conservatively and closes
+```
+
+The harness retains exact process handles for cleanup even when a holder is
+logically detached; it never creates an actually unowned process. Unit tests
+inject process identity for malformed and near-match lease records. If the
+lease sequence fails, do not launch the direct vertical.
+
+Then run the reviewed direct harness once. No retry, timeout increase, cleanup
+expansion, alternate socket, or extra transaction is authorized. On any
+unexpected process, auth, import, kernel, protocol, close, or cleanup boundary:
+
+```text
+stop launch activity
+-> preserve complete evidence
+-> exact owned teardown if identity is certain
+-> terminal failed gate
+-> independent diagnosis before any rerun
+```
+
+A pass must prove no daemon endpoint or worker participated, the requested
+contract environment owns the actual interpreter, both imports resolve from
+their admitted roots, depth is `{maxDepth: 0, source: "chat"}`, and every owned
+descendant is gone after close. It must also retain that `--offline` was active,
+no prompt/provider call occurred, cold helpers matched the admitted phase, and
+steady state was exactly Prime plus one kernel.
+
+- [ ] **Gate 7B: Review the lease sequence and direct vertical before broker integration**
+
+Seal the direct-run evidence and stop. The broker cannot consume
+`--rpc-runtime in-process` until this gate is independently approved.
+
+- [ ] **Step 5: Reimplement Rook runtime integration from RED fake-child tests**
+
+Do not copy the quarantined code. Recreate only behavior justified by the
+approved design:
+
+- exact launch argv/environment with `--rpc-runtime in-process`;
+- closed recursion and runtime-preparation responses;
+- first-use `pending -> prepared` ordering;
+- fail-closed reopen without environment rebuilding;
+- immutable profile and target projection;
+- exact saved-session identity; and
+- lifecycle failure plus exact owned-process retirement on preparation failure;
+- generation-checked graceful/fallback teardown with one hidden bounded
+  `taskkill` attempt at most; and
+- no widening or retry when teardown identity is uncertain.
+
+The deterministic first-use sequence remains:
+
+```text
+launch direct-owned Prime
+-> get_state
+-> atomic pending record
+-> set and verify chat-local depth zero
+-> prepare runtime
+-> verify interpreter and import origins
+-> atomic prepared record
+-> first prompt may be admitted
+```
+
+- [ ] **Step 6: Complete model-free failure injection before concurrency**
+
+Using only fake children or injected process owners, cover preparation timeout,
+preparation failure, partial environment, wrong interpreter, wrong import root,
+missing reopen environment, process loss, close timeout, late response, and
+ambiguous cleanup. Each failure is terminal, records honest state, admits no
+prompt, replays nothing, and creates no replacement process.
+
+Add one broker-level single-session harness using the already reviewed direct
+Prime harness. Author and review it before running. Its descendant ceiling is
+the same phase-specific admitted executable set, with the same exact Prime-plus-
+kernel steady state. Run it once only after review and stop on any unexpected
+boundary.
+
+- [ ] **Gate 7C: Review the broker vertical before concurrency**
+
+Seal its evidence and stop. Concurrency remains unauthorized until the complete
+single-session broker path passes.
+
+- [ ] **Step 7: Qualify contract concurrency last**
+
+After Gate 7C approval, execute one reviewed same-contract pair, then one
+reviewed old/new-contract pair. Each conversation owns one in-process Prime
+child and one kernel. During preparation, each launch may use only its admitted
+phase-specific helpers and at most one hidden identity probe per lease
+acquisition. Steady state is exactly two Prime children plus two kernels.
+
+Assert same-contract preparation yields one stable contract environment without
+partial installation. Assert old/new contracts retain distinct package roots,
+kernel roots, interpreters, and imports. Close all sessions and prove zero owned
+descendants. A failure in either pair stops the gate; do not run the next pair or
+retry the failed one.
+
+- [ ] **Step 8: Run the bounded offline suite and commit the accepted integration**
+
+Run the exact Prime unit/build gate and the focused Rook fake/managed suites
+from the worktree-owned dependencies. Real process harnesses are not part of the
+repeatable general test command; their sealed one-shot evidence is reported
+separately. Verify no provider credentials or auth files were admitted, no
+model prompt occurred, and no process-boundary test ran more than once.
+
+Commit Prime and Rook separately with exact test/evidence references. Stop for
+independent Task 7 review before Task 8.
 
 ---
 
@@ -1008,21 +1227,21 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
 & $python -m pytest mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore --filter "FullyQualifiedName~AgentChatClientParseTests|FullyQualifiedName~AgentChatPrimeLifecycleTests"
 
-Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/suite/agent-session-goal.test.ts test/rpc-rookchat-runtime.test.ts
 ```
 
 - [ ] **Step 8: Commit goal projection and panel behavior**
 
 ```powershell
-Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend
+Set-Location C:/UDEV/Rook/.worktrees/task7-runtime-topology-review
 git add mcp_server/src/rook/agent/chat src/Rook/UI/Chat src/Rook.Tests/UI/Chat scripts/rookchat_prime_slices_3_4_qualification.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py
 git commit -m "feat(chat): project Prime goal activity in RookChat"
 ```
@@ -1083,7 +1302,7 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts test/suite/agent-session-goal.test.ts
 npm run build
 git diff --check
@@ -1104,7 +1323,7 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
@@ -1115,7 +1334,7 @@ $python="$rook/mcp_server/.venv/Scripts/python.exe"
 - [ ] **Step 5: Run the complete managed and native gate**
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location $rook
 dotnet build src/Rook/Rook.csproj -c Debug --no-restore
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore
@@ -1128,7 +1347,7 @@ git diff --check
 Rhino and all owned `python -m rook`/chat-service workers must be closed. The exact shell checks that condition, runs the repository-owned deploy script without rebuilding different bytes, and refuses on any failure:
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 $blockers = @(Get-CimInstance Win32_Process | Where-Object {
     $_.Name -match '^Rhino(?:\.exe)?$' -or
     ($_.CommandLine -and $_.CommandLine -match 'rook\.agent\.chat\.service_main|python(?:\.exe)?\s+-m\s+rook')
@@ -1158,7 +1377,7 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
@@ -1195,7 +1414,7 @@ Do not prepare Rhino or create either GH document yet.
 Report exact commands, counts, custody hashes, closed test matrices, branch-local imports, provider-contact exclusion, installed product paths, and explicit non-claims. Include the exact proposed commands:
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
@@ -1211,7 +1430,7 @@ Set-Location $rook
 git add scripts/rookchat_prime_slices_3_4_qualification.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py docs/CURRENT_ARCHITECTURE.md docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json docs/superpowers/reports/2026-08-29-rookchat-prime-slices-3-4-offline-qualification.md docs/superpowers/reports/2026-08-29-rookchat-prime-slice3-precontact.md
 git commit -m "test(chat): qualify Prime Rook runtime offline"
 git status --short
-git -C D:/prime-agent/.worktrees/rookchat-primary-backend status --short
+git -C D:/prime-agent/.worktrees/task7-runtime-topology-review status --short
 ```
 
 Expected: both worktrees clean. Stop for independent implementation review. Do not contact Rhino, Grasshopper, Rook MCP, Prime provider, or a model until the reviewer authorizes the exact Slice 3 command.
@@ -1346,12 +1565,12 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts test/suite/agent-session-goal.test.ts
 npm run build
 if ($LASTEXITCODE -ne 0) { throw 'Prime model-free gate failed.' }
 
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
@@ -1369,7 +1588,7 @@ This is the required pre-mutation review evidence, not another architecture pass
 The one authorized command after review will be:
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
@@ -1473,12 +1692,12 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-Set-Location D:/prime-agent/.worktrees/rookchat-primary-backend/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts test/suite/agent-session-goal.test.ts
 npm run build
 if ($LASTEXITCODE -ne 0) { throw 'Prime final model-free gate failed.' }
 
-$rook='C:/UDEV/Rook/.worktrees/rookchat-prime-primary-backend'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
@@ -1493,7 +1712,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Rook final model-free gate failed.' }
 git add docs/CURRENT_ARCHITECTURE.md docs/superpowers/reports/2026-08-29-rookchat-prime-slice4-point-row-v1-execution.md
 git commit -m "docs: record Prime RookChat mutating qualification"
 git status --short
-git -C D:/prime-agent/.worktrees/rookchat-primary-backend status --short
+git -C D:/prime-agent/.worktrees/task7-runtime-topology-review status --short
 ```
 
 Expected: both worktrees clean. Stop for independent result review. Do not make Prime the default backend or begin deferred product work.

@@ -4,6 +4,12 @@
 
 **Date:** 2026-08-29
 
+**Runtime-topology amendment:**
+[`2026-08-29-rookchat-prime-runtime-topology-amendment.md`](2026-08-29-rookchat-prime-runtime-topology-amendment.md)
+supersedes the Task 7 daemon-backed RPC assumption after the retained
+process-storm incident. All other ownership and qualification decisions in this
+specification remain in force.
+
 ## Purpose
 
 This specification defines the next two product-integration slices for the
