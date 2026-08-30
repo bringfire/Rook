@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from rook.agent.chat import prime_process as prime_process_module
 from rook.agent.chat.prime_process import (
     MAX_JSONL_ROW_BYTES,
     PrimeControlTimeout,
@@ -15,10 +16,104 @@ from rook.agent.chat.prime_process import (
     PrimeRpcProcess,
 )
 from rook.agent.chat.prime_rpc_protocol import parse_prompt_settlement
+from rook.agent.chat.prime_registry import TargetFingerprintV2
 
 
 pytestmark = pytest.mark.asyncio
 FIXTURE = Path(__file__).parent / "fixtures" / "prime_rpc_fake_child.py"
+
+
+async def test_runtime_launch_uses_exact_tools_skills_prompt_and_authority_environment(
+    tmp_path: Path,
+) -> None:
+    goal_skill = tmp_path / "goal" / "SKILL.md"
+    rook_skill = tmp_path / "rook-full" / "SKILL.md"
+    goal_skill.parent.mkdir(parents=True)
+    rook_skill.parent.mkdir(parents=True)
+    goal_skill.write_text("goal", encoding="utf-8")
+    rook_skill.write_text("rook", encoding="utf-8")
+    environment = {
+        "SystemRoot": "C:/Windows",
+        "PRIME_AGENT_KERNEL_VENV": str(tmp_path / "kernel"),
+        "ROOK_MCP_TOOL_PROFILE": "readonly",
+        "ROOK_MCP_TARGET_PROCESS_ID": "1234",
+    }
+    launch = prime_process_module.PrimeRuntimeLaunch(
+        goal_skill_path=goal_skill,
+        rook_skill_path=rook_skill,
+        system_prompt_path=rook_skill,
+        environment=environment,
+    )
+    process = PrimeRpcProcess(
+        node_path="node.exe",
+        cli_path="D:/prime/dist/cli.js",
+        session_dir=tmp_path / "sessions",
+        generation=1,
+        runtime_launch=launch,
+    )
+
+    assert process.argv == [
+        "node.exe",
+        "D:/prime/dist/cli.js",
+        "--mode",
+        "rpc",
+        "--rpc-runtime",
+        "in-process",
+        "--session-dir",
+        str(tmp_path / "sessions"),
+        "--tools",
+        "ipython",
+        "--no-extensions",
+        "--no-skills",
+        "--skill",
+        str(goal_skill.absolute()),
+        "--skill",
+        str(rook_skill.absolute()),
+        "--append-system-prompt-file",
+        str(rook_skill.absolute()),
+        "--no-context-files",
+        "--no-prompt-templates",
+    ]
+    assert process.launch_environment == environment
+    assert "--no-tools" not in process.argv
+
+
+async def test_runtime_environment_replaces_ambient_authority_and_credentials(
+    tmp_path: Path,
+) -> None:
+    target = TargetFingerprintV2(
+        1234,
+        "638918000000000000",
+        42,
+        "01234567-89ab-cdef-0123-456789abcdef",
+    )
+
+    environment = prime_process_module.build_runtime_launch_environment(
+        base_environment={
+            "SystemRoot": "C:/Windows",
+            "PATH": "C:/runtime",
+            "OPENAI_API_KEY": "must-not-survive",
+            "ROOK_MCP_TOOL_PROFILE": "full",
+            "ROOK_MCP_TARGET_PROCESS_ID": "9999",
+        },
+        kernel_environment_path=tmp_path / "kernel",
+        capability_profile="readonly",
+        target=target,
+    )
+
+    assert environment == {
+        "SystemRoot": "C:/Windows",
+        "PATH": "C:/runtime",
+        "PRIME_AGENT_KERNEL_VENV": str((tmp_path / "kernel").absolute()),
+        "ROOK_MCP_TOOL_PROFILE": "readonly",
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_PROCESS_ID": "1234",
+        "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS": "638918000000000000",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+        "ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID": (
+            "01234567-89ab-cdef-0123-456789abcdef"
+        ),
+    }
 
 
 def make_process(

@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import ctypes
+import hashlib
 import json
 import os
 import re
 import subprocess
-import sys
-from ctypes import wintypes
-from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, Mapping, Protocol, cast
 
+from .prime_registry import PrimeModelSelection, TargetFingerprintV2
 from .prime_rpc_protocol import PrimeProtocolError
+from .prime_runtime_contract import RuntimeContract, verify_prime_bundle_manifest
 
 
 MAX_JSONL_ROW_BYTES = 64 * 1024 * 1024
@@ -27,6 +27,17 @@ _CREDENTIAL_ENV_NAME = re.compile(
     r"GOOGLE_APPLICATION_CREDENTIALS)$",
     re.IGNORECASE,
 )
+_RUNTIME_AUTHORITY_ENV_NAMES = frozenset(
+    {
+        "PRIME_AGENT_KERNEL_VENV",
+        "ROOK_MCP_TOOL_PROFILE",
+        "ROOK_MCP_TARGET_MODE",
+        "ROOK_MCP_TARGET_PROCESS_ID",
+        "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER",
+        "ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID",
+    }
+)
 
 
 def _sanitized_prime_environment() -> dict[str, str]:
@@ -35,6 +46,47 @@ def _sanitized_prime_environment() -> dict[str, str]:
         for key, value in os.environ.items()
         if _CREDENTIAL_ENV_NAME.search(key) is None
     }
+
+
+def build_runtime_launch_environment(
+    *,
+    base_environment: Mapping[str, str],
+    kernel_environment_path: str | os.PathLike[str],
+    capability_profile: str,
+    target: TargetFingerprintV2,
+) -> dict[str, str]:
+    if capability_profile not in {"readonly", "full"}:
+        raise ValueError("capability_profile must be readonly or full")
+    kernel = Path(kernel_environment_path)
+    if not kernel.is_absolute():
+        kernel = kernel.absolute()
+    environment = {
+        key: value
+        for key, value in base_environment.items()
+        if isinstance(key, str)
+        and isinstance(value, str)
+        and _CREDENTIAL_ENV_NAME.search(key) is None
+        and key not in _RUNTIME_AUTHORITY_ENV_NAMES
+    }
+    environment.update(
+        {
+            "PRIME_AGENT_KERNEL_VENV": str(kernel),
+            "ROOK_MCP_TOOL_PROFILE": capability_profile,
+            "ROOK_MCP_TARGET_MODE": "panel_locked",
+            "ROOK_MCP_TARGET_PROCESS_ID": str(target.rhino_pid),
+            "ROOK_MCP_TARGET_PROCESS_START_UTC_TICKS": (
+                target.rhino_process_start_utc_ticks
+            ),
+            "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": str(
+                target.document_runtime_serial
+            ),
+        }
+    )
+    if target.grasshopper_document_id is not None:
+        environment["ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID"] = (
+            target.grasshopper_document_id
+        )
+    return environment
 
 
 class PrimeProcessError(RuntimeError):
@@ -61,22 +113,40 @@ class PrimeRuntimeState:
 
 
 @dataclass(frozen=True)
-class ProcessIdentity:
-    pid: int
-    parent_pid: int
-    start_utc_ticks: str
+class PrimeRuntimeLaunch:
+    goal_skill_path: Path
+    rook_skill_path: Path
+    system_prompt_path: Path
+    environment: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "goal_skill_path",
+            "rook_skill_path",
+            "system_prompt_path",
+        ):
+            path = Path(getattr(self, field_name)).absolute()
+            if not path.is_file():
+                raise ValueError(f"{field_name} must be an existing file")
+            object.__setattr__(self, field_name, path)
+        environment = dict(self.environment)
+        if not environment or any(
+            not isinstance(key, str)
+            or not key
+            or not isinstance(value, str)
+            for key, value in environment.items()
+        ):
+            raise ValueError("runtime launch environment must contain string pairs")
+        if any(_CREDENTIAL_ENV_NAME.search(key) for key in environment):
+            raise ValueError("runtime launch environment contains a credential")
+        object.__setattr__(self, "environment", environment)
 
 
-@dataclass(frozen=True)
-class OwnedProcessGeneration:
-    launch_generation: int
-    identity: ProcessIdentity
+class PrimeRuntimeBindingLike(Protocol):
+    contract: RuntimeContract
+    goal_skill_root: Path
 
-
-@dataclass(frozen=True)
-class HiddenTaskkillSpec:
-    argv: tuple[str, ...]
-    creationflags: int
+    def verify(self) -> RuntimeContract: ...
 
 
 @dataclass(frozen=True)
@@ -84,181 +154,6 @@ class OwnedCleanupResult:
     succeeded: bool
     uncertain: bool
     message: str | None = None
-
-
-_DOTNET_FILETIME_EPOCH_TICKS = 504_911_232_000_000_000
-
-
-def _query_windows_process_identity(pid: int) -> ProcessIdentity | None:
-    if sys.platform != "win32" or type(pid) is not int or pid <= 0:
-        return None
-
-    class ProcessEntry32W(ctypes.Structure):
-        _fields_ = [
-            ("dwSize", wintypes.DWORD),
-            ("cntUsage", wintypes.DWORD),
-            ("th32ProcessID", wintypes.DWORD),
-            ("th32DefaultHeapID", ctypes.c_size_t),
-            ("th32ModuleID", wintypes.DWORD),
-            ("cntThreads", wintypes.DWORD),
-            ("th32ParentProcessID", wintypes.DWORD),
-            ("pcPriClassBase", wintypes.LONG),
-            ("dwFlags", wintypes.DWORD),
-            ("szExeFile", wintypes.WCHAR * 260),
-        ]
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
-    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
-    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32W)]
-    kernel32.Process32FirstW.restype = wintypes.BOOL
-    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32W)]
-    kernel32.Process32NextW.restype = wintypes.BOOL
-    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.GetProcessTimes.argtypes = [
-        wintypes.HANDLE,
-        ctypes.POINTER(wintypes.FILETIME),
-        ctypes.POINTER(wintypes.FILETIME),
-        ctypes.POINTER(wintypes.FILETIME),
-        ctypes.POINTER(wintypes.FILETIME),
-    ]
-    kernel32.GetProcessTimes.restype = wintypes.BOOL
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel32.CloseHandle.restype = wintypes.BOOL
-
-    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
-    invalid_handle = ctypes.c_void_p(-1).value
-    if snapshot == invalid_handle:
-        return None
-    parent_pid: int | None = None
-    try:
-        entry = ProcessEntry32W()
-        entry.dwSize = ctypes.sizeof(ProcessEntry32W)
-        present = bool(kernel32.Process32FirstW(snapshot, ctypes.byref(entry)))
-        while present:
-            if int(entry.th32ProcessID) == pid:
-                parent_pid = int(entry.th32ParentProcessID)
-                break
-            present = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
-    finally:
-        kernel32.CloseHandle(snapshot)
-    if parent_pid is None:
-        return None
-
-    process_handle = kernel32.OpenProcess(0x1000, False, pid)
-    if not process_handle:
-        return None
-    creation = wintypes.FILETIME()
-    exit_time = wintypes.FILETIME()
-    kernel_time = wintypes.FILETIME()
-    user_time = wintypes.FILETIME()
-    try:
-        if not kernel32.GetProcessTimes(
-            process_handle,
-            ctypes.byref(creation),
-            ctypes.byref(exit_time),
-            ctypes.byref(kernel_time),
-            ctypes.byref(user_time),
-        ):
-            return None
-    finally:
-        kernel32.CloseHandle(process_handle)
-    filetime_ticks = (int(creation.dwHighDateTime) << 32) | int(
-        creation.dwLowDateTime
-    )
-    return ProcessIdentity(
-        pid=pid,
-        parent_pid=parent_pid,
-        start_utc_ticks=str(filetime_ticks + _DOTNET_FILETIME_EPOCH_TICKS),
-    )
-
-
-async def _run_hidden_taskkill(spec: HiddenTaskkillSpec) -> int:
-    killer = await asyncio.create_subprocess_exec(
-        *spec.argv,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-        creationflags=spec.creationflags,
-    )
-    try:
-        return await killer.wait()
-    except asyncio.CancelledError:
-        if killer.returncode is None:
-            killer.kill()
-            await killer.wait()
-        raise
-
-
-async def run_owned_windows_fallback(
-    *,
-    process: Any,
-    expected_owner: OwnedProcessGeneration,
-    launch_generation: int,
-    identity_query: Callable[[int], ProcessIdentity | None],
-    taskkill: Callable[[HiddenTaskkillSpec], Awaitable[int]],
-    timeout_seconds: float,
-) -> OwnedCleanupResult:
-    if timeout_seconds <= 0:
-        raise ValueError("timeout_seconds must be positive")
-    if process.returncode is not None:
-        return OwnedCleanupResult(True, False, "process already exited")
-    if process.pid != expected_owner.identity.pid:
-        return OwnedCleanupResult(False, True, "direct-child PID changed")
-    if launch_generation != expected_owner.launch_generation:
-        return OwnedCleanupResult(False, True, "launch generation changed")
-    try:
-        observed = identity_query(process.pid)
-    except Exception as exc:
-        return OwnedCleanupResult(False, True, f"identity query failed: {exc}")
-    if observed != expected_owner.identity:
-        return OwnedCleanupResult(False, True, "direct-child identity is uncertain")
-
-    spec = HiddenTaskkillSpec(
-        argv=("taskkill.exe", "/PID", str(process.pid), "/T", "/F"),
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
-    )
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout_seconds
-    try:
-        return_code = await asyncio.wait_for(taskkill(spec), timeout_seconds)
-    except Exception as exc:
-        return OwnedCleanupResult(False, True, f"taskkill did not settle: {exc}")
-    if return_code != 0:
-        return OwnedCleanupResult(
-            False,
-            True,
-            f"taskkill exited with code {return_code}",
-        )
-    if process.returncode is None:
-        remaining = deadline - loop.time()
-        if remaining <= 0:
-            return OwnedCleanupResult(
-                False,
-                True,
-                "taskkill settled but the direct child exit was not observed",
-            )
-        try:
-            await asyncio.wait_for(process.wait(), remaining)
-        except asyncio.TimeoutError:
-            return OwnedCleanupResult(
-                False,
-                True,
-                "taskkill settled but the direct child exit was not observed",
-            )
-        except Exception as exc:
-            return OwnedCleanupResult(
-                False,
-                True,
-                f"direct-child wait failed after taskkill: {exc}",
-            )
-    if process.returncode is None:
-        return OwnedCleanupResult(
-            False,
-            True,
-            "direct-child wait returned without an exit result",
-        )
-    return OwnedCleanupResult(True, False)
 
 
 @dataclass
@@ -339,11 +234,10 @@ class PrimeRpcProcess:
         thinking: str | None = None,
         resume_session_path: str | os.PathLike[str] | None = None,
         extra_args: Sequence[str] = (),
+        runtime_launch: PrimeRuntimeLaunch | None = None,
         control_timeout_seconds: float = CONTROL_COMMAND_TIMEOUT_SECONDS,
         max_row_bytes: int = MAX_JSONL_ROW_BYTES,
-        identity_query: Callable[[int], ProcessIdentity | None] = _query_windows_process_identity,
-        taskkill: Callable[[HiddenTaskkillSpec], Awaitable[int]] = _run_hidden_taskkill,
-        fallback_timeout_seconds: float = 2.0,
+        cleanup_timeout_seconds: float = 2.0,
     ) -> None:
         if type(generation) is not int or generation < 1:
             raise ValueError("generation must be a positive integer")
@@ -353,13 +247,13 @@ class PrimeRpcProcess:
             raise ValueError("control_timeout_seconds must be positive")
         if max_row_bytes < 1 or max_row_bytes > MAX_JSONL_ROW_BYTES:
             raise ValueError("max_row_bytes must be within the 64 MiB ceiling")
-        if fallback_timeout_seconds <= 0:
-            raise ValueError("fallback_timeout_seconds must be positive")
+        if cleanup_timeout_seconds <= 0:
+            raise ValueError("cleanup_timeout_seconds must be positive")
 
         self.generation = generation
         self.control_timeout_seconds = float(control_timeout_seconds)
         self.max_row_bytes = max_row_bytes
-        self.fallback_timeout_seconds = float(fallback_timeout_seconds)
+        self.cleanup_timeout_seconds = float(cleanup_timeout_seconds)
         self._node_path = str(node_path)
         self._cli_path = str(cli_path)
         self._session_dir = str(session_dir)
@@ -370,13 +264,18 @@ class PrimeRpcProcess:
             str(resume_session_path) if resume_session_path is not None else None
         )
         self._extra_args = tuple(extra_args)
-        if any(argument == "--api-key" or argument.startswith("--api-key=") for argument in self.argv):
+        self._runtime_launch = runtime_launch
+        if any(
+            argument == "--api-key" or argument.startswith("--api-key=")
+            for argument in self.argv
+        ):
             raise ValueError("--api-key is prohibited for Prime RPC launch")
 
         self._process: asyncio.subprocess.Process | None = None
         self._pending: dict[str, _PendingCommand] = {}
         self._listeners: list[Callable[[int, dict[str, Any]], None]] = []
         self._request_counter = 0
+        self._command_types: list[str] = []
         self._write_lock = asyncio.Lock()
         self._retire_lock = asyncio.Lock()
         self._tasks: list[asyncio.Task[Any]] = []
@@ -384,9 +283,6 @@ class PrimeRpcProcess:
         self._retiring = False
         self._retired = False
         self._stderr_tail = bytearray()
-        self._identity_query = identity_query
-        self._taskkill = taskkill
-        self._owned_process_generation: OwnedProcessGeneration | None = None
         self._cleanup_result: OwnedCleanupResult | None = None
 
     @property
@@ -400,12 +296,34 @@ class PrimeRpcProcess:
             "in-process",
             "--session-dir",
             self._session_dir,
-            "--no-tools",
-            "--no-extensions",
-            "--no-skills",
-            "--no-context-files",
-            "--no-prompt-templates",
         ]
+        if self._runtime_launch is None:
+            result.extend(
+                [
+                    "--no-tools",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--no-context-files",
+                    "--no-prompt-templates",
+                ]
+            )
+        else:
+            result.extend(
+                [
+                    "--tools",
+                    "ipython",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--skill",
+                    str(self._runtime_launch.goal_skill_path),
+                    "--skill",
+                    str(self._runtime_launch.rook_skill_path),
+                    "--append-system-prompt-file",
+                    str(self._runtime_launch.system_prompt_path),
+                    "--no-context-files",
+                    "--no-prompt-templates",
+                ]
+            )
         if self._provider is not None and self._model_id is not None:
             result.extend(["--model", f"{self._provider}/{self._model_id}"])
         if self._thinking is not None:
@@ -423,6 +341,16 @@ class PrimeRpcProcess:
     def cleanup_result(self) -> OwnedCleanupResult | None:
         return self._cleanup_result
 
+    @property
+    def command_types(self) -> tuple[str, ...]:
+        return tuple(self._command_types)
+
+    @property
+    def launch_environment(self) -> dict[str, str]:
+        if self._runtime_launch is None:
+            return _sanitized_prime_environment()
+        return dict(self._runtime_launch.environment)
+
     async def start(self) -> PrimeRuntimeState:
         if self._process is not None or self._retired:
             raise PrimeProcessError("Prime process has already been started")
@@ -432,23 +360,9 @@ class PrimeRpcProcess:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=_sanitized_prime_environment(),
+            env=self.launch_environment,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        if sys.platform == "win32":
-            identity = self._identity_query(self._process.pid)
-            if identity is None or identity.pid != self._process.pid:
-                self._process.terminate()
-                try:
-                    await asyncio.wait_for(self._process.wait(), timeout=0.5)
-                except asyncio.TimeoutError:
-                    pass
-                raise PrimeProcessError(
-                    "Prime direct-child process identity could not be retained"
-                )
-            self._owned_process_generation = OwnedProcessGeneration(
-                launch_generation=self.generation,
-                identity=identity,
-            )
         self._tasks = [
             asyncio.create_task(self._read_stdout()),
             asyncio.create_task(self._read_stderr()),
@@ -504,6 +418,7 @@ class PrimeRpcProcess:
 
         outbound = dict(command)
         outbound["id"] = request_id
+        self._command_types.append(expected_command)
         future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = _PendingCommand(expected_command, future)
         effective_timeout = timeout_seconds
@@ -711,54 +626,101 @@ class PrimeRpcProcess:
             self._mark_lost(PrimeProcessLost("Prime process retired"))
             process = self._process
             if process is not None:
-                deadline = asyncio.get_running_loop().time() + grace_seconds
+                stdin_close_timed_out = False
                 if process.stdin is not None and not process.stdin.is_closing():
                     process.stdin.close()
                     try:
-                        await process.stdin.wait_closed()
-                    except (BrokenPipeError, ConnectionResetError):
+                        await asyncio.wait_for(
+                            process.stdin.wait_closed(),
+                            timeout=self.cleanup_timeout_seconds,
+                        )
+                    except asyncio.TimeoutError:
+                        stdin_close_timed_out = True
+                    except (BrokenPipeError, ConnectionResetError, OSError):
                         pass
                 if process.returncode is None:
                     try:
                         await asyncio.wait_for(
                             process.wait(),
-                            timeout=max(
-                                0.001,
-                                deadline - asyncio.get_running_loop().time(),
-                            ),
+                            timeout=max(0.001, grace_seconds),
                         )
                     except asyncio.TimeoutError:
                         try:
                             process.terminate()
                         except ProcessLookupError:
                             pass
-                if process.returncode is None and sys.platform == "win32":
-                    owner = self._owned_process_generation
-                    if owner is None:
+                        try:
+                            await asyncio.wait_for(
+                                process.wait(),
+                                timeout=self.cleanup_timeout_seconds,
+                            )
+                        except asyncio.TimeoutError:
+                            try:
+                                process.kill()
+                            except ProcessLookupError:
+                                pass
+                            try:
+                                await asyncio.wait_for(
+                                    process.wait(),
+                                    timeout=self.cleanup_timeout_seconds,
+                                )
+                            except asyncio.TimeoutError:
+                                self._cleanup_result = OwnedCleanupResult(
+                                    False,
+                                    True,
+                                    "Prime direct child did not settle after kill",
+                                )
+                            else:
+                                self._cleanup_result = OwnedCleanupResult(
+                                    False,
+                                    False,
+                                    "Prime direct child required kill after terminate timed out",
+                                )
+                        else:
+                            self._cleanup_result = OwnedCleanupResult(
+                                False,
+                                False,
+                                "Prime direct child required terminate after "
+                                "graceful close timed out",
+                            )
+                    else:
+                        if process.returncode != 0:
+                            self._cleanup_result = OwnedCleanupResult(
+                                False,
+                                False,
+                                f"Prime direct child exited with code {process.returncode}",
+                            )
+                        elif stdin_close_timed_out:
+                            self._cleanup_result = OwnedCleanupResult(
+                                False,
+                                False,
+                                "Prime stdin close timed out before direct child exited",
+                            )
+                        else:
+                            self._cleanup_result = OwnedCleanupResult(
+                                True,
+                                False,
+                                "Prime direct child exited gracefully",
+                            )
+                elif self._cleanup_result is None:
+                    if process.returncode != 0:
                         self._cleanup_result = OwnedCleanupResult(
                             False,
-                            True,
-                            "Prime direct-child identity was not retained",
+                            False,
+                            f"Prime direct child exited with code {process.returncode}",
+                        )
+                    elif stdin_close_timed_out:
+                        self._cleanup_result = OwnedCleanupResult(
+                            False,
+                            False,
+                            "Prime stdin close timed out before direct child exited",
                         )
                     else:
-                        self._cleanup_result = await run_owned_windows_fallback(
-                            process=process,
-                            expected_owner=owner,
-                            launch_generation=self.generation,
-                            identity_query=self._identity_query,
-                            taskkill=self._taskkill,
-                            timeout_seconds=self.fallback_timeout_seconds,
+                        self._cleanup_result = OwnedCleanupResult(
+                            True,
+                            False,
+                            "Prime direct child exited gracefully",
                         )
-                elif process.returncode is None:
-                    process.kill()
-                if process.returncode is None and sys.platform != "win32":
-                    await process.wait()
-                elif process.returncode is not None and self._cleanup_result is None:
-                    self._cleanup_result = OwnedCleanupResult(
-                        True,
-                        False,
-                        "Prime direct child exited during graceful retirement",
-                    )
 
             current = asyncio.current_task()
             for task in self._tasks:
@@ -770,3 +732,110 @@ class PrimeRpcProcess:
             )
             self._listeners.clear()
             self._retired = True
+
+
+@dataclass
+class PrimeRuntimeProcessFactory:
+    node_path: Path
+    node_sha256: str
+    uv_path: Path
+    uv_sha256: str
+    prime_dist_root: Path
+    prime_bundle_manifest_path: Path
+    prime_bundle_manifest_sha256: str
+    session_dir: Path
+    base_environment: Mapping[str, str]
+    extra_args: Sequence[str] = ()
+    process_class: type[PrimeRpcProcess] = PrimeRpcProcess
+    created_processes: list[PrimeRpcProcess] = field(
+        default_factory=list,
+        init=False,
+    )
+
+    def __post_init__(self) -> None:
+        for name in (
+            "node_path",
+            "uv_path",
+            "prime_bundle_manifest_path",
+        ):
+            path = Path(getattr(self, name))
+            if not path.is_absolute() or not path.is_file():
+                raise ValueError(f"{name} must be an existing absolute file")
+            setattr(self, name, path.resolve(strict=True))
+        dist = Path(self.prime_dist_root)
+        if not dist.is_absolute() or not dist.is_dir():
+            raise ValueError("prime_dist_root must be an existing absolute directory")
+        self.prime_dist_root = dist.resolve(strict=True)
+        session_dir = Path(self.session_dir)
+        if not session_dir.is_absolute():
+            raise ValueError("session_dir must be absolute")
+        self.session_dir = session_dir
+        self.base_environment = dict(self.base_environment)
+        self.extra_args = tuple(self.extra_args)
+
+    @staticmethod
+    def _hash_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest().upper()
+
+    def __call__(
+        self,
+        generation: int,
+        model: PrimeModelSelection,
+        resume_session_path: str | None,
+        binding: PrimeRuntimeBindingLike,
+        target: TargetFingerprintV2,
+    ) -> PrimeRpcProcess:
+        if self._hash_file(self.node_path) != self.node_sha256:
+            raise PrimeProcessError("Node executable differs from runtime custody")
+        if self._hash_file(self.uv_path) != self.uv_sha256:
+            raise PrimeProcessError("uv executable differs from runtime custody")
+        path_entries = self.base_environment.get("PATH", "").split(os.pathsep)
+        observed_first_path = (
+            os.path.normcase(os.path.abspath(path_entries[0]))
+            if path_entries
+            else None
+        )
+        expected_first_path = os.path.normcase(os.path.abspath(self.uv_path.parent))
+        if observed_first_path != expected_first_path:
+            raise PrimeProcessError("uv executable directory is not first on PATH")
+        bundle = verify_prime_bundle_manifest(
+            self.prime_dist_root,
+            self.prime_bundle_manifest_path,
+            expected_manifest_sha256=self.prime_bundle_manifest_sha256,
+        )
+        contract = binding.verify()
+        if (
+            contract.record["prime"]["bundleManifestSha256"]
+            != bundle.manifest_sha256
+        ):
+            raise PrimeProcessError("Prime bundle does not match runtime contract")
+        environment = build_runtime_launch_environment(
+            base_environment=self.base_environment,
+            kernel_environment_path=contract.kernel_environment_path,
+            capability_profile=contract.record["capabilityProfile"],
+            target=target,
+        )
+        launch = PrimeRuntimeLaunch(
+            goal_skill_path=binding.goal_skill_root / "SKILL.md",
+            rook_skill_path=contract.rook_package.root / "SKILL.md",
+            system_prompt_path=contract.rook_package.root / "SKILL.md",
+            environment=environment,
+        )
+        process = self.process_class(
+            node_path=self.node_path,
+            cli_path=bundle.cli_path,
+            session_dir=self.session_dir,
+            generation=generation,
+            provider=model.provider,
+            model_id=model.id,
+            thinking=model.thinking,
+            resume_session_path=resume_session_path,
+            extra_args=self.extra_args,
+            runtime_launch=launch,
+        )
+        self.created_processes.append(process)
+        return process

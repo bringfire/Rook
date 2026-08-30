@@ -1,178 +1,158 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
+
 from rook.agent.chat import prime_process
 
 
 pytestmark = pytest.mark.asyncio
 
 
-@dataclass
-class FakeProcess:
-    pid: int
-    returncode: int | None = None
-    stdin: object | None = None
-    exited: asyncio.Event | None = None
+class FakeStdin:
+    def __init__(self, *, stall: bool = False) -> None:
+        self.closed = False
+        self.stall = stall
 
-    async def wait(self):
-        if self.returncode is None:
-            if self.exited is None:
-                await asyncio.Future()
-            else:
-                await self.exited.wait()
-        return self.returncode
+    def is_closing(self) -> bool:
+        return self.closed
 
-    def terminate(self):
+    def close(self) -> None:
+        self.closed = True
+
+    async def wait_closed(self) -> None:
+        if self.stall:
+            await asyncio.Future()
         return None
 
 
-def _owner():
-    return prime_process.OwnedProcessGeneration(
-        launch_generation=7,
-        identity=prime_process.ProcessIdentity(pid=101, parent_pid=55, start_utc_ticks="638880485801234567"),
-    )
+@dataclass
+class FakeProcess:
+    wait_outcomes: list[str]
+    pid: int = 101
+    returncode: int | None = None
+    stdin: FakeStdin = field(default_factory=FakeStdin)
+    terminate_calls: int = 0
+    kill_calls: int = 0
+
+    async def wait(self) -> int:
+        outcome = self.wait_outcomes.pop(0)
+        if outcome == "stall":
+            await asyncio.Future()
+        if outcome == "graceful":
+            self.returncode = 0
+        elif outcome == "terminated":
+            self.returncode = -15
+        elif outcome == "killed":
+            self.returncode = -9
+        else:
+            raise AssertionError(outcome)
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+
+    def kill(self) -> None:
+        self.kill_calls += 1
 
 
-async def test_windows_fallback_is_hidden_bounded_generation_qualified_and_single_attempt() -> None:
-    calls = []
-    process = FakeProcess(pid=101)
-
-    async def taskkill(spec):
-        calls.append(spec)
-        process.returncode = -9
-        return 0
-
-    result = await prime_process.run_owned_windows_fallback(
-        process=process,
-        expected_owner=_owner(),
-        launch_generation=7,
-        identity_query=lambda _pid: _owner().identity,
-        taskkill=taskkill,
-        timeout_seconds=0.1,
-    )
-
-    assert result.succeeded is True
-    assert result.uncertain is False
-    assert len(calls) == 1
-    assert calls[0].argv == ("taskkill.exe", "/PID", "101", "/T", "/F")
-    assert calls[0].creationflags != 0
-
-
-@pytest.mark.parametrize(
-    ("generation", "observed"),
-    (
-        (8, (101, 55, "638880485801234567")),
-        (7, (101, 55, "638880485801234568")),
-        (7, None),
-    ),
-)
-async def test_windows_fallback_refuses_uncertain_or_stale_identity_without_widening(
-    generation: int,
-    observed: tuple[int, int, str] | None,
-) -> None:
-    calls = []
-
-    async def taskkill(spec):
-        calls.append(spec)
-        return 0
-
-    observed_identity = (
-        None
-        if observed is None
-        else prime_process.ProcessIdentity(
-            pid=observed[0],
-            parent_pid=observed[1],
-            start_utc_ticks=observed[2],
-        )
-    )
-    result = await prime_process.run_owned_windows_fallback(
-        process=FakeProcess(pid=101),
-        expected_owner=_owner(),
-        launch_generation=generation,
-        identity_query=lambda _pid: observed_identity,
-        taskkill=taskkill,
-        timeout_seconds=0.1,
-    )
-
-    assert result.succeeded is False
-    assert result.uncertain is True
-    assert calls == []
-
-
-async def test_windows_fallback_timeout_is_terminal_and_not_retried() -> None:
-    attempts = 0
-
-    async def stalled_taskkill(_spec):
-        nonlocal attempts
-        attempts += 1
-        await asyncio.Future()
-
-    result = await prime_process.run_owned_windows_fallback(
-        process=FakeProcess(pid=101),
-        expected_owner=_owner(),
-        launch_generation=7,
-        identity_query=lambda _pid: _owner().identity,
-        taskkill=stalled_taskkill,
-        timeout_seconds=0.001,
-    )
-
-    assert result.succeeded is False
-    assert result.uncertain is True
-    assert attempts == 1
-
-
-async def test_windows_fallback_requires_the_direct_child_exit_to_settle() -> None:
-    attempts = 0
-
-    async def taskkill(_spec):
-        nonlocal attempts
-        attempts += 1
-        return 0
-
-    result = await prime_process.run_owned_windows_fallback(
-        process=FakeProcess(pid=101),
-        expected_owner=_owner(),
-        launch_generation=7,
-        identity_query=lambda _pid: _owner().identity,
-        taskkill=taskkill,
-        timeout_seconds=0.001,
-    )
-
-    assert result.succeeded is False
-    assert result.uncertain is True
-    assert "direct child exit" in (result.message or "")
-    assert attempts == 1
-
-
-async def test_prime_retire_uses_only_the_generation_qualified_windows_fallback(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = []
-    process = FakeProcess(pid=101)
-
-    async def taskkill(spec):
-        calls.append(spec)
-        process.returncode = -9
-        return 0
-
-    monkeypatch.setattr(prime_process.sys, "platform", "win32")
-    runtime = prime_process.PrimeRpcProcess(
+def runtime(tmp_path, process: FakeProcess):
+    owner = prime_process.PrimeRpcProcess(
         node_path="node.exe",
         cli_path="D:/prime/dist/cli.js",
         session_dir=tmp_path / "sessions",
         generation=7,
-        identity_query=lambda _pid: _owner().identity,
-        taskkill=taskkill,
-        fallback_timeout_seconds=0.1,
+        cleanup_timeout_seconds=0.01,
     )
-    runtime._process = process
-    runtime._owned_process_generation = _owner()
+    owner._process = process
+    return owner
 
-    await runtime.retire(0)
 
-    assert len(calls) == 1
-    assert runtime.cleanup_result == prime_process.OwnedCleanupResult(True, False)
+async def test_graceful_retirement_uses_only_the_direct_handle(tmp_path) -> None:
+    process = FakeProcess(["graceful"])
+    owner = runtime(tmp_path, process)
+
+    await owner.retire(0.01)
+
+    assert process.terminate_calls == 0
+    assert process.kill_calls == 0
+    assert owner.cleanup_result == prime_process.OwnedCleanupResult(
+        succeeded=True,
+        uncertain=False,
+        message="Prime direct child exited gracefully",
+    )
+
+
+async def test_terminate_fallback_is_retained_as_non_graceful_cleanup(tmp_path) -> None:
+    process = FakeProcess(["stall", "terminated"])
+    owner = runtime(tmp_path, process)
+
+    await owner.retire(0.001)
+
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 0
+    assert owner.cleanup_result == prime_process.OwnedCleanupResult(
+        succeeded=False,
+        uncertain=False,
+        message="Prime direct child required terminate after graceful close timed out",
+    )
+
+
+async def test_kill_fallback_is_retained_as_non_graceful_cleanup(tmp_path) -> None:
+    process = FakeProcess(["stall", "stall", "killed"])
+    owner = runtime(tmp_path, process)
+
+    await owner.retire(0.001)
+
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 1
+    assert owner.cleanup_result == prime_process.OwnedCleanupResult(
+        succeeded=False,
+        uncertain=False,
+        message="Prime direct child required kill after terminate timed out",
+    )
+
+
+async def test_unsettled_kill_is_uncertain_and_never_widens_cleanup(tmp_path) -> None:
+    process = FakeProcess(["stall", "stall", "stall"])
+    owner = runtime(tmp_path, process)
+
+    await owner.retire(0.001)
+
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 1
+    assert owner.cleanup_result == prime_process.OwnedCleanupResult(
+        succeeded=False,
+        uncertain=True,
+        message="Prime direct child did not settle after kill",
+    )
+
+
+async def test_stalled_stdin_close_is_bounded_and_fails_qualification(tmp_path) -> None:
+    process = FakeProcess(["graceful"], stdin=FakeStdin(stall=True))
+    owner = runtime(tmp_path, process)
+
+    await owner.retire(0.01)
+
+    assert process.returncode == 0
+    assert owner.cleanup_result == prime_process.OwnedCleanupResult(
+        succeeded=False,
+        uncertain=False,
+        message="Prime stdin close timed out before direct child exited",
+    )
+
+
+async def test_nonzero_natural_exit_is_not_graceful(tmp_path) -> None:
+    process = FakeProcess([])
+    process.returncode = 7
+    owner = runtime(tmp_path, process)
+
+    await owner.retire(0.01)
+
+    assert owner.cleanup_result == prime_process.OwnedCleanupResult(
+        succeeded=False,
+        uncertain=False,
+        message="Prime direct child exited with code 7",
+    )
