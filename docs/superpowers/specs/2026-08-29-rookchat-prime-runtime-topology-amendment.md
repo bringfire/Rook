@@ -184,6 +184,12 @@ Qualification must prove all four existing lease outcomes:
 - a dead owner is recovered only through Prime's existing process-identity and
   stale-lease rules.
 
+The first owner retains the absolute canonical `sessionFile` returned by
+`get_state`. Every contender and reopen uses the same isolated agent root and
+`--resume <that-exact-sessionFile>`. Sharing only `--session-dir`, session ID,
+basename, suffix, or latest-session selection is insufficient because the lease
+key is the canonical session-file path.
+
 The test harness may retain an exact process handle solely for cleanup while
 logically detaching the first owner from the contender. It must not create an
 actually unowned process to prove the orphan case.
@@ -217,6 +223,39 @@ The reconciled Prime commit and resulting Prime bundle-manifest hash become the
 executable identity in every new runtime contract. The earlier pinned commit
 remains provenance, not the executable identity after reconciliation.
 
+### Closed Prime launched-artifact manifest
+
+The Prime bundle manifest reuses the previously qualified `dist` bundle shape;
+it is not a caller-supplied SHA label. Its closed definition is:
+
+```text
+root: <Prime worktree>/packages/coding-agent/dist
+included subtrees, in this exact order: ["bundle", "skills"]
+entries: every regular file recursively beneath those two subtrees
+authority paths: ordinal, forward-slash paths relative to `dist`
+entry value: {"bytes": <integer>, "sha256": <uppercase SHA-256>}
+```
+
+Symlinks, junctions, reparse escapes, missing subtrees, duplicate normalized
+paths, and non-regular entries fail closed. There are no cache/build exclusions
+inside the two admitted subtrees. The manifest document is written outside
+`dist`, so it never hashes itself.
+
+The entry map is serialized with the already approved canonical JSON encoder:
+compact ASCII UTF-8, no BOM or trailing newline, ordinal key order,
+`sort_keys=True`, `separators=(",", ":")`, and `ensure_ascii=True`. The uppercase
+SHA-256 of those canonical entry-map bytes is `bundleManifestSha256`.
+`entryCount` and `totalBytes` are retained diagnostics, not alternate identity.
+
+The Rook runtime-contract owner generates this manifest only after the exact
+Prime build succeeds. It requires `bundle/cli.js` to be present and records that
+absolute file as the launched entry point. Before every Prime launch or reopen,
+the broker recomputes the manifest from the recorded `dist` root, verifies the
+entry point is one of its entries, and compares the resulting identity with the
+conversation's runtime contract. Missing, extra, or changed admitted bytes fail
+`runtime_contract_unavailable` before Prime starts. The reconciled Prime git
+commit remains recorded solely as provenance.
+
 ## Descendant phases and shutdown
 
 Cold preparation does not have a speculative fixed process count. Qualification
@@ -239,13 +278,15 @@ shutdown:
   followed by zero descendants owned by that Prime launch generation
 ```
 
-The harness sets `PRIME_AGENT_INSTALL_UV=0` after preflighting the exact `uv.exe`
-path, so bootstrap never launches an installer shell. It records executable
-path, parent PID, PID, and process-start identity for each observed descendant
-through a non-spawning Windows process snapshot. It does not repeatedly launch
+The harness preflights one absolute `uv.exe` and SHA-256, puts its directory
+first in the sanitized child `PATH`, and sets `PRIME_AGENT_INSTALL_UV=0`, so
+bootstrap resolves that exact executable and never launches an installer shell.
+Observed cold-preparation path and hash must match. It records executable path,
+parent PID, PID, and process-start identity for each observed descendant through
+a non-spawning Windows process snapshot. It does not repeatedly launch
 PowerShell to poll process state. A daemon supervisor, daemon worker, unrelated
-console host, unlisted executable type, repeated identity probe, or helper
-surviving into steady state is an absorbing failure.
+console host, unlisted executable type, repeated identity probe, mismatched
+`uv.exe`, or helper surviving into steady state is an absorbing failure.
 
 Graceful RPC/runtime disposal is attempted first. Windows fallback termination
 is allowed only when the direct child process handle is still live and an
@@ -329,7 +370,8 @@ one direct Prime RPC session must prove:
 3. no daemon socket, supervisor, or session worker is used;
 4. the selected session file and agent directory are isolated;
 5. saved-session lease contention, release/reopen, live-owner refusal, and
-   conservative dead-owner recovery satisfy the rules above;
+   conservative dead-owner recovery all use the same canonical resumed session
+   file and satisfy the rules above;
 6. the reconciled Windows bootstrap selects `Scripts/python.exe` and hides its
    subprocesses;
 7. the exact contract kernel environment is selected;
@@ -338,7 +380,7 @@ one direct Prime RPC session must prove:
 10. `--offline` is active and no prompt/provider call occurs;
 11. prepare, close, and kernel teardown settle within finite deadlines;
 12. the phase-specific descendant set is exact and reaches the stated steady
-    state;
+    state, including exact preflighted `uv.exe` path/hash;
 13. the Windows identity probe is hidden, bounded, and attempted once; and
 14. fallback teardown is generation-qualified, hidden, bounded, single-attempt,
     and limited to the direct child tree.

@@ -10,10 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-29-rookchat-prime-primary-backend-slices-3-4-design.md`
 
+**Execution status:** Tasks 0-6 are completed and preserved at Rook
+`cf760498cb51895013c7f2163e6faaa7b66255bf` and Prime
+`3e3c9da18911f3ecffd56fe99eb7bab552fcd81e`. Their recipes remain below as
+historical custody evidence and must not be rerun. Tasks 7-12 are unimplemented.
+Execution may resume only at replacement Task 7 from the exact independently
+approved continuation commit named in the implementation `/goal`.
+
 ## Global Constraints
 
-- This plan is unimplemented. Its exact commit must receive independent review before Task 0 begins.
-- The implementation `/goal` names the exact approved plan commit. Task 0 requires the Rook worktree to be clean at that literal commit and the Prime worktree to be clean at `7690c18479c909ddea67a34e86114f7f982179a8`.
+- Tasks 0-6 are complete and immutable for this continuation. Their checked steps are retained evidence, not executable instructions.
+- The implementation `/goal` names the exact approved Task 7 continuation commit. Replacement Task 7 requires the Rook worktree to be clean at that literal commit, with reviewed topology base `77f07f2e` as its immediate parent, and the Prime worktree to be clean at `3e3c9da18911f3ecffd56fe99eb7bab552fcd81e`.
 - Existing registry v1 records retain their exact Slices 1-2 text-only meaning. They are never inferred, rewritten, or reopened as v2.
 - Slice 3 uses a fresh `readonly` v2 conversation. Slice 4 uses a different fresh `full` v2 conversation. A running process, kernel, record, or target lock is never elevated.
 - Prime owns reasoning, provider interaction, transcript, IPython, compaction, goal state, continuation, accounting, and completion. The broker does not classify requests, infer completion, or persist a shadow goal/task lifecycle.
@@ -25,7 +32,8 @@
 - Product `panel_locked` custody mechanically governs the unmodified `rook_full` typed/composite path. Hostile IPython, raw transport, environment monkeypatching, and arbitrary Python containment remain explicit non-claims.
 - `gh_document_new`, `gh_document_open`, and transitive `gh_learn_directory` are refused in `panel_locked` v1 before nested document-open dispatch. `rhino_execute` remains admitted but receives no Grasshopper containment claim and is disqualifying if used to inspect or alter Grasshopper during Slice 4.
 - ChatRunner remains the product default and rollback path. Prime remains opt-in through Slices 3-4. Default cutover is a later decision.
-- Tasks 0-9 are model-free. They must run with provider credentials scrubbed and may not contact Rhino, Grasshopper, a model, or a live Rook mutation surface.
+- Remaining Tasks 7-9 are model-free. They must run with provider credentials scrubbed and may not contact Rhino, Grasshopper, a model, or a live Rook mutation surface.
+- Task 7 Gates 7A, 7B, and 7C plus the final accepted-integration review are mandatory and non-substitutable.
 - Task 9 is a mandatory independent implementation review gate before Slice 3 live contact. Task 10 seals and reviews Slice 3 before any Slice 4 preparation. Task 11 is a separate pre-contact review gate before Slice 4 mutation.
 - Live runs occur once, without retry, prompt repair, hidden tuning, or configuration drift. A failed or incomplete result is preserved honestly.
 - Live evidence is written directly to separate durable, non-temporary roots and verified before interpretation. Slice 3, Slice 4 Actor, and Slice 4 evaluator ownership never share an unfenced trace.
@@ -36,7 +44,7 @@ Every phase boundary below is an executable artifact handoff, not an assertion t
 
 | Transition | Fact bound before action | Establishing owner and transaction | Retained proof | Consumer reverification | Failure residue |
 | --- | --- | --- | --- | --- | --- |
-| Review authorization -> Task 0 | exact approved plan commit and pinned Prime baseline | active implementation `/goal` supplies the plan commit directly to Task 0's invoked script block | Task 0 records both HEAD/tree identities and clean-status output | Task 0 compares clean Rook `HEAD` with the supplied literal and clean Prime `HEAD` with the pinned baseline | no test or edit begins |
+| Task 7 continuation authorization -> Task 7 | exact approved continuation commit, reviewed topology parent `77f07f2e`, completed Rook code parent `cf760498`, and completed Prime head `3e3c9da18` | active implementation `/goal` supplies the approved continuation commit directly to Task 7 Step 0 | Step 0 records both HEAD/tree identities, parent chain, and clean-status output | Step 0 compares clean Rook `HEAD` with the supplied literal, its immediate parent with `77f07f2e`, the preserved code ancestry with `cf760498`, and clean Prime `HEAD` with `3e3c9da18` | no dependency, test, edit, or process begins |
 | Offline isolation -> every real Prime process | scrubbed provider environment, isolated agent/session roots, exact branch-local dependencies | the same PowerShell process removes credentials, creates isolated roots, and launches the Prime command | command output records roots, credential count zero, import paths, and terminal exit | every Prime-launching block repeats the complete preamble before dispatch | that invocation exits; no later shell inherits an assumed scrub |
 | Source build -> installed runtime | exact tested worktree bytes and worktree `uv.lock` environment promoted through the repository-owned local deployment path | Task 0 creates the worktree venv with `uv sync --frozen --extra test`; every Python gate uses it; Task 9 closes Rhino/owned workers, builds exact outputs, and deploys with `-UseRepoVenv` | lock hash, worktree interpreter path, deployment log, installed-file/hash inventory, and chat-service manifest | Tasks 10-12 run `uv sync --frozen --extra test --check`, rehash the installed inventory, and require the manifest to name the same interpreter before contact | contact remains unauthorized; previous installed bytes or a drifted environment are not treated as current |
 | Task changes -> commit -> frozen inputs | all files named by the task are staged together; evaluator owners remain unchanged | each task's explicit `git add` list includes every actual owner and its tests | focused commit and clean worktree | the next task checks clean status; Task 11 rehashes the four evaluator owners | unstaged or unexpected bytes stop the task before the next phase |
@@ -209,7 +217,10 @@ Each call owns one bounded MCP/stdio child. An authentic Rook success or structu
 
 ---
 
-### Task 0: Admit the Reviewed Plan and Re-establish Hermetic Custody
+### Task 0: Admit the Reviewed Plan and Re-establish Hermetic Custody (COMPLETED; PRESERVED)
+
+**Historical only. Do not rerun.** This task was completed before the Task 7
+incident and is retained to explain the custody established for Tasks 1-6.
 
 **Files:**
 - No repository file changes.
@@ -219,7 +230,7 @@ Each call owns one bounded MCP/stdio child. An authentic Rook success or structu
 - Consumes: the exact plan commit named in the implementation `/goal`, Prime commit `7690c18479c909ddea67a34e86114f7f982179a8`, existing dependency lockfiles, and the approved credential-scrub rule.
 - Produces: clean admitted worktrees, branch-local Node/Python/.NET dependencies, native toolchain readiness, and retained model-free preflight facts.
 
-- [ ] **Step 1: Verify exact reviewed heads before any test or edit**
+- [x] **Step 1: Verify exact reviewed heads before any test or edit**
 
 ```powershell
 $verifyReviewedHeads = {
@@ -240,7 +251,7 @@ $verifyReviewedHeads = {
 
 Expected: no output and exit zero. The script block is explicitly invoked with the literal copied from the authorized `/goal`; it is not stored in an environment variable or inside this self-referential plan. A missing, malformed, stale, or unapproved literal stops before dependencies, tests, or edits.
 
-- [ ] **Step 2: Restore exact dependencies in their owning worktrees**
+- [x] **Step 2: Restore exact dependencies in their owning worktrees**
 
 ```powershell
 Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review
@@ -257,7 +268,7 @@ dotnet restore src/Rook.Tests/Rook.Tests.csproj
 
 Expected: `package-lock.json` and `mcp_server/uv.lock` remain unchanged; the authoritative Python interpreter exists beneath the implementation worktree; and `src/Rook.Tests/obj/project.assets.json` is created beneath the Rook worktree.
 
-- [ ] **Step 3: Prove branch-local Node and Python imports**
+- [x] **Step 3: Prove branch-local Node and Python imports**
 
 ```powershell
 $prime = [IO.Path]::GetFullPath('D:/prime-agent/.worktrees/task7-runtime-topology-review')
@@ -276,7 +287,7 @@ $python = "$rook/mcp_server/.venv/Scripts/python.exe"
 
 Expected: `prime-source-import-ok`; both Rook modules resolve beneath the implementation worktree.
 
-- [ ] **Step 4: Freeze the model-free contact preflight repeated by every offline Prime execution block in Tasks 1-9, 11, and 12**
+- [x] **Step 4: Freeze the model-free contact preflight repeated by every offline Prime execution block in Tasks 1-9, 11, and 12**
 
 ```powershell
 $offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
@@ -294,13 +305,13 @@ if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prim
 
 Expected: no credentials remain and no auth file exists. Each later Prime test command repeats this preflight in its own shell invocation.
 
-- [ ] **Step 5: Record dependency and source custody**
+- [x] **Step 5: Record dependency and source custody**
 
 Record both HEAD/tree hashes, `package-lock.json` and `mcp_server/uv.lock` SHA-256 values, exact worktree `.venv` interpreter path, `uv sync --frozen --extra test` result, .NET assets path, and the selected MSVC toolset. Task 0 creates no commit.
 
 ---
 
-### Task 1: Add Prime-Generic Runtime Custody Commands
+### Task 1: Add Prime-Generic Runtime Custody Commands (COMPLETED; PRESERVED)
 
 **Files:**
 - Modify: `D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent/src/cli/args.ts`
@@ -319,7 +330,7 @@ Record both HEAD/tree hashes, `package-lock.json` and `mcp_server/uv.lock` SHA-2
 - Adds: `--append-system-prompt-file`, `set_rlm_max_depth`, `get_rlm_max_depth_status`, and `prepare_ipython_runtime`.
 - Preserves: all existing CLI arguments, `prompt_and_wait`, public `RpcClient.promptAndWait(): Promise<AgentEvent[]>`, and generic interactive behavior.
 
-- [ ] **Step 1: Write RED CLI tests for exact file-backed prompt loading**
+- [x] **Step 1: Write RED CLI tests for exact file-backed prompt loading**
 
 Cover one valid UTF-8 file and refusal for missing, directory, unreadable, and invalid-UTF-8 paths. Assert repeated file arguments preserve order and are appended after ordinary `--append-system-prompt` values according to the CLI's explicit argument order.
 
@@ -348,15 +359,15 @@ npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts
 
 Expected RED: the new field/argument and startup loader do not exist.
 
-- [ ] **Step 2: Implement file-backed system-prompt loading without broker parsing**
+- [x] **Step 2: Implement file-backed system-prompt loading without broker parsing**
 
 Parse absolute paths in `args.ts`. In `cli.ts`, read each file as bytes, reject invalid UTF-8 with `TextDecoder("utf-8", { fatal: true })`, and append the decoded string through the same Prime configuration field used by literal append prompts. Do not trim, strip frontmatter, or add a skill wrapper.
 
-- [ ] **Step 3: Write RED closed-wire tests for recursion commands**
+- [x] **Step 3: Write RED closed-wire tests for recursion commands**
 
 Test exact field sets, nonnegative integer depth, boolean `global`, exact `{maxDepth, source}` response, unknown-field refusal, and preservation of existing RPC responses. Exercise the existing `AgentSession.setRlmMaxDepth()` and `getRlmMaxDepthStatus()` methods through RPC; do not reimplement settings precedence.
 
-- [ ] **Step 4: Implement recursion RPC commands and typed client methods**
+- [x] **Step 4: Implement recursion RPC commands and typed client methods**
 
 Add distinct `RpcCommand`/`RpcResponse` union members and client methods:
 
@@ -367,7 +378,7 @@ getRlmMaxDepthStatus(): Promise<RlmMaxDepthStatus>
 
 The RPC handler calls the already-existing generic `AgentConnection.getRlmMaxDepthStatus()` and `setRlmMaxDepth()` methods. The broker will use the typed client methods; they are not exposed as panel slash commands.
 
-- [ ] **Step 5: Write RED actual-kernel preparation tests**
+- [x] **Step 5: Write RED actual-kernel preparation tests**
 
 Use a fake provisioner for timeout/failure and a real isolated kernel fixture for the positive case. Prove the command:
 
@@ -379,11 +390,11 @@ Use a fake provisioner for timeout/failure and a real isolated kernel fixture fo
 - surfaces missing `rook_full`, missing `goal`, or non-callable API members; and
 - cannot execute caller-supplied code.
 
-- [ ] **Step 6: Implement bounded `prepare_ipython_runtime`**
+- [x] **Step 6: Implement bounded `prepare_ipython_runtime`**
 
 Expose a narrow `AgentSession.prepareIpythonRuntime()` that awaits `IpythonKernelProvisioner.ensure()` rather than fire-and-forget `prewarm()`, then executes one hard-coded probe through that manager. Bind it to production RPC through `InProcessAgentConnection` and a narrow `RpcModeConnectionOptions.prepareIpythonRuntime` callback; model-free `runRpcModeWithConnection` tests inject a fake callback. Do not add a daemon protocol, general kernel execution RPC, or caller-supplied probe. The RPC command relies on the existing control-command deadline at the broker.
 
-- [ ] **Step 7: Run Prime tests and build**
+- [x] **Step 7: Run Prime tests and build**
 
 ```powershell
 $offlineRoot = [IO.Path]::GetFullPath("$env:TEMP/rookchat-prime-slices-3-4-offline")
@@ -406,7 +417,7 @@ git diff --check
 
 Expected: all tests pass, build passes, and no provider/model command is admitted.
 
-- [ ] **Step 8: Commit the Prime-generic seam**
+- [x] **Step 8: Commit the Prime-generic seam**
 
 ```powershell
 git add packages/coding-agent/src packages/coding-agent/test packages/coding-agent/docs/rpc.md
@@ -417,7 +428,7 @@ Expected: one focused Prime commit; no Rook-specific path, profile, or semantic 
 
 ---
 
-### Task 2: Implement Canonical Package and Runtime-Contract Custody
+### Task 2: Implement Canonical Package and Runtime-Contract Custody (COMPLETED; PRESERVED)
 
 **Files:**
 - Create: `mcp_server/src/rook/agent/chat/prime_runtime_contract.py`
@@ -427,17 +438,17 @@ Expected: one focused Prime commit; no Rook-specific path, profile, or semantic 
 - Adds: one canonical manifest implementation shared by the Rook package and Prime goal subtree, immutable package staging, exact runtime-contract construction, and prelaunch/reopen verification.
 - Produces: `RuntimeContract`, `VerifiedPackage`, `stage_product_package()`, `build_runtime_contract()`, `verify_runtime_contract()`, and contract-keyed environment paths.
 
-- [ ] **Step 1: Write RED canonical-manifest tests**
+- [x] **Step 1: Write RED canonical-manifest tests**
 
 Cover exact key sets and canonical bytes; recursive references; ordinal forward-slash paths; manifest self-exclusion; closed cache/build exclusions; uppercase hashes; size binding; extra/unlisted/missing files; duplicate normalized paths; symlink/junction/reparse escapes; BOM/trailing newline; and duplicate JSON keys.
 
 Include a parity test proving the same algorithm produces both the Rook package manifest and the pinned Prime goal-skill manifest.
 
-- [ ] **Step 2: Implement one canonical encoder and recursive manifest builder**
+- [x] **Step 2: Implement one canonical encoder and recursive manifest builder**
 
 Use structured JSON data and one ASCII compact serializer (`sort_keys=True`, `separators=(",", ":")`, `ensure_ascii=True`) after validating the closed schemas. Do not hand-build JSON strings. Reject authority paths before hashing.
 
-- [ ] **Step 3: Write RED runtime-contract tests**
+- [x] **Step 3: Write RED runtime-contract tests**
 
 Assert exact schema/key/type validation, profile distinction, fixed `rlmMaxDepth: 0`, Prime bundle identity versus git provenance, diagnostic hashes, contract fingerprint stability, and different environment paths for old/new contracts.
 
@@ -446,7 +457,7 @@ assert readonly.fingerprint != full.fingerprint
 assert readonly.kernel_environment_path.name == readonly.fingerprint
 ```
 
-- [ ] **Step 4: Implement immutable staging and verification**
+- [x] **Step 4: Implement immutable staging and verification**
 
 Stage through a sibling pending directory, fsync/close all files, verify the generated manifest, then atomically rename to:
 
@@ -456,11 +467,11 @@ Stage through a sibling pending directory, fsync/close all files, verify the gen
 
 If the final directory already exists, verify it byte-for-byte and reuse it. Never modify it in place. Verify all installed paths remain beneath the configured product root.
 
-- [ ] **Step 5: Add same-contract and old/new concurrency tests**
+- [x] **Step 5: Add same-contract and old/new concurrency tests**
 
 Race two staging/preparation owners for one contract and assert one stable package/environment identity. Race old/new contracts and assert their source bytes, import roots, and environment paths remain distinct. These tests use fake preparation locks; Prime's real bootstrap concurrency is exercised in Task 7.
 
-- [ ] **Step 6: Run focused tests and compilation**
+- [x] **Step 6: Run focused tests and compilation**
 
 ```powershell
 $rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
@@ -472,7 +483,7 @@ $python="$rook/mcp_server/.venv/Scripts/python.exe"
 git diff --check
 ```
 
-- [ ] **Step 7: Commit runtime-contract custody**
+- [x] **Step 7: Commit runtime-contract custody**
 
 ```powershell
 git add mcp_server/src/rook/agent/chat/prime_runtime_contract.py mcp_server/tests/test_prime_runtime_contract.py
@@ -481,7 +492,7 @@ git commit -m "feat(chat): bind Prime runtime contracts to immutable packages"
 
 ---
 
-### Task 3: Add Exact Registry v2 and Panel Command Admission
+### Task 3: Add Exact Registry v2 and Panel Command Admission (COMPLETED; PRESERVED)
 
 **Files:**
 - Modify: `mcp_server/src/rook/agent/chat/prime_registry.py`
@@ -496,7 +507,7 @@ git commit -m "feat(chat): bind Prime runtime contracts to immutable packages"
 - Preserves: exact v1 read/write behavior, absorbing `closed`, and the existing broker lifecycle.
 - Adds: pre-Prime slash-command admission limited to exact `/goal`.
 
-- [ ] **Step 1: Freeze v1 bytes and write RED v2 schema tests**
+- [x] **Step 1: Freeze v1 bytes and write RED v2 schema tests**
 
 Keep a golden v1 JSON fixture and assert load/write bytes remain unchanged. Add v2 tests for every exact key set, canonical SHA-256, canonical GUID `D` form, positive PID/ticks/serial, profile enum, absolute paths, pending/prepared paired fields, duplicate keys, and unknown fields.
 
@@ -507,11 +518,11 @@ assert registry.path_for(v1_id).read_bytes() == v1_golden_bytes
 
 Expected RED: v2 records are unsupported.
 
-- [ ] **Step 2: Implement a tagged v1/v2 union without migration**
+- [x] **Step 2: Implement a tagged v1/v2 union without migration**
 
 Dispatch serialization by integer `schemaVersion`. Keep the existing v1 dataclasses and exact validators. Add v2 dataclasses separately; do not add optional v2 fields to v1. `load()` returns the tagged union, and v1 reopen remains text-only.
 
-- [ ] **Step 3: Write RED immutable-transition tests**
+- [x] **Step 3: Write RED immutable-transition tests**
 
 Prove:
 
@@ -522,7 +533,7 @@ Prove:
 - restart reconciliation maps pending to lifecycle `failed/runtime_contract_unavailable` without claiming preparation; and
 - cleanup/retry remains an explicit qualification or setup action.
 
-- [ ] **Step 4: Implement explicit registry transition methods**
+- [x] **Step 4: Implement explicit registry transition methods**
 
 Add narrow methods such as:
 
@@ -534,11 +545,11 @@ mark_pending_runtime_unavailable(conversation_id)
 
 Each method loads and validates the current file under the existing namespace writer lock, applies one allowed transition, and atomically replaces that conversation's file.
 
-- [ ] **Step 5: Write RED panel command-admission tests**
+- [x] **Step 5: Write RED panel command-admission tests**
 
 Test exact admission for `/goal`, `/goal status`, `/goal pause`, `/goal resume`, `/goal clear`, and `/goal stop`, including leading whitespace. Test refusal before `PrimeRpcProcess.command()` for `/compact`, `/refine`, `/autonomous`, `/rlm-max-depth`, aliases, near matches such as `/goalkeeper`, unknown slash commands, and future command names.
 
-- [ ] **Step 6: Implement one lexical admission helper**
+- [x] **Step 6: Implement one lexical admission helper**
 
 ```python
 def admit_prime_panel_prompt(message: str) -> None:
@@ -551,7 +562,7 @@ def admit_prime_panel_prompt(message: str) -> None:
 
 Invoke it before prompt lifecycle mutation or Prime dispatch. Automatic Prime compaction and continuation do not pass through this helper.
 
-- [ ] **Step 7: Run registry/backend/server tests**
+- [x] **Step 7: Run registry/backend/server tests**
 
 ```powershell
 $rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
@@ -563,7 +574,7 @@ $python="$rook/mcp_server/.venv/Scripts/python.exe"
 git diff --check
 ```
 
-- [ ] **Step 8: Commit registry v2 and command custody**
+- [x] **Step 8: Commit registry v2 and command custody**
 
 ```powershell
 git add mcp_server/src/rook/agent/chat/prime_registry.py mcp_server/src/rook/agent/chat/prime_backend.py mcp_server/src/rook/agent/chat/server.py mcp_server/tests/test_prime_registry.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_chat_server.py
@@ -572,7 +583,7 @@ git commit -m "feat(chat): add immutable Prime conversation contracts"
 
 ---
 
-### Task 4: Productize the Versioned `rook-full` Package
+### Task 4: Productize the Versioned `rook-full` Package (COMPLETED; PRESERVED)
 
 **Files:**
 - Create: `integrations/prime/skills/rook-full/SKILL.md`
@@ -588,7 +599,7 @@ git commit -m "feat(chat): add immutable Prime conversation contracts"
 - Removes: hard-coded user paths, campaign source logging, behavioral-acceptance imports, and gateway call-limit ownership.
 - Adds: closed product configuration, locked target/profile propagation, bounded per-call lifecycle, structured failure preservation, and measured startup latency.
 
-- [ ] **Step 1: Write RED package-contract tests**
+- [x] **Step 1: Write RED package-contract tests**
 
 Import the package from a staged immutable path and assert:
 
@@ -601,11 +612,11 @@ Import the package from a staged immutable path and assert:
 - conflicting selectors fail before child launch; and
 - no campaign recorder or call-limit module is imported.
 
-- [ ] **Step 2: Write RED closed-child-environment tests**
+- [x] **Step 2: Write RED closed-child-environment tests**
 
 Seed the parent with provider keys, alternate target fields, hostile `PYTHONPATH`, and unrelated variables. Capture `StdioServerParameters.env` and require exactly the approved Windows bootstrap fields, constructed PATH, product runtime fields, profile, and four target fields. Assert no ambient provider credential or target/profile variable survives.
 
-- [ ] **Step 3: Write RED lifecycle and error tests**
+- [x] **Step 3: Write RED lifecycle and error tests**
 
 Use fake MCP transports to causally cover:
 
@@ -619,13 +630,13 @@ Use fake MCP transports to causally cover:
 - no-envelope transport loss raises an uncertain outcome; and
 - no path automatically replays the call.
 
-- [ ] **Step 4: Implement the direct stdio adapter**
+- [x] **Step 4: Implement the direct stdio adapter**
 
 Keep one `AsyncExitStack` per API call and one owned child. Separate `request_succeeded`, `authentic_envelope_received`, and `cleanup_succeeded` in local control flow. Record monotonic startup duration in the returned diagnostic/qualification hook without making it a product gate.
 
 The adapter must pass the original `McpToolError` object through so Prime retains `structured_content`.
 
-- [ ] **Step 5: Author the persistent product contract and Grasshopper reference**
+- [x] **Step 5: Author the persistent product contract and Grasshopper reference**
 
 `SKILL.md` must include:
 
@@ -641,11 +652,11 @@ The adapter must pass the original `McpToolError` object through so Prime retain
 
 Put Grasshopper-specific execution details in `references/grasshopper.md` and instruct the model to read it only for GH work. Do not create a second skill.
 
-- [ ] **Step 6: Generate and verify the package manifest**
+- [x] **Step 6: Generate and verify the package manifest**
 
 Use Task 2's canonical builder. Check the generated `package-manifest.json` into source as the exact product package input. A test removes the manifest, regenerates it, and compares bytes exactly.
 
-- [ ] **Step 7: Run package and manifest tests**
+- [x] **Step 7: Run package and manifest tests**
 
 ```powershell
 $rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
@@ -657,7 +668,7 @@ $python="$rook/mcp_server/.venv/Scripts/python.exe"
 git diff --check
 ```
 
-- [ ] **Step 8: Commit the self-contained product package**
+- [x] **Step 8: Commit the self-contained product package**
 
 ```powershell
 git add integrations/prime/skills/rook-full mcp_server/tests/test_rook_full_product_adapter.py mcp_server/tests/test_prime_runtime_contract.py
@@ -666,7 +677,7 @@ git commit -m "feat(chat): productize immutable Rook full skill"
 
 ---
 
-### Task 5: Bind Native Process Generation and the Extended `PanelTargetLock`
+### Task 5: Bind Native Process Generation and the Extended `PanelTargetLock` (COMPLETED; PRESERVED)
 
 **Files:**
 - Modify: `src/RookNative/RookServer.cpp`
@@ -684,11 +695,11 @@ git commit -m "feat(chat): productize immutable Rook full skill"
 - Extends the existing `PanelTargetLock`; no second target abstraction is introduced.
 - Makes panel-locked Rhino document resolution strict instead of falling back to `RhinoDoc.ActiveDoc`.
 
-- [ ] **Step 1: Write RED discovery and canonical-tick tests**
+- [x] **Step 1: Write RED discovery and canonical-tick tests**
 
 Add bridge fixtures with matching PID/ticks, same PID/different ticks, missing ticks, malformed/noncanonical ticks (`+1`, leading zero, whitespace), zero/overflow, and legacy records. In `panel_locked`, require refusal before `call_rhino()` when ticks are missing or mismatched. Non-panel legacy targeting keeps its existing behavior.
 
-- [ ] **Step 2: Implement native UTC tick publication**
+- [x] **Step 2: Implement native UTC tick publication**
 
 In `RookServer`, compute Windows process creation time independently from the running Rhino process and convert it to the same canonical positive decimal .NET UTC ticks represented by:
 
@@ -698,19 +709,19 @@ Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks
 
 Publish `processStartUtcTicks` alongside the existing human-readable `startTime`. Do not copy a broker value and do not add a nonce.
 
-- [ ] **Step 3: Extend `PanelTargetLock` environment parsing**
+- [x] **Step 3: Extend `PanelTargetLock` environment parsing**
 
 Require positive PID, canonical ticks, positive Rhino serial, profile `readonly|full`, and optional canonical GH GUID. Preserve one initialization point and one config-error envelope. Missing/malformed base fields make every public adapter method fail before launch.
 
-- [ ] **Step 4: Enforce process-generation selection before endpoint contact**
+- [x] **Step 4: Enforce process-generation selection before endpoint contact**
 
 Update `resolve_tool_route()` so panel-locked discovery filters by exact PID and parsed tick identity before choosing a port. Explicit port/session/process selectors may only agree. Add a spy asserting neither `call_rhino()` nor native HTTP dispatch runs on mismatch.
 
-- [ ] **Step 5: Add strict Rhino document context**
+- [x] **Step 5: Add strict Rhino document context**
 
 Add `DocumentContext.WithRequiredDocument(uint, Func<T>)` or an equivalent scoped strict flag. When a bound serial is absent from `RhinoDoc.FromRuntimeSerialNumber`, return/refuse; never fall back to `ActiveDoc`. Keep existing fallback behavior for unbound legacy call paths.
 
-- [ ] **Step 6: Run Python, managed, and native build gates**
+- [x] **Step 6: Run Python, managed, and native build gates**
 
 ```powershell
 $rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
@@ -725,7 +736,7 @@ git diff --check
 
 Expected: tests and builds pass with the working MFC toolset.
 
-- [ ] **Step 7: Commit process-generation custody**
+- [x] **Step 7: Commit process-generation custody**
 
 ```powershell
 git add src/RookNative/RookServer.cpp src/RookNative/RookServer.h src/Rook/DocumentContext.cs mcp_server/src/rook/bridge.py mcp_server/src/rook/targeting.py mcp_server/tests/test_bridge.py mcp_server/tests/test_multi_instance_targeting.py src/Rook.Tests
@@ -734,7 +745,7 @@ git commit -m "feat(targeting): bind panel sessions to Rhino process generation"
 
 ---
 
-### Task 6: Make Grasshopper Validation and Operation Consume One Captured Document
+### Task 6: Make Grasshopper Validation and Operation Consume One Captured Document (COMPLETED; PRESERVED)
 
 **Files:**
 - Create: `src/Rook/InternalBridge/GrasshopperRequestContext.cs`
@@ -754,15 +765,15 @@ git commit -m "feat(targeting): bind panel sessions to Rhino process generation"
 - Adds: `ROOK_MCP_TARGET_GRASSHOPPER_DOCUMENT_ID` to the broker/Prime/adapter/MCP custody path.
 - Refuses: missing/wrong/switched GH identity and all three v1 document-switch capabilities before operation.
 
-- [ ] **Step 1: Write RED capture-once managed tests**
+- [x] **Step 1: Write RED capture-once managed tests**
 
 Use a fake host whose first `ActiveCanvas` lookup returns the intended document and whose second would return a decoy. Assert one lookup total and that the operation receives the intended object reference. Add refusals for no canvas, no document, `Guid.Empty`, malformed bound GUID, mismatched `GH_Document.DocumentID`, and closed document.
 
-- [ ] **Step 2: Implement `GrasshopperRequestContext` analogous to `DocumentContext`**
+- [x] **Step 2: Implement `GrasshopperRequestContext` analogous to `DocumentContext`**
 
 The context stores the captured canvas/document object references in an `AsyncLocal` scope for the duration of one synchronous managed callback. It exposes no target selection API. `GrasshopperCore.ResolveContext()` and `GrasshopperHandler.GetGrasshopper()` first consume the scope and do not read `ActiveCanvas` while it is active.
 
-- [ ] **Step 3: Make callback entry own capture, validation, and scoped operation**
+- [x] **Step 3: Make callback entry own capture, validation, and scoped operation**
 
 Extend `ExecuteReadOnlyCallback`, `ExecuteApiResponseCallback`, and direct readiness callback variants used by `/gh/*` so they:
 
@@ -777,15 +788,15 @@ Do not use `DocumentGuid`, `InstanceGuid`, display strings, or a later active-ca
 
 `bridge.py` and `targeting.py` must copy the validated lock into the request context before native dispatch. A model payload field may agree with the lock but can never replace it.
 
-- [ ] **Step 4: Write RED direct/transitive document-switch tests**
+- [x] **Step 4: Write RED direct/transitive document-switch tests**
 
 Under `panel_locked` `full`, require `gh_document_new`, `gh_document_open`, and `gh_learn_directory` to fail before nested dispatch. Spy on `/gh/document/open` so the `gh_learn_directory` test proves zero calls. Add a capability audit that inspects the actual composite dispatch map and fails if any other typed/composite public tool reaches document open/new without admission.
 
-- [ ] **Step 5: Implement the fixed v1 deny set and audit helper**
+- [x] **Step 5: Implement the fixed v1 deny set and audit helper**
 
 Keep the deny set local to panel-locked GH admission in `server.py`/targeting, after typed/composite capability resolution and before direct or transitive dispatch. Do not modify `mcp_tool_profiles.py`, remove tools from the global full profile, or claim `rhino_execute` is contained. The audit is test/qualification code, not a runtime semantic evaluator.
 
-- [ ] **Step 6: Run managed and Python target tests**
+- [x] **Step 6: Run managed and Python target tests**
 
 ```powershell
 $rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
@@ -798,7 +809,7 @@ dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore --filter "Ful
 git diff --check
 ```
 
-- [ ] **Step 7: Commit the indivisible GH target boundary**
+- [x] **Step 7: Commit the indivisible GH target boundary**
 
 ```powershell
 git add src/Rook/InternalBridge/GrasshopperRequestContext.cs src/Rook/InternalBridge/GrasshopperCore.cs src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs src/Rook/Handlers/GrasshopperHandler.cs src/Rook.Tests/InternalBridge/NativeGhBridgeRegistrarTests.cs src/Rook.Tests/InternalBridge/GrasshopperTargetContextTests.cs mcp_server/src/rook/bridge.py mcp_server/src/rook/targeting.py mcp_server/src/rook/server.py mcp_server/tests/test_gh_authoring_capability_routing.py mcp_server/tests/test_panel_locked_gh_document_switching.py
@@ -870,12 +881,45 @@ quarantined `rookchat-prime-primary-backend` worktrees.
 
 - [ ] **Step 0: Re-establish clean implementation custody**
 
-Verify the Rook worktree descends from
-`cf760498cb51895013c7f2163e6faaa7b66255bf`, contains only the independently
-approved documentation commit beyond it, and is clean. Verify the Prime
-worktree is exactly `3e3c9da18911f3ecffd56fe99eb7bab552fcd81e` and clean. Verify both
-quarantined worktrees still contain their original uncommitted Task 7 diffs.
-Any mismatch stops before editing or dependency use.
+The implementation `/goal` supplies the exact independently approved Task 7
+continuation commit as a literal argument. Verify:
+
+```text
+clean Rook HEAD == supplied approved continuation commit
+its immediate parent == 77f07f2e
+its history contains completed Rook code head cf760498
+clean Prime HEAD == 3e3c9da18
+```
+
+This is the sole execution entry point. Do not run Task 0 or any Task 1-6 recipe.
+Also verify both quarantined worktrees still contain their original uncommitted
+Task 7 diffs. Any missing literal, mismatch, dirt, or altered quarantine stops
+before dependency use, tests, edits, or process launch. Record the full hashes,
+tree hashes, parent check, ancestry check, and clean-status output.
+
+```powershell
+$verifyTask7Entry = {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern('^[0-9a-f]{40}$')]
+        [string]$ApprovedTask7Commit
+    )
+    $rook = 'C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+    $prime = 'D:/prime-agent/.worktrees/task7-runtime-topology-review'
+    $reviewedTopology = '77f07f2ebbce0665130e6807bb28a7a8e96d8dc7'
+    $completedRook = 'cf760498cb51895013c7f2163e6faaa7b66255bf'
+    $completedPrime = '3e3c9da18911f3ecffd56fe99eb7bab552fcd81e'
+
+    if ((git -C $rook status --porcelain --untracked-files=all).Length -ne 0) { throw 'Rook Task 7 worktree is dirty.' }
+    if ((git -C $rook rev-parse HEAD).Trim() -ne $ApprovedTask7Commit) { throw 'Rook HEAD is not the approved Task 7 continuation commit.' }
+    if ((git -C $rook rev-parse "$ApprovedTask7Commit^1").Trim() -ne $reviewedTopology) { throw 'Approved Task 7 commit is not the direct correction of reviewed topology 77f07f2e.' }
+    git -C $rook merge-base --is-ancestor $completedRook $ApprovedTask7Commit
+    if ($LASTEXITCODE -ne 0) { throw 'Completed Rook Tasks 0-6 are not in Task 7 ancestry.' }
+    if ((git -C $prime status --porcelain --untracked-files=all).Length -ne 0) { throw 'Prime Task 7 worktree is dirty.' }
+    if ((git -C $prime rev-parse HEAD).Trim() -ne $completedPrime) { throw 'Completed Prime Tasks 0-6 head drifted.' }
+}
+& $verifyTask7Entry (Read-Host 'Paste the exact approved Task 7 continuation commit named in the active /goal')
+```
 
 - [ ] **Step 1: Write RED topology, lease, bootstrap, and Windows-boundary tests without launching a process**
 
@@ -895,6 +939,11 @@ Require:
   follows Prime's existing conservative stale-lease recovery;
 - the exact Windows path/hidden-launch regressions from upstream commit
   `142045138b8679ec077f8f032d2befe66ca5606b` fail on the pinned baseline;
+- the closed Prime launched-artifact manifest includes every regular file under
+  exact `dist/bundle` and `dist/skills`, requires `bundle/cli.js`, rejects every
+  missing/extra/changed entry or path escape, and is recomputed before launch;
+- the preflighted `uv.exe` path and SHA-256 are bound to sanitized `PATH`, and a
+  different observed `uv.exe` fails before runtime preparation can qualify;
 - the Windows identity query uses `-NoLogo -NoProfile -NonInteractive`,
   `windowsHide: true`, one finite deadline, and no retry; and
 - timeout/failure returns one terminal identity result without starting another query;
@@ -919,6 +968,15 @@ advance Prime more broadly. If the patch cannot be reconciled without semantic
 conflict, stop for review. Record the resulting Prime commit and bundle-manifest
 hash and use them in every later runtime-contract fixture.
 
+Extend the completed runtime-contract owner with the closed Prime artifact
+manifest defined by the topology amendment. After the exact Prime build, it
+generates an external manifest over all regular files in exact `dist/bundle`
+and `dist/skills`, using the existing canonical encoder, and requires
+`dist/bundle/cli.js` as the recorded launch entry. Before every launch and
+reopen, recompute that manifest from the recorded `dist` root and compare it to
+the runtime contract. A supplied SHA string without matching bytes has no
+authority.
+
 Harden the existing Windows process query in place. Replace Rook's fallback
 teardown with the retained-handle, immediately generation-checked, hidden,
 finite, single-attempt rule. Do not install `ntsecuritycon`, add a process
@@ -942,7 +1000,11 @@ process that launches Prime. Provider credentials are absent, the isolated
 agent root contains no auth file, no `--api-key` is present, Prime's internal
 lease flags are absent from the supplied environment, and no prompt is sent.
 Preflight one exact `uv.exe`, set `PRIME_AGENT_INSTALL_UV=0`, and retain that
-path; Prime must not launch an installer shell.
+absolute path plus its SHA-256. Construct the sanitized child `PATH` with that
+directory first and no earlier directory containing another `uv.exe`. Require
+the observed cold-preparation executable path and hash to match the preflighted
+file. Prime's later user-local fallback cannot qualify the run, and Prime must
+not launch an installer shell.
 
 The harness starts exactly one Prime process with:
 
@@ -958,6 +1020,21 @@ The harness starts exactly one Prime process with:
 --no-prompt-templates
 --session-dir <unique test root>
 ```
+
+For the lease sequence, the first owner creates the saved session under that
+root. Its first successful `get_state` must return an absolute `sessionFile`.
+Canonicalize and retain that exact file and require it to remain beneath the
+isolated session root. Every contender, graceful reopen, live-owner check, and
+dead-owner recovery launch uses the same agent root and:
+
+```text
+--session-dir <same unique test root>
+--resume <that exact canonical sessionFile>
+```
+
+Retain every argv and assert exact string equality for the resumed file. Session
+directory, latest-session discovery, session ID, basename, or suffix matching
+cannot substitute for the canonical file path.
 
 It sends only:
 
@@ -1026,12 +1103,16 @@ sequence once. It uses only exact hidden task-owned processes and proves:
 
 ```text
 first direct owner holds the saved-session lease
+-> retain canonical sessionFile from get_state
+-> second direct child uses --resume <exact sessionFile>
 -> second direct child refuses before AgentSession or kernel creation
 -> graceful close releases the lease
--> explicit reopen succeeds and closes
--> a logically detached but still task-owned live lease holder refuses reopen
+-> explicit --resume <exact sessionFile> succeeds and closes
+-> a logically detached but still task-owned live lease holder blocks another
+   --resume <exact sessionFile>
 -> the same holder's controlled exit leaves a dead owner
--> Prime recovers that stale lease conservatively and closes
+-> Prime --resume <exact sessionFile> recovers that stale lease conservatively
+   and closes
 ```
 
 The harness retains exact process handles for cleanup even when a holder is
@@ -1056,7 +1137,9 @@ contract environment owns the actual interpreter, both imports resolve from
 their admitted roots, depth is `{maxDepth: 0, source: "chat"}`, and every owned
 descendant is gone after close. It must also retain that `--offline` was active,
 no prompt/provider call occurred, cold helpers matched the admitted phase, and
-steady state was exactly Prime plus one kernel.
+steady state was exactly Prime plus one kernel. Every lease launch must retain
+the same canonical resumed session file, and observed `uv.exe` path/hash must
+equal the preflighted executable.
 
 - [ ] **Gate 7B: Review the lease sequence and direct vertical before broker integration**
 
@@ -1719,11 +1802,30 @@ Expected: both worktrees clean. Stop for independent result review. Do not make 
 
 ## Review Gates
 
-This plan contains three absorbing review stops:
+From the Task 7 continuation point, this plan contains eight absorbing review
+stops. Each is separately required:
 
-1. **Before implementation:** the exact plan commit is independently approved and named in the implementation `/goal`.
-2. **Before Slice 3 live contact:** Tasks 0-9 pass, both worktrees are clean, the readonly protocol/evidence root are frozen, and independent review authorizes the exact command.
-3. **Before Slice 4 mutating contact:** Slice 3 is sealed and independently accepted; Task 11 freezes a fresh full conversation and exact evaluator bytes; independent review authorizes the exact command.
+1. **Task 7 entry:** the exact continuation commit is independently approved,
+   named in the implementation `/goal`, and admitted by Task 7 Step 0.
+2. **Gate 7A, before any Task 7 process execution:** selector, lease,
+   Windows-bootstrap, process-identity, fallback-teardown, and unexecuted harness
+   changes receive independent review.
+3. **Gate 7B, before broker integration:** the one-shot lease sequence and direct
+   in-process vertical are sealed and independently accepted.
+4. **Gate 7C, before concurrency:** the one-shot broker vertical is sealed and
+   independently accepted.
+5. **Final Task 7 integration review, before Task 8:** concurrency evidence,
+   bounded offline gates, exact Prime/Rook commits, and both clean worktrees are
+   independently accepted.
+6. **Before Slice 3 live contact:** Tasks 8-9 pass, both worktrees are clean, the
+   readonly protocol/evidence root are frozen, and independent review authorizes
+   the exact command.
+7. **After Slice 3 and before Slice 4 preparation:** Slice 3 Actor evidence is
+   sealed, its result is independently accepted, and Task 10 authorizes no
+   automatic continuation.
+8. **Before Slice 4 mutating contact:** Task 11 freezes a fresh full conversation
+   and exact evaluator bytes, and independent review authorizes the exact
+   command.
 
 No later task may infer authorization from an earlier gate. A failed gate authorizes diagnosis and a scoped offline correction only, not silent retry or live continuation.
 
