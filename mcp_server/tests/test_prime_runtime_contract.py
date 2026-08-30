@@ -184,6 +184,19 @@ def test_checked_in_product_manifest_exactly_reproduces_package_bytes() -> None:
     assert verified.root == PRODUCT_PACKAGE_ROOT.resolve()
 
 
+def test_product_package_authority_files_have_deterministic_lf_checkout_policy() -> None:
+    attributes_path = PRODUCT_PACKAGE_ROOT.parents[3] / ".gitattributes"
+    lines = set(attributes_path.read_text(encoding="utf-8").splitlines())
+
+    assert {
+        "integrations/prime/skills/rook-full/SKILL.md text eol=lf",
+        "integrations/prime/skills/rook-full/pyproject.toml text eol=lf",
+        "integrations/prime/skills/rook-full/references/** text eol=lf",
+        "integrations/prime/skills/rook-full/src/**/*.py text eol=lf",
+        "integrations/prime/skills/rook-full/package-manifest.json -text",
+    } <= lines
+
+
 @pytest.mark.parametrize(
     "tamper",
     (

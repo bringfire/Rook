@@ -13,6 +13,37 @@ from rook.agent.chat import prime_runtime_contract
 SCRIPT = Path(__file__).parents[2] / "scripts" / "rookchat_prime_runtime_topology_harness.py"
 
 
+class _FakeStdin:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakePopen:
+    def __init__(self, *, pid: int = 701) -> None:
+        self.pid = pid
+        self.returncode = None
+        self.stdin = _FakeStdin()
+        self.stdout = None
+        self.stderr = None
+        self.wait_calls = 0
+        self.terminate_calls = 0
+        self.kill_calls = 0
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.wait_calls += 1
+        self.returncode = 0
+        return 0
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+
+
 def _load():
     spec = importlib.util.spec_from_file_location(
         "rookchat_prime_runtime_topology_harness",
@@ -347,3 +378,111 @@ def test_configuration_refuses_custody_drift_before_creating_the_run_root(
         harness._configuration(namespace)
 
     assert not run_root.exists()
+
+
+def test_owned_process_start_closes_the_retained_child_when_identity_capture_raises(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _load()
+    process = _FakePopen()
+    monkeypatch.setattr(harness.subprocess, "Popen", lambda *_args, **_kwargs: process)
+
+    class Observer:
+        def snapshot(self, _pid: int):
+            raise RuntimeError("identity capture failed")
+
+    child = harness.OwnedPrimeProcess(
+        argv=("node.exe", "cli.js"),
+        environment={},
+        cwd=tmp_path,
+        generation=1,
+        observer=Observer(),
+    )
+
+    with pytest.raises(RuntimeError, match="identity capture failed"):
+        child.start()
+
+    assert process.stdin.closed is True
+    assert process.wait_calls == 1
+    assert child.close() == {"result": "graceful", "returnCode": 0}
+
+
+def test_owned_process_start_closes_the_retained_child_when_monitor_start_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _load()
+    process = _FakePopen()
+    owner = harness.ProcessSnapshot(process.pid, 55, "638880485801234567", "node.exe")
+    monkeypatch.setattr(harness.subprocess, "Popen", lambda *_args, **_kwargs: process)
+
+    class Observer:
+        def snapshot(self, _pid: int):
+            return owner
+
+    class FailingMonitor:
+        observations = ()
+
+        def __init__(self, _observer, _pid):
+            self.stopped = False
+
+        def start(self) -> None:
+            raise RuntimeError("monitor start failed")
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    monkeypatch.setattr(harness, "ProcessMonitor", FailingMonitor)
+    child = harness.OwnedPrimeProcess(
+        argv=("node.exe", "cli.js"),
+        environment={},
+        cwd=tmp_path,
+        generation=1,
+        observer=Observer(),
+    )
+
+    with pytest.raises(RuntimeError, match="monitor start failed"):
+        child.start()
+
+    assert process.stdin.closed is True
+    assert process.wait_calls == 1
+    assert child.close() == {"result": "graceful", "returnCode": 0}
+
+
+def test_owned_process_evidence_retains_generation_argv_owner_rows_and_observations() -> None:
+    harness = _load()
+    owner = harness.ProcessSnapshot(701, 55, "638880485801234567", "node.exe")
+    observation = harness.ProcessObservation("admission", owner)
+    child = SimpleNamespace(
+        generation=4,
+        argv=("node.exe", "cli.js", "--resume", "C:/sessions/exact.jsonl"),
+        owner=owner,
+        rows=[{"type": "response", "id": "state", "success": True}],
+        stderr=["lease refused"],
+        monitor=SimpleNamespace(observations=[observation]),
+        close_record={"result": "already_exited", "returnCode": 1},
+    )
+
+    assert harness.owned_process_evidence(child) == {
+        "generation": 4,
+        "argv": ["node.exe", "cli.js", "--resume", "C:/sessions/exact.jsonl"],
+        "owner": {
+            "pid": 701,
+            "parent_pid": 55,
+            "start_utc_ticks": "638880485801234567",
+            "executable": "node.exe",
+        },
+        "rows": [{"type": "response", "id": "state", "success": True}],
+        "stderr": ["lease refused"],
+        "processObservations": [
+            {
+                "phase": "admission",
+                "pid": 701,
+                "parent_pid": 55,
+                "start_utc_ticks": "638880485801234567",
+                "executable": "node.exe",
+            }
+        ],
+        "close": {"result": "already_exited", "returnCode": 1},
+    }

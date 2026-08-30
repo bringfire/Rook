@@ -28,3 +28,8 @@ mcp_server/src/rook/agent/__init__.py text eol=lf
 mcp_server/src/rook/runtime_paths.py text eol=lf
 mcp_server/src/rook/gh_csharp_preflight.py text eol=lf
 mcp_server/src/rook/validation_kernel/*.py text eol=lf
+integrations/prime/skills/rook-full/SKILL.md text eol=lf
+integrations/prime/skills/rook-full/pyproject.toml text eol=lf
+integrations/prime/skills/rook-full/references/** text eol=lf
+integrations/prime/skills/rook-full/src/**/*.py text eol=lf
+integrations/prime/skills/rook-full/package-manifest.json -text

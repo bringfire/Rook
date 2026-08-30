@@ -59,7 +59,9 @@ _BOOTSTRAP_ENV_NAMES = (
 
 
 class HarnessFailure(RuntimeError):
-    pass
+    def __init__(self, message: str, *, evidence: Mapping[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.evidence = dict(evidence) if evidence is not None else None
 
 
 def _sha256_file(path: Path) -> str:
@@ -582,6 +584,10 @@ class OwnedPrimeProcess:
         self.monitor: ProcessMonitor | None = None
         self._close_record: dict[str, Any] | None = None
 
+    @property
+    def close_record(self) -> dict[str, Any] | None:
+        return dict(self._close_record) if self._close_record is not None else None
+
     def start(self) -> None:
         if self.process is not None:
             raise HarnessFailure("owned Prime process already started")
@@ -598,43 +604,49 @@ class OwnedPrimeProcess:
             bufsize=1,
             creationflags=CREATE_NO_WINDOW,
         )
-        owner = self.observer.snapshot(self.process.pid)
-        if owner is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=CLOSE_TIMEOUT_SECONDS)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+        try:
+            owner = self.observer.snapshot(self.process.pid)
+            if owner is None:
+                raise HarnessFailure("could not retain direct Prime process identity")
+            self.owner = owner
+            self.monitor = ProcessMonitor(self.observer, self.process.pid)
+            self.monitor.start()
+
+            def read_stdout() -> None:
+                assert self.process is not None and self.process.stdout is not None
                 try:
-                    self.process.wait(timeout=CLOSE_TIMEOUT_SECONDS)
-                except subprocess.TimeoutExpired as exc:
-                    raise HarnessFailure(
-                        "unidentified direct Prime child did not settle through its retained handle"
-                    ) from exc
-            raise HarnessFailure("could not retain direct Prime process identity")
-        self.owner = owner
-        self.monitor = ProcessMonitor(self.observer, self.process.pid)
-        self.monitor.start()
+                    for line in self.process.stdout:
+                        self._stdout_queue.put(line)
+                finally:
+                    self._stdout_queue.put(None)
 
-        def read_stdout() -> None:
-            assert self.process is not None and self.process.stdout is not None
+            def read_stderr() -> None:
+                assert self.process is not None and self.process.stderr is not None
+                for line in self.process.stderr:
+                    self.stderr.append(line.rstrip("\r\n"))
+
+            self._threads = [
+                threading.Thread(
+                    target=read_stdout,
+                    name=f"task7-stdout-{self.generation}",
+                    daemon=True,
+                ),
+                threading.Thread(
+                    target=read_stderr,
+                    name=f"task7-stderr-{self.generation}",
+                    daemon=True,
+                ),
+            ]
+            for thread in self._threads:
+                thread.start()
+        except BaseException as start_error:
             try:
-                for line in self.process.stdout:
-                    self._stdout_queue.put(line)
-            finally:
-                self._stdout_queue.put(None)
-
-        def read_stderr() -> None:
-            assert self.process is not None and self.process.stderr is not None
-            for line in self.process.stderr:
-                self.stderr.append(line.rstrip("\r\n"))
-
-        self._threads = [
-            threading.Thread(target=read_stdout, name=f"task7-stdout-{self.generation}", daemon=True),
-            threading.Thread(target=read_stderr, name=f"task7-stderr-{self.generation}", daemon=True),
-        ]
-        for thread in self._threads:
-            thread.start()
+                self.close()
+            except BaseException as cleanup_error:
+                raise HarnessFailure(
+                    f"Prime startup failed and exact child cleanup did not settle: {cleanup_error}"
+                ) from start_error
+            raise
 
     def command(self, command: Mapping[str, Any], timeout_seconds: float) -> dict[str, Any]:
         if self.process is None or self.process.stdin is None:
@@ -761,8 +773,9 @@ class OwnedPrimeProcess:
 
     def _join_reader_threads(self) -> None:
         for thread in self._threads:
-            thread.join(timeout=1.0)
-        if any(thread.is_alive() for thread in self._threads):
+            if thread.ident is not None:
+                thread.join(timeout=1.0)
+        if any(thread.ident is not None and thread.is_alive() for thread in self._threads):
             raise HarnessFailure("Prime reader thread did not stop after child settlement")
 
     def _require_recorded_descendants_gone(self) -> None:
@@ -784,6 +797,23 @@ class OwnedPrimeProcess:
                 and observed.start_utc_ticks == ticks
             ):
                 raise HarnessFailure("owned descendant survived shutdown")
+
+
+def owned_process_evidence(child: OwnedPrimeProcess) -> dict[str, Any]:
+    owner = child.owner
+    observations = child.monitor.observations if child.monitor is not None else ()
+    return {
+        "generation": child.generation,
+        "argv": list(child.argv),
+        "owner": owner.__dict__ if owner is not None else None,
+        "rows": [dict(row) for row in child.rows],
+        "stderr": list(child.stderr),
+        "processObservations": [
+            {"phase": item.phase, **item.snapshot.__dict__}
+            for item in observations
+        ],
+        "close": child.close_record,
+    }
 
 
 def _success_data(response: Mapping[str, Any], command: str) -> dict[str, Any]:
@@ -842,7 +872,7 @@ def _launch(
     generation: int,
     resume: Path | None,
 ) -> OwnedPrimeProcess:
-    child = OwnedPrimeProcess(
+    return OwnedPrimeProcess(
         argv=build_prime_argv(
             node_path=config.node_path,
             cli_path=config.prime_dist_root / "bundle" / "cli.js",
@@ -857,8 +887,6 @@ def _launch(
         generation=generation,
         observer=observer,
     )
-    child.start()
-    return child
 
 
 def _expect_lease_refusal(child: OwnedPrimeProcess) -> dict[str, Any]:
@@ -888,6 +916,7 @@ def run_direct_vertical(config: HarnessConfiguration) -> dict[str, Any]:
     responses: list[dict[str, Any]] = []
     result: dict[str, Any] | None = None
     try:
+        child.start()
         for command in runtime_control_commands():
             timeout = PREPARE_TIMEOUT_SECONDS if command["type"] == "prepare_ipython_runtime" else CONTROL_TIMEOUT_SECONDS
             responses.append(child.command(command, timeout))
@@ -941,12 +970,15 @@ def run_lease_sequence(config: HarnessConfiguration) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     owned: list[OwnedPrimeProcess] = []
     generation = 0
+    session_file: Path | None = None
+    sequence_error: BaseException | None = None
 
     def launch(resume: Path | None) -> OwnedPrimeProcess:
         nonlocal generation
         generation += 1
         child = _launch(config, environment, observer, generation, resume)
         owned.append(child)
+        child.start()
         return child
 
     try:
@@ -982,15 +1014,35 @@ def run_lease_sequence(config: HarnessConfiguration) -> dict[str, Any]:
             "get_state",
         )
         records.append({"phase": "stale_owner_recovery_close", **recovered.close()})
-        return {
-            "entryPoint": config.entry_point,
-            "sessionFile": str(session_file),
-            "records": records,
-            "environmentNames": sorted(environment),
-        }
+    except BaseException as exc:
+        sequence_error = exc
     finally:
+        cleanup_errors: list[str] = []
         for child in reversed(owned):
-            child.close()
+            try:
+                child.close()
+            except BaseException as exc:
+                cleanup_errors.append(
+                    f"generation {child.generation}: {type(exc).__name__}: {exc}"
+                )
+
+    evidence = {
+        "entryPoint": config.entry_point,
+        "sessionFile": str(session_file) if session_file is not None else None,
+        "records": records,
+        "environmentNames": sorted(environment),
+        "launches": [owned_process_evidence(child) for child in owned],
+    }
+    if sequence_error is not None or cleanup_errors:
+        reasons: list[str] = []
+        if sequence_error is not None:
+            reasons.append(f"{type(sequence_error).__name__}: {sequence_error}")
+        reasons.extend(cleanup_errors)
+        raise HarnessFailure(
+            "lease sequence failed: " + "; ".join(reasons),
+            evidence=evidence,
+        ) from sequence_error
+    return evidence
 
 
 def _build_runtime_environment(config: HarnessConfiguration) -> dict[str, str]:
@@ -1139,12 +1191,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:  # pragma: no cover - argparse closes this shape
             raise HarnessFailure("unknown harness entry point")
     except BaseException as exc:
+        failure_record: dict[str, Any] = {
+            "status": "failed",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        if isinstance(exc, HarnessFailure) and exc.evidence is not None:
+            failure_record["evidence"] = exc.evidence
         _write_result(
             config,
-            {
-                "status": "failed",
-                "error": f"{type(exc).__name__}: {exc}",
-            },
+            failure_record,
         )
         return 1
     _write_result(config, {"status": "passed", **result})
