@@ -352,6 +352,123 @@ def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
     assert all(child.close_record is not None for child in children)
 
 
+def test_lease_sequence_revalidates_bundle_before_reopen_launch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _load()
+    roots = harness.HarnessRoots.create(tmp_path / "run")
+    node = tmp_path / "node.exe"
+    uv = tmp_path / "uv.exe"
+    node.write_bytes(b"node")
+    uv.write_bytes(b"uv")
+    dist = tmp_path / "dist"
+    (dist / "bundle").mkdir(parents=True)
+    (dist / "skills").mkdir()
+    cli = dist / "bundle" / "cli.js"
+    cli.write_text("export {};\n", encoding="utf-8")
+    bundle_manifest = tmp_path / "prime-bundle-manifest.json"
+    bundle = prime_runtime_contract.write_prime_bundle_manifest(dist, bundle_manifest)
+
+    def stage(name: str):
+        source = tmp_path / f"{name}-source"
+        (source / "src" / name.replace("-", "_")).mkdir(parents=True)
+        (source / "SKILL.md").write_text(f"---\nname: {name}\n---\n", encoding="utf-8")
+        (source / "pyproject.toml").write_text(
+            f"[project]\nname='{name}'\nversion='0.0.0'\n",
+            encoding="utf-8",
+        )
+        return harness.stage_skill_package(source / "SKILL.md", roots.packages / name)
+
+    goal = stage("goal")
+    rook = stage("rook-full")
+    config = harness.HarnessConfiguration(
+        entry_point="lease-sequence",
+        roots=roots,
+        node_path=node.resolve(),
+        node_sha256=hashlib.sha256(b"node").hexdigest().upper(),
+        prime_dist_root=dist.resolve(),
+        bundle_manifest_path=bundle_manifest.resolve(),
+        bundle_manifest_sha256=bundle.manifest_sha256,
+        uv_path=uv.resolve(),
+        uv_sha256=hashlib.sha256(b"uv").hexdigest().upper(),
+        model_selector="offline/catalog-model",
+        goal_skill_path=goal.skill_path,
+        rook_skill_path=rook.skill_path,
+        goal_skill_manifest_sha256=goal.manifest_sha256,
+        rook_skill_manifest_sha256=rook.manifest_sha256,
+    )
+    session = roots.sessions / "saved.jsonl"
+    starts: list[int] = []
+
+    class Process:
+        def __init__(self, generation: int) -> None:
+            self.pid = 900 + generation
+            self.returncode = None
+
+    class Child:
+        def __init__(self, *, argv, environment, cwd, generation) -> None:
+            self.argv = argv
+            self.environment = environment
+            self.cwd = cwd
+            self.generation = generation
+            self.process = Process(generation)
+            self.rows = []
+            self.stderr = []
+            self.close_record = None
+
+        def start(self) -> None:
+            starts.append(self.generation)
+
+        def command(self, command, _timeout):
+            if self.generation == 2:
+                self.process.returncode = 12
+                self.stderr.append(
+                    json.dumps(
+                        {
+                            "type": "rpc_startup_error",
+                            "code": "session_already_active",
+                            "sessionPath": str(session.resolve()),
+                        }
+                    )
+                )
+                raise harness.HarnessFailure("lease refused")
+            if command["type"] == "set_rlm_max_depth":
+                session.write_text("persisted\n", encoding="utf-8")
+                data = {"maxDepth": 0, "source": "chat"}
+            else:
+                data = {"sessionFile": str(session), "sessionId": "original-session-id"}
+            response = {
+                "type": "response",
+                "id": command["id"],
+                "success": True,
+                "command": command["type"],
+                "data": data,
+            }
+            self.rows.append(response)
+            return response
+
+        def close(self):
+            if self.close_record is None:
+                if self.generation == 1:
+                    cli.write_text("export const drift = true;\n", encoding="utf-8")
+                if self.process.returncode is None:
+                    self.process.returncode = 0
+                self.close_record = {
+                    "result": "already_exited" if self.process.returncode else "graceful",
+                    "returnCode": self.process.returncode,
+                }
+            return dict(self.close_record)
+
+    monkeypatch.setattr(harness, "OwnedPrimeProcess", Child)
+    monkeypatch.setattr(harness, "_build_runtime_environment", lambda _config: {})
+
+    with pytest.raises(harness.HarnessFailure, match="Prime bundle manifest"):
+        harness.run_lease_sequence(config)
+
+    assert starts == [1, 2]
+
+
 def test_lease_refusal_requires_exact_code_and_canonical_session(tmp_path: Path) -> None:
     harness = _load()
     session = (tmp_path / "session.jsonl").resolve()

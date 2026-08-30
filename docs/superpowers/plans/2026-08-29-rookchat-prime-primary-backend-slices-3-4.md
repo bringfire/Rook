@@ -13,14 +13,15 @@
 **Execution status:** Tasks 0-6 are completed and preserved at Rook
 `cf760498cb51895013c7f2163e6faaa7b66255bf` and Prime
 `3e3c9da18911f3ecffd56fe99eb7bab552fcd81e`. Their recipes remain below as
-historical custody evidence and must not be rerun. Tasks 7-12 are unimplemented.
-Execution may resume only at replacement Task 7 from the exact independently
-approved continuation commit named in the implementation `/goal`.
+historical custody evidence and must not be rerun. Task 7 Gate 7A V5 is
+implemented offline; Gate 7B remains unauthorized pending independent review.
+Execution may resume only at the exact reviewed Gate 7B wrapper command. Tasks
+8-12 remain unimplemented.
 
 ## Global Constraints
 
 - Tasks 0-6 are complete and immutable for this continuation. Their checked steps are retained evidence, not executable instructions.
-- The implementation `/goal` names the exact approved Task 7 continuation commit. Replacement Task 7 requires the Rook worktree to be clean at that literal commit, with reviewed topology base `77f07f2e` as its immediate parent, and the Prime worktree to be clean at `3e3c9da18911f3ecffd56fe99eb7bab552fcd81e`.
+- Independent Gate 7A review supplies the exact clean recovery-worktree commits and externally authenticates the wrapper and harness hashes before Gate 7B. The old review worktrees are quarantine evidence only.
 - Existing registry v1 records retain their exact Slices 1-2 text-only meaning. They are never inferred, rewritten, or reopened as v2.
 - Slice 3 uses a fresh `readonly` v2 conversation. Slice 4 uses a different fresh `full` v2 conversation. A running process, kernel, record, or target lock is never elevated.
 - Prime owns reasoning, provider interaction, transcript, IPython, compaction, goal state, continuation, accounting, and completion. The broker does not classify requests, infer completion, or persist a shadow goal/task lifecycle.
@@ -32,7 +33,7 @@ approved continuation commit named in the implementation `/goal`.
 - Product `panel_locked` custody mechanically governs the unmodified `rook_full` typed/composite path. Hostile IPython, raw transport, environment monkeypatching, and arbitrary Python containment remain explicit non-claims.
 - `gh_document_new`, `gh_document_open`, and transitive `gh_learn_directory` are refused in `panel_locked` v1 before nested document-open dispatch. `rhino_execute` remains admitted but receives no Grasshopper containment claim and is disqualifying if used to inspect or alter Grasshopper during Slice 4.
 - ChatRunner remains the product default and rollback path. Prime remains opt-in through Slices 3-4. Default cutover is a later decision.
-- Remaining Tasks 7-9 are model-free. They must run with provider credentials scrubbed and may not contact Rhino, Grasshopper, a model, or a live Rook mutation surface.
+- Remaining Task 7 gates and Tasks 8-9 are model-free. They must run with provider credentials scrubbed and may not contact Rhino, Grasshopper, a model, or a live Rook mutation surface.
 - Task 7 Gates 7A, 7B, and 7C plus the final accepted-integration review are mandatory and non-substitutable.
 - Task 9 is a mandatory independent implementation review gate before Slice 3 live contact. Task 10 seals and reviews Slice 3 before any Slice 4 preparation. Task 11 is a separate pre-contact review gate before Slice 4 mutation.
 - Live runs occur once, without retry, prompt repair, hidden tuning, or configuration drift. A failed or incomplete result is preserved honestly.
@@ -44,7 +45,7 @@ Every phase boundary below is an executable artifact handoff, not an assertion t
 
 | Transition | Fact bound before action | Establishing owner and transaction | Retained proof | Consumer reverification | Failure residue |
 | --- | --- | --- | --- | --- | --- |
-| Task 7 continuation authorization -> Task 7 | exact approved continuation commit, reviewed topology parent `77f07f2e`, completed Rook code parent `cf760498`, and completed Prime head `3e3c9da18` | active implementation `/goal` supplies the approved continuation commit directly to Task 7 Step 0 | Step 0 records both HEAD/tree identities, parent chain, and clean-status output | Step 0 compares clean Rook `HEAD` with the supplied literal, its immediate parent with `77f07f2e`, the preserved code ancestry with `cf760498`, and clean Prime `HEAD` with `3e3c9da18` | no dependency, test, edit, or process begins |
+| Gate 7A review -> Gate 7B | exact approved recovery commits, clean worktrees, wrapper/harness hashes, frozen inputs, and absent evidence roots | independent review supplies the exact commits and externally authenticates the wrapper before Python executes | Gate 7A report records commits, trees, hashes, tests, and proposed command | the absorbing wrapper rechecks clean commits, frozen identities, roots, and lease-before-direct ordering before each entry | no Prime process starts on any mismatch |
 | Offline isolation -> every real Prime process | scrubbed provider environment, isolated agent/session roots, exact branch-local dependencies | the same PowerShell process removes credentials, creates isolated roots, and launches the Prime command | command output records roots, credential count zero, import paths, and terminal exit | every Prime-launching block repeats the complete preamble before dispatch | that invocation exits; no later shell inherits an assumed scrub |
 | Source build -> installed runtime | exact tested worktree bytes and worktree `uv.lock` environment promoted through the repository-owned local deployment path | Task 0 creates the worktree venv with `uv sync --frozen --extra test`; every Python gate uses it; Task 9 closes Rhino/owned workers, builds exact outputs, and deploys with `-UseRepoVenv` | lock hash, worktree interpreter path, deployment log, installed-file/hash inventory, and chat-service manifest | Tasks 10-12 run `uv sync --frozen --extra test --check`, rehash the installed inventory, and require the manifest to name the same interpreter before contact | contact remains unauthorized; previous installed bytes or a drifted environment are not treated as current |
 | Task changes -> commit -> frozen inputs | all files named by the task are staged together; evaluator owners remain unchanged | each task's explicit `git add` list includes every actual owner and its tests | focused commit and clean worktree | the next task checks clean status; Task 11 rehashes the four evaluator owners | unstaged or unexpected bytes stop the task before the next phase |
@@ -832,16 +833,16 @@ and
 The previous Task 7 is rejected. Its two dirty worktrees remain quarantine
 evidence and are never used by this replacement.
 
-After independent approval, the clean review worktrees become the Task 7
-implementation worktrees:
+The abandoned review worktrees remain quarantine evidence. Task 7 and all later
+work continue only in the dedicated recovery worktrees:
 
 ```text
-Rook:  C:/UDEV/Rook/.worktrees/task7-runtime-topology-review
-Prime: D:/prime-agent/.worktrees/task7-runtime-topology-review
+Rook:  C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery
+Prime: D:/prime-agent/.worktrees/task7-runtime-topology-recovery
 ```
 
-Tasks 8 onward use these same roots. They never silently return to the
-quarantined `rookchat-prime-primary-backend` worktrees.
+Tasks 8 onward use these same roots. They never silently return to either the
+review or `rookchat-prime-primary-backend` quarantine worktrees.
 
 **Files:**
 
@@ -879,49 +880,25 @@ quarantined `rookchat-prime-primary-backend` worktrees.
   generations, goal/compaction ownership, and existing Stop races.
 - Adds no daemon command, private daemon, supervisor, worker recovery, or socket ownership.
 
-- [ ] **Step 0: Re-establish clean implementation custody**
+- [x] **Step 0: Re-establish clean implementation custody**
 
-The implementation `/goal` supplies the exact independently approved Task 7
-continuation commit as a literal argument. Verify:
+Tasks 0-6 are completed historical work and must not be rerun. Task 7 continues
+only in the dedicated recovery worktrees:
 
 ```text
-clean Rook HEAD == supplied approved continuation commit
-its immediate parent == 77f07f2e
-its history contains completed Rook code head cf760498
-clean Prime HEAD == 3e3c9da18
+C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery
+D:/prime-agent/.worktrees/task7-runtime-topology-recovery
 ```
 
-This is the sole execution entry point. Do not run Task 0 or any Task 1-6 recipe.
-Also verify both quarantined worktrees still contain their original uncommitted
-Task 7 diffs. Any missing literal, mismatch, dirt, or altered quarantine stops
-before dependency use, tests, edits, or process launch. Record the full hashes,
-tree hashes, parent check, ancestry check, and clean-status output.
+The active implementation `/goal` and independent review supply the exact
+approved Rook and Prime continuation commits. Before each correction pass, the
+executor verifies clean `HEAD` equality to those externally authorized values,
+preserved Tasks 0-6 ancestry, unchanged dependency locks, and unchanged
+quarantine diffs. The old review worktrees are evidence only and are never an
+execution root. Any mismatch stops before dependency use, tests, edits, or
+process launch. Each Gate 7A report records the exact commits and trees.
 
-```powershell
-$verifyTask7Entry = {
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidatePattern('^[0-9a-f]{40}$')]
-        [string]$ApprovedTask7Commit
-    )
-    $rook = 'C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
-    $prime = 'D:/prime-agent/.worktrees/task7-runtime-topology-review'
-    $reviewedTopology = '77f07f2ebbce0665130e6807bb28a7a8e96d8dc7'
-    $completedRook = 'cf760498cb51895013c7f2163e6faaa7b66255bf'
-    $completedPrime = '3e3c9da18911f3ecffd56fe99eb7bab552fcd81e'
-
-    if ((git -C $rook status --porcelain --untracked-files=all).Length -ne 0) { throw 'Rook Task 7 worktree is dirty.' }
-    if ((git -C $rook rev-parse HEAD).Trim() -ne $ApprovedTask7Commit) { throw 'Rook HEAD is not the approved Task 7 continuation commit.' }
-    if ((git -C $rook rev-parse "$ApprovedTask7Commit^1").Trim() -ne $reviewedTopology) { throw 'Approved Task 7 commit is not the direct correction of reviewed topology 77f07f2e.' }
-    git -C $rook merge-base --is-ancestor $completedRook $ApprovedTask7Commit
-    if ($LASTEXITCODE -ne 0) { throw 'Completed Rook Tasks 0-6 are not in Task 7 ancestry.' }
-    if ((git -C $prime status --porcelain --untracked-files=all).Length -ne 0) { throw 'Prime Task 7 worktree is dirty.' }
-    if ((git -C $prime rev-parse HEAD).Trim() -ne $completedPrime) { throw 'Completed Prime Tasks 0-6 head drifted.' }
-}
-& $verifyTask7Entry (Read-Host 'Paste the exact approved Task 7 continuation commit named in the active /goal')
-```
-
-- [ ] **Step 1: Write RED topology, lease, bootstrap, and Windows-boundary tests without launching a process**
+- [x] **Step 1: Write RED topology, lease, bootstrap, and Windows-boundary tests without launching a process**
 
 Require:
 
@@ -937,8 +914,10 @@ Require:
 - lease contention refuses before runtime creation, graceful disposal releases,
   a simulated live owner refuses reopen, and an abandoned lifetime lock remains
   locked regardless of age; same-file automatic crash recovery is not admitted;
-- the non-expiring lifetime policy is selected only by explicit in-process RPC;
-  default daemon and owned-worker launches retain their recoverable lease policy;
+- supported production launch sites set the internal lease contract explicitly:
+  in-process RPC selects lifetime, while daemon and owned-worker launches select
+  recoverable; the environment field is internal convention, not a
+  topology-authenticated capability;
 - the exact Windows path/hidden-launch regressions from upstream commit
   `142045138b8679ec077f8f032d2befe66ca5606b` fail on the pinned baseline;
 - the closed Prime launched-artifact manifest includes every regular file under
@@ -946,16 +925,13 @@ Require:
   missing/extra/changed entry or path escape, and is recomputed before launch;
 - the preflighted `uv.exe` path and SHA-256 are bound to sanitized `PATH`, and a
   different observed `uv.exe` fails before runtime preparation can qualify;
-- the Windows identity query uses `-NoLogo -NoProfile -NonInteractive`,
-  `windowsHide: true`, one finite deadline, and no retry; and
-- timeout/failure returns one terminal identity result without starting another query;
-- Windows fallback teardown requires the retained direct-child handle and an
-  exact launch-generation match, invokes one hidden bounded `taskkill` against
-  only that PID tree, and records uncertainty without retrying or widening.
+- every post-`Popen` startup failure closes the same retained direct handle;
+- normal settlement uses RPC/EOF and requires graceful exit zero; and
+- bounded handle-local terminate/kill remains safety cleanup only, makes the
+  qualification fail when needed, and never widens to PowerShell, Toolhelp,
+  PID-tree authority, `taskkill`, process-name cleanup, or retry.
 
-Inject the process-query function in tests. Do not spawn PowerShell.
-
-- [ ] **Step 2: Implement the finite direct-owner prerequisites**
+- [x] **Step 2: Implement the finite direct-owner prerequisites**
 
 Add the closed CLI field and route it through the existing startup decision.
 Reuse `createAgentSessionRuntime()`, `runRpcMode()`, and
@@ -979,21 +955,24 @@ reopen, recompute that manifest from the recorded `dist` root and compare it to
 the runtime contract. A supplied SHA string without matching bytes has no
 authority.
 
-Harden the existing Windows process query in place. Replace Rook's fallback
-teardown with the retained-handle, immediately generation-checked, hidden,
-finite, single-attempt rule. Do not install `ntsecuritycon`, add a process
-dependency, widen cleanup, or add a generic process supervisor.
+Use one hidden directly owned child handle. Startup is transactional after
+`Popen`; normal close uses RPC/EOF and a bounded wait. Handle-local terminate
+then kill is available only for safety cleanup, and needing either fails the
+qualification. Do not add PowerShell identity probes, Toolhelp snapshots,
+`taskkill`, PID-tree ownership, process polling, a process dependency, widened
+cleanup, or a generic process supervisor.
 
 Run only Prime unit tests that use fakes/injected queries, plus TypeScript
 compilation. No CLI, daemon, kernel, provider, or process-boundary test runs in
 this step.
 
-- [ ] **Step 3: Author the model-free lease sequence and direct harness, but do not run them**
+- [x] **Step 3: Author the model-free lease sequence and direct harness, but do not run them**
 
 Author two fixed entry points in one bounded harness: the saved-session lease
 sequence specified in Step 4 and the one-session direct vertical. Neither entry
 point retries or launches the other automatically. Both use the same reviewed
-hidden process owner, generation identity, evidence format, and exact teardown.
+direct-handle owner, evidence format, RPC/EOF settlement, and bounded
+handle-local safety cleanup.
 
 The harness uses a process API with an argument array and hidden-window flags.
 It creates unique test-owned agent, session, data, package, and kernel roots.
@@ -1049,16 +1028,15 @@ EOF/close
 ```
 
 It retains the argv, sanitized environment names, session path, runtime
-topology, interpreter, import origins, command responses, PIDs, parent PIDs,
-start identities, close result, and zero-descendant result. Secrets and
-credential values are never retained.
+topology, interpreter, import origins, command responses, direct-child PID as a
+diagnostic, RPC rows, stderr, and close result. Secrets and credential values
+are never retained.
 
 Process custody is phase-specific rather than a speculative transient count:
 
 ```text
 admission and lease:
   one directly owned Prime Node process
-  plus at most one hidden bounded identity probe per lease acquisition
 
 cold preparation:
   Prime plus only the preflight-resolved `uv.exe` and Python executables used
@@ -1068,27 +1046,23 @@ steady state:
   exactly Prime plus the contract-selected IPython kernel
 
 shutdown:
-  graceful disposal, or one generation-verified hidden `taskkill.exe` fallback
-  followed by zero descendants owned by the Prime launch generation
+  RPC/EOF disposal and graceful exit zero
+  handle-local terminate/kill only as gate-failing safety cleanup
 ```
 
-Record executable path, PID, parent PID, and process-start identity using a
-stdlib `ctypes` Windows Toolhelp/process-time snapshot in the harness. The
-observer launches no process. Do not poll by repeatedly launching PowerShell.
-A daemon supervisor, daemon worker, visible console, repeated identity probe,
-unlisted executable type, or preparation helper surviving into steady state is
-an absorbing failure.
+Use controlled transition checks instead of process-table surveillance. A
+daemon artifact, daemon worker, visible console, changed executable/package
+identity, mismatched `uv.exe`, or non-graceful qualifying owner close is an
+absorbing failure.
 
 `--offline` prohibits Prime startup/provider/model traffic. First-use `uv`
 Python/package traffic is a separately authorized cold-preparation activity and
 must be retained distinctly; it is not a provider call. No prompt is admitted.
 
-Cleanup may signal only PIDs recorded for that launch generation after matching
-PID, parent PID, and process-start identity. It never kills by process name and
-never targets a console host. Graceful close comes first. Any Windows fallback
-must revalidate the still-running direct child immediately before one hidden,
-bounded `taskkill /PID <direct-child> /T /F`. Timeout, mismatch, or uncertainty
-is retained as failure and permits neither retry nor broader cleanup.
+Cleanup signals only the retained direct process handle. It never enumerates or
+kills by process name, PID tree, parent PID, or console host. Graceful close
+comes first. Any timeout, terminate, kill, or uncertainty is retained as gate
+failure and permits neither retry nor broader cleanup.
 
 - [ ] **Gate 7A: Independent harness review before first execution**
 
@@ -1131,12 +1105,11 @@ stop launch activity
 
 A pass must prove no daemon endpoint or worker participated, the requested
 contract environment owns the actual interpreter, both imports resolve from
-their admitted roots, depth is `{maxDepth: 0, source: "chat"}`, and every owned
-descendant is gone after close. It must also retain that `--offline` was active,
-no prompt/provider call occurred, cold helpers matched the admitted phase, and
-steady state was exactly Prime plus one kernel. Every lease launch must retain
-the same canonical resumed session file, and observed `uv.exe` path/hash must
-equal the preflighted executable.
+their admitted roots, depth is `{maxDepth: 0, source: "chat"}`, every qualifying
+owner closed gracefully with exit zero, and no direct child remains. It must
+also retain that `--offline` was active, no prompt/provider call occurred, and
+the exact `uv.exe` and executable/package identities were reverified at every
+launch. Every lease launch must retain the same canonical resumed session file.
 
 - [ ] **Gate 7B: Review the lease sequence and direct vertical before broker integration**
 
@@ -1155,9 +1128,8 @@ approved design:
 - immutable profile and target projection;
 - exact saved-session identity; and
 - lifecycle failure plus exact owned-process retirement on preparation failure;
-- generation-checked graceful/fallback teardown with one hidden bounded
-  `taskkill` attempt at most; and
-- no widening or retry when teardown identity is uncertain.
+- RPC/EOF graceful close with bounded handle-local safety cleanup; and
+- no widening or retry when cleanup is uncertain.
 
 The deterministic first-use sequence remains:
 
@@ -1181,10 +1153,9 @@ ambiguous cleanup. Each failure is terminal, records honest state, admits no
 prompt, replays nothing, and creates no replacement process.
 
 Add one broker-level single-session harness using the already reviewed direct
-Prime harness. Author and review it before running. Its descendant ceiling is
-the same phase-specific admitted executable set, with the same exact Prime-plus-
-kernel steady state. Run it once only after review and stop on any unexpected
-boundary.
+Prime harness. Author and review it before running. It uses the same direct
+handle ownership and transition checks. Run it once only after review and stop
+on any unexpected boundary.
 
 - [ ] **Gate 7C: Review the broker vertical before concurrency**
 
@@ -1195,15 +1166,14 @@ single-session broker path passes.
 
 After Gate 7C approval, execute one reviewed same-contract pair, then one
 reviewed old/new-contract pair. Each conversation owns one in-process Prime
-child and one kernel. During preparation, each launch may use only its admitted
-phase-specific helpers and at most one hidden identity probe per lease
-acquisition. Steady state is exactly two Prime children plus two kernels.
+child and one kernel. Each launch reverifies its exact executable and package
+custody immediately before process creation.
 
 Assert same-contract preparation yields one stable contract environment without
 partial installation. Assert old/new contracts retain distinct package roots,
 kernel roots, interpreters, and imports. Close all sessions and prove zero owned
-descendants. A failure in either pair stops the gate; do not run the next pair or
-retry the failed one.
+direct children. A failure in either pair stops the gate; do not run the next
+pair or retry the failed one.
 
 - [ ] **Step 8: Run the bounded offline suite and commit the accepted integration**
 

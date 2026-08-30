@@ -1,6 +1,6 @@
 # RookChat Prime Task 7 Recovery Amendment
 
-**Status:** GATE 7A V5 IMPLEMENTED OFFLINE; GATE 7B V5 REVIEW REQUIRED
+**Status:** GATE 7A V5 CORRECTION IMPLEMENTED OFFLINE; GATE 7B V5 REVIEW REQUIRED
 
 ## Recovery Boundary
 
@@ -65,11 +65,23 @@ that saved conversation locked and failed; the user starts a new conversation.
 Optional lifetime-lock metadata contains no PID or process-start identity and
 is diagnostic only.
 
+The lock directory itself is authority. Recoverable mode may reclaim only a
+fully valid version-1 recoverable owner proven dead. Missing, malformed,
+partial, legacy, lifetime, or unknown metadata refuses as
+`session_already_active` and is never reclaimed.
+
 Prime's default daemon and owned-session-worker paths retain their established
 recoverable lease policy, including dead-worker replacement. The internal
-launch paths select that policy explicitly. RookChat's lifetime policy is
-selected only by the explicit in-process RPC startup path; it does not redefine
-the shared daemon lease switch or retire daemon recovery behavior.
+production launch paths select their policy explicitly: in-process RPC sets
+lifetime, while daemon and owned-worker paths set recoverable. The internal
+environment field is a launch convention rather than topology-authenticated
+authority; an unsupported lifetime value only produces more conservative
+refusal. The change does not retire daemon recovery behavior.
+
+Gate custody is revalidated immediately before every Prime process creation,
+including contenders and reopen. Node, the complete Prime bundle manifest,
+`uv.exe`, and both staged skill-package manifests must still match the frozen
+configuration. Drift refuses before `Popen`.
 
 ## Surgical Corrections
 

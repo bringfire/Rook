@@ -566,7 +566,7 @@ def _launch(
     generation: int,
     resume: Path | None,
 ) -> OwnedPrimeProcess:
-    return OwnedPrimeProcess(
+    child = OwnedPrimeProcess(
         argv=build_prime_argv(
             node_path=config.node_path,
             cli_path=config.prime_dist_root / "bundle" / "cli.js",
@@ -580,6 +580,33 @@ def _launch(
         cwd=config.roots.root,
         generation=generation,
     )
+    verify_launch_custody(config)
+    child.start()
+    return child
+
+
+def verify_launch_custody(config: HarnessConfiguration) -> None:
+    node_path = _require_absolute_file(config.node_path, "Node path")
+    if _sha256_file(node_path) != config.node_sha256:
+        raise HarnessFailure("Node SHA-256 changed before Prime launch")
+    bundle = verify_prime_bundle_manifest(
+        config.prime_dist_root,
+        config.bundle_manifest_path,
+        expected_manifest_sha256=config.bundle_manifest_sha256,
+    )
+    if bundle.cli_path != (config.prime_dist_root / "bundle" / "cli.js").resolve(strict=True):
+        raise HarnessFailure("Prime launch entry drifted before Prime launch")
+    uv_path = _require_absolute_file(config.uv_path, "uv path")
+    if _sha256_file(uv_path) != config.uv_sha256:
+        raise HarnessFailure("uv SHA-256 changed before Prime launch")
+    for label, skill_path, expected_manifest in (
+        ("goal", config.goal_skill_path, config.goal_skill_manifest_sha256),
+        ("Rook", config.rook_skill_path, config.rook_skill_manifest_sha256),
+    ):
+        skill_path = _require_absolute_file(skill_path, f"{label} skill")
+        manifest = canonical_json_bytes(build_package_manifest(skill_path.parent))
+        if hashlib.sha256(manifest).hexdigest().upper() != expected_manifest:
+            raise HarnessFailure(f"{label} skill manifest changed before Prime launch")
 
 
 def require_graceful_close(child: OwnedPrimeProcess, label: str) -> dict[str, Any]:
@@ -638,7 +665,6 @@ def run_direct_vertical(config: HarnessConfiguration) -> dict[str, Any]:
     child = _launch(config, environment, generation=1, resume=None)
     result: dict[str, Any] | None = None
     try:
-        child.start()
         _state, set_depth, identity = persist_session_file(child, config.roots.sessions)
         session_file = Path(identity["sessionFile"])
         get_depth_response = child.command(runtime_control_commands()[2], CONTROL_TIMEOUT_SECONDS)
@@ -690,7 +716,6 @@ def run_lease_sequence(config: HarnessConfiguration) -> dict[str, Any]:
         generation += 1
         child = _launch(config, environment, generation, resume)
         owned.append(child)
-        child.start()
         return child
 
     try:

@@ -149,7 +149,7 @@ one RookChat conversation
 -> one live Prime owner process generation
 -> one immutable runtime contract
 -> one contract-selected kernel
--> only descendants owned by that process generation
+-> one directly owned Prime process handle
 ```
 
 Its lifecycle is admitted and closed in one order:
@@ -160,16 +160,18 @@ admit topology
 -> acquire saved-session lease
 -> prepare runtime
 -> run and settle
--> dispose descendants
+-> settle RPC/EOF and close the direct handle
 -> release lease
 ```
 
 ## Saved-session exclusivity
 
-The selected in-process branch creates a Prime-owned lease owner identity and
-enables the existing lease facility for the lifetime of that process. This is
-a Prime startup decision derived from `--rpc-runtime in-process`, not ambient
-authority delegated to the Rook launch environment.
+The supported in-process branch creates a Prime-owned lease owner identity and
+sets the internal lifetime-lease launch contract for that process. Daemon and
+owned-worker launch sites set the recoverable contract explicitly. The internal
+environment field is convention-scoped rather than topology-authenticated;
+unsupported injection can only select the more conservative lifetime refusal
+behavior and receives no broader authority.
 
 For a saved session, lease acquisition occurs before `AgentSession` creation or
 kernel preparation. The same policy governs any session replacement admitted by
@@ -196,22 +198,18 @@ The test harness may retain an exact process handle solely for cleanup while
 logically detaching the first owner from the contender. It must not create an
 actually unowned process to prove the orphan case.
 
-## Windows identity and bootstrap boundaries
+## Direct-handle and bootstrap boundaries
 
-On Windows, the current lease implementation can invoke a synchronous
-PowerShell process-start query. That subprocess must be corrected before any
-process-boundary qualification:
+RookChat's in-process lifetime lease uses no process identity query. Prime's
+recoverable daemon path retains its established process-identity behavior, but
+that path is outside the RookChat Gate 7B topology.
 
-- `-NoLogo -NoProfile -NonInteractive` remains required;
-- `windowsHide: true` is required;
-- one finite process deadline is required;
-- failure is terminal for that identity attempt;
-- no caller retries by launching another probe; and
-- tests inject the query function rather than spawning a real shell.
-
-An in-process/native identity implementation may replace the probe later, but
-it is not required to decide this topology. The Task 7 gate requires only a
-hidden, bounded, single-attempt boundary.
+The RookChat harness launches one hidden child from an argument array and keeps
+its direct process handle. A post-`Popen` startup failure closes that same
+handle. Normal shutdown uses RPC/EOF and requires exit zero. Bounded
+handle-local terminate then kill remains safety cleanup only; needing either
+makes the gate fail. The harness never invokes PowerShell, Toolhelp, `taskkill`,
+PID-tree cleanup, process-name cleanup, or process-table polling.
 
 The pinned Prime baseline also contains the known kernel-bootstrap defect that
 selects `<venv>/bin/python` on Windows and launches bootstrap subprocesses
@@ -258,7 +256,7 @@ conversation's runtime contract. Missing, extra, or changed admitted bytes fail
 `runtime_contract_unavailable` before Prime starts. The reconciled Prime git
 commit remains recorded solely as provenance.
 
-## Descendant phases and shutdown
+## Runtime transitions and shutdown
 
 Cold preparation does not have a speculative fixed process count. Qualification
 uses a closed phase model instead:
@@ -266,7 +264,6 @@ uses a closed phase model instead:
 ```text
 admission and lease:
   directly owned Prime Node process
-  plus at most one hidden, bounded identity probe per lease acquisition
 
 cold runtime preparation:
   Prime plus the preflight-resolved `uv.exe` and Python executables used for
@@ -276,26 +273,22 @@ steady state:
   exactly the directly owned Prime process plus one contract-selected kernel
 
 shutdown:
-  graceful disposal, or one generation-verified hidden `taskkill.exe` fallback
-  followed by zero descendants owned by that Prime launch generation
+  RPC/EOF disposal and graceful exit zero
+  handle-local terminate/kill only as gate-failing safety cleanup
 ```
 
 The harness preflights one absolute `uv.exe` and SHA-256, puts its directory
 first in the sanitized child `PATH`, and sets `PRIME_AGENT_INSTALL_UV=0`, so
 bootstrap resolves that exact executable and never launches an installer shell.
-Observed cold-preparation path and hash must match. It records executable path,
-parent PID, PID, and process-start identity for each observed descendant through
-a non-spawning Windows process snapshot. It does not repeatedly launch
-PowerShell to poll process state. A daemon supervisor, daemon worker, unrelated
-console host, unlisted executable type, repeated identity probe, mismatched
-`uv.exe`, or helper surviving into steady state is an absorbing failure.
+Observed cold-preparation path and hash must match. Controlled transition checks
+prove no daemon artifact or worker participated and revalidate executable and
+package custody before each launch. They do not surveil the Windows process
+table.
 
-Graceful RPC/runtime disposal is attempted first. Windows fallback termination
-is allowed only when the direct child process handle is still live and an
-immediately preceding process-start check matches the retained launch
-generation. `taskkill /PID <direct-child> /T /F` then runs hidden, once, under a
-finite deadline. Mismatch, timeout, or uncertainty records cleanup failure and
-never widens the target, retries, kills by name, or targets a console host.
+Graceful RPC/runtime disposal is attempted first. Safety cleanup may signal
+only the retained direct process handle. Timeout, terminate, kill, or uncertainty
+records gate failure and never widens the target, retries, kills by name, or
+targets a console host.
 
 Model-free process qualification passes `--offline`. That prohibits Prime
 startup/provider/model traffic; it does not pretend that first-use kernel
@@ -382,11 +375,10 @@ one direct Prime RPC session must prove:
 9. RLM maximum depth is `0` from chat-local state;
 10. `--offline` is active and no prompt/provider call occurs;
 11. prepare, close, and kernel teardown settle within finite deadlines;
-12. the phase-specific descendant set is exact and reaches the stated steady
-    state, including exact preflighted `uv.exe` path/hash;
-13. the Windows identity probe is hidden, bounded, and attempted once; and
-14. fallback teardown is generation-qualified, hidden, bounded, single-attempt,
-    and limited to the direct child tree.
+12. exact preflighted `uv.exe`, Prime bundle, Node, and staged package custody
+    is reverified immediately before each launch; and
+13. every qualifying owner settles by RPC/EOF and exits zero, while any
+    handle-local terminate or kill records gate failure.
 
 Any unexpected process, socket, import root, retry, or cleanup boundary is one
 absorbing gate failure. It is evidence to preserve, not permission to rerun.
