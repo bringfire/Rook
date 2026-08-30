@@ -1067,7 +1067,7 @@ failure and permits neither retry nor broader cleanup.
 - [ ] **Gate 7A: Independent harness review before first execution**
 
 Commit the Prime selector, Prime-owned lease activation, exact Windows bootstrap
-reconciliation, hidden/bounded identity and fallback fixes, and unexecuted
+reconciliation, direct-handle startup and lease-custody fixes, and unexecuted
 harness.
 Record test and build output from the non-process unit gate. Stop for independent
 review. Do not execute the harness in the same turn that changes it.
@@ -1277,21 +1277,21 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
 & $python -m pytest mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py -q
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore --filter "FullyQualifiedName~AgentChatClientParseTests|FullyQualifiedName~AgentChatPrimeLifecycleTests"
 
-Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-recovery/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/suite/agent-session-goal.test.ts test/rpc-rookchat-runtime.test.ts
 ```
 
 - [ ] **Step 8: Commit goal projection and panel behavior**
 
 ```powershell
-Set-Location C:/UDEV/Rook/.worktrees/task7-runtime-topology-review
+Set-Location C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery
 git add mcp_server/src/rook/agent/chat src/Rook/UI/Chat src/Rook.Tests/UI/Chat scripts/rookchat_prime_slices_3_4_qualification.py mcp_server/tests/test_prime_rpc_protocol.py mcp_server/tests/test_prime_backend.py mcp_server/tests/test_chat_server.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py
 git commit -m "feat(chat): project Prime goal activity in RookChat"
 ```
@@ -1352,7 +1352,7 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-recovery/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts test/suite/agent-session-goal.test.ts
 npm run build
 git diff --check
@@ -1373,7 +1373,7 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery'
 Set-Location $rook
 $env:PYTHONPATH="$rook/mcp_server/src"
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
@@ -1384,7 +1384,7 @@ $python="$rook/mcp_server/.venv/Scripts/python.exe"
 - [ ] **Step 5: Run the complete managed and native gate**
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery'
 Set-Location $rook
 dotnet build src/Rook/Rook.csproj -c Debug --no-restore
 dotnet test src/Rook.Tests/Rook.Tests.csproj -c Debug --no-restore
@@ -1397,7 +1397,7 @@ git diff --check
 Rhino and all owned `python -m rook`/chat-service workers must be closed. The exact shell checks that condition, runs the repository-owned deploy script without rebuilding different bytes, and refuses on any failure:
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery'
 $blockers = @(Get-CimInstance Win32_Process | Where-Object {
     $_.Name -match '^Rhino(?:\.exe)?$' -or
     ($_.CommandLine -and $_.CommandLine -match 'rook\.agent\.chat\.service_main|python(?:\.exe)?\s+-m\s+rook')
@@ -1427,7 +1427,7 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery'
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
@@ -1464,7 +1464,7 @@ Do not prepare Rhino or create either GH document yet.
 Report exact commands, counts, custody hashes, closed test matrices, branch-local imports, provider-contact exclusion, installed product paths, and explicit non-claims. Include the exact proposed commands:
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery'
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
@@ -1480,7 +1480,7 @@ Set-Location $rook
 git add scripts/rookchat_prime_slices_3_4_qualification.py mcp_server/tests/test_rookchat_prime_slices_3_4_qualification.py docs/CURRENT_ARCHITECTURE.md docs/superpowers/experiments/2026-08-29-rookchat-prime-slice3-observational-v1.json docs/superpowers/reports/2026-08-29-rookchat-prime-slices-3-4-offline-qualification.md docs/superpowers/reports/2026-08-29-rookchat-prime-slice3-precontact.md
 git commit -m "test(chat): qualify Prime Rook runtime offline"
 git status --short
-git -C D:/prime-agent/.worktrees/task7-runtime-topology-review status --short
+git -C D:/prime-agent/.worktrees/task7-runtime-topology-recovery status --short
 ```
 
 Expected: both worktrees clean. Stop for independent implementation review. Do not contact Rhino, Grasshopper, Rook MCP, Prime provider, or a model until the reviewer authorizes the exact Slice 3 command.
@@ -1615,12 +1615,12 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-recovery/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts test/suite/agent-session-goal.test.ts
 npm run build
 if ($LASTEXITCODE -ne 0) { throw 'Prime model-free gate failed.' }
 
-$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery'
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
@@ -1638,7 +1638,7 @@ This is the required pre-mutation review evidence, not another architecture pass
 The one authorized command after review will be:
 
 ```powershell
-$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery'
 $python="$rook/mcp_server/.venv/Scripts/python.exe"
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
@@ -1742,12 +1742,12 @@ $env:PRIME_AGENT_SESSION_DIR = "$offlineRoot/sessions"
 if (@(Get-ChildItem Env: | Where-Object Name -Match $credentialPattern).Count -ne 0) { throw 'Provider credentials remain.' }
 if (Test-Path -LiteralPath "$offlineRoot/agent/auth.json") { throw 'Offline Prime auth directory is not empty.' }
 
-Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-review/packages/coding-agent
+Set-Location D:/prime-agent/.worktrees/task7-runtime-topology-recovery/packages/coding-agent
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/args.test.ts test/rpc-rookchat-runtime.test.ts test/rpc-prompt-response-semantics.test.ts test/rpc-client-prompt-settlement.test.ts test/ipython-provisioner.test.ts test/suite/agent-session-goal.test.ts
 npm run build
 if ($LASTEXITCODE -ne 0) { throw 'Prime final model-free gate failed.' }
 
-$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-review'
+$rook='C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery'
 Set-Location "$rook/mcp_server"
 uv sync --frozen --extra test --check
 if ($LASTEXITCODE -ne 0) { throw 'Worktree Python environment drifted from uv.lock.' }
@@ -1762,7 +1762,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Rook final model-free gate failed.' }
 git add docs/CURRENT_ARCHITECTURE.md docs/superpowers/reports/2026-08-29-rookchat-prime-slice4-point-row-v1-execution.md
 git commit -m "docs: record Prime RookChat mutating qualification"
 git status --short
-git -C D:/prime-agent/.worktrees/task7-runtime-topology-review status --short
+git -C D:/prime-agent/.worktrees/task7-runtime-topology-recovery status --short
 ```
 
 Expected: both worktrees clean. Stop for independent result review. Do not make Prime the default backend or begin deferred product work.
