@@ -50,7 +50,10 @@ rook-full package manifest:
 ```
 
 The wrapper SHA-256 was checked outside the wrapper before Python execution.
-The transaction exited `0` after 22.5 seconds. It was invoked exactly once.
+The transaction exited `0` after 22.5 seconds. The operator record attests that
+the wrapper was invoked once. The sealed roots independently prove one
+successful lease-to-direct sequence; they do not contain a separate outer
+wrapper-execution receipt.
 
 ## Lease Sequence
 
@@ -105,7 +108,7 @@ The direct row passed with transaction ID:
 820551fb19994f8d9a4d616781ec86bd
 ```
 
-The exact Prime launch selected:
+The retained argv contains these required Prime launch flags:
 
 ```text
 --mode rpc
@@ -139,8 +142,9 @@ rook_full.read:   available
 rook_full.search: available
 ```
 
-The direct owner closed gracefully with exit code `0`. The four retained owner
-PIDs from the lease and direct rows were absent after settlement.
+The direct owner closed gracefully with exit code `0`. All four directly owned
+process handles settled with their expected return codes, and no direct child
+remained after handle settlement.
 
 ## Evidence Custody
 
