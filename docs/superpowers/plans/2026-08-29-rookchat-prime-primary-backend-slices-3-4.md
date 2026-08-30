@@ -935,8 +935,8 @@ Require:
   lease-owner identity and enables the existing lease before `AgentSession` or
   kernel creation, without accepting those internal fields from Rook;
 - lease contention refuses before runtime creation, graceful disposal releases,
-  a simulated live owner refuses reopen, and injected dead-owner identity
-  follows Prime's existing conservative stale-lease recovery;
+  a simulated live owner refuses reopen, and an abandoned lifetime lock remains
+  locked regardless of age; same-file automatic crash recovery is not admitted;
 - the exact Windows path/hidden-launch regressions from upstream commit
   `142045138b8679ec077f8f032d2befe66ca5606b` fail on the pinned baseline;
 - the closed Prime launched-artifact manifest includes every regular file under
@@ -1024,8 +1024,8 @@ The harness starts exactly one Prime process with:
 For the lease sequence, the first owner creates the saved session under that
 root. Its first successful `get_state` must return an absolute `sessionFile`.
 Canonicalize and retain that exact file and require it to remain beneath the
-isolated session root. Every contender, graceful reopen, live-owner check, and
-dead-owner recovery launch uses the same agent root and:
+isolated session root. Every contender and graceful reopen uses the same agent
+root and:
 
 ```text
 --session-dir <same unique test root>
@@ -1108,17 +1108,12 @@ first direct owner holds the saved-session lease
 -> second direct child refuses before AgentSession or kernel creation
 -> graceful close releases the lease
 -> explicit --resume <exact sessionFile> succeeds and closes
--> a logically detached but still task-owned live lease holder blocks another
-   --resume <exact sessionFile>
--> the same holder's controlled exit leaves a dead owner
--> Prime --resume <exact sessionFile> recovers that stale lease conservatively
-   and closes
 ```
 
-The harness retains exact process handles for cleanup even when a holder is
-logically detached; it never creates an actually unowned process. Unit tests
-inject process identity for malformed and near-match lease records. If the
-lease sequence fails, do not launch the direct vertical.
+An offline unit test separately proves that an abandoned lock remains closed
+regardless of age. An unclean owner loss does not admit same-file reopen; the
+saved conversation remains failed/locked and the user starts a new
+conversation. If the lease sequence fails, do not launch the direct vertical.
 
 Then run the reviewed direct harness once. No retry, timeout increase, cleanup
 expansion, alternate socket, or extra transaction is authorized. On any

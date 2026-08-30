@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Absorbing admission wrapper for the reviewed Gate 7B V3 transaction."""
+"""Absorbing admission wrapper for the reviewed Gate 7B V4 transaction."""
 
 from __future__ import annotations
 
@@ -17,15 +17,15 @@ from typing import Callable, Mapping, Sequence
 
 ROOK_ROOT = Path("C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery")
 PRIME_ROOT = Path("D:/prime-agent/.worktrees/task7-runtime-topology-recovery")
-APPROVED_PRIME_COMMIT = "99320528e91afed40a72416568f21432042c53a2"
+APPROVED_PRIME_COMMIT = "51e047fc2cf1d45b93a0e75eed961a7d958cda02"
 LEASE_ROOT = Path(
-    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v3-lease"
+    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v4-lease"
 )
 DIRECT_ROOT = Path(
-    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v3-direct"
+    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v4-direct"
 )
 PRIME_BUNDLE_MANIFEST_SHA256 = (
-    "6B15C9F389AEDD08D08CA2E5F38F27E2F21653DAFF5F472C7FDCF78EBCED323A"
+    "8685FC1DB52E834DA19841D5F7BB539EA2BFECD0D574F242374D8A07D4022DFA"
 )
 GOAL_SKILL_MANIFEST_SHA256 = (
     "D1BD71554A07F2A1DACA96FF4A683332B7B5D248769E4571E99D24B55DF8B3C7"
@@ -190,7 +190,7 @@ def production_configuration(
     uv_path = Path("C:/Users/bring/AppData/Local/hermes/bin/uv.exe")
     prime_bundle_manifest = (
         ROOK_ROOT
-        / "docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-runtime-topology-gate-7a-v3/prime-bundle-manifest.json"
+        / "docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-runtime-topology-gate-7a-v4/prime-bundle-manifest.json"
     )
     goal_skill = PRIME_ROOT / "packages/coding-agent/skills/goal/SKILL.md"
     rook_skill = ROOK_ROOT / "integrations/prime/skills/rook-full/SKILL.md"

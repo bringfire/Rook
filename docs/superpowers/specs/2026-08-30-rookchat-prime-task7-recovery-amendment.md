@@ -1,6 +1,6 @@
 # RookChat Prime Task 7 Recovery Amendment
 
-**Status:** GATE 7A V3 IMPLEMENTED OFFLINE; GATE 7B V3 REVIEW REQUIRED
+**Status:** GATE 7A V4 IMPLEMENTED OFFLINE; GATE 7B V4 REVIEW REQUIRED
 
 ## Recovery Boundary
 
@@ -57,11 +57,12 @@ and `taskkill` are not product authority. Platform process data may appear only
 as failure diagnostics. No shared daemon, new supervisor, broker-owned lease,
 session journal, or lifecycle protocol is introduced.
 
-Prime's session lease is one `proper-lockfile` lock held for the complete
-`AgentSessionRuntime` lifetime. Its heartbeat and stale threshold are the only
-lease-liveness authority. Normal disposal releases it; an abrupt owner loss
-leaves it for bounded stale recovery. Optional owner metadata contains no PID
-or process-start identity and is advisory only.
+Prime's session lease is one atomically created directory held for the complete
+`AgentSessionRuntime` lifetime. There is no heartbeat, clock, stale threshold,
+or automatic takeover. Normal disposal verifies the owning token and removes
+the directory. Abrupt owner loss leaves the saved session locked and failed;
+the user starts a new conversation. Optional owner metadata contains no PID or
+process-start identity and is diagnostic only.
 
 ## Surgical Corrections
 
@@ -86,9 +87,9 @@ or process-start identity and is advisory only.
    with exit code zero. Safety cleanup remains available, but needing terminate
    or kill makes the gate fail.
 
-## Gate 7B V3
+## Gate 7B V4
 
-Gate 7B V3 is one finite model-free sequence:
+Gate 7B V4 is one finite model-free sequence:
 
 1. Launch one explicit in-process RPC child offline.
 2. Verify `get_state`, flush with `set_rlm_max_depth`, and admit the persisted
@@ -98,21 +99,18 @@ Gate 7B V3 is one finite model-free sequence:
 4. Close the owner gracefully and prove exact-file reopen returns the same
    session ID and file.
 5. Close the reopened owner gracefully.
-6. Open the same session, prove a second exact-file contender is refused for
-   the same lease, and deliberately crash only the retained owner handle.
-7. Wait once beyond the frozen stale threshold, launch one recovery attempt,
-   and prove it returns the original session ID and file.
-8. Close the recovered owner gracefully.
-9. Prove every directly owned child settled and the isolated agent root
+6. Prove every directly owned child settled and the isolated agent root
    contains no daemon artifacts.
 
-V3 uses fresh evidence roots. No retry, provider/model contact, Rhino,
-Grasshopper, MCP, deployment, or Gate 7C contact is authorized.
+An offline unit test proves an abandoned lock refuses reopening regardless of
+age; Gate 7B does not create or recover an unclean owner. V4 uses fresh evidence
+roots. No retry, provider/model contact, Rhino, Grasshopper, MCP, deployment,
+or Gate 7C contact is authorized.
 
 ## Review Gate
 
 Implementation stops at renewed offline Gate 7A review with exact clean
 recovery commits, focused model-free tests, source and Prime-bundle custody, an
-unexecuted simplified V3 harness, unchanged quarantines, unchanged V1 evidence,
-and absent V2/V3 evidence roots. Gate 7B V3 requires separate independent
+unexecuted simplified V4 harness, unchanged quarantines, unchanged V1 evidence,
+and absent V2/V3/V4 evidence roots. Gate 7B V4 requires separate independent
 authorization.

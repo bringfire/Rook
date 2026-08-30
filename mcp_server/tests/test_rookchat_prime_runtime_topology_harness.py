@@ -282,7 +282,7 @@ def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
             pass
 
         def command(self, command, _timeout):
-            if self.generation in {2, 5}:
+            if self.generation == 2:
                 self.process.returncode = 12
                 self.stderr.append(
                     json.dumps(
@@ -323,14 +323,6 @@ def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
                 }
             return dict(self.close_record)
 
-        def kill_without_disposal(self):
-            self.process.returncode = -15
-            self.close_record = {
-                "result": "controlled_crash_exit",
-                "returnCode": -15,
-            }
-            return dict(self.close_record)
-
     def launch(_config, _environment, generation, resume):
         resumes.append(resume)
         child = Child(generation, resume)
@@ -348,21 +340,14 @@ def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
         None,
         session.resolve(),
         session.resolve(),
-        session.resolve(),
-        session.resolve(),
-        session.resolve(),
     ]
     assert [record["phase"] for record in result["records"]] == [
         "first_session_persisted",
         "live_owner_refusal",
         "first_close",
         "graceful_reopen_close",
-        "detached_live_owner_refusal",
-        "controlled_crash_owner",
-        "stale_lease_wait",
-        "stale_owner_recovery_close",
     ]
-    assert sleeps == [harness.STALE_LEASE_RECOVERY_SECONDS]
+    assert sleeps == []
     assert all(child.process.returncode is not None for child in children)
     assert all(child.close_record is not None for child in children)
 

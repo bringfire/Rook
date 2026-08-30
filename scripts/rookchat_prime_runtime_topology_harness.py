@@ -31,7 +31,6 @@ from rook.agent.chat.prime_runtime_contract import (
 CONTROL_TIMEOUT_SECONDS = 30.0
 PREPARE_TIMEOUT_SECONDS = 900.0
 CLOSE_TIMEOUT_SECONDS = 10.0
-STALE_LEASE_RECOVERY_SECONDS = 12.0
 MAX_RPC_ROW_BYTES = 64 * 1024 * 1024
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _ENTRY_POINTS = ("direct-vertical", "lease-sequence")
@@ -491,22 +490,6 @@ class OwnedPrimeProcess:
         self._close_record = result
         return dict(result)
 
-    def kill_without_disposal(self) -> dict[str, Any]:
-        process = self.process
-        if process is None:
-            raise HarnessFailure("live lease holder is unavailable")
-        process.kill()
-        try:
-            return_code = process.wait(timeout=CLOSE_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            raise HarnessFailure("controlled owner crash did not settle")
-        self._join_reader_threads()
-        self._close_record = {
-            "result": "controlled_crash_exit",
-            "returnCode": return_code,
-        }
-        return dict(self._close_record)
-
     def _join_reader_threads(self) -> None:
         for thread in self._threads:
             if thread.ident is not None:
@@ -748,45 +731,6 @@ def run_lease_sequence(config: HarnessConfiguration) -> dict[str, Any]:
             }
         )
 
-        holder = launch(session_file)
-        holder_state = _success_data(
-            holder.command({"id": "task7-holder-state", "type": "get_state"}, CONTROL_TIMEOUT_SECONDS),
-            "get_state",
-        )
-        require_session_continuity(holder_state, session_identity, config.roots.sessions)
-        detached_contender = launch(session_file)
-        records.append(
-            {
-                "phase": "detached_live_owner_refusal",
-                **_expect_lease_refusal(detached_contender, session_file),
-            }
-        )
-        records.append(
-            {
-                "phase": "controlled_crash_owner",
-                **holder.kill_without_disposal(),
-            }
-        )
-        time.sleep(STALE_LEASE_RECOVERY_SECONDS)
-        records.append(
-            {
-                "phase": "stale_lease_wait",
-                "seconds": STALE_LEASE_RECOVERY_SECONDS,
-            }
-        )
-
-        recovered = launch(session_file)
-        recovered_state = _success_data(
-            recovered.command({"id": "task7-recovered-state", "type": "get_state"}, CONTROL_TIMEOUT_SECONDS),
-            "get_state",
-        )
-        require_session_continuity(recovered_state, session_identity, config.roots.sessions)
-        records.append(
-            {
-                "phase": "stale_owner_recovery_close",
-                **require_graceful_close(recovered, "recovered owner"),
-            }
-        )
     except BaseException as exc:
         sequence_error = exc
     finally:
@@ -943,7 +887,7 @@ def entry_point_names(parser: argparse.ArgumentParser) -> tuple[str, ...]:
 
 def _write_result(config: HarnessConfiguration, record: Mapping[str, Any]) -> None:
     result = {
-        "schema": "rook.qualification.prime_runtime_topology:v3",
+        "schema": "rook.qualification.prime_runtime_topology:v4",
         "transactionId": uuid.uuid4().hex,
         "primeBundleManifestSha256": config.bundle_manifest_sha256,
         "node": {"path": str(config.node_path), "sha256": config.node_sha256},

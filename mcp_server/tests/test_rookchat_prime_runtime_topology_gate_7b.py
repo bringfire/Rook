@@ -65,13 +65,13 @@ def test_gate_wrapper_defaults_creation_flags_to_zero_off_windows(
     assert gate.CREATE_NO_WINDOW == 0
 
 
-def test_gate_7b_v3_uses_recovery_worktrees_and_fresh_evidence_roots() -> None:
+def test_gate_7b_v4_uses_recovery_worktrees_and_fresh_evidence_roots() -> None:
     gate = _load()
 
     assert gate.ROOK_ROOT.name == "task7-runtime-topology-recovery"
     assert gate.PRIME_ROOT.name == "task7-runtime-topology-recovery"
-    assert "gate-7b-v3" in str(gate.LEASE_ROOT)
-    assert "gate-7b-v3" in str(gate.DIRECT_ROOT)
+    assert "gate-7b-v4" in str(gate.LEASE_ROOT)
+    assert "gate-7b-v4" in str(gate.DIRECT_ROOT)
     assert gate.LEASE_ROOT != gate.DIRECT_ROOT
 
 
