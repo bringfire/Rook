@@ -31,8 +31,9 @@ from rook.agent.chat.prime_runtime_contract import (
 CONTROL_TIMEOUT_SECONDS = 30.0
 PREPARE_TIMEOUT_SECONDS = 900.0
 CLOSE_TIMEOUT_SECONDS = 10.0
+STALE_LEASE_RECOVERY_SECONDS = 12.0
 MAX_RPC_ROW_BYTES = 64 * 1024 * 1024
-CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _ENTRY_POINTS = ("direct-vertical", "lease-sequence")
 _INTERNAL_LEASE_NAMES = frozenset(
     {
@@ -293,7 +294,7 @@ def runtime_control_commands() -> tuple[dict[str, Any], ...]:
 def persist_session_file(
     child: "OwnedPrimeProcess",
     session_root: Path,
-) -> tuple[dict[str, Any], dict[str, Any], Path]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, str]]:
     state = _success_data(
         child.command(runtime_control_commands()[0], CONTROL_TIMEOUT_SECONDS),
         "get_state",
@@ -305,7 +306,29 @@ def persist_session_file(
     if depth != {"maxDepth": 0, "source": "chat"}:
         raise HarnessFailure("chat-local RLM depth zero was not persisted")
     session_file = admit_session_file(session_root, state.get("sessionFile"))
-    return state, depth, session_file
+    session_id = state.get("sessionId")
+    if not isinstance(session_id, str) or not session_id:
+        raise HarnessFailure("get_state omitted a nonempty sessionId")
+    return state, depth, {
+        "sessionId": session_id,
+        "sessionFile": str(session_file),
+    }
+
+
+def require_session_continuity(
+    observed: Mapping[str, Any],
+    expected: Mapping[str, Any],
+    session_root: Path,
+) -> dict[str, str]:
+    observed_id = observed.get("sessionId")
+    expected_id = expected.get("sessionId")
+    if not isinstance(observed_id, str) or observed_id != expected_id:
+        raise HarnessFailure("reopened sessionId does not match the original owner")
+    observed_file = admit_session_file(session_root, observed.get("sessionFile"))
+    expected_file = admit_session_file(session_root, expected.get("sessionFile"))
+    if observed_file != expected_file:
+        raise HarnessFailure("reopened sessionFile does not match the original owner")
+    return {"sessionId": observed_id, "sessionFile": str(observed_file)}
 
 
 def require_no_daemon_artifacts(agent_root: Path) -> None:
@@ -468,18 +491,18 @@ class OwnedPrimeProcess:
         self._close_record = result
         return dict(result)
 
-    def terminate_without_disposal(self) -> dict[str, Any]:
+    def kill_without_disposal(self) -> dict[str, Any]:
         process = self.process
         if process is None:
             raise HarnessFailure("live lease holder is unavailable")
-        process.terminate()
+        process.kill()
         try:
             return_code = process.wait(timeout=CLOSE_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
-            raise HarnessFailure("controlled stale-owner termination did not settle")
+            raise HarnessFailure("controlled owner crash did not settle")
         self._join_reader_threads()
         self._close_record = {
-            "result": "controlled_stale_owner_exit",
+            "result": "controlled_crash_exit",
             "returnCode": return_code,
         }
         return dict(self._close_record)
@@ -576,23 +599,53 @@ def _launch(
     )
 
 
-def _expect_lease_refusal(child: OwnedPrimeProcess) -> dict[str, Any]:
+def require_graceful_close(child: OwnedPrimeProcess, label: str) -> dict[str, Any]:
+    record = child.close()
+    if record != {"result": "graceful", "returnCode": 0}:
+        raise HarnessFailure(f"{label} did not close gracefully with exit code zero: {record}")
+    return record
+
+
+def _expect_lease_refusal(
+    child: OwnedPrimeProcess,
+    expected_session_file: Path,
+) -> dict[str, Any]:
     try:
         response = child.command(
             {"id": f"task7-refusal-{child.generation}", "type": "get_state"},
             CONTROL_TIMEOUT_SECONDS,
         )
-    except HarnessFailure as exc:
-        process = child.process
-        if process is None:
-            raise
-        try:
-            code = process.wait(timeout=CLOSE_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired as timeout:
-            raise HarnessFailure("lease contender did not refuse terminally") from timeout
-        if code == 0:
-            raise HarnessFailure("lease contender exited successfully without an RPC refusal") from exc
-        return {"refused": True, "returnCode": code, "stderr": child.stderr}
+    except (HarnessFailure, BrokenPipeError, OSError) as exc:
+        close_record = child.close()
+        if close_record.get("result") not in {"already_exited", "graceful"} or not isinstance(
+            close_record.get("returnCode"), int
+        ) or close_record["returnCode"] == 0:
+            raise HarnessFailure(
+                f"lease contender did not terminate with a refusal: {close_record}"
+            ) from exc
+        expected = {
+            "type": "rpc_startup_error",
+            "code": "session_already_active",
+            "sessionPath": str(Path(expected_session_file).resolve(strict=True)),
+        }
+        matches: list[dict[str, Any]] = []
+        for line in child.stderr:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row == expected:
+                matches.append(row)
+        if len(matches) != 1:
+            raise HarnessFailure(
+                "contender did not emit the exact session lease refusal for the canonical session file"
+            ) from exc
+        return {
+            "refused": True,
+            "outcome": matches[0],
+            "close": close_record,
+            "stderr": list(child.stderr),
+        }
     raise HarnessFailure(f"lease contender unexpectedly admitted get_state: {response}")
 
 
@@ -603,7 +656,8 @@ def run_direct_vertical(config: HarnessConfiguration) -> dict[str, Any]:
     result: dict[str, Any] | None = None
     try:
         child.start()
-        _state, set_depth, session_file = persist_session_file(child, config.roots.sessions)
+        _state, set_depth, identity = persist_session_file(child, config.roots.sessions)
+        session_file = Path(identity["sessionFile"])
         get_depth_response = child.command(runtime_control_commands()[2], CONTROL_TIMEOUT_SECONDS)
         get_depth = _success_data(get_depth_response, "get_rlm_max_depth_status")
         if set_depth != {"maxDepth": 0, "source": "chat"} or get_depth != set_depth:
@@ -624,7 +678,7 @@ def run_direct_vertical(config: HarnessConfiguration) -> dict[str, Any]:
             "entryPoint": config.entry_point,
             "argv": child.argv,
             "environmentNames": sorted(environment),
-            "sessionFile": str(session_file),
+            "session": identity,
             "responses": [dict(row) for row in child.rows],
             "imports": {key: str(value) for key, value in imports.items()},
         }
@@ -633,7 +687,7 @@ def run_direct_vertical(config: HarnessConfiguration) -> dict[str, Any]:
         require_no_daemon_artifacts(config.roots.agent)
     if result is None:
         raise HarnessFailure("direct vertical produced no result")
-    result["close"] = close_record
+    result["close"] = require_graceful_close(child, "direct vertical owner")
     result["process"] = owned_process_evidence(child)
     return result
 
@@ -645,6 +699,7 @@ def run_lease_sequence(config: HarnessConfiguration) -> dict[str, Any]:
     owned: list[OwnedPrimeProcess] = []
     generation = 0
     session_file: Path | None = None
+    session_identity: dict[str, str] | None = None
     sequence_error: BaseException | None = None
 
     def launch(resume: Path | None) -> OwnedPrimeProcess:
@@ -657,40 +712,81 @@ def run_lease_sequence(config: HarnessConfiguration) -> dict[str, Any]:
 
     try:
         first = launch(None)
-        _state, depth, session_file = persist_session_file(first, config.roots.sessions)
+        _state, depth, session_identity = persist_session_file(first, config.roots.sessions)
+        session_file = Path(session_identity["sessionFile"])
         records.append(
             {
                 "phase": "first_session_persisted",
-                "sessionFile": str(session_file),
+                "session": dict(session_identity),
                 "rlmMaxDepth": depth,
             }
         )
         contender = launch(session_file)
-        records.append({"phase": "live_owner_refusal", **_expect_lease_refusal(contender)})
-        records.append({"phase": "first_close", **first.close()})
+        records.append(
+            {
+                "phase": "live_owner_refusal",
+                **_expect_lease_refusal(contender, session_file),
+            }
+        )
+        records.append(
+            {
+                "phase": "first_close",
+                **require_graceful_close(first, "first owner"),
+            }
+        )
 
         reopened = launch(session_file)
-        _success_data(
+        reopened_state = _success_data(
             reopened.command({"id": "task7-reopen-state", "type": "get_state"}, CONTROL_TIMEOUT_SECONDS),
             "get_state",
         )
-        records.append({"phase": "graceful_reopen_close", **reopened.close()})
+        require_session_continuity(reopened_state, session_identity, config.roots.sessions)
+        records.append(
+            {
+                "phase": "graceful_reopen_close",
+                **require_graceful_close(reopened, "reopened owner"),
+            }
+        )
 
         holder = launch(session_file)
-        _success_data(
+        holder_state = _success_data(
             holder.command({"id": "task7-holder-state", "type": "get_state"}, CONTROL_TIMEOUT_SECONDS),
             "get_state",
         )
+        require_session_continuity(holder_state, session_identity, config.roots.sessions)
         detached_contender = launch(session_file)
-        records.append({"phase": "detached_live_owner_refusal", **_expect_lease_refusal(detached_contender)})
-        records.append({"phase": "controlled_stale_owner", **holder.terminate_without_disposal()})
+        records.append(
+            {
+                "phase": "detached_live_owner_refusal",
+                **_expect_lease_refusal(detached_contender, session_file),
+            }
+        )
+        records.append(
+            {
+                "phase": "controlled_crash_owner",
+                **holder.kill_without_disposal(),
+            }
+        )
+        time.sleep(STALE_LEASE_RECOVERY_SECONDS)
+        records.append(
+            {
+                "phase": "stale_lease_wait",
+                "seconds": STALE_LEASE_RECOVERY_SECONDS,
+            }
+        )
 
         recovered = launch(session_file)
-        _success_data(
+        recovered_state = _success_data(
             recovered.command({"id": "task7-recovered-state", "type": "get_state"}, CONTROL_TIMEOUT_SECONDS),
             "get_state",
         )
-        records.append({"phase": "stale_owner_recovery_close", **recovered.close()})
+        require_session_continuity(recovered_state, session_identity, config.roots.sessions)
+        records.append(
+            {
+                "phase": "stale_owner_recovery_close",
+                **require_graceful_close(recovered, "recovered owner"),
+            }
+        )
     except BaseException as exc:
         sequence_error = exc
     finally:
@@ -715,7 +811,7 @@ def run_lease_sequence(config: HarnessConfiguration) -> dict[str, Any]:
 
     evidence = {
         "entryPoint": config.entry_point,
-        "sessionFile": str(session_file) if session_file is not None else None,
+        "session": dict(session_identity) if session_identity is not None else None,
         "records": records,
         "environmentNames": sorted(environment),
         "launches": [owned_process_evidence(child) for child in owned],
@@ -847,7 +943,7 @@ def entry_point_names(parser: argparse.ArgumentParser) -> tuple[str, ...]:
 
 def _write_result(config: HarnessConfiguration, record: Mapping[str, Any]) -> None:
     result = {
-        "schema": "rook.qualification.prime_runtime_topology:v2",
+        "schema": "rook.qualification.prime_runtime_topology:v3",
         "transactionId": uuid.uuid4().hex,
         "primeBundleManifestSha256": config.bundle_manifest_sha256,
         "node": {"path": str(config.node_path), "sha256": config.node_sha256},

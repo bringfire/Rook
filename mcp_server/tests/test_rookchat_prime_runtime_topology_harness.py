@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -183,7 +185,10 @@ def test_session_file_is_admitted_only_after_prime_flushes_it(tmp_path: Path) ->
                     "id": command["id"],
                     "success": True,
                     "command": "get_state",
-                    "data": {"sessionFile": str(session)},
+                    "data": {
+                        "sessionFile": str(session),
+                        "sessionId": "persisted-session-id",
+                    },
                 }
             session.write_text("persisted\n", encoding="utf-8")
             return {
@@ -199,7 +204,10 @@ def test_session_file_is_admitted_only_after_prime_flushes_it(tmp_path: Path) ->
     assert calls == ["get_state", "set_rlm_max_depth"]
     assert state["sessionFile"] == str(session)
     assert depth == {"maxDepth": 0, "source": "chat"}
-    assert admitted == session
+    assert admitted == {
+        "sessionId": "persisted-session-id",
+        "sessionFile": str(session.resolve()),
+    }
 
 
 def test_isolated_agent_root_refuses_daemon_artifacts(tmp_path: Path) -> None:
@@ -230,6 +238,16 @@ def test_harness_has_no_continuous_process_monitor() -> None:
     assert not hasattr(harness, "ProcessMonitor")
 
 
+def test_harness_defaults_creation_flags_to_zero_off_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delattr(subprocess, "CREATE_NO_WINDOW", raising=False)
+
+    harness = _load()
+
+    assert harness.CREATE_NO_WINDOW == 0
+
+
 def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -239,6 +257,7 @@ def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
     session = roots.sessions / "saved.jsonl"
     resumes = []
     children = []
+    sleeps = []
 
     class Process:
         def __init__(self, generation: int) -> None:
@@ -265,14 +284,25 @@ def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
         def command(self, command, _timeout):
             if self.generation in {2, 5}:
                 self.process.returncode = 12
-                self.stderr.append("session lease is already held")
+                self.stderr.append(
+                    json.dumps(
+                        {
+                            "type": "rpc_startup_error",
+                            "code": "session_already_active",
+                            "sessionPath": str(session.resolve()),
+                        }
+                    )
+                )
                 raise harness.HarnessFailure("lease refused")
             command_type = command["type"]
             if command_type == "set_rlm_max_depth":
                 session.write_text("persisted\n", encoding="utf-8")
                 data = {"maxDepth": 0, "source": "chat"}
             else:
-                data = {"sessionFile": str(session)}
+                data = {
+                    "sessionFile": str(session),
+                    "sessionId": "original-session-id",
+                }
             response = {
                 "type": "response",
                 "id": command["id"],
@@ -293,10 +323,10 @@ def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
                 }
             return dict(self.close_record)
 
-        def terminate_without_disposal(self):
+        def kill_without_disposal(self):
             self.process.returncode = -15
             self.close_record = {
-                "result": "controlled_stale_owner_exit",
+                "result": "controlled_crash_exit",
                 "returnCode": -15,
             }
             return dict(self.close_record)
@@ -309,6 +339,7 @@ def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
 
     monkeypatch.setattr(harness, "_build_runtime_environment", lambda _config: {})
     monkeypatch.setattr(harness, "_launch", launch)
+    monkeypatch.setattr(harness.time, "sleep", lambda seconds: sleeps.append(seconds))
     config = SimpleNamespace(entry_point="lease-sequence", roots=roots)
 
     result = harness.run_lease_sequence(config)
@@ -327,11 +358,115 @@ def test_lease_sequence_is_finite_uses_one_session_and_settles_every_child(
         "first_close",
         "graceful_reopen_close",
         "detached_live_owner_refusal",
-        "controlled_stale_owner",
+        "controlled_crash_owner",
+        "stale_lease_wait",
         "stale_owner_recovery_close",
     ]
+    assert sleeps == [harness.STALE_LEASE_RECOVERY_SECONDS]
     assert all(child.process.returncode is not None for child in children)
     assert all(child.close_record is not None for child in children)
+
+
+def test_lease_refusal_requires_exact_code_and_canonical_session(tmp_path: Path) -> None:
+    harness = _load()
+    session = (tmp_path / "session.jsonl").resolve()
+    session.write_text("persisted\n", encoding="utf-8")
+
+    class Child:
+        generation = 2
+        process = SimpleNamespace(returncode=12)
+
+        def __init__(
+            self,
+            row: dict[str, object],
+            close_record: dict[str, object] | None = None,
+        ) -> None:
+            self.stderr = [json.dumps(row)]
+            self.close_record = close_record or {
+                "result": "already_exited",
+                "returnCode": 12,
+            }
+
+        def command(self, _command, _timeout):
+            raise harness.HarnessFailure("startup refused")
+
+        def close(self):
+            return dict(self.close_record)
+
+    accepted = Child(
+        {
+            "type": "rpc_startup_error",
+            "code": "session_already_active",
+            "sessionPath": str(session),
+        }
+    )
+    assert harness._expect_lease_refusal(accepted, session)["refused"] is True
+    refused_during_close = Child(
+        {
+            "type": "rpc_startup_error",
+            "code": "session_already_active",
+            "sessionPath": str(session),
+        },
+        {"result": "graceful", "returnCode": 12},
+    )
+    assert harness._expect_lease_refusal(refused_during_close, session)["refused"] is True
+
+    for row in (
+        {"type": "rpc_startup_error", "code": "bootstrap_failed", "sessionPath": str(session)},
+        {
+            "type": "rpc_startup_error",
+            "code": "session_already_active",
+            "sessionPath": str(tmp_path / "different.jsonl"),
+        },
+        {"type": "parser_error", "code": "session_already_active", "sessionPath": str(session)},
+    ):
+        with pytest.raises(harness.HarnessFailure, match="exact session lease refusal"):
+            harness._expect_lease_refusal(Child(row), session)
+
+
+def test_session_continuity_requires_same_id_and_file(tmp_path: Path) -> None:
+    harness = _load()
+    session = (tmp_path / "session.jsonl").resolve()
+    session.write_text("persisted\n", encoding="utf-8")
+    expected = {"sessionId": "session-a", "sessionFile": str(session)}
+
+    assert harness.require_session_continuity(expected, expected, tmp_path) == expected
+    with pytest.raises(harness.HarnessFailure, match="sessionId"):
+        harness.require_session_continuity(
+            {"sessionId": "session-b", "sessionFile": str(session)},
+            expected,
+            tmp_path,
+        )
+    with pytest.raises(harness.HarnessFailure, match="sessionFile"):
+        other = tmp_path / "other.jsonl"
+        other.write_text("persisted\n", encoding="utf-8")
+        harness.require_session_continuity(
+            {"sessionId": "session-a", "sessionFile": str(other)},
+            expected,
+            tmp_path,
+        )
+
+
+def test_qualifying_close_requires_graceful_zero() -> None:
+    harness = _load()
+
+    class Child:
+        def __init__(self, close_record: dict[str, object]) -> None:
+            self.close_record = close_record
+
+        def close(self):
+            return dict(self.close_record)
+
+    assert harness.require_graceful_close(
+        Child({"result": "graceful", "returnCode": 0}), "owner"
+    ) == {"result": "graceful", "returnCode": 0}
+    for record in (
+        {"result": "terminated_direct_handle", "returnCode": 1},
+        {"result": "killed_direct_handle", "returnCode": -9},
+        {"result": "already_exited", "returnCode": 0},
+    ):
+        with pytest.raises(harness.HarnessFailure, match="gracefully"):
+            harness.require_graceful_close(Child(record), "owner")
 
 
 def test_control_sequence_is_closed_and_contains_no_prompt() -> None:

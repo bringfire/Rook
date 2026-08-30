@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Absorbing admission wrapper for the reviewed Gate 7B V2 transaction."""
+"""Absorbing admission wrapper for the reviewed Gate 7B V3 transaction."""
 
 from __future__ import annotations
 
@@ -17,15 +17,15 @@ from typing import Callable, Mapping, Sequence
 
 ROOK_ROOT = Path("C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery")
 PRIME_ROOT = Path("D:/prime-agent/.worktrees/task7-runtime-topology-recovery")
-APPROVED_PRIME_COMMIT = "8712f6dddfc1251d2c308380229555c87befda8e"
+APPROVED_PRIME_COMMIT = "99320528e91afed40a72416568f21432042c53a2"
 LEASE_ROOT = Path(
-    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v2-lease"
+    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v3-lease"
 )
 DIRECT_ROOT = Path(
-    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v2-direct"
+    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v3-direct"
 )
 PRIME_BUNDLE_MANIFEST_SHA256 = (
-    "9BEB93172D58D333BD5A13F5A5CFF07C3F44DB5F2657F29B41F513E87DDEC50C"
+    "6B15C9F389AEDD08D08CA2E5F38F27E2F21653DAFF5F472C7FDCF78EBCED323A"
 )
 GOAL_SKILL_MANIFEST_SHA256 = (
     "D1BD71554A07F2A1DACA96FF4A683332B7B5D248769E4571E99D24B55DF8B3C7"
@@ -33,7 +33,7 @@ GOAL_SKILL_MANIFEST_SHA256 = (
 ROOK_SKILL_MANIFEST_SHA256 = (
     "2BA81A9B01B71C649A060F8CAEDE8F8F01F6BD6C979EB3F8957C05D4D93CE678"
 )
-CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 GIT_TIMEOUT_SECONDS = 15.0
 
 
@@ -190,7 +190,7 @@ def production_configuration(
     uv_path = Path("C:/Users/bring/AppData/Local/hermes/bin/uv.exe")
     prime_bundle_manifest = (
         ROOK_ROOT
-        / "docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-runtime-topology-gate-7a-v2/prime-bundle-manifest.json"
+        / "docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-runtime-topology-gate-7a-v3/prime-bundle-manifest.json"
     )
     goal_skill = PRIME_ROOT / "packages/coding-agent/skills/goal/SKILL.md"
     rook_skill = ROOK_ROOT / "integrations/prime/skills/rook-full/SKILL.md"
@@ -238,7 +238,7 @@ def production_configuration(
             ),
             FrozenFile(
                 prime_bundle_manifest,
-                "E7A82A0C71F1BCE3FFE33C74F03B6E01DC3C4C9632256513D3E83C23956D8294",
+                "24B21152AE64CCDB3DD4AB8330DF19EE9BEBE1587870E97E040739B02B4A19B2",
             ),
             FrozenFile(
                 goal_skill,

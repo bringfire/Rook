@@ -1,6 +1,6 @@
 # RookChat Prime Task 7 Recovery Amendment
 
-**Status:** APPROVED RECOVERY DIRECTION; IMPLEMENTATION IN PROGRESS
+**Status:** GATE 7A V3 IMPLEMENTED OFFLINE; GATE 7B V3 REVIEW REQUIRED
 
 ## Recovery Boundary
 
@@ -57,40 +57,62 @@ and `taskkill` are not product authority. Platform process data may appear only
 as failure diagnostics. No shared daemon, new supervisor, broker-owned lease,
 session journal, or lifecycle protocol is introduced.
 
+Prime's session lease is one `proper-lockfile` lock held for the complete
+`AgentSessionRuntime` lifetime. Its heartbeat and stale threshold are the only
+lease-liveness authority. Normal disposal releases it; an abrupt owner loss
+leaves it for bounded stale recovery. Optional owner metadata contains no PID
+or process-start identity and is advisory only.
+
 ## Surgical Corrections
 
-1. Add `--rpc-runtime` to Prime's speculative early-daemon exclusion. Cover
-   default RPC, explicit daemon, explicit in-process, and malformed selectors.
+1. Make separate-token and equals-form `--rpc-runtime` selectors authoritative
+   before speculative daemon startup. Valid values are parsed normally;
+   malformed and empty values fail closed without daemon contact.
 2. Obtain Prime's reported `sessionFile`, call model-free
    `set_rlm_max_depth(0, global:false)` to flush it through Prime, and only then
    require the canonical file to exist. The harness never creates or touches
    the session file.
-3. Remove continuous `ProcessMonitor` and whole-process-table polling. Use the
+3. Emit one exact machine-readable `session_already_active` startup outcome
+   containing the canonical session path when an in-process RPC contender is
+   refused. Other parser, dependency, bootstrap, or configuration failures do
+   not satisfy lease qualification.
+4. Remove continuous `ProcessMonitor` and whole-process-table polling. Use the
    directly owned child handles, RPC/EOF settlement, bounded direct-child
    wait/terminate/kill, isolated runtime artifacts, and existing Prime kernel
    and session-disposal tests. The isolated agent root must contain no daemon
    worker, configuration, or daemon-log artifacts.
+5. Bind every reopen to both the original `sessionId` and canonical
+   `sessionFile`. Normal qualifying owners must close through stdin/RPC disposal
+   with exit code zero. Safety cleanup remains available, but needing terminate
+   or kill makes the gate fail.
 
-## Gate 7B V2
+## Gate 7B V3
 
-Gate 7B V2 is one finite model-free sequence:
+Gate 7B V3 is one finite model-free sequence:
 
 1. Launch one explicit in-process RPC child offline.
 2. Verify `get_state`, flush with `set_rlm_max_depth`, and admit the persisted
    canonical session file.
-3. Prove a simultaneous exact-file resume is refused by Prime's lease.
-4. Close the owner and prove exact-file reopen succeeds.
-5. Terminate one owner deliberately and prove stale-lease recovery.
-6. Close the final owner.
-7. Prove each directly owned child settled and the isolated agent root contains
-   no daemon artifacts.
+3. Prove a simultaneous exact-file resume emits exactly
+   `session_already_active` for that canonical file.
+4. Close the owner gracefully and prove exact-file reopen returns the same
+   session ID and file.
+5. Close the reopened owner gracefully.
+6. Open the same session, prove a second exact-file contender is refused for
+   the same lease, and deliberately crash only the retained owner handle.
+7. Wait once beyond the frozen stale threshold, launch one recovery attempt,
+   and prove it returns the original session ID and file.
+8. Close the recovered owner gracefully.
+9. Prove every directly owned child settled and the isolated agent root
+   contains no daemon artifacts.
 
-V2 uses fresh evidence roots. No retry, provider/model contact, Rhino,
+V3 uses fresh evidence roots. No retry, provider/model contact, Rhino,
 Grasshopper, MCP, deployment, or Gate 7C contact is authorized.
 
 ## Review Gate
 
 Implementation stops at renewed offline Gate 7A review with exact clean
 recovery commits, focused model-free tests, source and Prime-bundle custody, an
-unexecuted simplified V2 harness, unchanged quarantines, and unchanged V1
-evidence. Gate 7B V2 requires separate independent authorization.
+unexecuted simplified V3 harness, unchanged quarantines, unchanged V1 evidence,
+and absent V2/V3 evidence roots. Gate 7B V3 requires separate independent
+authorization.
