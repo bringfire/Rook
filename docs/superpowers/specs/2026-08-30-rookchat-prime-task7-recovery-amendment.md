@@ -1,6 +1,6 @@
 # RookChat Prime Task 7 Recovery Amendment
 
-**Status:** GATE 7A V4 IMPLEMENTED OFFLINE; GATE 7B V4 REVIEW REQUIRED
+**Status:** GATE 7A V5 IMPLEMENTED OFFLINE; GATE 7B V5 REVIEW REQUIRED
 
 ## Recovery Boundary
 
@@ -57,12 +57,19 @@ and `taskkill` are not product authority. Platform process data may appear only
 as failure diagnostics. No shared daemon, new supervisor, broker-owned lease,
 session journal, or lifecycle protocol is introduced.
 
-Prime's session lease is one atomically created directory held for the complete
-`AgentSessionRuntime` lifetime. There is no heartbeat, clock, stale threshold,
-or automatic takeover. Normal disposal verifies the owning token and removes
-the directory. Abrupt owner loss leaves the saved session locked and failed;
-the user starts a new conversation. Optional owner metadata contains no PID or
-process-start identity and is diagnostic only.
+For explicit `--rpc-runtime in-process`, Prime's session lease is one atomically
+created directory held for the complete `AgentSessionRuntime` lifetime. There
+is no heartbeat, clock, stale threshold, or automatic takeover. Normal disposal
+verifies the owning token and removes the directory. Abrupt owner loss leaves
+that saved conversation locked and failed; the user starts a new conversation.
+Optional lifetime-lock metadata contains no PID or process-start identity and
+is diagnostic only.
+
+Prime's default daemon and owned-session-worker paths retain their established
+recoverable lease policy, including dead-worker replacement. The internal
+launch paths select that policy explicitly. RookChat's lifetime policy is
+selected only by the explicit in-process RPC startup path; it does not redefine
+the shared daemon lease switch or retire daemon recovery behavior.
 
 ## Surgical Corrections
 
@@ -87,9 +94,9 @@ process-start identity and is diagnostic only.
    with exit code zero. Safety cleanup remains available, but needing terminate
    or kill makes the gate fail.
 
-## Gate 7B V4
+## Gate 7B V5
 
-Gate 7B V4 is one finite model-free sequence:
+Gate 7B V5 is one finite model-free sequence:
 
 1. Launch one explicit in-process RPC child offline.
 2. Verify `get_state`, flush with `set_rlm_max_depth`, and admit the persisted
@@ -103,7 +110,7 @@ Gate 7B V4 is one finite model-free sequence:
    contains no daemon artifacts.
 
 An offline unit test proves an abandoned lock refuses reopening regardless of
-age; Gate 7B does not create or recover an unclean owner. V4 uses fresh evidence
+age; Gate 7B does not create or recover an unclean owner. V5 uses fresh evidence
 roots. No retry, provider/model contact, Rhino, Grasshopper, MCP, deployment,
 or Gate 7C contact is authorized.
 
@@ -111,6 +118,6 @@ or Gate 7C contact is authorized.
 
 Implementation stops at renewed offline Gate 7A review with exact clean
 recovery commits, focused model-free tests, source and Prime-bundle custody, an
-unexecuted simplified V4 harness, unchanged quarantines, unchanged V1 evidence,
-and absent V2/V3/V4 evidence roots. Gate 7B V4 requires separate independent
+unexecuted simplified V5 harness, unchanged quarantines, unchanged V1 evidence,
+and absent V2/V3/V4/V5 evidence roots. Gate 7B V5 requires separate independent
 authorization.

@@ -937,6 +937,8 @@ Require:
 - lease contention refuses before runtime creation, graceful disposal releases,
   a simulated live owner refuses reopen, and an abandoned lifetime lock remains
   locked regardless of age; same-file automatic crash recovery is not admitted;
+- the non-expiring lifetime policy is selected only by explicit in-process RPC;
+  default daemon and owned-worker launches retain their recoverable lease policy;
 - the exact Windows path/hidden-launch regressions from upstream commit
   `142045138b8679ec077f8f032d2befe66ca5606b` fail on the pinned baseline;
 - the closed Prime launched-artifact manifest includes every regular file under

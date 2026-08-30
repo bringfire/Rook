@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Absorbing admission wrapper for the reviewed Gate 7B V4 transaction."""
+"""Absorbing admission wrapper for the reviewed Gate 7B V5 transaction."""
 
 from __future__ import annotations
 
@@ -17,15 +17,15 @@ from typing import Callable, Mapping, Sequence
 
 ROOK_ROOT = Path("C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery")
 PRIME_ROOT = Path("D:/prime-agent/.worktrees/task7-runtime-topology-recovery")
-APPROVED_PRIME_COMMIT = "51e047fc2cf1d45b93a0e75eed961a7d958cda02"
+APPROVED_PRIME_COMMIT = "b17ca17c1ce685b59e4710713ecd80114325017a"
 LEASE_ROOT = Path(
-    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v4-lease"
+    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v5-lease"
 )
 DIRECT_ROOT = Path(
-    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v4-direct"
+    "C:/RookEvidence/2026-08-30-rookchat-prime-runtime-topology-gate-7b-v5-direct"
 )
 PRIME_BUNDLE_MANIFEST_SHA256 = (
-    "76C322ABF5E33907DA6C44CFC9FCFF9E4AFBF6FDDBB46F81AAE50CDF86F6BCFD"
+    "8C68BEF6C0EA3221262365F8F3F0AE147A8A4EB17435C60FB6AE2D2024448771"
 )
 GOAL_SKILL_MANIFEST_SHA256 = (
     "D1BD71554A07F2A1DACA96FF4A683332B7B5D248769E4571E99D24B55DF8B3C7"
@@ -190,7 +190,7 @@ def production_configuration(
     uv_path = Path("C:/Users/bring/AppData/Local/hermes/bin/uv.exe")
     prime_bundle_manifest = (
         ROOK_ROOT
-        / "docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-runtime-topology-gate-7a-v4/prime-bundle-manifest.json"
+        / "docs/superpowers/experiments/inputs/2026-08-30-rookchat-prime-runtime-topology-gate-7a-v5/prime-bundle-manifest.json"
     )
     goal_skill = PRIME_ROOT / "packages/coding-agent/skills/goal/SKILL.md"
     rook_skill = ROOK_ROOT / "integrations/prime/skills/rook-full/SKILL.md"
@@ -238,7 +238,7 @@ def production_configuration(
             ),
             FrozenFile(
                 prime_bundle_manifest,
-                "24B21152AE64CCDB3DD4AB8330DF19EE9BEBE1587870E97E040739B02B4A19B2",
+                "9240920623FAD90FC4E19FB892B89B3C56F905B9E08A09E6CF0FE9D83B229AED",
             ),
             FrozenFile(
                 goal_skill,

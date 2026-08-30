@@ -887,7 +887,7 @@ def entry_point_names(parser: argparse.ArgumentParser) -> tuple[str, ...]:
 
 def _write_result(config: HarnessConfiguration, record: Mapping[str, Any]) -> None:
     result = {
-        "schema": "rook.qualification.prime_runtime_topology:v4",
+        "schema": "rook.qualification.prime_runtime_topology:v5",
         "transactionId": uuid.uuid4().hex,
         "primeBundleManifestSha256": config.bundle_manifest_sha256,
         "node": {"path": str(config.node_path), "sha256": config.node_sha256},

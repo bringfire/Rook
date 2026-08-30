@@ -65,14 +65,30 @@ def test_gate_wrapper_defaults_creation_flags_to_zero_off_windows(
     assert gate.CREATE_NO_WINDOW == 0
 
 
-def test_gate_7b_v4_uses_recovery_worktrees_and_fresh_evidence_roots() -> None:
+def test_gate_7b_v5_uses_recovery_worktrees_and_fresh_evidence_roots() -> None:
     gate = _load()
 
     assert gate.ROOK_ROOT.name == "task7-runtime-topology-recovery"
     assert gate.PRIME_ROOT.name == "task7-runtime-topology-recovery"
-    assert "gate-7b-v4" in str(gate.LEASE_ROOT)
-    assert "gate-7b-v4" in str(gate.DIRECT_ROOT)
+    assert "gate-7b-v5" in str(gate.LEASE_ROOT)
+    assert "gate-7b-v5" in str(gate.DIRECT_ROOT)
     assert gate.LEASE_ROOT != gate.DIRECT_ROOT
+
+
+def test_production_configuration_authenticates_the_present_v5_bundle_manifest() -> None:
+    gate = _load()
+
+    config = gate.production_configuration(
+        approved_rook_commit="a" * 40,
+        approved_harness_sha256="b" * 64,
+    )
+    manifest = next(
+        frozen
+        for frozen in config.frozen_files
+        if frozen.path.name == "prime-bundle-manifest.json"
+    )
+
+    assert manifest.sha256 == gate._sha256_file(manifest.path)
 
 
 def test_gate_7b_refuses_commit_or_hash_drift_before_any_entry_runs(tmp_path: Path) -> None:

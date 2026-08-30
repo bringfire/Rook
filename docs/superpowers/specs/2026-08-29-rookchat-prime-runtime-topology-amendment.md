@@ -133,8 +133,10 @@ Consequences:
 - Reopen starts a new explicitly in-process child with the exact recorded
   session path and runtime contract.
 - A broker/process crash remains `failed` or `interrupted` under Slice 0. It
-  does not gain daemon-style transparent recovery. Explicit reopen is the
-  recovery operation.
+  does not gain daemon-style transparent recovery. The abandoned in-process
+  lifetime lock refuses same-file reopen in Slices 3-4; the user starts a new
+  conversation. Prime's default daemon and owned-worker recovery behavior is
+  unchanged.
 
 This aligns the actual process topology with the durable/in-memory split already
 approved in Slice 0.
@@ -174,15 +176,15 @@ kernel preparation. The same policy governs any session replacement admitted by
 that runtime. Graceful runtime disposal releases the lease only after owned
 session and kernel disposal settles.
 
-Qualification must prove all four existing lease outcomes:
+Qualification must prove these in-process lifetime-lock outcomes:
 
 - a second in-process child targeting the active saved session refuses before
   creating an `AgentSession` or kernel;
 - graceful close releases the lease and permits explicit reopen;
 - an independently live lease owner, including a broker-orphaned owner, blocks
   reopen; and
-- a dead owner is recovered only through Prime's existing process-identity and
-  stale-lease rules.
+- an abandoned lock is never reclaimed, regardless of age. This last outcome
+  is model-free unit coverage; Gate 7B does not manufacture an owner crash.
 
 The first owner retains the absolute canonical `sessionFile` returned by
 `get_state`. Every contender and reopen uses the same isolated agent root and
@@ -336,7 +338,7 @@ settlement-unknown prompt.
 | Stop | Direct abort in owned child | Client abort through supervisor to worker |
 | Cleanup | One child tree owned by broker | Client, supervisor, worker, kernel, descriptors, sockets |
 | Isolation | Per-conversation process and explicit paths | Requires a unique socket, descriptor root, agent root, and recovery namespace |
-| Recovery after broker crash | Explicit reopen from saved session | Potential worker adoption/recovery, with substantially more ownership |
+| Recovery after broker crash | Saved conversation remains failed/locked; user starts a new conversation | Existing worker adoption/recovery remains unchanged |
 | Concurrency | One child/session per resident conversation | Fleet managed by private supervisor |
 | Upstream compatibility | Default remains daemon; generic opt-in selector | Uses daemon architecture but requires product-specific namespace discipline |
 | Slices 3-4 scope | Sufficient | More machinery than the product slice needs |
@@ -369,9 +371,10 @@ one direct Prime RPC session must prove:
 2. contradictory daemon options refuse before runtime or lease acquisition;
 3. no daemon socket, supervisor, or session worker is used;
 4. the selected session file and agent directory are isolated;
-5. saved-session lease contention, release/reopen, live-owner refusal, and
-   conservative dead-owner recovery all use the same canonical resumed session
-   file and satisfy the rules above;
+5. saved-session lease contention, normal release/reopen, and live-owner
+   refusal all use the same canonical resumed session file; an offline unit
+   test separately proves that abandoned in-process lifetime locks are never
+   reclaimed, while daemon recovery retains its existing recoverable policy;
 6. the reconciled Windows bootstrap selects `Scripts/python.exe` and hides its
    subprocesses;
 7. the exact contract kernel environment is selected;
