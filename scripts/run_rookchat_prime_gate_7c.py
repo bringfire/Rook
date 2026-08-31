@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import importlib.util
 import json
 import os
@@ -23,13 +24,30 @@ ROOK_ROOT = Path("C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery")
 PRIME_ROOT = Path("D:/prime-agent/.worktrees/task7-runtime-topology-recovery")
 APPROVED_PRIME_COMMIT = "46dbf2749d64446820fbf31e52d8766e5ee87be9"
 HARNESS_PATH = ROOK_ROOT / "scripts/rookchat_prime_gate_7c_broker_harness.py"
-HARNESS_SHA256 = "51CB1C8DECE9348B34649CBC375CB039330686BCD28B3620861EE34A182C78F7"
+HARNESS_SHA256 = "2A74120496C0B65AE4A9FBDDFAD056D65F7976B2E597500ADF8AF7F8F7E920EA"
 CONFIGURATION_PATH = (
     ROOK_ROOT
     / "docs/superpowers/experiments/inputs/"
     "2026-08-30-rookchat-prime-gate-7c-broker-v1/config.json"
 )
-CONFIGURATION_SHA256 = "8F5D0F9E0CBDCDD0107566FFF31A586AA58D42BC71FED312356E5B8B11BB373B"
+CONFIGURATION_SHA256 = "7AFBFCA08C970C0B87CF05717886A63F45D069FFF104694648A8166FF22B3BE4"
+ADMITTED_ENVIRONMENT_KEYS = {
+    "APPDATA",
+    "COMSPEC",
+    "LOCALAPPDATA",
+    "PATHEXT",
+    "PROGRAMDATA",
+    "SystemRoot",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "WINDIR",
+}
+HOST_MODULE_PATHS = {
+    "rook": Path("rook/__init__.py"),
+    "rook.agent.chat.prime_backend": Path("rook/agent/chat/prime_backend.py"),
+    "rook.agent.chat.prime_process": Path("rook/agent/chat/prime_process.py"),
+}
 
 
 class Gate7CAdmissionFailure(RuntimeError):
@@ -53,6 +71,9 @@ class Gate7CAdmission:
 class FrozenGate7CConfiguration:
     evidence_root: Path
     approved_prime_commit: str
+    host_python_interpreter: Path
+    source_root: Path
+    admitted_environment: Mapping[str, str]
     harness_arguments: tuple[str, ...]
 
     @property
@@ -62,6 +83,14 @@ class FrozenGate7CConfiguration:
     @property
     def admission_path(self) -> Path:
         return self.evidence_root / "admission.json"
+
+
+@dataclass(frozen=True)
+class HostRuntimeCustody:
+    interpreter_path: str
+    source_root: str
+    isolated: bool
+    module_origins: Mapping[str, str]
 
 
 def _sha256_file(path: Path) -> str:
@@ -155,6 +184,24 @@ def _digest(value: object, label: str) -> str:
     return digest
 
 
+def _environment(value: object) -> dict[str, str]:
+    environment = _object(value, ADMITTED_ENVIRONMENT_KEYS, "admitted environment")
+    return {
+        name: _string(environment[name], f"admitted environment {name}")
+        for name in sorted(ADMITTED_ENVIRONMENT_KEYS)
+    }
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def _decode_configuration(path: Path) -> dict[str, object]:
     try:
         raw = path.read_bytes()
@@ -176,6 +223,8 @@ def _decode_configuration(path: Path) -> dict[str, object]:
         {
             "schemaVersion",
             "evidenceRoot",
+            "hostPython",
+            "admittedEnvironment",
             "node",
             "prime",
             "rookPackageRoot",
@@ -195,6 +244,17 @@ def load_frozen_configuration(path: Path) -> FrozenGate7CConfiguration:
     if payload["schemaVersion"] != 1:
         raise Gate7CAdmissionFailure("unsupported frozen Gate 7C configuration")
     evidence_root = _path(payload["evidenceRoot"], "evidence root")
+    host_python = _object(
+        payload["hostPython"],
+        {"interpreterPath", "sourceRoot"},
+        "host Python",
+    )
+    host_python_interpreter = _path(
+        host_python["interpreterPath"],
+        "host Python interpreter",
+    )
+    source_root = _path(host_python["sourceRoot"], "Rook source root")
+    admitted_environment = _environment(payload["admittedEnvironment"])
     node = _object(payload["node"], {"path", "sha256"}, "Node identity")
     prime = _object(
         payload["prime"],
@@ -281,6 +341,8 @@ def load_frozen_configuration(path: Path) -> FrozenGate7CConfiguration:
         str(_path(uv["path"], "uv path")),
         "--uv-sha256",
         _digest(uv["sha256"], "uv SHA-256"),
+        "--base-environment-json",
+        _canonical_json(admitted_environment),
         "--result",
         str(result_path),
         "--provider",
@@ -309,7 +371,69 @@ def load_frozen_configuration(path: Path) -> FrozenGate7CConfiguration:
     return FrozenGate7CConfiguration(
         evidence_root=evidence_root,
         approved_prime_commit=_string(prime["commit"], "Prime commit"),
+        host_python_interpreter=host_python_interpreter,
+        source_root=source_root,
+        admitted_environment=admitted_environment,
         harness_arguments=tuple(arguments),
+    )
+
+
+def verify_host_runtime(
+    config: FrozenGate7CConfiguration,
+    *,
+    executable: str | Path | None = None,
+    isolated: bool | None = None,
+    environment: Mapping[str, str] | None = None,
+    module_loader: Callable[[str], Any] = importlib.import_module,
+) -> HostRuntimeCustody:
+    effective_environment = os.environ if environment is None else environment
+    overrides = sorted(
+        name
+        for name in effective_environment
+        if name.upper() in {"PYTHONHOME", "PYTHONPATH"}
+    )
+    if overrides:
+        raise Gate7CAdmissionFailure(
+            f"host Python override is not admitted: {', '.join(overrides)}"
+        )
+    effective_isolated = bool(sys.flags.isolated) if isolated is None else isolated
+    if not effective_isolated:
+        raise Gate7CAdmissionFailure("Gate 7C wrapper requires Python isolated mode")
+    try:
+        expected_interpreter = config.host_python_interpreter.resolve(strict=True)
+        actual_interpreter = Path(executable or sys.executable).resolve(strict=True)
+        source_root = config.source_root.resolve(strict=True)
+    except OSError as error:
+        raise Gate7CAdmissionFailure("host Python custody path is unavailable") from error
+    if actual_interpreter != expected_interpreter:
+        raise Gate7CAdmissionFailure("host Python interpreter differs from review")
+
+    origins: dict[str, str] = {}
+    for module_name, relative_path in HOST_MODULE_PATHS.items():
+        module = module_loader(module_name)
+        raw_origin = getattr(module, "__file__", None)
+        if type(raw_origin) is not str or not raw_origin:
+            raise Gate7CAdmissionFailure(
+                f"host module import origin is missing: {module_name}"
+            )
+        try:
+            origin = Path(raw_origin).resolve(strict=True)
+            expected = (source_root / relative_path).resolve(strict=True)
+        except OSError as error:
+            raise Gate7CAdmissionFailure(
+                f"host module import origin is unavailable: {module_name}"
+            ) from error
+        if origin != expected:
+            raise Gate7CAdmissionFailure(
+                f"host module import origin differs from review: {module_name}"
+            )
+        origins[module_name] = str(origin)
+
+    return HostRuntimeCustody(
+        interpreter_path=str(actual_interpreter),
+        source_root=str(source_root),
+        isolated=True,
+        module_origins=origins,
     )
 
 
@@ -338,6 +462,9 @@ def execute_gate_7c(
     repository_inspector: Callable[[Path], tuple[str, str]] = inspect_repository,
     file_hasher: Callable[[Path], str] = _sha256_file,
     harness_invoker: Callable[[Path, Sequence[str]], int] = invoke_harness,
+    host_runtime_verifier: Callable[
+        [FrozenGate7CConfiguration], HostRuntimeCustody
+    ] = verify_host_runtime,
     utc_now: Callable[[], str] = _utc_now,
 ) -> dict[str, object]:
     for path, expected, label in (
@@ -356,6 +483,20 @@ def execute_gate_7c(
     config = load_frozen_configuration(admission.configuration_path)
     if config.approved_prime_commit != admission.approved_prime_commit:
         raise Gate7CAdmissionFailure("frozen Prime commit differs from review")
+    expected_interpreter = (
+        admission.rook_root
+        / "mcp_server"
+        / ".venv"
+        / "Scripts"
+        / "python.exe"
+    ).absolute()
+    expected_source_root = (
+        admission.rook_root / "mcp_server" / "src"
+    ).absolute()
+    if config.host_python_interpreter.absolute() != expected_interpreter:
+        raise Gate7CAdmissionFailure("frozen host Python is outside the Rook worktree")
+    if config.source_root.absolute() != expected_source_root:
+        raise Gate7CAdmissionFailure("frozen Rook source root differs from review")
     if config.evidence_root.exists():
         raise Gate7CAdmissionFailure("Gate 7C evidence root already exists")
     for root, expected, label in (
@@ -368,6 +509,11 @@ def execute_gate_7c(
         if status:
             raise Gate7CAdmissionFailure(f"{label} worktree is dirty")
 
+    host_runtime = host_runtime_verifier(config)
+    admitted_environment = dict(config.admitted_environment)
+    admitted_environment_sha256 = hashlib.sha256(
+        _canonical_json(admitted_environment).encode("ascii")
+    ).hexdigest().upper()
     wrapper_sha256 = file_hasher(admission.wrapper_path)
     config.evidence_root.mkdir(parents=True, exist_ok=False)
     record: dict[str, Any] = {
@@ -375,6 +521,8 @@ def execute_gate_7c(
         "wrapperSha256": wrapper_sha256,
         "harnessSha256": admission.harness_sha256,
         "configurationSha256": admission.configuration_sha256,
+        "admittedEnvironment": admitted_environment,
+        "admittedEnvironmentSha256": admitted_environment_sha256,
         "approvedCommits": {
             "rook": admission.approved_rook_commit,
             "prime": admission.approved_prime_commit,
@@ -384,6 +532,12 @@ def execute_gate_7c(
             "wrapperPath": str(admission.wrapper_path),
             "harnessPath": str(admission.harness_path),
             "arguments": list(config.harness_arguments),
+        },
+        "hostRuntime": {
+            "interpreterPath": host_runtime.interpreter_path,
+            "sourceRoot": host_runtime.source_root,
+            "isolated": host_runtime.isolated,
+            "moduleOrigins": dict(host_runtime.module_origins),
         },
         "startedAtUtc": utc_now(),
         "endedAtUtc": None,

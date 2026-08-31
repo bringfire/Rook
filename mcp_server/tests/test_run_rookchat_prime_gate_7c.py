@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,9 +28,33 @@ def test_default_loader_loads_actual_reviewed_harness() -> None:
 
 def _configuration_payload(tmp_path: Path) -> dict[str, object]:
     evidence = tmp_path / "evidence"
+    source_root = tmp_path / "rook" / "mcp_server" / "src"
     return {
         "schemaVersion": 1,
         "evidenceRoot": str(evidence),
+        "hostPython": {
+            "interpreterPath": str(
+                tmp_path
+                / "rook"
+                / "mcp_server"
+                / ".venv"
+                / "Scripts"
+                / "python.exe"
+            ),
+            "sourceRoot": str(source_root),
+        },
+        "admittedEnvironment": {
+            "APPDATA": "C:/Users/test/AppData/Roaming",
+            "COMSPEC": "C:/Windows/System32/cmd.exe",
+            "LOCALAPPDATA": "C:/Users/test/AppData/Local",
+            "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+            "PROGRAMDATA": "C:/ProgramData",
+            "SystemRoot": "C:/Windows",
+            "TEMP": "C:/Users/test/AppData/Local/Temp",
+            "TMP": "C:/Users/test/AppData/Local/Temp",
+            "USERPROFILE": "C:/Users/test",
+            "WINDIR": "C:/Windows",
+        },
         "node": {
             "path": str(tmp_path / "node.exe"),
             "sha256": "1" * 64,
@@ -107,6 +132,31 @@ def _clean_repository(root: Path) -> tuple[str, str]:
     return ("rook-head", "") if root.name == "rook" else ("prime-head", "")
 
 
+def _host_runtime(tmp_path: Path) -> wrapper.HostRuntimeCustody:
+    source_root = tmp_path / "rook" / "mcp_server" / "src"
+    return wrapper.HostRuntimeCustody(
+        interpreter_path=str(
+            tmp_path
+            / "rook"
+            / "mcp_server"
+            / ".venv"
+            / "Scripts"
+            / "python.exe"
+        ),
+        source_root=str(source_root),
+        isolated=True,
+        module_origins={
+            "rook": str(source_root / "rook" / "__init__.py"),
+            "rook.agent.chat.prime_backend": str(
+                source_root / "rook" / "agent" / "chat" / "prime_backend.py"
+            ),
+            "rook.agent.chat.prime_process": str(
+                source_root / "rook" / "agent" / "chat" / "prime_process.py"
+            ),
+        },
+    )
+
+
 def _expected_arguments(tmp_path: Path) -> tuple[str, ...]:
     evidence = tmp_path / "evidence"
     return (
@@ -140,6 +190,17 @@ def _expected_arguments(tmp_path: Path) -> tuple[str, ...]:
         str(tmp_path / "uv.exe"),
         "--uv-sha256",
         "3" * 64,
+        "--base-environment-json",
+        (
+            '{"APPDATA":"C:/Users/test/AppData/Roaming",'
+            '"COMSPEC":"C:/Windows/System32/cmd.exe",'
+            '"LOCALAPPDATA":"C:/Users/test/AppData/Local",'
+            '"PATHEXT":".COM;.EXE;.BAT;.CMD",'
+            '"PROGRAMDATA":"C:/ProgramData","SystemRoot":"C:/Windows",'
+            '"TEMP":"C:/Users/test/AppData/Local/Temp",'
+            '"TMP":"C:/Users/test/AppData/Local/Temp",'
+            '"USERPROFILE":"C:/Users/test","WINDIR":"C:/Windows"}'
+        ),
         "--result",
         str(evidence / "result.json"),
         "--provider",
@@ -180,6 +241,7 @@ def test_wrapper_builds_only_the_frozen_invocation_and_seals_success(
         admitted,
         repository_inspector=_clean_repository,
         harness_invoker=invoke,
+        host_runtime_verifier=lambda _config: _host_runtime(tmp_path),
         utc_now=lambda: next(timestamps),
     )
 
@@ -192,6 +254,12 @@ def test_wrapper_builds_only_the_frozen_invocation_and_seals_success(
     assert retained == {
         "approvedCommits": {"prime": "prime-head", "rook": "rook-head"},
         "configurationSha256": admitted.configuration_sha256,
+        "admittedEnvironment": _configuration_payload(tmp_path)[
+            "admittedEnvironment"
+        ],
+        "admittedEnvironmentSha256": (
+            "2C4062472525FA37FA225FA3D1C9C8369D2BFBFDE40ED1C5182F867E592EA9B4"
+        ),
         "constructedInvocation": {
             "arguments": list(expected_arguments),
             "harnessPath": str(admitted.harness_path),
@@ -202,6 +270,19 @@ def test_wrapper_builds_only_the_frozen_invocation_and_seals_success(
         "failure": None,
         "harnessExitCode": 0,
         "harnessSha256": admitted.harness_sha256,
+        "hostRuntime": {
+            "interpreterPath": str(
+                tmp_path
+                / "rook"
+                / "mcp_server"
+                / ".venv"
+                / "Scripts"
+                / "python.exe"
+            ),
+            "isolated": True,
+            "moduleOrigins": _host_runtime(tmp_path).module_origins,
+            "sourceRoot": str(tmp_path / "rook" / "mcp_server" / "src"),
+        },
         "outcome": "passed",
         "resultPath": str(tmp_path / "evidence" / "result.json"),
         "resultSha256": wrapper._sha256_file(
@@ -247,6 +328,7 @@ def test_wrapper_refuses_before_invocation(tmp_path: Path, failure: str) -> None
             admitted,
             repository_inspector=inspect,
             harness_invoker=invoke,
+            host_runtime_verifier=lambda _config: _host_runtime(tmp_path),
         )
     assert calls == 0
 
@@ -266,6 +348,7 @@ def test_wrapper_failure_is_absorbing_and_seals_failure(tmp_path: Path) -> None:
             admitted,
             repository_inspector=_clean_repository,
             harness_invoker=invoke,
+            host_runtime_verifier=lambda _config: _host_runtime(tmp_path),
             utc_now=lambda: next(timestamps),
         )
 
@@ -297,3 +380,135 @@ def test_command_line_accepts_only_the_reviewed_rook_commit() -> None:
                 "unreviewed-node.exe",
             ]
         )
+
+
+def _host_modules(tmp_path: Path) -> tuple[Path, dict[str, Path]]:
+    interpreter = (
+        tmp_path
+        / "rook"
+        / "mcp_server"
+        / ".venv"
+        / "Scripts"
+        / "python.exe"
+    )
+    interpreter.parent.mkdir(parents=True, exist_ok=True)
+    interpreter.touch()
+    source_root = tmp_path / "rook" / "mcp_server" / "src"
+    paths = {
+        "rook": source_root / "rook" / "__init__.py",
+        "rook.agent.chat.prime_backend": (
+            source_root / "rook" / "agent" / "chat" / "prime_backend.py"
+        ),
+        "rook.agent.chat.prime_process": (
+            source_root / "rook" / "agent" / "chat" / "prime_process.py"
+        ),
+    }
+    for path in paths.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    return interpreter, paths
+
+
+def _module_loader(paths: dict[str, Path]):
+    return lambda name: SimpleNamespace(__file__=str(paths[name]))
+
+
+def test_host_runtime_refuses_wrong_interpreter(tmp_path: Path) -> None:
+    _expected, paths = _host_modules(tmp_path)
+    wrong = tmp_path / "wrong-python.exe"
+    wrong.touch()
+    config = wrapper.load_frozen_configuration(_write_configuration(tmp_path))
+
+    with pytest.raises(wrapper.Gate7CAdmissionFailure, match="interpreter"):
+        wrapper.verify_host_runtime(
+            config,
+            executable=wrong,
+            isolated=True,
+            environment={},
+            module_loader=_module_loader(paths),
+        )
+
+
+@pytest.mark.parametrize("override", ("PYTHONPATH", "PYTHONHOME"))
+def test_host_runtime_refuses_python_overrides(
+    tmp_path: Path,
+    override: str,
+) -> None:
+    interpreter, paths = _host_modules(tmp_path)
+    config = wrapper.load_frozen_configuration(_write_configuration(tmp_path))
+
+    with pytest.raises(wrapper.Gate7CAdmissionFailure, match=override):
+        wrapper.verify_host_runtime(
+            config,
+            executable=interpreter,
+            isolated=True,
+            environment={override: "C:/unreviewed"},
+            module_loader=_module_loader(paths),
+        )
+
+
+def test_host_runtime_refuses_nonisolated_python(tmp_path: Path) -> None:
+    interpreter, paths = _host_modules(tmp_path)
+    config = wrapper.load_frozen_configuration(_write_configuration(tmp_path))
+
+    with pytest.raises(wrapper.Gate7CAdmissionFailure, match="isolated"):
+        wrapper.verify_host_runtime(
+            config,
+            executable=interpreter,
+            isolated=False,
+            environment={},
+            module_loader=_module_loader(paths),
+        )
+
+
+def test_host_runtime_refuses_wrong_rook_import_origin(tmp_path: Path) -> None:
+    interpreter, paths = _host_modules(tmp_path)
+    paths["rook.agent.chat.prime_process"] = tmp_path / "other" / "prime_process.py"
+    paths["rook.agent.chat.prime_process"].parent.mkdir(parents=True)
+    paths["rook.agent.chat.prime_process"].touch()
+    config = wrapper.load_frozen_configuration(_write_configuration(tmp_path))
+
+    with pytest.raises(wrapper.Gate7CAdmissionFailure, match="import origin"):
+        wrapper.verify_host_runtime(
+            config,
+            executable=interpreter,
+            isolated=True,
+            environment={},
+            module_loader=_module_loader(paths),
+        )
+
+
+def test_wrapper_refuses_changed_admitted_environment(tmp_path: Path) -> None:
+    admitted = _admission(tmp_path)
+    payload = json.loads(admitted.configuration_path.read_text(encoding="ascii"))
+    payload["admittedEnvironment"]["TEMP"] = "C:/unreviewed"
+    admitted.configuration_path.write_text(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        encoding="ascii",
+    )
+    calls = 0
+
+    def invoke(_path: Path, _arguments) -> int:
+        nonlocal calls
+        calls += 1
+        return 0
+
+    with pytest.raises(
+        wrapper.Gate7CAdmissionFailure,
+        match="configuration differs from review",
+    ):
+        wrapper.execute_gate_7c(
+            admitted,
+            repository_inspector=_clean_repository,
+            harness_invoker=invoke,
+            host_runtime_verifier=lambda _config: _host_runtime(tmp_path),
+        )
+
+    assert calls == 0
+    assert not (tmp_path / "evidence").exists()

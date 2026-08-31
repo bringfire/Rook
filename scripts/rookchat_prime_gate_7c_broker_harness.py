@@ -35,6 +35,20 @@ class Gate7CFailure(RuntimeError):
     pass
 
 
+BASE_ENVIRONMENT_KEYS = {
+    "APPDATA",
+    "COMSPEC",
+    "LOCALAPPDATA",
+    "PATHEXT",
+    "PROGRAMDATA",
+    "SystemRoot",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "WINDIR",
+}
+
+
 @dataclass(frozen=True)
 class Gate7CConfiguration:
     node_path: Path
@@ -66,6 +80,18 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest().upper()
+
+
+def _parse_base_environment(raw: str) -> dict[str, str]:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise Gate7CFailure("frozen base environment is unreadable") from error
+    if type(payload) is not dict or set(payload) != BASE_ENVIRONMENT_KEYS:
+        raise Gate7CFailure("frozen base environment has an invalid shape")
+    if any(type(value) is not str or not value for value in payload.values()):
+        raise Gate7CFailure("frozen base environment has an invalid value")
+    return {name: payload[name] for name in sorted(BASE_ENVIRONMENT_KEYS)}
 
 
 def _require_file(path: Path, label: str) -> Path:
@@ -300,6 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-root", required=True)
     parser.add_argument("--uv-path", required=True)
     parser.add_argument("--uv-sha256", required=True)
+    parser.add_argument("--base-environment-json", required=True)
     parser.add_argument("--result", required=True)
     parser.add_argument("--provider", required=True)
     parser.add_argument("--model", required=True)
@@ -344,7 +371,7 @@ def _configuration(namespace: argparse.Namespace) -> Gate7CConfiguration:
             namespace.grasshopper_document_id,
         ),
         conversation_id=namespace.conversation_id,
-        base_environment=os.environ,
+        base_environment=_parse_base_environment(namespace.base_environment_json),
     )
 
 

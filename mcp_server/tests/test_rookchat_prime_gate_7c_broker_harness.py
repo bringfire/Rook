@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -93,6 +94,62 @@ def configuration(tmp_path: Path) -> gate7c.Gate7CConfiguration:
         conversation_id="conv_0123456789abcdef0123456789abcdef",
         base_environment={"SystemRoot": "C:/Windows", "OPENAI_API_KEY": "no"},
     )
+
+
+async def test_cli_configuration_uses_only_the_frozen_base_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = configuration(tmp_path)
+    frozen = {
+        "APPDATA": "C:/Users/test/AppData/Roaming",
+        "COMSPEC": "C:/Windows/System32/cmd.exe",
+        "LOCALAPPDATA": "C:/Users/test/AppData/Local",
+        "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+        "PROGRAMDATA": "C:/ProgramData",
+        "SystemRoot": "C:/Windows",
+        "TEMP": "C:/Users/test/AppData/Local/Temp",
+        "TMP": "C:/Users/test/AppData/Local/Temp",
+        "USERPROFILE": "C:/Users/test",
+        "WINDIR": "C:/Windows",
+    }
+    monkeypatch.setenv("SystemRoot", "C:/ambient")
+    namespace = SimpleNamespace(
+        node_path=str(config.node_path),
+        node_sha256=config.node_sha256,
+        prime_dist_root=str(config.prime_dist_root),
+        prime_bundle_manifest=str(config.prime_bundle_manifest_path),
+        prime_bundle_sha256=config.prime_bundle_manifest_sha256,
+        prime_commit=config.prime_git_commit,
+        goal_skill_root=str(config.goal_skill_root),
+        rook_package_root=str(config.rook_package_source_root),
+        product_root=str(config.product_root),
+        kernel_root=str(config.kernel_root),
+        registry_root=str(config.registry_root),
+        session_dir=str(config.session_dir),
+        agent_root=str(config.agent_root),
+        uv_path=str(config.uv_path),
+        uv_sha256=config.uv_sha256,
+        result=str(config.result_path),
+        base_environment_json=json.dumps(
+            frozen,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        provider=config.model.provider,
+        model=config.model.id,
+        thinking=config.model.thinking,
+        profile=config.capability_profile,
+        rhino_pid=config.target.rhino_pid,
+        process_start_ticks=config.target.rhino_process_start_utc_ticks,
+        document_serial=config.target.document_runtime_serial,
+        grasshopper_document_id=config.target.grasshopper_document_id,
+        conversation_id=config.conversation_id,
+    )
+
+    parsed = gate7c._configuration(namespace)
+
+    assert parsed.base_environment == frozen
 
 
 class FakePrimeProcess:

@@ -73,7 +73,20 @@ Every other Gate 7C input is frozen in one canonical JSON artifact and bound by
 SHA-256. The wrapper constructs the complete harness argument list from that
 artifact; callers cannot substitute the Prime bundle or provenance, Node or
 `uv.exe`, product package, runtime roots, profile, target, model, conversation,
-result path, or evidence root.
+result path, admitted host environment, or evidence root.
+
+Before creating the evidence root, the wrapper requires the exact frozen
+worktree `.venv` interpreter running in Python isolated mode. `PYTHONPATH` and
+`PYTHONHOME` are refused. It then imports `rook`,
+`rook.agent.chat.prime_backend`, and `rook.agent.chat.prime_process` and requires
+their resolved files to equal the reviewed paths beneath the frozen
+`mcp_server/src` root. The interpreter, source root, isolated-mode flag, and all
+three module origins are retained in the admission record.
+
+The harness no longer derives child inputs from unrestricted `os.environ`.
+The frozen configuration contains one closed ten-key Windows base environment,
+which the wrapper passes as canonical JSON. The exact admitted map and its
+SHA-256 are retained in `admission.json`.
 
 The frozen broker-only transaction uses the accepted Prime commit and bundle,
 the immutable `rook-full` package, `openai-codex/gpt-5.6-sol` at `xhigh`, the
@@ -96,6 +109,9 @@ retains:
 
 - wrapper, harness, and configuration SHA-256 values;
 - approved Rook and Prime commits;
+- exact admitted environment and its SHA-256;
+- verified host interpreter, source root, isolated-mode flag, and module
+  origins;
 - Python executable, wrapper path, harness path, and exact constructed harness
   arguments;
 - start and end timestamps;
@@ -125,6 +141,11 @@ The causal tests cover:
 - one-process/no-prompt Gate 7C success;
 - one-process absorbing Gate 7C failure; and
 - real default harness loading;
+- exact worktree interpreter and isolated-mode admission;
+- refusal of `PYTHONPATH` and `PYTHONHOME` overrides;
+- refusal of wrong `rook` module origin;
+- refusal of changed admitted-environment bytes;
+- ambient host environment exclusion from harness configuration;
 - frozen configuration and exact constructed invocation;
 - wrapper/configuration/harness hashes, clean commits, fresh root, and
   no-retry admission; and
@@ -132,8 +153,8 @@ The causal tests cover:
 
 ## Offline Results
 
-- Corrected wrapper and harness gate: **11 passed**.
-- Complete focused Gate 7C gate: **50 passed**.
+- Corrected wrapper and harness gate: **18 passed**.
+- Complete focused Gate 7C gate: **57 passed**.
 - Retained prior bounded broker/registry/runtime/server gate excluding the ambient
   `TestKnowledgeGraphRoutes` class: **271 passed, 13 deselected**, with 18
   existing warnings.
@@ -154,11 +175,11 @@ unrelated ambient-data class rather than changing it.
 ## Frozen Files
 
 - Gate 7C harness:
-  `51CB1C8DECE9348B34649CBC375CB039330686BCD28B3620861EE34A182C78F7`
+  `2A74120496C0B65AE4A9FBDDFAD056D65F7976B2E597500ADF8AF7F8F7E920EA`
 - Gate 7C wrapper:
-  `3A6959CA7B5DF009D3763F6BA2BABB1E8B2C3CEFD60E22756FC51F1BD6CAA008`
+  `AF4D01D7E1090C315C768A11AF2F434438D8DF16C492E1F5C1EB0AF3CE4142E4`
 - Gate 7C frozen configuration:
-  `8F5D0F9E0CBDCDD0107566FFF31A586AA58D42BC71FED312356E5B8B11BB373B`
+  `7AFBFCA08C970C0B87CF05717886A63F45D069FFF104694648A8166FF22B3BE4`
 - Product process owner:
   `83D8821240A37195B3C2D61E6CD81CC126ED792CC4150106E5B9666E4D8497C2`
 - Product broker:
@@ -194,13 +215,17 @@ $python = `
     'C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery/mcp_server/.venv/Scripts/python.exe'
 $wrapper = `
     'C:/UDEV/Rook/.worktrees/task7-runtime-topology-recovery/scripts/run_rookchat_prime_gate_7c.py'
-$expectedWrapper = '3A6959CA7B5DF009D3763F6BA2BABB1E8B2C3CEFD60E22756FC51F1BD6CAA008'
+$expectedWrapper = 'AF4D01D7E1090C315C768A11AF2F434438D8DF16C492E1F5C1EB0AF3CE4142E4'
 
 if ((Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash -ne $expectedWrapper) {
     throw 'Gate 7C wrapper differs from the reviewed artifact.'
 }
 
-& $python $wrapper --approved-rook-commit '<independently-reviewed-rook-commit>'
+if ((Test-Path Env:PYTHONPATH) -or (Test-Path Env:PYTHONHOME)) {
+    throw 'Gate 7C does not admit PYTHONPATH or PYTHONHOME.'
+}
+
+& $python -I $wrapper --approved-rook-commit '<independently-reviewed-rook-commit>'
 if ($LASTEXITCODE -ne 0) {
     throw "Gate 7C failed with exit code $LASTEXITCODE. Do not retry."
 }
