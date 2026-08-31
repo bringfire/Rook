@@ -55,7 +55,6 @@ def runtime_binding(tmp_path: Path, *, profile: str = "readonly"):
     product_root = tmp_path / "product"
     kernel_root = tmp_path / "kernels"
     product_root.mkdir()
-    kernel_root.mkdir()
     _write_python_skill(source, "rook_full")
     _write_python_skill(goal, "goal")
     package = stage_product_package(source, product_root=product_root)
@@ -108,6 +107,7 @@ class FakeRuntimeProcess:
         self.session_path.touch(exist_ok=True)
         self.session_id = self.session_path.stem
         self.commands: list[dict[str, Any]] = []
+        self.command_timeouts: list[tuple[str, float | None]] = []
         self.listeners: list[Callable[[int, dict[str, Any]], None]] = []
         self.retired = False
         self.pending_seen_before_prepare = False
@@ -139,6 +139,7 @@ class FakeRuntimeProcess:
     ) -> dict[str, Any]:
         assert command["type"] == expected_command
         self.commands.append(dict(command))
+        self.command_timeouts.append((expected_command, timeout_seconds))
         command = dict(command)
         command.setdefault("id", f"runtime-{len(self.commands)}")
         if self.scenario == expected_command + "_timeout":
@@ -284,6 +285,7 @@ async def test_first_use_persists_pending_then_prepares_before_prompt_admission(
 ) -> None:
     registry = PrimeConversationRegistry(tmp_path / "registry", PID, START_TICKS)
     binding = runtime_binding(tmp_path)
+    assert not binding.kernel_root.exists()
     factory = RuntimeFactory(tmp_path / "sessions", registry)
     backend = await _backend(tmp_path, registry, factory, "conv_runtime")
     try:
@@ -306,6 +308,15 @@ async def test_first_use_persists_pending_then_prepares_before_prompt_admission(
             "maxDepth": 0,
             "global": False,
         }
+        assert process.command_timeouts == [
+            ("set_rlm_max_depth", 10.0),
+            ("get_rlm_max_depth_status", 10.0),
+            (
+                "prepare_ipython_runtime",
+                prime_backend.RUNTIME_PREPARATION_TIMEOUT_SECONDS,
+            ),
+        ]
+        assert prime_backend.RUNTIME_PREPARATION_TIMEOUT_SECONDS == 150.0
     finally:
         await backend.shutdown()
         registry.close()
@@ -347,6 +358,11 @@ async def test_first_use_failure_is_terminal_retired_and_never_replayed(
         assert failed.runtime.preparation.status == "pending"
         assert failed.last_lifecycle.state == "failed"
         assert failed.last_lifecycle.reason == "runtime_contract_unavailable"
+        if scenario == "prepare_ipython_runtime_timeout":
+            assert factory.created[0].command_timeouts[-1] == (
+                "prepare_ipython_runtime",
+                prime_backend.RUNTIME_PREPARATION_TIMEOUT_SECONDS,
+            )
     finally:
         await backend.shutdown()
         registry.close()

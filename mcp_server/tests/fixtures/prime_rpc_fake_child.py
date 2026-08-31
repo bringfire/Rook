@@ -54,6 +54,7 @@ provider, model_id = (args.model or "fixture/model").split("/", 1)
 thinking = args.thinking
 pending_prompt_id: str | None = None
 stalled_request_id: str | None = None
+stalled_command_type: str | None = None
 
 if args.scenario == "stderr_flood":
     sys.stderr.buffer.write(b"x" * (300 * 1024))
@@ -105,6 +106,7 @@ for line in sys.stdin:
     if command_type == "get_available_models":
         if args.scenario == "stalled_control_response":
             stalled_request_id = request_id
+            stalled_command_type = command_type
             continue
         emit(
             {
@@ -122,6 +124,23 @@ for line in sys.stdin:
                         }
                     ]
                 },
+            }
+        )
+        continue
+    if command_type == "prepare_ipython_runtime":
+        if args.scenario == "stalled_preparation_response":
+            stalled_request_id = request_id
+            stalled_command_type = command_type
+            continue
+        if args.scenario == "delayed_preparation":
+            time.sleep(0.3)
+        emit(
+            {
+                "id": request_id,
+                "type": "response",
+                "command": command_type,
+                "success": True,
+                "data": {"prepared": True},
             }
         )
         continue
@@ -239,12 +258,13 @@ for line in sys.stdin:
                 {
                     "id": stalled_request_id,
                     "type": "response",
-                    "command": "get_available_models",
+                    "command": stalled_command_type,
                     "success": True,
-                    "data": {"models": []},
+                    "data": {},
                 }
             )
             stalled_request_id = None
+            stalled_command_type = None
         if pending_prompt_id is not None and args.scenario in {
             "complete_before_abort_response",
             "vertical_cancel_race",

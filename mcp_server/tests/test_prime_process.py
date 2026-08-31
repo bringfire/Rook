@@ -356,18 +356,66 @@ async def test_process_exit_fails_pending_prompt_once(tmp_path: Path) -> None:
 
 
 async def test_control_timeout_is_bounded_and_late_response_is_ignored(tmp_path: Path) -> None:
-    process = make_process(tmp_path, "stalled_control_response")
+    process = make_process(
+        tmp_path,
+        "stalled_control_response",
+        control_timeout_seconds=0.2,
+    )
     await process.start()
 
+    assert process.CONTROL_COMMAND_TIMEOUT_SECONDS == 10.0
     with pytest.raises(PrimeControlTimeout, match="get_available_models"):
         await process.command(
             {"type": "get_available_models"},
             expected_command="get_available_models",
-            timeout_seconds=0.05,
         )
 
     abort = await process.command({"type": "abort"}, expected_command="abort")
     assert abort["success"] is True
+    await process.retire(1.0)
+
+
+async def test_runtime_preparation_can_outlive_control_timeout_and_retire_gracefully(
+    tmp_path: Path,
+) -> None:
+    process = make_process(
+        tmp_path,
+        "delayed_preparation",
+        control_timeout_seconds=0.2,
+    )
+    await process.start()
+
+    response = await process.command(
+        {"type": "prepare_ipython_runtime"},
+        expected_command="prepare_ipython_runtime",
+        timeout_seconds=0.6,
+    )
+    await process.retire(1.0)
+
+    assert response["success"] is True
+    assert process.cleanup_result is not None
+    assert process.cleanup_result.succeeded is True
+    assert process.cleanup_result.uncertain is False
+
+
+async def test_timed_out_runtime_preparation_ignores_late_response(
+    tmp_path: Path,
+) -> None:
+    process = make_process(tmp_path, "stalled_preparation_response")
+    await process.start()
+
+    with pytest.raises(PrimeControlTimeout, match="prepare_ipython_runtime"):
+        await process.command(
+            {"type": "prepare_ipython_runtime"},
+            expected_command="prepare_ipython_runtime",
+            timeout_seconds=0.2,
+        )
+
+    abort = await process.command({"type": "abort"}, expected_command="abort")
+    state = await process.command({"type": "get_state"}, expected_command="get_state")
+
+    assert abort["success"] is True
+    assert state["success"] is True
     await process.retire(1.0)
 
 

@@ -43,6 +43,7 @@ from .prime_rpc_protocol import (
 
 
 TERMINAL_ROW_TYPES = frozenset({"done", "cancelled", "error"})
+RUNTIME_PREPARATION_TIMEOUT_SECONDS = 150.0
 
 
 class PrimeBackendError(RuntimeError):
@@ -673,6 +674,7 @@ class PrimeChatBackend:
         response = await resident.process.command(
             {"type": "prepare_ipython_runtime"},
             expected_command="prepare_ipython_runtime",
+            timeout_seconds=RUNTIME_PREPARATION_TIMEOUT_SECONDS,
         )
         interpreter = self._verify_runtime_preparation(response, binding)
         current = self.registry.load(conversation_id)
