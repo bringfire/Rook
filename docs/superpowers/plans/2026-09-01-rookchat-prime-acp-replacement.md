@@ -16,7 +16,7 @@
 - Treat Prime commit `9c25468b62c79fc4b1419d7800740e8e41e30467` as the sole removable compatibility patch over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`; do not edit Prime in this plan.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
-- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon`; never use a shell, `PATH`, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup.
+- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon`; never use a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. Every executable path is absolute and manifest-bound; `PATH` may remain in the supported child environment but is never executable authority.
 - Persist associations, not broker lifecycle. Prime JSONL is the only authoritative transcript/goal/settings/compaction store.
 - A durable association is create-only, complete, materialized, has a nonempty Prime header ID, and is reopenable only when no `open.claim` exists and custody checks pass.
 - The atomic non-expiring `open.claim` has no metadata or recovery logic. Remove it only after the directly owned Prime child is observed exited, or when launch positively proves no child was created.
@@ -30,6 +30,7 @@
 - Preserve full Rook authoring. Grasshopper uses dynamic document context with centrally advertised and enforced `expectedGhDocumentId` optimistic concurrency, not permanent GH binding or hostile-code containment.
 - ChatRunner is deleted at cutover. Do not add a backend registry, selector, common backend interface, feature flag, or runtime fallback.
 - Qualification code and evidence remain external to product runtime. No live slice executes without its explicit review gate and separate authorization.
+- Before live Slice D, promote one exact clean implementation commit through the existing MSVC 14.44 native build, managed build, local deployment, and installed-artifact hash verifier. Slices D and E reverify those installed identities before contact.
 - Use the implementation worktree Python for every Python test: `C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe` after `uv sync --frozen --extra test` has established it.
 - Use the existing Rhino/MFC toolchain rules in `AGENTS.md`; managed-only test gates do not imply native build verification.
 
@@ -121,6 +122,7 @@ class PrimeRuntimeContract:
     goal_skill_path: Path
     rook_skill_path: Path
     rook_skill_manifest_sha256: str
+    rook_skill_system_prompt: str
     rook_mcp_command: Path
     rook_mcp_args: tuple[str, ...]
     claim_key_version: int
@@ -163,7 +165,7 @@ class PromptResult:
 @dataclass(frozen=True)
 class CreateConversationRequest:
     binding: RookBinding
-    working_directory: str
+    saved_document_directory: str | None
     requested_initial_model: str | None
     requested_initial_reasoning: str | None
 
@@ -211,15 +213,24 @@ class AcpProcessFactory(Protocol):
                      claim: OpenClaim, reopen: bool) -> OwnedAcpProcess:
         raise NotImplementedError
 
+@dataclass
+class ActivePromptSupervisor:
+    generation: PromptGeneration
+    result_task: asyncio.Task[PromptResult] = field(init=False)
+    def request_cancel(self, source: str) -> bool:
+        """Set one absorbing cancellation signal; return True only for the first caller."""
+        raise NotImplementedError
+
 class AcpConversationManager:
     async def create(self, request: CreateConversationRequest) -> ConversationView:
         raise NotImplementedError
     async def reopen(self, conversation_id: str) -> ConversationView:
         raise NotImplementedError
-    async def prompt(self, conversation_id: str, prompt: PromptInput,
-                     sink: PresentationSink) -> PromptResult:
+    async def start_prompt(self, conversation_id: str, prompt: PromptInput,
+                           sink: PresentationSink) -> ActivePromptSupervisor:
         raise NotImplementedError
-    async def cancel(self, conversation_id: str) -> None:
+    def request_cancel(self, conversation_id: str, source: str) -> bool:
+        """Signal the active prompt once; return False when no active prompt exists."""
         raise NotImplementedError
     async def close(self, conversation_id: str) -> CloseResult:
         raise NotImplementedError
@@ -232,6 +243,7 @@ class AcpConversationManager:
 public sealed record CreateConversationRequest(
     uint DocumentSerialNumber,
     string CapabilityProfile,
+    string? SavedDocumentDirectory,
     string? RequestedInitialModel,
     string? RequestedInitialReasoning);
 
@@ -252,6 +264,17 @@ public Task<CloseConversationResult> CloseAsync(string conversationId, Cancellat
 public Task<DeleteConversationResult> DeleteAsync(string conversationId, CancellationToken ct);
 ```
 
+## Execution-Custody Table
+
+| Boundary | Producer -> exact artifact/value -> consumer | Lifetime owner | Failure behavior | Causal proof |
+| --- | --- | --- | --- | --- |
+| Product contract | Runtime manifest verifier -> the same retained `SKILL.md` byte buffer, strict UTF-8 decoded once -> Prime's single `--append-system-prompt <body>` argument; `--skill <verified-directory>` remains separate | `PrimeRuntimeContract` for one launch | Missing/hash-mismatched/non-UTF-8 bytes refuse before spawn | Launch test asserts exact body equality and proves neither filename nor path is substituted |
+| ACP process | Python service -> absolute manifest-bound argv plus explicit piped stdin/stdout/stderr -> official SDK transport and Prime | `OwnedAcpProcess`; one bounded stderr drain task for the child's lifetime | Drain cannot start or fails: no retry, mark transport failed, retire exact child; normal/forced retirement awaits or cancels the drain only after child exit handling | Fake agent writes beyond normal pipe capacity while prompt and clean EOF still settle |
+| Prompt | Authenticated HTTP handler -> `ActivePromptSupervisor` generation/result -> ACP prompt owner | Python service resident map, independent of HTTP task | Waiter cancellation/disconnect signals idempotent cancel once; it never cancels or clears the supervisor; uncertain settlement retires exact child | Cancel HTTP waiter during hanging fake prompt; prove one ACP cancel, bounded settlement/retirement, no orphan, no premature idle |
+| First turn | Provisional in-memory association -> materialized Prime header -> create-only complete association -> immutable projected turn | Prompt supervisor through settlement; association store and presentation cache after publication | Invalid/missing file or failed association publication leaves no durable association/cache; no adoption or replay | Failure injection at file creation, header validation, association publish, and cache publish boundaries |
+| Installed product | Exact clean implementation commit -> MSVC 14.44 native build + managed build + existing local deployment -> installed native/managed/Python/skill/Prime hash set -> Slices D/E | Existing deployment workflow; external promotion evidence after deployment | Any build/deploy/hash mismatch refuses live authorization; source identity alone earns no credit | Hash source outputs against installed destinations and reverify all identities immediately before D/E |
+| Rook evidence | ACP-delivered tool content -> successfully parsed exact Rook `{success, data}` JSON envelope -> bounded presentation/evidence classification | Current prompt projection only; Rook receipts/evidence remain authoritative | Enclosing IPython/tool-card completion without a parsed envelope certifies nothing; transport loss before envelope is unknown and never replayed | Completed tool card without envelope remains non-authoritative; exact success/refusal envelopes survive projection |
+
 ---
 
 ### Task 1: Pin The ACP SDK And Build The Model-Free Agent Fixture
@@ -263,7 +286,7 @@ public Task<DeleteConversationResult> DeleteAsync(string conversationId, Cancell
 - Create: `mcp_server/tests/test_chat_acp_sdk_contract.py`
 
 **Interfaces:**
-- Produces: exact Python SDK dependency and a deterministic ACP process fixture supporting `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/close`, concurrent updates, permissions, image capture, MCP declaration capture, controlled hangs, and clean EOF.
+- Produces: exact Python SDK dependency and a deterministic ACP process fixture supporting `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/close`, source-ordered concurrent updates, permissions, image capture, MCP declaration capture, controlled hangs, configurable stderr volume, and clean EOF.
 - Consumes: public `acp.Agent`, `acp.Client`, `acp.PROTOCOL_VERSION`, schema models, and stdio transport only.
 
 - [ ] **Step 1: Add RED dependency and fixture-contract tests**
@@ -280,6 +303,17 @@ async def test_fake_agent_runs_initialize_new_prompt_close_and_eof(fake_agent_pr
         stop_reason="end_turn",
     )
     assert result.methods == ["initialize", "session/new", "session/prompt", "session/close"]
+    assert result.exit_code == 0
+
+@pytest.mark.asyncio
+async def test_fake_agent_can_emit_ordered_updates_and_more_than_pipe_capacity(fake_agent_process):
+    result = await fake_agent_process.run_script(
+        updates=[{"kind": "agent_message_chunk", "text": str(i)} for i in range(64)],
+        stderr_bytes=2 * 1024 * 1024,
+        stop_reason="end_turn",
+    )
+    assert result.received_message_text == [str(i) for i in range(64)]
+    assert result.stderr_bytes_written == 2 * 1024 * 1024
     assert result.exit_code == 0
 ```
 
@@ -360,7 +394,7 @@ class FakeAgent(Agent):
         return CloseSessionResponse()
 ```
 
-The fixture must never import Rook product modules, contact a network endpoint, or spawn descendants.
+The fixture writes configured stderr in fixed chunks before and during prompt handling, journals the exact source order of updates it emits, and never imports Rook product modules, contacts a network endpoint, or spawns descendants. Task 4 owns the consuming drain test; this task only proves the fixture can generate the pressure deterministically.
 
 - [ ] **Step 4: Sync offline-capable dependencies and run GREEN**
 
@@ -392,7 +426,7 @@ git commit -m "test(chat): add pinned ACP client fixture"
 - Modify: `mcp_server/tests/test_runtime_paths.py`
 
 **Interfaces:**
-- Produces: `AcpDataPaths`, `RookBinding`, `PrimeSessionHeader`, `ConversationAssociation`, `ProvisionalAssociation`, `AssociationStore`, `OpenClaim`, and stable error codes `session_unavailable`, `runtime_unavailable`, `session_recovery_required`, and `initialization_failed`.
+- Produces: `AcpDataPaths`, `RookBinding`, `PrimeSessionHeader`, `ConversationAssociation`, `ProvisionalAssociation`, `AssociationStore`, `OpenClaim`, `atomic_publish_noreplace(final_path: Path, payload: bytes) -> None`, and stable error codes `session_unavailable`, `runtime_unavailable`, `working_directory_unavailable`, `session_recovery_required`, `initialization_failed`, and `publication_unsupported`.
 - Consumes: existing `RuntimePaths.data_root`; no process identity or Prime transcript parser.
 
 - [ ] **Step 1: Write the complete RED custody table**
@@ -419,9 +453,16 @@ def test_association_publication_is_create_only(store, provisional, valid_header
     with pytest.raises(AssociationAlreadyExists):
         store.publish(provisional, valid_header)
     assert store.get(published.conversation_id) == published
+
+def test_atomic_publish_noreplace_preserves_existing_bytes(tmp_path):
+    destination = tmp_path / "association.json"
+    destination.write_bytes(b"original")
+    with pytest.raises(PublicationAlreadyExists):
+        atomic_publish_noreplace(destination, b"replacement")
+    assert destination.read_bytes() == b"original"
 ```
 
-Also cover canonical root containment, bounded first physical line, strict UTF-8, object/type/version/nonempty-ID/cwd checks, symlink and Windows reparse refusal, generated UUID/path ownership, atomic complete publication, re-read after claim, Delete ordering, and byte preservation on every refusal.
+Also cover canonical root containment, bounded first physical line, strict UTF-8, object/type/version/nonempty-ID/cwd checks, symlink and Windows reparse refusal, generated UUID/path ownership, atomic complete publication, re-read after claim, Delete ordering, two-process no-replace contention, unsupported-platform refusal, and byte preservation on every refusal.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -452,7 +493,7 @@ fd = os.open(claim_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 os.close(fd)
 ```
 
-Atomic association publication writes canonical UTF-8 JSON plus LF to a same-directory temporary file opened create-only, flushes and `fsync`s it, then calls Windows `os.rename(temp_path, final_path)`. On Windows this same-volume rename is atomic and refuses an existing destination; catch `FileExistsError`, delete only the owned temporary file, and preserve the existing association bytes. The two-process contention test must prove exactly one publisher succeeds.
+All association and immutable turn-file publication goes through `atomic_publish_noreplace`. The product's supported implementation is explicitly Windows-only: write canonical UTF-8 JSON plus LF to a same-directory temporary file opened create-only, flush and `fsync` it, then use Windows same-volume `os.rename`, whose no-replacement behavior is proven by a two-process causal test. Catch `FileExistsError`, remove only the owned temporary file, and preserve destination bytes. When `os.name != "nt"`, raise `PublicationUnsupported` before creating the temporary file; do not silently assume POSIX `os.rename` has no-replace semantics. A future platform requires its own tested primitive.
 
 - [ ] **Step 4: Prove crash-fence semantics model-free**
 
@@ -476,11 +517,13 @@ git commit -m "feat(chat): add ACP association and claim custody"
 **Files:**
 - Create: `mcp_server/src/rook/agent/chat/acp_presentation.py`
 - Create: `mcp_server/src/rook/agent/chat/acp_images.py`
+- Create: `mcp_server/src/rook/agent/chat/acp_rook_results.py`
 - Create: `mcp_server/tests/test_chat_acp_presentation.py`
 - Create: `mcp_server/tests/test_chat_acp_images.py`
+- Create: `mcp_server/tests/test_chat_acp_rook_results.py`
 
 **Interfaces:**
-- Produces: `PromptGeneration`, `ProjectedEvent`, `BoundedPromptProjection`, `PresentationQueue`, `PresentationSink`, `PresentationCache`, `ValidatedImage`, `validate_images`, and `map_stop_reason`.
+- Produces: `PromptGeneration`, `ProjectedEvent`, `BoundedPromptProjection`, `PresentationQueue`, `PresentationSink`, `PresentationCache`, `ValidatedImage`, `validate_images`, `map_stop_reason`, `ParsedRookResult`, and `parse_rook_envelope`.
 - Consumes: the presentation root from `AcpDataPaths`; no authoritative Prime or Rook state.
 
 - [ ] **Step 1: Write RED tests for every retained representation**
@@ -494,11 +537,12 @@ def test_stop_reason_mapping_is_closed():
     assert map_stop_reason("refusal") == "refused"
 
 @pytest.mark.asyncio
-async def test_concurrent_callbacks_preserve_source_order_and_timeout_as_overflow():
+async def test_projection_preserves_sequential_source_order_and_timeout_as_overflow():
     queue = PresentationQueue(max_events=256, max_utf8_bytes=4 * 1024 * 1024)
     projection = BoundedPromptProjection(generation=PromptGeneration(3, "acp-1", "prompt-9"), queue=queue)
-    await asyncio.gather(*(projection.accept(i, message_chunk("m", str(i))) for i in range(20)))
-    assert [row.ordinal for row in await queue.drain()] == list(range(20))
+    for value in range(20):
+        await projection.accept(message_chunk("m", str(value)))
+    assert [row.text for row in await queue.drain()] == [str(value) for value in range(20)]
 
 def test_turn_file_is_create_only_and_evicts_complete_oldest_turns(cache):
     for sequence in range(1, 258):
@@ -506,18 +550,29 @@ def test_turn_file_is_create_only_and_evicts_complete_oldest_turns(cache):
     loaded = cache.load()
     assert len(loaded.turns) <= 256
     assert loaded.earlier_history_omitted is True
+
+def test_completed_tool_card_without_exact_rook_envelope_certifies_nothing():
+    assert parse_rook_envelope('{"toolStatus":"completed"}') is None
+
+def test_exact_rook_failure_envelope_remains_failure():
+    parsed = parse_rook_envelope('{"success":false,"data":"target_unavailable"}')
+    assert parsed is not None
+    assert parsed.success is False
+    assert parsed.data == "target_unavailable"
 ```
 
-Add explicit tests for queue 256-event/4-MiB boundaries, the one-second whole callback deadline, generation fencing, allowed message/thought coalescing only, no tool coalescing, prompt-owner overflow signal, panel disconnect, independent cache and drain results, user/assistant accumulator limits, fallback publication, immutable-until-eviction files, corruption, sequence derivation without a ledger, and the exact `_meta` limits.
+Add explicit tests for queue 256-event/4-MiB boundaries, the one-second whole callback deadline, generation fencing, allowed message/thought coalescing only, no tool coalescing, prompt-owner overflow signal, panel disconnect, independent cache and drain results, user/assistant accumulator limits, fallback publication, immutable-until-eviction files, corruption, sequence derivation without a ledger, and the exact `_meta` limits. This module proves deterministic projection behavior only; Task 4 proves ACP callback source order through the real SDK path and the fake agent's journal.
+
+`ParsedRookResult` retains the Boolean `success` and the JSON `data` value without narrowing `data` to an object; current Rook results legitimately use objects, arrays, strings, numbers, Booleans, and null. `parse_rook_envelope` accepts only ACP-delivered tool content that decodes as a JSON object containing a Boolean `success` and a `data` key. Malformed, truncated, non-object, or merely quoted/reflected text returns `None`. Tool-specific receipts inside object data earn authority only after their existing closed Rook validators accept them. A `success: false` envelope remains a Rook failure even when ACP reports the enclosing IPython/tool card as completed. Tool-card state is presentation-only and never certifies a mutation, receipt, or Rook success.
 
 - [ ] **Step 2: Run RED**
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
-./.venv/Scripts/python.exe -m pytest tests/test_chat_acp_presentation.py tests/test_chat_acp_images.py -q
+./.venv/Scripts/python.exe -m pytest tests/test_chat_acp_presentation.py tests/test_chat_acp_images.py tests/test_chat_acp_rook_results.py -q
 ```
 
-Expected: both product modules are missing.
+Expected: all three product modules are missing.
 
 - [ ] **Step 3: Implement the fixed bounds verbatim**
 
@@ -558,10 +613,10 @@ Use `base64.b64decode(value, validate=True)`, verify PNG/JPEG/WebP magic bytes a
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
-./.venv/Scripts/python.exe -m pytest tests/test_chat_acp_presentation.py tests/test_chat_acp_images.py -q
+./.venv/Scripts/python.exe -m pytest tests/test_chat_acp_presentation.py tests/test_chat_acp_images.py tests/test_chat_acp_rook_results.py -q
 
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-git add mcp_server/src/rook/agent/chat/acp_presentation.py mcp_server/src/rook/agent/chat/acp_images.py mcp_server/tests/test_chat_acp_presentation.py mcp_server/tests/test_chat_acp_images.py
+git add mcp_server/src/rook/agent/chat/acp_presentation.py mcp_server/src/rook/agent/chat/acp_images.py mcp_server/src/rook/agent/chat/acp_rook_results.py mcp_server/tests/test_chat_acp_presentation.py mcp_server/tests/test_chat_acp_images.py mcp_server/tests/test_chat_acp_rook_results.py
 git commit -m "feat(chat): bound ACP presentation and images"
 ```
 
@@ -589,12 +644,15 @@ def test_new_launch_uses_exact_flags_and_reopen_has_no_model_override(contract, 
     assert "--no-daemon" in new
     assert "--no-skills" in new
     assert pairs(new, "--skill") == [str(contract.goal_skill_path), str(contract.rook_skill_path)]
-    assert pair(new, "--append-system-prompt") == str(contract.rook_skill_path / "SKILL.md")
+    assert pair(new, "--append-system-prompt") == contract.rook_skill_system_prompt
+    assert str(contract.rook_skill_path / "SKILL.md") not in new
     assert pair(new, "--resume") == association.session_path
     assert pair(new, "--model") == "anthropic/claude-x"
     assert pair(new, "--thinking") == "high"
     reopened = build_prime_argv(contract, Path(association.session_path), None, None, reopen=True)
     assert "--model" not in reopened and "--thinking" not in reopened
+    assert pair(reopened, "--append-system-prompt") == contract.rook_skill_system_prompt
+    assert str(contract.rook_skill_path / "SKILL.md") not in reopened
 
 def test_prime_child_environment_uses_pre_dotenv_snapshot(pre_dotenv_env, contract):
     os.environ["ROOK_INSTALLED_DOTENV_SENTINEL"] = "must-not-pass"
@@ -603,11 +661,15 @@ def test_prime_child_environment_uses_pre_dotenv_snapshot(pre_dotenv_env, contra
     assert "ANTHROPIC_API_KEY" not in child or child["ANTHROPIC_API_KEY"] == pre_dotenv_env.get("ANTHROPIC_API_KEY")
 ```
 
-Also prove exact manifest reproduction; regular-file-only traversal; ordinal forward-slash paths; raw length/hash binding; manifest self-exclusion; path-under-root checks; required Prime/goal/rook skill/license files; exact ACP SDK version; closed reasoning enum; exact `--no-skills`, pinned goal skill, pinned Rook skill, and raw root-skill system-prompt arguments; no `--api-key`, `--provider`, shell, `PATH`, ambient skill, or reopen overrides; MCP server name exactly `rook`; only contract-owned MCP env keys; and association `working_directory` delivery through `session/new.cwd` rather than a nonexistent stdio-server field.
+`load_and_verify_runtime` resolves the root `SKILL.md`, reads its bytes once, and uses that same retained byte buffer for the individual length/hash check and complete package-manifest replay. It then decodes those bytes with strict UTF-8 and stores the resulting text in `PrimeRuntimeContract.rook_skill_system_prompt`. `build_prime_argv` passes that text as one `--append-system-prompt` argument; Prime's flag accepts literal prompt text, not a filename. Keep `--skill <verified-directory>` as the separate skill-advertisement argument. Invalid UTF-8, byte-length drift, or hash drift refuses before spawn.
+
+Also prove exact manifest reproduction; regular-file-only traversal; ordinal forward-slash paths; raw length/hash binding; manifest self-exclusion; path-under-root checks; required Prime/goal/rook skill/license files; exact ACP SDK version; closed reasoning enum; exact `--no-skills`, pinned goal skill, pinned Rook skill, and literal root-skill system-prompt body; no `--api-key`, `--provider`, shell, ambient skill, or reopen overrides; MCP server name exactly `rook`; only contract-owned MCP env keys; and association `working_directory` delivery through `session/new.cwd` rather than a nonexistent stdio-server field. The launched executable path is absolute and manifest-bound. The supported child environment may contain `PATH`, but executable selection never consults it and no fallback executable is accepted.
 
 - [ ] **Step 2: Write RED direct-process tests against the fake ACP agent**
 
 Cover initialization protocol and `session/close` capability refusal, `promptCapabilities.image`, one ACP session per process, permission choice ordering and unique/nonempty IDs, callback generation fencing, cancellation outside callbacks, stop-reason mapping, clean close, `session/close` failure, uncertain prompt retirement, positively failed spawn claim release, uncertain spawn claim preservation, bounded optional Prime `_meta` goal/compaction projection, and reset-to-unknown on every process/session replacement. Missing or unknown `_meta` must never block standard ACP operation.
+
+Add three causal process-boundary tests. First, launch the fake agent through the actual `OwnedAcpProcess` path and have it retain its received argv; prove the exact decoded `SKILL.md` body arrives as one `--append-system-prompt` value on new and reopen, while the skill path appears only under `--skill`. Second, the fake agent emits deliberately concurrent SDK callbacks while retaining its own source journal; assert the projected rows preserve that journal order without accepting caller-supplied ordinals. Third, the fake agent writes at least 2 MiB to stderr before and during a prompt; initialize, prompt settlement, `session/close`, EOF, and clean child exit must all complete without a full pipe blocking Prime.
 
 - [ ] **Step 3: Run RED without Prime**
 
@@ -635,18 +697,24 @@ ACP `McpServerStdio` has no per-server working-directory field. Its command, arg
 
 - [ ] **Step 5: Implement SDK-owned process lifetime**
 
-Use the public SDK context manager directly:
+Use the public SDK process helper and transport context directly, with stderr explicitly piped:
 
 ```python
 self._spawn_context = spawn_agent_process(
     self._client,
     *self._launch.argv,
     env=self._launch.environment,
+    transport_kwargs={"stderr": asyncio.subprocess.PIPE},
 )
 self.connection, self.process = await self._spawn_context.__aenter__()
+if self.process.stderr is None:
+    raise AcpLaunchError("stderr_unavailable")
+self._stderr_task = asyncio.create_task(self._drain_stderr(self.process.stderr))
 ```
 
-Retirement order is bounded `close_session` when allowed, SDK connection/transport close, stdin EOF through the SDK, one process wait, then termination of only `self.process` through the SDK/direct handle fallback. Set `child_exit_observed` only after `await self.process.wait()` returns. Do not enumerate descendants.
+The official Python ACP SDK 0.12.1 defaults stderr to `PIPE` but does not drain it. `OwnedAcpProcess` therefore owns exactly one drain task from immediately after process creation until retirement. Use fixed `STDERR_READ_CHUNK_BYTES = 8 * 1024` and retain only a private rolling `STDERR_TAIL_BYTES = 64 * 1024`. Raw stderr is never logged, serialized, cached, projected, or exposed to the panel; diagnostics may report only total bytes read, whether truncation occurred, and one closed drain-failure code. Clear the tail during retirement.
+
+If the drain cannot be started, fail launch and retire the exact child. If the drain raises later, mark the transport failed and signal the process owner to retire it; do not retry or continue using the connection. On normal or forced retirement, perform bounded `close_session` when allowed, SDK connection/transport close, stdin EOF through the SDK, one process wait, and termination of only `self.process` through the SDK/direct-handle fallback. After child-exit handling, boundedly await stderr EOF; cancel the drain only after that point. Set `child_exit_observed` only after `await self.process.wait()` returns. Do not enumerate descendants.
 
 - [ ] **Step 6: Implement immediate trusted permission responses**
 
@@ -679,26 +747,41 @@ git commit -m "feat(chat): own daemon-free Prime ACP process"
 ```python
 @pytest.mark.asyncio
 async def test_first_prompt_is_the_only_provisional_turn(manager, fake_agent, rook_binding):
-    view = await manager.create(CreateConversationRequest(binding=rook_binding, runtime_id="runtime-a"))
+    view = await manager.create(CreateConversationRequest(
+        binding=rook_binding,
+        saved_document_directory=str(fake_agent.saved_document_directory),
+        requested_initial_model=None,
+        requested_initial_reasoning=None,
+    ))
     assert manager.store.list() == ()
-    first = asyncio.create_task(manager.prompt(view.conversation_id, PromptInput("hello", ()), NullSink()))
+    first = await manager.start_prompt(view.conversation_id, PromptInput("hello", ()), NullSink())
     with pytest.raises(ConversationBusy):
-        await manager.prompt(view.conversation_id, PromptInput("second", ()), NullSink())
+        await manager.start_prompt(view.conversation_id, PromptInput("second", ()), NullSink())
     fake_agent.materialize_valid_session()
-    assert (await first).outcome == "settled"
+    assert (await first.result_task).outcome == "settled"
     assert manager.store.get(view.conversation_id).prime_session_id == fake_agent.prime_session_id
 
 @pytest.mark.asyncio
 async def test_failed_first_publication_is_never_adopted_or_replayed(manager, fake_agent, rook_binding):
-    view = await manager.create(CreateConversationRequest(binding=rook_binding, runtime_id="runtime-a"))
+    view = await manager.create(CreateConversationRequest(
+        binding=rook_binding,
+        saved_document_directory=None,
+        requested_initial_model=None,
+        requested_initial_reasoning=None,
+    ))
     fake_agent.finish_without_session_file()
-    result = await manager.prompt(view.conversation_id, PromptInput("hello", ()), NullSink())
+    supervisor = await manager.start_prompt(view.conversation_id, PromptInput("hello", ()), NullSink())
+    result = await supervisor.result_task
     assert result.outcome == "error"
     assert manager.store.list() == ()
     assert fake_agent.prompt_count == 1
 ```
 
-Cover create-only conversation/session paths, target required for creation, no association before materialization, exact bounded header promotion, failure after file creation but before publication, no automatic adoption, and no second prompt before publication.
+The create request never contains a runtime ID. `AcpConversationManager.create` calls `RuntimeCatalog.latest()` exactly once, retains that verified contract for the provisional generation, and records its ID only when publishing the complete durable association. Callers cannot select an installed runtime or substitute a path.
+
+Working-directory selection is equally closed. A non-null `saved_document_directory` must be absolute, canonical, exist, and be a directory. For an unsaved Rhino document, after generating the service-owned conversation ID, create and use exactly `ROOK_DATA_DIR/rookchat/acp/v1/workspaces/<conversation-id>/`. Persist the resulting absolute path immutably. Reopen requires that exact persisted directory to remain canonical and present; it never falls back to the service cwd, repository root, user profile, or another open document. Missing or mismatched custody returns `working_directory_unavailable` before Prime starts.
+
+Cover saved and unsaved working directories, deleted directories, nonabsolute input, reopen mismatch, create-only conversation/session paths, target required for creation, internal latest-runtime selection, no association before materialization, exact bounded header promotion, failure after file creation but before publication, no automatic adoption, and no second prompt before publication.
 
 The first settled turn may be published to the presentation cache only after the complete association publication succeeds. A failed association publication leaves both the durable registry and presentation cache empty even if bounded live text was displayed.
 
@@ -727,33 +810,42 @@ class AcpConversationManager:
         self._resident: dict[str, ResidentConversation] = {}
         self._launch_generation = itertools.count(1)
 
-    async def prompt(self, conversation_id: str, prompt: PromptInput,
-                     sink: PresentationSink) -> PromptResult:
+    async def start_prompt(self, conversation_id: str, prompt: PromptInput,
+                           sink: PresentationSink) -> ActivePromptSupervisor:
         resident = self._require_resident(conversation_id)
-        if resident.prompt_task is not None:
-            raise ConversationBusy(conversation_id)
-        resident.prompt_task = asyncio.create_task(
-            self._run_prompt(resident, prompt, sink)
-        )
+        async with resident.lock:
+            if resident.active_prompt is not None:
+                raise ConversationBusy(conversation_id)
+            supervisor = ActivePromptSupervisor(generation=resident.next_prompt_generation())
+            resident.active_prompt = supervisor
+            supervisor.result_task = asyncio.create_task(
+                self._run_supervised_prompt(resident, supervisor, prompt, sink)
+            )
+            return supervisor
+
+    async def _run_supervised_prompt(self, resident, supervisor, prompt, sink):
         try:
-            return await resident.prompt_task
+            return await self._run_prompt(resident, supervisor, prompt, sink)
         finally:
-            resident.prompt_task = None
+            async with resident.lock:
+                if resident.active_prompt is supervisor:
+                    resident.active_prompt = None
 ```
 
-Do not persist states for `idle`, `materializing`, `suspended`, `interrupted`, cancellation races, or goals.
+The service-owned supervisor, not the HTTP waiter, owns prompt correlation, cancellation, final projection, cache publication, and clearing the active reference. Cancelling any observer of `result_task` must not cancel the underlying task; only `request_cancel` sets its one absorbing event. No caller and no stale generation may clear a newer prompt. Do not persist states for `idle`, `materializing`, `suspended`, `interrupted`, cancellation races, or goals.
 
 - [ ] **Step 5: Implement exact cancellation and close branches**
 
-The prompt owner, not an update callback, sends `session/cancel` once and awaits the original prompt task. If it settles, classify that actual stop reason. If it does not, send no further ACP request and retire the exact process.
+The prompt owner, not an update callback or HTTP waiter, observes the absorbing cancellation event, sends `session/cancel` once, and awaits the original ACP prompt task. If it settles, classify that actual stop reason. If it does not, send no further ACP request and retire the exact process. `request_cancel(conversation_id, source)` only signals the current supervisor and is idempotent.
 
-An authentic Rook result and receipt already received through the ACP tool projection remains authoritative for that Rook operation even when the enclosing prompt later returns `error` or becomes uncertain. If transport fails before a Rook result is observed, record the operation outcome as unknown, freshly inspect Rook state, and never replay it automatically.
+Only a `ParsedRookResult` produced by Task 3 from exact ACP-delivered Rook JSON content establishes an authentic Rook result or receipt. Enclosing IPython/tool-card completion never does. Such a parsed result remains authoritative for that Rook operation even when the enclosing prompt later returns `error` or becomes uncertain. If transport fails before an exact envelope is parsed, record the operation outcome as unknown, freshly inspect Rook state, and never replay it automatically.
 
 Close follows:
 
 ```python
-if resident.prompt_task is not None:
-    settled = await resident.cancel_and_wait(prompt_settlement_deadline)
+if resident.active_prompt is not None:
+    resident.active_prompt.request_cancel("close")
+    settled = await resident.await_active_prompt(prompt_settlement_deadline)
     if not settled:
         return await resident.retire_without_more_acp()
 await resident.process.close_session(close_deadline)
@@ -823,6 +915,8 @@ Tests must assert the absence of `/personas`, `/models`, `/model`, `/start`, `/m
 
 Cover non-object JSON, missing/extra conversation IDs, invalid profile, document serial, model, reasoning, image MIME/base64/size/dimensions, encoded-body size, busy prompt, image capability absence, target unavailable display, cache unavailable display, and every closed storage/ACP error envelope. Preserve the existing nonce/session middleware.
 
+Add one causal disconnect test with a hanging fake ACP prompt. Cancel the HTTP waiter/stream writer and prove: the service-owned `ActivePromptSupervisor.result_task` is not cancelled; exactly one absorbing cancellation signal is set; the prompt owner sends at most one ACP `session/cancel`; the owner either observes the original prompt settlement or boundedly retires the exact child; no child remains; and the resident active-prompt reference is cleared only by the supervisor's own `finally`, never by the HTTP handler.
+
 - [ ] **Step 3: Implement dependency-injected ACP routes**
 
 Replace global store/builder/runner keys with one manager key:
@@ -845,7 +939,18 @@ def create_chat_app(
     return app
 ```
 
-The prompt endpoint prepares `web.StreamResponse` inside subscription cleanup custody, writes bounded projected NDJSON rows, and independently records the terminal Prime outcome and presentation-stream outcome. A disconnected response signals the prompt owner; it does not cancel from the writer callback itself.
+The prompt endpoint prepares `web.StreamResponse` inside subscription cleanup custody, starts one service-owned supervisor, and observes it through `asyncio.shield` so cancellation of the aiohttp request task cannot cancel the ACP prompt owner:
+
+```python
+supervisor = await manager.start_prompt(conversation_id, prompt, sink)
+try:
+    result = await asyncio.shield(supervisor.result_task)
+except (asyncio.CancelledError, ConnectionResetError):
+    manager.request_cancel(conversation_id, source="http_waiter")
+    raise
+```
+
+The cancel endpoint calls the same idempotent `request_cancel` signal and returns whether an active prompt accepted it; it does not wait for ACP settlement. The stream writer emits bounded projected NDJSON rows and independently records the terminal Prime outcome and presentation-stream outcome. A disconnected response signals the prompt owner exactly once; it never clears the resident prompt reference, awaits cleanup recursively from a callback, or owns process retirement.
 
 - [ ] **Step 4: Prove shared modules before deleting ChatRunner files**
 
@@ -920,7 +1025,7 @@ public async Task Prompt_parser_keeps_prime_and_presentation_outcomes_separate()
 }
 ```
 
-Cover all terminal mappings, bounded error parsing, tool cards as presentation only, partial text on cancellation, omitted-history markers, image metadata history, and target unavailable status.
+Cover all terminal mappings, bounded error parsing, tool cards as presentation only, partial text on cancellation, omitted-history markers, image metadata history, target unavailable status, and the create-request working-directory field. A saved bound Rhino document contributes only its canonical parent directory; an unsaved document contributes `null`. No arbitrary browser or user payload may set this field.
 
 - [ ] **Step 2: Write RED panel lifecycle tests**
 
@@ -929,6 +1034,8 @@ Prove model/reasoning controls are editable only before create, reopen renders t
 - [ ] **Step 3: Replace persona selection with Prime conversation creation**
 
 `RookChatPanel`'s add action opens a compact creation dialog with optional configured fully qualified model and exact reasoning enum. It always creates an ACP conversation with the shipped `full` profile; no profile selector is shown. The temporary `readonly` profile is admitted only by the external Slice D qualification entry point. Remove persona names/colors and backend concepts. Existing durable conversations appear in a reopen list returned by the service.
+
+At creation, resolve the exact bound document with `RhinoDoc.FromRuntimeSerialNumber`. When `RhinoDoc.Path` is nonempty, canonicalize and send `Path.GetDirectoryName(doc.Path)` as `SavedDocumentDirectory`; when the document is unsaved, send `null` and let the Python service create the deterministic product workspace. Refuse if the captured runtime serial no longer resolves. The panel never sends its process cwd, repository path, selected-file dialog path, or a caller-authored workspace.
 
 - [ ] **Step 4: Implement image capture and bounded HTTP payloads**
 
@@ -1190,6 +1297,7 @@ git commit -m "feat(grasshopper): fence mutations to observed document"
 **Files:**
 - Create: `scripts/package-prime-acp-runtime.ps1`
 - Create: `scripts/verify-prime-acp-runtime.py`
+- Create: `scripts/verify-installed-rookchat-acp.py`
 - Create: `scripts/tests/prime-acp-runtime.tests.ps1`
 - Modify: `scripts/deploy-local-testing.ps1`
 - Modify: `scripts/tests/deploy-local-testing-guards.tests.ps1`
@@ -1198,13 +1306,14 @@ git commit -m "feat(grasshopper): fence mutations to observed document"
 - Modify: `scripts/tests/release-installer-guards.tests.ps1`
 - Modify: `installer/post_install.py`
 - Modify: `installer/python_runtime_install.py`
+- Create: `mcp_server/tests/test_verify_installed_rookchat_acp.py`
 - Create generated staging contract: `installer/runtime/prime/runtime-contract.json`
 - Create generated staging manifest: `installer/runtime/prime/runtime-manifest.json`
 - Modify: `.gitignore` only if the official staged artifact directory is generated and ignored
 - Add: Prime-required license/notice files to the generated installer payload
 
 **Interfaces:**
-- Produces: official-shape immutable runtime at `ROOK_INSTALL_ROOT/prime/runtimes/<runtime-id>/`, an atomically replaced qualified-runtime pointer `current.json`, exact closed manifest, installed paths in the chat service manifest, and persistent data under `ROOK_DATA_DIR/rookchat/acp/v1/`.
+- Produces: official-shape immutable runtime at `ROOK_INSTALL_ROOT/prime/runtimes/<runtime-id>/`, an atomically replaced qualified-runtime pointer `current.json`, exact closed manifest, installed paths in the chat service manifest, persistent data under `ROOK_DATA_DIR/rookchat/acp/v1/`, and one bounded installed-product identity report.
 - Consumes: Prime `9c25468b62c79fc4b1419d7800740e8e41e30467`, its `npm run build` and `scripts/pack-prime-agent-release.mjs`, Task 8 skill, and Task 4 runtime verifier.
 
 - [ ] **Step 1: Write RED packaging guard tests**
@@ -1222,6 +1331,8 @@ sessions, presentation, and claims are outside replaceable app payloads
 upgrade and rollback preserve historical runtimes and ACP data
 uninstall with data retention does not remove ACP data
 Prime licenses/notices are installed
+installed verifier compares reviewed build outputs and source payloads with every installed consumer
+installed identity report binds implementation commit, native/managed/Python/skill/Prime hashes, and chat-service paths
 ```
 
 - [ ] **Step 2: Package Prime through its supported release script**
@@ -1250,6 +1361,19 @@ The chat service manifest gains exact `primeRuntimeRoot`, `primeCurrentContract`
 
 Keep Prime credentials/settings/kernel in Prime's supported mutable user locations. Do not relocate or parse them into the immutable runtime.
 
+Implement `verify-installed-rookchat-acp.py` as a read-only deployment-custody verifier, not a qualification runner. It receives the exact clean implementation commit, worktree root, installed Rook root, installed chat-service manifest, and output path. It fails closed unless all of the following match:
+
+```text
+source Release RookNative.rhp -> installed RookNative.rhp
+source managed net8.0/net7.0/net48 Rook.rhp payloads -> installed runtime payloads
+closed source mcp_server/src/rook tree -> installed chat-service Rook tree selected by its manifest
+installed rook-full manifest and literal SKILL.md bytes -> installed Prime runtime contract
+installed Prime executable and complete runtime manifest -> current runtime pointer
+chat-service manifest Python executable/source/runtime/data paths -> exact installed paths
+```
+
+The verifier uses the same closed regular-file manifest rules as the product contracts, refuses symlinks/reparse-point escapes and unexpected extra authority files, and writes one bounded canonical JSON identity report only after every comparison succeeds. It does not launch the installed Python, Prime, Rhino, or any plugin. A later live gate rechecks this report and records actual service import origins separately.
+
 - [ ] **Step 5: Run packaging tests without launching Prime**
 
 ```powershell
@@ -1258,6 +1382,7 @@ pwsh -NoProfile -File scripts/tests/prime-acp-runtime.tests.ps1
 pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
 pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
 C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe scripts/verify-prime-acp-runtime.py --contract installer/runtime/prime/runtime-contract.json --manifest installer/runtime/prime/runtime-manifest.json --verify-only
+C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_verify_installed_rookchat_acp.py -q
 ```
 
 The verifier reads bytes only. No Prime executable, provider, Rhino, or installer launches.
@@ -1266,7 +1391,7 @@ The verifier reads bytes only. No Prime executable, provider, Rhino, or installe
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-git add scripts/package-prime-acp-runtime.ps1 scripts/verify-prime-acp-runtime.py scripts/tests/prime-acp-runtime.tests.ps1 scripts/deploy-local-testing.ps1 scripts/tests/deploy-local-testing-guards.tests.ps1 scripts/write-chat-service-manifest.ps1 installer/RookSetup.iss scripts/tests/release-installer-guards.tests.ps1 installer/post_install.py installer/python_runtime_install.py installer/runtime/prime/runtime-contract.json installer/runtime/prime/runtime-manifest.json .gitignore
+git add scripts/package-prime-acp-runtime.ps1 scripts/verify-prime-acp-runtime.py scripts/verify-installed-rookchat-acp.py scripts/tests/prime-acp-runtime.tests.ps1 scripts/deploy-local-testing.ps1 scripts/tests/deploy-local-testing-guards.tests.ps1 scripts/write-chat-service-manifest.ps1 installer/RookSetup.iss scripts/tests/release-installer-guards.tests.ps1 installer/post_install.py installer/python_runtime_install.py installer/runtime/prime/runtime-contract.json installer/runtime/prime/runtime-manifest.json mcp_server/tests/test_verify_installed_rookchat_acp.py .gitignore
 git commit -m "build(chat): package immutable Prime ACP runtime"
 ```
 
@@ -1327,7 +1452,7 @@ Document one Prime ACP implementation, Prime-owned login via interactive `/login
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
-./.venv/Scripts/python.exe -m pytest tests/test_rookchat_acp_cutover.py tests/test_chat_acp_sdk_contract.py tests/test_chat_acp_storage.py tests/test_chat_acp_presentation.py tests/test_chat_acp_images.py tests/test_chat_prime_runtime.py tests/test_chat_acp_client.py tests/test_chat_acp_process.py tests/test_chat_acp_conversation.py tests/test_chat_acp_two_service.py tests/test_chat_server.py tests/test_chat_integration.py tests/test_rook_full_skill_contract.py tests/test_rook_host_generation_targeting.py tests/test_gh_document_custody.py -q
+./.venv/Scripts/python.exe -m pytest tests/test_rookchat_acp_cutover.py tests/test_chat_acp_sdk_contract.py tests/test_chat_acp_storage.py tests/test_chat_acp_presentation.py tests/test_chat_acp_images.py tests/test_chat_acp_rook_results.py tests/test_chat_prime_runtime.py tests/test_chat_acp_client.py tests/test_chat_acp_process.py tests/test_chat_acp_conversation.py tests/test_chat_acp_two_service.py tests/test_chat_server.py tests/test_chat_integration.py tests/test_rook_full_skill_contract.py tests/test_rook_host_generation_targeting.py tests/test_gh_document_custody.py tests/test_verify_installed_rookchat_acp.py -q
 
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
 dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore
@@ -1353,6 +1478,7 @@ git commit -m "refactor(chat): remove ChatRunner product path"
 - Create: `scripts/qualification/fixtures/deterministic_provider.py`
 - Create: `scripts/qualification/protocols/rookchat-prime-acp-offline-v1.json`
 - Create: `scripts/qualification/protocols/rookchat-prime-acp-slice-c-v1.json`
+- Create: `scripts/qualification/protocols/rookchat-prime-acp-promotion-v1.json`
 - Create: `scripts/qualification/protocols/rookchat-prime-acp-slice-d-v1.json`
 - Create: `scripts/qualification/protocols/rookchat-prime-acp-slice-e-v1.json`
 - Create: `mcp_server/tests/test_rookchat_prime_acp_qualification.py`
@@ -1364,7 +1490,7 @@ git commit -m "refactor(chat): remove ChatRunner product path"
 
 - [ ] **Step 1: Write RED protocol-custody tests**
 
-Each protocol must contain exact schema/version, clean implementation commit, installed runtime/skill manifests, prompt/input hashes, wall-clock/token/process-close limits, target/profile identity, evaluator identity when applicable, fresh evidence root, and a one-execution version. The runner refuses existing evidence roots, hash drift, missing limits, mismatched commits, and any product import of `scripts/qualification`.
+Each protocol must contain exact schema/version, clean implementation commit, installed runtime/skill manifests, prompt/input hashes, wall-clock/token/process-close limits, target/profile identity, evaluator identity when applicable, fresh evidence root, and a one-execution version. The promotion protocol additionally binds MSVC toolset `14.44.35207`, Release configuration, the exact deployment command, expected source/installed artifact paths, and installed-verifier identity. The runner refuses existing evidence roots, hash drift, missing limits, mismatched commits, and any product import of `scripts/qualification`.
 
 Each frozen live version executes once and its result is immutable. Any correction requires a newly versioned protocol, fresh evidence root, and separate authorization; the runner never retries or overwrites a failed version.
 
@@ -1374,11 +1500,13 @@ Each frozen live version executes once and its result is immutable. Any correcti
 
 - [ ] **Step 3: Implement Slice A against the fake ACP agent**
 
-Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, first-turn publication, two-service claim contention, crash claim preservation, failed/uncertain spawn, concurrent update order, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
+Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, fake-agent source-order preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
 
 - [ ] **Step 4: Implement Slice B against the installed Prime artifact and deterministic provider**
 
 Use an isolated environment with exact `PRIME_AGENT_CODING_AGENT_DIR`, `HOME`, and `USERPROFILE` beneath the fresh evidence root; an isolated kernel path; a local deterministic provider; and a unique daemon-socket tripwire. The installed runtime must execute `initialize -> session/new -> session/prompt -> session/close -> EOF`, materialize the assigned file, reopen the same file, and answer consistently using prior context. Exercise lazy MCP start, representative Rook calls completing inside Prime's fixed 20-second startup and 60-second call limits, cancellation, MCP cleanup, fresh MCP establishment after reopen, manifest identity, required flags, zero tripwire contact, and clean direct-child exit. Product code still reads only the first-line header envelope.
+
+The combined offline gate also runs the static installed-product verifier against a staged install, proves the source-to-installed hash map is complete, and proves the deployment/installer guards preserve ACP data. This is not permission to deploy into Rhino's live plugin directories.
 
 - [ ] **Step 5: Run only model-free tests, then commit the frozen qualification code**
 
@@ -1405,15 +1533,28 @@ Freeze one tiny image whose answer depends on visible content, its SHA-256, prom
 
 STOP for explicit Slice C authorization. After one authorized execution, seal evidence and stop for review. No Rook/Rhino/GH server participates.
 
-- [ ] **Step 9: Prepare and review Slice D without executing it**
+- [ ] **Step 9: Promote one exact reviewed implementation into the installed product and stop**
 
-Freeze one deterministic Rhino/GH fixture and one readonly prompt. Record before/after structural snapshots, target identity, absence of mutation receipts, exact profile, and one prompt only. Fresh-MCP-after-reopen and readonly mutation refusal remain model-free; do not add a second stochastic prompt.
+Only after sealed Slice C evidence is independently accepted, freeze the promotion protocol with the exact clean implementation commit, source and runtime manifests, verifier hash, absent evidence root, Release configuration, MSVC `14.44.35207`, and this exact existing deployment command:
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+pwsh -NoProfile -File scripts/deploy-local-testing.ps1 -Configuration Release -VCToolsVersion 14.44.35207 -SkipChirpInstall
+```
+
+Do not use `-SkipBuild`; native and managed outputs must be built from the frozen commit. Do not use `-UseRepoVenv`; the deployed chat-service manifest and installed Python payload must be the product consumers qualified for Slices D and E. Before execution, stop for explicit promotion authorization and perform the deployment script's normal user-controlled Rhino/Rook shutdown prerequisites. Do not add process discovery or cleanup to the qualification runner.
+
+After the one authorized deployment, run `verify-installed-rookchat-acp.py` against the exact clean commit and installed paths. Seal its bounded identity report under the fresh promotion evidence root, commit only the report, and stop for independent review. A deployment or verification failure is immutable evidence for that protocol version; do not repair in place or proceed. Slice D remains unauthorized until the promotion report is approved.
+
+- [ ] **Step 10: Prepare and review Slice D without executing it**
+
+Freeze one deterministic Rhino/GH fixture and one readonly prompt. Rehash the installed native, managed, Python-service, Rook skill, and Prime runtime identities immediately before contact and require exact equality with the approved promotion report. Record those installed identities, actual service import origins, before/after structural snapshots, target identity, absence of mutation receipts, exact profile, and one prompt only. Fresh-MCP-after-reopen and readonly mutation refusal remain model-free; do not add a second stochastic prompt. Any installed drift refuses before Prime or Rook contact.
 
 STOP for explicit Slice D authorization. After one authorized execution, seal evidence and stop for review.
 
-- [ ] **Step 10: Prepare and review Slice E without executing it**
+- [ ] **Step 11: Prepare and review Slice E without executing it**
 
-Seed the established adjustable X-axis point-row defect before conversation creation. Freeze the user prompt, baseline identities, full profile, model/reasoning, limits, evaluator source/hash, and fresh evidence root. The Actor's exact ending is:
+Rehash the same installed identities against the approved promotion report before contact; any drift refuses. Seed the established adjustable X-axis point-row defect before conversation creation. Freeze the user prompt, baseline identities, full profile, model/reasoning, installed identities, limits, evaluator source/hash, and fresh evidence root. The Actor's exact ending is:
 
 ```text
 last actual committed mutation/restoration receipt R
@@ -1431,7 +1572,7 @@ Evaluator receipts are separately namespaced and cannot satisfy Actor criteria. 
 
 STOP for explicit Slice E authorization. After one authorized execution, preserve an honest pass or incomplete result, seal evidence, and stop for review. Never prompt-repair or rerun the same frozen version.
 
-- [ ] **Step 11: Run final source gates after the ladder is authored**
+- [ ] **Step 12: Run final source gates after the ladder is authored**
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
@@ -1452,9 +1593,10 @@ Native compilation, installed artifact execution, provider contact, Rhino contac
 3. Review Tasks 10-12's authored packaging, replacement, data-retention, and qualification code as one offline pre-contact gate covering technical Slices A and B. Build verification may produce artifacts but must not launch Prime.
 4. Review the frozen combined A+B package, then authorize at most one execution.
 5. Review sealed A+B evidence before authorizing Slice C.
-6. Review sealed C evidence before authorizing Slice D.
-7. Review sealed D evidence before authorizing Slice E.
-8. Review sealed E evidence before any release cutover decision.
+6. Review sealed C evidence before authorizing one installed-product promotion.
+7. Review the sealed promotion identity report before authorizing Slice D.
+8. Review sealed D evidence before authorizing Slice E.
+9. Review sealed E evidence before any release cutover decision.
 
 ## Final Acceptance Checklist
 
@@ -1468,5 +1610,6 @@ Native compilation, installed artifact execution, provider contact, Rhino contac
 - [ ] Rook host generation and Rhino serial are authoritative; PID is routing-only.
 - [ ] GH mutation schemas visibly require one centrally enforced optimistic document token; receipts and fenced reads bind the actual document ID.
 - [ ] The installed Prime artifact and Markdown skill are closed-manifest verified and historical runtimes/data survive update, rollback, and data-retaining uninstall.
+- [ ] One approved source commit is built with MSVC 14.44, deployed through the existing product path, and rehashed at every installed consumer before Slices D and E.
 - [ ] ChatRunner, backend selection, private RPC, daemon topology, worker auth, leases, process probes, kernel RPC, and Task 7 code are absent.
 - [ ] Combined offline A+B and separately authorized C/D/E gates preserve immutable, bounded evidence without retries or overwrite.
