@@ -77,6 +77,7 @@ class OwnedAcpProcess:
         self._retired = False
         self._retirement_result: RetirementResult | None = None
         self._active_cancel: asyncio.Event | None = None
+        self._pending_cancel = False
         self._cancel_sent = False
         self._stderr_tail = bytearray()
         self._stderr_total_bytes = 0
@@ -183,6 +184,8 @@ class OwnedAcpProcess:
         cancellation = asyncio.Event()
         self._active_cancel = cancellation
         self._cancel_sent = False
+        if self._pending_cancel:
+            cancellation.set()
         self.client.activate_prompt(generation, projection, cancellation)
         prompt_task = asyncio.create_task(self.connection.prompt(self.session_id, content_blocks))
         permission_cancel = asyncio.create_task(cancellation.wait())
@@ -207,6 +210,7 @@ class OwnedAcpProcess:
                 await overflow_cancel
             self.client.clear_prompt(generation)
             self._active_cancel = None
+            self._pending_cancel = False
 
     async def _send_cancel_once(self) -> None:
         if self.session_id is None or self._cancel_sent:
@@ -215,6 +219,7 @@ class OwnedAcpProcess:
         await self.connection.cancel(self.session_id)
 
     async def cancel(self) -> None:
+        self._pending_cancel = True
         if self._active_cancel is None:
             return
         self._active_cancel.set()
@@ -228,7 +233,12 @@ class OwnedAcpProcess:
             timeout=ACP_CONTROL_TIMEOUT_SECONDS,
         )
 
-    async def retire(self, *, send_close: bool = True) -> RetirementResult:
+    async def retire(
+        self,
+        *,
+        send_close: bool = True,
+        release_claim: bool = True,
+    ) -> RetirementResult:
         if self._retirement_result is not None:
             return self._retirement_result
         if self._retired:
@@ -249,34 +259,55 @@ class OwnedAcpProcess:
         except Exception:
             clean = False
 
+        exit_observed = False
         if self.process.returncode is None:
             clean = False
-            self.process.terminate()
+            with contextlib.suppress(ProcessLookupError):
+                self.process.terminate()
             try:
                 await asyncio.wait_for(self.process.wait(), timeout=ACP_RETIRE_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
-                self.process.kill()
-                await self.process.wait()
+                with contextlib.suppress(ProcessLookupError):
+                    self.process.kill()
+                try:
+                    await asyncio.wait_for(self.process.wait(), timeout=ACP_RETIRE_TIMEOUT_SECONDS)
+                except asyncio.TimeoutError:
+                    pass
+                else:
+                    exit_observed = True
+            else:
+                exit_observed = True
         else:
-            await self.process.wait()
-        self.child_exit_observed = True
-        if self.process.returncode != 0:
+            try:
+                await asyncio.wait_for(self.process.wait(), timeout=ACP_RETIRE_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                clean = False
+            else:
+                exit_observed = True
+        self.child_exit_observed = exit_observed
+        if exit_observed and self.process.returncode != 0:
             clean = False
 
         if self._stderr_task is not None:
-            try:
-                await asyncio.wait_for(self._stderr_task, timeout=ACP_RETIRE_TIMEOUT_SECONDS)
-            except Exception:
+            if not exit_observed:
                 self._stderr_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._stderr_task
-                self._stderr_failure_code = self._stderr_failure_code or "stderr_drain_failed"
-                self.transport_failure.set()
-                clean = False
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await asyncio.wait_for(self._stderr_task, timeout=ACP_RETIRE_TIMEOUT_SECONDS)
+            else:
+                try:
+                    await asyncio.wait_for(self._stderr_task, timeout=ACP_RETIRE_TIMEOUT_SECONDS)
+                except Exception:
+                    self._stderr_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await self._stderr_task
+                    self._stderr_failure_code = self._stderr_failure_code or "stderr_drain_failed"
+                    self.transport_failure.set()
+                    clean = False
         if self._stderr_failure_code is not None:
             clean = False
         self._stderr_tail.clear()
-        self.claim.release_after_observed_exit()
+        if release_claim and exit_observed:
+            self.claim.release_after_observed_exit()
         self._retirement_result = self._result(clean=clean)
         return self._retirement_result
 

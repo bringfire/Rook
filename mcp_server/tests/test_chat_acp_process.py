@@ -201,6 +201,27 @@ async def test_cancel_is_sent_by_prompt_owner_outside_callback(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_cancel_latches_when_it_races_prompt_startup(tmp_path: Path):
+    launch, journal = _fake_launch(tmp_path, hang_prompt=True, updates=[])
+    process, _ = await _start(tmp_path, launch)
+    await process.initialize()
+    await process.new_session(cwd=tmp_path, mcp_servers=[])
+    generation = PromptGeneration(1, process.session_id, "prompt-race")
+    projection = BoundedPromptProjection(generation=generation, queue=PresentationQueue(), user_text="hello")
+    prompt_task = asyncio.create_task(
+        process.prompt([TextContentBlock(type="text", text="hello")], generation=generation, projection=projection)
+    )
+    await process.cancel()
+    try:
+        response = await asyncio.wait_for(prompt_task, timeout=2)
+    finally:
+        await process.retire()
+
+    assert response.stop_reason == "cancelled"
+    assert [row["method"] for row in _read_journal(journal) if "method" in row].count("session/cancel") == 1
+
+
+@pytest.mark.asyncio
 async def test_close_failure_is_unclean_but_exact_child_is_retired(tmp_path: Path):
     launch, _ = _fake_launch(tmp_path, close_error=True, updates=[])
     process, claim = await _start(tmp_path, launch)
@@ -222,6 +243,52 @@ async def test_uncertain_prompt_retirement_sends_no_close_request(tmp_path: Path
     methods = [row["method"] for row in _read_journal(journal) if "method" in row]
     assert "session/close" not in methods
     assert result.child_exit_observed
+
+
+@pytest.mark.asyncio
+async def test_unobserved_exit_is_bounded_and_preserves_claim(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("rook.agent.chat.acp_process.ACP_RETIRE_TIMEOUT_SECONDS", 0.01)
+    claim = OpenClaim.acquire(tmp_path / "claims", str(tmp_path / "session.jsonl"))
+
+    class HangingContext:
+        async def __aexit__(self, *_args):
+            await asyncio.Event().wait()
+
+    class HangingProcess:
+        returncode = None
+        stderr = None
+
+        def __init__(self):
+            self.terminate_calls = 0
+            self.kill_calls = 0
+
+        def terminate(self):
+            self.terminate_calls += 1
+
+        def kill(self):
+            self.kill_calls += 1
+
+        async def wait(self):
+            await asyncio.Event().wait()
+
+    child = HangingProcess()
+    process = OwnedAcpProcess(
+        PrimeLaunch(argv=(sys.executable,), environment={}),
+        claim,
+        1,
+        RookChatAcpClient(),
+        HangingContext(),
+        SimpleNamespace(),
+        child,
+    )
+
+    result = await asyncio.wait_for(process.retire(send_close=False), timeout=0.2)
+
+    assert not result.clean
+    assert not result.child_exit_observed
+    assert child.terminate_calls == 1
+    assert child.kill_calls == 1
+    assert claim.path.exists()
 
 
 @pytest.mark.asyncio
