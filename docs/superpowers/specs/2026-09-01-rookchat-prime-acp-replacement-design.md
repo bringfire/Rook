@@ -286,9 +286,11 @@ If a prompt is active, close first follows the cancellation path. If the prompt
 cannot settle, close does not stack `session/close` onto an uncertain
 connection; it retires transport and the exact child directly.
 
-Closing a tab leaves no Prime process resident. The durable association remains
-reopenable. An active Prime goal remains in Prime's persisted state; close does
-not complete, clear, cancel, or semantically pause it.
+A successfully completed close leaves no Prime process resident and removes its
+claim. If child exit cannot be observed, closure is incomplete, the claim
+remains, and Reopen and Delete continue to refuse pending separately designed
+recovery. An active Prime goal remains in Prime's persisted state; close does not
+complete, clear, cancel, or semantically pause it.
 
 ### 4.7 Reopen
 
@@ -338,7 +340,8 @@ removal.
 
 ## 5. Durable Association And Prime Session Envelope
 
-Every durable association is complete, materialized, and reopenable. It stores:
+Every durable association is complete and materialized, and is reopenable when
+no claim exists and custody validation passes. It stores:
 
 - schema version;
 - service-generated conversation ID;
