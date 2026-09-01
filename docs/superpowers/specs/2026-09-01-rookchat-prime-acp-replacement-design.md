@@ -89,7 +89,7 @@ status, and the authenticated HTTP conversation with the Python service.
 The Python service owns:
 
 - the durable RookChat-to-Prime association;
-- the kernel-backed cross-service conversation open guard;
+- the cross-service conversation `open.claim` fence;
 - one optional directly owned ACP process and connection per open conversation;
 - ACP request and response correlation;
 - single-flight prompt admission;
@@ -148,38 +148,52 @@ Prime is launched with the approved runtime configuration, including:
 The Rook MCP server is declared through standard ACP `session/new` parameters.
 No product-owned RPC or `AgentConnection` protocol exists.
 
-### 4.2 Cross-Service Open Guard
+### 4.2 Cross-Service Open Claim
 
-Before every Prime launch, the Python service acquires a nonblocking exclusive
-OS advisory lock keyed by the canonical product-assigned Prime session path.
-The lock-file path is deterministically derived beneath a product-owned guard
-root; it is never supplied by the user. Failure to acquire returns
-`session_in_use` before Prime starts.
+Before every Prime launch, the Python service creates one `open.claim` file
+atomically and exclusively. Its path is keyed by the canonical product-assigned
+Prime session path as
+`<claims-root>/<sha256(UTF-8 canonical-session-path)>.open.claim`. The
+product-owned claims root and canonicalization version are stable product data,
+recorded by the runtime compatibility contract, and must reproduce the same key
+for an existing association across installation, upgrade, and rollback. The path
+is never supplied by the user. If the claim already exists, RookChat returns
+`session_recovery_required` before Prime starts. It does not attempt to classify
+the claim as active or abandoned.
 
-`ConversationOpenGuard` is one open file handle held for the lifetime of the
-resident ACP handle. It is released only after the Prime process and ACP
-connection have been retired. Delete retains the guard through association and
-artifact cleanup. If the service process dies, the operating system releases
-the lock automatically.
+The service retains ownership of the claim for the lifetime of the resident ACP
+handle. It removes the claim only after the directly owned Prime child has been
+observed exited and the ACP connection has been retired. If process creation
+is positively known not to have occurred, failed admission removes the claim
+because no Prime child exists. A missing handle or uncertain creation outcome is
+not proof that no child exists; the claim remains. Delete retains its claim
+through association and artifact cleanup.
 
-The guard contains no owner metadata and uses no PID, heartbeat, stale-owner
-test, takeover, polling, or persistent lifecycle state. A lock file may remain
-on disk, but its bytes carry no authority; only the kernel-held lock does. This
-is cooperating RookChat-instance exclusion, not a Prime session lease and not a
-claim that external programs cannot open the JSONL independently.
+If the Python service crashes, the claim remains even though stdin closure may
+cause Prime to begin asynchronous shutdown. Reopen and Delete fail closed with
+`session_recovery_required`; explicit crash recovery is deferred to a later,
+separately designed operation.
+
+The claim contains no owner metadata and uses no PID, heartbeat, expiry,
+stale-owner test, takeover, polling, or automatic reclamation. Its presence is
+the entire crash fence. This is not a Prime session lease and not a claim that
+external programs cannot open the JSONL independently.
 
 ### 4.3 Minimal State Model
 
-RookChat persists associations, not lifecycle.
+RookChat persists associations, not lifecycle. The only durable control artifact
+besides the validated association is the optional `open.claim` crash fence. It
+contains no lifecycle or ownership record; presence only refuses launch or
+deletion until a later explicit recovery design resolves it.
 
-Durable state is one validated association record. Resident state is either:
+Resident state is either:
 
 ```text
 closed
 
 or
 
-open(open-guard handle, direct process handle, ACP connection,
+open(owned open.claim, direct process handle, ACP connection,
      ACP session ID, optional prompt task)
 ```
 
@@ -195,7 +209,7 @@ binding. Its pre-persistence state exists only in memory:
 
 ```text
 service-generated provisional conversation ID and session path
--> acquire ConversationOpenGuard
+-> create open.claim exclusively
 -> launch Prime
 -> initialize ACP
 -> verify compatible protocol and session/close capability
@@ -209,20 +223,23 @@ service-generated provisional conversation ID and session path
 A successful `initialize` must report a protocol version admitted by the pinned
 ACP compatibility contract and `agentCapabilities.sessionCapabilities.close`.
 Missing or incompatible required capability returns `acp_incompatible` before
-the first prompt. The service retires the exact child, releases the open guard,
-and publishes no association. Prime `_meta` remains optional and
+the first prompt. The service retires the exact child, removes the claim only
+after observing that child exited, and publishes no association. Prime `_meta`
+remains optional and
 non-authoritative.
 
 Prime normally does not materialize a new session file at `session/new`; the
 first prompt is therefore the sole provisional turn. No second prompt is
 admitted before durable publication.
 
-If the first prompt settles without valid create-only publication, or if the
-service or Prime process ends first, the service retires the exact child when it
-still owns one, releases the guard, and loses the provisional conversation. It
-is not adopted, repaired, relaunched, or replayed automatically. Any unpublished
-file is outside the registry and may only be addressed by a separately designed
-garbage-collection policy.
+If the first prompt settles without valid create-only publication, or if Prime
+exits first, the still-running service retires or observes the exact child,
+removes the claim only after observing that child exited, and loses the
+provisional conversation. If the service itself crashes, the claim remains. The
+provisional conversation is never adopted, repaired, relaunched, or replayed
+automatically. Any unpublished file or claim is outside the registry and may
+only be addressed by a separately designed recovery and garbage-collection
+policy.
 
 ### 4.5 Prompt And Cancellation
 
@@ -243,7 +260,8 @@ send session/cancel once
 When settlement is uncertain, RookChat sends no more ACP requests. It closes
 the SDK transport and terminates only the exact directly owned Prime process if
 the SDK fallback requires it. It does not retry or replay the prompt or any
-tool call.
+tool call. The service removes the claim only after observing the child exited;
+if it cannot, the claim remains and later access requires explicit recovery.
 
 ### 4.6 Tab Close
 
@@ -254,14 +272,15 @@ stop accepting prompts
 -> session/close
 -> close stdin/transport
 -> bounded wait for clean Prime exit
--> release ConversationOpenGuard
+-> remove open.claim
 -> discard resident handles
 ```
 
 Every phase is bounded. If `session/close` fails or does not settle, no more ACP
 requests are sent. The service closes transport/stdin, waits once, terminates
-only its directly owned child if necessary, releases the guard after that child
-is retired, and reports unclean closure.
+only its directly owned child if necessary, removes the claim only after that
+child is observed exited, and reports unclean closure. If exit cannot be
+observed, the claim remains and later access requires explicit recovery.
 
 If a prompt is active, close first follows the cancellation path. If the prompt
 cannot settle, close does not stack `session/close` onto an uncertain
@@ -273,11 +292,19 @@ not complete, clear, cancel, or semantically pause it.
 
 ### 4.7 Reopen
 
-Reopen validates the durable association and recorded runtime, acquires the
-conversation's open guard, and then starts Prime. It launches a new Prime
-process against the exact recorded session file, creates a new ephemeral ACP
-session ID, revalidates required initialize capabilities, and admits no
-automatic prompt or goal continuation.
+Reopen follows one fixed admission order:
+
+```text
+read only the exact association locator needed to derive the claim key
+-> create open.claim exclusively
+-> re-read and validate the complete association, session envelope, and runtime
+-> launch Prime against the exact recorded session file
+-> initialize ACP and revalidate required capabilities
+```
+
+If re-read or validation fails before launch, the service removes the claim and
+returns the relevant availability error. A successful reopen creates a new
+ephemeral ACP session ID and admits no automatic prompt or goal continuation.
 
 The standing Rook instructions require fresh observation of external Rook state
 before dependent work. No persisted reorientation flag is needed.
@@ -288,13 +315,21 @@ open while its Rook target is unavailable.
 
 ### 4.8 Delete
 
-Delete first acquires the conversation's open guard or retains the guard already
-owned by its live handle. Contention returns `session_in_use` without deletion.
-It retires any live ACP connection and Prime process while retaining the guard,
-then removes the durable association through the registry's existing atomic
-mechanism. Physical removal of the validated product-owned Prime session and
-presentation artifacts is a bounded cleanup operation whose failure is reported
-honestly. The guard is released only after that cleanup attempt finishes.
+Delete has two entry paths. If this service already owns the claim through a
+live handle, it first retires the ACP connection and directly owned Prime child
+and retains the claim after observing child exit. Otherwise it reads only enough
+association data to derive the claim key, creates the claim exclusively, then
+re-reads and validates the complete association and owned paths. An existing
+claim returns `session_recovery_required` without changing any bytes. If the
+post-claim re-read or validation fails, Delete removes its newly created claim
+because no child was launched and returns the relevant error without deleting
+the association or artifacts.
+
+Delete removes the exact validated per-conversation association file while
+holding the claim. Physical removal of the validated product-owned Prime session
+and presentation artifacts is a bounded cleanup operation whose failure is
+reported honestly. The claim is removed only after that cleanup attempt finishes
+and no directly owned Prime child remains.
 
 Registry deletion and artifact deletion are not described as one atomic
 transaction. Exact erasure, retention, and orphan cleanup require a separate
@@ -393,6 +428,13 @@ If that complete operation cannot finish, the callback atomically signals
 overflow and returns immediately. It never sends cancellation or awaits ACP
 settlement from inside the callback.
 
+Every callback is also fenced by the exact service-local Prime launch
+generation, ephemeral ACP session ID, and prompt ID that created its producer.
+The generation is an in-memory correlation token, not an OS process identity.
+Admission rechecks the complete tuple at the ordering gate. A callback from a
+retired process, replaced ACP session, settled prompt, or closed producer returns
+without publishing to the panel, accumulator, or cache.
+
 The prompt-owner task observes overflow, sends `session/cancel` once, and awaits
 the original prompt task. A consumer disconnect uses the same path. The
 cancellation flag is absorbing.
@@ -462,9 +504,9 @@ The fixed cache bounds are:
 
 Every truncated user, assistant, tool, or metadata field carries a visible
 truncation marker and its original UTF-8 byte count. If a normal bounded turn
-projection cannot be constructed, the service may publish one create-only
-fallback projection of at most 8 KiB containing the presentation sequence,
-terminal ACP stop reason, available original byte counts, and:
+projection cannot be constructed, the service must attempt to publish one
+create-only fallback projection of at most 8 KiB containing the presentation
+sequence, terminal ACP stop reason, available original byte counts, and:
 
 > Turn presentation was unavailable. Prime retains the authoritative
 > conversation state.
@@ -611,6 +653,11 @@ The rules are:
 - Explicit transitions such as `gh_document_open`, `gh_document_new`, and
   `gh_learn_directory` require no expected ID and return the resulting active
   ID.
+
+One shared GH operation-classification predicate assigns these categories. The
+same result drives direct tool-schema projection, `rook_tools_read`, nested
+`rook_tools_call` validation, and dispatcher enforcement. No parallel mutation
+or transition list may govern any of those boundaries.
 
 The central dispatcher validates and removes `expectedGhDocumentId` before
 validating the tool's existing schema. This applies whether the mutation arrived
@@ -836,6 +883,7 @@ Prime's mutable user data remains outside the immutable executable directory:
 - Prime credentials and user settings remain Prime-owned;
 - product-assigned session files remain under the Rook data root;
 - presentation cache remains under the Rook data root;
+- non-expiring `open.claim` fences remain under the Rook data root;
 - Prime kernel state remains in Prime's supported mutable location.
 
 Ambient Prime skills, extensions, MCP servers, context files, and prompt
@@ -897,11 +945,11 @@ ACP release proves unusable
 A runtime safety disable may make RookChat unavailable; it never resurrects
 ChatRunner.
 
-ACP session files and presentation artifacts reside outside replaceable
-application payloads. Installation, upgrade, rollback, and uninstall with data
-retention must prove that they are not removed without explicit user-authorized
-data deletion. An older release may be unable to open newer ACP records;
-reinstalling the compatible ACP release restores access.
+ACP session files, presentation artifacts, and `open.claim` fences reside
+outside replaceable application payloads. Installation, upgrade, rollback, and
+uninstall with data retention must prove that they are not removed without
+explicit user-authorized data deletion. An older release may be unable to open
+newer ACP records; reinstalling the compatible ACP release restores access.
 
 RookChat owns the durable association, directly owned ACP process and
 connection, transport correlation, bounded presentation, runtime identity, and
@@ -955,9 +1003,15 @@ Model-free coverage proves:
 - incompatible protocol and missing `session/close` refusal before first prompt;
 - provisional first-turn publication;
 - two independent service instances contending for one conversation, with one
-  holding the OS guard and the other receiving `session_in_use` before launch;
-- automatic guard release after owner-process death without PID discovery;
+  owning `open.claim` and the other receiving `session_recovery_required` before
+  launch;
+- normal claim removal only after the exact child is observed exited;
+- owner-service crash preserving the claim after child exit, with subsequent
+  Reopen and Delete refusing without PID discovery or automatic reclamation;
+- failed process creation removing its claim only when the launcher proves no
+  child was created, while uncertain creation preserves the claim;
 - streaming order under deliberately concurrent callbacks;
+- late-callback refusal across prompt, ACP-session, and launch generations;
 - stalled-consumer overflow and one cancellation path;
 - permission auto-approval and absorbing cancellation;
 - cache bounds, sequence ordering, eviction, corruption, and independence from
@@ -1005,7 +1059,7 @@ The combined offline gate also proves the installed replacement:
   tool loop remains;
 - only Python imports the ACP SDK;
 - installation, upgrade, rollback, and uninstall with data retention preserve
-  ACP session and presentation data;
+  ACP session data, presentation data, and `open.claim` fences;
 - cleanup uses directly owned handles only.
 
 Slices A and B have separate technical results but one pre-contact independent
@@ -1117,8 +1171,8 @@ The design is accepted when:
 
 - RookChat has one shipped conversation implementation: Prime ACP;
 - one directly owned Prime process serves each open conversation;
-- one kernel-backed open guard excludes concurrent RookChat owners without a
-  persistent lease protocol;
+- one atomic non-expiring `open.claim` excludes concurrent RookChat owners and
+  fails closed after owner-service crash without a lease protocol;
 - no daemon or private Prime protocol participates;
 - every durable association identifies a validated materialized Prime session;
 - no broker lifecycle or transcript authority competes with Prime;
