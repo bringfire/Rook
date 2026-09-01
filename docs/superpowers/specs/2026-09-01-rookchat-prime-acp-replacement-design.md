@@ -89,6 +89,7 @@ status, and the authenticated HTTP conversation with the Python service.
 The Python service owns:
 
 - the durable RookChat-to-Prime association;
+- the kernel-backed cross-service conversation open guard;
 - one optional directly owned ACP process and connection per open conversation;
 - ACP request and response correlation;
 - single-flight prompt admission;
@@ -147,7 +148,27 @@ Prime is launched with the approved runtime configuration, including:
 The Rook MCP server is declared through standard ACP `session/new` parameters.
 No product-owned RPC or `AgentConnection` protocol exists.
 
-### 4.2 Minimal State Model
+### 4.2 Cross-Service Open Guard
+
+Before every Prime launch, the Python service acquires a nonblocking exclusive
+OS advisory lock keyed by the canonical product-assigned Prime session path.
+The lock-file path is deterministically derived beneath a product-owned guard
+root; it is never supplied by the user. Failure to acquire returns
+`session_in_use` before Prime starts.
+
+`ConversationOpenGuard` is one open file handle held for the lifetime of the
+resident ACP handle. It is released only after the Prime process and ACP
+connection have been retired. Delete retains the guard through association and
+artifact cleanup. If the service process dies, the operating system releases
+the lock automatically.
+
+The guard contains no owner metadata and uses no PID, heartbeat, stale-owner
+test, takeover, polling, or persistent lifecycle state. A lock file may remain
+on disk, but its bytes carry no authority; only the kernel-held lock does. This
+is cooperating RookChat-instance exclusion, not a Prime session lease and not a
+claim that external programs cannot open the JSONL independently.
+
+### 4.3 Minimal State Model
 
 RookChat persists associations, not lifecycle.
 
@@ -158,7 +179,8 @@ closed
 
 or
 
-open(direct process handle, ACP connection, ACP session ID, optional prompt task)
+open(open-guard handle, direct process handle, ACP connection,
+     ACP session ID, optional prompt task)
 ```
 
 Prompt completion, cancellation, forced close, and presentation failure are
@@ -166,15 +188,17 @@ operation outcomes and diagnostics. They are not durable workflow states.
 There is no persisted `materializing`, `interrupted`, `suspended`,
 `completed_before_cancel`, or broker-owned goal state.
 
-### 4.3 New Conversation And Materialization
+### 4.4 New Conversation And Materialization
 
 A new Rook-enabled conversation requires a valid Rook host and Rhino-document
 binding. Its pre-persistence state exists only in memory:
 
 ```text
 service-generated provisional conversation ID and session path
+-> acquire ConversationOpenGuard
 -> launch Prime
 -> initialize ACP
+-> verify compatible protocol and session/close capability
 -> session/new
 -> first user prompt
 -> Prime materializes the product-assigned file
@@ -182,16 +206,25 @@ service-generated provisional conversation ID and session path
 -> service atomically creates the complete durable association
 ```
 
+A successful `initialize` must report a protocol version admitted by the pinned
+ACP compatibility contract and `agentCapabilities.sessionCapabilities.close`.
+Missing or incompatible required capability returns `acp_incompatible` before
+the first prompt. The service retires the exact child, releases the open guard,
+and publishes no association. Prime `_meta` remains optional and
+non-authoritative.
+
 Prime normally does not materialize a new session file at `session/new`; the
 first prompt is therefore the sole provisional turn. No second prompt is
 admitted before durable publication.
 
-If the service or Prime process ends before valid create-only publication, the
-provisional conversation is lost. It is not adopted, repaired, relaunched, or
-replayed automatically. Any unpublished file is outside the registry and may
-only be addressed by a separately designed garbage-collection policy.
+If the first prompt settles without valid create-only publication, or if the
+service or Prime process ends first, the service retires the exact child when it
+still owns one, releases the guard, and loses the provisional conversation. It
+is not adopted, repaired, relaunched, or replayed automatically. Any unpublished
+file is outside the registry and may only be addressed by a separately designed
+garbage-collection policy.
 
-### 4.4 Prompt And Cancellation
+### 4.5 Prompt And Cancellation
 
 Only one prompt is active per conversation.
 
@@ -212,7 +245,7 @@ the SDK transport and terminates only the exact directly owned Prime process if
 the SDK fallback requires it. It does not retry or replay the prompt or any
 tool call.
 
-### 4.5 Tab Close
+### 4.6 Tab Close
 
 An idle or cleanly settled conversation closes as follows:
 
@@ -221,12 +254,14 @@ stop accepting prompts
 -> session/close
 -> close stdin/transport
 -> bounded wait for clean Prime exit
+-> release ConversationOpenGuard
 -> discard resident handles
 ```
 
 Every phase is bounded. If `session/close` fails or does not settle, no more ACP
 requests are sent. The service closes transport/stdin, waits once, terminates
-only its directly owned child if necessary, and reports unclean closure.
+only its directly owned child if necessary, releases the guard after that child
+is retired, and reports unclean closure.
 
 If a prompt is active, close first follows the cancellation path. If the prompt
 cannot settle, close does not stack `session/close` onto an uncertain
@@ -236,12 +271,13 @@ Closing a tab leaves no Prime process resident. The durable association remains
 reopenable. An active Prime goal remains in Prime's persisted state; close does
 not complete, clear, cancel, or semantically pause it.
 
-### 4.6 Reopen
+### 4.7 Reopen
 
-Reopen validates the durable association and recorded runtime before Prime
-starts. It launches a new Prime process against the exact recorded session
-file, creates a new ephemeral ACP session ID, and admits no automatic prompt or
-goal continuation.
+Reopen validates the durable association and recorded runtime, acquires the
+conversation's open guard, and then starts Prime. It launches a new Prime
+process against the exact recorded session file, creates a new ephemeral ACP
+session ID, revalidates required initialize capabilities, and admits no
+automatic prompt or goal continuation.
 
 The standing Rook instructions require fresh observation of external Rook state
 before dependent work. No persisted reorientation flag is needed.
@@ -250,12 +286,15 @@ Target unavailability does not block access to Prime's conversation. It blocks
 only target-dependent Rook operations. The panel shows that the conversation is
 open while its Rook target is unavailable.
 
-### 4.7 Delete
+### 4.8 Delete
 
-Delete first closes the live handle. It then removes the durable association
-through the registry's existing atomic mechanism. Physical removal of the
-validated product-owned Prime session and presentation artifacts is a bounded
-cleanup operation whose failure is reported honestly.
+Delete first acquires the conversation's open guard or retains the guard already
+owned by its live handle. Contention returns `session_in_use` without deletion.
+It retires any live ACP connection and Prime process while retaining the guard,
+then removes the durable association through the registry's existing atomic
+mechanism. Physical removal of the validated product-owned Prime session and
+presentation artifacts is a bounded cleanup operation whose failure is reported
+honestly. The guard is released only after that cleanup attempt finishes.
 
 Registry deletion and artifact deletion are not described as one atomic
 transaction. Exact erasure, retention, and orphan cleanup require a separate
@@ -367,6 +406,13 @@ not-yet-dequeued chunks with the same message ID for:
 
 Tool updates are not coalesced.
 
+The current-turn accumulator is independently bounded even when the panel keeps
+draining the live queue. It retains at most 256 KiB of user text and 1 MiB of
+assistant text, measured as UTF-8 bytes. It tracks each field's original byte
+count. When content exceeds a bound, the retained projection includes an
+explicit visible truncation marker and the original byte count; omitted bytes
+are never accumulated elsewhere.
+
 ### 6.3 Settlement, Cache, And Panel Drain
 
 After Prime settles:
@@ -392,6 +438,8 @@ One settled turn is published atomically as a create-only immutable file. Here,
 immutable means unchanged until whole-file eviction. Each file receives a
 service-assigned monotonically increasing presentation sequence. Reopen derives
 the next sequence from validated files; there is no mutable sequence ledger.
+The provisional first turn is eligible for cache publication only after the
+durable association has been published successfully.
 
 Each turn may contain:
 
@@ -412,6 +460,18 @@ The fixed cache bounds are:
 - complete projected turn: 4 MiB;
 - conversation cache: 64 MiB and 256 complete turns.
 
+Every truncated user, assistant, tool, or metadata field carries a visible
+truncation marker and its original UTF-8 byte count. If a normal bounded turn
+projection cannot be constructed, the service may publish one create-only
+fallback projection of at most 8 KiB containing the presentation sequence,
+terminal ACP stop reason, available original byte counts, and:
+
+> Turn presentation was unavailable. Prime retains the authoritative
+> conversation state.
+
+Failure to construct or publish that fallback remains a cache failure only; it
+does not change Prime settlement or the durable association.
+
 When a conversation limit is reached, complete lowest-sequence turns are
 evicted. If the earliest retained sequence is greater than one, the panel shows:
 
@@ -423,9 +483,12 @@ unavailable` without blocking Prime reopen.
 
 Known Prime `_meta` indicators for goals, compaction, IPython, and UI state are
 bounded and reset to unknown whenever a process/session is replaced until
-freshly observed. Unknown metadata key count and key length are bounded. Unknown
-values are not fully serialized merely to measure or display them, and secret
-patterns are redacted.
+freshly observed. Unknown `_meta` is limited per turn to 32 records, 16 keys per
+record, 64 UTF-8 bytes per key, and 8 KiB total projected payload. Unknown values
+are not fully serialized merely to measure or display them, and secret patterns
+are redacted. The projection records omitted-record, omitted-key, and
+omitted-value counters after any limit is reached; it does not compute an exact
+byte count for unprojected arbitrary values.
 
 ## 7. Prime Goals And Product Instructions
 
@@ -553,6 +616,14 @@ The central dispatcher validates and removes `expectedGhDocumentId` before
 validating the tool's existing schema. This applies whether the mutation arrived
 through `rook_tools_call` or a direct MCP tool call.
 
+The advertised contract makes the requirement visible. The tool-list projection
+adds the reserved canonical-GUID string field to both `properties` and
+`required` for every guarded document-scoped GH mutation's direct MCP input
+schema, and `rook_tools_read` returns the same augmented schema.
+`rook_tools_call` validates its nested arguments against that augmented target
+schema. Document-independent queries, observations, and the explicit transition
+tools are exempt.
+
 At managed callback entry:
 
 ```text
@@ -592,7 +663,7 @@ The boundary is intentionally not a hostile-code sandbox:
 
 ### 10.1 Trusted ACP Permission Policy
 
-RookChat full sessions automatically approve valid ACP permission requests.
+RookChat ACP sessions automatically approve valid ACP permission requests.
 The handler validates that option IDs are unique and nonempty and that option
 kinds are valid. It chooses deterministically:
 
@@ -849,7 +920,8 @@ The following do not enter the ACP product:
   surveillance;
 - broker-owned session leases;
 - private kernel-preparation RPC or contract-specific kernel environments;
-- broker-owned prompt settlement, goal lifecycle, or semantic completion;
+- shadow prompt lifecycle, semantic acceptance, terminalization protocol, or
+  automatic replay;
 - campaign runners, evaluators, or evidence manifests in product runtime;
 - Gate 7 monitors, wrappers, admission journals, or topology harnesses;
 - quarantined Task 7 Rook or Prime code;
@@ -880,7 +952,11 @@ C# panel
 Model-free coverage proves:
 
 - initialization and capability checking;
+- incompatible protocol and missing `session/close` refusal before first prompt;
 - provisional first-turn publication;
+- two independent service instances contending for one conversation, with one
+  holding the OS guard and the other receiving `session_in_use` before launch;
+- automatic guard release after owner-process death without PID discovery;
 - streaming order under deliberately concurrent callbacks;
 - stalled-consumer overflow and one cancellation path;
 - permission auto-approval and absorbing cancellation;
@@ -891,6 +967,11 @@ Model-free coverage proves:
 - absence of `--api-key` and reopen overrides;
 - exact service-owned `rook` MCP declaration injection;
 - structured Rook success and refusal-envelope projection;
+- direct and `rook_tools_read` GH mutation schemas advertising the required
+  `expectedGhDocumentId` field, with transition tools exempt;
+- accumulator, truncation-marker, original-byte-count, fallback-projection, and
+  exact unknown-`_meta` limits;
+- identical permission auto-approval behavior under readonly and full profiles;
 - directly owned cleanup and all normal-close failure branches;
 - no PID scan, PowerShell, process surveillance, or process-name cleanup.
 
@@ -1036,6 +1117,8 @@ The design is accepted when:
 
 - RookChat has one shipped conversation implementation: Prime ACP;
 - one directly owned Prime process serves each open conversation;
+- one kernel-backed open guard excludes concurrent RookChat owners without a
+  persistent lease protocol;
 - no daemon or private Prime protocol participates;
 - every durable association identifies a validated materialized Prime session;
 - no broker lifecycle or transcript authority competes with Prime;
