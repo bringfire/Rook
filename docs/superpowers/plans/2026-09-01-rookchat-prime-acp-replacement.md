@@ -134,6 +134,8 @@ def build_prime_argv(contract: PrimeRuntimeContract, session_path: Path,
                      requested_reasoning: str | None,
                      reopen: bool) -> tuple[str, ...]:
     raise NotImplementedError
+def validate_windows_launch_argv(argv: tuple[str, ...]) -> None:
+    raise NotImplementedError
 def build_prime_child_env(base_environment: Mapping[str, str],
                           contract: PrimeRuntimeContract) -> dict[str, str]:
     raise NotImplementedError
@@ -229,12 +231,14 @@ class AcpConversationManager:
     async def start_prompt(self, conversation_id: str, prompt: PromptInput,
                            sink: PresentationSink) -> ActivePromptSupervisor:
         raise NotImplementedError
-    def request_cancel(self, conversation_id: str, source: str) -> bool:
+    async def request_cancel(self, conversation_id: str, source: str) -> bool:
         """Signal the active prompt once; return False when no active prompt exists."""
         raise NotImplementedError
     async def close(self, conversation_id: str) -> CloseResult:
         raise NotImplementedError
     async def delete(self, conversation_id: str) -> DeleteResult:
+        raise NotImplementedError
+    async def shutdown(self) -> tuple[CloseResult, ...]:
         raise NotImplementedError
 ```
 
@@ -268,9 +272,10 @@ public Task<DeleteConversationResult> DeleteAsync(string conversationId, Cancell
 
 | Boundary | Producer -> exact artifact/value -> consumer | Lifetime owner | Failure behavior | Causal proof |
 | --- | --- | --- | --- | --- |
-| Product contract | Runtime manifest verifier -> the same retained `SKILL.md` byte buffer, strict UTF-8 decoded once -> Prime's single `--append-system-prompt <body>` argument; `--skill <verified-directory>` remains separate | `PrimeRuntimeContract` for one launch | Missing/hash-mismatched/non-UTF-8 bytes refuse before spawn | Launch test asserts exact body equality and proves neither filename nor path is substituted |
+| Product contract | Runtime manifest verifier -> the same retained `SKILL.md` byte buffer, strict UTF-8 decoded once -> Prime's single `--append-system-prompt <body>` argument; `--skill <verified-directory>` remains separate | `PrimeRuntimeContract` for one launch | Missing/hash-mismatched/non-UTF-8/oversized bytes or oversized rendered Windows argv refuse before spawn | Launch test asserts exact body equality, proves neither filename nor path is substituted, and covers both size bounds |
 | ACP process | Python service -> absolute manifest-bound argv plus explicit piped stdin/stdout/stderr -> official SDK transport and Prime | `OwnedAcpProcess`; one bounded stderr drain task for the child's lifetime | Drain cannot start or fails: no retry, mark transport failed, retire exact child; normal/forced retirement awaits or cancels the drain only after child exit handling | Fake agent writes beyond normal pipe capacity while prompt and clean EOF still settle |
 | Prompt | Authenticated HTTP handler -> `ActivePromptSupervisor` generation/result -> ACP prompt owner | Python service resident map, independent of HTTP task | Waiter cancellation/disconnect signals idempotent cancel once; it never cancels or clears the supervisor; uncertain settlement retires exact child | Cancel HTTP waiter during hanging fake prompt; prove one ACP cancel, bounded settlement/retirement, no orphan, no premature idle |
+| Retirement | Resident map -> atomic detach under the admission lock -> one locally retained resident/process handle | Close, live Delete, or service shutdown operation | Once detached, prompt/reopen admission refuses; only the detached generation is cancelled and retired | Barriers prove close-first refusal, prompt-first capture, shared Delete/shutdown detachment, and stale-generation isolation |
 | First turn | Provisional in-memory association -> materialized Prime header -> create-only complete association -> immutable projected turn | Prompt supervisor through settlement; association store and presentation cache after publication | Invalid/missing file or failed association publication leaves no durable association/cache; no adoption or replay | Failure injection at file creation, header validation, association publish, and cache publish boundaries |
 | Installed product | Exact clean implementation commit -> MSVC 14.44 native build + managed build + existing local deployment -> installed native/managed/Python/skill/Prime hash set -> Slices D/E | Existing deployment workflow; external promotion evidence after deployment | Any build/deploy/hash mismatch refuses live authorization; source identity alone earns no credit | Hash source outputs against installed destinations and reverify all identities immediately before D/E |
 | Rook evidence | ACP-delivered tool content -> successfully parsed exact Rook `{success, data}` JSON envelope -> bounded presentation/evidence classification | Current prompt projection only; Rook receipts/evidence remain authoritative | Enclosing IPython/tool-card completion without a parsed envelope certifies nothing; transport loss before envelope is unknown and never replayed | Completed tool card without envelope remains non-authoritative; exact success/refusal envelopes survive projection |
@@ -594,7 +599,15 @@ MAX_UNKNOWN_META_KEY_BYTES = 64
 MAX_UNKNOWN_META_TOTAL_BYTES = 8 * 1024
 ```
 
-Every callback acquires one per-prompt ordering gate, projects, coalesces, and admits within the same one-second deadline. On timeout it sets one absorbing overflow flag and returns; it never calls ACP. Preserve partial assistant text on cancellation. Every truncated user, assistant, tool, or metadata field includes a visible marker and original UTF-8 byte count. If normal projection fails, the cache must attempt one create-only fallback no larger than 8 KiB with sequence, stop reason, available original counts, and the exact approved sentence: `Turn presentation was unavailable. Prime retains the authoritative conversation state.` A missing, stale, or corrupt cache renders `presentation history unavailable` without affecting Prime reopen. Reset known goal/compaction indicators to unknown for every process/session replacement, and record omitted unknown-`_meta` record/key/value counters after the closed limits.
+The ACP `session_update` callback owns the source ordinal. Its first statement synchronously resolves the fenced prompt projection and increments that projection's counter; its first `await` is entry into the same projection's ordering gate:
+
+```python
+async def session_update(self, session_id: str, update: Any, **kwargs: Any) -> None:
+    projection, source_ordinal = self._assign_source_ordinal(session_id)
+    await projection.accept_source_update(source_ordinal, update)
+```
+
+No HTTP caller, fake agent, or test supplies the ordinal. The ordering gate is acquired immediately after assignment; callback work that can suspend occurs only after acquisition. Every callback acquires that one per-prompt gate, projects, coalesces, and admits within the same one-second deadline. On timeout it sets one absorbing overflow flag and returns; it never calls ACP. Preserve partial assistant text on cancellation. Every truncated user, assistant, tool, or metadata field includes a visible marker and original UTF-8 byte count. If normal projection fails, the cache must attempt one create-only fallback no larger than 8 KiB with sequence, stop reason, available original counts, and the exact approved sentence: `Turn presentation was unavailable. Prime retains the authoritative conversation state.` A missing, stale, or corrupt cache renders `presentation history unavailable` without affecting Prime reopen. Reset known goal/compaction indicators to unknown for every process/session replacement, and record omitted unknown-`_meta` record/key/value counters after the closed limits.
 
 - [ ] **Step 4: Implement strict image admission**
 
@@ -632,7 +645,7 @@ git commit -m "feat(chat): bound ACP presentation and images"
 - Modify: `mcp_server/src/rook/agent/chat/service_main.py`
 
 **Interfaces:**
-- Produces: verified `PrimeRuntimeContract`, exact launch argv/environment/MCP declaration, `RookChatAcpClient`, and `OwnedAcpProcess` with `initialize`, `new_session`, `prompt`, `cancel`, `close_session`, and `retire`.
+- Produces: verified `PrimeRuntimeContract`, exact bounded launch argv/environment/MCP declaration, stable `runtime_command_line_too_long`, `RookChatAcpClient`, and `OwnedAcpProcess` with `initialize`, `new_session`, `prompt`, `cancel`, `close_session`, and `retire`.
 - Consumes: Task 1 official SDK, Task 2 claim, Task 3 projection; never imports or shells into Prime.
 
 - [ ] **Step 1: Write RED runtime-custody tests**
@@ -659,9 +672,26 @@ def test_prime_child_environment_uses_pre_dotenv_snapshot(pre_dotenv_env, contra
     child = build_prime_child_env(pre_dotenv_env, contract)
     assert "ROOK_INSTALLED_DOTENV_SENTINEL" not in child
     assert "ANTHROPIC_API_KEY" not in child or child["ANTHROPIC_API_KEY"] == pre_dotenv_env.get("ANTHROPIC_API_KEY")
+
+def test_complete_rendered_windows_argv_refuses_before_spawn(contract, association):
+    oversized = dataclasses.replace(
+        contract,
+        rook_skill_system_prompt="x" * MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS,
+    )
+    with pytest.raises(PrimeLaunchError, match="runtime_command_line_too_long"):
+        build_prime_argv(oversized, Path(association.session_path), None, None, reopen=False)
 ```
 
-`load_and_verify_runtime` resolves the root `SKILL.md`, reads its bytes once, and uses that same retained byte buffer for the individual length/hash check and complete package-manifest replay. It then decodes those bytes with strict UTF-8 and stores the resulting text in `PrimeRuntimeContract.rook_skill_system_prompt`. `build_prime_argv` passes that text as one `--append-system-prompt` argument; Prime's flag accepts literal prompt text, not a filename. Keep `--skill <verified-directory>` as the separate skill-advertisement argument. Invalid UTF-8, byte-length drift, or hash drift refuses before spawn.
+Use these closed Windows launch bounds:
+
+```python
+MAX_ROOT_SKILL_UTF8_BYTES = 16 * 1024
+MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS = 30_000  # includes terminating NUL
+```
+
+`load_and_verify_runtime` resolves the root `SKILL.md`, reads its bytes once, and uses that same retained byte buffer for the individual length/hash check and complete package-manifest replay. Refuse when it exceeds `MAX_ROOT_SKILL_UTF8_BYTES`. It then decodes those bytes with strict UTF-8 and stores the resulting text in `PrimeRuntimeContract.rook_skill_system_prompt`. `build_prime_argv` passes that text as one `--append-system-prompt` argument; Prime's flag accepts literal prompt text, not a filename. Keep `--skill <verified-directory>` as the separate skill-advertisement argument. Invalid UTF-8, byte-length drift, hash drift, or root-skill overflow refuses before spawn.
+
+After rendering the complete argument tuple, `validate_windows_launch_argv` uses `subprocess.list2cmdline(argv)` and computes `len(rendered.encode("utf-16-le")) // 2 + 1`. Refuse with stable `runtime_command_line_too_long` before `spawn_agent_process` when the result exceeds 30,000 UTF-16 code units. This deliberately stays below Windows `CreateProcessW`'s 32,767-character ceiling and binds executable path, session path, skill paths, literal system prompt, model, reasoning, and every quoted separator exactly as launched. Tests cover the actual normal rendered argv, a root skill one byte over 16 KiB, and a complete-argv overflow.
 
 Also prove exact manifest reproduction; regular-file-only traversal; ordinal forward-slash paths; raw length/hash binding; manifest self-exclusion; path-under-root checks; required Prime/goal/rook skill/license files; exact ACP SDK version; closed reasoning enum; exact `--no-skills`, pinned goal skill, pinned Rook skill, and literal root-skill system-prompt body; no `--api-key`, `--provider`, shell, ambient skill, or reopen overrides; MCP server name exactly `rook`; only contract-owned MCP env keys; and association `working_directory` delivery through `session/new.cwd` rather than a nonexistent stdio-server field. The launched executable path is absolute and manifest-bound. The supported child environment may contain `PATH`, but executable selection never consults it and no fallback executable is accepted.
 
@@ -669,7 +699,7 @@ Also prove exact manifest reproduction; regular-file-only traversal; ordinal for
 
 Cover initialization protocol and `session/close` capability refusal, `promptCapabilities.image`, one ACP session per process, permission choice ordering and unique/nonempty IDs, callback generation fencing, cancellation outside callbacks, stop-reason mapping, clean close, `session/close` failure, uncertain prompt retirement, positively failed spawn claim release, uncertain spawn claim preservation, bounded optional Prime `_meta` goal/compaction projection, and reset-to-unknown on every process/session replacement. Missing or unknown `_meta` must never block standard ACP operation.
 
-Add three causal process-boundary tests. First, launch the fake agent through the actual `OwnedAcpProcess` path and have it retain its received argv; prove the exact decoded `SKILL.md` body arrives as one `--append-system-prompt` value on new and reopen, while the skill path appears only under `--skill`. Second, the fake agent emits deliberately concurrent SDK callbacks while retaining its own source journal; assert the projected rows preserve that journal order without accepting caller-supplied ordinals. Third, the fake agent writes at least 2 MiB to stderr before and during a prompt; initialize, prompt settlement, `session/close`, EOF, and clean child exit must all complete without a full pipe blocking Prime.
+Add three causal process-boundary tests. First, launch the fake agent through the actual `OwnedAcpProcess` path and have it retain its received argv; prove the exact decoded `SKILL.md` body arrives as one `--append-system-prompt` value on new and reopen, while the skill path appears only under `--skill`. Second, the fake agent sends updates in a retained wire order; an injected test projection/sink stalls the first callback only after it assigns its prompt-local ordinal and acquires the ordering gate, forcing later SDK callback tasks to overlap without adding a production test hook. Assert the final projection reproduces the fake agent's wire journal exactly. If the pinned public SDK path cannot establish this, stop implementation rather than accepting externally supplied ordinals or adding a private transport. Third, the fake agent writes at least 2 MiB to stderr before and during a prompt; initialize, prompt settlement, `session/close`, EOF, and clean child exit must all complete without a full pipe blocking Prime.
 
 - [ ] **Step 3: Run RED without Prime**
 
@@ -700,6 +730,7 @@ ACP `McpServerStdio` has no per-server working-directory field. Its command, arg
 Use the public SDK process helper and transport context directly, with stderr explicitly piped:
 
 ```python
+validate_windows_launch_argv(self._launch.argv)
 self._spawn_context = spawn_agent_process(
     self._client,
     *self._launch.argv,
@@ -797,9 +828,19 @@ Target unavailability must allow Prime reopen but make the MCP environment retai
 
 Add a model-free goal-projection case in which the fake agent reports an active Prime goal, Stop cancels only the current prompt, and the projected goal remains active until fresh Prime metadata says otherwise. Native `/goal status`, `/goal pause`, `/goal resume`, and `/goal clear` text passes through the ordinary settled prompt route; the manager exposes no parallel goal endpoint or persisted goal record.
 
-- [ ] **Step 3: Write RED two-service contention and owner-crash tests**
+- [ ] **Step 3: Write RED contention, retirement-barrier, and owner-crash tests**
 
 Start two independent `AcpConversationManager` instances over the same temporary data root. Exactly one may create the claim and call the fake launcher. After an owner service subprocess exits without its close path, wait for its fake child to observe EOF and exit, then prove the claim still refuses Reopen and Delete. Do not inspect any PID.
+
+Add deterministic barrier tests for the resident admission boundary:
+
+```text
+Close detaches its resident, pauses at a barrier, then a concurrent prompt refuses before ACP dispatch.
+A prompt admitted before Close is captured by the detached resident and cancelled exactly once.
+Live Delete calls the same detach primitive before cancellation, process retirement, or artifact work.
+Service shutdown stops HTTP admission, detaches every resident, then retires only those detached handles.
+A late completion or cleanup from an older launch generation cannot clear or retire a newer resident object.
+```
 
 - [ ] **Step 4: Implement one resident handle map and one single-flight gate**
 
@@ -809,11 +850,14 @@ class AcpConversationManager:
                  process_factory: AcpProcessFactory, cache: PresentationCache):
         self._resident: dict[str, ResidentConversation] = {}
         self._launch_generation = itertools.count(1)
+        self._admission_lock = asyncio.Lock()
 
     async def start_prompt(self, conversation_id: str, prompt: PromptInput,
                            sink: PresentationSink) -> ActivePromptSupervisor:
-        resident = self._require_resident(conversation_id)
-        async with resident.lock:
+        async with self._admission_lock:
+            resident = self._resident.get(conversation_id)
+            if resident is None:
+                raise ConversationNotOpen(conversation_id)
             if resident.active_prompt is not None:
                 raise ConversationBusy(conversation_id)
             supervisor = ActivePromptSupervisor(generation=resident.next_prompt_generation())
@@ -827,33 +871,52 @@ class AcpConversationManager:
         try:
             return await self._run_prompt(resident, supervisor, prompt, sink)
         finally:
-            async with resident.lock:
+            async with self._admission_lock:
                 if resident.active_prompt is supervisor:
                     resident.active_prompt = None
+
+    async def detach_resident_for_retirement(
+        self, conversation_id: str
+    ) -> ResidentConversation:
+        async with self._admission_lock:
+            resident = self._resident.pop(conversation_id, None)
+            if resident is None:
+                raise ConversationNotOpen(conversation_id)
+            return resident
+
+    async def request_cancel(self, conversation_id: str, source: str) -> bool:
+        async with self._admission_lock:
+            resident = self._resident.get(conversation_id)
+            supervisor = None if resident is None else resident.active_prompt
+        return False if supervisor is None else supervisor.request_cancel(source)
 ```
 
-The service-owned supervisor, not the HTTP waiter, owns prompt correlation, cancellation, final projection, cache publication, and clearing the active reference. Cancelling any observer of `result_task` must not cancel the underlying task; only `request_cancel` sets its one absorbing event. No caller and no stale generation may clear a newer prompt. Do not persist states for `idle`, `materializing`, `suspended`, `interrupted`, cancellation races, or goals.
+All resident insertion, prompt admission, detachment, and identity-checked prompt cleanup passes through `_admission_lock`. Detachment itself is the absorbing boundary: after the resident is removed, a new prompt sees `ConversationNotOpen`, while Reopen still fails on the retained `open.claim` until child exit is observed. The detached object remains the retirement operation's local authority; no later cleanup performs another map removal or touches a resident with a different launch generation.
+
+The service-owned supervisor, not the HTTP waiter, owns prompt correlation, cancellation, final projection, cache publication, and clearing the active reference on its own resident object. Cancelling any observer of `result_task` must not cancel the underlying task; only `request_cancel` sets its one absorbing event. No caller and no stale generation may clear a newer prompt. `close`, live `delete`, and `shutdown` all begin with `detach_resident_for_retirement`; shutdown first stops HTTP admission and then detaches each captured resident before retiring it. This is ephemeral handle ownership, not a durable lifecycle state. Do not persist states for `idle`, `materializing`, `suspended`, `interrupted`, cancellation races, or goals.
 
 - [ ] **Step 5: Implement exact cancellation and close branches**
 
-The prompt owner, not an update callback or HTTP waiter, observes the absorbing cancellation event, sends `session/cancel` once, and awaits the original ACP prompt task. If it settles, classify that actual stop reason. If it does not, send no further ACP request and retire the exact process. `request_cancel(conversation_id, source)` only signals the current supervisor and is idempotent.
+The prompt owner, not an update callback or HTTP waiter, observes the absorbing cancellation event, sends `session/cancel` once, and awaits the original ACP prompt task. If it settles, classify that actual stop reason. If it does not, send no further ACP request and retire the exact process. `AcpConversationManager.request_cancel(conversation_id, source)` briefly acquires `_admission_lock`, snapshots the current supervisor, and invokes its synchronous idempotent `request_cancel`; it does not await ACP settlement while holding the lock.
 
 Only a `ParsedRookResult` produced by Task 3 from exact ACP-delivered Rook JSON content establishes an authentic Rook result or receipt. Enclosing IPython/tool-card completion never does. Such a parsed result remains authoritative for that Rook operation even when the enclosing prompt later returns `error` or becomes uncertain. If transport fails before an exact envelope is parsed, record the operation outcome as unknown, freshly inspect Rook state, and never replay it automatically.
 
-Close follows:
+Close follows, using only the detached handle after admission has stopped:
 
 ```python
-if resident.active_prompt is not None:
-    resident.active_prompt.request_cancel("close")
-    settled = await resident.await_active_prompt(prompt_settlement_deadline)
+detached = await self.detach_resident_for_retirement(conversation_id)
+captured_prompt = detached.active_prompt
+if captured_prompt is not None:
+    captured_prompt.request_cancel("close")
+    settled = await detached.await_captured_prompt(captured_prompt, prompt_settlement_deadline)
     if not settled:
-        return await resident.retire_without_more_acp()
-await resident.process.close_session(close_deadline)
-await resident.process.retire(process_exit_deadline)
-resident.claim.release_after_observed_exit()
+        return await detached.retire_without_more_acp()
+await detached.process.close_session(close_deadline)
+await detached.process.retire(process_exit_deadline)
+detached.claim.release_after_observed_exit()
 ```
 
-A forced termination after observed process exit may release the claim but returns `unclean`; inability to observe exit leaves the claim. Delete holds the same claim through bounded association deletion and artifact cleanup and reports cleanup failures without claiming atomic erasure.
+A forced termination after observed process exit may release the claim but returns `unclean`; inability to observe exit leaves the claim. Live Delete detaches through the same primitive, retains that resident's claim through bounded association deletion and artifact cleanup, and reports cleanup failures without claiming atomic erasure. Delete of a nonresident conversation acquires the existing claim before revalidation as already specified. No retirement path retries detachment.
 
 - [ ] **Step 6: Run the complete manager tests**
 
@@ -946,11 +1009,13 @@ supervisor = await manager.start_prompt(conversation_id, prompt, sink)
 try:
     result = await asyncio.shield(supervisor.result_task)
 except (asyncio.CancelledError, ConnectionResetError):
-    manager.request_cancel(conversation_id, source="http_waiter")
+    supervisor.request_cancel(source="http_waiter")
     raise
 ```
 
-The cancel endpoint calls the same idempotent `request_cancel` signal and returns whether an active prompt accepted it; it does not wait for ACP settlement. The stream writer emits bounded projected NDJSON rows and independently records the terminal Prime outcome and presentation-stream outcome. A disconnected response signals the prompt owner exactly once; it never clears the resident prompt reference, awaits cleanup recursively from a callback, or owns process retirement.
+The cancel endpoint awaits the manager's bounded in-memory lookup, which calls the same idempotent supervisor signal and returns whether an active prompt accepted it; it does not wait for ACP settlement. The stream writer emits bounded projected NDJSON rows and independently records the terminal Prime outcome and presentation-stream outcome. A disconnected response uses its already captured supervisor to signal the prompt owner exactly once; it never clears the resident prompt reference, awaits cleanup recursively from a callback, or owns process retirement.
+
+Service shutdown first stops the aiohttp site from admitting requests and waits for its bounded handler shutdown, then calls `AcpConversationManager.shutdown()`. That manager operation detaches each remaining resident through the same admission primitive used by Close/Delete and retires only the returned handles. It never enumerates processes or reopens a detached conversation.
 
 - [ ] **Step 4: Prove shared modules before deleting ChatRunner files**
 
@@ -1500,7 +1565,7 @@ Each frozen live version executes once and its result is immutable. Any correcti
 
 - [ ] **Step 3: Implement Slice A against the fake ACP agent**
 
-Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, fake-agent source-order preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
+Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes and rendered-Windows-argv bounds, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, close/delete/shutdown detach-before-retirement races, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, SDK-callback source-ordinal preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
 
 - [ ] **Step 4: Implement Slice B against the installed Prime artifact and deterministic provider**
 
