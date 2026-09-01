@@ -5,7 +5,7 @@ import logging
 import os
 import tempfile
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -45,6 +45,9 @@ _RHINO_PROCESS_ID_KEY: web.AppKey[int] = web.AppKey("_rhino_process_id", int)
 _SESSION_NONCE_KEY: web.AppKey[str] = web.AppKey("_session_nonce", str)
 _WORKER_FIRST_APPLICATION_KEY: web.AppKey[object] = web.AppKey(
     "_worker_first_application", object
+)
+_PRIME_BASE_ENVIRONMENT_KEY: web.AppKey[object] = web.AppKey(
+    "_prime_base_environment", object
 )
 
 _WORKER_FIRST_CSHARP_MODE = "worker_first_csharp_v1"
@@ -939,6 +942,7 @@ def create_chat_app(
     rhino_process_id: int = 0,
     session_nonce: Optional[str] = None,
     worker_first_application: Optional[Callable[[str], Awaitable[Any]]] = None,
+    prime_base_environment: Optional[Mapping[str, str]] = None,
 ) -> web.Application:
     """Create the aiohttp application for the chat server.
 
@@ -962,6 +966,8 @@ def create_chat_app(
         app[_RUNNER_KEY] = runner
     if worker_first_application is not None:
         app[_WORKER_FIRST_APPLICATION_KEY] = worker_first_application
+    if prime_base_environment is not None:
+        app[_PRIME_BASE_ENVIRONMENT_KEY] = prime_base_environment
     app[_PORT_STATE_KEY] = {"value": port}
     app[_INCLUDE_GH_HEALTH_KEY] = include_gh_health
     app[_OWNER_KEY] = owner
@@ -1046,6 +1052,7 @@ async def start_chat_server(
     include_gh_health: bool = False,
     owner: str = "external",
     rhino_process_id: int = 0,
+    prime_base_environment: Optional[Mapping[str, str]] = None,
 ):
     """Start the chat server as a background task.
 
@@ -1065,6 +1072,7 @@ async def start_chat_server(
             include_gh_health=include_gh_health,
             owner=owner,
             rhino_process_id=rhino_process_id,
+            prime_base_environment=prime_base_environment,
         )
         _app_runner = web.AppRunner(app)
         await _app_runner.setup()

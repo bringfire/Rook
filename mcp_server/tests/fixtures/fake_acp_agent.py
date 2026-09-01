@@ -193,17 +193,18 @@ class FakeAgent:
             remaining -= len(payload)
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args() -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", type=Path, required=True)
     parser.add_argument("--journal", type=Path, required=True)
-    return parser.parse_args()
+    return parser.parse_known_args()
 
 
 async def _main() -> None:
-    args = _parse_args()
+    args, retained_argv = _parse_args()
     scenario = json.loads(args.scenario.read_text(encoding="utf-8"))
     journal = EventJournal(args.journal)
+    journal.append({"event": "process_start", "argv": retained_argv})
     await run_agent(FakeAgent(scenario, journal), use_unstable_protocol=True)
 
 

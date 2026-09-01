@@ -7,7 +7,9 @@ import asyncio
 import logging
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 
 from .server import start_chat_server, stop_chat_server, wait_for_chat_server
 
@@ -59,7 +61,27 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+async def _run_service(
+    args: argparse.Namespace,
+    loaded_env: str | None,
+    prime_base_environment: Mapping[str, str],
+) -> None:
+    del loaded_env
+    await start_chat_server(
+        port=args.port,
+        include_gh_health=args.include_gh_health,
+        owner=args.owner,
+        rhino_process_id=args.rhino_process_id,
+        prime_base_environment=prime_base_environment,
+    )
+    try:
+        await wait_for_chat_server()
+    finally:
+        await stop_chat_server()
+
+
 def main() -> None:
+    prime_base_environment = MappingProxyType(dict(os.environ))
     log_file = os.environ.get("ROOK_LOG_FILE")
     log_handlers: list[logging.Handler] = []
     if log_file:
@@ -73,21 +95,8 @@ def main() -> None:
     )
     args = _parse_args()
     sys.dont_write_bytecode = True
-    _load_env()
-
-    async def _run() -> None:
-        await start_chat_server(
-            port=args.port,
-            include_gh_health=args.include_gh_health,
-            owner=args.owner,
-            rhino_process_id=args.rhino_process_id,
-        )
-        try:
-            await wait_for_chat_server()
-        finally:
-            await stop_chat_server()
-
-    asyncio.run(_run())
+    loaded_env = _load_env()
+    asyncio.run(_run_service(args, loaded_env, prime_base_environment))
 
 
 if __name__ == "__main__":
