@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from rook.agent.chat.acp_presentation import (
     PresentationQueue,
     ProjectedEvent,
     PromptGeneration,
+    TurnProjection,
     map_stop_reason,
     project_unknown_meta,
 )
@@ -189,6 +191,128 @@ def test_cache_corruption_is_disposable_and_fallback_is_create_only(tmp_path: Pa
     payload = (root / f"{sequence:08d}.json").read_bytes()
     assert len(payload) <= 8 * 1024
     assert b"Turn presentation was unavailable. Prime retains the authoritative conversation state." in payload
+
+
+def test_empty_cache_is_unavailable_history(tmp_path: Path) -> None:
+    history = PresentationCache(tmp_path / "presentation").load()
+
+    assert history.available is False
+    assert history.turns == ()
+    assert history.message == "presentation history unavailable"
+
+
+@pytest.mark.parametrize(
+    "corrupt_field,corrupt_value",
+    [
+        ("images", None),
+        ("toolCards", None),
+        ("userText", None),
+        ("assistantText", 3),
+        ("userOriginalBytes", -1),
+        ("stopReason", None),
+        ("stopReason", "provider_error"),
+        ("sequence", True),
+        (
+            "images",
+            [
+                {
+                    "fileName": "too-large.png",
+                    "mimeType": "image/png",
+                    "binaryBytes": 16 * 1024 * 1024 + 1,
+                    "width": 1,
+                    "height": 1,
+                    "sha256": "a" * 64,
+                    "previewAvailable": False,
+                }
+            ],
+        ),
+        ("toolCards", [{"kind": "tool_call", "content": "kept", "originalBytes": 1}]),
+    ],
+)
+def test_cache_rejects_incomplete_or_wrongly_typed_turn_schema(
+    tmp_path: Path,
+    corrupt_field: str,
+    corrupt_value: object,
+) -> None:
+    root = tmp_path / "presentation"
+    root.mkdir()
+    payload = {
+        "sequence": 1,
+        "userText": "inspect",
+        "assistantText": "done",
+        "userOriginalBytes": 7,
+        "assistantOriginalBytes": 4,
+        "stopReason": "end_turn",
+        "toolCards": [],
+        "images": [],
+    }
+    payload[corrupt_field] = corrupt_value
+    (root / "00000001.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    history = PresentationCache(root).load()
+
+    assert history.available is False
+    assert history.message == "presentation history unavailable"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "sequence": 1,
+            "stopReason": "max_tokens",
+            "originalByteCounts": {"user": 9},
+            "message": "Turn presentation was unavailable. Prime retains the authoritative conversation state.",
+            "fallback": True,
+        },
+        {
+            "sequence": 1,
+            "stopReason": "max_tokens",
+            "originalByteCounts": {"user": 9, "assistant": 12},
+            "message": "wrong",
+            "fallback": True,
+        },
+    ],
+)
+def test_cache_rejects_fallback_rows_outside_the_closed_schema(tmp_path: Path, payload: dict) -> None:
+    root = tmp_path / "presentation"
+    root.mkdir()
+    (root / "00000001.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    history = PresentationCache(root).load()
+
+    assert history.available is False
+    assert history.message == "presentation history unavailable"
+
+
+def test_cache_rejects_fallback_file_above_its_byte_limit(tmp_path: Path) -> None:
+    root = tmp_path / "presentation"
+    root.mkdir()
+    payload = {
+        "sequence": 1,
+        "stopReason": "error",
+        "originalByteCounts": {"user": 9, "assistant": 12},
+        "message": "Turn presentation was unavailable. Prime retains the authoritative conversation state.",
+        "fallback": True,
+    }
+    encoded = json.dumps(payload) + (" " * (8 * 1024))
+    (root / "00000001.json").write_text(encoded, encoding="utf-8")
+
+    history = PresentationCache(root).load()
+
+    assert history.available is False
+    assert history.message == "presentation history unavailable"
+
+
+def test_cache_loader_accepts_writer_output_with_many_bounded_tool_cards(tmp_path: Path) -> None:
+    cache = PresentationCache(tmp_path / "presentation")
+    cards = tuple({"kind": "tool_update", "content": "x", "originalBytes": 1} for _ in range(300))
+
+    cache.publish(TurnProjection("inspect", "done", 7, 4, "end_turn", cards, ()))
+
+    history = cache.load()
+    assert history.available is True
+    assert len(history.turns[0]["toolCards"]) == 300
 
 
 def test_cache_evicts_before_create_only_publication(tmp_path: Path, monkeypatch) -> None:

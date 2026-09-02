@@ -85,16 +85,17 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Theory]
-        [InlineData("settled")]
-        [InlineData("cancelled")]
-        [InlineData("incomplete")]
-        [InlineData("refused")]
-        [InlineData("error")]
-        public async Task Prompt_parser_preserves_every_closed_terminal_outcome(string outcome)
+        [InlineData("settled", "end_turn")]
+        [InlineData("cancelled", "cancelled")]
+        [InlineData("incomplete", "max_tokens")]
+        [InlineData("incomplete", "max_turn_requests")]
+        [InlineData("refused", "refusal")]
+        public async Task Prompt_parser_preserves_every_closed_terminal_outcome(string outcome, string stopReason)
         {
             var rows = "{\"type\":\"text_delta\",\"sourceOrdinal\":1,\"messageId\":\"m1\",\"text\":\"hi\"}\n" +
                        "{\"type\":\"terminal\",\"outcome\":\"" + outcome +
-                       "\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"stream_failed\",\"cachePublished\":true}\n";
+                       "\",\"stopReason\":\"" + stopReason +
+                       "\",\"presentationOutcome\":\"stream_failed\",\"cachePublished\":true}\n";
             var handler = RecordingHandler.Ndjson(rows);
             using var client = AgentChatClient.ForTests(handler, BaseUri);
             var events = new List<ChatEvent>();
@@ -109,11 +110,65 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public async Task Prompt_parser_accepts_the_closed_transport_error_terminal()
+        {
+            var handler = RecordingHandler.Ndjson(
+                "{\"type\":\"terminal\",\"outcome\":\"error\",\"errorCode\":\"protocol_failed\"}\n");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+            var events = new List<ChatEvent>();
+
+            await client.PromptAsync("c1", "hello", Array.Empty<ChatImageInput>(), events.Add, CancellationToken.None);
+
+            var terminal = Assert.Single(events);
+            Assert.Equal("error", terminal.Outcome);
+            Assert.Equal("protocol_failed", terminal.ErrorCode);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("end_turn")]
+        public async Task Prompt_parser_accepts_the_closed_product_error_terminal(string? stopReason)
+        {
+            var encodedStopReason = stopReason == null ? "null" : "\"" + stopReason + "\"";
+            var handler = RecordingHandler.Ndjson(
+                "{\"type\":\"terminal\",\"outcome\":\"error\",\"stopReason\":" + encodedStopReason +
+                ",\"presentationOutcome\":\"delivered\",\"cachePublished\":false}\n");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+            var events = new List<ChatEvent>();
+
+            await client.PromptAsync("c1", "hello", Array.Empty<ChatImageInput>(), events.Add, CancellationToken.None);
+
+            var terminal = Assert.Single(events);
+            Assert.Equal("error", terminal.Outcome);
+            Assert.Equal(stopReason, terminal.StopReason);
+        }
+
+        [Theory]
+        [InlineData("{\"type\":\"terminal\",\"outcome\":\"mystery\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}")]
+        [InlineData("{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"mystery\",\"cachePublished\":true}")]
+        [InlineData("{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"cancelled\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}")]
+        [InlineData("{\"type\":\"terminal\",\"outcome\":\"error\",\"stopReason\":\"provider_error\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}")]
+        [InlineData("{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\"}")]
+        [InlineData("{\"type\":\"terminal\",\"outcome\":\"error\",\"errorCode\":\"protocol_failed\",\"cachePublished\":false}")]
+        [InlineData("{\"type\":\"terminal\",\"outcome\":\"error\",\"errorCode\":\"\"}")]
+        [InlineData("{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true,\"extra\":1}")]
+        public async Task Prompt_parser_rejects_terminal_rows_outside_the_closed_schema(string terminalRow)
+        {
+            var handler = RecordingHandler.Ndjson(terminalRow + "\n");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+
+            var error = await Assert.ThrowsAsync<AgentChatHttpException>(
+                () => client.PromptAsync("c1", "hello", Array.Empty<ChatImageInput>(), _ => { }, CancellationToken.None));
+
+            Assert.Equal("invalid_stream", error.Code);
+        }
+
+        [Fact]
         public async Task Prompt_parser_keeps_tool_cards_as_presentation_only()
         {
             var rows = "{\"type\":\"tool_update\",\"sourceOrdinal\":7,\"kind\":\"tool_call_update\"," +
                        "\"messageId\":\"t1\",\"text\":\"Inspect\",\"payload\":{\"status\":\"completed\"}}\n" +
-                       "{\"type\":\"terminal\",\"outcome\":\"settled\",\"presentationOutcome\":\"delivered\"}\n";
+                       "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}\n";
             var handler = RecordingHandler.Ndjson(rows);
             using var client = AgentChatClient.ForTests(handler, BaseUri);
             var events = new List<ChatEvent>();
@@ -130,7 +185,7 @@ namespace Rook.Tests.UI.Chat
         public async Task Prompt_sends_the_closed_text_and_image_wire_shape()
         {
             var handler = RecordingHandler.Ndjson(
-                "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\"}\n");
+                "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}\n");
             using var client = AgentChatClient.ForTests(handler, BaseUri);
 
             await client.PromptAsync(
@@ -170,7 +225,7 @@ namespace Rook.Tests.UI.Chat
         {
             var rows = "{\"type\":\"text_delta\",\"sourceOrdinal\":1,\"text\":\"kept\"}\n" +
                        "{not-json}\n" +
-                       "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\"}\n";
+                       "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}\n";
             var handler = RecordingHandler.Ndjson(rows);
             using var client = AgentChatClient.ForTests(handler, BaseUri);
             var events = new List<ChatEvent>();
@@ -181,6 +236,30 @@ namespace Rook.Tests.UI.Chat
             Assert.Equal("invalid_stream", error.Code);
             Assert.Single(events);
             Assert.Equal("kept", events[0].Text);
+        }
+
+        [Fact]
+        public async Task Agent_tab_prompt_owner_requests_cancel_once_when_stream_is_invalid()
+        {
+            var handler = RecordingHandler.Sequence(
+                RecordingHandler.NdjsonResponse("{not-json}\n"),
+                RecordingHandler.Response("{\"accepted\":true}"));
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+
+            var error = await Assert.ThrowsAsync<AgentChatHttpException>(
+                () => AgentChatTab.RunOwnedPromptAsync(
+                    client,
+                    BaseUri,
+                    "c1",
+                    "hello",
+                    Array.Empty<ChatImageInput>(),
+                    _ => { },
+                    CancellationToken.None));
+
+            Assert.Equal("invalid_stream", error.Code);
+            Assert.Equal(2, handler.Requests.Count);
+            Assert.StartsWith("POST /agent/chat/conversations/c1/prompt ", handler.Requests[0]);
+            Assert.Equal("POST /agent/chat/conversations/c1/cancel {}", handler.Requests[1]);
         }
 
         [Fact]
@@ -199,7 +278,7 @@ namespace Rook.Tests.UI.Chat
         [Fact]
         public async Task Prompt_parser_rejects_rows_after_terminal_settlement()
         {
-            var rows = "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\"}\n" +
+            var rows = "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}\n" +
                        "{\"type\":\"text_delta\",\"sourceOrdinal\":2,\"text\":\"late\"}\n";
             var handler = RecordingHandler.Ndjson(rows);
             using var client = AgentChatClient.ForTests(handler, BaseUri);
@@ -263,6 +342,70 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public void Agent_tab_close_during_create_hands_the_returned_identity_to_close_delivery()
+        {
+            RunOnSta(() =>
+            {
+                EnsureEtoApplication();
+                var handler = new DelayedResponseHandler(
+                    "{\"conversationId\":\"created-after-close\",\"durable\":false,\"targetAvailable\":true}");
+                using var client = AgentChatClient.ForTests(handler, BaseUri, HealthyService());
+                var closed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var coordinator = ConversationCloseCoordinator.ForTests((_, conversationId, _, _) =>
+                {
+                    closed.TrySetResult(conversationId);
+                    return Task.CompletedTask;
+                });
+                using var tab = new AgentChatTab(new CreateConversationRequest
+                {
+                    HostGenerationId = "11111111-1111-1111-1111-111111111111",
+                    DocumentSerialNumber = 41,
+                    RouteProcessId = 123,
+                }, client, coordinator, initializePresentation: false);
+
+                var initialize = tab.InitializeAsync();
+                handler.RequestStarted.Task.GetAwaiter().GetResult();
+                tab.OnTabClosed();
+                handler.ReleaseResponse.TrySetResult(true);
+
+                initialize.GetAwaiter().GetResult();
+                Assert.Equal("created-after-close", closed.Task.GetAwaiter().GetResult());
+                Assert.False(handler.RequestWasCancelled);
+            });
+        }
+
+        [Fact]
+        public void Agent_tab_close_during_reopen_hands_the_returned_identity_to_close_delivery()
+        {
+            RunOnSta(() =>
+            {
+                EnsureEtoApplication();
+                var handler = new DelayedResponseHandler(
+                    "{\"conversationId\":\"reopened-after-close\",\"durable\":true,\"targetAvailable\":true}");
+                using var client = AgentChatClient.ForTests(handler, BaseUri, HealthyService());
+                var closed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var coordinator = ConversationCloseCoordinator.ForTests((_, conversationId, _, _) =>
+                {
+                    closed.TrySetResult(conversationId);
+                    return Task.CompletedTask;
+                });
+                using var tab = new AgentChatTab(new ConversationSummary
+                {
+                    ConversationId = "existing-conversation",
+                }, client, coordinator, initializePresentation: false);
+
+                var initialize = tab.InitializeAsync();
+                handler.RequestStarted.Task.GetAwaiter().GetResult();
+                tab.OnTabClosed();
+                handler.ReleaseResponse.TrySetResult(true);
+
+                initialize.GetAwaiter().GetResult();
+                Assert.Equal("reopened-after-close", closed.Task.GetAwaiter().GetResult());
+                Assert.False(handler.RequestWasCancelled);
+            });
+        }
+
+        [Fact]
         public async Task Provisional_delete_is_a_successful_delete_without_a_durable_record()
         {
             var handler = RecordingHandler.Json(
@@ -280,6 +423,49 @@ namespace Rook.Tests.UI.Chat
             var count = 0;
             foreach (var _ in element.EnumerateObject()) count++;
             return count;
+        }
+
+        private static ChatServiceHealth HealthyService()
+            => new()
+            {
+                ServiceAvailable = true,
+                RuntimeAvailable = true,
+                BaseUri = BaseUri,
+            };
+
+        private static void EnsureEtoApplication()
+        {
+            if (Eto.Forms.Application.Instance == null)
+                _ = new Eto.Forms.Application(Eto.Platforms.Wpf);
+            SynchronizationContext.SetSynchronizationContext(null);
+        }
+
+        private static void RunOnSta(Action action)
+        {
+            Exception? failure = null;
+            using var finished = new ManualResetEventSlim();
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+                finally
+                {
+                    finished.Set();
+                }
+            })
+            {
+                IsBackground = true,
+            };
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            Assert.True(finished.Wait(TimeSpan.FromSeconds(10)), "STA integration test timed out.");
+            if (failure != null) throw new AggregateException(failure);
         }
 
         private sealed class RecordingHandler : HttpMessageHandler
@@ -300,10 +486,13 @@ namespace Rook.Tests.UI.Chat
                 => Sequence(Response(body, status));
 
             public static RecordingHandler Ndjson(string body)
-                => Sequence(new HttpResponseMessage(HttpStatusCode.OK)
+                => Sequence(NdjsonResponse(body));
+
+            public static HttpResponseMessage NdjsonResponse(string body)
+                => new(HttpStatusCode.OK)
                 {
                     Content = new StringContent(body, Encoding.UTF8, "application/x-ndjson"),
-                });
+                };
 
             public static RecordingHandler Sequence(params HttpResponseMessage[] responses)
                 => new(responses);

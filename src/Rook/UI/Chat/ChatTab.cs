@@ -124,6 +124,15 @@ namespace Rook.UI.Chat
         /// <param name="tabColor">Accent color for the tab.</param>
         /// <param name="hostedSurfaceType">Stable type prefix for panel lifecycle reconciliation.</param>
         protected ChatTab(string tabLabel, Color tabColor, string hostedSurfaceType)
+            : this(tabLabel, tabColor, hostedSurfaceType, initializePresentation: true)
+        {
+        }
+
+        protected ChatTab(
+            string tabLabel,
+            Color tabColor,
+            string hostedSurfaceType,
+            bool initializePresentation)
         {
             TabLabel = tabLabel;
             TabColor = tabColor;
@@ -131,6 +140,7 @@ namespace Rook.UI.Chat
                 hostedSurfaceType + ":" +
                 Interlocked.Increment(ref s_nextHostedSurfaceId).ToString();
             _webSurface = new ChatWebSurface(this);
+            if (!initializePresentation) return;
             InitializeComponents();
             LayoutControls();
             AttachEvents();

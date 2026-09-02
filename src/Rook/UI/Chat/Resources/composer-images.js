@@ -26,9 +26,17 @@
         var readImage = options.readImage || defaultReadImage;
         var publish = options.publish || function() {};
         var reportError = options.reportError || function() {};
+        var onLoadingChanged = options.onLoadingChanged || function() {};
         var maxImages = options.maxImages || 8;
         var generation = 0;
         var images = [];
+        var loading = false;
+
+        function setLoading(value) {
+            if (loading === value) return;
+            loading = value;
+            onLoadingChanged(loading);
+        }
 
         function snapshot() {
             return images.map(function(image) {
@@ -44,6 +52,7 @@
             generation += 1;
             images = [];
             publish(snapshot());
+            setLoading(false);
         }
 
         function replace(files) {
@@ -52,26 +61,39 @@
             images = [];
             publish(snapshot());
             if (selected.length > maxImages) {
+                setLoading(false);
                 reportError('At most ' + maxImages + ' images may be attached.');
                 return Promise.resolve(false);
             }
+            setLoading(selected.length > 0);
             return Promise.all(selected.map(function(file, index) {
                 return readImage(file, index);
             })).then(function(nextImages) {
                 if (currentGeneration !== generation) return false;
                 images = nextImages;
                 publish(snapshot());
+                setLoading(false);
                 return true;
             }).catch(function() {
                 if (currentGeneration !== generation) return false;
                 images = [];
                 publish(snapshot());
+                setLoading(false);
                 reportError('Image could not be read.');
                 return false;
             });
         }
 
-        return { replace: replace, clear: clear, snapshot: snapshot };
+        return {
+            replace: replace,
+            clear: clear,
+            snapshot: snapshot,
+            isLoading: function() { return loading; }
+        };
+    }
+
+    function canSubmit(text, images, loading) {
+        return !loading && (!!String(text || '').trim() || (images || []).length > 0);
     }
 
     function clipboardImageFiles(items) {
@@ -81,6 +103,7 @@
     }
 
     return {
+        canSubmit: canSubmit,
         clipboardImageFiles: clipboardImageFiles,
         createSelectionController: createSelectionController
     };

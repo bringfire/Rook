@@ -12,6 +12,14 @@ from typing import Any, Literal, Protocol
 
 from acp.schema import AgentMessageChunk, AgentThoughtChunk, TextContentBlock
 
+from .acp_images import (
+    MAX_IMAGE_BYTES,
+    MAX_IMAGE_BYTES_PER_TURN,
+    MAX_IMAGE_DIMENSION,
+    MAX_IMAGE_FILE_NAME_UTF8_BYTES,
+    MAX_IMAGE_PIXELS,
+    MAX_IMAGES_PER_TURN,
+)
 from .acp_storage import PublicationAlreadyExists, atomic_publish_noreplace
 
 
@@ -405,6 +413,126 @@ class _CacheEntry:
     byte_count: int
 
 
+_TURN_KEYS = {
+    "sequence",
+    "userText",
+    "assistantText",
+    "userOriginalBytes",
+    "assistantOriginalBytes",
+    "stopReason",
+    "toolCards",
+    "images",
+}
+_FALLBACK_KEYS = {"sequence", "stopReason", "originalByteCounts", "message", "fallback"}
+_TOOL_CARD_KEYS = {"kind", "content", "originalBytes"}
+_IMAGE_KEYS = {
+    "fileName",
+    "mimeType",
+    "binaryBytes",
+    "width",
+    "height",
+    "sha256",
+    "previewAvailable",
+}
+_STOP_REASONS = frozenset({"end_turn", "cancelled", "max_tokens", "max_turn_requests", "refusal", "error"})
+
+
+def _is_nonnegative_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_positive_int(value: object) -> bool:
+    return _is_nonnegative_int(value) and value > 0
+
+
+def _validate_cache_payload(payload: dict[str, Any], sequence: int, byte_count: int) -> None:
+    if payload.get("fallback") is True:
+        if byte_count > MAX_FALLBACK_PROJECTION_BYTES:
+            raise PresentationCacheError("fallback presentation is oversized")
+        if set(payload) != _FALLBACK_KEYS:
+            raise PresentationCacheError("fallback presentation schema is invalid")
+        counts = payload.get("originalByteCounts")
+        if (
+            not _is_positive_int(payload.get("sequence"))
+            or payload["sequence"] != sequence
+            or payload.get("stopReason") not in _STOP_REASONS
+            or payload.get("message") != FALLBACK_SENTENCE
+            or not isinstance(counts, dict)
+            or set(counts) != {"user", "assistant"}
+            or not all(_is_nonnegative_int(value) for value in counts.values())
+        ):
+            raise PresentationCacheError("fallback presentation fields are invalid")
+        return
+
+    if set(payload) != _TURN_KEYS:
+        raise PresentationCacheError("turn presentation schema is invalid")
+    if (
+        not _is_positive_int(payload.get("sequence"))
+        or payload["sequence"] != sequence
+        or not isinstance(payload.get("userText"), str)
+        or not isinstance(payload.get("assistantText"), str)
+        or not _is_nonnegative_int(payload.get("userOriginalBytes"))
+        or not _is_nonnegative_int(payload.get("assistantOriginalBytes"))
+        or payload.get("stopReason") not in _STOP_REASONS
+        or not isinstance(payload.get("toolCards"), list)
+        or not isinstance(payload.get("images"), list)
+    ):
+        raise PresentationCacheError("turn presentation fields are invalid")
+    retained_user_bytes = len(payload["userText"].encode("utf-8"))
+    retained_assistant_bytes = len(payload["assistantText"].encode("utf-8"))
+    if retained_user_bytes > MAX_USER_TEXT_BYTES or payload["userOriginalBytes"] < retained_user_bytes:
+        raise PresentationCacheError("turn user projection is oversized")
+    if retained_assistant_bytes > MAX_ASSISTANT_TEXT_BYTES or payload["assistantOriginalBytes"] < retained_assistant_bytes:
+        raise PresentationCacheError("turn assistant projection is oversized")
+
+    tool_bytes = 0
+    for card in payload["toolCards"]:
+        if (
+            not isinstance(card, dict)
+            or set(card) != _TOOL_CARD_KEYS
+            or not isinstance(card.get("kind"), str)
+            or not card["kind"]
+            or not isinstance(card.get("content"), str)
+            or not _is_nonnegative_int(card.get("originalBytes"))
+        ):
+            raise PresentationCacheError("turn tool projection is invalid")
+        retained_bytes = len(card["content"].encode("utf-8"))
+        if retained_bytes > MAX_TOOL_CONTENT_BYTES_PER_CARD or card["originalBytes"] < retained_bytes:
+            raise PresentationCacheError("turn tool projection is oversized")
+        tool_bytes += retained_bytes
+    if tool_bytes > MAX_TOOL_CONTENT_BYTES_PER_TURN:
+        raise PresentationCacheError("turn tool projections are oversized")
+
+    if len(payload["images"]) > MAX_IMAGES_PER_TURN:
+        raise PresentationCacheError("turn image projection count is invalid")
+    image_bytes = 0
+    for image in payload["images"]:
+        sha256 = image.get("sha256") if isinstance(image, dict) else None
+        if (
+            not isinstance(image, dict)
+            or set(image) != _IMAGE_KEYS
+            or not isinstance(image.get("fileName"), str)
+            or not image["fileName"]
+            or len(image["fileName"].encode("utf-8")) > MAX_IMAGE_FILE_NAME_UTF8_BYTES
+            or image.get("mimeType") not in {"image/png", "image/jpeg", "image/webp"}
+            or not _is_positive_int(image.get("binaryBytes"))
+            or image["binaryBytes"] > MAX_IMAGE_BYTES
+            or not _is_positive_int(image.get("width"))
+            or image["width"] > MAX_IMAGE_DIMENSION
+            or not _is_positive_int(image.get("height"))
+            or image["height"] > MAX_IMAGE_DIMENSION
+            or image["width"] * image["height"] > MAX_IMAGE_PIXELS
+            or not isinstance(sha256, str)
+            or len(sha256) != 64
+            or any(char not in "0123456789abcdef" for char in sha256)
+            or image.get("previewAvailable") is not False
+        ):
+            raise PresentationCacheError("turn image projection is invalid")
+        image_bytes += image["binaryBytes"]
+    if image_bytes > MAX_IMAGE_BYTES_PER_TURN:
+        raise PresentationCacheError("turn image projections are oversized")
+
+
 class PresentationCache:
     def __init__(
         self,
@@ -457,6 +585,8 @@ class PresentationCache:
     def load(self) -> PresentationHistory:
         try:
             metadata = self._evict_to_fit(self._scan_entries_or_raise(), incoming_bytes=0, incoming_turns=0)
+            if not metadata:
+                raise PresentationCacheError("presentation cache is empty")
             entries = self._load_payloads_or_raise(metadata)
         except (OSError, PresentationCacheError):
             return PresentationHistory(False, (), False, "presentation history unavailable")
@@ -492,6 +622,7 @@ class PresentationCache:
                 raise PresentationCacheError("presentation cache entry is corrupt") from exc
             if len(raw) != entry.byte_count or not isinstance(payload, dict) or payload.get("sequence") != entry.sequence:
                 raise PresentationCacheError("presentation cache entry is invalid")
+            _validate_cache_payload(payload, entry.sequence, entry.byte_count)
             loaded.append((entry.sequence, entry.path, payload))
         return loaded
 

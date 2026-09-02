@@ -79,6 +79,9 @@
         var _toolCardCounter = 0;
         var _composerImages = [];
         var _composerImageError = null;
+        var _composerImageLoading = false;
+        var _composerVisible = true;
+        var _composerEnabled = true;
         var _composerImageController = window.RookComposerImages.createSelectionController({
             maxImages: 8,
             publish: function(images) {
@@ -89,6 +92,10 @@
             reportError: function(message) {
                 _composerImageError = message;
                 renderAttachments();
+            },
+            onLoadingChanged: function(loading) {
+                _composerImageLoading = loading;
+                applyComposerState();
             }
         });
 
@@ -100,13 +107,21 @@
         }
 
         function setComposerEnabled(visible, enabled) {
+            _composerVisible = visible;
+            _composerEnabled = enabled;
+            applyComposerState();
+        }
+
+        function applyComposerState() {
             var composer = document.getElementById('composer');
             var text = document.getElementById('composer-text');
             var send = document.getElementById('composer-send');
+            var files = document.getElementById('composer-files');
             if (!composer || !text || !send) return;
-            composer.classList.toggle('hidden', !visible);
-            text.disabled = !enabled;
-            send.disabled = !enabled;
+            composer.classList.toggle('hidden', !_composerVisible);
+            text.disabled = !_composerEnabled;
+            send.disabled = !_composerEnabled || _composerImageLoading;
+            if (files) files.disabled = !_composerEnabled || _composerImageLoading;
         }
 
         function renderAttachments() {
@@ -132,7 +147,7 @@
         function submitComposer() {
             var textArea = document.getElementById('composer-text');
             var text = textArea ? textArea.value.trim() : '';
-            if (!text && _composerImages.length === 0) return;
+            if (!window.RookComposerImages.canSubmit(text, _composerImages, _composerImageLoading)) return;
             var submission = {
                 type: 'submit',
                 text: text,

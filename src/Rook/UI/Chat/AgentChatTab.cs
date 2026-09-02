@@ -209,26 +209,50 @@ namespace Rook.UI.Chat
             CreateConversationRequest createRequest,
             AgentChatClient? client = null,
             ConversationCloseCoordinator? closeCoordinator = null)
-            : base("Prime", PrimeAccent, "agent-chat")
+            : this(createRequest, client, closeCoordinator, initializePresentation: true)
+        {
+        }
+
+        internal AgentChatTab(
+            CreateConversationRequest createRequest,
+            AgentChatClient? client,
+            ConversationCloseCoordinator? closeCoordinator,
+            bool initializePresentation)
+            : base("Prime", PrimeAccent, "agent-chat", initializePresentation)
         {
             _createRequest = createRequest ?? throw new ArgumentNullException(nameof(createRequest));
             _client = client ?? new AgentChatClient();
             _closeCoordinator = closeCoordinator ?? ConversationCloseCoordinator.Instance;
-            EnableWebComposer();
-            ShowRequestedSettings(createRequest.Model, createRequest.Reasoning);
+            if (initializePresentation)
+            {
+                EnableWebComposer();
+                ShowRequestedSettings(createRequest.Model, createRequest.Reasoning);
+            }
         }
 
         public AgentChatTab(
             ConversationSummary association,
             AgentChatClient? client = null,
             ConversationCloseCoordinator? closeCoordinator = null)
-            : base("Prime", PrimeAccent, "agent-chat")
+            : this(association, client, closeCoordinator, initializePresentation: true)
+        {
+        }
+
+        internal AgentChatTab(
+            ConversationSummary association,
+            AgentChatClient? client,
+            ConversationCloseCoordinator? closeCoordinator,
+            bool initializePresentation)
+            : base("Prime", PrimeAccent, "agent-chat", initializePresentation)
         {
             _reopenAssociation = association ?? throw new ArgumentNullException(nameof(association));
             _client = client ?? new AgentChatClient();
             _closeCoordinator = closeCoordinator ?? ConversationCloseCoordinator.Instance;
-            EnableWebComposer();
-            ShowRequestedSettings(association.RequestedInitialModel, association.RequestedInitialReasoning);
+            if (initializePresentation)
+            {
+                EnableWebComposer();
+                ShowRequestedSettings(association.RequestedInitialModel, association.RequestedInitialReasoning);
+            }
         }
 
         public string? ConversationId => _conversationId ?? _reopenAssociation?.ConversationId;
@@ -324,7 +348,8 @@ namespace Rook.UI.Chat
                 _terminalSeen = false;
             }
 
-            await _client.PromptAsync(
+            await RunOwnedPromptAsync(
+                _client,
                 baseUri,
                 conversationId,
                 text,
@@ -336,6 +361,34 @@ namespace Rook.UI.Chat
             {
                 if (!_terminalSeen)
                     throw new InvalidOperationException("Prime prompt ended without a terminal outcome.");
+            }
+        }
+
+        internal static async Task RunOwnedPromptAsync(
+            AgentChatClient client,
+            Uri baseUri,
+            string conversationId,
+            string text,
+            IReadOnlyList<ChatImageInput> images,
+            Action<ChatEvent> onEvent,
+            CancellationToken ct)
+        {
+            try
+            {
+                await client.PromptAsync(baseUri, conversationId, text, images, onEvent, ct);
+            }
+            catch (AgentChatHttpException ex) when (ex.Code == "invalid_stream")
+            {
+                try
+                {
+                    await client.CancelAsync(baseUri, conversationId, CancellationToken.None);
+                }
+                catch
+                {
+                    // The stream failure remains authoritative for the panel. The
+                    // service still owns settlement and may already be retiring it.
+                }
+                throw;
             }
         }
 

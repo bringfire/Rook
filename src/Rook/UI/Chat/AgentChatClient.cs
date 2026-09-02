@@ -105,7 +105,7 @@ namespace Rook.UI.Chat
         [JsonPropertyName("height")]
         public int Height { get; set; }
 
-        [JsonPropertyName("binaryByteCount")]
+        [JsonPropertyName("binaryBytes")]
         public long BinaryByteCount { get; set; }
 
         [JsonPropertyName("sha256")]
@@ -259,20 +259,31 @@ namespace Rook.UI.Chat
         private const string SessionHeaderName = "X-Rook-Session";
         private readonly HttpClient _client;
         private readonly Uri? _fixedBaseUri;
+        private readonly ChatServiceHealth? _fixedHealth;
 
         public AgentChatClient()
-            : this(new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, null)
+            : this(new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, null, null)
         {
         }
 
-        internal AgentChatClient(HttpClient client, Uri? fixedBaseUri = null)
+        internal AgentChatClient(
+            HttpClient client,
+            Uri? fixedBaseUri = null,
+            ChatServiceHealth? fixedHealth = null)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
             _fixedBaseUri = fixedBaseUri;
+            _fixedHealth = fixedHealth;
         }
 
         internal static AgentChatClient ForTests(HttpMessageHandler handler, Uri baseUri)
-            => new(new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan }, baseUri);
+            => new(new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan }, baseUri, null);
+
+        internal static AgentChatClient ForTests(
+            HttpMessageHandler handler,
+            Uri baseUri,
+            ChatServiceHealth fixedHealth)
+            => new(new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan }, baseUri, fixedHealth);
 
         public void SetSessionNonce(string? nonce)
         {
@@ -282,7 +293,9 @@ namespace Rook.UI.Chat
         }
 
         public Task<ChatServiceHealth> GetHealthAsync(bool startIfNeeded, CancellationToken ct = default)
-            => ChatServiceManager.Instance.GetHealthAsync(startIfNeeded, ct);
+            => _fixedHealth == null
+                ? ChatServiceManager.Instance.GetHealthAsync(startIfNeeded, ct)
+                : Task.FromResult(_fixedHealth);
 
         public async Task<List<ConversationSummary>> ListAsync(CancellationToken ct = default)
         {
@@ -383,8 +396,13 @@ namespace Rook.UI.Chat
                 ChatEvent value;
                 try
                 {
-                    value = JsonSerializer.Deserialize<ChatEvent>(line, JsonOptions)
+                    using var document = JsonDocument.Parse(line);
+                    if (document.RootElement.ValueKind != JsonValueKind.Object)
+                        throw InvalidStream("Chat service returned a non-object stream row.");
+                    value = document.RootElement.Deserialize<ChatEvent>(JsonOptions)
                         ?? throw InvalidStream("Chat service returned an empty stream row.");
+                    if (value.Type == "terminal")
+                        ValidateTerminal(document.RootElement, value);
                 }
                 catch (JsonException exc)
                 {
@@ -402,6 +420,61 @@ namespace Rook.UI.Chat
             if (terminal == null)
                 throw InvalidStream("Chat service stream ended without a terminal row.");
             onEvent(terminal);
+        }
+
+        private static void ValidateTerminal(JsonElement row, ChatEvent terminal)
+        {
+            var isTransportError = row.TryGetProperty("errorCode", out _);
+            var expectedProperties = isTransportError
+                ? new HashSet<string>(StringComparer.Ordinal) { "type", "outcome", "errorCode" }
+                : new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "type", "outcome", "stopReason", "presentationOutcome", "cachePublished",
+                };
+            var actualProperties = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in row.EnumerateObject())
+            {
+                if (!actualProperties.Add(property.Name) || !expectedProperties.Contains(property.Name))
+                    throw InvalidStream("Chat service returned an invalid terminal schema.");
+            }
+            if (actualProperties.Count != expectedProperties.Count)
+                throw InvalidStream("Chat service returned an incomplete terminal schema.");
+
+            if (isTransportError)
+            {
+                if (terminal.Outcome != "error" || string.IsNullOrWhiteSpace(terminal.ErrorCode))
+                    throw InvalidStream("Chat service returned an invalid transport-error terminal.");
+                return;
+            }
+
+            if (!row.TryGetProperty("stopReason", out var stopReasonProperty) ||
+                !row.TryGetProperty("presentationOutcome", out var presentationProperty) ||
+                !row.TryGetProperty("cachePublished", out var cacheProperty) ||
+                presentationProperty.ValueKind != JsonValueKind.String ||
+                cacheProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw InvalidStream("Chat service returned invalid terminal field types.");
+
+            var stopReason = stopReasonProperty.ValueKind switch
+            {
+                JsonValueKind.String => stopReasonProperty.GetString(),
+                JsonValueKind.Null => null,
+                _ => throw InvalidStream("Chat service returned an invalid stop reason."),
+            };
+            var mappedOutcome = stopReason switch
+            {
+                "end_turn" => "settled",
+                "cancelled" => "cancelled",
+                "max_tokens" or "max_turn_requests" => "incomplete",
+                "refusal" => "refused",
+                null => null,
+                _ => throw InvalidStream("Chat service returned an unknown stop reason."),
+            };
+            var terminalOutcomeIsValid = terminal.Outcome == "error"
+                ? stopReason == null || mappedOutcome != null
+                : terminal.Outcome == mappedOutcome;
+            if (!terminalOutcomeIsValid ||
+                terminal.PresentationOutcome is not ("delivered" or "stream_failed" or "disconnected"))
+                throw InvalidStream("Chat service returned an inconsistent terminal outcome.");
         }
 
         public async Task<CancelConversationResult> CancelAsync(string conversationId, CancellationToken ct = default)
