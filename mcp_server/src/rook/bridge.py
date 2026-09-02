@@ -941,15 +941,12 @@ def _apply_panel_lock_to_request(
     locked_instances = [
         instance
         for instance in instances
-        if instance.get("processId") == lock.process_id
+        if instance.get("pluginType") == "native"
+        and targeting.instance_matches_panel_target_lock(instance, lock)
     ]
     if not locked_instances:
-        return data, port, process_id, targeting.route_error_result(
-            targeting.ToolRoute(
-                success=False,
-                error="panel_target_stale",
-                instances=instances,
-            )
+        return data, port, process_id, targeting.panel_target_unavailable_result(
+            instances=instances
         )
 
     if process_id is not None and process_id > 0 and process_id != lock.process_id:
@@ -968,7 +965,7 @@ def _apply_panel_lock_to_request(
     if isinstance(applied, dict) and applied.get("success") is False:
         return data, port, process_id, applied
 
-    return applied, port, lock.process_id, None
+    return applied, locked_instances[0].get("port"), lock.process_id, None
 
 
 async def call_rhino(
@@ -1051,6 +1048,17 @@ async def call_rhino(
 
     if selected_instance is not None:
         instances = discover_instances()
+        lock, _ = _panel_lock_state()
+        if (
+            lock is not None
+            and selected_instance.get("pluginType") == "native"
+            and not _targeting_module().instance_matches_panel_target_lock(
+                selected_instance, lock
+            )
+        ):
+            return _targeting_module().panel_target_unavailable_result(
+                instances=instances
+            )
         if _has_native_host_port_collision(selected_instance, instances):
             host = selected_instance.get("host") or DEFAULT_HOST
             port_value = selected_instance.get("port")
@@ -1114,6 +1122,52 @@ async def call_rhino(
 
     async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as client:
         try:
+            lock, _ = _panel_lock_state()
+            if lock is not None:
+                authority_instances = discover_instances()
+                authority = next(
+                    (
+                        instance
+                        for instance in authority_instances
+                        if instance.get("pluginType") == "native"
+                        and _targeting_module().instance_matches_panel_target_lock(
+                            instance, lock
+                        )
+                    ),
+                    None,
+                )
+                if authority is None:
+                    return _targeting_module().panel_target_unavailable_result(
+                        instances=authority_instances
+                    )
+                capability_path = (authority.get("capabilities") or {}).get(
+                    "liveEndpoint", "/capabilities"
+                )
+                if not isinstance(capability_path, str) or not capability_path.startswith("/"):
+                    capability_path = "/capabilities"
+                capability_url = (
+                    f"http://{authority.get('host') or DEFAULT_HOST}:"
+                    f"{authority.get('port')}{capability_path}"
+                )
+                try:
+                    capability_response = await client.get(capability_url)
+                    capability_response.raise_for_status()
+                    live_capabilities = capability_response.json()
+                except Exception:
+                    return _targeting_module().panel_target_unavailable_result(
+                        "The live Rook host generation could not be verified.",
+                        instances=authority_instances,
+                    )
+                if not _targeting_module().live_capabilities_match_panel_target_lock(
+                    live_capabilities, lock
+                ):
+                    return _targeting_module().panel_target_unavailable_result(
+                        "The live Rook host generation does not match this conversation.",
+                        instances=authority_instances,
+                    )
+                if method == "GET" and not data and url == capability_url:
+                    return live_capabilities
+
             if method == "GET":
                 if data:
                     # Pass GET data as query parameters, not body JSON.

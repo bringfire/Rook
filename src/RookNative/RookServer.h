@@ -367,6 +367,7 @@ private:
     // unique_ptr because httplib::Server is non-movable/non-copyable.
     std::unique_ptr<httplib::Server> m_server;
     std::thread m_server_thread;
+    std::string m_host_generation_id;
     int m_port = 0;
     std::atomic<bool> m_running{false};
     std::filesystem::path m_discovery_path;

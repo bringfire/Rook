@@ -350,10 +350,10 @@ def test_rook_mcp_declaration_is_contract_owned(verified_runtime):
     assert env == {
         "PYTHONNOUSERSITE": "1",
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": "f55bdd3f-d282-4c76-b89c-b32d7c705615",
         "ROOK_MCP_TARGET_PROCESS_ID": "2024",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "41",
         "ROOK_MCP_TOOL_PROFILE": "full",
-        "ROOK_PANEL_HOST_GENERATION_ID": "f55bdd3f-d282-4c76-b89c-b32d7c705615",
     }
 
 

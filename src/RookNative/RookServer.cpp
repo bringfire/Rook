@@ -52,8 +52,10 @@
 
 #include <filesystem>
 #include <fstream>
+#include <array>
 #include <chrono>
 #include <iomanip>
+#include <random>
 #include <set>
 #include <sstream>
 
@@ -62,6 +64,27 @@ namespace fs = std::filesystem;
 namespace
 {
     constexpr const char* kNativeBindHost = "127.0.0.1";
+
+    std::string GenerateHostGenerationId()
+    {
+        std::array<unsigned char, 16> bytes{};
+        std::random_device random;
+        for (auto& value : bytes)
+            value = static_cast<unsigned char>(random());
+
+        bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0f) | 0x40);
+        bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3f) | 0x80);
+
+        std::ostringstream stream;
+        stream << std::hex << std::setfill('0');
+        for (size_t index = 0; index < bytes.size(); ++index)
+        {
+            if (index == 4 || index == 6 || index == 8 || index == 10)
+                stream << '-';
+            stream << std::setw(2) << static_cast<int>(bytes[index]);
+        }
+        return stream.str();
+    }
 
     struct DiscoveryRootInfo
     {
@@ -281,7 +304,10 @@ CRookServer& CRookServer::Instance()
     return instance;
 }
 
-CRookServer::CRookServer() = default;
+CRookServer::CRookServer()
+    : m_host_generation_id(GenerateHostGenerationId())
+{
+}
 
 CRookServer::~CRookServer()
 {
@@ -2127,7 +2153,8 @@ nlohmann::json Domain(
 nlohmann::json BuildRookCapabilitiesDocument(
     int port,
     const DiscoveryRootInfo& /*rootInfo*/,
-    const nlohmann::json& companionStatus)
+    const nlohmann::json& companionStatus,
+    const std::string& hostGenerationId)
 {
     const DWORD pid = ::GetCurrentProcessId();
     const bool rhinoInside = CRookNativePlugin::IsRhinoInside();
@@ -2219,6 +2246,7 @@ nlohmann::json BuildRookCapabilitiesDocument(
     document["schemaVersion"] = 1;
     document["generatedUtc"] = MakeUtcTimestamp();
     document["source"] = "RookNative";
+    document["hostGenerationId"] = hostGenerationId;
     document["processId"] = static_cast<int>(pid);
     document["pluginType"] = "native";
     document["pluginVersion"] = kRookNativePluginVersion;
@@ -2269,17 +2297,16 @@ void CRookServer::HandleCapabilities(const httplib::Request& /*req*/, httplib::R
 {
     const DiscoveryRootInfo rootInfo = ResolveDiscoveryRootInfo();
     const auto companionStatus = ReadCompanionRuntimeStatus(rootInfo, ::GetCurrentProcessId());
-    const auto document = BuildRookCapabilitiesDocument(m_port, rootInfo, companionStatus);
+    const auto document = BuildRookCapabilitiesDocument(
+        m_port, rootInfo, companionStatus, m_host_generation_id);
     res.status = 200;
     res.set_content(document.dump(), "application/json");
 }
 
 void CRookServer::WriteDiscoveryFile()
 {
-    // NOTE: If Rhino crashes, this file will be orphaned on disk.
-    // The Python MCP server (bridge.py) should check process liveness
-    // before trusting a discovery file — same pattern as the C# plugin's
-    // CleanupStaleDiscoveryFiles() which verifies PIDs are still alive.
+    // A crash may orphan this routing record. Panel-locked dispatch never trusts
+    // PID liveness alone; it requires this generation again from live capabilities.
     const DiscoveryRootInfo rootInfo = ResolveDiscoveryRootInfo();
     const DWORD pid = ::GetCurrentProcessId();
     try
@@ -2290,6 +2317,7 @@ void CRookServer::WriteDiscoveryFile()
         info["host"] = kNativeBindHost;
         info["port"] = m_port;
         info["pluginType"] = "native";
+        info["hostGenerationId"] = m_host_generation_id;
         info["processId"] = ::GetCurrentProcessId();
         info["startTime"] = MakeLocalTimestamp();
         info["pluginVersion"] = kRookNativePluginVersion;
@@ -2297,7 +2325,8 @@ void CRookServer::WriteDiscoveryFile()
         const auto ghRoutes = GetNativeGrasshopperRoutes();
         const bool callbackBridgeReady = Rook::Handlers::HasGrasshopperBridgeRegistration();
         const auto companionStatus = ReadCompanionRuntimeStatus(rootInfo, pid);
-        const auto capabilityDocument = BuildRookCapabilitiesDocument(m_port, rootInfo, companionStatus);
+        const auto capabilityDocument = BuildRookCapabilitiesDocument(
+            m_port, rootInfo, companionStatus, m_host_generation_id);
         info["capabilities"]["ghProvider"] = "callback";
         info["capabilities"]["ghRoutes"] = callbackBridgeReady ? ghRoutes : nlohmann::json::array();
         info["capabilities"]["schemaVersion"] = 1;

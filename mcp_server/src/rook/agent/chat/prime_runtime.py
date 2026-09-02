@@ -420,7 +420,7 @@ def build_rook_mcp_server(contract: PrimeRuntimeContract, binding: RookBinding) 
             "ROOK_MCP_TARGET_PROCESS_ID": str(binding.route_process_id),
             "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": str(binding.rhino_document_serial),
             "ROOK_MCP_TOOL_PROFILE": binding.profile,
-            "ROOK_PANEL_HOST_GENERATION_ID": binding.host_generation_id,
+            "ROOK_MCP_TARGET_HOST_GENERATION_ID": binding.host_generation_id,
         }
     )
     return McpServerStdio(

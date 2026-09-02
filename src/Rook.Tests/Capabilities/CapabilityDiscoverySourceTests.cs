@@ -87,6 +87,33 @@ namespace Rook.Tests.Capabilities
         }
 
         [Fact]
+        public void HostGeneration_IsCreatedOncePerServerLifetime()
+        {
+            var header = ReadSourceFile("src", "RookNative", "RookServer.h");
+            var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
+            var constructor = ExtractFunction(source, "CRookServer::CRookServer");
+            var start = ExtractFunction(source, "CRookServer::Start");
+
+            Assert.Contains("std::string m_host_generation_id", header);
+            Assert.Contains("GenerateHostGenerationId()", constructor);
+            Assert.DoesNotContain("GenerateHostGenerationId()", start);
+        }
+
+        [Fact]
+        public void DiscoveryAndCapabilities_PublishTheSameStoredHostGeneration()
+        {
+            var source = ReadSourceFile("src", "RookNative", "RookServer.cpp");
+            var capabilities = ExtractFunction(source, "BuildRookCapabilitiesDocument");
+            var liveRoute = ExtractFunction(source, "CRookServer::HandleCapabilities");
+            var discovery = ExtractFunction(source, "CRookServer::WriteDiscoveryFile");
+
+            Assert.Contains("document[\"hostGenerationId\"] = hostGenerationId;", capabilities);
+            Assert.Contains("m_host_generation_id", liveRoute);
+            Assert.Contains("info[\"hostGenerationId\"] = m_host_generation_id;", discovery);
+            Assert.Contains("m_host_generation_id", discovery);
+        }
+
+        [Fact]
         public void BridgeEvidence_IsGranularByDomain()
         {
             var header = ReadSourceFile("src", "RookNative", "Handlers", "GrasshopperProxyHandler.h");
