@@ -329,8 +329,13 @@ def load_and_verify_runtime(install_root: Path, runtime_id: str) -> PrimeRuntime
 
 
 def validate_windows_launch_argv(argv: tuple[str, ...]) -> None:
-    rendered = subprocess.list2cmdline(argv)
-    units = len(rendered.encode("utf-16-le")) // 2 + 1
+    if not argv or not argv[0] or any(type(value) is not str or "\0" in value for value in argv):
+        raise PrimeLaunchError("invalid_launch_argument")
+    try:
+        rendered = subprocess.list2cmdline(argv)
+        units = len(rendered.encode("utf-16-le")) // 2 + 1
+    except (TypeError, UnicodeEncodeError) as exc:
+        raise PrimeLaunchError("invalid_launch_argument") from exc
     if units > MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS:
         raise PrimeLaunchError("runtime_command_line_too_long")
 
@@ -389,8 +394,21 @@ def build_prime_child_env(
     contract: PrimeRuntimeContract,
 ) -> dict[str, str]:
     del contract
-    if not all(isinstance(key, str) and isinstance(value, str) for key, value in base_environment.items()):
-        raise PrimeLaunchError("invalid_child_environment")
+    for key, value in base_environment.items():
+        if (
+            type(key) is not str
+            or not key
+            or "=" in key
+            or "\0" in key
+            or type(value) is not str
+            or "\0" in value
+        ):
+            raise PrimeLaunchError("invalid_child_environment")
+        try:
+            key.encode("utf-16-le")
+            value.encode("utf-16-le")
+        except UnicodeEncodeError as exc:
+            raise PrimeLaunchError("invalid_child_environment") from exc
     return dict(base_environment)
 
 

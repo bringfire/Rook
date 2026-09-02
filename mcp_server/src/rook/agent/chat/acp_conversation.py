@@ -278,7 +278,7 @@ class AcpConversationManager:
         generation = next(self._launch_generation)
         process = await self._launch_process(prepared, contract, provisional, claim, generation)
         resident = ResidentConversation(provisional, contract, claim, process, generation)
-        await self._insert_resident(resident)
+        await self._publish_resident(resident)
         return self._view(resident)
 
     async def reopen(self, conversation_id: str) -> ConversationView:
@@ -301,13 +301,30 @@ class AcpConversationManager:
         generation = next(self._launch_generation)
         process = await self._launch_process(prepared, contract, association, claim, generation)
         resident = ResidentConversation(association, contract, claim, process, generation)
-        await self._insert_resident(resident)
+        await self._publish_resident(resident)
         return self._view(resident)
+
+    async def _publish_resident(self, resident: ResidentConversation) -> None:
+        try:
+            await self._insert_resident(resident)
+        except BaseException:
+            cleanup = asyncio.create_task(self._discard_unpublished_resident(resident))
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.shield(cleanup)
+            raise
 
     async def _insert_resident(self, resident: ResidentConversation) -> None:
         async with self._admission_lock:
             self._resident[resident.association.conversation_id] = resident
             resident.transport_watch = asyncio.create_task(self._watch_transport_failure(resident))
+
+    async def _discard_unpublished_resident(self, resident: ResidentConversation) -> None:
+        async with self._admission_lock:
+            current = self._resident.get(resident.association.conversation_id)
+            if current is resident:
+                self._resident.pop(resident.association.conversation_id)
+        await self._stop_transport_watch(resident)
+        await resident.process.retire(send_close=True)
 
     async def _watch_transport_failure(self, resident: ResidentConversation) -> None:
         try:

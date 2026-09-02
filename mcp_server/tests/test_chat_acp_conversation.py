@@ -5,6 +5,7 @@ import json
 import platform
 import sys
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -561,6 +562,63 @@ async def test_cancelled_create_retires_claimed_process(tmp_path: Path, blocked_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["create", "reopen"])
+@pytest.mark.parametrize("after_insert", [False, True])
+async def test_cancelled_resident_publication_retires_exact_process(
+    tmp_path: Path,
+    operation: str,
+    after_insert: bool,
+):
+    manager, _, _, factory, paths = _manager(tmp_path)
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    conversation_id = None
+    if operation == "reopen":
+        view = await manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
+        prompt = await manager.start_prompt(view.conversation_id, PromptInput("materialize", ()), NullSink())
+        await prompt.result_task
+        await manager.close(view.conversation_id)
+        conversation_id = view.conversation_id
+
+    inserted = asyncio.Event()
+    if after_insert:
+        original_insert = manager._insert_resident
+
+        async def insert_then_block(resident):
+            await original_insert(resident)
+            inserted.set()
+            await asyncio.Event().wait()
+
+        manager._insert_resident = insert_then_block
+    else:
+        await manager._admission_lock.acquire()
+
+    factory.process_created.clear()
+    task = asyncio.create_task(
+        manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
+        if operation == "create"
+        else manager.reopen(conversation_id)
+    )
+    await factory.process_created.wait()
+    process = factory.processes[-1]
+    while process.new_session_calls == 0:
+        await asyncio.sleep(0)
+    if after_insert:
+        await inserted.wait()
+
+    task.cancel()
+    if not after_insert:
+        manager._admission_lock.release()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.wait_for(process.retire_finished.wait(), timeout=0.2)
+    assert process.retire_send_close == [True]
+    assert not manager._resident
+    assert not list(paths.claims_root.glob("*.open.claim"))
+
+
+@pytest.mark.asyncio
 async def test_invalid_creation_launch_is_refused_before_claim_acquisition(tmp_path: Path, monkeypatch):
     paths = _paths(tmp_path)
     manager = AcpConversationManager(
@@ -582,6 +640,44 @@ async def test_invalid_creation_launch_is_refused_before_claim_acquisition(tmp_p
 
     with pytest.raises(PrimeLaunchError, match="invalid_reasoning"):
         await manager.create(CreateConversationRequest(_binding(), str(saved), None, "none"))
+    assert not claim_attempted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_source", ["argv_nul", "environment_name", "environment_value"])
+async def test_deterministically_invalid_launch_refuses_before_claim_acquisition(
+    tmp_path: Path,
+    monkeypatch,
+    invalid_source: str,
+):
+    paths = _paths(tmp_path)
+    contract = _contract(tmp_path)
+    environment = {"PATH": "C:/approved"}
+    if invalid_source == "argv_nul":
+        contract = replace(contract, rook_skill_system_prompt="valid\0invalid")
+    elif invalid_source == "environment_name":
+        environment = {"INVALID=NAME": "value"}
+    else:
+        environment = {"PATH": "valid\0invalid"}
+    manager = AcpConversationManager(
+        AssociationStore(paths),
+        FakeRuntimeCatalog(contract),
+        DirectAcpProcessFactory(environment),
+        PresentationCache(paths.presentation_root),
+    )
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    claim_attempted = False
+
+    def unexpected_claim(*_args, **_kwargs):
+        nonlocal claim_attempted
+        claim_attempted = True
+        raise AssertionError("invalid launch reached claim acquisition")
+
+    monkeypatch.setattr(OpenClaim, "acquire", unexpected_claim)
+
+    with pytest.raises(PrimeLaunchError):
+        await manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
     assert not claim_attempted
 
 

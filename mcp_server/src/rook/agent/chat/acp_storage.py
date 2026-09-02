@@ -185,7 +185,7 @@ def validate_prime_session_header(
     version = payload.get("version")
     session_id = payload.get("id")
     stored_cwd = payload.get("cwd")
-    if not isinstance(version, int) or version not in SUPPORTED_SESSION_HEADER_VERSIONS:
+    if type(version) is not int or version not in SUPPORTED_SESSION_HEADER_VERSIONS:
         raise SessionUnavailable("session header version is unsupported")
     if not isinstance(session_id, str) or not session_id.strip():
         raise SessionUnavailable("session header ID is invalid")

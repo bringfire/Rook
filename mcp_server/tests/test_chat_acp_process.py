@@ -261,6 +261,7 @@ async def test_uncertain_prompt_retirement_sends_no_close_request(tmp_path: Path
     result = await process.retire(send_close=False)
     methods = [row["method"] for row in _read_journal(journal) if "method" in row]
     assert "session/close" not in methods
+    assert not result.clean
     assert result.child_exit_observed
 
 

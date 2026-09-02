@@ -290,7 +290,7 @@ class OwnedAcpProcess:
         send_close: bool,
         release_claim: bool,
     ) -> RetirementResult:
-        clean = True
+        clean = not (self.session_id is not None and not send_close)
         if send_close and self.session_id is not None:
             try:
                 await self.close_session()

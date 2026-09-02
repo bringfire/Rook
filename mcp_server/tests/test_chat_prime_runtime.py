@@ -198,6 +198,35 @@ def test_windows_argv_bound_counts_the_rendered_command_and_nul():
     validate_windows_launch_argv(argv)
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ("prime-agent", "valid\0invalid"),
+        ("prime-agent", 7),
+    ],
+)
+def test_windows_argv_rejects_invalid_entries(argv):
+    with pytest.raises(PrimeLaunchError, match="invalid_launch_argument"):
+        validate_windows_launch_argv(argv)
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {"": "value"},
+        {"INVALID=NAME": "value"},
+        {"VALID": "value\0suffix"},
+        {"VALID\0NAME": "value"},
+        {7: "value"},
+        {"VALID": 7},
+    ],
+)
+def test_prime_child_environment_rejects_invalid_entries(verified_runtime, environment):
+    contract, _ = verified_runtime
+    with pytest.raises(PrimeLaunchError, match="invalid_child_environment"):
+        build_prime_child_env(environment, contract)
+
+
 def test_runtime_manifest_replay_and_required_paths(verified_runtime):
     contract, runtime_root = verified_runtime
     assert contract.executable_path == (runtime_root / "bin/prime-agent.exe").resolve()
