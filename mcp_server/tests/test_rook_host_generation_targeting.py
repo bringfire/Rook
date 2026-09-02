@@ -182,3 +182,190 @@ async def test_matching_live_generation_dispatches_with_locked_document(monkeypa
         ("/capabilities", None),
         ("/document", {"documentSerialNumber": "55"}),
     ]
+
+
+class _DestinationClient:
+    def __init__(self, calls: list[tuple[str, int | None]]) -> None:
+        self._calls = calls
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def get(self, url, params=None):
+        parsed = urlparse(str(url))
+        self._calls.append((parsed.path, parsed.port))
+        if parsed.path == "/capabilities":
+            return _Response({"domains": [], "hostGenerationId": HOST_GENERATION})
+        return _Response({"success": True, "data": {"name": "bound.3dm"}})
+
+
+@pytest.mark.asyncio
+async def test_discovery_churn_cannot_split_verification_and_operation(monkeypatch) -> None:
+    targeting.initialize_from_environment(_panel_environment())
+    original = _instance()
+    replacement = {**_instance(), "port": 9951}
+    discovery_count = 0
+
+    def changing_discovery():
+        nonlocal discovery_count
+        discovery_count += 1
+        return [original] if discovery_count <= 2 else [replacement]
+
+    monkeypatch.setattr(bridge, "discover_instances", changing_discovery)
+    calls: list[tuple[str, int | None]] = []
+    monkeypatch.setattr(
+        bridge.httpx,
+        "AsyncClient",
+        lambda timeout=None: _DestinationClient(calls),
+    )
+
+    result = await bridge.call_rhino("/document", "GET", {})
+
+    assert result["success"] is True
+    assert calls == [("/capabilities", 9950), ("/document", 9950)]
+    assert discovery_count == 1
+
+
+@pytest.mark.asyncio
+async def test_multiple_matching_panel_listeners_refuse_before_http(monkeypatch) -> None:
+    targeting.initialize_from_environment(_panel_environment())
+    instances = [_instance(), {**_instance(), "port": 9951}]
+    monkeypatch.setattr(bridge, "discover_instances", lambda: instances)
+
+    class ForbiddenClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("ambiguous panel authority must refuse before HTTP")
+
+    monkeypatch.setattr(bridge.httpx, "AsyncClient", ForbiddenClient)
+
+    result = await bridge.call_rhino("/document", "GET", {})
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "target_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_forged_discovery_live_endpoint_cannot_change_verification_route(
+    monkeypatch,
+) -> None:
+    targeting.initialize_from_environment(_panel_environment())
+    instance = _instance()
+    instance["capabilities"] = {"liveEndpoint": "/objects"}
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [instance])
+    calls: list[tuple[str, int | None]] = []
+    monkeypatch.setattr(
+        bridge.httpx,
+        "AsyncClient",
+        lambda timeout=None: _DestinationClient(calls),
+    )
+
+    result = await bridge.call_rhino("/document", "GET", {})
+
+    assert result["success"] is True
+    assert calls == [("/capabilities", 9950), ("/document", 9950)]
+
+
+@pytest.mark.asyncio
+async def test_panel_locked_session_capabilities_refuses_alternate_session(
+    monkeypatch,
+) -> None:
+    from rook import server
+
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment(_panel_environment())
+    calls: list[object] = []
+
+    async def forbidden_dispatch(session):
+        calls.append(session)
+        raise AssertionError("alternate session must be refused before dispatch")
+
+    monkeypatch.setattr(server, "get_session_capabilities", forbidden_dispatch)
+
+    result = await server.call_tool(
+        "rhino_session_capabilities", {"session": "rhino-9999"}
+    )
+
+    assert "panel_target_locked" in result[0].text
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_panel_authority_blocks_session_capabilities(monkeypatch) -> None:
+    from rook import server
+
+    invalid = _panel_environment()
+    invalid.pop("ROOK_MCP_TARGET_HOST_GENERATION_ID")
+    targeting.initialize_from_environment(invalid)
+    calls: list[object] = []
+
+    async def forbidden_dispatch(session):
+        calls.append(session)
+        raise AssertionError("invalid panel authority must refuse before dispatch")
+
+    monkeypatch.setattr(server, "get_session_capabilities", forbidden_dispatch)
+
+    result = await server.call_tool(
+        "rhino_session_capabilities", {"session": "rhino-1234"}
+    )
+
+    assert "target_unavailable" in result[0].text
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_panel_session_capabilities_uses_bound_discovery_generation(
+    monkeypatch,
+) -> None:
+    targeting.initialize_from_environment(_panel_environment())
+    wrong = _instance(OTHER_GENERATION)
+    right = {**_instance(), "port": 9951}
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [wrong, right])
+    monkeypatch.setattr(
+        bridge,
+        "classify_session_liveness",
+        lambda instance: {
+            "state": "live",
+            "pidAlive": True,
+            "portListening": True,
+        },
+    )
+    selected: list[dict[str, object]] = []
+
+    async def capture_capabilities(instance, timeout=None):
+        selected.append(instance)
+        return {
+            "source": "live",
+            "stale": False,
+            "authoritative": True,
+            "liveEndpoint": "/capabilities",
+            "capabilities": {"hostGenerationId": HOST_GENERATION},
+        }
+
+    monkeypatch.setattr(bridge, "resolve_capabilities", capture_capabilities)
+
+    result = await bridge.get_session_capabilities("rhino-1234")
+
+    assert result["success"] is True
+    assert selected[0]["port"] == 9951
+    assert selected[0]["capabilities"]["liveEndpoint"] == "/capabilities"
+
+
+@pytest.mark.asyncio
+async def test_panel_session_capabilities_refuses_missing_bound_generation(
+    monkeypatch,
+) -> None:
+    targeting.initialize_from_environment(_panel_environment())
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [_instance(OTHER_GENERATION)])
+
+    def forbidden_pid_probe(process_id):
+        raise AssertionError("panel authority must not degrade to PID liveness")
+
+    monkeypatch.setattr(bridge, "_is_pid_alive", forbidden_pid_probe)
+
+    result = await bridge.get_session_capabilities("rhino-1234")
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "target_unavailable"

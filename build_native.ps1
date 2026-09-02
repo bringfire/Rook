@@ -59,6 +59,16 @@ $abiTestOutputDir = Join-Path $ScriptRoot "src\RookNative\obj\$Configuration\x64
 $abiTestObject = Join-Path $abiTestOutputDir "GrasshopperBridgeAbiValidationTests.obj"
 $abiTestExecutable = Join-Path $abiTestOutputDir "GrasshopperBridgeAbiValidationTests.exe"
 
+$hostGenerationTestSource = Join-Path $ScriptRoot "src\RookNative\HostGenerationIdValidationTests.cpp"
+if (-not (Test-Path $hostGenerationTestSource)) {
+    Write-Error "Host generation ID validation test not found: $hostGenerationTestSource"
+    exit 1
+}
+
+$hostGenerationTestOutputDir = Join-Path $ScriptRoot "src\RookNative\obj\$Configuration\x64\HostGenerationIdValidationTests"
+$hostGenerationTestObject = Join-Path $hostGenerationTestOutputDir "HostGenerationIdValidationTests.obj"
+$hostGenerationTestExecutable = Join-Path $hostGenerationTestOutputDir "HostGenerationIdValidationTests.exe"
+
 Write-Host "Building RookNative ($Configuration x64)"
 Write-Host "  VS Edition:      $($tc.Edition)"
 Write-Host "  VCToolsVersion:  $($tc.VCToolsVersion)"
@@ -79,6 +89,12 @@ echo Running Grasshopper bridge ABI validation tests
 cl /nologo /std:c++17 /EHsc /W4 /WX /I"$ScriptRoot\src\RookNative" /Fo:"$abiTestObject" /Fe:"$abiTestExecutable" "$abiTestSource"
 if errorlevel 1 exit /b %ERRORLEVEL%
 "$abiTestExecutable"
+if errorlevel 1 exit /b %ERRORLEVEL%
+if not exist "$hostGenerationTestOutputDir" mkdir "$hostGenerationTestOutputDir"
+echo Running host generation ID validation tests
+cl /nologo /std:c++17 /EHsc /W4 /WX /I"$ScriptRoot\src\RookNative" /Fo:"$hostGenerationTestObject" /Fe:"$hostGenerationTestExecutable" "$hostGenerationTestSource"
+if errorlevel 1 exit /b %ERRORLEVEL%
+"$hostGenerationTestExecutable"
 if errorlevel 1 exit /b %ERRORLEVEL%
 msbuild "%~1" /p:Configuration=$Configuration /p:Platform=x64 /p:VCToolsVersion=$($tc.VCToolsVersion) /m /v:minimal
 exit /b %ERRORLEVEL%

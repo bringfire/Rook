@@ -21283,12 +21283,23 @@ async def call_tool(
     explicit_session = arguments.get("session")
 
     if targeting.get_panel_target_config_error() is not None and (
-        policy.requires_rhino or name == "rhino_launch"
+        policy.requires_rhino
+        or name in {"rhino_launch", "rhino_session_capabilities"}
     ):
         raw_result = {"success": False, "data": targeting.get_panel_target_config_error()}
         if name == "rhino_launch":
             raw_result = _with_rhino_launch_canonical_tool(raw_result)
         return _project_tool_result(raw_result, public_mcp=_public_mcp)
+
+    if (
+        name == "rhino_session_capabilities"
+        and targeting.get_panel_target_lock() is not None
+        and not targeting.panel_session_matches_target_lock(explicit_session)
+    ):
+        return _project_tool_result(
+            targeting.panel_target_locked_result(),
+            public_mcp=_public_mcp,
+        )
 
     if targeting.get_panel_target_lock() is not None and name in {"spawn_agent", "plan_and_execute"}:
         return _project_tool_result(

@@ -384,13 +384,15 @@ def select_rhino_instance(
     endpoint: str | None = None,
     port: int | None = None,
     process_id: int | None = None,
+    *,
+    instances: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Select the best Rhino instance for an endpoint.
 
     If `port` is provided, it anchors selection to the same Rhino process when
     a companion native/managed server pair exists.
     """
-    instances = discover_instances()
+    instances = list(instances) if instances is not None else discover_instances()
     if not instances:
         return None
 
@@ -669,14 +671,28 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
             },
         }
 
-    instance = next(
-        (
-            inst for inst in discover_instances()
-            if inst.get("processId") == process_id and inst.get("pluginType") == "native"
-        ),
-        None,
-    )
+    targeting = _targeting_module()
+    lock, config_error = _panel_lock_state()
+    if config_error is not None:
+        return {"success": False, "data": config_error}
+    if lock is not None and process_id != lock.process_id:
+        return targeting.panel_target_locked_result()
+
+    instances = discover_instances()
+    if lock is not None:
+        instance = targeting.resolve_panel_target_instance(instances, lock)
+    else:
+        instance = next(
+            (
+                inst for inst in instances
+                if inst.get("processId") == process_id
+                and inst.get("pluginType") == "native"
+            ),
+            None,
+        )
     if instance is None:
+        if lock is not None:
+            return targeting.panel_target_unavailable_result(instances=instances)
         # No native record. Probe the PID before claiming dead (P2): the record may
         # be gone while the process lives (listener unloaded/reloading).
         gone_target = {
@@ -929,6 +945,8 @@ def _apply_panel_lock_to_request(
     data: dict | None,
     port: int | None,
     process_id: int | None,
+    *,
+    instances: list[dict[str, Any]] | None = None,
 ) -> tuple[dict | None, int | None, int | None, dict[str, Any] | None]:
     targeting = _targeting_module()
     lock, config_error = _panel_lock_state()
@@ -937,14 +955,9 @@ def _apply_panel_lock_to_request(
     if lock is None:
         return data, port, process_id, None
 
-    instances = discover_instances()
-    locked_instances = [
-        instance
-        for instance in instances
-        if instance.get("pluginType") == "native"
-        and targeting.instance_matches_panel_target_lock(instance, lock)
-    ]
-    if not locked_instances:
+    instances = list(instances) if instances is not None else discover_instances()
+    locked_instance = targeting.resolve_panel_target_instance(instances, lock)
+    if locked_instance is None:
         return data, port, process_id, targeting.panel_target_unavailable_result(
             instances=instances
         )
@@ -965,7 +978,7 @@ def _apply_panel_lock_to_request(
     if isinstance(applied, dict) and applied.get("success") is False:
         return data, port, process_id, applied
 
-    return applied, locked_instances[0].get("port"), lock.process_id, None
+    return applied, locked_instance.get("port"), lock.process_id, None
 
 
 async def call_rhino(
@@ -994,11 +1007,13 @@ async def call_rhino(
         resolved_port = None
     if resolved_process_id is not None and resolved_process_id <= 0:
         resolved_process_id = None
+    instance_snapshot = discover_instances()
     data, resolved_port, resolved_process_id, panel_error = _apply_panel_lock_to_request(
         endpoint,
         data,
         resolved_port,
         resolved_process_id,
+        instances=instance_snapshot,
     )
     if panel_error is not None:
         return panel_error
@@ -1008,6 +1023,7 @@ async def call_rhino(
         endpoint=endpoint,
         port=resolved_port,
         process_id=resolved_process_id,
+        instances=instance_snapshot,
     )
     if normalized_endpoint and normalized_endpoint.startswith(RC_ROUTE_PREFIX) and selected_instance is None:
         return {
@@ -1023,7 +1039,7 @@ async def call_rhino(
         and normalized_endpoint.startswith(GH_ROUTE_PREFIX)
         and selected_instance is None
     ):
-        instances = discover_instances()
+        instances = instance_snapshot
         if instances:
             ports_info = ", ".join(
                 f"{inst['port']} ({inst.get('pluginType', 'unknown')})"
@@ -1047,7 +1063,7 @@ async def call_rhino(
         }
 
     if selected_instance is not None:
-        instances = discover_instances()
+        instances = instance_snapshot
         lock, _ = _panel_lock_state()
         if (
             lock is not None
@@ -1073,7 +1089,7 @@ async def call_rhino(
             }
 
     if resolved_process_id is not None and selected_instance is None:
-        instances = discover_instances()
+        instances = instance_snapshot
         if instances:
             processes_info = ", ".join(
                 f"PID {inst.get('processId')} @ {inst.get('port')}"
@@ -1124,27 +1140,15 @@ async def call_rhino(
         try:
             lock, _ = _panel_lock_state()
             if lock is not None:
-                authority_instances = discover_instances()
-                authority = next(
-                    (
-                        instance
-                        for instance in authority_instances
-                        if instance.get("pluginType") == "native"
-                        and _targeting_module().instance_matches_panel_target_lock(
-                            instance, lock
-                        )
-                    ),
-                    None,
+                authority_instances = instance_snapshot
+                authority = _targeting_module().resolve_panel_target_instance(
+                    authority_instances, lock
                 )
                 if authority is None:
                     return _targeting_module().panel_target_unavailable_result(
                         instances=authority_instances
                     )
-                capability_path = (authority.get("capabilities") or {}).get(
-                    "liveEndpoint", "/capabilities"
-                )
-                if not isinstance(capability_path, str) or not capability_path.startswith("/"):
-                    capability_path = "/capabilities"
+                capability_path = "/capabilities"
                 capability_url = (
                     f"http://{authority.get('host') or DEFAULT_HOST}:"
                     f"{authority.get('port')}{capability_path}"

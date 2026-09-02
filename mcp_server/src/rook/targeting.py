@@ -945,23 +945,35 @@ def live_capabilities_match_panel_target_lock(
     )
 
 
-def _locked_process_instances(instances: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def panel_session_matches_target_lock(session_id: Any) -> bool:
     lock = _PANEL_TARGET_LOCK
-    if lock is None:
-        return []
-    return [
+    return bool(
+        lock is not None
+        and _process_id_from_session_id(session_id) == lock.process_id
+    )
+
+
+def resolve_panel_target_instance(
+    instances: list[dict[str, Any]],
+    lock: PanelTargetLock | None = None,
+) -> dict[str, Any] | None:
+    current = lock or _PANEL_TARGET_LOCK
+    if current is None:
+        return None
+    matches = [
         instance
         for instance in instances
         if instance.get("pluginType") == "native"
-        and instance_matches_panel_target_lock(instance, lock)
+        and instance_matches_panel_target_lock(instance, current)
     ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _resolve_locked_target(instances: list[dict[str, Any]]) -> tuple[InstanceRef, dict[str, Any]] | None:
-    locked = _locked_process_instances(instances)
-    if not locked:
+    locked = resolve_panel_target_instance(instances)
+    if locked is None:
         return None
-    targets = _process_targets(locked)
+    targets = _process_targets([locked])
     return targets[0] if targets else None
 
 

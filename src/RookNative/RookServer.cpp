@@ -47,44 +47,20 @@
 #include "Handlers/GumballContextHandler.h"
 #include "Handlers/SessionHandler.h"
 #include "Handlers/GrasshopperProxyHandler.h"
+#include "Infrastructure/HostGenerationId.h"
 #include "Interactive/SessionRecorder.h"  // C10: McpRequestGuard
 #include "RookNativePlugin.h"             // IsRhinoInside() for discovery file
 
 #include <filesystem>
 #include <fstream>
-#include <array>
 #include <chrono>
-#include <iomanip>
-#include <random>
 #include <set>
-#include <sstream>
 
 namespace fs = std::filesystem;
 
 namespace
 {
     constexpr const char* kNativeBindHost = "127.0.0.1";
-
-    std::string GenerateHostGenerationId()
-    {
-        std::array<unsigned char, 16> bytes{};
-        std::random_device random;
-        for (auto& value : bytes)
-            value = static_cast<unsigned char>(random());
-
-        bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0f) | 0x40);
-        bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3f) | 0x80);
-
-        std::ostringstream stream;
-        stream << std::hex << std::setfill('0');
-        for (size_t index = 0; index < bytes.size(); ++index)
-        {
-            if (index == 4 || index == 6 || index == 8 || index == 10)
-                stream << '-';
-            stream << std::setw(2) << static_cast<int>(bytes[index]);
-        }
-        return stream.str();
-    }
 
     struct DiscoveryRootInfo
     {
@@ -305,7 +281,7 @@ CRookServer& CRookServer::Instance()
 }
 
 CRookServer::CRookServer()
-    : m_host_generation_id(GenerateHostGenerationId())
+    : m_host_generation_id(Rook::Infrastructure::GenerateHostGenerationId())
 {
 }
 
