@@ -85,6 +85,7 @@ namespace Rook.Tests.UI.Chat
             Assert.Single(history.Turns[0].Images);
             var image = history.Turns[0].Images[0];
             Assert.Equal("paste.png", image.FileName);
+            Assert.Equal("image/png", image.MimeType);
             Assert.Equal(1, image.Width);
             Assert.Equal(1, image.Height);
             Assert.Equal(68, image.BinaryByteCount);

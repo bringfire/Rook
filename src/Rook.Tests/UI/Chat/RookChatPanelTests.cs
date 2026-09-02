@@ -191,6 +191,41 @@ namespace Rook.Tests.UI.Chat
             Assert.True(Encoding.UTF8.GetByteCount(Assert.Single(messages).Text) <= 512);
         }
 
+        [Fact]
+        public void Presentation_history_renders_image_metadata_without_claiming_a_reopened_preview()
+        {
+            var history = new PresentationHistory
+            {
+                Available = true,
+                Turns = new List<PresentationTurn>
+                {
+                    new()
+                    {
+                        StopReason = "end_turn",
+                        Images = new List<PresentationImage>
+                        {
+                            new()
+                            {
+                                FileName = "paste.png",
+                                MimeType = "image/png",
+                                BinaryByteCount = 68,
+                                Width = 1,
+                                Height = 1,
+                                Sha256 = new string('a', 64),
+                            },
+                        },
+                    },
+                },
+            };
+
+            var message = Assert.Single(PresentationHistoryFormatter.Format(history));
+
+            Assert.Equal("system", message.Role);
+            Assert.Equal(
+                "Image preview unavailable after reopen: paste.png (image/png, 68 bytes).",
+                message.Text);
+        }
+
         [Theory]
         [InlineData("  build  this\r\n", "build  this")]
         [InlineData("\talpha\tbeta\t", "alpha\tbeta")]

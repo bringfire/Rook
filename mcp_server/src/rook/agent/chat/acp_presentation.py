@@ -496,6 +496,7 @@ def _validate_cache_payload(payload: dict[str, Any], sequence: int, byte_count: 
             or not _is_nonnegative_int(card.get("originalBytes"))
         ):
             raise PresentationCacheError("turn tool projection is invalid")
+        card["kind"].encode("utf-8")
         retained_bytes = len(card["content"].encode("utf-8"))
         if retained_bytes > MAX_TOOL_CONTENT_BYTES_PER_CARD or card["originalBytes"] < retained_bytes:
             raise PresentationCacheError("turn tool projection is oversized")
@@ -597,7 +598,11 @@ class PresentationCache:
     def _scan_entries_or_raise(self) -> list[_CacheEntry]:
         entries: list[_CacheEntry] = []
         for path in sorted(self.root.glob("*.json")):
-            if len(path.stem) != 8 or not path.stem.isdigit() or path.is_symlink():
+            if (
+                len(path.stem) != 8
+                or any(char not in "0123456789" for char in path.stem)
+                or path.is_symlink()
+            ):
                 raise PresentationCacheError("presentation cache entry is invalid")
             try:
                 byte_count = path.stat().st_size

@@ -331,11 +331,43 @@ def test_cache_rejects_internal_sequence_gaps(tmp_path: Path) -> None:
     assert history.message == "presentation history unavailable"
 
 
+def test_cache_rejects_non_ascii_sequence_filename_as_unavailable_history(tmp_path: Path) -> None:
+    root = tmp_path / "presentation"
+    root.mkdir()
+    non_ascii_sequence = "\N{SUPERSCRIPT TWO}" * 8
+    (root / f"{non_ascii_sequence}.json").write_text("{}", encoding="utf-8")
+
+    history = PresentationCache(root).load()
+
+    assert history.available is False
+    assert history.message == "presentation history unavailable"
+
+
 def test_cache_rejects_escaped_lone_surrogate_as_unavailable_history(tmp_path: Path) -> None:
     root = tmp_path / "presentation"
     root.mkdir()
     payload = TurnProjection("inspect", "done", 7, 4, "end_turn", (), ()).payload(1)
     payload["userText"] = "\ud800"
+    (root / "00000001.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    history = PresentationCache(root).load()
+
+    assert history.available is False
+    assert history.message == "presentation history unavailable"
+
+
+def test_cache_rejects_lone_surrogate_tool_kind_as_unavailable_history(tmp_path: Path) -> None:
+    root = tmp_path / "presentation"
+    root.mkdir()
+    payload = TurnProjection(
+        "inspect",
+        "done",
+        7,
+        4,
+        "end_turn",
+        ({"kind": "\ud800", "content": "kept", "originalBytes": 4},),
+        (),
+    ).payload(1)
     (root / "00000001.json").write_text(json.dumps(payload), encoding="utf-8")
 
     history = PresentationCache(root).load()
