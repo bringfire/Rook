@@ -335,6 +335,31 @@ async def test_prompt_stream_maps_projected_and_terminal_outcomes_separately(tmp
 
 
 @pytest.mark.asyncio
+async def test_stream_and_early_refusal_send_fixed_cors_headers_on_the_wire(tmp_path: Path):
+    origin = {"Origin": chat_server.ALLOWED_ORIGIN}
+    async with _client(FakeManager(tmp_path), nonce="secret") as client:
+        stream = await client.post(
+            f"/agent/chat/conversations/{VALID_CONVERSATION_ID}/prompt",
+            json=_prompt_body(),
+            headers={**origin, chat_server.SESSION_HEADER: "secret"},
+        )
+        assert stream.status == 200
+        assert stream.headers["Access-Control-Allow-Origin"] == chat_server.ALLOWED_ORIGIN
+        await stream.read()
+
+        refused = await client.get("/agent/chat/conversations", headers=origin)
+        assert refused.status == 403
+        assert refused.headers["Access-Control-Allow-Origin"] == chat_server.ALLOWED_ORIGIN
+
+        wrong_origin = await client.get(
+            "/agent/chat/conversations",
+            headers={"Origin": "https://unexpected.example", chat_server.SESSION_HEADER: "secret"},
+        )
+        assert wrong_origin.status == 403
+        assert wrong_origin.headers["Access-Control-Allow-Origin"] == chat_server.ALLOWED_ORIGIN
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("path", "body"),
     [
@@ -368,6 +393,41 @@ async def test_non_object_json_is_refused(tmp_path: Path, path: str, body):
 async def test_create_rejects_invalid_closed_fields(tmp_path: Path, overrides, code: str):
     async with _client(FakeManager(tmp_path)) as client:
         response = await client.post("/agent/chat/conversations", json=_create_body(**overrides))
+        assert response.status == 400
+        assert (await _json(response))["error"]["code"] == code
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "body", "code"),
+    [
+        ("/agent/chat/conversations", _create_body(model="anthropic/\ud800"), "invalid_model"),
+        (
+            "/agent/chat/conversations",
+            _create_body(savedDocumentDirectory="C:/bad/\ud800"),
+            "invalid_saved_document_directory",
+        ),
+        (
+            f"/agent/chat/conversations/{VALID_CONVERSATION_ID}/prompt",
+            _prompt_body(text="\ud800"),
+            "invalid_prompt",
+        ),
+        (
+            f"/agent/chat/conversations/{VALID_CONVERSATION_ID}/prompt",
+            _prompt_body(
+                images=[
+                    {"fileName": "\ud800.png", "mimeType": "image/png", "base64Data": PNG_1X1}
+                ]
+            ),
+            "invalid_image",
+        ),
+    ],
+)
+async def test_scalar_fields_refuse_non_utf8_unicode(
+    tmp_path: Path, path: str, body: dict[str, object], code: str
+):
+    async with _client(FakeManager(tmp_path)) as client:
+        response = await client.post(path, json=body)
         assert response.status == 400
         assert (await _json(response))["error"]["code"] == code
 

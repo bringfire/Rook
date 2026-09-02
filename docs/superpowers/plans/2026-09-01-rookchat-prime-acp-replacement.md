@@ -1463,12 +1463,36 @@ git commit -m "build(chat): package immutable Prime ACP runtime"
 ### Task 11: Complete The ChatRunner Non-Port And Installed-Product Static Gate
 
 **Files:**
+- Delete: `mcp_server/src/rook/agent/chat/conversation_store.py`
+- Delete: `mcp_server/src/rook/agent/chat/chat_runner.py`
+- Delete: `mcp_server/src/rook/agent/chat/model_status.py`
+- Delete: `mcp_server/src/rook/agent/chat/prompt_builder.py`
+- Delete: `mcp_server/src/rook/agent/worker_first_csharp_application.py`
 - Delete: `scripts/chatrunner_headless_qualification.py`
 - Delete: `mcp_server/tests/test_chatrunner_headless_qualification.py`
 - Delete: `mcp_server/tests/test_chatrunner_mcp_capability_gateway.py`
+- Delete: `mcp_server/tests/test_model_override_options.py`
 - Delete: `mcp_server/tests/test_rookchat_worker_first_csharp_integration.py`
+- Delete: `mcp_server/tests/test_worker_first_csharp_application.py`
+- Modify: `mcp_server/src/rook/agent/capability_inventory.py`
+- Modify: `mcp_server/src/rook/agent/chat/tool_contracts.py`
+- Modify: `mcp_server/src/rook/agent/tool_dispatcher.py`
+- Modify: `mcp_server/src/rook/agent/tool_groups.py`
+- Modify: `mcp_server/src/rook/server.py`
+- Modify: `mcp_server/tests/test_capability_inventory.py`
+- Modify: `mcp_server/tests/test_containment_agent_protocols.py`
+- Modify: `mcp_server/tests/test_containment_catalogs.py`
+- Modify: `mcp_server/tests/test_containment_guidance.py`
+- Modify: `mcp_server/tests/test_dispatcher_safety.py`
+- Modify: `mcp_server/tests/test_persona_prompt_schema.py`
+- Modify: `mcp_server/tests/test_rookchat_gh_script_creation_parity.py`
+- Modify: `mcp_server/tests/test_rookchat_tool_contracts.py`
+- Modify: `mcp_server/tests/test_rookchat_tool_schema_golden.py`
 - Modify: `mcp_server/tests/test_rookchat_visible_dispatchability.py`
 - Modify: `mcp_server/tests/test_rookchat_tool_transcripts.py`
+- Modify: `mcp_server/tests/test_vertex_runtime_integration.py`
+- Modify: `scripts/vertex_oauth_acceptance.py`
+- Modify: `mcp_server/tests/test_vertex_acceptance_harness.py`
 - Modify: `docs/CURRENT_ARCHITECTURE.md`
 - Modify: `README.md`
 - Modify: `QUICK_START.md`
@@ -1507,7 +1531,34 @@ rg -n "ChatRunner|ConversationStore|model_status|prompt_builder|worker.first|/ag
 rg -n "tool_result_view|tool_contracts|execution_policy|personas" mcp_server/src
 ```
 
-The expected ChatRunner-only residue is the qualification script and three tests listed in this task; delete those after the audit proves they have no retained caller. Update the two generic RookChat contract tests to exercise ACP-projected tool data without importing ChatRunner. Retain shared `tool_result_view`, `tool_contracts`, `execution_policy`, persona infrastructure used by planner/spawn, knowledge routes, authenticated HTTP middleware, service discovery, and generic panel rendering. If the audit finds another production owner beyond this exact list, stop for plan correction instead of broadening deletion opportunistically.
+The audit must classify every current import or path reference before deleting the four production modules. The closed disposition is:
+
+| Current caller | Disposition in Task 11 |
+| --- | --- |
+| `test_chatrunner_headless_qualification.py` | Delete with its obsolete qualification script. |
+| `test_chatrunner_mcp_capability_gateway.py` | Delete; standard ACP MCP delivery and Rook gateway tests replace this private chat loop. |
+| `test_rookchat_worker_first_csharp_integration.py` | Delete; worker-first chat execution is explicitly non-ported. |
+| `test_model_override_options.py` | Delete; Prime owns model/authentication validation and RookChat retains only the closed creation-time reasoning enum. |
+| `test_containment_agent_protocols.py` | Preserve internal-agent and plan-graph containment coverage; remove only the ChatRunner loop helpers/test. |
+| `test_containment_catalogs.py` | Preserve MCP and internal-agent catalog containment; remove only ChatRunner projection assertions. |
+| `test_dispatcher_safety.py` | Preserve dispatcher safety; replace fallback-ChatRunner catalog assertions with authoritative MCP/profile exposure assertions. |
+| `test_persona_prompt_schema.py` | Preserve planner/spawn persona guidance by loading the shared persona source directly; do not retain `PromptBuilder`. |
+| `test_rookchat_gh_script_creation_parity.py` | Preserve dispatcher and script-schema parity; obtain schemas from the authoritative Rook MCP surface rather than ChatRunner catalog builders. |
+| `test_rookchat_tool_contracts.py` | Preserve shared schema/result normalization; replace its one ChatRunner catalog fixture with an authoritative MCP schema fixture. |
+| `test_rookchat_tool_schema_golden.py` | Rewrite around the actual profiled Rook MCP schemas delivered through ACP; no local/fallback ChatRunner catalog remains. |
+| `test_rookchat_tool_transcripts.py` | Rewrite around fake-ACP updates, bounded presentation, and structured Rook result projection; no LiteLLM/Conversation/ChatRunner loop remains. |
+| `test_rookchat_visible_dispatchability.py` | Rewrite around ACP-visible Rook MCP schemas and shared dispatch/profile ownership; remove ChatRunner intercept classifications. |
+| `test_vertex_runtime_integration.py` | Preserve BaseAgent, guardian, worker, DSPy, runtime-health, and provider-auth tests; remove ChatRunner/model-status/model-tool cases because ACP authentication and model selection belong to Prime. |
+
+`test_containment_guidance.py` is not an importer but directly names the deleted `prompt_builder.py`; remove only that path from its scan and retain the shared persona/guidance assertions. The audit must report exactly zero remaining imports or path references to the four deleted modules before commit.
+
+`scripts/vertex_oauth_acceptance.py` is the one non-test Python caller outside the obsolete headless qualification script. Remove only its ChatRunner acceptance operation and corresponding assertions in `test_vertex_acceptance_harness.py`; retain the separately supported DSPy and Chirp Vertex acceptance paths. Prime-owned ACP authentication is qualified by Slices B and C, not by adapting this legacy script into another chat client.
+
+`worker_first_csharp_application.py` has no retained production caller after Task 6 and implements the removed RookChat worker-first mode directly. Delete it and its dedicated `test_worker_first_csharp_application.py`; preserve lower-level planner/worker modules that have independent non-chat ownership unless the audit separately proves them unowned.
+
+Shared production cleanup is equally explicit. Remove the ChatRunner-only `list_chat_models`, `set_chat_model`, and `ui_block` pseudo-tool sentinels and their tool-group memberships. Retain internal-agent interceptions such as `request_tools`, `search_tools`, and the MCP capability gateway, but rename shared dispatchability terminology from `chatrunner_intercepted` to owner-neutral internal-agent terminology. Keep the capability inventory, dispatcher, gateway profile intersection, `tool_result_view`, `tool_contracts`, `execution_policy`, persona infrastructure used by planner/spawn, knowledge routes, authenticated HTTP middleware, service discovery, and generic panel rendering. The `server.py` gateway profile helper remains shared; only its obsolete ChatRunner wording changes.
+
+If the audit finds another production owner or test caller beyond this closed classification, stop for plan correction instead of broadening deletion opportunistically.
 
 - [ ] **Step 3: Update architecture and user docs**
 
@@ -1528,7 +1579,7 @@ C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-git add scripts/chatrunner_headless_qualification.py mcp_server/tests/test_chatrunner_headless_qualification.py mcp_server/tests/test_chatrunner_mcp_capability_gateway.py mcp_server/tests/test_rookchat_worker_first_csharp_integration.py mcp_server/tests/test_rookchat_visible_dispatchability.py mcp_server/tests/test_rookchat_tool_transcripts.py mcp_server/tests/test_rookchat_acp_cutover.py docs/CURRENT_ARCHITECTURE.md README.md QUICK_START.md AGENT_SETUP.md scripts/verify-rookchat-acp-cutover.py
+git add mcp_server/src/rook/agent/chat/conversation_store.py mcp_server/src/rook/agent/chat/chat_runner.py mcp_server/src/rook/agent/chat/model_status.py mcp_server/src/rook/agent/chat/prompt_builder.py mcp_server/src/rook/agent/worker_first_csharp_application.py scripts/chatrunner_headless_qualification.py mcp_server/src/rook/agent/capability_inventory.py mcp_server/src/rook/agent/chat/tool_contracts.py mcp_server/src/rook/agent/tool_dispatcher.py mcp_server/src/rook/agent/tool_groups.py mcp_server/src/rook/server.py mcp_server/tests/test_chatrunner_headless_qualification.py mcp_server/tests/test_chatrunner_mcp_capability_gateway.py mcp_server/tests/test_model_override_options.py mcp_server/tests/test_rookchat_worker_first_csharp_integration.py mcp_server/tests/test_worker_first_csharp_application.py mcp_server/tests/test_capability_inventory.py mcp_server/tests/test_containment_agent_protocols.py mcp_server/tests/test_containment_catalogs.py mcp_server/tests/test_containment_guidance.py mcp_server/tests/test_dispatcher_safety.py mcp_server/tests/test_persona_prompt_schema.py mcp_server/tests/test_rookchat_gh_script_creation_parity.py mcp_server/tests/test_rookchat_tool_contracts.py mcp_server/tests/test_rookchat_tool_schema_golden.py mcp_server/tests/test_rookchat_visible_dispatchability.py mcp_server/tests/test_rookchat_tool_transcripts.py mcp_server/tests/test_vertex_runtime_integration.py scripts/vertex_oauth_acceptance.py mcp_server/tests/test_vertex_acceptance_harness.py mcp_server/tests/test_rookchat_acp_cutover.py docs/CURRENT_ARCHITECTURE.md README.md QUICK_START.md AGENT_SETUP.md scripts/verify-rookchat-acp-cutover.py
 git commit -m "refactor(chat): remove ChatRunner product path"
 ```
 

@@ -405,8 +405,7 @@ class AcpConversationManager:
             return await self._run_prompt(resident, supervisor, prompt, sink)
         finally:
             async with self._admission_lock:
-                current = self._resident.get(resident.association.conversation_id)
-                if current is resident and resident.active_prompt is supervisor:
+                if resident.active_prompt is supervisor:
                     resident.active_prompt = None
 
     async def _run_prompt(

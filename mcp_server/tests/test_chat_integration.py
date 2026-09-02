@@ -11,12 +11,19 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from rook.agent.chat import server as chat_server
 from rook.agent.chat import service_main
-from rook.agent.chat.acp_conversation import PromptInput, PromptResult
+from rook.agent.chat import acp_conversation
+from rook.agent.chat.acp_conversation import (
+    ConversationNotOpen,
+    CreateConversationRequest,
+    PromptInput,
+    PromptResult,
+)
 from rook.agent.chat.acp_presentation import PromptGeneration
 from rook.agent.chat.prime_runtime import RuntimeUnavailable
 from rook.runtime_paths import RuntimePaths
 
 from .test_chat_server import FakeManager, VALID_CONVERSATION_ID, _prompt_body
+from .test_chat_acp_conversation import FakeProcessFactory, _binding, _manager
 
 
 class HangingSupervisor:
@@ -63,13 +70,19 @@ class HangingManager(FakeManager):
 
 
 @pytest.mark.asyncio
-async def test_http_waiter_cancellation_does_not_cancel_service_owned_prompt(tmp_path: Path):
-    manager = HangingManager(tmp_path)
+async def test_http_waiter_cancellation_uses_real_manager_and_preserves_clean_resident(
+    tmp_path: Path,
+):
+    factory = FakeProcessFactory(block_prompt=True)
+    manager, store, _, _, _ = _manager(tmp_path, factory=factory)
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    view = await manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
     app = chat_server.create_chat_app(manager)
 
     class Request:
         content_length = len(json.dumps(_prompt_body()).encode("utf-8"))
-        match_info = {"conversation_id": VALID_CONVERSATION_ID}
+        match_info = {"conversation_id": view.conversation_id}
 
         def __init__(self):
             self.app = app
@@ -96,11 +109,10 @@ async def test_http_waiter_cancellation_does_not_cancel_service_owned_prompt(tmp
         chat_server.handle_prompt(Request())
     )
     try:
-        for _ in range(100):
-            if manager.supervisor is not None:
-                break
-            await asyncio.sleep(0.01)
-        supervisor = manager.supervisor
+        process = factory.processes[0]
+        await process.prompt_started.wait()
+        resident = manager._resident[view.conversation_id]
+        supervisor = resident.active_prompt
         assert supervisor is not None
 
         request_task.cancel()
@@ -108,19 +120,84 @@ async def test_http_waiter_cancellation_does_not_cancel_service_owned_prompt(tmp
             await request_task
         await asyncio.sleep(0)
 
-        assert supervisor.cancel_sources == ["http_waiter"]
-        assert not supervisor._task.cancelled()
-        assert not supervisor.owner_finally_ran
-
-        supervisor.release.set()
         result = await supervisor.result_task
         assert result.outcome == "cancelled"
-        assert supervisor.owner_finally_ran
+        assert process.cancel_count == 1
+        assert process.retire_send_close == []
+        assert not process.child_exit_observed
+        assert manager._resident[view.conversation_id] is resident
+        assert resident.active_prompt is None
+        assert store.get(view.conversation_id).prime_session_id == factory.prime_session_id
     finally:
         chat_server.web.StreamResponse = original_response
-        if manager.supervisor is not None and not manager.supervisor._task.done():
-            manager.supervisor.release.set()
-            await manager.supervisor.result_task
+        if view.conversation_id in manager._resident:
+            await manager.close(view.conversation_id)
+
+
+@pytest.mark.asyncio
+async def test_http_waiter_cancellation_retires_exact_child_when_settlement_is_uncertain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(acp_conversation, "PROMPT_SETTLEMENT_AFTER_CANCEL_SECONDS", 0.02)
+    factory = FakeProcessFactory()
+    manager, _, _, _, paths = _manager(tmp_path, factory=factory)
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    view = await manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
+    process = factory.processes[0]
+
+    async def never_settles(*_args, **_kwargs):
+        process.prompt_count += 1
+        process.prompt_started.set()
+        await asyncio.Future()
+
+    process.prompt = never_settles
+    app = chat_server.create_chat_app(manager)
+
+    class Request:
+        content_length = len(json.dumps(_prompt_body()).encode("utf-8"))
+        match_info = {"conversation_id": view.conversation_id}
+
+        def __init__(self):
+            self.app = app
+
+        async def read(self):
+            return json.dumps(_prompt_body()).encode("utf-8")
+
+    class Response:
+        prepared = False
+
+        async def prepare(self, _request):
+            self.prepared = True
+
+        async def write(self, _payload):
+            return None
+
+        async def write_eof(self):
+            return None
+
+    response = Response()
+    monkeypatch.setattr(chat_server.web, "StreamResponse", lambda **_kwargs: response)
+    request_task = asyncio.create_task(chat_server.handle_prompt(Request()))
+    await process.prompt_started.wait()
+    resident = manager._resident[view.conversation_id]
+    supervisor = resident.active_prompt
+    assert supervisor is not None
+
+    request_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await request_task
+    result = await asyncio.wait_for(supervisor.result_task, timeout=0.5)
+
+    assert result.outcome == "error"
+    assert process.cancel_count == 1
+    assert process.retire_send_close == [False]
+    assert process.child_exit_observed
+    assert resident.active_prompt is None
+    assert view.conversation_id not in manager._resident
+    assert not list(paths.claims_root.glob("*.open.claim"))
+    with pytest.raises(ConversationNotOpen):
+        await manager.start_prompt(view.conversation_id, PromptInput("no replay", ()), None)
 
 
 @pytest.mark.asyncio

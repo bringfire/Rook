@@ -25,7 +25,12 @@ from .acp_conversation import (
     PromptInput,
     TargetUnavailable,
 )
-from .acp_images import MAX_HTTP_BODY_BYTES, ImageAdmissionError, validate_images
+from .acp_images import (
+    MAX_HTTP_BODY_BYTES,
+    MAX_IMAGE_FILE_NAME_UTF8_BYTES,
+    ImageAdmissionError,
+    validate_images,
+)
 from .acp_presentation import MAX_USER_TEXT_BYTES, PresentationCache, ProjectedEvent
 from .acp_process import AcpCapabilityError
 from .acp_storage import AcpStorageError, RookBinding
@@ -45,6 +50,7 @@ NONCE_ENV_VAR = "ROOK_SESSION_NONCE"
 
 MAX_ERROR_MESSAGE_UTF8_BYTES = 1024
 MAX_MODEL_UTF8_BYTES = 512
+MAX_SAVED_DOCUMENT_DIRECTORY_UTF8_BYTES = 4096
 
 _ACP_MANAGER_KEY: web.AppKey[AcpConversationManager] = web.AppKey(
     "_acp_conversation_manager", AcpConversationManager
@@ -75,6 +81,24 @@ def _error_response(code: str, message: object, status: int) -> web.Response:
     return web.json_response(
         {"error": {"code": code, "message": _bounded_text(message)}}, status=status
     )
+
+
+def _validate_utf8_scalar(
+    value: object,
+    *,
+    code: str,
+    label: str,
+    max_bytes: int,
+) -> str:
+    if type(value) is not str:
+        raise _HttpContractError(code, f"{label} is invalid")
+    try:
+        size = len(value.encode("utf-8", errors="strict"))
+    except UnicodeEncodeError as exc:
+        raise _HttpContractError(code, f"{label} is invalid") from exc
+    if size > max_bytes:
+        raise _HttpContractError(code, f"{label} is invalid")
+    return value
 
 
 def _classified_error(exc: Exception) -> tuple[str, int]:
@@ -117,24 +141,30 @@ _CORS_HEADERS = {
 }
 
 
+def _with_cors(response: web.StreamResponse) -> web.StreamResponse:
+    for key, value in _CORS_HEADERS.items():
+        response.headers[key] = value
+    return response
+
+
 @web.middleware
 async def cors_and_session_middleware(request: web.Request, handler):
     if request.method == "OPTIONS":
-        return web.Response(status=204, headers=_CORS_HEADERS)
+        return _with_cors(web.Response(status=204))
 
     origin = request.headers.get("Origin")
     if origin is not None and origin != ALLOWED_ORIGIN:
-        return _error_response("origin_refused", "Origin is not allowed", 403)
+        return _with_cors(_error_response("origin_refused", "Origin is not allowed", 403))
 
     expected_nonce = request.app.get(_SESSION_NONCE_KEY, "")
     if expected_nonce and request.path != "/agent/chat/health":
         if request.headers.get(SESSION_HEADER, "") != expected_nonce:
-            return _error_response("invalid_session_token", "Missing or invalid session token", 403)
+            return _with_cors(
+                _error_response("invalid_session_token", "Missing or invalid session token", 403)
+            )
 
     response = await handler(request)
-    for key, value in _CORS_HEADERS.items():
-        response.headers[key] = value
-    return response
+    return _with_cors(response)
 
 
 async def _read_json_object(
@@ -216,16 +246,23 @@ def _parse_create(body: dict[str, Any]) -> CreateConversationRequest:
         raise _HttpContractError("invalid_host_generation_id", "Host generation ID is invalid") from exc
 
     saved_directory = body.get("savedDocumentDirectory")
-    if saved_directory is not None and type(saved_directory) is not str:
-        raise _HttpContractError("invalid_saved_document_directory", "Saved document directory is invalid")
+    if saved_directory is not None:
+        saved_directory = _validate_utf8_scalar(
+            saved_directory,
+            code="invalid_saved_document_directory",
+            label="Saved document directory",
+            max_bytes=MAX_SAVED_DOCUMENT_DIRECTORY_UTF8_BYTES,
+        )
     model = body.get("model")
-    if model is not None and (
-        type(model) is not str
-        or len(model.encode("utf-8", errors="replace")) > MAX_MODEL_UTF8_BYTES
-        or model.count("/") != 1
-        or any(not part.strip() for part in model.split("/"))
-    ):
-        raise _HttpContractError("invalid_model", "Model must be fully qualified")
+    if model is not None:
+        model = _validate_utf8_scalar(
+            model,
+            code="invalid_model",
+            label="Model",
+            max_bytes=MAX_MODEL_UTF8_BYTES,
+        )
+        if model.count("/") != 1 or any(not part.strip() for part in model.split("/")):
+            raise _HttpContractError("invalid_model", "Model must be fully qualified")
     reasoning = body.get("reasoning")
     if reasoning is not None and (type(reasoning) is not str or reasoning not in SUPPORTED_REASONING):
         raise _HttpContractError("invalid_reasoning", "Reasoning level is invalid")
@@ -233,19 +270,28 @@ def _parse_create(body: dict[str, Any]) -> CreateConversationRequest:
 
 
 def _parse_prompt(body: dict[str, Any], encoded_size: int) -> PromptInput:
-    text = body["text"]
+    text = _validate_utf8_scalar(
+        body["text"],
+        code="invalid_prompt",
+        label="Prompt text",
+        max_bytes=MAX_USER_TEXT_BYTES,
+    )
     images = body["images"]
-    if type(text) is not str or len(text.encode("utf-8")) > MAX_USER_TEXT_BYTES:
-        raise _HttpContractError("invalid_prompt", "Prompt text is invalid")
     if not isinstance(images, list) or not all(isinstance(item, dict) for item in images):
         raise _HttpContractError("invalid_image", "Images must be objects")
     normalized = []
     for image in images:
         if set(image) != {"fileName", "mimeType", "base64Data"}:
             raise _HttpContractError("invalid_image", "Image keys are invalid")
+        file_name = _validate_utf8_scalar(
+            image["fileName"],
+            code="invalid_image",
+            label="Image file name",
+            max_bytes=MAX_IMAGE_FILE_NAME_UTF8_BYTES,
+        )
         normalized.append(
             {
-                "file_name": image["fileName"],
+                "file_name": file_name,
                 "mime_type": image["mimeType"],
                 "base64_data": image["base64Data"],
             }
@@ -390,7 +436,11 @@ async def handle_prompt(request: web.Request) -> web.StreamResponse | web.Respon
     supervisor = None
     response = web.StreamResponse(
         status=200,
-        headers={"Content-Type": "application/x-ndjson", "Cache-Control": "no-store"},
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-store",
+            **_CORS_HEADERS,
+        },
     )
     sink = _HttpPresentationSink(response)
     try:
