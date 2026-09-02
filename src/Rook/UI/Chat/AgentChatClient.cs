@@ -372,22 +372,36 @@ namespace Rook.UI.Chat
             await EnsureSuccessAsync(response, ct);
             using var stream = await response.Content.ReadAsStreamAsync();
             using var reader = new StreamReader(stream, new UTF8Encoding(false, true));
+            ChatEvent? terminal = null;
             string? line;
             while ((line = await reader.ReadLineAsync()) != null)
             {
                 ct.ThrowIfCancellationRequested();
                 if (string.IsNullOrWhiteSpace(line)) continue;
+                if (terminal != null)
+                    throw InvalidStream("Chat service returned data after terminal settlement.");
+                ChatEvent value;
                 try
                 {
-                    var value = JsonSerializer.Deserialize<ChatEvent>(line, JsonOptions);
-                    if (value != null) onEvent(value);
+                    value = JsonSerializer.Deserialize<ChatEvent>(line, JsonOptions)
+                        ?? throw InvalidStream("Chat service returned an empty stream row.");
                 }
-                catch (JsonException)
+                catch (JsonException exc)
                 {
-                    // The service owns protocol classification. A malformed row is
-                    // not projected as trusted content; the terminal row remains required.
+                    throw InvalidStream("Chat service returned malformed NDJSON: " + exc.Message);
                 }
+                if (value.Type == "terminal")
+                {
+                    terminal = value;
+                    continue;
+                }
+                if (value.Type is not ("text_delta" or "thought_delta" or "tool_update"))
+                    throw InvalidStream("Chat service returned an unknown stream row type.");
+                onEvent(value);
             }
+            if (terminal == null)
+                throw InvalidStream("Chat service stream ended without a terminal row.");
+            onEvent(terminal);
         }
 
         public async Task<CancelConversationResult> CancelAsync(string conversationId, CancellationToken ct = default)
@@ -483,12 +497,14 @@ namespace Rook.UI.Chat
             try
             {
                 using var document = JsonDocument.Parse(raw);
-                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                    document.RootElement.TryGetProperty("error", out var errorValue) &&
+                    errorValue.ValueKind == JsonValueKind.Object)
                 {
-                    if (document.RootElement.TryGetProperty("code", out var codeValue) && codeValue.ValueKind == JsonValueKind.String)
+                    if (errorValue.TryGetProperty("code", out var codeValue) && codeValue.ValueKind == JsonValueKind.String)
                         code = codeValue.GetString() ?? code;
-                    if (document.RootElement.TryGetProperty("error", out var errorValue) && errorValue.ValueKind == JsonValueKind.String)
-                        message = BoundUtf8(errorValue.GetString() ?? message, MaxErrorMessageUtf8Bytes);
+                    if (errorValue.TryGetProperty("message", out var messageValue) && messageValue.ValueKind == JsonValueKind.String)
+                        message = BoundUtf8(messageValue.GetString() ?? message, MaxErrorMessageUtf8Bytes);
                 }
             }
             catch (JsonException)
@@ -497,6 +513,9 @@ namespace Rook.UI.Chat
             }
             throw new AgentChatHttpException(response.StatusCode, code, message);
         }
+
+        private static AgentChatHttpException InvalidStream(string message)
+            => new(HttpStatusCode.OK, "invalid_stream", message);
 
         private static async Task<string> ReadBoundedUtf8Async(HttpContent content, int limit, CancellationToken ct)
         {

@@ -906,6 +906,42 @@ async def test_live_delete_keeps_claim_until_record_and_artifacts_are_removed(tm
 
 
 @pytest.mark.asyncio
+async def test_live_delete_of_provisional_conversation_removes_owned_artifacts(tmp_path: Path):
+    manager, store, _, _, paths = _manager(tmp_path)
+    view = await manager.create(CreateConversationRequest(_binding(), None, None, None))
+    resident = manager._resident[view.conversation_id]
+    session = Path(resident.association.session_path)
+    workspace = Path(resident.association.working_directory)
+    session.write_text("provisional", encoding="utf-8")
+    (workspace / "owned.txt").write_text("owned", encoding="utf-8")
+
+    result = await manager.delete(view.conversation_id)
+
+    assert not result.association_removed
+    assert result.artifacts_removed
+    assert not session.exists()
+    assert not workspace.exists()
+    assert not paths.conversation_path(view.conversation_id).exists()
+    assert not list(paths.claims_root.glob("*.open.claim"))
+
+
+@pytest.mark.asyncio
+async def test_live_delete_of_provisional_conversation_reports_artifact_failure_truthfully(tmp_path: Path):
+    manager, _, _, _, paths = _manager(tmp_path)
+    view = await manager.create(CreateConversationRequest(_binding(), None, None, None))
+    resident = manager._resident[view.conversation_id]
+    session = Path(resident.association.session_path)
+    session.mkdir()
+
+    result = await manager.delete(view.conversation_id)
+
+    assert not result.association_removed
+    assert not result.artifacts_removed
+    assert session.is_dir()
+    assert not list(paths.claims_root.glob("*.open.claim"))
+
+
+@pytest.mark.asyncio
 async def test_live_delete_continues_after_delete_waiter_is_cancelled(tmp_path: Path):
     manager, store, _, factory, paths = _manager(tmp_path)
     saved = tmp_path / "saved"

@@ -9,6 +9,178 @@ using Eto.Forms;
 
 namespace Rook.UI.Chat
 {
+    internal readonly struct InitializationIdentityHandoff
+    {
+        public InitializationIdentityHandoff(bool publishToTab, bool queueClose, bool disposeClient)
+        {
+            PublishToTab = publishToTab;
+            QueueClose = queueClose;
+            DisposeClient = disposeClient;
+        }
+
+        public bool PublishToTab { get; }
+        public bool QueueClose { get; }
+        public bool DisposeClient { get; }
+    }
+
+    internal sealed class InitializationRequestCustody
+    {
+        private readonly object _gate = new();
+        private bool _attached = true;
+        private bool _started;
+        private bool _inFlight;
+
+        public bool IsAttached
+        {
+            get { lock (_gate) return _attached; }
+        }
+
+        public bool TryBegin()
+        {
+            lock (_gate)
+            {
+                if (!_attached || _started) return false;
+                _started = true;
+                _inFlight = true;
+                return true;
+            }
+        }
+
+        public bool Detach()
+        {
+            lock (_gate)
+            {
+                _attached = false;
+                return !_inFlight;
+            }
+        }
+
+        public InitializationIdentityHandoff CompleteWithIdentity()
+        {
+            lock (_gate)
+            {
+                _inFlight = false;
+                return _attached
+                    ? new InitializationIdentityHandoff(true, false, false)
+                    : new InitializationIdentityHandoff(false, true, true);
+            }
+        }
+
+        public bool CompleteWithoutIdentity()
+        {
+            lock (_gate)
+            {
+                if (!_inFlight) return false;
+                _inFlight = false;
+                return !_attached;
+            }
+        }
+    }
+
+    internal sealed class PresentationHistoryMessage
+    {
+        public PresentationHistoryMessage(string role, string text)
+        {
+            Role = role;
+            Text = text;
+        }
+
+        public string Role { get; }
+        public string Text { get; }
+    }
+
+    internal static class PresentationHistoryFormatter
+    {
+        private const int MaxSummaryUtf8Bytes = 512;
+
+        public static IReadOnlyList<PresentationHistoryMessage> Format(PresentationHistory history)
+        {
+            var messages = new List<PresentationHistoryMessage>();
+            if (!history.Available)
+            {
+                messages.Add(new PresentationHistoryMessage(
+                    "system",
+                    history.Message ?? "Presentation history unavailable."));
+                return messages;
+            }
+            if (history.EarlierHistoryOmitted)
+            {
+                messages.Add(new PresentationHistoryMessage(
+                    "system",
+                    history.Message ?? "Earlier presentation history was omitted. Prime retains the authoritative conversation state."));
+            }
+            foreach (var turn in history.Turns)
+            {
+                if (turn.Fallback)
+                {
+                    messages.Add(new PresentationHistoryMessage(
+                        "system",
+                        turn.Message ?? "A bounded presentation projection was unavailable for this turn."));
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(turn.UserText))
+                    messages.Add(new PresentationHistoryMessage("user", turn.UserText));
+                foreach (var image in turn.Images)
+                {
+                    messages.Add(new PresentationHistoryMessage(
+                        "system",
+                        $"Image preview unavailable after reopen: {image.FileName} ({image.MimeType}, {image.BinaryByteCount} bytes)."));
+                }
+                if (!string.IsNullOrEmpty(turn.AssistantText))
+                    messages.Add(new PresentationHistoryMessage("assistant", turn.AssistantText));
+                foreach (var card in turn.ToolCards)
+                    messages.Add(new PresentationHistoryMessage("system", FormatToolCard(card)));
+                if (!string.IsNullOrEmpty(turn.StopReason) && turn.StopReason != "end_turn")
+                    messages.Add(new PresentationHistoryMessage("system", "Turn ended: " + BoundUtf8(turn.StopReason)));
+            }
+            return messages;
+        }
+
+        private static string FormatToolCard(JsonElement card)
+        {
+            var kind = ReadString(card, "kind") ?? "tool update";
+            var label = (string?)null;
+            var status = (string?)null;
+            if (card.ValueKind == JsonValueKind.Object &&
+                card.TryGetProperty("content", out var content) &&
+                content.ValueKind == JsonValueKind.String)
+            {
+                try
+                {
+                    using var projected = JsonDocument.Parse(content.GetString() ?? "");
+                    var root = projected.RootElement;
+                    label = ReadString(root, "text");
+                    if (root.ValueKind == JsonValueKind.Object &&
+                        root.TryGetProperty("payload", out var payload) &&
+                        payload.ValueKind == JsonValueKind.Object)
+                        status = ReadString(payload, "status");
+                }
+                catch (JsonException)
+                {
+                }
+            }
+            var summary = "Tool: " + (string.IsNullOrWhiteSpace(label) ? kind : label);
+            if (!string.IsNullOrWhiteSpace(status)) summary += " (" + status + ")";
+            return BoundUtf8(summary);
+        }
+
+        private static string? ReadString(JsonElement value, string propertyName)
+        {
+            if (value.ValueKind != JsonValueKind.Object ||
+                !value.TryGetProperty(propertyName, out var property) ||
+                property.ValueKind != JsonValueKind.String)
+                return null;
+            return property.GetString();
+        }
+
+        private static string BoundUtf8(string value)
+        {
+            var bytes = Encoding.UTF8.GetBytes(value);
+            if (bytes.Length <= MaxSummaryUtf8Bytes) return value;
+            return Encoding.UTF8.GetString(bytes, 0, MaxSummaryUtf8Bytes - 3).TrimEnd('\uFFFD') + "...";
+        }
+    }
+
     /// <summary>
     /// One Prime ACP conversation projected through the Python product service.
     /// The tab owns presentation only; the service owns ACP settlement and Prime.
@@ -22,6 +194,7 @@ namespace Rook.UI.Chat
         private readonly CreateConversationRequest? _createRequest;
         private readonly ConversationSummary? _reopenAssociation;
         private readonly SemaphoreSlim _initializeGate = new(1, 1);
+        private readonly InitializationRequestCustody _initializationCustody = new();
         private readonly object _promptGate = new();
         private readonly object _lifetimeGate = new();
 
@@ -64,6 +237,7 @@ namespace Rook.UI.Chat
 
         public async Task InitializeAsync()
         {
+            if (!_initializationCustody.TryBegin()) return;
             await _initializeGate.WaitAsync();
             try
             {
@@ -72,33 +246,28 @@ namespace Rook.UI.Chat
                     throw new InvalidOperationException(health.ServiceMessage);
                 if (!health.RuntimeAvailable)
                     throw new InvalidOperationException("The installed Prime ACP runtime is unavailable.");
+                if (!_initializationCustody.IsAttached) return;
 
                 _client.SetSessionNonce(ChatServiceManager.Instance.SessionNonce);
                 ConversationView view;
                 if (_reopenAssociation != null)
                 {
                     view = await _client.ReopenAsync(_reopenAssociation.ConversationId);
-                    if (!TryPublishConversation(view))
-                    {
-                        QueueClose(view.BaseUri, view.ConversationId);
-                        return;
-                    }
+                    if (!HandOffInitializedIdentity(view)) return;
                     var history = await _client.GetHistoryAsync(
                         view.BaseUri ?? throw new InvalidOperationException("Prime conversation URI is unavailable."),
                         view.ConversationId,
                         CancellationToken.None);
+                    if (!_initializationCustody.IsAttached) return;
                     RenderPresentationHistory(history);
                 }
                 else
                 {
                     view = await _client.CreateAsync(_createRequest!);
-                    if (!TryPublishConversation(view))
-                    {
-                        QueueClose(view.BaseUri, view.ConversationId);
-                        return;
-                    }
+                    if (!HandOffInitializedIdentity(view)) return;
                 }
 
+                if (!_initializationCustody.IsAttached) return;
                 ApplyConversationStatus(view);
                 AddMessageToChat("system", _reopenAssociation == null
                     ? "Prime is ready. This conversation becomes durable after its first completed turn."
@@ -106,13 +275,27 @@ namespace Rook.UI.Chat
             }
             catch (Exception ex)
             {
-                SetStatus("Conversation unavailable", Colors.Red);
-                AddMessageToChat("error", ex.Message);
+                if (_uiAttached)
+                {
+                    SetStatus("Conversation unavailable", Colors.Red);
+                    AddMessageToChat("error", ex.Message);
+                }
             }
             finally
             {
                 _initializeGate.Release();
+                if (_initializationCustody.CompleteWithoutIdentity()) _client.Dispose();
             }
+        }
+
+        private bool HandOffInitializedIdentity(ConversationView view)
+        {
+            var handoff = _initializationCustody.CompleteWithIdentity();
+            if (handoff.PublishToTab && TryPublishConversation(view)) return true;
+            if (handoff.QueueClose || !_uiAttached)
+                QueueClose(view.BaseUri, view.ConversationId);
+            if (handoff.DisposeClient) _client.Dispose();
+            return false;
         }
 
         protected override Task OnSendMessage(string message)
@@ -255,13 +438,10 @@ namespace Rook.UI.Chat
             if (baseUri == null || string.IsNullOrEmpty(conversationId))
                 throw new InvalidOperationException("Prime conversation is not open.");
             var result = await _client.DeleteAsync(baseUri, conversationId, CancellationToken.None);
-            if (result.AssociationRemoved)
+            lock (_lifetimeGate)
             {
-                lock (_lifetimeGate)
-                {
-                    _deleted = true;
-                    _uiAttached = false;
-                }
+                _deleted = true;
+                _uiAttached = false;
             }
             return result;
         }
@@ -288,7 +468,7 @@ namespace Rook.UI.Chat
                 _conversationId = null;
             }
             if (!deleted) QueueClose(baseUri, conversationId);
-            _client.Dispose();
+            if (_initializationCustody.Detach()) _client.Dispose();
         }
 
         private bool TryPublishConversation(ConversationView view)
@@ -324,27 +504,8 @@ namespace Rook.UI.Chat
 
         private void RenderPresentationHistory(PresentationHistory history)
         {
-            if (!history.Available)
-            {
-                AddMessageToChat("system", history.Message ?? "Presentation history unavailable.");
-                return;
-            }
-            if (history.EarlierHistoryOmitted)
-                AddMessageToChat("system", history.Message ?? "Earlier presentation history was omitted. Prime retains the authoritative conversation state.");
-            foreach (var turn in history.Turns)
-            {
-                if (turn.Fallback)
-                {
-                    AddMessageToChat("system", turn.Message ?? "A bounded presentation projection was unavailable for this turn.");
-                    continue;
-                }
-                if (!string.IsNullOrEmpty(turn.UserText)) AddMessageToChat("user", turn.UserText);
-                foreach (var image in turn.Images)
-                    AddMessageToChat("system", $"Image preview unavailable after reopen: {image.FileName} ({image.MimeType}, {image.BinaryByteCount} bytes).");
-                if (!string.IsNullOrEmpty(turn.AssistantText)) AddMessageToChat("assistant", turn.AssistantText);
-                if (turn.ToolCards.Count > 0)
-                    AddMessageToChat("system", $"{turn.ToolCards.Count} bounded tool update{(turn.ToolCards.Count == 1 ? "" : "s")} recorded for this turn.");
-            }
+            foreach (var message in PresentationHistoryFormatter.Format(history))
+                AddMessageToChat(message.Role, message.Text);
         }
 
         private void ApplyConversationStatus(ConversationView view)

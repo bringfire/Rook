@@ -9,6 +9,7 @@
     <script src="vendor/marked.min.js"></script>
     <link rel="stylesheet" href="vendor/github-dark.min.css" id="hljs-theme">
     <script src="vendor/highlight.min.js"></script>
+    <script src="composer-images.js"></script>
 </head>
 <body>
     <div id="chat-container">
@@ -77,6 +78,19 @@
         var _servicePort = null;
         var _toolCardCounter = 0;
         var _composerImages = [];
+        var _composerImageError = null;
+        var _composerImageController = window.RookComposerImages.createSelectionController({
+            maxImages: 8,
+            publish: function(images) {
+                _composerImages = images;
+                _composerImageError = null;
+                renderAttachments();
+            },
+            reportError: function(message) {
+                _composerImageError = message;
+                renderAttachments();
+            }
+        });
 
         // ═══ Conversation context (for fetch bridge) ═══
         function setConversation(convId, host, port) {
@@ -99,6 +113,10 @@
             var list = document.getElementById('attachment-list');
             if (!list) return;
             list.innerHTML = '';
+            if (_composerImageError) {
+                list.textContent = _composerImageError;
+                return;
+            }
             _composerImages.forEach(function(image) {
                 var chip = document.createElement('span');
                 chip.className = 'attachment-chip';
@@ -108,35 +126,7 @@
         }
 
         function readComposerFiles(files) {
-            var selected = Array.prototype.slice.call(files || []);
-            _composerImages = [];
-            if (selected.length > 8) {
-                var list = document.getElementById('attachment-list');
-                if (list) list.textContent = 'At most 8 images may be attached.';
-                return;
-            }
-            var reads = selected.map(function(file) {
-                return new Promise(function(resolve, reject) {
-                    var reader = new FileReader();
-                    reader.onload = function() {
-                        var value = String(reader.result || '');
-                        var comma = value.indexOf(',');
-                        if (comma < 0) { reject(new Error('Image could not be read.')); return; }
-                        _composerImages.push({
-                            fileName: file.name,
-                            mimeType: file.type,
-                            base64Data: value.substring(comma + 1)
-                        });
-                        resolve();
-                    };
-                    reader.onerror = function() { reject(new Error('Image could not be read.')); };
-                    reader.readAsDataURL(file);
-                });
-            });
-            Promise.all(reads).then(renderAttachments).catch(function() {
-                _composerImages = [];
-                renderAttachments();
-            });
+            return _composerImageController.replace(files);
         }
 
         function submitComposer() {
@@ -160,8 +150,7 @@
             if (result && typeof result.then === 'function') {
                 result.then(function() {
                     if (textArea) textArea.value = '';
-                    _composerImages = [];
-                    renderAttachments();
+                    _composerImageController.clear();
                 }).catch(function() { setComposerEnabled(true, true); });
             }
         }
@@ -169,6 +158,13 @@
         document.getElementById('composer-files').addEventListener('change', function(event) {
             readComposerFiles(event.target.files);
             event.target.value = '';
+        });
+        document.getElementById('composer-text').addEventListener('paste', function(event) {
+            var files = window.RookComposerImages.clipboardImageFiles(
+                (event.clipboardData && event.clipboardData.items) || []);
+            if (files.length === 0) return;
+            event.preventDefault();
+            readComposerFiles(files);
         });
         document.getElementById('composer-send').addEventListener('click', submitComposer);
         document.getElementById('composer-text').addEventListener('keydown', function(event) {

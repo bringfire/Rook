@@ -164,16 +164,8 @@ namespace Rook.UI.Chat
                     try
                     {
                         using var document = JsonDocument.Parse(File.ReadAllText(path));
-                        var root = document.RootElement;
-                        if (root.ValueKind != JsonValueKind.Object ||
-                            !root.TryGetProperty("pluginType", out var pluginType) || pluginType.GetString() != "native" ||
-                            !root.TryGetProperty("processId", out var pid) || pid.GetInt32() != processId ||
-                            !root.TryGetProperty("hostGenerationId", out var generation) || generation.ValueKind != JsonValueKind.String)
-                            continue;
-                        var raw = generation.GetString();
-                        if (raw != null && Guid.TryParseExact(raw, "D", out var parsed) &&
-                            string.Equals(raw, parsed.ToString("D"), StringComparison.Ordinal))
-                            values.Add(raw);
+                        var value = ReadNativeHostGenerationId(document.RootElement, processId);
+                        if (value != null) values.Add(value);
                     }
                     catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
                     {
@@ -181,6 +173,26 @@ namespace Rook.UI.Chat
                 }
             }
             return values.Count == 1 ? values.Single() : null;
+        }
+
+        internal static string? ReadNativeHostGenerationId(JsonElement root, int processId)
+        {
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("pluginType", out var pluginType) ||
+                pluginType.ValueKind != JsonValueKind.String ||
+                pluginType.GetString() != "native" ||
+                !root.TryGetProperty("processId", out var pid) ||
+                pid.ValueKind != JsonValueKind.Number ||
+                !pid.TryGetInt32(out var actualProcessId) ||
+                actualProcessId != processId ||
+                !root.TryGetProperty("hostGenerationId", out var generation) ||
+                generation.ValueKind != JsonValueKind.String)
+                return null;
+            var raw = generation.GetString();
+            return raw != null && Guid.TryParseExact(raw, "D", out var parsed) &&
+                   string.Equals(raw, parsed.ToString("D"), StringComparison.Ordinal)
+                ? raw
+                : null;
         }
 
         /// <summary>
@@ -364,8 +376,14 @@ namespace Rook.UI.Chat
                     try
                     {
                         var result = await agentTab.DeleteConversationAsync();
-                        if (result.AssociationRemoved) RemoveTab(owner, page);
-                        else MessageBox.Show(this, "The conversation association was not removed.", "Delete Conversation");
+                        RemoveTab(owner, page);
+                        if (!result.ArtifactsRemoved)
+                        {
+                            MessageBox.Show(
+                                this,
+                                "The conversation was deleted, but some product-owned artifacts could not be removed.",
+                                "Delete Conversation");
+                        }
                     }
                     catch (Exception ex)
                     {

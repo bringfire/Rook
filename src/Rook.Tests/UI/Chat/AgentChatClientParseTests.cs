@@ -127,9 +127,34 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public async Task Prompt_sends_the_closed_text_and_image_wire_shape()
+        {
+            var handler = RecordingHandler.Ndjson(
+                "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\"}\n");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+
+            await client.PromptAsync(
+                "c1",
+                "inspect",
+                new[] { new ChatImageInput("paste.png", "image/png", "AQID") },
+                _ => { },
+                CancellationToken.None);
+
+            using var body = JsonDocument.Parse(handler.LastBody!);
+            Assert.Equal(2, CountProperties(body.RootElement));
+            Assert.Equal("inspect", body.RootElement.GetProperty("text").GetString());
+            var image = body.RootElement.GetProperty("images")[0];
+            Assert.Equal(3, CountProperties(image));
+            Assert.Equal("paste.png", image.GetProperty("fileName").GetString());
+            Assert.Equal("image/png", image.GetProperty("mimeType").GetString());
+            Assert.Equal("AQID", image.GetProperty("base64Data").GetString());
+        }
+
+        [Fact]
         public async Task Error_body_is_bounded_and_classified()
         {
-            var body = "{\"code\":\"target_unavailable\",\"error\":\"" + new string('x', 40_000) + "\"}";
+            var body = "{\"error\":{\"code\":\"target_unavailable\",\"message\":\"" +
+                       new string('x', 40_000) + "\"}}";
             var handler = RecordingHandler.Json(body, HttpStatusCode.Conflict);
             using var client = AgentChatClient.ForTests(handler, BaseUri);
 
@@ -138,6 +163,53 @@ namespace Rook.Tests.UI.Chat
 
             Assert.Equal("target_unavailable", error.Code);
             Assert.True(Encoding.UTF8.GetByteCount(error.Message) <= AgentChatClient.MaxErrorMessageUtf8Bytes);
+        }
+
+        [Fact]
+        public async Task Prompt_parser_rejects_a_malformed_intermediate_row()
+        {
+            var rows = "{\"type\":\"text_delta\",\"sourceOrdinal\":1,\"text\":\"kept\"}\n" +
+                       "{not-json}\n" +
+                       "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\"}\n";
+            var handler = RecordingHandler.Ndjson(rows);
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+            var events = new List<ChatEvent>();
+
+            var error = await Assert.ThrowsAsync<AgentChatHttpException>(
+                () => client.PromptAsync("c1", "hello", Array.Empty<ChatImageInput>(), events.Add, CancellationToken.None));
+
+            Assert.Equal("invalid_stream", error.Code);
+            Assert.Single(events);
+            Assert.Equal("kept", events[0].Text);
+        }
+
+        [Fact]
+        public async Task Prompt_parser_requires_exactly_one_terminal_row()
+        {
+            var handler = RecordingHandler.Ndjson(
+                "{\"type\":\"text_delta\",\"sourceOrdinal\":1,\"text\":\"partial\"}\n");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+
+            var error = await Assert.ThrowsAsync<AgentChatHttpException>(
+                () => client.PromptAsync("c1", "hello", Array.Empty<ChatImageInput>(), _ => { }, CancellationToken.None));
+
+            Assert.Equal("invalid_stream", error.Code);
+        }
+
+        [Fact]
+        public async Task Prompt_parser_rejects_rows_after_terminal_settlement()
+        {
+            var rows = "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\"}\n" +
+                       "{\"type\":\"text_delta\",\"sourceOrdinal\":2,\"text\":\"late\"}\n";
+            var handler = RecordingHandler.Ndjson(rows);
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+            var events = new List<ChatEvent>();
+
+            var error = await Assert.ThrowsAsync<AgentChatHttpException>(
+                () => client.PromptAsync("c1", "hello", Array.Empty<ChatImageInput>(), events.Add, CancellationToken.None));
+
+            Assert.Equal("invalid_stream", error.Code);
+            Assert.Empty(events);
         }
 
         [Fact]
@@ -159,6 +231,48 @@ namespace Rook.Tests.UI.Chat
                 "POST /agent/chat/conversations/c1/close {}",
                 "DELETE /agent/chat/conversations/c1 "
             }, handler.Requests);
+        }
+
+        [Fact]
+        public async Task Closing_during_create_defers_client_disposal_until_identity_can_be_handed_off()
+        {
+            var handler = new DelayedResponseHandler(
+                "{\"conversationId\":\"created-after-close\",\"durable\":false,\"targetAvailable\":true}");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+            var custody = new InitializationRequestCustody();
+            Assert.True(custody.TryBegin());
+            var create = client.CreateAsync(new CreateConversationRequest
+            {
+                HostGenerationId = "11111111-1111-1111-1111-111111111111",
+                DocumentSerialNumber = 41,
+                RouteProcessId = 123,
+            });
+
+            await handler.RequestStarted.Task;
+            Assert.False(custody.Detach());
+            handler.ReleaseResponse.SetResult(true);
+            var view = await create;
+            var handoff = custody.CompleteWithIdentity();
+
+            Assert.False(custody.IsAttached);
+            Assert.Equal("created-after-close", view.ConversationId);
+            Assert.False(handoff.PublishToTab);
+            Assert.True(handoff.QueueClose);
+            Assert.True(handoff.DisposeClient);
+            Assert.False(handler.RequestWasCancelled);
+        }
+
+        [Fact]
+        public async Task Provisional_delete_is_a_successful_delete_without_a_durable_record()
+        {
+            var handler = RecordingHandler.Json(
+                "{\"associationRemoved\":false,\"artifactsRemoved\":true}");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+
+            var result = await client.DeleteAsync("provisional", CancellationToken.None);
+
+            Assert.False(result.AssociationRemoved);
+            Assert.True(result.ArtifactsRemoved);
         }
 
         private static int CountProperties(JsonElement element)
@@ -206,6 +320,33 @@ namespace Rook.Tests.UI.Chat
                 LastBody = request.Content == null ? null : await request.Content.ReadAsStringAsync();
                 Requests.Add($"{request.Method.Method} {LastPath} {LastBody}");
                 return _responses.Dequeue();
+            }
+        }
+
+        private sealed class DelayedResponseHandler : HttpMessageHandler
+        {
+            private readonly string _body;
+
+            public DelayedResponseHandler(string body)
+            {
+                _body = body;
+            }
+
+            public TaskCompletionSource<bool> RequestStarted { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public TaskCompletionSource<bool> ReleaseResponse { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public bool RequestWasCancelled { get; private set; }
+
+            protected override async Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                using var cancellation = cancellationToken.Register(() => RequestWasCancelled = true);
+                RequestStarted.TrySetResult(true);
+                await ReleaseResponse.Task;
+                cancellationToken.ThrowIfCancellationRequested();
+                return RecordingHandler.Response(_body, HttpStatusCode.Created);
             }
         }
     }

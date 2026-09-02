@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Text;
+using System.Text.Json;
 using Rook.UI.Chat;
 using Xunit;
 
@@ -77,18 +80,6 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
-        public void Reopen_renders_cache_but_never_sends_cache_to_Prime()
-        {
-            var tab = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
-
-            Assert.Contains("GetHistoryAsync", tab);
-            Assert.Contains("RenderPresentationHistory", tab);
-            Assert.Contains("ReopenAsync", tab);
-            Assert.DoesNotContain("PromptAsync(_conversationId, history", tab);
-            Assert.Contains("Image preview unavailable after reopen", tab);
-        }
-
-        [Fact]
         public void Stop_close_and_delete_have_distinct_owners()
         {
             var tab = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
@@ -102,10 +93,6 @@ namespace Rook.Tests.UI.Chat
             Assert.Contains("_actionButtonLayout.Visible = true", chat);
             Assert.Contains("ConversationCloseCoordinator", tab);
             Assert.Contains(".Enqueue(", tab);
-            Assert.Contains("TryPublishConversation", tab);
-            Assert.Contains("lock (_lifetimeGate)", tab);
-            Assert.Contains("QueueClose(view.BaseUri, view.ConversationId)", tab);
-            Assert.Contains("_client.Dispose()", tab);
             Assert.Contains("MessageBox.Show", panel);
             Assert.Contains("DeleteConversationAsync", panel);
             Assert.Contains("DialogResult.Yes", panel);
@@ -119,11 +106,7 @@ namespace Rook.Tests.UI.Chat
 
             Assert.Contains("RegisterBridgeHandler(\"submit\"", chatTab);
             Assert.Contains("OnWebSubmitAsync", chatTab);
-            Assert.Contains("fileName", html);
-            Assert.Contains("mimeType", html);
-            Assert.Contains("base64Data", html);
             Assert.Contains("rookBridge.invoke('submit'", html);
-            Assert.Contains("At most 8 images may be attached.", html);
             Assert.DoesNotContain("localStorage", html);
         }
 
@@ -137,6 +120,75 @@ namespace Rook.Tests.UI.Chat
             Assert.Contains("CertifiesMutation", tab);
             Assert.Contains("renderToolCard", html);
             Assert.Contains("finalizeToolCard", html);
+        }
+
+        [Theory]
+        [InlineData("{\"pluginType\":1,\"processId\":42,\"hostGenerationId\":\"11111111-1111-1111-1111-111111111111\"}")]
+        [InlineData("{\"pluginType\":\"native\",\"processId\":\"42\",\"hostGenerationId\":\"11111111-1111-1111-1111-111111111111\"}")]
+        [InlineData("{\"pluginType\":\"native\",\"processId\":42,\"hostGenerationId\":false}")]
+        public void Discovery_parser_ignores_well_formed_unrelated_records(string json)
+        {
+            using var document = JsonDocument.Parse(json);
+            Assert.Null(RookChatPanel.ReadNativeHostGenerationId(document.RootElement, 42));
+        }
+
+        [Fact]
+        public void Discovery_parser_accepts_only_the_canonical_matching_native_identity()
+        {
+            const string expected = "11111111-1111-1111-1111-111111111111";
+            using var document = JsonDocument.Parse(
+                "{\"pluginType\":\"native\",\"processId\":42,\"hostGenerationId\":\"" + expected + "\"}");
+
+            Assert.Equal(expected, RookChatPanel.ReadNativeHostGenerationId(document.RootElement, 42));
+            Assert.Null(RookChatPanel.ReadNativeHostGenerationId(document.RootElement, 43));
+        }
+
+        [Fact]
+        public void Presentation_history_projects_bounded_tool_meaning_and_non_normal_terminal_status()
+        {
+            using var tool = JsonDocument.Parse(
+                "{\"kind\":\"tool_call_update\",\"content\":\"{\\\"kind\\\":\\\"tool_call_update\\\",\\\"text\\\":\\\"Inspect definition\\\",\\\"payload\\\":{\\\"status\\\":\\\"completed\\\"}}\",\"originalBytes\":128}");
+            var history = new PresentationHistory
+            {
+                Available = true,
+                Turns = new List<PresentationTurn>
+                {
+                    new()
+                    {
+                        Sequence = 1,
+                        UserText = "inspect",
+                        AssistantText = "partial answer",
+                        StopReason = "max_tokens",
+                        ToolCards = new List<JsonElement> { tool.RootElement.Clone() },
+                    },
+                },
+            };
+
+            var messages = PresentationHistoryFormatter.Format(history);
+
+            Assert.Contains(messages, item => item.Role == "system" && item.Text == "Tool: Inspect definition (completed)");
+            Assert.Contains(messages, item => item.Role == "system" && item.Text == "Turn ended: max_tokens");
+        }
+
+        [Fact]
+        public void Presentation_history_tool_summary_is_bounded_in_utf8()
+        {
+            var label = new string('\u00e9', 600);
+            using var tool = JsonDocument.Parse(
+                "{\"kind\":\"tool_call_update\",\"content\":" +
+                JsonSerializer.Serialize("{\"text\":" + JsonSerializer.Serialize(label) + "}") + "}");
+            var history = new PresentationHistory
+            {
+                Available = true,
+                Turns = new List<PresentationTurn>
+                {
+                    new() { StopReason = "end_turn", ToolCards = new List<JsonElement> { tool.RootElement.Clone() } },
+                },
+            };
+
+            var messages = PresentationHistoryFormatter.Format(history);
+
+            Assert.True(Encoding.UTF8.GetByteCount(Assert.Single(messages).Text) <= 512);
         }
 
         [Theory]

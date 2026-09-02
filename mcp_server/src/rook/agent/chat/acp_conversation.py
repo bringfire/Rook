@@ -652,26 +652,28 @@ class AcpConversationManager:
         close_result = await self._retire_detached(resident, release_claim=False)
         if not close_result.child_exit_observed:
             raise SessionRecoveryRequired()
-        association = resident.association if isinstance(resident.association, ConversationAssociation) else None
-        return self._delete_owned_association(association, resident.claim.release_after_observed_exit)
+        return self._delete_owned_association(
+            resident.association,
+            resident.claim.release_after_observed_exit,
+        )
 
     def _delete_owned_association(
         self,
-        association: ConversationAssociation | None,
+        association: ProvisionalAssociation | ConversationAssociation,
         release_claim: Callable[[], None],
     ) -> DeleteResult:
         association_removed = False
-        artifacts_removed = True
+        artifacts_removed = False
         try:
-            if association is not None:
+            if isinstance(association, ConversationAssociation):
                 self.store.delete_record(association)
                 association_removed = True
-                artifacts_removed = self._remove_artifacts(association)
+            artifacts_removed = self._remove_artifacts(association)
         finally:
             release_claim()
         return DeleteResult(association_removed, artifacts_removed)
 
-    def _remove_artifacts(self, association: ConversationAssociation) -> bool:
+    def _remove_artifacts(self, association: ProvisionalAssociation | ConversationAssociation) -> bool:
         try:
             session = self.store.paths.session_path(association.conversation_id)
             if session.resolve(strict=False) != Path(association.session_path).resolve(strict=False):
