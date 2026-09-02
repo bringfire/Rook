@@ -188,6 +188,7 @@ namespace Rook.UI.Chat
     public sealed class AgentChatTab : ChatTab
     {
         private static readonly Color PrimeAccent = Color.FromArgb(0x25, 0x63, 0xeb);
+        internal static readonly TimeSpan InvalidStreamCancelDeadline = TimeSpan.FromSeconds(1);
 
         private readonly AgentChatClient _client;
         private readonly ConversationCloseCoordinator _closeCoordinator;
@@ -299,6 +300,8 @@ namespace Rook.UI.Chat
             }
             catch (Exception ex)
             {
+                if (ex is ReopenIdentityMismatchException mismatch)
+                    QueueClose(mismatch.BaseUri, mismatch.AuthoritativeConversationId);
                 if (_uiAttached)
                 {
                     SetStatus("Conversation unavailable", Colors.Red);
@@ -381,7 +384,8 @@ namespace Rook.UI.Chat
             {
                 try
                 {
-                    await client.CancelAsync(baseUri, conversationId, CancellationToken.None);
+                    using var cancelDeadline = new CancellationTokenSource(InvalidStreamCancelDeadline);
+                    await client.CancelAsync(baseUri, conversationId, cancelDeadline.Token);
                 }
                 catch
                 {
@@ -507,13 +511,13 @@ namespace Rook.UI.Chat
 
         public override void OnTabClosed()
         {
-            if (!CloseWebSurface()) return;
             Uri? baseUri;
             string? conversationId;
             bool deleted;
             lock (_lifetimeGate)
             {
                 _uiAttached = false;
+                if (!CloseWebSurface()) return;
                 baseUri = _conversationBaseUri;
                 conversationId = _conversationId;
                 deleted = _deleted;

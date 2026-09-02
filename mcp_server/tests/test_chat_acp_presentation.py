@@ -315,6 +315,35 @@ def test_cache_loader_accepts_writer_output_with_many_bounded_tool_cards(tmp_pat
     assert len(history.turns[0]["toolCards"]) == 300
 
 
+def test_cache_rejects_internal_sequence_gaps(tmp_path: Path) -> None:
+    root = tmp_path / "presentation"
+    root.mkdir()
+    turn = TurnProjection("inspect", "done", 7, 4, "end_turn", (), ())
+    for sequence in (1, 3):
+        (root / f"{sequence:08d}.json").write_text(
+            json.dumps(turn.payload(sequence)),
+            encoding="utf-8",
+        )
+
+    history = PresentationCache(root).load()
+
+    assert history.available is False
+    assert history.message == "presentation history unavailable"
+
+
+def test_cache_rejects_escaped_lone_surrogate_as_unavailable_history(tmp_path: Path) -> None:
+    root = tmp_path / "presentation"
+    root.mkdir()
+    payload = TurnProjection("inspect", "done", 7, 4, "end_turn", (), ()).payload(1)
+    payload["userText"] = "\ud800"
+    (root / "00000001.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    history = PresentationCache(root).load()
+
+    assert history.available is False
+    assert history.message == "presentation history unavailable"
+
+
 def test_cache_evicts_before_create_only_publication(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "presentation"
     cache = PresentationCache(root, max_turns=1, max_bytes=10_000)

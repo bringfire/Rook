@@ -220,7 +220,7 @@ namespace Rook.UI.Chat
         public bool ArtifactsRemoved { get; set; }
     }
 
-    public sealed class AgentChatHttpException : HttpRequestException
+    public class AgentChatHttpException : HttpRequestException
     {
         public AgentChatHttpException(HttpStatusCode statusCode, string code, string message)
             : base(message)
@@ -231,6 +231,22 @@ namespace Rook.UI.Chat
 
         public HttpStatusCode StatusCodeValue { get; }
         public string Code { get; }
+    }
+
+    internal sealed class ReopenIdentityMismatchException : AgentChatHttpException
+    {
+        public ReopenIdentityMismatchException(Uri baseUri, string authoritativeConversationId)
+            : base(
+                HttpStatusCode.OK,
+                "invalid_response",
+                "Chat service returned a different conversation identity during reopen.")
+        {
+            BaseUri = baseUri;
+            AuthoritativeConversationId = authoritativeConversationId;
+        }
+
+        public Uri BaseUri { get; }
+        public string AuthoritativeConversationId { get; }
     }
 
     /// <summary>
@@ -332,6 +348,8 @@ namespace Rook.UI.Chat
                 ConversationRoute(baseUri, conversationId, "reopen"),
                 EmptyBody(),
                 ct);
+            if (!string.Equals(view.ConversationId, conversationId, StringComparison.Ordinal))
+                throw new ReopenIdentityMismatchException(baseUri, conversationId);
             view.BaseUri = baseUri;
             return view;
         }
@@ -387,8 +405,17 @@ namespace Rook.UI.Chat
             using var reader = new StreamReader(stream, new UTF8Encoding(false, true));
             ChatEvent? terminal = null;
             string? line;
-            while ((line = await reader.ReadLineAsync()) != null)
+            while (true)
             {
+                try
+                {
+                    line = await reader.ReadLineAsync();
+                }
+                catch (DecoderFallbackException exc)
+                {
+                    throw InvalidStream("Chat service returned malformed UTF-8: " + exc.Message);
+                }
+                if (line == null) break;
                 ct.ThrowIfCancellationRequested();
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 if (terminal != null)
@@ -439,6 +466,8 @@ namespace Rook.UI.Chat
             }
             if (actualProperties.Count != expectedProperties.Count)
                 throw InvalidStream("Chat service returned an incomplete terminal schema.");
+            if (terminal.Outcome is not ("settled" or "cancelled" or "incomplete" or "refused" or "error"))
+                throw InvalidStream("Chat service returned an unknown terminal outcome.");
 
             if (isTransportError)
             {

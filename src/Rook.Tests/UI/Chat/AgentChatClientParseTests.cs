@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -69,7 +70,9 @@ namespace Rook.Tests.UI.Chat
                        "\"message\":\"Earlier presentation history was omitted. Prime retains the authoritative conversation state.\"," +
                        "\"turns\":[{\"sequence\":2,\"userText\":\"look\",\"assistantText\":\"seen\"," +
                        "\"stopReason\":\"end_turn\",\"images\":[{\"fileName\":\"paste.png\",\"mimeType\":\"image/png\"," +
-                       "\"width\":1,\"height\":1,\"binaryByteCount\":68,\"sha256\":\"abc\"}]}]}";
+                       "\"width\":1,\"height\":1,\"binaryBytes\":68," +
+                       "\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"," +
+                       "\"previewAvailable\":false}]}]}";
             var handler = RecordingHandler.Json(json);
             using var client = AgentChatClient.ForTests(handler, BaseUri);
 
@@ -80,8 +83,13 @@ namespace Rook.Tests.UI.Chat
             Assert.Single(history.Turns);
             Assert.Equal("look", history.Turns[0].UserText);
             Assert.Single(history.Turns[0].Images);
-            Assert.Equal("paste.png", history.Turns[0].Images[0].FileName);
-            Assert.Null(history.Turns[0].Images[0].Base64Data);
+            var image = history.Turns[0].Images[0];
+            Assert.Equal("paste.png", image.FileName);
+            Assert.Equal(1, image.Width);
+            Assert.Equal(1, image.Height);
+            Assert.Equal(68, image.BinaryByteCount);
+            Assert.Equal(new string('a', 64), image.Sha256);
+            Assert.Null(image.Base64Data);
         }
 
         [Theory]
@@ -147,6 +155,7 @@ namespace Rook.Tests.UI.Chat
         [InlineData("{\"type\":\"terminal\",\"outcome\":\"mystery\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}")]
         [InlineData("{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"mystery\",\"cachePublished\":true}")]
         [InlineData("{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"cancelled\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}")]
+        [InlineData("{\"type\":\"terminal\",\"outcome\":null,\"stopReason\":null,\"presentationOutcome\":\"delivered\",\"cachePublished\":true}")]
         [InlineData("{\"type\":\"terminal\",\"outcome\":\"error\",\"stopReason\":\"provider_error\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}")]
         [InlineData("{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\"}")]
         [InlineData("{\"type\":\"terminal\",\"outcome\":\"error\",\"errorCode\":\"protocol_failed\",\"cachePublished\":false}")]
@@ -260,6 +269,66 @@ namespace Rook.Tests.UI.Chat
             Assert.Equal(2, handler.Requests.Count);
             Assert.StartsWith("POST /agent/chat/conversations/c1/prompt ", handler.Requests[0]);
             Assert.Equal("POST /agent/chat/conversations/c1/cancel {}", handler.Requests[1]);
+        }
+
+        [Fact]
+        public async Task Agent_tab_prompt_owner_cancels_after_malformed_utf8_stream_bytes()
+        {
+            var handler = RecordingHandler.Sequence(
+                RecordingHandler.NdjsonBytesResponse(0xc3, 0x28, 0x0a),
+                RecordingHandler.Response("{\"accepted\":true}"));
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+
+            var error = await Assert.ThrowsAsync<AgentChatHttpException>(
+                () => AgentChatTab.RunOwnedPromptAsync(
+                    client,
+                    BaseUri,
+                    "c1",
+                    "hello",
+                    Array.Empty<ChatImageInput>(),
+                    _ => { },
+                    CancellationToken.None));
+
+            Assert.Equal("invalid_stream", error.Code);
+            Assert.Equal(2, handler.Requests.Count);
+            Assert.Equal("POST /agent/chat/conversations/c1/cancel {}", handler.Requests[1]);
+        }
+
+        [Fact]
+        public async Task Invalid_stream_cancel_deadline_preserves_the_original_stream_error()
+        {
+            var handler = new SlowCancelHandler();
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+            var elapsed = Stopwatch.StartNew();
+
+            var error = await Assert.ThrowsAsync<AgentChatHttpException>(
+                () => AgentChatTab.RunOwnedPromptAsync(
+                    client,
+                    BaseUri,
+                    "c1",
+                    "hello",
+                    Array.Empty<ChatImageInput>(),
+                    _ => { },
+                    CancellationToken.None));
+
+            elapsed.Stop();
+            Assert.Equal("invalid_stream", error.Code);
+            Assert.Equal(2, handler.RequestCount);
+            Assert.True(handler.CancelRequestWasCancelled);
+            Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(2.5), $"Cancellation took {elapsed.Elapsed}.");
+        }
+
+        [Fact]
+        public async Task Reopen_rejects_a_different_returned_conversation_identity()
+        {
+            var handler = RecordingHandler.Json(
+                "{\"conversationId\":\"different\",\"durable\":true,\"targetAvailable\":true}");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+
+            var error = await Assert.ThrowsAsync<ReopenIdentityMismatchException>(
+                () => client.ReopenAsync("authoritative", CancellationToken.None));
+
+            Assert.Equal("invalid_response", error.Code);
         }
 
         [Fact]
@@ -381,7 +450,7 @@ namespace Rook.Tests.UI.Chat
             {
                 EnsureEtoApplication();
                 var handler = new DelayedResponseHandler(
-                    "{\"conversationId\":\"reopened-after-close\",\"durable\":true,\"targetAvailable\":true}");
+                    "{\"conversationId\":\"existing-conversation\",\"durable\":true,\"targetAvailable\":true}");
                 using var client = AgentChatClient.ForTests(handler, BaseUri, HealthyService());
                 var closed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
                 using var coordinator = ConversationCloseCoordinator.ForTests((_, conversationId, _, _) =>
@@ -400,7 +469,38 @@ namespace Rook.Tests.UI.Chat
                 handler.ReleaseResponse.TrySetResult(true);
 
                 initialize.GetAwaiter().GetResult();
-                Assert.Equal("reopened-after-close", closed.Task.GetAwaiter().GetResult());
+                Assert.Equal("existing-conversation", closed.Task.GetAwaiter().GetResult());
+                Assert.False(handler.RequestWasCancelled);
+            });
+        }
+
+        [Fact]
+        public void Agent_tab_mismatched_reopen_queues_only_the_authoritative_identity()
+        {
+            RunOnSta(() =>
+            {
+                EnsureEtoApplication();
+                var handler = new DelayedResponseHandler(
+                    "{\"conversationId\":\"different-conversation\",\"durable\":true,\"targetAvailable\":true}");
+                using var client = AgentChatClient.ForTests(handler, BaseUri, HealthyService());
+                var closed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var coordinator = ConversationCloseCoordinator.ForTests((_, conversationId, _, _) =>
+                {
+                    closed.TrySetResult(conversationId);
+                    return Task.CompletedTask;
+                });
+                using var tab = new AgentChatTab(new ConversationSummary
+                {
+                    ConversationId = "authoritative-conversation",
+                }, client, coordinator, initializePresentation: false);
+
+                var initialize = tab.InitializeAsync();
+                handler.RequestStarted.Task.GetAwaiter().GetResult();
+                tab.OnTabClosed();
+                handler.ReleaseResponse.TrySetResult(true);
+
+                initialize.GetAwaiter().GetResult();
+                Assert.Equal("authoritative-conversation", closed.Task.GetAwaiter().GetResult());
                 Assert.False(handler.RequestWasCancelled);
             });
         }
@@ -494,6 +594,14 @@ namespace Rook.Tests.UI.Chat
                     Content = new StringContent(body, Encoding.UTF8, "application/x-ndjson"),
                 };
 
+            public static HttpResponseMessage NdjsonBytesResponse(params byte[] body)
+            {
+                var content = new ByteArrayContent(body);
+                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                    "application/x-ndjson");
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+            }
+
             public static RecordingHandler Sequence(params HttpResponseMessage[] responses)
                 => new(responses);
 
@@ -536,6 +644,24 @@ namespace Rook.Tests.UI.Chat
                 await ReleaseResponse.Task;
                 cancellationToken.ThrowIfCancellationRequested();
                 return RecordingHandler.Response(_body, HttpStatusCode.Created);
+            }
+        }
+
+        private sealed class SlowCancelHandler : HttpMessageHandler
+        {
+            public int RequestCount { get; private set; }
+            public bool CancelRequestWasCancelled { get; private set; }
+
+            protected override async Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                RequestCount++;
+                if (RequestCount == 1)
+                    return RecordingHandler.NdjsonResponse("{not-json}\n");
+                using var registration = cancellationToken.Register(() => CancelRequestWasCancelled = true);
+                await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+                return RecordingHandler.Response("{\"accepted\":true}");
             }
         }
     }

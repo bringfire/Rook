@@ -611,8 +611,14 @@ class PresentationCache:
         self,
         entries: Iterable[_CacheEntry],
     ) -> list[tuple[int, Path, dict[str, Any]]]:
+        materialized = list(entries)
+        if any(
+            current.sequence != previous.sequence + 1
+            for previous, current in zip(materialized, materialized[1:])
+        ):
+            raise PresentationCacheError("presentation cache sequence is discontinuous")
         loaded: list[tuple[int, Path, dict[str, Any]]] = []
-        for entry in entries:
+        for entry in materialized:
             if entry.byte_count > MAX_CACHED_TURN_BYTES:
                 raise PresentationCacheError("presentation cache entry is invalid")
             try:
@@ -622,7 +628,10 @@ class PresentationCache:
                 raise PresentationCacheError("presentation cache entry is corrupt") from exc
             if len(raw) != entry.byte_count or not isinstance(payload, dict) or payload.get("sequence") != entry.sequence:
                 raise PresentationCacheError("presentation cache entry is invalid")
-            _validate_cache_payload(payload, entry.sequence, entry.byte_count)
+            try:
+                _validate_cache_payload(payload, entry.sequence, entry.byte_count)
+            except UnicodeEncodeError as exc:
+                raise PresentationCacheError("presentation cache entry contains invalid Unicode") from exc
             loaded.append((entry.sequence, entry.path, payload))
         return loaded
 
