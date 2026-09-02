@@ -238,6 +238,30 @@ namespace Rook.Tests.UI.Chat
             Assert.DoesNotContain("DiscoverManagedVenvPython()", startProcess);
         }
 
+        [Fact]
+        public void Health_projection_uses_ACP_service_status_and_runtime_availability()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatServiceManager.cs");
+            var query = ExtractMethod(source, "private async Task<ChatServiceHealth?> QueryHealthAsync(");
+
+            Assert.Contains("payload.Service.Status", query);
+            Assert.Contains("\"ok\"", query);
+            Assert.Contains("RuntimeAvailable = payload.Runtime?.Available ?? false", query);
+        }
+
+        [Fact]
+        public void Shutdown_drains_service_owned_conversation_closes_before_stopping_service()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatServiceManager.cs");
+            var shutdown = ExtractMethod(source, "public void Shutdown()");
+            var drain = shutdown.IndexOf("ConversationCloseCoordinator.Instance", StringComparison.Ordinal);
+            var stop = shutdown.IndexOf("StopServicesBestEffort()", StringComparison.Ordinal);
+
+            Assert.True(drain >= 0);
+            Assert.True(stop > drain);
+            Assert.Contains("DrainAsync(ShutdownGateTimeout)", shutdown);
+        }
+
         private static string CreateTempFile(string fileName)
         {
             var dir = Directory.CreateDirectory(

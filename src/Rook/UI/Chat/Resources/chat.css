@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    Rook Chat — Adaptive UI Design System
-   Dark-first, glass-morphism, persona-colored accents.
+   Dark-first, glass-morphism, Prime-colored accents.
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
@@ -22,11 +22,11 @@
     --glass-border-hover: rgba(255, 255, 255, 0.12);
     --glass-highlight: rgba(255, 255, 255, 0.04);
 
-    /* ── Persona (set dynamically via setPersona) ── */
-    --persona-color: #3b82f6;
-    --persona-color-rgb: 59, 130, 246;
-    --persona-glow: rgba(59, 130, 246, 0.12);
-    --persona-glow-strong: rgba(59, 130, 246, 0.25);
+    /* ── Prime accent ── */
+    --accent-color: #3b82f6;
+    --accent-color-rgb: 59, 130, 246;
+    --accent-glow: rgba(59, 130, 246, 0.12);
+    --accent-glow-strong: rgba(59, 130, 246, 0.25);
 
     /* ── Semantic ── */
     --success: #4ade80;
@@ -74,8 +74,8 @@
     --glass-border: rgba(0, 0, 0, 0.06);
     --glass-border-hover: rgba(0, 0, 0, 0.12);
     --glass-highlight: rgba(0, 0, 0, 0.02);
-    --persona-glow: rgba(59, 130, 246, 0.08);
-    --persona-glow-strong: rgba(59, 130, 246, 0.18);
+    --accent-glow: rgba(59, 130, 246, 0.08);
+    --accent-glow-strong: rgba(59, 130, 246, 0.18);
     --bg-user: rgba(59, 130, 246, 0.1);
     --bg-user-border: rgba(59, 130, 246, 0.2);
     --bg-assistant: rgba(0, 0, 0, 0.025);
@@ -101,6 +101,52 @@ body {
     height: 100vh;
     overflow: hidden;
 }
+
+.composer {
+    flex: 0 0 auto;
+    padding: 8px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-primary);
+}
+
+.composer textarea {
+    box-sizing: border-box;
+    width: 100%;
+    resize: vertical;
+    min-height: 58px;
+    max-height: 180px;
+    padding: 8px;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font: inherit;
+}
+
+.composer-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 6px;
+}
+
+.composer-actions button,
+.icon-button {
+    min-width: 34px;
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    cursor: pointer;
+}
+
+.icon-button input { display: none; }
+.attachment-list { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 5px; }
+.attachment-chip { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 
 /* ═══ Layout ═══ */
 #chat-container {
@@ -177,12 +223,12 @@ body {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-/* ── Agent (persona-colored) ── */
+/* ── Agent ── */
 .agent-message {
-    border-left: 2px solid var(--persona-color, #3b82f6);
+    border-left: 2px solid var(--accent-color, #3b82f6);
     box-shadow:
         0 1px 3px rgba(0, 0, 0, 0.12),
-        -3px 0 12px -3px var(--persona-glow);
+        -3px 0 12px -3px var(--accent-glow);
     padding-left: 12px;
 }
 
@@ -193,7 +239,7 @@ body {
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    background-color: var(--persona-color, #3b82f6);
+    background-color: var(--accent-color, #3b82f6);
     font-size: 11px;
     font-weight: 600;
     color: #ffffff;
@@ -208,7 +254,7 @@ body {
 
 @keyframes avatar-breathe {
     0%, 100% { box-shadow: 0 0 0 0 transparent; }
-    50% { box-shadow: 0 0 10px 3px var(--persona-glow-strong); }
+    50% { box-shadow: 0 0 10px 3px var(--accent-glow-strong); }
 }
 
 .agent-message .agent-content {
@@ -309,7 +355,7 @@ body {
 }
 
 .assistant-message a {
-    color: var(--persona-color);
+    color: var(--accent-color);
     text-decoration: none;
 }
 
@@ -476,15 +522,15 @@ body {
 
 /* Tool states */
 .tool-card[data-state="executing"] {
-    border-left: 2px solid var(--persona-color);
-    box-shadow: -3px 0 16px -4px var(--persona-glow);
+    border-left: 2px solid var(--accent-color);
+    box-shadow: -3px 0 16px -4px var(--accent-glow);
 }
 
 .tool-card-spinner {
     width: 14px;
     height: 14px;
     border: 2px solid var(--glass-border);
-    border-top-color: var(--persona-color);
+    border-top-color: var(--accent-color);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }
@@ -624,16 +670,16 @@ body {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: var(--persona-color);
+    background: var(--accent-color);
     border: none;
     cursor: pointer;
-    box-shadow: 0 0 8px rgba(var(--persona-color-rgb), 0.3);
+    box-shadow: 0 0 8px rgba(var(--accent-color-rgb), 0.3);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ui-slider-row input[type="range"]::-webkit-slider-thumb:hover {
     transform: scale(1.2);
-    box-shadow: 0 0 14px rgba(var(--persona-color-rgb), 0.5);
+    box-shadow: 0 0 14px rgba(var(--accent-color-rgb), 0.5);
 }
 
 .ui-slider-value {
@@ -667,8 +713,8 @@ body {
 .ui-text-input::placeholder { color: var(--text-tertiary); }
 
 .ui-text-input:focus {
-    border-color: rgba(var(--persona-color-rgb), 0.4);
-    box-shadow: 0 0 0 3px rgba(var(--persona-color-rgb), 0.1);
+    border-color: rgba(var(--accent-color-rgb), 0.4);
+    box-shadow: 0 0 0 3px rgba(var(--accent-color-rgb), 0.1);
 }
 
 /* ── Buttons ── */
@@ -701,15 +747,15 @@ body {
 .ui-btn:active { transform: translateY(0); }
 
 .ui-btn.primary {
-    background: rgba(var(--persona-color-rgb), 0.15);
-    border-color: rgba(var(--persona-color-rgb), 0.3);
-    color: var(--persona-color);
+    background: rgba(var(--accent-color-rgb), 0.15);
+    border-color: rgba(var(--accent-color-rgb), 0.3);
+    color: var(--accent-color);
 }
 
 .ui-btn.primary:hover {
-    background: rgba(var(--persona-color-rgb), 0.25);
-    border-color: rgba(var(--persona-color-rgb), 0.4);
-    box-shadow: 0 2px 12px rgba(var(--persona-color-rgb), 0.15);
+    background: rgba(var(--accent-color-rgb), 0.25);
+    border-color: rgba(var(--accent-color-rgb), 0.4);
+    box-shadow: 0 2px 12px rgba(var(--accent-color-rgb), 0.15);
 }
 
 .ui-btn.danger {
@@ -736,7 +782,7 @@ body {
 
 .ui-progress-fill {
     height: 100%;
-    background: var(--persona-color);
+    background: var(--accent-color);
     border-radius: 2px;
     transition: width 0.4s ease;
 }
@@ -854,7 +900,7 @@ body {
     display: inline-block;
     width: 2px;
     height: 14px;
-    background: var(--persona-color);
+    background: var(--accent-color);
     margin-left: 2px;
     vertical-align: text-bottom;
     animation: cursor-blink 1s step-end infinite;
