@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from urllib.parse import urlparse
 
 import pytest
@@ -202,6 +203,32 @@ class _DestinationClient:
         return _Response({"success": True, "data": {"name": "bound.3dm"}})
 
 
+class _CapabilityClient:
+    def __init__(
+        self,
+        calls: list[tuple[str, int | None]],
+        *,
+        payload: dict[str, object] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self._calls = calls
+        self._payload = payload
+        self._error = error
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def get(self, url):
+        parsed = urlparse(str(url))
+        self._calls.append((parsed.path, parsed.port))
+        if self._error is not None:
+            raise self._error
+        return _Response(self._payload or {})
+
+
 @pytest.mark.asyncio
 async def test_discovery_churn_cannot_split_verification_and_operation(monkeypatch) -> None:
     targeting.initialize_from_environment(_panel_environment())
@@ -245,6 +272,26 @@ async def test_multiple_matching_panel_listeners_refuse_before_http(monkeypatch)
 
     assert result["success"] is False
     assert result["data"]["error"] == "target_unavailable"
+
+
+def test_production_discovery_preserves_distinct_panel_routes(tmp_path, monkeypatch) -> None:
+    first = _instance()
+    second = {**_instance(), "port": 9951}
+    (tmp_path / "instance-1234-native-a.json").write_text(
+        json.dumps(first), encoding="utf-8"
+    )
+    (tmp_path / "instance-1234-native-b.json").write_text(
+        json.dumps(second), encoding="utf-8"
+    )
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", tmp_path)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [tmp_path])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda process_id: True)
+
+    instances = bridge.discover_instances()
+
+    assert sorted(instance["port"] for instance in instances) == [9950, 9951]
+    targeting.initialize_from_environment(_panel_environment())
+    assert targeting.resolve_panel_target_instance(instances) is None
 
 
 @pytest.mark.asyncio
@@ -326,31 +373,109 @@ async def test_panel_session_capabilities_uses_bound_discovery_generation(
     monkeypatch.setattr(
         bridge,
         "classify_session_liveness",
-        lambda instance: {
-            "state": "live",
-            "pidAlive": True,
-            "portListening": True,
-        },
+        lambda instance: (_ for _ in ()).throw(
+            AssertionError("panel capability authority must not use PID liveness")
+        ),
     )
-    selected: list[dict[str, object]] = []
-
-    async def capture_capabilities(instance, timeout=None):
-        selected.append(instance)
-        return {
-            "source": "live",
-            "stale": False,
-            "authoritative": True,
-            "liveEndpoint": "/capabilities",
-            "capabilities": {"hostGenerationId": HOST_GENERATION},
-        }
-
-    monkeypatch.setattr(bridge, "resolve_capabilities", capture_capabilities)
+    calls: list[tuple[str, int | None]] = []
+    monkeypatch.setattr(
+        bridge.httpx,
+        "AsyncClient",
+        lambda timeout=None: _CapabilityClient(
+            calls,
+            payload={"domains": [], "hostGenerationId": HOST_GENERATION},
+        ),
+    )
 
     result = await bridge.get_session_capabilities("rhino-1234")
 
     assert result["success"] is True
-    assert selected[0]["port"] == 9951
-    assert selected[0]["capabilities"]["liveEndpoint"] == "/capabilities"
+    assert result["data"]["capabilities"]["source"] == "live"
+    assert calls == [("/capabilities", 9951)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "live_capabilities",
+    [
+        {"domains": []},
+        {"domains": [], "hostGenerationId": OTHER_GENERATION},
+    ],
+)
+async def test_panel_session_capabilities_requires_exact_live_generation(
+    monkeypatch,
+    live_capabilities: dict[str, object],
+) -> None:
+    targeting.initialize_from_environment(_panel_environment())
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [_instance()])
+    monkeypatch.setattr(
+        bridge,
+        "classify_session_liveness",
+        lambda instance: {"state": "live", "pidAlive": True, "portListening": True},
+    )
+    calls: list[tuple[str, int | None]] = []
+    monkeypatch.setattr(
+        bridge.httpx,
+        "AsyncClient",
+        lambda timeout=None: _CapabilityClient(calls, payload=live_capabilities),
+    )
+
+    result = await bridge.get_session_capabilities("rhino-1234")
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "target_unavailable"
+    assert calls == [("/capabilities", 9950)]
+
+
+@pytest.mark.asyncio
+async def test_panel_session_capabilities_rejects_malformed_live_response(
+    monkeypatch,
+) -> None:
+    targeting.initialize_from_environment(_panel_environment())
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [_instance()])
+    monkeypatch.setattr(
+        bridge,
+        "classify_session_liveness",
+        lambda instance: {"state": "live", "pidAlive": True, "portListening": True},
+    )
+    monkeypatch.setattr(
+        bridge.httpx,
+        "AsyncClient",
+        lambda timeout=None: _CapabilityClient(
+            [], payload={"hostGenerationId": HOST_GENERATION}
+        ),
+    )
+
+    result = await bridge.get_session_capabilities("rhino-1234")
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "target_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_panel_session_capabilities_transport_failure_never_uses_legacy_fallback(
+    monkeypatch,
+) -> None:
+    targeting.initialize_from_environment(_panel_environment())
+    monkeypatch.setattr(bridge, "discover_instances", lambda: [_instance()])
+    liveness_calls: list[object] = []
+
+    def classify(instance):
+        liveness_calls.append(instance)
+        return {"state": "live", "pidAlive": True, "portListening": True}
+
+    monkeypatch.setattr(bridge, "classify_session_liveness", classify)
+    monkeypatch.setattr(
+        bridge.httpx,
+        "AsyncClient",
+        lambda timeout=None: _CapabilityClient([], error=RuntimeError("offline")),
+    )
+
+    result = await bridge.get_session_capabilities("rhino-1234")
+
+    assert result["success"] is False
+    assert result["data"]["error"] == "target_unavailable"
+    assert liveness_calls == []
 
 
 @pytest.mark.asyncio

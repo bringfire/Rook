@@ -135,7 +135,7 @@ def test_discover_instances_honors_discovery_folder_only_monkeypatch(
     assert instances[0]["port"] == 9950
 
 
-def test_discover_instances_prefers_primary_duplicate_identity(
+def test_discover_instances_preserves_distinct_routes_for_same_process(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -164,6 +164,32 @@ def test_discover_instances_prefers_primary_duplicate_identity(
             "pluginType": "native",
         },
     )
+
+    instances = bridge.discover_instances()
+
+    assert sorted(instance["port"] for instance in instances) == [9950, 9960]
+
+
+def test_discover_instances_collapses_identical_route_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary = tmp_path / "primary"
+    legacy = tmp_path / "legacy"
+    primary.mkdir()
+    legacy.mkdir()
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", primary)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [primary, legacy])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    record = {
+        "host": "127.0.0.1",
+        "port": 9950,
+        "processId": 7101,
+        "pluginType": "native",
+        "hostGenerationId": "11111111-1111-1111-1111-111111111111",
+    }
+    _write_instance(primary / "instance-7101-native.json", record)
+    _write_instance(legacy / "instance-7101-native.json", record)
 
     instances = bridge.discover_instances()
 

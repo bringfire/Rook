@@ -255,6 +255,26 @@ async def _fetch_live_capabilities(
     return payload
 
 
+async def _fetch_verified_panel_capabilities(
+    client: httpx.AsyncClient,
+    instance: dict[str, Any],
+    lock: Any,
+) -> dict[str, Any]:
+    host = instance.get("host") or DEFAULT_HOST
+    port = instance.get("port")
+    if not port:
+        raise RuntimeError("panel target has no capability listener")
+
+    response = await client.get(f"http://{host}:{port}/capabilities")
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("domains"), list):
+        raise RuntimeError("live capabilities response is missing domains")
+    if not _targeting_module().live_capabilities_match_panel_target_lock(payload, lock):
+        raise RuntimeError("live capabilities response has the wrong host generation")
+    return payload
+
+
 async def resolve_capabilities(
     instance: dict[str, Any],
     timeout: httpx.Timeout | float | None = None,
@@ -513,7 +533,7 @@ def _cleanup_stale_discovery_files() -> list[dict[str, Any]]:
         "chirp-service-*.json",
     ]
     seen: set[Path] = set()
-    seen_instances: set[tuple[str, object]] = set()
+    seen_instances: set[tuple[object, ...]] = set()
     for folder in _effective_discovery_folders():
         if not folder.exists():
             continue
@@ -535,7 +555,20 @@ def _cleanup_stale_discovery_files() -> list[dict[str, Any]]:
                     if file.name.startswith("instance-"):
                         process_id = data.get("processId")
                         if process_id:
-                            instance_key = (str(data.get("pluginType") or "native"), process_id)
+                            host = data.get("host")
+                            route_host = (
+                                host.strip().lower()
+                                if isinstance(host, str) and host.strip()
+                                else DEFAULT_HOST
+                            )
+                            instance_key = (
+                                "route",
+                                str(data.get("pluginType") or "native"),
+                                process_id,
+                                route_host,
+                                data.get("port"),
+                                data.get("hostGenerationId"),
+                            )
                         else:
                             instance_key = ("path", file.resolve())
                         if instance_key in seen_instances:
@@ -710,6 +743,38 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
             {"state": "dead", "pidAlive": False, "portListening": False},
             reason="capability_query",
         )
+
+    if lock is not None:
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                live_capabilities = await _fetch_verified_panel_capabilities(
+                    client, instance, lock
+                )
+        except Exception:
+            return targeting.panel_target_unavailable_result(
+                "The live Rook host generation could not be verified.",
+                instances=instances,
+            )
+        return {
+            "success": True,
+            "data": {
+                "session": session_id,
+                "processId": process_id,
+                "liveness": {
+                    "state": "live",
+                    "pidAlive": None,
+                    "portListening": True,
+                    "code": None,
+                },
+                "capabilities": {
+                    "source": "live",
+                    "stale": False,
+                    "authoritative": True,
+                    "liveEndpoint": "/capabilities",
+                    "capabilities": live_capabilities,
+                },
+            },
+        }
 
     liveness = classify_session_liveness(instance)
     if liveness["state"] in ("dead", "unreachable"):
@@ -1148,27 +1213,19 @@ async def call_rhino(
                     return _targeting_module().panel_target_unavailable_result(
                         instances=authority_instances
                     )
-                capability_path = "/capabilities"
-                capability_url = (
-                    f"http://{authority.get('host') or DEFAULT_HOST}:"
-                    f"{authority.get('port')}{capability_path}"
-                )
                 try:
-                    capability_response = await client.get(capability_url)
-                    capability_response.raise_for_status()
-                    live_capabilities = capability_response.json()
+                    live_capabilities = await _fetch_verified_panel_capabilities(
+                        client, authority, lock
+                    )
                 except Exception:
                     return _targeting_module().panel_target_unavailable_result(
                         "The live Rook host generation could not be verified.",
                         instances=authority_instances,
                     )
-                if not _targeting_module().live_capabilities_match_panel_target_lock(
-                    live_capabilities, lock
-                ):
-                    return _targeting_module().panel_target_unavailable_result(
-                        "The live Rook host generation does not match this conversation.",
-                        instances=authority_instances,
-                    )
+                capability_url = (
+                    f"http://{authority.get('host') or DEFAULT_HOST}:"
+                    f"{authority.get('port')}/capabilities"
+                )
                 if method == "GET" and not data and url == capability_url:
                     return live_capabilities
 
