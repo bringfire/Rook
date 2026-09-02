@@ -4,14 +4,81 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
+import re
 import sys
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 
+from rook.runtime_paths import get_acp_data_paths, resolve_runtime_paths
+
+from .acp_conversation import AcpConversationManager, DirectAcpProcessFactory
+from .acp_presentation import PresentationCache
+from .acp_storage import AssociationStore
+from .prime_runtime import RuntimeUnavailable, load_and_verify_runtime
 from .server import start_chat_server, stop_chat_server, wait_for_chat_server
+
+
+_RUNTIME_ID = re.compile(r"^[A-F0-9]{64}$")
+_MAX_CURRENT_POINTER_BYTES = 4096
+
+
+class InstalledRuntimeCatalog:
+    """Resolve only the product-qualified immutable Prime runtime."""
+
+    def __init__(self, prime_root: Path) -> None:
+        self._prime_root = prime_root.expanduser().resolve(strict=False)
+        self._current_path = self._prime_root / "current.json"
+
+    def latest(self):
+        try:
+            with self._current_path.open("rb") as stream:
+                raw = stream.read(_MAX_CURRENT_POINTER_BYTES + 1)
+            if len(raw) > _MAX_CURRENT_POINTER_BYTES:
+                raise RuntimeUnavailable("qualified runtime pointer is invalid")
+            payload = json.loads(raw.decode("utf-8", errors="strict"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeUnavailable("qualified runtime pointer is unavailable") from exc
+        canonical = (
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
+        ).encode("utf-8")
+        if (
+            not raw
+            or raw != canonical
+            or not isinstance(payload, dict)
+            or set(payload) != {"runtimeId"}
+            or type(payload.get("runtimeId")) is not str
+            or not _RUNTIME_ID.fullmatch(payload["runtimeId"])
+        ):
+            raise RuntimeUnavailable("qualified runtime pointer is invalid")
+        return self.get(payload["runtimeId"])
+
+    def get(self, runtime_id: str):
+        return load_and_verify_runtime(self._prime_root, runtime_id)
+
+
+def build_acp_manager(
+    prime_base_environment: Mapping[str, str],
+) -> tuple[AcpConversationManager, bool]:
+    runtime_paths = resolve_runtime_paths()
+    data_paths = get_acp_data_paths(runtime_paths)
+    data_paths.create_roots()
+    catalog = InstalledRuntimeCatalog(runtime_paths.install_root / "prime")
+    runtime_available = True
+    try:
+        catalog.latest()
+    except RuntimeUnavailable:
+        runtime_available = False
+    manager = AcpConversationManager(
+        AssociationStore(data_paths),
+        catalog,
+        DirectAcpProcessFactory(prime_base_environment),
+        PresentationCache(data_paths.presentation_root),
+    )
+    return manager, runtime_available
 
 
 def _load_env() -> str | None:
