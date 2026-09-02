@@ -69,16 +69,18 @@ class RookBinding:
     route_process_id: int
 
     def __post_init__(self) -> None:
-        if self.profile not in {"readonly", "full"}:
+        if type(self.profile) is not str or self.profile not in {"readonly", "full"}:
             raise ValueError("Rook capability profile is invalid")
+        if type(self.host_generation_id) is not str:
+            raise ValueError("host generation ID must be a UUID")
         try:
             parsed = uuid.UUID(self.host_generation_id)
         except (ValueError, AttributeError) as exc:
             raise ValueError("host generation ID must be a UUID") from exc
         object.__setattr__(self, "host_generation_id", str(parsed))
-        if self.rhino_document_serial <= 0:
+        if type(self.rhino_document_serial) is not int or self.rhino_document_serial <= 0:
             raise ValueError("Rhino document serial must be positive")
-        if self.route_process_id <= 0:
+        if type(self.route_process_id) is not int or self.route_process_id <= 0:
             raise ValueError("route process ID must be positive")
 
 
@@ -378,10 +380,15 @@ def _association_from_payload(payload: Any) -> ConversationAssociation:
         "created_at_utc",
     }:
         raise ValueError("association keys are invalid")
-    if payload["schema_version"] != ASSOCIATION_SCHEMA_VERSION:
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != ASSOCIATION_SCHEMA_VERSION:
         raise ValueError("association schema version is unsupported")
     binding_payload = payload["binding"]
-    if not isinstance(binding_payload, dict):
+    if not isinstance(binding_payload, dict) or set(binding_payload) != {
+        "profile",
+        "host_generation_id",
+        "rhino_document_serial",
+        "route_process_id",
+    }:
         raise ValueError("binding is invalid")
     binding = RookBinding(**binding_payload)
     required_strings = (

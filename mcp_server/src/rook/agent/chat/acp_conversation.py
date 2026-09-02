@@ -17,7 +17,6 @@ from .acp_images import ValidatedImage
 from .acp_presentation import (
     BoundedPromptProjection,
     PresentationCache,
-    PresentationCacheError,
     PresentationQueue,
     PresentationSink,
     PromptGeneration,
@@ -65,6 +64,13 @@ class ConversationBusy(ConversationError):
 
 class TargetUnavailable(RuntimeError):
     code = "target_unavailable"
+
+    def __init__(self) -> None:
+        super().__init__(self.code)
+
+
+class ImageUnsupported(RuntimeError):
+    code = "image_unsupported"
 
     def __init__(self) -> None:
         super().__init__(self.code)
@@ -147,6 +153,8 @@ class ResidentConversation:
     launch_generation: int
     active_prompt: ActivePromptSupervisor | None = None
     transport_watch: asyncio.Task[None] | None = field(default=None, repr=False)
+    retirement_task: asyncio.Task[CloseResult] | None = field(default=None, repr=False)
+    deletion_task: asyncio.Task[DeleteResult] | None = field(default=None, repr=False)
     _prompt_sequence: int = 0
 
     @property
@@ -164,31 +172,51 @@ class ResidentConversation:
         )
 
 
-class AcpProcessFactory(Protocol):
-    async def launch(
+class PreparedAcpProcessLaunch(Protocol):
+    async def start(
         self,
-        contract: PrimeRuntimeContract,
-        association: ProvisionalAssociation | ConversationAssociation,
         claim: OpenClaim,
-        reopen: bool,
         *,
         launch_generation: int,
     ) -> OwnedAcpProcess: ...
+
+
+class AcpProcessFactory(Protocol):
+    def prepare(
+        self,
+        contract: PrimeRuntimeContract,
+        association: ProvisionalAssociation | ConversationAssociation,
+        reopen: bool,
+    ) -> PreparedAcpProcessLaunch: ...
+
+
+@dataclass(frozen=True)
+class PreparedDirectAcpLaunch:
+    launch: PrimeLaunch
+
+    async def start(
+        self,
+        claim: OpenClaim,
+        *,
+        launch_generation: int,
+    ) -> OwnedAcpProcess:
+        return await OwnedAcpProcess.start(
+            self.launch,
+            claim,
+            launch_generation=launch_generation,
+        )
 
 
 class DirectAcpProcessFactory:
     def __init__(self, base_environment: Mapping[str, str]) -> None:
         self._base_environment = dict(base_environment)
 
-    async def launch(
+    def prepare(
         self,
         contract: PrimeRuntimeContract,
         association: ProvisionalAssociation | ConversationAssociation,
-        claim: OpenClaim,
         reopen: bool,
-        *,
-        launch_generation: int,
-    ) -> OwnedAcpProcess:
+    ) -> PreparedDirectAcpLaunch:
         argv = build_prime_argv(
             contract,
             Path(association.session_path),
@@ -197,10 +225,8 @@ class DirectAcpProcessFactory:
             reopen,
         )
         environment = build_prime_child_env(self._base_environment, contract)
-        return await OwnedAcpProcess.start(
-            PrimeLaunch(argv=argv, environment=environment),
-            claim,
-            launch_generation=launch_generation,
+        return PreparedDirectAcpLaunch(
+            PrimeLaunch(argv=argv, environment=environment)
         )
 
 
@@ -247,9 +273,10 @@ class AcpConversationManager:
                 requested_model=request.requested_initial_model,
                 requested_reasoning=request.requested_initial_reasoning,
             )
+        prepared = self._process_factory.prepare(contract, provisional, False)
         claim = OpenClaim.acquire(self.store.paths.claims_root, provisional.session_path)
         generation = next(self._launch_generation)
-        process = await self._launch_process(contract, provisional, claim, False, generation)
+        process = await self._launch_process(prepared, contract, provisional, claim, generation)
         resident = ResidentConversation(provisional, contract, claim, process, generation)
         await self._insert_resident(resident)
         return self._view(resident)
@@ -267,11 +294,12 @@ class AcpConversationManager:
                 expected_cwd=working_directory,
                 sessions_root=self.store.paths.sessions_root,
             )
+            prepared = self._process_factory.prepare(contract, association, True)
         except Exception:
             claim.release_no_child_created()
             raise
         generation = next(self._launch_generation)
-        process = await self._launch_process(contract, association, claim, True, generation)
+        process = await self._launch_process(prepared, contract, association, claim, generation)
         resident = ResidentConversation(association, contract, claim, process, generation)
         await self._insert_resident(resident)
         return self._view(resident)
@@ -305,17 +333,14 @@ class AcpConversationManager:
 
     async def _launch_process(
         self,
+        prepared: PreparedAcpProcessLaunch,
         contract: PrimeRuntimeContract,
         association: ProvisionalAssociation | ConversationAssociation,
         claim: OpenClaim,
-        reopen: bool,
         generation: int,
     ) -> OwnedAcpProcess:
-        process = await self._process_factory.launch(
-            contract,
-            association,
+        process = await prepared.start(
             claim,
-            reopen,
             launch_generation=generation,
         )
         try:
@@ -325,8 +350,10 @@ class AcpConversationManager:
                 mcp_servers=[build_rook_mcp_server(contract, association.binding)],
             )
             return process
-        except Exception:
-            await process.retire(send_close=False)
+        except BaseException:
+            cleanup = asyncio.create_task(process.retire(send_close=False))
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.shield(cleanup)
             raise
 
     async def start_prompt(
@@ -341,6 +368,8 @@ class AcpConversationManager:
                 raise ConversationNotOpen(conversation_id)
             if resident.active_prompt is not None:
                 raise ConversationBusy(conversation_id)
+            if prompt.images and not resident.process.image_supported:
+                raise ImageUnsupported()
             supervisor = ActivePromptSupervisor(generation=resident.next_prompt_generation())
             resident.active_prompt = supervisor
             supervisor.start(
@@ -463,7 +492,7 @@ class AcpConversationManager:
             try:
                 cache.publish(projection_value)
                 cache_published = True
-            except PresentationCacheError:
+            except Exception:
                 try:
                     cache.publish_fallback(
                         stop_reason=stop_reason or "error",
@@ -529,6 +558,18 @@ class AcpConversationManager:
         *,
         release_claim: bool = True,
     ) -> CloseResult:
+        if resident.retirement_task is None:
+            resident.retirement_task = asyncio.create_task(
+                self._retire_detached_once(resident, release_claim=release_claim)
+            )
+        return await asyncio.shield(resident.retirement_task)
+
+    async def _retire_detached_once(
+        self,
+        resident: ResidentConversation,
+        *,
+        release_claim: bool,
+    ) -> CloseResult:
         supervisor = resident.active_prompt
         allow_session_close = not resident.process.transport_failure.is_set()
         if supervisor is not None:
@@ -568,12 +609,9 @@ class AcpConversationManager:
             live = conversation_id in self._resident
         if live:
             resident = await self.detach_resident_for_retirement(conversation_id)
-            close_result = await self._retire_detached(resident, release_claim=False)
-            if not close_result.child_exit_observed:
-                raise SessionRecoveryRequired()
-            association = resident.association if isinstance(resident.association, ConversationAssociation) else None
-            claim = resident.claim
-            release_claim = claim.release_after_observed_exit
+            if resident.deletion_task is None:
+                resident.deletion_task = asyncio.create_task(self._delete_live_resident(resident))
+            return await asyncio.shield(resident.deletion_task)
         else:
             session_path = self.store.locate_session(conversation_id)
             claim = OpenClaim.acquire(self.store.paths.claims_root, session_path)
@@ -592,6 +630,20 @@ class AcpConversationManager:
                 raise
             release_claim = claim.release_no_child_created
 
+        return self._delete_owned_association(association, release_claim)
+
+    async def _delete_live_resident(self, resident: ResidentConversation) -> DeleteResult:
+        close_result = await self._retire_detached(resident, release_claim=False)
+        if not close_result.child_exit_observed:
+            raise SessionRecoveryRequired()
+        association = resident.association if isinstance(resident.association, ConversationAssociation) else None
+        return self._delete_owned_association(association, resident.claim.release_after_observed_exit)
+
+    def _delete_owned_association(
+        self,
+        association: ConversationAssociation | None,
+        release_claim: Callable[[], None],
+    ) -> DeleteResult:
         association_removed = False
         artifacts_removed = True
         try:
@@ -628,7 +680,16 @@ class AcpConversationManager:
             self._resident.clear()
         for resident in detached:
             await self._stop_transport_watch(resident)
-        return tuple([await self._retire_detached(resident) for resident in detached])
+        outcomes = await asyncio.gather(
+            *(self._retire_detached(resident) for resident in detached),
+            return_exceptions=True,
+        )
+        return tuple(
+            outcome
+            if isinstance(outcome, CloseResult)
+            else CloseResult("unclean", bool(getattr(resident.process, "child_exit_observed", False)))
+            for resident, outcome in zip(detached, outcomes, strict=True)
+        )
 
     def goal_projection(self, conversation_id: str):
         resident = self._resident.get(conversation_id)

@@ -56,6 +56,27 @@ def binding() -> RookBinding:
     )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("rhino_document_serial", True),
+        ("rhino_document_serial", 1.5),
+        ("route_process_id", True),
+        ("route_process_id", 1.5),
+    ],
+)
+def test_rook_binding_requires_exact_positive_integer_fields(field: str, value: object) -> None:
+    values = {
+        "profile": "full",
+        "host_generation_id": "a66f624c-cc08-4c76-a8f9-cd999b11b7a4",
+        "rhino_document_serial": 17,
+        "route_process_id": 4242,
+    }
+    values[field] = value
+    with pytest.raises(ValueError):
+        RookBinding(**values)
+
+
 def _write_header(
     path: Path,
     *,
@@ -121,7 +142,7 @@ def test_header_envelope_binds_id_cwd_version_and_product_root(paths: AcpDataPat
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("version", 2), ("id", ""), ("id", "different"), ("cwd", "C:/wrong")],
+    [("version", 2), ("version", True), ("id", ""), ("id", "different"), ("cwd", "C:/wrong")],
 )
 def test_header_envelope_refuses_identity_drift(
     paths: AcpDataPaths,
@@ -338,4 +359,3 @@ def test_provisional_reservation_refuses_owned_path_collisions(
             requested_model=None,
             requested_reasoning=None,
         )
-

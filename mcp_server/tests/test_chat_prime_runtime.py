@@ -128,15 +128,30 @@ def test_new_launch_uses_exact_flags_and_reopen_has_no_model_override(verified_r
     session_path = tmp_path / "session.jsonl"
     new = build_prime_argv(contract, session_path, "anthropic/claude-x", "high", reopen=False)
 
-    assert new[:3] == (str(contract.executable_path), "--mode", "acp")
-    assert "--no-daemon" in new
-    assert "--no-skills" in new
-    assert _pairs(new, "--skill") == [str(contract.goal_skill_path), str(contract.rook_skill_path)]
-    assert _pair(new, "--append-system-prompt") == contract.rook_skill_system_prompt
-    assert str(contract.rook_skill_path / "SKILL.md") not in new
-    assert _pair(new, "--resume") == str(session_path.resolve())
-    assert _pair(new, "--model") == "anthropic/claude-x"
-    assert _pair(new, "--thinking") == "high"
+    assert new == (
+        str(contract.executable_path),
+        "--mode",
+        "acp",
+        "--no-daemon",
+        "--no-skills",
+        "--no-extensions",
+        "--no-context-files",
+        "--no-prompt-templates",
+        "--tools",
+        "ipython",
+        "--skill",
+        str(contract.goal_skill_path),
+        "--skill",
+        str(contract.rook_skill_path),
+        "--append-system-prompt",
+        contract.rook_skill_system_prompt,
+        "--resume",
+        str(session_path.resolve()),
+        "--model",
+        "anthropic/claude-x",
+        "--thinking",
+        "high",
+    )
 
     reopened = build_prime_argv(contract, session_path, None, None, reopen=True)
     assert "--model" not in reopened
@@ -144,7 +159,7 @@ def test_new_launch_uses_exact_flags_and_reopen_has_no_model_override(verified_r
     assert _pair(reopened, "--append-system-prompt") == contract.rook_skill_system_prompt
 
 
-@pytest.mark.parametrize("reasoning", ["none", "minimal", "low", "medium", "high", "xhigh"])
+@pytest.mark.parametrize("reasoning", ["off", "minimal", "low", "medium", "high", "xhigh", "max"])
 def test_closed_reasoning_values_are_admitted(verified_runtime, tmp_path: Path, reasoning: str):
     contract, _ = verified_runtime
     argv = build_prime_argv(contract, tmp_path / "session.jsonl", None, reasoning, reopen=False)
@@ -155,6 +170,8 @@ def test_invalid_reasoning_and_reopen_overrides_refuse(verified_runtime, tmp_pat
     contract, _ = verified_runtime
     with pytest.raises(PrimeLaunchError, match="invalid_reasoning"):
         build_prime_argv(contract, tmp_path / "a.jsonl", None, "turbo", reopen=False)
+    with pytest.raises(PrimeLaunchError, match="invalid_reasoning"):
+        build_prime_argv(contract, tmp_path / "a.jsonl", None, "none", reopen=False)
     with pytest.raises(PrimeLaunchError, match="reopen_override_refused"):
         build_prime_argv(contract, tmp_path / "b.jsonl", "anthropic/x", None, reopen=True)
 
@@ -235,6 +252,44 @@ def test_runtime_integer_fields_reject_boolean_values(tmp_path: Path):
     runtime_id, _ = _rewrite_manifest(runtime_root, claimKeyVersion=True)
     with pytest.raises(RuntimeUnavailable, match="claimKeyVersion"):
         load_and_verify_runtime(install_root, runtime_id)
+
+
+def test_runtime_manifest_schema_rejects_extra_keys_and_invalid_optional_commit(tmp_path: Path):
+    extra_root = tmp_path / "extra"
+    _, runtime_root = _write_runtime(extra_root)
+    runtime_id, _ = _rewrite_manifest(runtime_root, ambientAuthority=True)
+    with pytest.raises(RuntimeUnavailable, match="manifest keys"):
+        load_and_verify_runtime(extra_root, runtime_id)
+
+    row_root = tmp_path / "row"
+    _, runtime_root = _write_runtime(row_root)
+    manifest = json.loads((runtime_root / "runtime-manifest.json").read_text(encoding="utf-8"))
+    manifest["files"][0]["ambient"] = True
+    runtime_id, _ = _rewrite_manifest(runtime_root, files=manifest["files"])
+    with pytest.raises(RuntimeUnavailable, match="manifest entry"):
+        load_and_verify_runtime(row_root, runtime_id)
+
+    patch_root = tmp_path / "patch"
+    _, runtime_root = _write_runtime(patch_root)
+    runtime_id, _ = _rewrite_manifest(runtime_root, compatibilityPatchCommit=7)
+    with pytest.raises(RuntimeUnavailable, match="compatibilityPatchCommit"):
+        load_and_verify_runtime(patch_root, runtime_id)
+
+
+def test_runtime_manifest_exact_integer_types_reject_boolean_schema_and_file_bytes(tmp_path: Path):
+    schema_root = tmp_path / "schema"
+    _, runtime_root = _write_runtime(schema_root)
+    runtime_id, _ = _rewrite_manifest(runtime_root, schemaVersion=True)
+    with pytest.raises(RuntimeUnavailable, match="schema"):
+        load_and_verify_runtime(schema_root, runtime_id)
+
+    row_root = tmp_path / "bytes"
+    _, runtime_root = _write_runtime(row_root)
+    manifest = json.loads((runtime_root / "runtime-manifest.json").read_text(encoding="utf-8"))
+    manifest["files"][0]["bytes"] = True
+    runtime_id, _ = _rewrite_manifest(runtime_root, files=manifest["files"])
+    with pytest.raises(RuntimeUnavailable, match="manifest entry"):
+        load_and_verify_runtime(row_root, runtime_id)
 
 
 def test_root_skill_size_and_utf8_are_bounded(tmp_path: Path):

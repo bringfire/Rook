@@ -68,17 +68,21 @@ class FakeAgent:
             }
         )
         advertise_close = self._scenario.get("advertise_close", True)
-        capabilities = AgentCapabilities(
-            prompt_capabilities=PromptCapabilities(
-                image=self._scenario.get("image_capability", True)
-            ),
-            session_capabilities=SessionCapabilities(
-                close=SessionCloseCapabilities() if advertise_close else None
-            ),
-        )
+        capabilities = None
+        if not self._scenario.get("null_agent_capabilities", False):
+            capabilities = AgentCapabilities(
+                prompt_capabilities=None
+                if self._scenario.get("null_prompt_capabilities", False)
+                else PromptCapabilities(image=self._scenario.get("image_capability", True)),
+                session_capabilities=None
+                if self._scenario.get("null_session_capabilities", False)
+                else SessionCapabilities(close=SessionCloseCapabilities() if advertise_close else None),
+            )
         return {
             "protocolVersion": self._scenario.get("protocol_version", PROTOCOL_VERSION),
-            "agentCapabilities": capabilities.model_dump(by_alias=True, exclude_none=True),
+            "agentCapabilities": None
+            if capabilities is None
+            else capabilities.model_dump(by_alias=True, exclude_none=False),
             "agentInfo": Implementation(
                 name="rook-fake-acp-agent",
                 title="Rook Fake ACP Agent",

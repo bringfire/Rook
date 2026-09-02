@@ -24,8 +24,29 @@ from .acp_storage import RookBinding
 MAX_ROOT_SKILL_UTF8_BYTES = 16 * 1024
 MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS = 30_000
 RUNTIME_SCHEMA_VERSION = 1
-SUPPORTED_REASONING = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
+SUPPORTED_REASONING = frozenset({"off", "minimal", "low", "medium", "high", "xhigh", "max"})
 _RUNTIME_ID = re.compile(r"^[A-F0-9]{64}$")
+_RUNTIME_MANIFEST_KEYS = frozenset(
+    {
+        "schemaVersion",
+        "platform",
+        "architecture",
+        "upstreamCommit",
+        "compatibilityPatchCommit",
+        "acpProtocolVersion",
+        "pythonAcpSdkVersion",
+        "executable",
+        "goalSkill",
+        "rookSkill",
+        "rookSkillManifestSha256",
+        "rookMcpCommand",
+        "rookMcpArgs",
+        "rookMcpEnvironment",
+        "claimKeyVersion",
+        "files",
+    }
+)
+_RUNTIME_MANIFEST_ENTRY_KEYS = frozenset({"path", "bytes", "sha256"})
 
 
 class RuntimeUnavailable(RuntimeError):
@@ -156,7 +177,7 @@ def _verify_manifest(root: Path, manifest: Mapping[str, object]) -> dict[str, by
     expected: dict[str, tuple[int, str]] = {}
     previous: str | None = None
     for row in listed:
-        if not isinstance(row, dict):
+        if not isinstance(row, dict) or set(row) != _RUNTIME_MANIFEST_ENTRY_KEYS:
             raise RuntimeUnavailable("manifest entry is invalid")
         relative = _safe_relative_path(row.get("path"))
         byte_count = row.get("bytes")
@@ -164,7 +185,7 @@ def _verify_manifest(root: Path, manifest: Mapping[str, object]) -> dict[str, by
         if (
             previous is not None
             and relative <= previous
-            or not isinstance(byte_count, int)
+            or type(byte_count) is not int
             or byte_count < 0
             or not isinstance(digest, str)
             or not _RUNTIME_ID.fullmatch(digest)
@@ -202,7 +223,7 @@ def _verify_manifest(root: Path, manifest: Mapping[str, object]) -> dict[str, by
 
 
 def load_and_verify_runtime(install_root: Path, runtime_id: str) -> PrimeRuntimeContract:
-    if not isinstance(runtime_id, str) or not _RUNTIME_ID.fullmatch(runtime_id):
+    if type(runtime_id) is not str or not _RUNTIME_ID.fullmatch(runtime_id):
         raise RuntimeUnavailable("runtime_id is invalid")
     root = (install_root / "runtimes" / runtime_id).resolve(strict=False)
     expected_parent = (install_root / "runtimes").resolve(strict=False)
@@ -218,11 +239,19 @@ def load_and_verify_runtime(install_root: Path, runtime_id: str) -> PrimeRuntime
         raise RuntimeUnavailable("runtime manifest is unreadable") from exc
     if not isinstance(manifest, dict) or manifest_bytes != _canonical_json(manifest):
         raise RuntimeUnavailable("runtime manifest is not canonical")
+    if set(manifest) != _RUNTIME_MANIFEST_KEYS:
+        raise RuntimeUnavailable("runtime manifest keys are invalid")
     manifest_sha = _sha256(manifest_bytes)
     if manifest_sha != runtime_id:
         raise RuntimeUnavailable("runtime manifest identity differs")
-    if manifest.get("schemaVersion") != RUNTIME_SCHEMA_VERSION:
+    if type(manifest.get("schemaVersion")) is not int or manifest.get("schemaVersion") != RUNTIME_SCHEMA_VERSION:
         raise RuntimeUnavailable("runtime schema is unsupported")
+
+    compatibility_patch = manifest.get("compatibilityPatchCommit")
+    if compatibility_patch is not None and (
+        type(compatibility_patch) is not str or not compatibility_patch.strip()
+    ):
+        raise RuntimeUnavailable("runtime field compatibilityPatchCommit is invalid")
 
     retained = _verify_manifest(root, manifest)
     executable = _require_runtime_path(root, manifest.get("executable"), directory=False)
@@ -267,10 +296,10 @@ def load_and_verify_runtime(install_root: Path, runtime_id: str) -> PrimeRuntime
         raise RuntimeUnavailable("Rook MCP command is unavailable")
     args = manifest.get("rookMcpArgs")
     environment = manifest.get("rookMcpEnvironment")
-    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+    if not isinstance(args, list) or not all(type(item) is str for item in args):
         raise RuntimeUnavailable("Rook MCP arguments are invalid")
     if not isinstance(environment, dict) or not all(
-        isinstance(key, str) and key and isinstance(value, str) for key, value in environment.items()
+        type(key) is str and key and type(value) is str for key, value in environment.items()
     ):
         raise RuntimeUnavailable("Rook MCP environment is invalid")
     claim_version = _require_scalar(manifest, "claimKeyVersion", int)
@@ -283,9 +312,7 @@ def load_and_verify_runtime(install_root: Path, runtime_id: str) -> PrimeRuntime
         platform=platform_name,
         architecture=architecture,
         upstream_commit=_require_scalar(manifest, "upstreamCommit", str),
-        compatibility_patch_commit=manifest.get("compatibilityPatchCommit")
-        if isinstance(manifest.get("compatibilityPatchCommit"), str)
-        else None,
+        compatibility_patch_commit=compatibility_patch,
         manifest_sha256=manifest_sha,
         acp_protocol_version=acp_version,
         python_acp_sdk_version=sdk_version,
@@ -332,6 +359,11 @@ def build_prime_argv(
         "acp",
         "--no-daemon",
         "--no-skills",
+        "--no-extensions",
+        "--no-context-files",
+        "--no-prompt-templates",
+        "--tools",
+        "ipython",
         "--skill",
         str(contract.goal_skill_path),
         "--skill",

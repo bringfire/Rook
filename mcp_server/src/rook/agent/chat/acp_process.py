@@ -26,10 +26,15 @@ from .prime_runtime import validate_windows_launch_argv
 STDERR_READ_CHUNK_BYTES = 8 * 1024
 STDERR_TAIL_BYTES = 64 * 1024
 ACP_CONTROL_TIMEOUT_SECONDS = 10.0
+ACP_CANCEL_SEND_TIMEOUT_SECONDS = 2.0
 ACP_RETIRE_TIMEOUT_SECONDS = 10.0
 
 
 class AcpCapabilityError(RuntimeError):
+    pass
+
+
+class AcpCancellationUncertain(RuntimeError):
     pass
 
 
@@ -74,7 +79,7 @@ class OwnedAcpProcess:
         self.session_id: str | None = None
         self.image_supported = False
         self.child_exit_observed = False
-        self._retired = False
+        self._retirement_task: asyncio.Task[RetirementResult] | None = None
         self._retirement_result: RetirementResult | None = None
         self._active_cancel: asyncio.Event | None = None
         self._pending_cancel = False
@@ -108,6 +113,11 @@ class OwnedAcpProcess:
         except (FileNotFoundError, PermissionError):
             claim.release_no_child_created()
             raise
+        except BaseException as exc:
+            cleanup = asyncio.create_task(cls._close_partial_spawn(context, exc))
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.shield(cleanup)
+            raise
 
         owned = cls(launch, claim, launch_generation, client, context, connection, process)
         if process.stderr is None:
@@ -119,6 +129,14 @@ class OwnedAcpProcess:
             await owned.retire(send_close=False)
             raise
         return owned
+
+    @staticmethod
+    async def _close_partial_spawn(context: Any, exc: BaseException) -> None:
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(
+                context.__aexit__(type(exc), exc, exc.__traceback__),
+                timeout=ACP_RETIRE_TIMEOUT_SECONDS,
+            )
 
     async def _drain_stderr(self, stderr: asyncio.StreamReader) -> None:
         try:
@@ -148,9 +166,11 @@ class OwnedAcpProcess:
         if response.protocol_version != PROTOCOL_VERSION:
             raise AcpCapabilityError("protocol_version_mismatch")
         capabilities = response.agent_capabilities
-        if capabilities.session_capabilities.close is None:
+        session_capabilities = None if capabilities is None else capabilities.session_capabilities
+        if session_capabilities is None or session_capabilities.close is None:
             raise AcpCapabilityError("session_close_required")
-        self.image_supported = bool(capabilities.prompt_capabilities.image)
+        prompt_capabilities = capabilities.prompt_capabilities
+        self.image_supported = bool(prompt_capabilities is not None and prompt_capabilities.image)
         return InitializedAcp(image_supported=self.image_supported)
 
     async def new_session(
@@ -216,7 +236,17 @@ class OwnedAcpProcess:
         if self.session_id is None or self._cancel_sent:
             return
         self._cancel_sent = True
-        await self.connection.cancel(self.session_id)
+        try:
+            await asyncio.wait_for(
+                self.connection.cancel(self.session_id),
+                timeout=ACP_CANCEL_SEND_TIMEOUT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            self.transport_failure.set()
+            raise
+        except Exception as exc:
+            self.transport_failure.set()
+            raise AcpCancellationUncertain("session_cancel_uncertain") from exc
 
     async def cancel(self) -> None:
         self._pending_cancel = True
@@ -239,11 +269,27 @@ class OwnedAcpProcess:
         send_close: bool = True,
         release_claim: bool = True,
     ) -> RetirementResult:
-        if self._retirement_result is not None:
-            return self._retirement_result
-        if self._retired:
-            raise RuntimeError("ACP process retirement is already in progress")
-        self._retired = True
+        task = self.begin_retirement(send_close=send_close, release_claim=release_claim)
+        return await asyncio.shield(task)
+
+    def begin_retirement(
+        self,
+        *,
+        send_close: bool = True,
+        release_claim: bool = True,
+    ) -> asyncio.Task[RetirementResult]:
+        if self._retirement_task is None:
+            self._retirement_task = asyncio.create_task(
+                self._retire_once(send_close=send_close, release_claim=release_claim)
+            )
+        return self._retirement_task
+
+    async def _retire_once(
+        self,
+        *,
+        send_close: bool,
+        release_claim: bool,
+    ) -> RetirementResult:
         clean = True
         if send_close and self.session_id is not None:
             try:

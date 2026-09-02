@@ -180,6 +180,25 @@ async def test_initialize_refuses_wrong_protocol(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scenario_key", ["null_agent_capabilities", "null_session_capabilities"])
+async def test_initialize_refuses_null_required_capabilities(tmp_path: Path, scenario_key: str):
+    launch, _ = _fake_launch(tmp_path, **{scenario_key: True})
+    process, _ = await _start(tmp_path, launch)
+    with pytest.raises(AcpCapabilityError, match="session_close_required"):
+        await process.initialize()
+    await process.retire(send_close=False)
+
+
+@pytest.mark.asyncio
+async def test_initialize_treats_null_optional_prompt_capabilities_as_no_image_support(tmp_path: Path):
+    launch, _ = _fake_launch(tmp_path, null_prompt_capabilities=True)
+    process, _ = await _start(tmp_path, launch)
+    initialized = await process.initialize()
+    assert not initialized.image_supported
+    await process.retire(send_close=False)
+
+
+@pytest.mark.asyncio
 async def test_cancel_is_sent_by_prompt_owner_outside_callback(tmp_path: Path):
     launch, journal = _fake_launch(tmp_path, hang_prompt=True, updates=[])
     process, _ = await _start(tmp_path, launch)
@@ -316,6 +335,125 @@ async def test_positive_spawn_failure_releases_claim_and_uncertain_failure_prese
             spawn_context_factory=lambda *_args, **_kwargs: UncertainContext(),
         )
     assert second_claim.path.exists()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_spawn_attempt_closes_context_without_releasing_uncertain_claim(tmp_path: Path):
+    claim = OpenClaim.acquire(tmp_path / "claims", str(tmp_path / "session.jsonl"))
+    entered = asyncio.Event()
+    closed = asyncio.Event()
+
+    class BlockedContext:
+        async def __aenter__(self):
+            entered.set()
+            await asyncio.Event().wait()
+
+        async def __aexit__(self, *_args):
+            closed.set()
+
+    task = asyncio.create_task(
+        OwnedAcpProcess.start(
+            PrimeLaunch(argv=(sys.executable,), environment={}),
+            claim,
+            launch_generation=1,
+            spawn_context_factory=lambda *_args, **_kwargs: BlockedContext(),
+        )
+    )
+    await entered.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.wait_for(closed.wait(), timeout=0.2)
+    assert claim.path.exists()
+
+
+@pytest.mark.asyncio
+async def test_retirement_continues_after_waiter_cancellation(tmp_path: Path):
+    claim = OpenClaim.acquire(tmp_path / "claims", str(tmp_path / "session.jsonl"))
+    exit_started = asyncio.Event()
+    release_exit = asyncio.Event()
+    child_exited = asyncio.Event()
+
+    class ControlledProcess:
+        stderr = None
+
+        def __init__(self):
+            self.returncode = None
+
+        async def wait(self):
+            await child_exited.wait()
+            return self.returncode
+
+        def terminate(self):
+            raise AssertionError("graceful context exit should settle the child")
+
+        def kill(self):
+            raise AssertionError("graceful context exit should settle the child")
+
+    child = ControlledProcess()
+
+    class ControlledContext:
+        async def __aexit__(self, *_args):
+            exit_started.set()
+            await release_exit.wait()
+            child.returncode = 0
+            child_exited.set()
+
+    process = OwnedAcpProcess(
+        PrimeLaunch(argv=(sys.executable,), environment={}),
+        claim,
+        1,
+        RookChatAcpClient(),
+        ControlledContext(),
+        SimpleNamespace(),
+        child,
+    )
+    waiter = asyncio.create_task(process.retire(send_close=False))
+    await exit_started.wait()
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    release_exit.set()
+    result = await asyncio.wait_for(process.retire(send_close=False), timeout=0.2)
+    assert result.clean
+    assert result.child_exit_observed
+    assert not claim.path.exists()
+
+
+@pytest.mark.asyncio
+async def test_cancel_send_has_own_deadline_and_is_never_retried(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("rook.agent.chat.acp_process.ACP_CANCEL_SEND_TIMEOUT_SECONDS", 0.01)
+    claim = OpenClaim.acquire(tmp_path / "claims", str(tmp_path / "session.jsonl"))
+
+    class HangingConnection:
+        def __init__(self):
+            self.cancel_calls = 0
+
+        async def cancel(self, _session_id):
+            self.cancel_calls += 1
+            await asyncio.Event().wait()
+
+    connection = HangingConnection()
+    process = OwnedAcpProcess(
+        PrimeLaunch(argv=(sys.executable,), environment={}),
+        claim,
+        1,
+        RookChatAcpClient(),
+        SimpleNamespace(),
+        connection,
+        SimpleNamespace(returncode=None, stderr=None),
+    )
+    process.session_id = "acp-session"
+    process._active_cancel = asyncio.Event()
+
+    with pytest.raises(RuntimeError, match="session_cancel_uncertain"):
+        await asyncio.wait_for(process.cancel(), timeout=0.05)
+    await process.cancel()
+
+    assert connection.cancel_calls == 1
+    assert process.transport_failure.is_set()
 
 
 def test_service_captures_prime_environment_before_loading_dotenv(monkeypatch):

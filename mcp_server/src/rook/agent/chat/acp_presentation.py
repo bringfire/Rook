@@ -272,14 +272,11 @@ class BoundedPromptProjection:
         if event.kind.startswith("tool_"):
             raw = event.panel_bytes()
             original = len(raw)
-            retained = raw[:MAX_TOOL_CONTENT_BYTES_PER_CARD]
-            if self._tool_bytes + len(retained) > MAX_TOOL_CONTENT_BYTES_PER_TURN:
+            text = _bounded_utf8_with_marker(raw, MAX_TOOL_CONTENT_BYTES_PER_CARD, original)
+            retained_bytes = len(text.encode("utf-8"))
+            if self._tool_bytes + retained_bytes > MAX_TOOL_CONTENT_BYTES_PER_TURN:
                 return
-            self._tool_bytes += len(retained)
-            text = retained.decode("utf-8", errors="ignore")
-            if original > len(retained):
-                marker = TRUNCATION_TEMPLATE.format(original_bytes=original)
-                text = text[: max(0, MAX_TOOL_CONTENT_BYTES_PER_CARD - len(marker.encode("utf-8")))] + marker
+            self._tool_bytes += retained_bytes
             self._tool_cards.append({"kind": event.kind, "content": text, "originalBytes": original})
 
     def accumulate_assistant_text(self, value: str) -> None:
@@ -401,6 +398,13 @@ class PresentationCacheError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class _CacheEntry:
+    sequence: int
+    path: Path
+    byte_count: int
+
+
 class PresentationCache:
     def __init__(
         self,
@@ -415,21 +419,22 @@ class PresentationCache:
         self._max_bytes = max_bytes
 
     def publish(self, turn: TurnProjection) -> int:
-        entries = self._load_entries_or_raise()
-        sequence = max((value[0] for value in entries), default=0) + 1
+        entries = self._scan_entries_or_raise()
+        sequence = max((entry.sequence for entry in entries), default=0) + 1
         payload = _canonical_json_bytes(turn.payload(sequence))
         if len(payload) > MAX_CACHED_TURN_BYTES:
             raise PresentationCacheError("projected turn is oversized")
+        entries = self._evict_to_fit(entries, incoming_bytes=len(payload), incoming_turns=1)
+        self._load_payloads_or_raise(entries)
         try:
             atomic_publish_noreplace(self._turn_path(sequence), payload)
         except PublicationAlreadyExists as exc:
             raise PresentationCacheError("presentation sequence already exists") from exc
-        self._evict()
         return sequence
 
     def publish_fallback(self, *, stop_reason: str, original_byte_counts: Mapping[str, int]) -> int:
-        entries = self._load_entries_or_raise()
-        sequence = max((value[0] for value in entries), default=0) + 1
+        entries = self._scan_entries_or_raise()
+        sequence = max((entry.sequence for entry in entries), default=0) + 1
         payload = _canonical_json_bytes(
             {
                 "sequence": sequence,
@@ -441,43 +446,76 @@ class PresentationCache:
         )
         if len(payload) > MAX_FALLBACK_PROJECTION_BYTES:
             raise PresentationCacheError("fallback projection is oversized")
-        atomic_publish_noreplace(self._turn_path(sequence), payload)
-        self._evict()
+        entries = self._evict_to_fit(entries, incoming_bytes=len(payload), incoming_turns=1)
+        self._load_payloads_or_raise(entries)
+        try:
+            atomic_publish_noreplace(self._turn_path(sequence), payload)
+        except PublicationAlreadyExists as exc:
+            raise PresentationCacheError("presentation sequence already exists") from exc
         return sequence
 
     def load(self) -> PresentationHistory:
         try:
-            entries = self._load_entries_or_raise()
-        except PresentationCacheError:
+            metadata = self._evict_to_fit(self._scan_entries_or_raise(), incoming_bytes=0, incoming_turns=0)
+            entries = self._load_payloads_or_raise(metadata)
+        except (OSError, PresentationCacheError):
             return PresentationHistory(False, (), False, "presentation history unavailable")
         turns = tuple(payload for _, _, payload in entries)
         omitted = bool(entries and entries[0][0] > 1)
         return PresentationHistory(True, turns, omitted, OMITTED_HISTORY_SENTENCE if omitted else None)
 
-    def _load_entries_or_raise(self) -> list[tuple[int, Path, dict[str, Any]]]:
-        entries: list[tuple[int, Path, dict[str, Any]]] = []
+    def _scan_entries_or_raise(self) -> list[_CacheEntry]:
+        entries: list[_CacheEntry] = []
         for path in sorted(self.root.glob("*.json")):
             if len(path.stem) != 8 or not path.stem.isdigit() or path.is_symlink():
                 raise PresentationCacheError("presentation cache entry is invalid")
             try:
-                raw = path.read_bytes()
+                byte_count = path.stat().st_size
+            except OSError as exc:
+                raise PresentationCacheError("presentation cache entry is unavailable") from exc
+            sequence = int(path.stem)
+            entries.append(_CacheEntry(sequence, path, byte_count))
+        return entries
+
+    def _load_payloads_or_raise(
+        self,
+        entries: Iterable[_CacheEntry],
+    ) -> list[tuple[int, Path, dict[str, Any]]]:
+        loaded: list[tuple[int, Path, dict[str, Any]]] = []
+        for entry in entries:
+            if entry.byte_count > MAX_CACHED_TURN_BYTES:
+                raise PresentationCacheError("presentation cache entry is invalid")
+            try:
+                raw = entry.path.read_bytes()
                 payload = json.loads(raw.decode("utf-8", errors="strict"))
             except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise PresentationCacheError("presentation cache entry is corrupt") from exc
-            sequence = int(path.stem)
-            if not isinstance(payload, dict) or payload.get("sequence") != sequence or len(raw) > MAX_CACHED_TURN_BYTES:
+            if len(raw) != entry.byte_count or not isinstance(payload, dict) or payload.get("sequence") != entry.sequence:
                 raise PresentationCacheError("presentation cache entry is invalid")
-            entries.append((sequence, path, payload))
-        return entries
+            loaded.append((entry.sequence, entry.path, payload))
+        return loaded
 
-    def _evict(self) -> None:
-        entries = self._load_entries_or_raise()
-        total = sum(path.stat().st_size for _, path, _ in entries)
-        while entries and (len(entries) > self._max_turns or total > self._max_bytes):
-            _, path, _ = entries.pop(0)
-            size = path.stat().st_size
-            path.unlink()
-            total -= size
+    def _evict_to_fit(
+        self,
+        entries: list[_CacheEntry],
+        *,
+        incoming_bytes: int,
+        incoming_turns: int,
+    ) -> list[_CacheEntry]:
+        if incoming_turns > self._max_turns or incoming_bytes > self._max_bytes:
+            raise PresentationCacheError("presentation cache limits cannot admit turn")
+        retained = list(entries)
+        total = sum(entry.byte_count for entry in retained)
+        while retained and (
+            len(retained) + incoming_turns > self._max_turns
+            or total + incoming_bytes > self._max_bytes
+        ):
+            entry = retained.pop(0)
+            entry.path.unlink()
+            total -= entry.byte_count
+        if len(retained) + incoming_turns > self._max_turns or total + incoming_bytes > self._max_bytes:
+            raise PresentationCacheError("presentation cache limits cannot admit turn")
+        return retained
 
     def _turn_path(self, sequence: int) -> Path:
         return self.root / f"{sequence:08d}.json"
@@ -485,3 +523,12 @@ class PresentationCache:
 
 def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8") + b"\n"
+
+
+def _bounded_utf8_with_marker(raw: bytes, limit: int, original_bytes: int) -> str:
+    if len(raw) <= limit:
+        return raw.decode("utf-8", errors="ignore")
+    marker = TRUNCATION_TEMPLATE.format(original_bytes=original_bytes).encode("utf-8")
+    content_limit = max(0, limit - len(marker))
+    content = raw[:content_limit].decode("utf-8", errors="ignore")
+    return content + marker.decode("utf-8")

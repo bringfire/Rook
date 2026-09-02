@@ -119,6 +119,23 @@ def test_turn_accumulators_are_bounded_with_visible_original_byte_counts() -> No
     assert turn.stop_reason == "cancelled"
 
 
+@pytest.mark.asyncio
+async def test_tool_card_truncation_includes_marker_inside_utf8_byte_limit() -> None:
+    projection = BoundedPromptProjection(
+        generation=PromptGeneration(1, "acp", "prompt"),
+        queue=PresentationQueue(max_events=8, max_utf8_bytes=1024 * 1024),
+        user_text="",
+    )
+    event = ProjectedEvent(0, "tool_call_update", "tool", "界" * 20_000, None)
+
+    assert await projection.accept_source_update(0, event)
+    card = projection.finalize("end_turn").tool_cards[0]
+
+    assert len(card["content"].encode("utf-8")) <= 16 * 1024
+    assert "truncated" in card["content"]
+    assert card["originalBytes"] == len(event.panel_bytes())
+
+
 def test_unknown_meta_has_closed_record_key_and_total_limits() -> None:
     records = [
         {f"key-{index}-{sub}": "secret-value" if sub == 0 else "x" * 10_000 for sub in range(20)}
@@ -172,3 +189,58 @@ def test_cache_corruption_is_disposable_and_fallback_is_create_only(tmp_path: Pa
     payload = (root / f"{sequence:08d}.json").read_bytes()
     assert len(payload) <= 8 * 1024
     assert b"Turn presentation was unavailable. Prime retains the authoritative conversation state." in payload
+
+
+def test_cache_evicts_before_create_only_publication(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "presentation"
+    cache = PresentationCache(root, max_turns=1, max_bytes=10_000)
+    first = BoundedPromptProjection(
+        generation=PromptGeneration(1, "acp", "first"),
+        queue=PresentationQueue(max_events=8, max_utf8_bytes=4096),
+        user_text="first",
+    )
+    second = BoundedPromptProjection(
+        generation=PromptGeneration(1, "acp", "second"),
+        queue=PresentationQueue(max_events=8, max_utf8_bytes=4096),
+        user_text="second",
+    )
+    cache.publish(first.finalize("end_turn"))
+    first_path = root / "00000001.json"
+    real_unlink = Path.unlink
+
+    def fail_oldest_unlink(path: Path, *args, **kwargs):
+        if path == first_path:
+            raise PermissionError("injected eviction failure")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_oldest_unlink)
+
+    with pytest.raises(PermissionError, match="injected eviction failure"):
+        cache.publish(second.finalize("end_turn"))
+    assert [path.name for path in root.glob("*.json")] == ["00000001.json"]
+
+
+def test_cache_bounds_existing_files_before_reading_retained_payloads(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "presentation"
+    writer = PresentationCache(root, max_turns=3, max_bytes=10_000)
+    for value in ("one", "two", "three"):
+        projection = BoundedPromptProjection(
+            generation=PromptGeneration(1, "acp", value),
+            queue=PresentationQueue(max_events=8, max_utf8_bytes=4096),
+            user_text=value,
+        )
+        writer.publish(projection.finalize("end_turn"))
+
+    real_read_bytes = Path.read_bytes
+
+    def refuse_evicted_reads(path: Path):
+        if path.name in {"00000001.json", "00000002.json"}:
+            raise AssertionError("evicted payload was read before cache bounding")
+        return real_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", refuse_evicted_reads)
+    history = PresentationCache(root, max_turns=1, max_bytes=10_000).load()
+
+    assert history.available
+    assert [turn["sequence"] for turn in history.turns] == [3]
+    assert [path.name for path in root.glob("*.json")] == ["00000003.json"]

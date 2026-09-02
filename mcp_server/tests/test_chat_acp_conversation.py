@@ -10,9 +10,10 @@ from types import SimpleNamespace
 
 import pytest
 from acp import PROTOCOL_VERSION
-from acp.schema import PromptResponse
+from acp.schema import ImageContentBlock, PromptResponse
 
 from rook.agent.chat.acp_client import RookChatAcpClient
+from rook.agent.chat.acp_images import ValidatedImage
 from rook.agent.chat.acp_conversation import (
     ActivePromptSupervisor,
     AcpConversationManager,
@@ -26,8 +27,8 @@ from rook.agent.chat.acp_conversation import (
 )
 from rook.agent.chat.acp_presentation import PresentationCache, ProjectedEvent, PromptGeneration
 from rook.agent.chat.acp_process import InitializedAcp, RetirementResult
-from rook.agent.chat.acp_storage import AssociationStore, RookBinding, SessionRecoveryRequired
-from rook.agent.chat.prime_runtime import PrimeRuntimeContract
+from rook.agent.chat.acp_storage import AssociationStore, OpenClaim, RookBinding, SessionRecoveryRequired
+from rook.agent.chat.prime_runtime import PrimeLaunchError, PrimeRuntimeContract
 from rook.runtime_paths import AcpDataPaths, RuntimePaths
 
 
@@ -112,6 +113,7 @@ class FakeOwnedProcess:
         self.factory = factory
         self.launch_generation = generation
         self.session_id = f"acp-{factory.launch_count}"
+        self.image_supported = factory.image_supported
         self.client = RookChatAcpClient()
         self.client.reset_for_session(launch_generation=generation, acp_session_id=self.session_id)
         self.prompt_count = 0
@@ -119,17 +121,32 @@ class FakeOwnedProcess:
         self.prompt_started = asyncio.Event()
         self.release_prompt = asyncio.Event()
         self.cancelled = asyncio.Event()
+        self.initialize_started = asyncio.Event()
+        self.release_initialize = asyncio.Event()
+        self.new_session_started = asyncio.Event()
+        self.release_new_session = asyncio.Event()
         self.retire_started = asyncio.Event()
+        self.retire_finished = asyncio.Event()
         self.release_retire = asyncio.Event()
+        if not factory.block_initialize:
+            self.release_initialize.set()
+        if not factory.block_new_session:
+            self.release_new_session.set()
         self.release_retire.set()
         self.transport_failure = asyncio.Event()
         self.new_session_calls = 0
         self.retire_send_close: list[bool] = []
+        self.retire_error: Exception | None = None
+        self.child_exit_observed = False
 
     async def initialize(self) -> InitializedAcp:
-        return InitializedAcp(image_supported=True)
+        self.initialize_started.set()
+        await self.release_initialize.wait()
+        return InitializedAcp(image_supported=self.image_supported)
 
     async def new_session(self, *, cwd, mcp_servers) -> str:
+        self.new_session_started.set()
+        await self.release_new_session.wait()
         assert str(Path(cwd).resolve()) == self.association.working_directory
         assert [server.name for server in mcp_servers] == ["rook"]
         self.new_session_calls += 1
@@ -191,8 +208,13 @@ class FakeOwnedProcess:
         self.retire_send_close.append(send_close)
         self.retire_started.set()
         await self.release_retire.wait()
+        if self.retire_error is not None:
+            self.retire_finished.set()
+            raise self.retire_error
         if release_claim:
             self.claim.release_after_observed_exit()
+        self.child_exit_observed = True
+        self.retire_finished.set()
         return RetirementResult(
             clean=send_close,
             child_exit_observed=True,
@@ -213,6 +235,9 @@ class FakeProcessFactory:
         raise_prompt: bool = False,
         raise_after_wait: bool = False,
         updates_before_wait: int = 0,
+        block_initialize: bool = False,
+        block_new_session: bool = False,
+        image_supported: bool = True,
     ) -> None:
         self.materialize = materialize
         self.block_prompt = block_prompt
@@ -220,17 +245,34 @@ class FakeProcessFactory:
         self.prime_session_id = "durable-prime-session"
         self.launch_count = 0
         self.processes: list[FakeOwnedProcess] = []
+        self.process_created = asyncio.Event()
         self.events = events
         self.raise_prompt = raise_prompt
         self.raise_after_wait = raise_after_wait
         self.updates_before_wait = updates_before_wait
+        self.block_initialize = block_initialize
+        self.block_new_session = block_new_session
+        self.image_supported = image_supported
 
-    async def launch(self, contract, association, claim, reopen, *, launch_generation):
-        if self.events is not None:
-            self.events.append("launch")
-        self.launch_count += 1
-        process = FakeOwnedProcess(association, claim, self, launch_generation)
-        self.processes.append(process)
+    def prepare(self, contract, association, reopen):
+        del contract, reopen
+        return FakePreparedLaunch(self, association)
+
+
+class FakePreparedLaunch:
+    def __init__(self, factory: FakeProcessFactory, association) -> None:
+        self.factory = factory
+        self.association = association
+
+    async def start(self, claim, *, launch_generation):
+        factory = self.factory
+        association = self.association
+        if factory.events is not None:
+            factory.events.append("launch")
+        factory.launch_count += 1
+        process = FakeOwnedProcess(association, claim, factory, launch_generation)
+        factory.processes.append(process)
+        factory.process_created.set()
         return process
 
 
@@ -490,6 +532,103 @@ async def test_close_detaches_before_waiting_for_prompt_or_retirement(tmp_path: 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("blocked_stage", ["initialize", "new_session"])
+async def test_cancelled_create_retires_claimed_process(tmp_path: Path, blocked_stage: str):
+    factory = FakeProcessFactory(
+        block_initialize=blocked_stage == "initialize",
+        block_new_session=blocked_stage == "new_session",
+    )
+    manager, _, _, _, paths = _manager(tmp_path, factory=factory)
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    create_task = asyncio.create_task(
+        manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
+    )
+    await factory.process_created.wait()
+    process = factory.processes[0]
+    stage_started = process.initialize_started if blocked_stage == "initialize" else process.new_session_started
+    stage_release = process.release_initialize if blocked_stage == "initialize" else process.release_new_session
+    await stage_started.wait()
+
+    create_task.cancel()
+    stage_release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await create_task
+
+    await asyncio.wait_for(process.retire_finished.wait(), timeout=0.2)
+    assert process.retire_send_close == [False]
+    assert not list(paths.claims_root.glob("*.open.claim"))
+
+
+@pytest.mark.asyncio
+async def test_invalid_creation_launch_is_refused_before_claim_acquisition(tmp_path: Path, monkeypatch):
+    paths = _paths(tmp_path)
+    manager = AcpConversationManager(
+        AssociationStore(paths),
+        FakeRuntimeCatalog(_contract(tmp_path)),
+        DirectAcpProcessFactory({"PATH": "C:/approved"}),
+        PresentationCache(paths.presentation_root),
+    )
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    claim_attempted = False
+
+    def unexpected_claim(*_args, **_kwargs):
+        nonlocal claim_attempted
+        claim_attempted = True
+        raise AssertionError("invalid launch reached claim acquisition")
+
+    monkeypatch.setattr(OpenClaim, "acquire", unexpected_claim)
+
+    with pytest.raises(PrimeLaunchError, match="invalid_reasoning"):
+        await manager.create(CreateConversationRequest(_binding(), str(saved), None, "none"))
+    assert not claim_attempted
+
+
+@pytest.mark.asyncio
+async def test_image_prompt_refuses_before_session_prompt_when_capability_is_absent(tmp_path: Path):
+    factory = FakeProcessFactory(image_supported=False)
+    manager, _, _, _, _ = _manager(tmp_path, factory=factory)
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    view = await manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
+    image = ValidatedImage(
+        file_name="one.png",
+        mime_type="image/png",
+        binary_bytes=8,
+        width=1,
+        height=1,
+        sha256="A" * 64,
+        acp_block=ImageContentBlock(type="image", data="iVBORw0KGgo=", mime_type="image/png"),
+    )
+
+    with pytest.raises(RuntimeError, match="image_unsupported"):
+        await manager.start_prompt(view.conversation_id, PromptInput("inspect", (image,)), NullSink())
+    assert factory.processes[0].prompt_count == 0
+    await manager.close(view.conversation_id)
+
+
+@pytest.mark.asyncio
+async def test_close_retirement_continues_after_close_waiter_is_cancelled(tmp_path: Path):
+    manager, _, _, factory, paths = _manager(tmp_path)
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    view = await manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
+    process = factory.processes[0]
+    process.release_retire.clear()
+
+    close_task = asyncio.create_task(manager.close(view.conversation_id))
+    await process.retire_started.wait()
+    close_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await close_task
+
+    process.release_retire.set()
+    await asyncio.wait_for(process.retire_finished.wait(), timeout=0.2)
+    assert not list(paths.claims_root.glob("*.open.claim"))
+
+
+@pytest.mark.asyncio
 async def test_reopen_uses_fresh_acp_session_without_prompt(tmp_path: Path):
     manager, store, catalog, factory, _ = _manager(tmp_path)
     saved = tmp_path / "saved"
@@ -601,7 +740,8 @@ async def test_direct_factory_reopen_drops_creation_time_model_overrides(tmp_pat
 
     monkeypatch.setattr("rook.agent.chat.acp_conversation.OwnedAcpProcess.start", fake_start)
     factory = DirectAcpProcessFactory({"PATH": "C:/approved"})
-    await factory.launch(contract, provisional, claim, True, launch_generation=2)
+    prepared = factory.prepare(contract, provisional, True)
+    await prepared.start(claim, launch_generation=2)
     assert "--model" not in observed["argv"]
     assert "--thinking" not in observed["argv"]
 
@@ -631,6 +771,28 @@ async def test_stalled_panel_sink_is_bounded_independently_of_cache(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_raw_cache_failure_never_reclassifies_settled_prime_result(tmp_path: Path, monkeypatch):
+    manager, store, _, _, _ = _manager(tmp_path)
+    saved = tmp_path / "saved"
+    saved.mkdir()
+
+    def fail_publish(*_args, **_kwargs):
+        raise PermissionError("injected cache failure")
+
+    monkeypatch.setattr(PresentationCache, "publish", fail_publish)
+    monkeypatch.setattr(PresentationCache, "publish_fallback", fail_publish)
+    view = await manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
+    supervisor = await manager.start_prompt(view.conversation_id, PromptInput("first", ()), NullSink())
+    result = await supervisor.result_task
+
+    assert result.outcome == "settled"
+    assert result.stop_reason == "end_turn"
+    assert not result.cache_published
+    assert store.get(view.conversation_id).prime_session_id == "durable-prime-session"
+    await manager.close(view.conversation_id)
+
+
+@pytest.mark.asyncio
 async def test_live_delete_keeps_claim_until_record_and_artifacts_are_removed(tmp_path: Path):
     manager, store, _, _, paths = _manager(tmp_path)
     saved = tmp_path / "saved"
@@ -644,6 +806,36 @@ async def test_live_delete_keeps_claim_until_record_and_artifacts_are_removed(tm
     assert result.artifacts_removed
     assert not paths.conversation_path(view.conversation_id).exists()
     assert not Path(association.session_path).exists()
+    assert not list(paths.claims_root.glob("*.open.claim"))
+
+
+@pytest.mark.asyncio
+async def test_live_delete_continues_after_delete_waiter_is_cancelled(tmp_path: Path):
+    manager, store, _, factory, paths = _manager(tmp_path)
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    view = await manager.create(CreateConversationRequest(_binding(), str(saved), None, None))
+    prompt = await manager.start_prompt(view.conversation_id, PromptInput("first", ()), NullSink())
+    await prompt.result_task
+    process = factory.processes[0]
+    process.release_retire.clear()
+
+    delete_task = asyncio.create_task(manager.delete(view.conversation_id))
+    await process.retire_started.wait()
+    delete_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await delete_task
+
+    process.release_retire.set()
+    await asyncio.wait_for(process.retire_finished.wait(), timeout=0.2)
+
+    async def wait_for_delete_publication() -> None:
+        while paths.conversation_path(view.conversation_id).exists():
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(wait_for_delete_publication(), timeout=0.2)
+    with pytest.raises(Exception, match="association is missing"):
+        store.get(view.conversation_id)
     assert not list(paths.claims_root.glob("*.open.claim"))
 
 
@@ -785,3 +977,21 @@ async def test_shutdown_detaches_all_residents_before_retirement(tmp_path: Path)
         await manager.start_prompt(first.conversation_id, PromptInput("late", ()), NullSink())
     with pytest.raises(ConversationNotOpen):
         await manager.start_prompt(second.conversation_id, PromptInput("late", ()), NullSink())
+
+
+@pytest.mark.asyncio
+async def test_shutdown_attempts_every_retirement_when_one_fails(tmp_path: Path):
+    manager, _, _, factory, _ = _manager(tmp_path)
+    one = tmp_path / "one"
+    two = tmp_path / "two"
+    one.mkdir()
+    two.mkdir()
+    await manager.create(CreateConversationRequest(_binding(), str(one), None, None))
+    await manager.create(CreateConversationRequest(_binding(), str(two), None, None))
+    factory.processes[0].retire_error = RuntimeError("fixture retirement failure")
+
+    results = await manager.shutdown()
+
+    assert results[0] == CloseResult("unclean", False)
+    assert results[1] == CloseResult("clean", True)
+    assert factory.processes[1].retire_finished.is_set()
