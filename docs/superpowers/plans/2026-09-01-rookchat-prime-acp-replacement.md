@@ -1372,35 +1372,57 @@ git commit -m "feat(grasshopper): fence mutations to observed document"
 - Modify: `installer/post_install.py`
 - Modify: `installer/python_runtime_install.py`
 - Create: `mcp_server/tests/test_verify_installed_rookchat_acp.py`
-- Create generated staging contract: `installer/runtime/prime/runtime-contract.json`
 - Create generated staging manifest: `installer/runtime/prime/runtime-manifest.json`
-- Modify: `.gitignore` only if the official staged artifact directory is generated and ignored
+- Modify: `.gitignore` to retain only the generated manifest while excluding the complete staged binary payload
 - Add: Prime-required license/notice files to the generated installer payload
 
 **Interfaces:**
 - Produces: official-shape immutable runtime at `ROOK_INSTALL_ROOT/prime/runtimes/<runtime-id>/`, an atomically replaced qualified-runtime pointer `current.json`, exact closed manifest, installed paths in the chat service manifest, persistent data under `ROOK_DATA_DIR/rookchat/acp/v1/`, and one bounded installed-product identity report.
-- Consumes: Prime `9c25468b62c79fc4b1419d7800740e8e41e30467`, its `npm run build` and `scripts/pack-prime-agent-release.mjs`, Task 8 skill, and Task 4 runtime verifier.
+- Consumes: Prime `9c25468b62c79fc4b1419d7800740e8e41e30467`, its supported `scripts/build-binaries.sh --platform windows-x64 --skip-deps` path, the complete extracted `packages/coding-agent/binaries/windows-x64/` artifact, Task 8 skill, and Task 4 runtime verifier.
+
+The Prime builder performs `npm ci` before compilation even with `--skip-deps`.
+Task 10 authorizes that exact lockfile restoration on the release machine. It
+may download packages pinned by Prime's committed `package-lock.json`, but it
+must not update the lockfile, change package metadata, add dependencies, or
+contact any provider/model service. Record the lockfile hash before and after;
+any change refuses promotion. Generated ignored `node_modules`, `dist`, and
+`binaries` output is allowed, but the Prime worktree must have no tracked or
+untracked source changes after the build.
+
+`runtime-manifest.json` is the single canonical executable contract. Its
+canonical bytes hash to `runtime-id`; the installed runtime directory is named
+by that identity, and `current.json` contains only `{"runtimeId":"..."}`.
+There is no second runtime schema.
 
 - [ ] **Step 1: Write RED packaging guard tests**
 
 Tests must assert:
 
 ```text
-official Prime release pack command is invoked from the exact reviewed Prime commit
-the complete official package shape is staged; no selected dist-file copy exists
-runtime contract records platform, architecture, upstream commit, patch commit,
-manifest identity, ACP protocol, Python SDK, goal skill, rook skill, and claim-key version
+official Prime standalone Windows builder is invoked from the exact reviewed Prime commit
+Prime package-lock hash is unchanged by the build
+the complete windows-x64 artifact directory is staged; no selected-file copy exists
+the npm release-tarball packer is not used
+runtime-manifest.json records platform, architecture, upstream commit, patch commit,
+ACP protocol, Python SDK, goal skill, rook skill, and claim-key version
+canonical runtime-manifest.json bytes produce the runtime ID
+runtime-manifest.json is accepted by the existing production load_and_verify_runtime()
+the manifest-selected pi.exe becomes argv[0]
+no second runtime schema exists or is consulted
 runtime paths are immutable siblings, never an in-place overwrite
+an existing runtime ID is reused only after complete byte-for-byte verification
 installed executable is resolved only from the recorded runtime
+current.json selects that exact verified runtime ID
 sessions, presentation, and claims are outside replaceable app payloads
 upgrade and rollback preserve historical runtimes and ACP data
 uninstall with data retention does not remove ACP data
 Prime licenses/notices are installed
 installed verifier compares reviewed build outputs and source payloads with every installed consumer
 installed identity report binds implementation commit, native/managed/Python/skill/Prime hashes, and chat-service paths
+tampering, extra authority files, missing assets, or manifest mismatch refuse before publication
 ```
 
-- [ ] **Step 2: Package Prime through its supported release script**
+- [ ] **Step 2: Build and stage Prime through its supported standalone script**
 
 `package-prime-acp-runtime.ps1` receives these mandatory parameters:
 
@@ -1414,15 +1436,63 @@ param(
 )
 ```
 
-It verifies clean `HEAD == 9c25468b62c79fc4b1419d7800740e8e41e30467`, runs Prime's package build, invokes `node scripts/pack-prime-agent-release.mjs` with an explicit local output, installs/extracts the complete release package shape into a fresh staging directory, copies the manifest-bound Rook skill and required notices, and calls `verify-prime-acp-runtime.py`. It never edits the Prime worktree or copies hand-selected `dist` files.
+It verifies clean `HEAD == 9c25468b62c79fc4b1419d7800740e8e41e30467`, hashes Prime's committed `package-lock.json`, and invokes the exact existing builder as:
+
+```bash
+scripts/build-binaries.sh --platform windows-x64 --skip-deps
+```
+
+The builder's own `npm ci` is the only dependency restoration. After the build,
+the package script requires the same lockfile hash and no tracked or untracked
+source change. A cache or network failure is terminal; the package script does
+not retry, change dependency inputs, or substitute another Prime checkout.
+
+Treat `packages/coding-agent/binaries/windows-x64/` as one indivisible
+Prime-produced artifact. Copy that complete directory wholesale into a fresh
+disposable staging root. Do not select files, reconstruct its layout, rename
+`pi.exe`, create a wrapper, or invoke the npm release-tarball packer. Add the
+exact manifest-bound Rook skill and pinned Prime root `LICENSE`; include any
+notice files already carried by the standalone artifact. The reviewed Prime
+commit has no separate root `NOTICE` file. Call
+`verify-prime-acp-runtime.py` against the complete staged root without launching
+`pi.exe`.
+
+The staged binary payload remains ignored and disposable. The canonical
+`installer/runtime/prime/runtime-manifest.json` is the only generated Prime
+runtime authority file committed by Task 10.
 
 - [ ] **Step 3: Implement the closed manifest algorithm**
 
-For every admitted regular file except `runtime-manifest.json`, record forward-slash relative path, raw byte length, and uppercase SHA-256; sort paths ordinally. Refuse symlinks/reparse points and path escapes. Hash canonical UTF-8 JSON with sorted keys, compact separators, and LF to obtain `runtime_id`. Verify the actual public Prime executable path, goal skill subtree, Rook skill subtree, and all notices are included.
+For every admitted regular file except `runtime-manifest.json`, record forward-slash relative path, raw byte length, and uppercase SHA-256; sort paths ordinally. Refuse symlinks/reparse points and path escapes. Hash canonical UTF-8 JSON with sorted keys, compact separators, and LF to obtain `runtime_id`. Verify the unchanged packaged `pi.exe`, complete Prime artifact, exact Prime goal skill subtree, exact Rook skill subtree, and required licenses/notices are included.
+
+The manifest's `executable` field points to the packaged `pi.exe`. The verifier
+must place the staged bytes and the unchanged manifest into a disposable
+`runtimes/<runtime-id>/` layout, pass them through the existing production
+`load_and_verify_runtime()`, and prove `build_prime_argv()` selects that exact
+file as `argv[0]`.
+
+The authority chain is fixed:
+
+```text
+canonical runtime-manifest.json bytes
+-> uppercase SHA-256 runtime ID
+-> prime/runtimes/<runtime-id>/
+-> current.json containing only {"runtimeId":"..."}
+-> InstalledRuntimeCatalog
+-> load_and_verify_runtime()
+-> DirectAcpProcessFactory
+```
 
 - [ ] **Step 4: Extend deploy and installer contracts**
 
-The chat service manifest gains exact `primeRuntimeRoot`, `primeCurrentContract`, and persistent ACP data roots. Local deploy stages a new sibling runtime and verifies it before writing `current.json`; it never overlays an existing runtime. Inno Setup copies generated immutable runtime directories but does not list `ROOK_DATA_DIR/rookchat/acp/v1` in `[InstallDelete]`, `[UninstallDelete]`, or replacement cleanup.
+The chat service manifest gains exact `primeRuntimeRoot`, `primeCurrentContract`, and persistent ACP data roots. `primeCurrentContract` names the canonical installed `prime/runtimes/<runtime-id>/runtime-manifest.json`; it is not a second contract file. Local deploy stages a new sibling runtime and verifies it before writing `current.json`; it never overlays an existing runtime. Inno Setup copies generated immutable runtime directories but does not list `ROOK_DATA_DIR/rookchat/acp/v1` in `[InstallDelete]`, `[UninstallDelete]`, or replacement cleanup.
+
+Deployment and installation copy the complete staged payload and unchanged
+manifest into a fresh temporary sibling, verify the result, atomically publish
+the runtime-ID directory, and only then replace `current.json`. If that
+runtime-ID directory already exists, they may reuse it only after complete
+manifest and byte-for-byte verification. Any mismatch, missing file, or extra
+authority file refuses without overlay, repair, or pointer replacement.
 
 Keep Prime credentials/settings/kernel in Prime's supported mutable user locations. Do not relocate or parse them into the immutable runtime.
 
@@ -1432,7 +1502,7 @@ Implement `verify-installed-rookchat-acp.py` as a read-only deployment-custody v
 source Release RookNative.rhp -> installed RookNative.rhp
 source managed net8.0/net7.0/net48 Rook.rhp payloads -> installed runtime payloads
 closed source mcp_server/src/rook tree -> installed chat-service Rook tree selected by its manifest
-installed rook-full manifest and literal SKILL.md bytes -> installed Prime runtime contract
+installed rook-full manifest and literal SKILL.md bytes -> installed runtime-manifest.json
 installed Prime executable and complete runtime manifest -> current runtime pointer
 chat-service manifest Python executable/source/runtime/data paths -> exact installed paths
 ```
@@ -1446,17 +1516,22 @@ Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
 pwsh -NoProfile -File scripts/tests/prime-acp-runtime.tests.ps1
 pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
 pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
-C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe scripts/verify-prime-acp-runtime.py --contract installer/runtime/prime/runtime-contract.json --manifest installer/runtime/prime/runtime-manifest.json --verify-only
+C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe scripts/verify-prime-acp-runtime.py --runtime-root installer/runtime/prime/staging --manifest installer/runtime/prime/runtime-manifest.json --verify-only
 C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_verify_installed_rookchat_acp.py -q
 ```
 
-The verifier reads bytes only. No Prime executable, provider, Rhino, or installer launches.
+The verifier reads bytes only. Building the standalone artifact is allowed, but
+`pi.exe`, providers, models, Rhino, Grasshopper, Rook MCP, and the installer are
+not launched. The tests prove the npm release-tarball path is absent, the whole
+standalone directory is staged, no second runtime schema exists, the production
+loader accepts the manifest, and ACP data remains outside every replaceable
+runtime and installer cleanup path.
 
 - [ ] **Step 6: Commit Task 10**
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-git add scripts/package-prime-acp-runtime.ps1 scripts/verify-prime-acp-runtime.py scripts/verify-installed-rookchat-acp.py scripts/tests/prime-acp-runtime.tests.ps1 scripts/deploy-local-testing.ps1 scripts/tests/deploy-local-testing-guards.tests.ps1 scripts/write-chat-service-manifest.ps1 installer/RookSetup.iss scripts/tests/release-installer-guards.tests.ps1 installer/post_install.py installer/python_runtime_install.py installer/runtime/prime/runtime-contract.json installer/runtime/prime/runtime-manifest.json mcp_server/tests/test_verify_installed_rookchat_acp.py .gitignore
+git add scripts/package-prime-acp-runtime.ps1 scripts/verify-prime-acp-runtime.py scripts/verify-installed-rookchat-acp.py scripts/tests/prime-acp-runtime.tests.ps1 scripts/deploy-local-testing.ps1 scripts/tests/deploy-local-testing-guards.tests.ps1 scripts/write-chat-service-manifest.ps1 installer/RookSetup.iss scripts/tests/release-installer-guards.tests.ps1 installer/post_install.py installer/python_runtime_install.py installer/runtime/prime/runtime-manifest.json mcp_server/tests/test_verify_installed_rookchat_acp.py .gitignore
 git commit -m "build(chat): package immutable Prime ACP runtime"
 ```
 
