@@ -563,10 +563,15 @@ Every launch and reopen supplies one service-owned ACP stdio MCP declaration
 named exactly `rook`. Prime owns MCP startup, transport, call lifetime, and
 cleanup. RookChat does not add a Python facade or MCP proxy.
 
-The declaration's executable, arguments, working directory, environment,
-capability profile, and immutable host/Rhino binding come only from the verified
-runtime contract and durable association. User and model input cannot replace
-them.
+The portable Prime runtime manifest contains no machine-specific Rook MCP
+command, arguments, working directory, or environment. The installed Python
+service constructs the declaration from its already verified current
+interpreter as exact `sys.executable -m rook`, without `PATH` fallback. It
+supplies the closed product environment, capability profile, and immutable
+host/Rhino binding from installed service configuration and the durable
+association. The verified association working directory is supplied through
+`session/new.cwd`; ACP stdio declarations do not carry a working-directory
+field. User and model input cannot replace any of these values.
 
 Prime's current generic MCP limits are accepted as product constraints:
 
@@ -853,10 +858,16 @@ versioned product dependency. It uses Prime's existing supported
 release/standalone artifact shape; Rook does not invent a source layout or copy
 selected `dist` files.
 
-The executable authority is a closed manifest over the installed artifact. Git
-commits are provenance, not runtime proof. Runtime metadata records:
+The executable authority is a closed, relocatable manifest over the installed
+artifact. The manifest and every byte it binds are generated into one release
+staging tree, verified together, and packaged together; source control does not
+retain an orphan generated manifest without its payload. All manifest paths are
+relative to the runtime root, and no machine-specific Rook MCP launch path or
+environment is part of this content-addressed identity. Git commits are
+provenance, not runtime proof. Runtime metadata records:
 
-- platform and architecture;
+- exact platform `windows` and architecture `amd64` for the Prime builder's
+  `windows-x64` standalone target;
 - upstream Prime commit;
 - removable compatibility-patch commit, when still needed;
 - installed artifact manifest SHA-256;
