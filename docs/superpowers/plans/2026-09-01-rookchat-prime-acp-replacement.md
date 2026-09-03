@@ -8,11 +8,11 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; PowerShell/Inno Setup release tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `fe8abd970ee0de7ed7a0be4d2ae7b2fe06e70b73` (SHA-256 `858191C7BA6118E424AA8C5ABB3FC92763976D7A9CFB79A4414B8ACA38046381`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `00badcee0174c1a0dcd1d4c592c9e827bf9025d3` (SHA-256 `2EBD2DE40DBFA367BBD1B20DE5DAEA54D26CECCCD3EB184B3829A9D41B3CFA0B`).
 
 ## Global Constraints
 
-- This plan is authored against frozen specification baseline `fe8abd970ee0de7ed7a0be4d2ae7b2fe06e70b73`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
+- This plan is authored against frozen specification baseline `00badcee0174c1a0dcd1d4c592c9e827bf9025d3`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
 - Prime commit `9c25468b62c79fc4b1419d7800740e8e41e30467` is the reviewed daemon-free precursor over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. Before the Task 10 release build, amend that precursor into one final independently reviewed commit whose parent remains the exact upstream baseline and whose only additional production changes are platform-aware kernel-interpreter resolution and inclusion of `dist/prime-agent-runtime` in Prime's standalone artifact. Do not create a patch stack or make any other Prime change.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
@@ -26,7 +26,7 @@
 - New conversations may pass a fully qualified `--model` and one of `off|minimal|low|medium|high|xhigh|max`; reopen passes neither override.
 - The installed `rook-full` package is Markdown-only. Do not add a Rook-owned Python facade or contract-specific kernel.
 - The immutable Prime runtime carries official `uv` 0.12.3 at fixed relative path `tools/uv/uv.exe` and the final Prime build's complete `dist/prime-agent-runtime` subtree. Source, license, executable, and subtree custody share the same closed manifest. Prime remains the sole owner of its ordinary mutable kernel environment. Remove every inherited `UV_*` key case-insensitively and insert only the six product-owned values derived from `ROOK_DATA_DIR`; no ambient kernel override, package-root override, virtual environment, uv policy, or Rook-venv `uv` is runtime authority.
-- Prime release builds use only the separately provisioned whole-root MSYS2 20260611 contract under `C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1`. No build may reach `npm ci` until an independent review supplies the exact `ExpectedBuildToolchainContractSha256`; the shared `C:/msys64` and customer installations are never involved.
+- Prime release builds use only the separately provisioned MSYS2 20260611 artifact at `C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/`, containing manifested `root/**` and sibling `build-toolchain-contract.json`. No build may reach `npm ci` until an independent review supplies the exact `ExpectedBuildToolchainContractSha256`; the shared `C:/msys64` and customer installations are never involved.
 - One service-owned ACP MCP declaration named exactly `rook` uses the installed service's already verified exact `sys.executable -m rook` boundary without `PATH` fallback. Its closed environment, profile, and immutable host/Rhino binding come from installed service configuration and the durable association, not from the portable Prime runtime manifest. The verified association working directory is supplied through `session/new.cwd` because ACP stdio declarations have no working-directory field.
 - Prime's accepted MCP operating limits remain 20 seconds for server startup and 60 seconds for a tool call. Representative Rook operations must qualify within them; this plan adds no facade or Prime timeout patch.
 - Preserve full Rook authoring. Grasshopper uses dynamic document context with centrally advertised and enforced `expectedGhDocumentId` optimistic concurrency, not permanent GH binding or hostile-code containment.
@@ -1385,11 +1385,11 @@ git commit -m "feat(grasshopper): fence mutations to observed document"
 - Modify: `installer/post_install.py`
 - Create: `mcp_server/tests/test_verify_installed_rookchat_acp.py`
 - Generate together for release staging, never commit separately: `installer/runtime/prime/staging/**`, including the complete payload and `runtime-manifest.json`
-- Generate outside source and product trees, never commit or ship: `C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/**`, including the disposable MSYS2 root and reviewed build-toolchain contract
+- Generate outside source and product trees, never commit or ship: `C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/root/**` plus sibling `build-toolchain-contract.json`
 - Add: Prime-required license/notice files to the generated installer payload
 
 **Interfaces:**
-- Produces: one final independently reviewed Prime compatibility commit directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; one independently reviewed whole-root MSYS2 build-toolchain contract for this machine; official-shape immutable runtime at `ROOK_INSTALL_ROOT/prime/runtimes/<runtime-id>/`; an atomically replaced qualified-runtime pointer `current.json`; one portable closed manifest packaged with every byte it binds; manifest-bound official `uv` at `tools/uv/uv.exe`; manifest-bound matching Prime Python runtime at `dist/prime-agent-runtime`; an exact service-owned `sys.executable -m rook` MCP launch boundary; persistent data under `ROOK_DATA_DIR/rookchat/acp/v1/`; and one bounded installed-product identity report.
+- Produces: one final independently reviewed Prime compatibility commit directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; one independently reviewed non-self-referential MSYS2 build-tool artifact for this machine whose sibling contract binds complete `root/**`; official-shape immutable runtime at `ROOK_INSTALL_ROOT/prime/runtimes/<runtime-id>/`; an atomically replaced qualified-runtime pointer `current.json`; one portable closed manifest packaged with every byte it binds; manifest-bound official `uv` at `tools/uv/uv.exe`; manifest-bound matching Prime Python runtime at `dist/prime-agent-runtime`; an exact service-owned `sys.executable -m rook` MCP launch boundary; persistent data under `ROOK_DATA_DIR/rookchat/acp/v1/`; and one bounded installed-product identity report.
 - Consumes: reviewed Prime precursor `9c25468b62c79fc4b1419d7800740e8e41e30467`, upstream parent `c718bf3c30fd8da206ed551837cbb54f7ad15948`, Prime's supported `scripts/build-binaries.sh --platform windows-x64 --skip-deps` path, the complete extracted `packages/coding-agent/binaries/windows-x64/` artifact, Task 8 skill, and Task 4 runtime verifier.
 
 The Prime builder performs `npm ci` before compilation even with `--skip-deps`.
@@ -1536,12 +1536,20 @@ installed verifier compares reviewed build outputs and source payloads with ever
 installed identity report binds implementation commit, native/managed/Python/skill/Prime hashes, and chat-service paths
 tampering, extra authority files, missing assets, or manifest mismatch refuse before publication
 the complete release builder toolchain is validated before npm ci, and a missing or mismatched tool is terminal without installation or fallback
-the provisioner creates one fresh MSYS2 20260611 root from the exact base, zip 3.0-5, and unzip 6.0-3 inputs without consulting or changing C:/msys64
+the provisioner receives OutputRoot, its exact PowerShell interpreter, NodeRoot, GitRoot, BunExecutable, PrimeWorktree, cmd.exe, and every expected version as explicit arguments and never discovers them from PATH or ambient state
+the provisioner creates one fresh MSYS2 20260611 staging sibling from the exact base, zip 3.0-5, and unzip 6.0-3 inputs without consulting or changing C:/msys64
+the published parent contains exactly manifested root/** plus sibling build-toolchain-contract.json; the contract is absent from the root manifest and changing either side invalidates the appropriate identity
 the complete provisioned MSYS2 root and sorted pacman inventory are manifest-bound before release use
 the toolchain includes direct custody for dirname, git, cmd.exe, npm configuration, and the pinned MSYS2 root
+download uses one bounded HttpClient request per source; SFX extraction, login initialization, and local pacman installation use the exact documented executable, argv, working directory, environment, and deadline
+pacman uses the provisioner-authored repository-free config and explicit LocalFileSigLevel policy; no package URL, repository refresh, or package-manager network access is possible
+unexpected SFX layout, initialization writes outside staging, incomplete package identities, or any pre-publication failure leaves the final destination absent
+a retained failed staging tree is never resumed or adopted, while a later invocation with the same pinned inputs may start from a different empty staging sibling and publish successfully
+same-volume publication refuses an occupied destination without changing either the destination or failed staging evidence
 the packager requires an independently approved ExpectedBuildToolchainContractSha256 before any probe, network access, or npm ci
 all inherited NPM_CONFIG_* keys are removed case-insensitively before empty user/global files and exact cmd.exe script-shell values are inserted
 the exact final npm userconfig, globalconfig, script-shell, ComSpec, PATH, command resolution, and whole-root MSYS2 manifest are verified before npm ci and unchanged after the build
+the exact package-prime-acp-runtime.ps1 invocation receives the approved Prime commit, published contract, independently approved contract hash, and fresh staging output before any staged-runtime verification
 ```
 
 Run the new static/fake tests before implementing either script and require RED
@@ -1557,14 +1565,55 @@ pwsh -NoProfile -File scripts/tests/prime-build-toolchain.tests.ps1
 Implement `provision-prime-build-toolchain.ps1` and
 `verify-prime-build-toolchain.py` from the RED tests. This development machine's
 shared `C:/msys64` contains Bash and coreutils but no `zip.exe` or `unzip.exe`;
-neither script may inspect, update, or copy from it. The provisioner creates only
-this versioned build-only root, outside every source and product directory:
+neither script may inspect, update, or copy from it. The provisioner has this
+closed interface; no parameter has a default or ambient fallback:
+
+```powershell
+param(
+  [Parameter(Mandatory=$true)][string]$OutputRoot,
+  [Parameter(Mandatory=$true)][string]$PowerShellExecutable,
+  [Parameter(Mandatory=$true)][string]$ExpectedPowerShellVersion,
+  [Parameter(Mandatory=$true)][string]$NodeRoot,
+  [Parameter(Mandatory=$true)][string]$ExpectedNodeVersion,
+  [Parameter(Mandatory=$true)][string]$ExpectedNpmVersion,
+  [Parameter(Mandatory=$true)][string]$GitRoot,
+  [Parameter(Mandatory=$true)][string]$ExpectedGitVersion,
+  [Parameter(Mandatory=$true)][string]$BunExecutable,
+  [Parameter(Mandatory=$true)][string]$ExpectedBunVersion,
+  [Parameter(Mandatory=$true)][string]$PrimeWorktree,
+  [Parameter(Mandatory=$true)][string]$CmdExecutable,
+  [Parameter(Mandatory=$true)][string]$ExpectedCmdFileVersion
+)
+```
+
+Before creating staging, canonicalize and validate every explicit path. Require
+`NodeRoot`, `GitRoot`, and `PrimeWorktree` to be existing absolute directories;
+the other path inputs must be existing absolute regular files. Require
+`node.exe`, `npm.cmd`, and `node_modules/npm/package.json` beneath `NodeRoot`,
+`cmd/git.exe` beneath `GitRoot`, `.npmrc` beneath `PrimeWorktree`, and
+`CmdExecutable` to canonically equal `C:/Windows/System32/cmd.exe`, and
+`PowerShellExecutable` to equal the current process executable. Verify the
+supplied versions against file metadata, npm's package JSON, and bounded direct
+version commands. Manifest the complete Node and Git roots plus the exact Bun,
+Prime `.npmrc`, and `cmd.exe` files before staging. Reverify the same bytes after
+provisioning. The script never calls `Get-Command`, searches `PATH`, reads npm
+user/global configuration, or invents a machine path.
+
+The provisioner publishes only this versioned build-only artifact, outside every
+source and product directory:
 
 ```text
 C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/
+  root/
+  build-toolchain-contract.json
 ```
 
-The fixed single-attempt download inputs are:
+Only `root/**` belongs to the recursive MSYS2 file manifest. The contract is its
+sibling and contains the complete root file rows, root-manifest SHA-256, and
+sorted `pacman -Q` inventory. It identifies the MSYS root only by relative path
+`root`; it never manifests or hashes itself as a root member.
+
+The fixed download inputs are:
 
 ```text
 base: https://github.com/msys2/msys2-installer/releases/download/2026-06-11/msys2-base-x86_64-20260611.sfx.exe
@@ -1575,44 +1624,106 @@ unzip: https://mirror.msys2.org/msys/x86_64/unzip-6.0-3-x86_64.pkg.tar.zst
 unzipSha256: C98EBAC31EA92A63CF61C6190ED3E8284CCC0C29C43973F1B2C0DE2874E5ACFE
 ```
 
-The output root must be absent. Download into a fresh sibling staging directory,
-verify every hash before execution or extraction, and invoke the verified
-self-extracting base with one hidden, bounded, directly awaited process. Run the
-new root's login initialization once, then install only the two verified local
-package archives through that root's `pacman -U --noconfirm`; do not refresh a
-repository or permit package-manager network access. `pacman` must resolve the
-declared dependencies from the base root and the verifier must require exact
-package identities for `zip 3.0-5`, `unzip 6.0-3`, `bash`, and `libbz2`.
+The final output parent must be absent. Create a unique empty same-volume sibling
+named `msys2-20260611-v1.staging.<guid>` with temporary `downloads/`, `extract/`,
+and `scratch/` children. Download each source exactly once per invocation using
+`System.Net.Http.HttpClientHandler` with redirects enabled and a maximum of five
+redirects, plus one `HttpClient` with `Timeout = [TimeSpan]::FromMinutes(5)`.
+Call `GetAsync(uri, ResponseHeadersRead)` once, require a successful status, and
+copy the response to a create-new file using `FileMode.CreateNew`,
+`FileAccess.Write`, and `FileShare.None`. Dispose response, streams, client, and
+handler deterministically. There is no range request, resume, alternate URL, or
+application retry. Hash each completed download before it can be executed,
+extracted, or copied into the MSYS root.
 
-Create distinct zero-byte `rook-user.npmrc` and `rook-global.npmrc` files inside
-the root. After all initialization is complete, record every regular file under
-the entire MSYS2 root with forward-slash relative path, raw byte length, and
-uppercase SHA-256; reject symlinks/reparse points. Also retain the complete,
-sorted `pacman -Q` inventory. The canonical `BuildToolchainContract` contains:
+All provisioner child processes use `UseShellExecute = $false`,
+`CreateNoWindow = $true`, `WindowStyle = Hidden`, a cleared environment,
+concurrent bounded stdout/stderr drains, one retained process handle, and the
+following exact calls:
+
+| Phase | Executable | Argument array | Working directory | Deadline |
+| --- | --- | --- | --- | --- |
+| Base extraction | `<staging>/downloads/msys2-base-x86_64-20260611.sfx.exe` | `["-y", "-o<staging>/extract"]` | `<staging>/downloads` | 5 minutes |
+| First login | `<staging>/root/usr/bin/bash.exe` | `["-lc", " "]` | `<staging>/root` | 2 minutes |
+| Local package install | `<staging>/root/usr/bin/pacman.exe` | `["-U", "--noconfirm", "--needed", "--config", "/etc/rook-local-pacman.conf", "/var/cache/rook-provision/zip-3.0-5-x86_64.pkg.tar.zst", "/var/cache/rook-provision/unzip-6.0-3-x86_64.pkg.tar.zst"]` | `<staging>/root` | 3 minutes |
+
+For extraction, the cleared environment contains only the validated
+`SystemRoot`, `WINDIR`, and staging-owned `TEMP`/`TMP`. The SFX must exit zero and
+produce exactly one top-level `<staging>/extract/msys64/` directory; no sibling
+entry is accepted. Move that directory to `<staging>/root` before any
+initialization. For login and pacman, add only `CHERE_INVOKING=1`, `MSYSTEM=MSYS`,
+`HOME=<staging>/root/home/rookbuild`, `USERPROFILE` at the same staging-owned
+home, and `PATH=<staging>/root/usr/bin;C:/Windows/System32`.
+
+Copy the two hash-verified package archives to
+`<staging>/root/var/cache/rook-provision/` under their exact filenames. Before
+pacman runs, write `/etc/rook-local-pacman.conf` with these exact UTF-8/LF bytes:
+
+```ini
+[options]
+Architecture = auto
+SigLevel = Required DatabaseOptional
+LocalFileSigLevel = Never
+RemoteFileSigLevel = Required
+```
+
+The file has no repository section. The exact approved archive SHA-256 values,
+not an inherited keyring policy, authorize these two local unsigned package
+files. Pacman's arguments contain only local MSYS paths and no URL. Missing base
+dependencies fail the operation; no sync database refresh, package download, or
+network fallback is admitted. A nonzero exit or deadline kills only the retained
+child and its directly owned descendants, awaits settlement, and fails the
+staging attempt without publishing.
+
+The login shell and pacman may write only beneath the unique staging tree.
+External Node, Git, Bun, Prime, and Windows inputs are read-only and must retain
+their preflight manifests. After pacman exits, require exact package identities
+for `zip 3.0-5`, `unzip 6.0-3`, `bash`, and `libbz2`; remove the two temporary
+package copies and all `downloads/`, `extract/`, and `scratch/` content. Create
+distinct zero-byte `root/etc/rook-user.npmrc` and
+`root/etc/rook-global.npmrc`. Only after every initialization write and cleanup
+is complete, record every regular file beneath `root/**` with forward-slash
+relative path, raw byte length, and uppercase SHA-256; reject
+symlinks/reparse-point escapes. The canonical `BuildToolchainContract` contains:
 
 ```text
 schemaVersion
-complete MSYS2 root path and recursive manifest SHA-256
+MSYS2 relative root exactly "root", complete recursive file rows, and manifest SHA-256
 complete pacman inventory
 base/zip/unzip source URLs and archive SHA-256 values
 complete Node/npm installation root and recursive manifest SHA-256
 complete Git installation root and recursive manifest SHA-256
+exact PowerShell, Bun, Prime worktree/.npmrc, and cmd.exe input paths and hashes
 exact tool rows for bash, dirname, node, npm, bun, git, zip, unzip, cp, rm,
   mkdir, mv, tar, ls, and C:/Windows/System32/cmd.exe
 exact empty user/global npmrc paths and hashes
 exact Prime project .npmrc path and hash
 exact npm lifecycle shell and ComSpec, both cmd.exe
-bounded version commands and expected output
+explicit expected and observed PowerShell, Node, npm, Git, Bun, cmd.exe, zip, unzip, bash,
+  and libbz2 versions
+exact extraction, initialization, pacman, signature-policy, environment, and deadline contract
 ```
 
 Every tool row contains an absolute regular-file path and uppercase SHA-256.
 MSYS commands resolve beneath the new root; Node/npm and Git must resolve inside
 their completely manifested installation roots; Bun is bound as its standalone
 executable. No external tool may resolve through another installation.
-Run only model-free provisioner/verifier tests and bounded version probes. The
-provisioner atomically publishes the completed root and contract, prints the
-canonical contract SHA-256, and stops. It does not invoke Prime's builder or
-`npm ci`.
+Run only model-free provisioner/verifier tests and bounded version probes. Fake
+process/download tests must prove exact argv, working directories, environments,
+deadlines, expected extracted layout, hash-before-use ordering, local signature
+policy, and manifest-after-initialization ordering. Causal publication tests must
+prove: the contract is absent from the root manifest; changing contract bytes
+changes the contract hash without recursively changing the root manifest;
+changing a root byte breaks contract verification; an occupied output remains
+unchanged; concurrent publishers admit at most one completed parent; and a
+failed staging generation is never resumed or adopted while a later new staging
+generation with the same pinned inputs may succeed.
+
+After verification, require the staging parent to contain exactly `root/` and
+`build-toolchain-contract.json`. Publish with one same-volume create-only
+`Directory.Move(<staging>, <OutputRoot>)`; an existing destination refuses
+without alteration. Print the canonical contract SHA-256 and stop. The
+provisioner does not invoke Prime's builder or `npm ci`.
 
 After the fake tests pass, perform the one real provisioning operation from an
 absent root:
@@ -1623,9 +1734,23 @@ $root = 'C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1'
 if (Test-Path -LiteralPath $root) {
     throw 'The versioned build-tool root already exists; do not repair or overwrite it.'
 }
-pwsh -NoProfile -File scripts/provision-prime-build-toolchain.ps1 -OutputRoot $root
+$pwsh = 'C:/Program Files/PowerShell/7/pwsh.exe'
+& $pwsh -NoProfile -File scripts/provision-prime-build-toolchain.ps1 `
+    -OutputRoot $root `
+    -PowerShellExecutable $pwsh `
+    -ExpectedPowerShellVersion '7.6.5' `
+    -NodeRoot 'C:/Program Files/nodejs' `
+    -ExpectedNodeVersion '24.11.1' `
+    -ExpectedNpmVersion '11.6.2' `
+    -GitRoot 'C:/Program Files/Git' `
+    -ExpectedGitVersion '2.53.0.windows.2' `
+    -BunExecutable 'C:/Users/bring/.bun/bin/bun.exe' `
+    -ExpectedBunVersion '1.3.14' `
+    -PrimeWorktree 'D:/prime-agent/.worktrees/prime-acp-no-daemon' `
+    -CmdExecutable 'C:/Windows/System32/cmd.exe' `
+    -ExpectedCmdFileVersion '10.0.26100.1'
 if ($LASTEXITCODE -ne 0) {
-    throw "Build-tool provisioning failed with exit code $LASTEXITCODE. Do not retry."
+    throw "Build-tool provisioning failed with exit code $LASTEXITCODE. The failed staging tree has no authority."
 }
 $python = 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe'
 & $python scripts/verify-prime-build-toolchain.py --contract "$root/build-toolchain-contract.json"
@@ -1640,11 +1765,15 @@ git commit -m "build(chat): provision pinned Prime build tools"
 Stop for independent review of the complete package inventory, root manifest,
 tool/configuration rows, exact source commit, and contract hash. The
 reviewer-supplied hash becomes `ExpectedBuildToolchainContractSha256`. A failed
-or partial generation is retained separately and is never repaired, adopted, or
-retried as this version. No release build is authorized before that exact hash
-is approved.
+or partial staging generation has no authority and is never repaired, resumed,
+promoted, or adopted. It may be retained as diagnostic evidence. A later
+invocation may create a different empty staging sibling with the same fixed
+inputs; every download, input, command, and output is then reverified from the
+beginning. The final output parent remains create-only and immutable after
+publication. No release build is authorized before its exact contract hash is
+approved.
 
-- [ ] **Step 4: Build and stage Prime through its supported standalone script**
+- [ ] **Step 4: Implement Prime's supported standalone packager**
 
 `package-prime-acp-runtime.ps1` receives these mandatory parameters:
 
@@ -1660,6 +1789,9 @@ param(
 
 Before any version probe, network access, or `npm ci`, hash the unchanged
 canonical contract bytes and require the independently supplied expected hash.
+Require `BuildToolchainContract` to be the published sibling
+`C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/build-toolchain-contract.json`
+and resolve its relative `root` only beneath that parent.
 Then run `verify-prime-build-toolchain.py` to replay the complete MSYS2 root
 manifest and `pacman -Q` inventory, the complete Node/npm and Git root manifests,
 every external tool/configuration file hash, and every bounded version
@@ -1783,7 +1915,9 @@ The package script writes `runtime-manifest.json` into that same fresh staging
 root only after the payload is complete, then verifies the pair. The entire
 `installer/runtime/prime/staging/` tree remains ignored build output. Task 10
 commits the reproducible build, verification, deployment, and installer logic;
-it does not commit either the generated manifest or an incomplete payload.
+it does not commit either the generated manifest or an incomplete payload. This
+step implements the package operation; Step 7 invokes it only after Steps 5 and
+6 have implemented its verifier and installed-product consumers.
 
 - [ ] **Step 5: Implement the closed manifest algorithm**
 
@@ -1915,19 +2049,58 @@ chat-service manifest Python executable/source/install/data roots -> exact insta
 
 The verifier uses the same closed regular-file manifest rules as the product contracts, refuses symlinks/reparse-point escapes and unexpected extra authority files, and writes one bounded canonical JSON identity report only after every comparison succeeds. It does not launch the installed Python, Prime, Rhino, or any plugin. A later live gate rechecks this report and records actual service import origins separately.
 
-- [ ] **Step 7: Run packaging tests without launching Prime**
+- [ ] **Step 7: Invoke the approved package build, then run static gates**
+
+The execution turn must receive the exact 40-hex `ApprovedPrimeCommit` named by
+the Step 1 review and exact 64-hex `ApprovedBuildToolchainContractSha256` named
+by the Step 3 review. They are literal approval inputs: do not derive either
+from `HEAD`, the contract contents, a report, or the filesystem. Bind those two
+values in the current PowerShell process, then run this command exactly once
+from a fresh output root:
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-pwsh -NoProfile -File scripts/tests/prime-build-toolchain.tests.ps1
-pwsh -NoProfile -File scripts/tests/prime-acp-runtime.tests.ps1
-pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
-pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
-C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe scripts/verify-prime-acp-runtime.py --runtime-root installer/runtime/prime/staging --manifest installer/runtime/prime/staging/runtime-manifest.json --verify-only
-C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe -m pytest mcp_server/tests/test_chat_prime_runtime.py mcp_server/tests/test_chat_acp_conversation.py mcp_server/tests/test_verify_installed_rookchat_acp.py -q
+$pwsh = 'C:/Program Files/PowerShell/7/pwsh.exe'
+$prime = 'D:/prime-agent/.worktrees/prime-acp-no-daemon'
+$contract = 'C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/build-toolchain-contract.json'
+$output = 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/installer/runtime/prime/staging'
+if ($ApprovedPrimeCommit -notmatch '^[0-9a-f]{40}$') {
+    throw 'Step 1 review must supply the exact approved Prime commit.'
+}
+if ($ApprovedBuildToolchainContractSha256 -notmatch '^[0-9A-F]{64}$') {
+    throw 'Step 3 review must supply the exact approved build-toolchain contract SHA-256.'
+}
+if (Test-Path -LiteralPath $output) {
+    throw 'Prime staging output must be absent before packaging.'
+}
+& $pwsh -NoProfile -File scripts/package-prime-acp-runtime.ps1 `
+    -PrimeWorktree $prime `
+    -ExpectedPrimeCommit $ApprovedPrimeCommit `
+    -OutputRoot $output `
+    -BuildToolchainContract $contract `
+    -ExpectedBuildToolchainContractSha256 $ApprovedBuildToolchainContractSha256
+if ($LASTEXITCODE -ne 0) {
+    throw "Prime packaging failed with exit code $LASTEXITCODE. Do not verify or install its staging output."
+}
+
+& $pwsh -NoProfile -File scripts/tests/prime-build-toolchain.tests.ps1
+if ($LASTEXITCODE -ne 0) { throw 'Build-toolchain tests failed.' }
+& $pwsh -NoProfile -File scripts/tests/prime-acp-runtime.tests.ps1
+if ($LASTEXITCODE -ne 0) { throw 'Prime runtime tests failed.' }
+& $pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
+if ($LASTEXITCODE -ne 0) { throw 'Deployment guard tests failed.' }
+& $pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
+if ($LASTEXITCODE -ne 0) { throw 'Installer guard tests failed.' }
+$python = 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe'
+& $python scripts/verify-prime-acp-runtime.py --runtime-root $output --manifest "$output/runtime-manifest.json" --verify-only
+if ($LASTEXITCODE -ne 0) { throw 'Staged Prime runtime verification failed.' }
+& $python -m pytest mcp_server/tests/test_chat_prime_runtime.py mcp_server/tests/test_chat_acp_conversation.py mcp_server/tests/test_verify_installed_rookchat_acp.py -q
+if ($LASTEXITCODE -ne 0) { throw 'Prime packaging Python tests failed.' }
 ```
 
-The verifier reads bytes only. Building the standalone artifact is allowed, but
+The packaging invocation is the sole producer of
+`installer/runtime/prime/staging/`; every subsequent verifier and installer test
+consumes that exact tree. The verifier reads bytes only. Building the standalone artifact is allowed, but
 `pi.exe`, providers, models, Rhino, Grasshopper, Rook MCP, and the installer are
 not launched. The tests prove the npm release-tarball path is absent, the whole
 standalone directory and manifest travel together, no generated runtime
