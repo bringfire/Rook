@@ -8,11 +8,11 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; PowerShell/Inno Setup release tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `7332d0b987f82111e525751b637fa0a52acd89e0` (SHA-256 `D54D5E9B7B200B770070833839C587F5796E75B2D156497B5AC83A5B35F5E76B`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `7c876d5c34f8d557ebd8cd06b93c07307c730234` (SHA-256 `676340C3CAFA75A10B1DEFBA38B722B66279E13BEC27B169FFE1DA230B1E3E4C`).
 
 ## Global Constraints
 
-- This plan is authored against frozen specification baseline `7332d0b987f82111e525751b637fa0a52acd89e0`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
+- This plan is authored against frozen specification baseline `7c876d5c34f8d557ebd8cd06b93c07307c730234`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
 - Prime commit `9c25468b62c79fc4b1419d7800740e8e41e30467` is the reviewed daemon-free precursor over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. Before the Task 10 release build, amend that precursor into one final independently reviewed commit whose parent remains the exact upstream baseline and whose only additional production changes are platform-aware kernel-interpreter resolution and inclusion of `dist/prime-agent-runtime` in Prime's standalone artifact. Do not create a patch stack or make any other Prime change.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
@@ -1583,6 +1583,8 @@ the provisioner creates one fresh MSYS2 20260611 staging sibling from the exact 
 the published parent contains exactly manifested root/** plus sibling build-toolchain-contract.json; the contract is absent from the root manifest and changing either side invalidates the appropriate identity
 the complete provisioned MSYS2 root and sorted pacman inventory are manifest-bound before release use
 the toolchain includes direct custody for dirname, git, cmd.exe, npm configuration, and the pinned MSYS2 root; every tool row is source-root-relative and resolves identically before and after publication
+every CommandRow retains literal {staging} only in its frozen positions, expands exactly once immediately before process creation, and rejects alternate tokens, materialized contract paths, repeated expansion, or path escape
+Node, npm, Git, Bun, cmd.exe, and PowerShell version evidence is produced by the exact resolved executable later admitted for use; a second file beneath the same source root cannot supply it
 download uses one bounded HttpClient request per source; SFX extraction, login initialization, and local pacman installation use the exact documented executable, argv, working directory, environment, and deadline
 every MSYS2, zip, unzip, uv, and uv-license download rejects oversized Content-Length before body transfer and independently enforces its fixed byte ceiling while streaming; a header at or below the limit cannot authorize an oversized body; exact-limit succeeds and one-byte-over refuses
 pacman uses the provisioner-authored repository-free config and explicit LocalFileSigLevel policy; no package URL, repository refresh, or package-manager network access is possible
@@ -1651,12 +1653,15 @@ the other path inputs must be existing absolute regular files. Require
 `node.exe`, `npm.cmd`, and `node_modules/npm/package.json` beneath `NodeRoot`,
 `cmd/git.exe` beneath `GitRoot`, `.npmrc` beneath `PrimeWorktree`, and
 `CmdExecutable` to canonically equal `C:/Windows/System32/cmd.exe`, and
-`PowerShellExecutable` to equal the current process executable. Verify the
-supplied versions against file metadata, npm's package JSON, and bounded direct
-version commands. Manifest the complete Node and Git roots plus the exact Bun,
-Prime `.npmrc`, and `cmd.exe` files before staging. Reverify the same bytes after
-provisioning. The script never calls `Get-Command`, searches `PATH`, reads npm
-user/global configuration, or invents a machine path.
+`PowerShellExecutable` to equal the current process executable. Construct each
+candidate tool path only from these explicit roots/files; version evidence is
+accepted only after that candidate is recorded as the exact ToolRow resolved
+by the shared resolver below. Npm's package JSON may corroborate the expected
+package version but cannot substitute for executing resolved `tools.npm`.
+Manifest the complete Node and Git roots plus the exact Bun, Prime `.npmrc`, and
+`cmd.exe` files before staging. Reverify the same bytes after provisioning. The
+script never calls `Get-Command`, searches `PATH`, reads npm user/global
+configuration, or invents a machine path.
 
 The provisioner publishes only this versioned build-only artifact, outside every
 source and product directory:
@@ -1708,25 +1713,29 @@ the MSYS root.
 All provisioner child processes use `UseShellExecute = $false`,
 `CreateNoWindow = $true`, `WindowStyle = Hidden`, a cleared environment,
 concurrent bounded stdout/stderr drains, one retained process handle, and the
-following exact calls:
+following exact calls. This table is also the literal unexpanded CommandRow
+content serialized into the canonical contract:
 
-| Phase | Executable | Argument array | Working directory | Deadline |
+| Phase | `executable` | `arguments` | `workingDirectory` | `timeoutSeconds` |
 | --- | --- | --- | --- | --- |
-| Base extraction | `<staging>/downloads/msys2-base-x86_64-20260611.sfx.exe` | `["-y", "-o<staging>/extract"]` | `<staging>/downloads` | 5 minutes |
-| First login | `<staging>/root/usr/bin/bash.exe` | `["-lc", " "]` | `<staging>/root` | 2 minutes |
-| Local package install | `<staging>/root/usr/bin/pacman.exe` | `["-U", "--noconfirm", "--needed", "--config", "/etc/rook-local-pacman.conf", "/var/cache/rook-provision/zip-3.0-5-x86_64.pkg.tar.zst", "/var/cache/rook-provision/unzip-6.0-3-x86_64.pkg.tar.zst"]` | `<staging>/root` | 3 minutes |
+| Base extraction | `{staging}/downloads/msys2-base-x86_64-20260611.sfx.exe` | `["-y", "-o{staging}/extract"]` | `{staging}/downloads` | `300` |
+| First login | `{staging}/root/usr/bin/bash.exe` | `["-lc", " "]` | `{staging}/root` | `120` |
+| Local package install | `{staging}/root/usr/bin/pacman.exe` | `["-U", "--noconfirm", "--needed", "--config", "/etc/rook-local-pacman.conf", "/var/cache/rook-provision/zip-3.0-5-x86_64.pkg.tar.zst", "/var/cache/rook-provision/unzip-6.0-3-x86_64.pkg.tar.zst"]` | `{staging}/root` | `180` |
 
 For extraction, the cleared environment contains only the validated
 `SystemRoot`, `WINDIR`, and staging-owned `TEMP`/`TMP`. The SFX must exit zero and
-produce exactly one top-level `<staging>/extract/msys64/` directory; no sibling
-entry is accepted. Move that directory to `<staging>/root` before any
-initialization. For login and pacman, add only `CHERE_INVOKING=1`, `MSYSTEM=MSYS`,
-`HOME=<staging>/root/home/rookbuild`, `USERPROFILE` at the same staging-owned
-home, and `PATH=<staging>/root/usr/bin;C:/Windows/System32`.
+produce exactly one top-level `extract/msys64/` directory beneath the current
+staging generation; no sibling entry is accepted. Move that directory to the
+current generation's `root/` before any initialization. For login and pacman,
+add only `CHERE_INVOKING=1`, `MSYSTEM=MSYS`,
+`HOME={staging}/root/home/rookbuild`, `USERPROFILE` at the same staging-owned
+home, and `PATH={staging}/root/usr/bin;C:/Windows/System32` to the stored
+environment template before its one execution-time expansion.
 
 Copy the two hash-verified package archives to
-`<staging>/root/var/cache/rook-provision/` under their exact filenames. Before
-pacman runs, write `/etc/rook-local-pacman.conf` with these exact UTF-8/LF bytes:
+`root/var/cache/rook-provision/` beneath the current staging generation under
+their exact filenames. Before pacman runs, write
+`/etc/rook-local-pacman.conf` with these exact UTF-8/LF bytes:
 
 ```ini
 [options]
@@ -1799,6 +1808,21 @@ nonnegative integer; and `sha256` is uppercase 64-hex. `CommandRow` has exactly
 `executable`, `arguments`, `workingDirectory`, and positive integer
 `timeoutSeconds`; its values are the frozen extraction/login/install rows above.
 
+Every path-bearing CommandRow string stores literal `{staging}` in exactly the
+table positions: extraction `executable`, zero-based `arguments[1]`, and
+`workingDirectory`; initialization `executable` and `workingDirectory`; and
+installation `executable` and `workingDirectory`. No other CommandRow field may
+contain it. Reject `<staging>`, unknown brace tokens, a wrong occurrence count
+or position, or an absolute materialized staging path stored in the contract.
+Immediately before each process creation, one shared function performs exactly
+one nonrecursive expansion pass over that row, replacing every permitted token
+with the canonical current staging path. Reject an already expanded row,
+residual token, repeated expansion, or any expanded executable, working
+directory, or host path-bearing argument outside the current staging
+generation. Pass the exact expanded executable, argument array, and working
+directory to `ProcessStartInfo`; canonical serialization and hashing always use
+the unexpanded row.
+
 The `node` and `git` `root` values are absolute nonempty strings, each `files`
 array contains one or more root-relative `FileRow` values, each manifest hash is
 uppercase 64-hex, and every version field is nonempty. `prime.worktree` and its
@@ -1841,6 +1865,21 @@ hash. Use this same resolver while the contract is in its GUID staging parent
 and after create-only publication. No tool may resolve through another source
 or installation.
 
+Bind every version observation to the exact path that this resolver admits and
+the build later consumes. Resolved `tools.node`, `tools.npm`, and `tools.git`
+produce `observedNodeVersion`, `observedNpmVersion`, and Git's
+`observedVersion`. Resolved `tools.bun` must canonically equal
+`externalInputs.bun.path` and produces Bun's `observedVersion`. Resolved
+`tools.cmd` must canonically equal `externalInputs.cmd.path` and supplies the
+recorded file version. The explicitly supplied PowerShell path must canonically
+equal `externalInputs.powershell.path` and produces PowerShell's
+`observedVersion`. Probe by canonical resolved path, never by tool name or a
+separately located candidate. If a resolved tool is a script requiring the
+manifest-bound Bash interpreter, pass its exact path as the interpreter operand
+and do not rediscover it through `PATH`. A mismatched version source refuses
+even when both files are under the same Node, Git, Bun, cmd, or PowerShell
+source root.
+
 Serialize strict UTF-8 without BOM and perform no Unicode normalization.
 Preserve each code-point sequence exactly, including distinct composed and
 decomposed forms. Sort object keys lexicographically by Unicode scalar value,
@@ -1865,14 +1904,21 @@ Python canonical bytes and SHA-256.
 Run only model-free provisioner/verifier tests and bounded version probes. Fake
 process/download tests must prove exact argv, working directories, environments,
 deadlines, expected extracted layout, hash-before-use ordering, local signature
-policy, and manifest-after-initialization ordering. For each of the MSYS2 base,
-zip, and unzip sources, fake HTTP tests cover oversized `Content-Length` refusal
-before body read, absent `Content-Length` with an oversized stream, a header at
-or below the limit followed by an oversized body, exact-limit success, and
-one-byte-over stream refusal; no partial file can enter a manifest. Causal
-publication tests must prove: the contract is absent from the root manifest;
-changing contract bytes
-changes the contract hash without recursively changing the root manifest;
+policy, and manifest-after-initialization ordering. CommandRow parity tests
+require identical unexpanded producer/verifier bytes and exact execution-time
+materialization of executable, argument array, and working directory. They
+reject `<staging>`, unknown tokens, wrong token count or position, a stored
+absolute staging path, repeated expansion, residual tokens, and path escape.
+Version-binding tests place a second executable under each source root and prove
+that no Node, npm, Git, Bun, cmd, or PowerShell observation can come from a path
+other than the exact resolved file later admitted for use. For each of the
+MSYS2 base, zip, and unzip sources, fake HTTP tests cover refusal before body
+read for oversized `Content-Length`, absent `Content-Length` with an oversized
+stream, a header at or below the limit followed by an oversized body,
+exact-limit success, and one-byte-over stream refusal; no partial file can enter
+a manifest. Causal publication tests must prove: the contract is absent from the
+root manifest; changing contract bytes changes the contract hash without
+recursively changing the root manifest;
 changing a root byte breaks contract verification; an occupied output remains
 unchanged; concurrent publishers admit at most one completed parent; and a
 failed staging generation is never resumed or adopted while a later new staging
@@ -1880,8 +1926,9 @@ generation with the same pinned inputs may succeed.
 
 After verification, require the staging parent to contain exactly `root/` and
 `build-toolchain-contract.json`. Publish with one same-volume create-only
-`Directory.Move(<staging>, <OutputRoot>)`; an existing destination refuses
-without alteration. Print the canonical contract SHA-256 and stop. The
+`Directory.Move(<completed-staging-parent>, <OutputRoot>)`; an existing
+destination refuses without alteration. Print the canonical contract SHA-256
+and stop. The
 provisioner does not invoke Prime's builder or `npm ci`.
 
 After the fake tests pass, perform the one real provisioning operation from an
