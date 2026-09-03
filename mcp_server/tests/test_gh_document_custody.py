@@ -673,6 +673,46 @@ async def test_guarded_mutation_rejects_contradictory_managed_identity(monkeypat
     assert projected["data"]["error"] == "gh_target_changed"
 
 
+@pytest.mark.parametrize(
+    "mutation_data",
+    [
+        {"updated": True},
+        {"updated": True, "ghDocumentId": "not-a-guid"},
+        {
+            "updated": True,
+            "ghDocumentId": "00000000-0000-0000-0000-000000000000",
+        },
+    ],
+    ids=["missing", "malformed", "zero"],
+)
+@pytest.mark.asyncio
+async def test_mutation_cannot_reuse_preflight_identity(monkeypatch, mutation_data):
+    expected = "11111111-1111-1111-1111-111111111111"
+    responses = iter(
+        [
+            {"success": True, "data": {"ghDocumentId": expected}},
+            {"success": True, "data": mutation_data},
+        ]
+    )
+
+    async def bridge(endpoint, method="GET", data=None, **kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(server, "_bridge_call_rhino", bridge)
+    context = GhDispatchContext(GhToolClassification.MUTATION, expected)
+
+    with gh_dispatch_scope(context):
+        preflight = await server.call_rhino("/gh/status")
+        mutation = await server.call_rhino("/gh/set-value", "POST", {"guid": "C1"})
+        projected = project_current_gh_document_id(mutation, context)
+
+    assert preflight["success"] is True
+    assert mutation["success"] is False
+    assert mutation["data"]["error"] == "gh_target_unavailable"
+    assert projected["success"] is False
+    assert projected["data"]["error"] == "gh_target_unavailable"
+
+
 @pytest.mark.asyncio
 async def test_composite_observation_latches_first_identity_before_later_calls(
     monkeypatch,
@@ -712,6 +752,49 @@ async def test_composite_observation_latches_first_identity_before_later_calls(
     assert changed_result["data"]["error"] == "gh_target_changed"
     assert projected["success"] is False
     assert projected["data"]["error"] == "gh_target_changed"
+
+
+@pytest.mark.parametrize(
+    "later_data",
+    [
+        {"objects": []},
+        {"objects": [], "ghDocumentId": "not-a-guid"},
+        {
+            "objects": [],
+            "ghDocumentId": "00000000-0000-0000-0000-000000000000",
+        },
+    ],
+    ids=["missing", "malformed", "zero"],
+)
+@pytest.mark.asyncio
+async def test_composite_observation_requires_identity_from_every_managed_call(
+    monkeypatch, later_data
+):
+    first = "11111111-1111-1111-1111-111111111111"
+    responses = iter(
+        [
+            {"success": True, "data": {"ghDocumentId": first}},
+            {"success": True, "data": later_data},
+        ]
+    )
+
+    async def bridge(endpoint, method="GET", data=None, **kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(server, "_bridge_call_rhino", bridge)
+    context = GhDispatchContext(GhToolClassification.OBSERVATION, None)
+
+    with gh_dispatch_scope(context):
+        await server.call_rhino("/gh/snapshot")
+        later = await server.call_rhino("/gh/batch-component-info", "POST", {})
+        projected = project_current_gh_document_id(
+            {"success": True, "data": {"learned": True}}, context
+        )
+
+    assert later["success"] is False
+    assert later["data"]["error"] == "gh_target_unavailable"
+    assert projected["success"] is False
+    assert projected["data"]["error"] == "gh_target_unavailable"
 
 
 @pytest.mark.asyncio
@@ -809,6 +892,73 @@ async def test_panel_chirp_preflights_document_before_contacting_chirp(
             },
         )
     ]
+
+
+@pytest.mark.parametrize(
+    "creation_identity",
+    [None, "not-a-guid", "00000000-0000-0000-0000-000000000000"],
+    ids=["missing", "malformed", "zero"],
+)
+@pytest.mark.asyncio
+async def test_chirp_creation_cannot_reuse_preflight_identity(
+    monkeypatch, creation_identity
+):
+    expected = "11111111-1111-1111-1111-111111111111"
+
+    async def bridge(endpoint, method="GET", data=None, **kwargs):
+        assert endpoint == "/gh/status"
+        return {"success": True, "data": {"ghDocumentId": expected}}
+
+    async def ensure_running(_model):
+        return {"running": True, "host": "127.0.0.1", "port": 8765}
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "script": "public class Script_Instance { }",
+                "pins_in": [{"name": "Question", "type": "string"}],
+                "pins_out": [{"name": "Answer", "type": "string"}],
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json):
+            return FakeResponse()
+
+    async def create_script(*args, **kwargs):
+        data = {"component_guid": "C1"}
+        if creation_identity is not None:
+            data["ghDocumentId"] = creation_identity
+        return {"success": True, "data": data}
+
+    monkeypatch.setattr(server, "_bridge_call_rhino", bridge)
+    monkeypatch.setattr("rook.chirp_manager.ensure_chirp_running", ensure_running)
+    monkeypatch.setattr(server.httpx, "AsyncClient", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setattr(server, "_execute_gh_create_script", create_script)
+    context = GhDispatchContext(GhToolClassification.MUTATION, expected)
+
+    with gh_dispatch_scope(context):
+        result, _, _ = await server._execute_chirp_create(
+            {
+                "signature": "Create a narrator",
+                "category": "narrator",
+                "pins_in": [{"name": "Question", "type": "string"}],
+                "pins_out": [{"name": "Answer", "type": "string"}],
+            },
+            None,
+        )
+        projected = project_current_gh_document_id(result, context)
+
+    assert projected["success"] is False
+    assert projected["data"]["error"] == "gh_target_unavailable"
 
 
 def test_document_identity_observation_is_scoped_and_ignores_untrusted_shapes():

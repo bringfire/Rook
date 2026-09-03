@@ -288,7 +288,10 @@ def gh_dispatch_scope(context: GhDispatchContext | None) -> Iterator[None]:
 def _gh_custody_failure(error: str) -> dict[str, Any]:
     messages = {
         "gh_target_changed": "The active Grasshopper document changed before dispatch.",
-        "gh_target_unavailable": "No active Grasshopper document is available.",
+        "gh_target_unavailable": (
+            "The Grasshopper operation did not return an authenticated "
+            "document identity."
+        ),
     }
     return {
         "success": False,
@@ -312,18 +315,25 @@ def observe_gh_document_id(result: Mapping[str, Any]) -> dict[str, Any]:
         ):
             _CURRENT_GH_CUSTODY_ERROR.set(error)
         return projected
+    if context.classification is GhToolClassification.DOCUMENT_INDEPENDENT:
+        return projected
+
     data = result.get("data")
     if not isinstance(data, Mapping):
-        return projected
+        _CURRENT_GH_CUSTODY_ERROR.set("gh_target_unavailable")
+        return _gh_custody_failure("gh_target_unavailable")
     raw = data.get("ghDocumentId")
     if not isinstance(raw, str):
-        return projected
+        _CURRENT_GH_CUSTODY_ERROR.set("gh_target_unavailable")
+        return _gh_custody_failure("gh_target_unavailable")
     try:
         parsed = uuid.UUID(raw)
     except ValueError:
-        return projected
+        _CURRENT_GH_CUSTODY_ERROR.set("gh_target_unavailable")
+        return _gh_custody_failure("gh_target_unavailable")
     if parsed.int == 0 or raw != str(parsed):
-        return projected
+        _CURRENT_GH_CUSTODY_ERROR.set("gh_target_unavailable")
+        return _gh_custody_failure("gh_target_unavailable")
 
     observed = _CURRENT_GH_DOCUMENT_ID.get()
     expected = context.expected_gh_document_id

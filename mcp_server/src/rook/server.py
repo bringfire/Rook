@@ -14122,6 +14122,7 @@ async def _execute_chirp_create(
         )
         if target_preflight.get("success") is not True:
             return target_preflight, terminal_chirp_failure, deterministic_only
+        clear_observed_gh_document_id()
 
     from rook.chirp_manager import ensure_chirp_running
 
