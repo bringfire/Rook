@@ -1054,26 +1054,25 @@ create-only and hash-verified before use. A supplied `Content-Length` above the
 source's fixed maximum refuses before body transfer. A streaming counter
 independently refuses before writing any byte that would exceed that same
 maximum. Exact-limit content is admitted. An incomplete file remains only in
-the failed staging generation and has no authority. The verified SFX is launched directly,
-hidden, and awaited for at most five minutes with the exact argument array
-`["-y", "-o<staging>/extract"]` and the download directory as its working
-directory. Extraction must produce exactly one top-level `msys64` directory,
-which is moved to `<staging>/root` before initialization.
+the failed staging generation and has no authority. The canonical contract
+stores these exact unexpanded `CommandRow` values:
 
-Initialization uses only `<staging>/root/usr/bin/bash.exe` with exact arguments
-`["-lc", " "]`, working directory `<staging>/root`, a closed MSYS environment,
-and a two-minute deadline. The verified local package archives are then placed
-under `<staging>/root/var/cache/rook-provision/`. The provisioner writes an exact
+| Phase | `executable` | `arguments` | `workingDirectory` | `timeoutSeconds` |
+| --- | --- | --- | --- | --- |
+| Base extraction | `{staging}/downloads/msys2-base-x86_64-20260611.sfx.exe` | `["-y", "-o{staging}/extract"]` | `{staging}/downloads` | `300` |
+| First login | `{staging}/root/usr/bin/bash.exe` | `["-lc", " "]` | `{staging}/root` | `120` |
+| Local package install | `{staging}/root/usr/bin/pacman.exe` | `["-U", "--noconfirm", "--needed", "--config", "/etc/rook-local-pacman.conf", "/var/cache/rook-provision/zip-3.0-5-x86_64.pkg.tar.zst", "/var/cache/rook-provision/unzip-6.0-3-x86_64.pkg.tar.zst"]` | `{staging}/root` | `180` |
+
+The verified SFX is launched directly and hidden. Extraction must produce
+exactly one top-level `msys64` directory, which is moved to `{staging}/root`
+before initialization. The verified local package archives are then placed
+under `{staging}/root/var/cache/rook-provision/`. The provisioner writes an exact
 repository-free `/etc/rook-local-pacman.conf` that sets
 `SigLevel = Required DatabaseOptional`, `LocalFileSigLevel = Never`, and
 `RemoteFileSigLevel = Required`. The approved archive SHA-256 values are the
-authority for these two local unsigned inputs. The exact directly launched
-pacman operation is `<staging>/root/usr/bin/pacman.exe` with arguments
-`["-U", "--noconfirm", "--needed", "--config",
-"/etc/rook-local-pacman.conf", "/var/cache/rook-provision/zip-3.0-5-x86_64.pkg.tar.zst",
-"/var/cache/rook-provision/unzip-6.0-3-x86_64.pkg.tar.zst"]` and a three-minute
-deadline. The config has no repository sections, the arguments contain no URL,
-and no repository refresh or package-manager network access is admitted.
+authority for these two local unsigned inputs. The config has no repository
+sections, the package-install arguments contain no URL, and no repository
+refresh or package-manager network access is admitted.
 
 The base supplies `bash` and `libbz2`; final verification requires exact
 identities for `zip 3.0-5`, `unzip 6.0-3`, `bash`, and `libbz2`. All download,
@@ -1151,6 +1150,20 @@ argument array, and deadline equal the three frozen commands above. Environment
 values use the exact `{staging}` templates above and are materialized only
 beneath the current staging sibling.
 
+Every path-bearing `CommandRow` string stores the literal token `{staging}` in
+the exact positions shown in the table: extraction `executable`, zero-based
+`arguments[1]`, and `workingDirectory`; initialization `executable` and `workingDirectory`;
+and installation `executable` and `workingDirectory`. No other CommandRow field
+may contain that token. `<staging>`, any unknown token, a different occurrence
+count, or an invocation-materialized absolute staging path in the stored
+contract refuses. Immediately before each process is created, one shared
+expander performs exactly one nonrecursive pass, replacing every permitted
+occurrence with the canonical current staging path. It rejects an already
+expanded row, any residual token, and any expanded executable, working
+directory, or host path-bearing argument that escapes the current staging
+generation. The process consumes those exact expanded values. Canonical
+contract serialization and hashing always retain the unexpanded template.
+
 The `node` and `git` roots are absolute nonempty strings, their `files` arrays
 contain one or more `FileRow` values relative to those roots, and their manifest
 hashes are uppercase 64-hex strings. All expected/observed version fields are
@@ -1176,8 +1189,25 @@ begin with `root/`. The resolver combines the selected root and relative path,
 canonicalizes the result, requires containment within that root, and verifies a
 regular file with the declared length and hash. Provisioning-stage verification
 and post-publication verification use this same resolver; moving the completed
-contract parent therefore cannot invalidate an MSYS2 tool row. The two exact
-environment objects are:
+contract parent therefore cannot invalidate an MSYS2 tool row.
+
+Version evidence is inseparable from the executable later admitted for use.
+The resolved `tools.node`, `tools.npm`, and `tools.git` paths produce
+`observedNodeVersion`, `observedNpmVersion`, and Git's `observedVersion`,
+respectively. The resolved `tools.bun` path must canonically equal
+`externalInputs.bun.path` and produces Bun's `observedVersion`. The resolved
+`tools.cmd` path must canonically equal `externalInputs.cmd.path` and supplies
+the recorded command-processor file version. The explicitly supplied
+PowerShell executable must canonically equal `externalInputs.powershell.path`
+and produces PowerShell's `observedVersion`. Every probe names the canonical
+resolved path, never a tool name or independent candidate. If an admitted tool
+requires the manifest-bound Bash interpreter, that interpreter receives the
+exact resolved tool path as its operand; it may not rediscover the tool through
+`PATH`. The same resolved files must be the ones later consumed by provisioning
+and the Prime build. A version observation from any other file refuses even
+when that file is beneath the same source root.
+
+The two exact environment objects are:
 
 ```text
 extractEnvironment = {
@@ -1284,7 +1314,13 @@ duplicate, missing, or unknown keys, wrong array order, BOM/non-UTF-8,
 noncompact JSON, and missing or extra terminal LF. Unicode parity fixtures cover
 non-ASCII and supplementary-plane scalars, quotes, backslashes, unescaped
 slashes, every specified control-character class, and distinct composed and
-decomposed sequences without normalization.
+decomposed sequences without normalization. Command tests prove the stored
+template and materialized executable, argument array, and working directory are
+exact; producer and verifier retain identical unexpanded bytes. They reject
+`<staging>`, unknown tokens, wrong token count or position, a stored absolute
+staging path, repeated expansion, residual tokens, and path escape. Version
+tests substitute a second executable beneath each source root and prove that
+version evidence from a file other than the resolved admitted tool refuses.
 
 Ambient Prime skills, extensions, MCP servers, context files, and prompt
 templates are excluded by the explicit launch configuration. Prime-owned
