@@ -8,11 +8,11 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; PowerShell/Inno Setup release tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `2d6dac3af874359caf919b09ea247c39f3b888fb` (SHA-256 `E43D3D73615005539017957B1C1432507023335BBD0A19BE214E695608E1CCC0`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `7332d0b987f82111e525751b637fa0a52acd89e0` (SHA-256 `D54D5E9B7B200B770070833839C587F5796E75B2D156497B5AC83A5B35F5E76B`).
 
 ## Global Constraints
 
-- This plan is authored against frozen specification baseline `2d6dac3af874359caf919b09ea247c39f3b888fb`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
+- This plan is authored against frozen specification baseline `7332d0b987f82111e525751b637fa0a52acd89e0`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
 - Prime commit `9c25468b62c79fc4b1419d7800740e8e41e30467` is the reviewed daemon-free precursor over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. Before the Task 10 release build, amend that precursor into one final independently reviewed commit whose parent remains the exact upstream baseline and whose only additional production changes are platform-aware kernel-interpreter resolution and inclusion of `dist/prime-agent-runtime` in Prime's standalone artifact. Do not create a patch stack or make any other Prime change.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
@@ -1427,8 +1427,46 @@ time, but requires no separate user installation.
 
 Work only in the clean Prime compatibility worktree at precursor
 `9c25468b62c79fc4b1419d7800740e8e41e30467`; first prove its parent is exactly
-`c718bf3c30fd8da206ed551837cbb54f7ad15948` and its worktree is clean. Add RED
-tests before production edits:
+`c718bf3c30fd8da206ed551837cbb54f7ad15948` and its worktree is clean.
+
+Execution record, 2026-09-03: a pre-amendment focused run omitted the coding-agent
+Vitest configuration. Its POSIX-only kernel fixture was bypassed on Windows and
+ambient `C:/Users/bring/AppData/Local/hermes/bin/uv.exe` was selected. During
+that failed window, ambient uv refreshed existing managed-Python junctions for
+3.11 and 3.12; no new Python installation or surviving process was observed.
+This is incident evidence, not a baseline pass. Deleting or rewriting shared uv
+state is not authorized.
+
+Before adding Task 10 feature assertions or editing production, repair only the
+existing `kernel-bootstrap.test.ts` process fixture. Intercept subprocess
+creation at the test boundary while leaving production executable resolution
+real. Create a marker named `uv.exe` on Windows and `uv` elsewhere in one
+fixture-only executable directory. Maintain a closed registry of canonical fake
+executable paths and deterministic handlers; reject every spawn whose canonical
+path is absent. No admitted fake uses a shell, network installer, or real child
+process. Set `PATH` to that fixture directory only (`PATHEXT=.EXE` on Windows),
+and isolate `HOME`, `USERPROFILE`, and `XDG_DATA_HOME` beneath the test root. Set
+`PRIME_AGENT_INSTALL_UV=0`; set `UV_CACHE_DIR` and
+`UV_PYTHON_INSTALL_DIR` beneath the same test root. Restore the original process
+environment after each test. Any unexpected executable, network attempt,
+user-home access, unaccounted fake spawn, or additional baseline failure is a
+terminal stop.
+
+With no Task 10 feature assertions or production edits yet, run the corrected
+pre-existing tests through the package configuration and require green:
+
+```powershell
+Set-Location D:/prime-agent/.worktrees/prime-acp-no-daemon
+if (-not (Test-Path -LiteralPath './node_modules/.bin/vitest.cmd' -PathType Leaf)) {
+    throw 'Prime test dependencies are absent; stop for separately authorized lockfile restoration.'
+}
+./node_modules/.bin/vitest.cmd --config ./packages/coding-agent/vitest.config.ts run packages/coding-agent/test/kernel-bootstrap.test.ts packages/coding-agent/test/builtin-skills.test.ts
+```
+
+Do not generate workspace `dist`, run `npm run build`, invoke model-catalog
+generation, run `npm ci`, restore dependencies, or contact the network to obtain
+this baseline. Only after the corrected existing suite passes with every fake
+spawn accounted for, add these RED feature assertions before production edits:
 
 ```typescript
 expect(getKernelPythonPath("C:/kernel", "win32")).toBe("C:\\kernel\\Scripts\\python.exe");
@@ -1447,15 +1485,15 @@ cp -r dist/prime-agent-runtime binaries/$platform/dist/
 The Prime static test requires one recursive builder-owned subtree copy and
 refuses a selected-file list. Step 2's Rook packaging tests inspect the built
 result and require `pyproject.toml`, `uv.lock`, `src/**`, and every other regular
-file emitted by Prime's existing `copy-assets` build. Run the focused tests and
-observe the new assertions fail before changing production:
+file emitted by Prime's existing `copy-assets` build. Run the same focused gate
+and require only the new Task 10 assertions to fail before changing production:
 
 ```powershell
 Set-Location D:/prime-agent/.worktrees/prime-acp-no-daemon
 if (-not (Test-Path -LiteralPath './node_modules/.bin/vitest.cmd' -PathType Leaf)) {
     throw 'Prime test dependencies are absent; stop for separately authorized lockfile restoration.'
 }
-./node_modules/.bin/vitest.cmd run packages/coding-agent/test/kernel-bootstrap.test.ts packages/coding-agent/test/builtin-skills.test.ts
+./node_modules/.bin/vitest.cmd --config ./packages/coding-agent/vitest.config.ts run packages/coding-agent/test/kernel-bootstrap.test.ts packages/coding-agent/test/builtin-skills.test.ts
 ```
 
 Implement one helper in `bootstrap.ts`:
@@ -1479,7 +1517,11 @@ launching Prime or a kernel. Stage only the four Prime files listed for this
 task and amend the precursor rather than adding a second commit:
 
 ```powershell
-./node_modules/.bin/vitest.cmd run packages/coding-agent/test/kernel-bootstrap.test.ts packages/coding-agent/test/builtin-skills.test.ts
+Set-Location D:/prime-agent/.worktrees/prime-acp-no-daemon
+if (-not (Test-Path -LiteralPath './node_modules/.bin/vitest.cmd' -PathType Leaf)) {
+    throw 'Prime test dependencies are absent; stop for separately authorized lockfile restoration.'
+}
+./node_modules/.bin/vitest.cmd --config ./packages/coding-agent/vitest.config.ts run packages/coding-agent/test/kernel-bootstrap.test.ts packages/coding-agent/test/builtin-skills.test.ts
 npm run check
 git add packages/coding-agent/src/core/kernel/bootstrap.ts packages/coding-agent/test/kernel-bootstrap.test.ts scripts/build-binaries.sh packages/coding-agent/test/builtin-skills.test.ts
 git commit --amend -m "feat(coding-agent): complete daemon-free ACP runtime"
@@ -1540,9 +1582,9 @@ the provisioner receives OutputRoot, its exact PowerShell interpreter, NodeRoot,
 the provisioner creates one fresh MSYS2 20260611 staging sibling from the exact base, zip 3.0-5, and unzip 6.0-3 inputs without consulting or changing C:/msys64
 the published parent contains exactly manifested root/** plus sibling build-toolchain-contract.json; the contract is absent from the root manifest and changing either side invalidates the appropriate identity
 the complete provisioned MSYS2 root and sorted pacman inventory are manifest-bound before release use
-the toolchain includes direct custody for dirname, git, cmd.exe, npm configuration, and the pinned MSYS2 root
+the toolchain includes direct custody for dirname, git, cmd.exe, npm configuration, and the pinned MSYS2 root; every tool row is source-root-relative and resolves identically before and after publication
 download uses one bounded HttpClient request per source; SFX extraction, login initialization, and local pacman installation use the exact documented executable, argv, working directory, environment, and deadline
-every MSYS2, zip, unzip, uv, and uv-license download rejects oversized Content-Length before body transfer and independently enforces its fixed byte ceiling while streaming; exact-limit succeeds and one-byte-over refuses
+every MSYS2, zip, unzip, uv, and uv-license download rejects oversized Content-Length before body transfer and independently enforces its fixed byte ceiling while streaming; a header at or below the limit cannot authorize an oversized body; exact-limit succeeds and one-byte-over refuses
 pacman uses the provisioner-authored repository-free config and explicit LocalFileSigLevel policy; no package URL, repository refresh, or package-manager network access is possible
 unexpected SFX layout, initialization writes outside staging, incomplete package identities, or any pre-publication failure leaves the final destination absent
 a retained failed staging tree is never resumed or adopted, while a later invocation with the same pinned inputs may start from a different empty staging sibling and publish successfully
@@ -1550,8 +1592,9 @@ same-volume publication refuses an occupied destination without changing either 
 the packager requires an independently approved ExpectedBuildToolchainContractSha256 before any probe, network access, or npm ci
 all inherited NPM_CONFIG_* keys are removed case-insensitively before empty user/global files and exact cmd.exe script-shell values are inserted
 the exact final npm userconfig, globalconfig, script-shell, ComSpec, PATH, command resolution, and whole-root MSYS2 manifest are verified before npm ci and unchanged after the build
-BuildToolchainContract rejects missing, extra, and duplicate keys and noncanonical ordering/encoding/LF; PowerShell producer and Python verifier reconstruct identical canonical bytes and contract SHA-256
+BuildToolchainContract rejects missing, extra, and duplicate keys and noncanonical ordering/encoding/LF; PowerShell producer and Python verifier reconstruct identical canonical bytes and contract SHA-256 for the complete frozen Unicode corpus without normalization or optional escaping
 each package invocation owns a unique empty same-volume scratch outside source, installed-product, runtime, and toolchain roots; all profile/temp paths remain beneath it and no generation is reused
+scratch and the exact final build environment are validated for the current invocation but are not persisted as a second build-report authority
 the Prime build has a mandatory 1800-second deadline and 30-second process-handle cleanup deadline; timeout forbids packaging or verification of partial output
 the exact package-prime-acp-runtime.ps1 invocation receives the approved Prime commit, published contract, independently approved contract hash, and fresh staging output before any staged-runtime verification
 ```
@@ -1561,8 +1604,20 @@ without downloading or executing MSYS2:
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-pwsh -NoProfile -File scripts/tests/prime-build-toolchain.tests.ps1
+$pwsh = 'C:/Program Files/PowerShell/7/pwsh.exe'
+& $pwsh -NoProfile -File scripts/tests/prime-build-toolchain.tests.ps1
+$buildToolchainRedExit = $LASTEXITCODE
+& $pwsh -NoProfile -File scripts/tests/prime-acp-runtime.tests.ps1
+$primeRuntimeRedExit = $LASTEXITCODE
+if ($buildToolchainRedExit -eq 0 -or $primeRuntimeRedExit -eq 0) {
+    throw 'Both new Task 10 test surfaces must demonstrate their named RED assertions.'
+}
 ```
+
+Both scripts must exist and load their intended test harnesses. Each nonzero
+result must be caused solely by the named missing Task 10 behavior; a missing
+script, syntax/import error, unrelated failure, or ambient executable contact is
+a terminal stop rather than acceptable RED evidence.
 
 - [ ] **Step 3: Provision one disposable MSYS2 build root and stop for review**
 
@@ -1737,10 +1792,12 @@ npm: {userConfig: FileRow, globalConfig: FileRow, scriptShell, comSpec}
 `expectedVersion` and `observedVersion`. `PackageRow` has exactly nonempty
 `name` and `version`. `SourceRow` has exactly `url`, `sha256`, and positive
 integer `maxBytes`; its three values are the frozen source rows and ceilings
-above. `ToolRow` has exactly `name`, absolute regular-file `path`, nonnegative
-integer `length`, and uppercase `sha256`. `CommandRow` has exactly `executable`,
-`arguments`, `workingDirectory`, and positive integer `timeoutSeconds`; its
-values are the frozen extraction/login/install rows above.
+above. `ToolRow` has exactly `name`, `source`, `path`, `length`, and `sha256`.
+`source` is one of `msys2`, `node`, `git`, `bun`, or `cmd`; `path` is a nonempty
+forward-slash relative path with no empty, `.`, or `..` segment; `length` is a
+nonnegative integer; and `sha256` is uppercase 64-hex. `CommandRow` has exactly
+`executable`, `arguments`, `workingDirectory`, and positive integer
+`timeoutSeconds`; its values are the frozen extraction/login/install rows above.
 
 The `node` and `git` `root` values are absolute nonempty strings, each `files`
 array contains one or more root-relative `FileRow` values, each manifest hash is
@@ -1760,36 +1817,61 @@ msysEnvironment = {"CHERE_INVOKING":"1","HOME":"{staging}/root/home/rookbuild","
 
 File rows are unique and sorted by path using ordinal code-point order. Package
 rows are unique by name and sorted by name then version. Tool rows are unique,
-sorted by name, and have exactly these names: `bash`, `bun`, `cmd`, `cp`,
-`dirname`, `git`, `ls`, `mkdir`, `mv`, `node`, `npm`, `rm`, `tar`, `unzip`,
-`zip`. Command argument arrays retain their declared order. Strings must be
-valid Unicode without unpaired surrogates. Reject every missing, extra, or
-duplicate key at every depth.
+sorted by name, and have exactly these name/source pairs:
 
-Serialize strict UTF-8 without BOM, recursively sorted object keys, compact
-separators, required array order, and exactly one terminal LF. Each
-`manifestSha256` hashes the canonical UTF-8 representation of its `files` array
-plus one LF. Hash the entire exact contract file for
+```text
+msys2: bash, cp, dirname, ls, mkdir, mv, rm, tar, unzip, zip
+node: node, npm
+git: git
+bun: bun
+cmd: cmd
+```
+
+Command argument arrays retain their declared order. Strings must be valid
+Unicode scalar sequences without unpaired surrogates. Reject every missing,
+extra, or duplicate key at every depth.
+
+The one ToolRow resolver selects the canonical contract parent for `msys2`,
+`externalInputs.node.root` for `node`, `externalInputs.git.root` for `git`, the
+canonical parent of `externalInputs.bun.path` for `bun`, or the canonical parent
+of `externalInputs.cmd.path` for `cmd`. An MSYS2 path begins with `root/`.
+Combine the selected root and relative path, canonicalize the result, require it
+to remain beneath that root, and then verify regular-file type, length, and
+hash. Use this same resolver while the contract is in its GUID staging parent
+and after create-only publication. No tool may resolve through another source
+or installation.
+
+Serialize strict UTF-8 without BOM and perform no Unicode normalization.
+Preserve each code-point sequence exactly, including distinct composed and
+decomposed forms. Sort object keys lexicographically by Unicode scalar value,
+not by UTF-16 code unit. Arrays retain their required semantic order. Escape
+quotation mark as `\"`, reverse solidus as `\\`, and never escape `/`. Use
+`\b`, `\t`, `\n`, `\f`, and `\r` only for U+0008, U+0009, U+000A, U+000C, and
+U+000D; encode every other U+0000 through U+001F scalar with lowercase
+`\u00xx`. Emit every other scalar, including supplementary-plane characters,
+literally as UTF-8 with no optional escaping. Use compact separators and exactly
+one terminal LF. Each `manifestSha256` hashes the canonical UTF-8 representation
+of its `files` array plus one LF. Hash the entire exact contract file for
 `ExpectedBuildToolchainContractSha256`. The Python verifier parses with a
 duplicate-key-detecting `object_pairs_hook`, validates the complete closed
 schema, reconstructs canonical bytes, requires byte equality with the stored
 file, and only then compares the independently approved hash. Producer/verifier
 parity tests cover duplicate and unknown keys, missing fields, reordered arrays,
-BOM/non-UTF-8, pretty-printing, missing/extra terminal LF, and one valid contract
-whose PowerShell and Python canonical bytes and SHA-256 are identical.
-
-Every tool row contains an absolute regular-file path and uppercase SHA-256.
-MSYS commands resolve beneath the new root; Node/npm and Git must resolve inside
-their completely manifested installation roots; Bun is bound as its standalone
-executable. No external tool may resolve through another installation.
+BOM/non-UTF-8, pretty-printing, missing/extra terminal LF, non-ASCII and
+supplementary-plane scalars, quotes, backslashes, unescaped slashes, every
+specified control-character class, and composed/decomposed sequences proving no
+normalization. One valid contract must produce byte-identical PowerShell and
+Python canonical bytes and SHA-256.
 Run only model-free provisioner/verifier tests and bounded version probes. Fake
 process/download tests must prove exact argv, working directories, environments,
 deadlines, expected extracted layout, hash-before-use ordering, local signature
-policy, and manifest-after-initialization ordering. For each source class, fake
-HTTP tests cover oversized `Content-Length` refusal before body read, absent
-`Content-Length` with an oversized stream, exact-limit success, and one-byte-over
-stream refusal; no partial file can enter a manifest. Causal publication tests must
-prove: the contract is absent from the root manifest; changing contract bytes
+policy, and manifest-after-initialization ordering. For each of the MSYS2 base,
+zip, and unzip sources, fake HTTP tests cover oversized `Content-Length` refusal
+before body read, absent `Content-Length` with an oversized stream, a header at
+or below the limit followed by an oversized body, exact-limit success, and
+one-byte-over stream refusal; no partial file can enter a manifest. Causal
+publication tests must prove: the contract is absent from the root manifest;
+changing contract bytes
 changes the contract hash without recursively changing the root manifest;
 changing a root byte breaks contract verification; an occupied output remains
 unchanged; concurrent publishers admit at most one completed parent; and a
@@ -1887,8 +1969,10 @@ same volume as `OutputRoot` and outside the Prime/Rook source worktrees, every
 installed-product or immutable runtime root, and the published immutable
 build-toolchain parent. Never search for, select, resume, or clean an earlier
 scratch generation. A failed generation has no authority; a later invocation
-uses a different newly generated empty leaf. Record the actual canonical leaf
-only in the bounded build report, never in `BuildToolchainContract`.
+uses a different newly generated empty leaf. Keep the actual canonical leaf only
+as an invocation-local diagnostic; do not persist it in
+`BuildToolchainContract`, the packaged runtime, or a separate build report. This
+plan defines no build-report artifact or downstream build-report consumer.
 Path-injection tests use a deterministic GUID source and prove that a
 pre-existing generated leaf refuses without alteration, a leaf inside any
 forbidden root refuses, all six profile/temp variables canonicalize beneath the
@@ -1928,8 +2012,10 @@ the three fixed paths. Prime's source-controlled project `.npmrc` and npm's
 bound built-in configuration are the only other configuration sources.
 `dirname` is verified before invoking Prime's script because line 23 consumes it
 before `npm ci`; `git` is verified because `bundle.mjs` consumes it for build
-provenance. Retain the exact final build environment's nonsecret key/value map
-and hash in the bounded build report.
+provenance. Revalidate the exact final build environment's closed nonsecret
+key/value map in memory immediately before process creation. It is
+invocation-local and is not persisted as package authority or consumed by a
+later gate.
 
 The script has no caller-selectable platform or architecture. It fixes the
 Prime builder target to `windows-x64` and the portable runtime-manifest values
@@ -2020,10 +2106,11 @@ create-new destination, supplied-`Content-Length` precheck, and independent
 ceiling before each write; exact-limit content succeeds and one byte over
 refuses. An incomplete file remains only beneath the failed invocation-owned
 scratch and has no authority. Each download is single-attempt and hash-checked
-before use; a cache or network failure is terminal. Fake HTTP tests exercise
-oversized `Content-Length`, absent `Content-Length` with oversized streaming,
-exact-limit success, and one-byte-over refusal for the uv archive and each
-license class. Extract `uv.exe` with .NET archive APIs into
+before use; a cache or network failure is terminal. For each of the uv archive,
+LICENSE-APACHE, and LICENSE-MIT sources, fake HTTP tests exercise oversized
+`Content-Length`, absent `Content-Length` with oversized streaming, a header at
+or below the limit followed by an oversized body, exact-limit success, and
+one-byte-over refusal. Extract `uv.exe` with .NET archive APIs into
 `tools/uv/uv.exe`, require its bounded version output to identify exactly
 `uv 0.12.3`, and place both verified license files under
 `licenses/uv/`. Never inspect or copy an ambient `uv`, including the Hermes
