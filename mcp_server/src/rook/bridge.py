@@ -659,6 +659,7 @@ def list_sessions() -> list[dict[str, Any]]:
     skipped (no stable session id).
     """
     sessions: list[dict[str, Any]] = []
+    seen_process_ids: set[str] = set()
     for instance in discover_instances():
         # A session == a Rhino window, keyed by its native listener. The
         # roadcreator adapter shares the Rhino PID (bridge.py:379-381); including
@@ -668,6 +669,10 @@ def list_sessions() -> list[dict[str, Any]]:
         pid = instance.get("processId")
         if not pid:
             continue
+        process_id = str(pid)
+        if process_id in seen_process_ids:
+            continue
+        seen_process_ids.add(process_id)
         sessions.append({
             "session": session_id_for_instance(instance),
             "processId": pid,
