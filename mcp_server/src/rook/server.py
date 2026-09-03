@@ -94,6 +94,7 @@ from .bridge import (
 from .gh_document_custody import (
     GhDispatchContext,
     GhDocumentCustodyError,
+    GhToolClassification,
     apply_gh_dispatch_to_http_data,
     augment_gh_input_schema,
     clear_observed_gh_document_id,
@@ -168,7 +169,7 @@ async def call_rhino(
         timeout=timeout,
     )
     if context is not None and endpoint.startswith("/gh/"):
-        observe_gh_document_id(result)
+        result = observe_gh_document_id(result)
     return result
 
 
@@ -14109,6 +14110,18 @@ async def _execute_chirp_create(
             terminal_chirp_failure,
             deterministic_only,
         )
+
+    context = current_gh_dispatch_context()
+    if (
+        context is not None
+        and context.classification is GhToolClassification.MUTATION
+    ):
+        target_preflight = project_current_gh_document_id(
+            await call_rhino("/gh/status", "GET", port=port),
+            context,
+        )
+        if target_preflight.get("success") is not True:
+            return target_preflight, terminal_chirp_failure, deterministic_only
 
     from rook.chirp_manager import ensure_chirp_running
 

@@ -639,6 +639,178 @@ def test_composite_transition_projects_final_nested_document_identity():
     assert result["data"]["ghDocumentId"] == document_id
 
 
+@pytest.mark.asyncio
+async def test_guarded_mutation_rejects_contradictory_managed_identity(monkeypatch):
+    expected = "11111111-1111-1111-1111-111111111111"
+    returned = "22222222-2222-2222-2222-222222222222"
+    calls = []
+
+    async def bridge(endpoint, method="GET", data=None, **kwargs):
+        calls.append((endpoint, method, data))
+        return {"success": True, "data": {"ghDocumentId": returned}}
+
+    monkeypatch.setattr(server, "_bridge_call_rhino", bridge)
+    context = GhDispatchContext(GhToolClassification.MUTATION, expected)
+
+    with gh_dispatch_scope(context):
+        result = await server.call_rhino("/gh/set-value", "POST", {"guid": "C1"})
+        projected = project_current_gh_document_id(result, context)
+
+    assert calls == [
+        (
+            "/gh/set-value",
+            "POST",
+            {
+                "guid": "C1",
+                INTERNAL_GH_SCOPE_FIELD: "mutation",
+                INTERNAL_EXPECTED_GH_DOCUMENT_ID_FIELD: expected,
+            },
+        )
+    ]
+    assert result["success"] is False
+    assert result["data"]["error"] == "gh_target_changed"
+    assert projected["success"] is False
+    assert projected["data"]["error"] == "gh_target_changed"
+
+
+@pytest.mark.asyncio
+async def test_composite_observation_latches_first_identity_before_later_calls(
+    monkeypatch,
+):
+    first = "11111111-1111-1111-1111-111111111111"
+    changed = "22222222-2222-2222-2222-222222222222"
+    calls = []
+    responses = iter(
+        [
+            {"success": True, "data": {"ghDocumentId": first}},
+            {"success": True, "data": {"ghDocumentId": changed}},
+        ]
+    )
+
+    async def bridge(endpoint, method="GET", data=None, **kwargs):
+        calls.append((endpoint, method, data))
+        return next(responses)
+
+    monkeypatch.setattr(server, "_bridge_call_rhino", bridge)
+    context = GhDispatchContext(GhToolClassification.OBSERVATION, None)
+
+    with gh_dispatch_scope(context):
+        first_result = await server.call_rhino("/gh/snapshot")
+        changed_result = await server.call_rhino(
+            "/gh/batch-component-info",
+            "POST",
+            {"guids": ["C1"]},
+        )
+        projected = project_current_gh_document_id(
+            {"success": True, "data": {"learned": True}}, context
+        )
+
+    assert first_result["success"] is True
+    assert INTERNAL_EXPECTED_GH_DOCUMENT_ID_FIELD not in calls[0][2]
+    assert calls[1][2][INTERNAL_EXPECTED_GH_DOCUMENT_ID_FIELD] == first
+    assert changed_result["success"] is False
+    assert changed_result["data"]["error"] == "gh_target_changed"
+    assert projected["success"] is False
+    assert projected["data"]["error"] == "gh_target_changed"
+
+
+@pytest.mark.asyncio
+async def test_learn_canvas_cannot_hide_nested_document_drift(monkeypatch):
+    first = "11111111-1111-1111-1111-111111111111"
+    changed = "22222222-2222-2222-2222-222222222222"
+    calls = []
+    responses = iter(
+        [
+            {"success": True, "data": {"ghDocumentId": first}},
+            {"success": True, "data": {"ghDocumentId": changed}},
+        ]
+    )
+
+    async def bridge(endpoint, method="GET", data=None, **kwargs):
+        calls.append((endpoint, method, data))
+        return next(responses)
+
+    async def composite(call, **kwargs):
+        await call("/gh/snapshot")
+        await call("/gh/batch-component-info", "POST", {"guids": ["C1"]})
+        return {"errors": 0, "learned": True}
+
+    monkeypatch.setattr(server, "_bridge_call_rhino", bridge)
+    monkeypatch.setattr("rook.learning.canvas_learner.learn_from_canvas", composite)
+    context = GhDispatchContext(GhToolClassification.OBSERVATION, None)
+
+    result = await server._call_tool_dispatch_with_gh_context(
+        "gh_learn_canvas", {}, context=context
+    )
+
+    assert calls[1][2][INTERNAL_EXPECTED_GH_DOCUMENT_ID_FIELD] == first
+    assert result["success"] is False
+    assert result["data"]["error"] == "gh_target_changed"
+
+
+@pytest.mark.parametrize(
+    ("bridge_data", "expected_error"),
+    [
+        (
+            {"ghDocumentId": "22222222-2222-2222-2222-222222222222"},
+            "gh_target_changed",
+        ),
+        ({}, "gh_target_unavailable"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_panel_chirp_preflights_document_before_contacting_chirp(
+    monkeypatch, bridge_data, expected_error
+):
+    expected = "11111111-1111-1111-1111-111111111111"
+    managed_calls = []
+    chirp_contacted = False
+
+    async def bridge(endpoint, method="GET", data=None, **kwargs):
+        managed_calls.append((endpoint, method, data))
+        return {"success": True, "data": bridge_data}
+
+    async def forbidden_chirp_start(_model):
+        nonlocal chirp_contacted
+        chirp_contacted = True
+        raise AssertionError("Chirp started before GH target validation")
+
+    monkeypatch.setattr(server, "_bridge_call_rhino", bridge)
+    monkeypatch.setattr(
+        "rook.chirp_manager.ensure_chirp_running", forbidden_chirp_start
+    )
+    context = GhDispatchContext(GhToolClassification.MUTATION, expected)
+
+    with gh_dispatch_scope(context):
+        result, terminal_failure, deterministic_only = (
+            await server._execute_chirp_create(
+                {
+                    "signature": "Create a narrator",
+                    "category": "narrator",
+                    "pins_in": [{"name": "Question", "type": "string"}],
+                    "pins_out": [{"name": "Answer", "type": "string"}],
+                },
+                None,
+            )
+        )
+
+    assert result["success"] is False
+    assert result["data"]["error"] == expected_error
+    assert terminal_failure is False
+    assert deterministic_only is False
+    assert chirp_contacted is False
+    assert managed_calls == [
+        (
+            "/gh/status",
+            "GET",
+            {
+                INTERNAL_GH_SCOPE_FIELD: "mutation",
+                INTERNAL_EXPECTED_GH_DOCUMENT_ID_FIELD: expected,
+            },
+        )
+    ]
+
+
 def test_document_identity_observation_is_scoped_and_ignores_untrusted_shapes():
     context = GhDispatchContext(GhToolClassification.OBSERVATION, None)
     with gh_dispatch_scope(context):

@@ -151,6 +151,9 @@ _CURRENT_GH_DISPATCH: ContextVar[GhDispatchContext | None] = ContextVar(
 _CURRENT_GH_DOCUMENT_ID: ContextVar[str | None] = ContextVar(
     "_CURRENT_GH_DOCUMENT_ID", default=None
 )
+_CURRENT_GH_CUSTODY_ERROR: ContextVar[str | None] = ContextVar(
+    "_CURRENT_GH_CUSTODY_ERROR", default=None
+)
 
 
 def classify_gh_tool(name: str) -> GhToolClassification | None:
@@ -273,29 +276,67 @@ def current_gh_dispatch_context() -> GhDispatchContext | None:
 def gh_dispatch_scope(context: GhDispatchContext | None) -> Iterator[None]:
     token = _CURRENT_GH_DISPATCH.set(context)
     document_token = _CURRENT_GH_DOCUMENT_ID.set(None)
+    error_token = _CURRENT_GH_CUSTODY_ERROR.set(None)
     try:
         yield
     finally:
+        _CURRENT_GH_CUSTODY_ERROR.reset(error_token)
         _CURRENT_GH_DOCUMENT_ID.reset(document_token)
         _CURRENT_GH_DISPATCH.reset(token)
 
 
-def observe_gh_document_id(result: Mapping[str, Any]) -> None:
-    """Retain one authentic managed document identity for this dispatch scope."""
+def _gh_custody_failure(error: str) -> dict[str, Any]:
+    messages = {
+        "gh_target_changed": "The active Grasshopper document changed before dispatch.",
+        "gh_target_unavailable": "No active Grasshopper document is available.",
+    }
+    return {
+        "success": False,
+        "data": {"error": error, "message": messages[error]},
+    }
+
+
+def observe_gh_document_id(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Latch and reconcile managed document identity for this dispatch scope."""
+    projected = dict(result)
+    context = current_gh_dispatch_context()
+    if context is None:
+        return projected
+
     if result.get("success") is not True:
-        return
+        data = result.get("data")
+        error = data.get("error") if isinstance(data, Mapping) else None
+        if (
+            context.classification is not GhToolClassification.TRANSITION
+            and error in {"gh_target_changed", "gh_target_unavailable"}
+        ):
+            _CURRENT_GH_CUSTODY_ERROR.set(error)
+        return projected
     data = result.get("data")
     if not isinstance(data, Mapping):
-        return
+        return projected
     raw = data.get("ghDocumentId")
     if not isinstance(raw, str):
-        return
+        return projected
     try:
         parsed = uuid.UUID(raw)
     except ValueError:
-        return
-    if parsed.int != 0 and raw == str(parsed):
+        return projected
+    if parsed.int == 0 or raw != str(parsed):
+        return projected
+
+    observed = _CURRENT_GH_DOCUMENT_ID.get()
+    expected = context.expected_gh_document_id
+    if context.classification is GhToolClassification.OBSERVATION:
+        expected = observed
+
+    if expected is not None and raw != expected:
+        _CURRENT_GH_CUSTODY_ERROR.set("gh_target_changed")
+        return _gh_custody_failure("gh_target_changed")
+
+    if context.classification is GhToolClassification.TRANSITION or observed is None:
         _CURRENT_GH_DOCUMENT_ID.set(raw)
+    return projected
 
 
 def clear_observed_gh_document_id() -> None:
@@ -311,8 +352,12 @@ def project_current_gh_document_id(
     if (
         context is None
         or context.classification is GhToolClassification.DOCUMENT_INDEPENDENT
-        or projected.get("success") is not True
     ):
+        return projected
+    custody_error = _CURRENT_GH_CUSTODY_ERROR.get()
+    if custody_error is not None:
+        return _gh_custody_failure(custody_error)
+    if projected.get("success") is not True:
         return projected
     document_id = _CURRENT_GH_DOCUMENT_ID.get()
     data = projected.get("data")
@@ -343,8 +388,9 @@ def apply_gh_dispatch_to_http_data(
 
     projected = dict(data) if data is not None else {}
     projected[INTERNAL_GH_SCOPE_FIELD] = context.classification.value
-    if context.expected_gh_document_id is not None:
-        projected[INTERNAL_EXPECTED_GH_DOCUMENT_ID_FIELD] = (
-            context.expected_gh_document_id
-        )
+    expected = context.expected_gh_document_id
+    if context.classification is GhToolClassification.OBSERVATION:
+        expected = _CURRENT_GH_DOCUMENT_ID.get()
+    if expected is not None:
+        projected[INTERNAL_EXPECTED_GH_DOCUMENT_ID_FIELD] = expected
     return projected

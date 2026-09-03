@@ -129,6 +129,17 @@ namespace Rook.InternalBridge
 
                 expected = parsed;
             }
+            else if (scope == GhManagedDispatchScope.Observation && expectedDocumentId is not null)
+            {
+                if (!Guid.TryParseExact(expectedDocumentId, "D", out var parsed) ||
+                    parsed == Guid.Empty ||
+                    !string.Equals(expectedDocumentId, parsed.ToString("D"), StringComparison.Ordinal))
+                {
+                    return Failure("invalid_arguments", "expectedGhDocumentId must be a canonical lowercase UUID.");
+                }
+
+                expected = parsed;
+            }
 
             if (scope == GhManagedDispatchScope.Transition)
             {

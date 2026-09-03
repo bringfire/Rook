@@ -104,6 +104,22 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void Observation_WithLatchedIdentityRejectsChangedDocumentBeforeOperation()
+        {
+            var source = new SwitchingSource(new FakeGhDocument(DecoyId));
+
+            var result = GrasshopperDispatchContext.Execute(
+                source,
+                GhManagedDispatchScope.Observation,
+                IntendedId.ToString("D"),
+                () => throw new InvalidOperationException("operation must not run"));
+
+            Assert.False(result.Success);
+            Assert.Equal("gh_target_changed", Data(result).GetProperty("error").GetString());
+            Assert.Equal(1, source.CaptureCount);
+        }
+
+        [Fact]
         public void ObservationProjection_PreservesTheBridgeCamelCaseWireContract()
         {
             var result = GrasshopperDispatchContext.Execute(
