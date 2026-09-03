@@ -8,15 +8,15 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; PowerShell/Inno Setup release tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `712228ec47baffe250e299d9eacdb31b1448a945` (SHA-256 `1B1D8AD96B03320668E364EFB906CD9E1A4CEADE518411F44C65D396E73A1695`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `10cac692e7859f1939c3f146914b2660ee35c2f4` (SHA-256 `E983FFBF0A527A3C0E5D03D0B142F2FDDA016DE2EBCE508316F98D043DCBE328`).
 
 ## Global Constraints
 
-- This plan is authored against frozen specification baseline `712228ec47baffe250e299d9eacdb31b1448a945`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
+- This plan is authored against frozen specification baseline `10cac692e7859f1939c3f146914b2660ee35c2f4`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
 - Treat Prime commit `9c25468b62c79fc4b1419d7800740e8e41e30467` as the sole removable compatibility patch over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`; do not edit Prime in this plan.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
-- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon`; never use a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. Every executable path is absolute and manifest-bound; `PATH` may remain in the supported child environment but is never executable authority.
+- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon`; never use a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. The Prime and Rook MCP executable paths are absolute and never selected through `PATH`. The sole intentional exception is upstream Prime's supported kernel bootstrap lookup for `uv`: RookChat prepends the exact manifest-bound `tools/uv` directory, and qualification proves that executable was selected before any ambient entry.
 - Persist associations, not broker lifecycle. Prime JSONL is the only authoritative transcript/goal/settings/compaction store.
 - A durable association is create-only, complete, materialized, has a nonempty Prime header ID, and is reopenable only when no `open.claim` exists and custody checks pass.
 - The atomic non-expiring `open.claim` has no metadata or recovery logic. Remove it only after the directly owned Prime child is observed exited, or when launch positively proves no child was created.
@@ -25,6 +25,7 @@
 - Prime owns authentication. RookChat never accepts `--api-key`, reads `auth.json`, or forwards credentials loaded from Rook's installed `.env`.
 - New conversations may pass a fully qualified `--model` and one of `off|minimal|low|medium|high|xhigh|max`; reopen passes neither override.
 - The installed `rook-full` package is Markdown-only. Do not add a Rook-owned Python facade or contract-specific kernel.
+- The immutable Prime runtime also carries official `uv` 0.12.3 at fixed relative path `tools/uv/uv.exe`, with source and license custody in the same closed manifest. Prime remains the sole owner of its ordinary mutable kernel environment. No ambient or Rook-venv `uv` is runtime authority.
 - One service-owned ACP MCP declaration named exactly `rook` uses the installed service's already verified exact `sys.executable -m rook` boundary without `PATH` fallback. Its closed environment, profile, and immutable host/Rhino binding come from installed service configuration and the durable association, not from the portable Prime runtime manifest. The verified association working directory is supplied through `session/new.cwd` because ACP stdio declarations have no working-directory field.
 - Prime's accepted MCP operating limits remain 20 seconds for server startup and 60 seconds for a tool call. Representative Rook operations must qualify within them; this plan adds no facade or Prime timeout patch.
 - Preserve full Rook authoring. Grasshopper uses dynamic document context with centrally advertised and enforced `expectedGhDocumentId` optimistic concurrency, not permanent GH binding or hostile-code containment.
@@ -123,6 +124,8 @@ class PrimeRuntimeContract:
     rook_skill_path: Path
     rook_skill_manifest_sha256: str
     rook_skill_system_prompt: str
+    uv_version: str
+    uv_executable_path: Path
     claim_key_version: int
 
 def load_and_verify_runtime(install_root: Path, runtime_id: str) -> PrimeRuntimeContract:
@@ -1375,7 +1378,7 @@ git commit -m "feat(grasshopper): fence mutations to observed document"
 - Add: Prime-required license/notice files to the generated installer payload
 
 **Interfaces:**
-- Produces: official-shape immutable runtime at `ROOK_INSTALL_ROOT/prime/runtimes/<runtime-id>/`, an atomically replaced qualified-runtime pointer `current.json`, one portable closed manifest packaged with every byte it binds, an exact service-owned `sys.executable -m rook` MCP launch boundary, persistent data under `ROOK_DATA_DIR/rookchat/acp/v1/`, and one bounded installed-product identity report.
+- Produces: official-shape immutable runtime at `ROOK_INSTALL_ROOT/prime/runtimes/<runtime-id>/`, an atomically replaced qualified-runtime pointer `current.json`, one portable closed manifest packaged with every byte it binds, manifest-bound official `uv` at `tools/uv/uv.exe`, an exact service-owned `sys.executable -m rook` MCP launch boundary, persistent data under `ROOK_DATA_DIR/rookchat/acp/v1/`, and one bounded installed-product identity report.
 - Consumes: Prime `9c25468b62c79fc4b1419d7800740e8e41e30467`, its supported `scripts/build-binaries.sh --platform windows-x64 --skip-deps` path, the complete extracted `packages/coding-agent/binaries/windows-x64/` artifact, Task 8 skill, and Task 4 runtime verifier.
 
 The Prime builder performs `npm ci` before compilation even with `--skip-deps`.
@@ -1396,6 +1399,17 @@ or environment. The generated manifest and complete staged payload are one
 release artifact: they are produced, verified, installed, and retained
 together, and neither is committed as a substitute for the release artifact.
 
+Prime's Python kernel remains Prime-owned mutable state, not part of this
+content-addressed runtime. The runtime does include one bootstrap prerequisite:
+official `uv` 0.12.3 for `x86_64-pc-windows-msvc`, stored at fixed relative path
+`tools/uv/uv.exe`. Prime resolves it because `build_prime_child_env()` prepends
+that exact manifest-verified directory to `PATH`. RookChat does not set
+`PRIME_AGENT_KERNEL_PYTHON`, create a contract-specific kernel, or install
+Python packages itself. On first IPython use, Prime uses the bundled `uv` to
+create its normal mutable kernel and download Python, `prime-agent-runtime`,
+and its default packages. This requires internet access and may take time, but
+requires no separate user installation.
+
 - [ ] **Step 1: Write RED packaging guard tests**
 
 Tests must assert:
@@ -1408,6 +1422,9 @@ the npm release-tarball packer is not used
 the builder target is fixed as windows-x64 and maps exactly to manifest platform windows and architecture amd64
 runtime-manifest.json records the fixed platform pair, upstream commit, patch commit,
 ACP protocol, Python SDK, goal skill, rook skill, and claim-key version
+official uv 0.12.3 is obtained only from its pinned upstream archive, never from PATH, Hermes, the Rook venv, or another installation
+the uv archive checksum, version, source URL, extracted executable bytes, fixed relative path, and both license files are manifest-bound
+the Prime child PATH begins with the manifest-verified tools/uv directory
 runtime-manifest.json contains no rookMcpCommand, rookMcpArgs, rookMcpEnvironment, or other machine-local path
 canonical runtime-manifest.json bytes produce the runtime ID
 the unchanged manifest and payload verify after relocation beneath two different install roots
@@ -1426,6 +1443,7 @@ Prime licenses/notices are installed
 installed verifier compares reviewed build outputs and source payloads with every installed consumer
 installed identity report binds implementation commit, native/managed/Python/skill/Prime hashes, and chat-service paths
 tampering, extra authority files, missing assets, or manifest mismatch refuse before publication
+the complete release builder toolchain is validated before npm ci, and a missing or mismatched tool is terminal without installation or fallback
 ```
 
 - [ ] **Step 2: Build and stage Prime through its supported standalone script**
@@ -1436,24 +1454,65 @@ tampering, extra authority files, missing assets, or manifest mismatch refuse be
 param(
   [Parameter(Mandatory=$true)][string]$PrimeWorktree,
   [Parameter(Mandatory=$true)][string]$ExpectedPrimeCommit,
-  [Parameter(Mandatory=$true)][string]$OutputRoot
+  [Parameter(Mandatory=$true)][string]$OutputRoot,
+  [Parameter(Mandatory=$true)][string]$BuildToolchainContract
 )
 ```
+
+`BuildToolchainContract` is a build-only canonical JSON input, never installed
+and never consulted by product runtime. Its closed schema names exactly
+`bash`, `node`, `npm`, `bun`, `zip`, `unzip`, `cp`, `rm`, `mkdir`, `mv`, `tar`,
+and `ls`. Every row contains an absolute regular-file path, uppercase SHA-256,
+and exact expected version output; unknown tools or fields refuse. Before any
+network access or `npm ci`, the package script verifies the contract's canonical
+bytes, every file and hash, every bounded version command, and that the declared
+Bash reports an MSYS/MINGW environment rather than WSL. It then constructs the
+builder `PATH` only from the declared tool directories and proves from inside
+that exact `bash --noprofile --norc` process that every command resolves to its
+declared file. Missing, malformed, substituted, or ambiguously resolved tools
+are terminal. The script never discovers, installs, retries, or falls back to
+another build tool. The contract bytes and SHA-256 are retained in the bounded
+build report, not in the product runtime identity.
 
 The script has no caller-selectable platform or architecture. It fixes the
 Prime builder target to `windows-x64` and the portable runtime-manifest values
 to `platform: "windows"` and `architecture: "amd64"`. It verifies clean
 `HEAD == 9c25468b62c79fc4b1419d7800740e8e41e30467`, hashes Prime's committed
-`package-lock.json`, and invokes the exact existing builder as:
+`package-lock.json`, and invokes the exact existing builder through the
+declared Bash path with the already verified closed builder `PATH`:
 
-```bash
-scripts/build-binaries.sh --platform windows-x64 --skip-deps
+```powershell
+$env:PATH = $declaredBuildPath
+& $bashPath --noprofile --norc scripts/build-binaries.sh --platform windows-x64 --skip-deps
+if ($LASTEXITCODE -ne 0) {
+    throw "Prime standalone builder failed with exit code $LASTEXITCODE"
+}
 ```
 
 The builder's own `npm ci` is the only dependency restoration. After the build,
 the package script requires the same lockfile hash and no tracked or untracked
 source change. A cache or network failure is terminal; the package script does
 not retry, change dependency inputs, or substitute another Prime checkout.
+
+The package script separately fetches the product dependency `uv` into its own
+temporary directory from the exact official archive:
+
+```text
+version: 0.12.3
+source: https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-pc-windows-msvc.zip
+archive SHA-256: B23350C79E8AD0192B8124AF13A0F17E8D4E4549524785E1AEF389AE5A06990E
+LICENSE-APACHE source: https://raw.githubusercontent.com/astral-sh/uv/0.12.3/LICENSE-APACHE
+LICENSE-APACHE SHA-256: C71D239DF91726FC519C6EB72D318EC65820627232B2F796219E87DCF35D0AB4
+LICENSE-MIT source: https://raw.githubusercontent.com/astral-sh/uv/0.12.3/LICENSE-MIT
+LICENSE-MIT SHA-256: 860E3D7A86B84E6A7012C7A635FC64DF475CEBC6CCE34DFEB73A5982EC58176C
+```
+
+Each download is single-attempt and hash-checked before use; a cache or network
+failure is terminal. Extract `uv.exe` with .NET archive APIs into
+`tools/uv/uv.exe`, require its bounded version output to identify exactly
+`uv 0.12.3`, and place both verified license files under
+`licenses/uv/`. Never inspect or copy an ambient `uv`, including the Hermes
+installation visible on this development machine.
 
 Treat `packages/coding-agent/binaries/windows-x64/` as one indivisible
 Prime-produced artifact. Copy that complete directory wholesale into a fresh
@@ -1473,7 +1532,15 @@ it does not commit either the generated manifest or an incomplete payload.
 
 - [ ] **Step 3: Implement the closed manifest algorithm**
 
-For every admitted regular file except `runtime-manifest.json`, record forward-slash relative path, raw byte length, and uppercase SHA-256; sort paths ordinally. Refuse symlinks/reparse points and path escapes. Hash canonical UTF-8 JSON with sorted keys, compact separators, and LF to obtain `runtime_id`. Verify the unchanged packaged `pi.exe`, complete Prime artifact, exact Prime goal skill subtree, exact Rook skill subtree, and required licenses/notices are included. Every manifest path is relative to its runtime root. The schema removes `rookMcpCommand`, `rookMcpArgs`, and `rookMcpEnvironment`; absolute build-machine or install-machine paths are invalid.
+For every admitted regular file except `runtime-manifest.json`, record forward-slash relative path, raw byte length, and uppercase SHA-256; sort paths ordinally. Refuse symlinks/reparse points and path escapes. Hash canonical UTF-8 JSON with sorted keys, compact separators, and LF to obtain `runtime_id`. Verify the unchanged packaged `pi.exe`, complete Prime artifact, exact Prime goal skill subtree, exact Rook skill subtree, manifest-bound `tools/uv/uv.exe`, both uv licenses, and required Prime licenses/notices are included. Every manifest path is relative to its runtime root. The schema removes `rookMcpCommand`, `rookMcpArgs`, and `rookMcpEnvironment`; absolute build-machine or install-machine paths are invalid.
+
+Add one closed `uv` object to `runtime-manifest.json` with exact keys
+`version`, `executable`, `source`, `sourceArchiveSha256`, and `licenses`.
+Require the exact values above, require `executable` to equal
+`tools/uv/uv.exe`, and require `licenses` to name the two verified relative
+license paths. The ordinary `files` rows bind the installed executable and
+license bytes; the `uv` object binds version and provenance without creating a
+second manifest.
 
 The manifest's `executable` field points to the packaged `pi.exe`. The verifier
 must place the staged bytes and the unchanged manifest into a disposable
@@ -1482,7 +1549,11 @@ must place the staged bytes and the unchanged manifest into a disposable
 file as `argv[0]`.
 
 Update `PrimeRuntimeContract` and `load_and_verify_runtime()` to remove the
-three Rook MCP launch fields. Update `build_rook_mcp_server()` and its caller so
+three Rook MCP launch fields and retain the exact verified uv version/path.
+Update `build_prime_child_env()` so the first `PATH` entry is the parent of the
+manifest-bound uv executable while preserving the admitted base environment
+after it. A missing, changed, non-regular, or escaped uv path returns
+`runtime_unavailable` before Prime starts. Update `build_rook_mcp_server()` and its caller so
 the declaration uses the running service's resolved exact `sys.executable`,
 fixed arguments `-m rook`, and the product-owned closed environment plus the
 association's immutable target/profile fields. The command is validated as the
@@ -1523,6 +1594,12 @@ authority file refuses without overlay, repair, or pointer replacement.
 
 Keep Prime credentials/settings/kernel in Prime's supported mutable user locations. Do not relocate or parse them into the immutable runtime.
 
+The installed product and documentation state the first-use behavior plainly:
+users install only Rook, and bundled `uv` requires no separate setup; the first
+Prime IPython/Rook operation may take longer while Prime downloads and creates
+its normal kernel. A failed download surfaces as a Prime-owned tool failure and
+is never converted into a RookChat installer, retry loop, or alternate kernel.
+
 Implement `verify-installed-rookchat-acp.py` as a read-only deployment-custody verifier, not a qualification runner. It receives the exact clean implementation commit, worktree root, installed Rook root, installed chat-service manifest, and output path. It fails closed unless all of the following match:
 
 ```text
@@ -1553,8 +1630,11 @@ not launched. The tests prove the npm release-tarball path is absent, the whole
 standalone directory and manifest travel together, no generated runtime
 authority is committed alone, no second runtime schema exists, relocation does
 not change runtime identity, the production loader accepts the manifest, the
-service owns its local MCP command, and ACP data remains outside every
-replaceable runtime and installer cleanup path.
+service owns its local MCP command, bundled uv is the first and only qualified
+kernel-bootstrap executable, the release build cannot reach `npm ci` with an
+incomplete toolchain, and ACP data remains outside every replaceable runtime
+and installer cleanup path. Task 10 does not launch Prime or qualify kernel
+creation; that single first-use runtime proof belongs to Slice B.
 
 - [ ] **Step 6: Commit Task 10**
 
@@ -1666,7 +1746,7 @@ If the audit finds another production owner or test caller beyond this closed cl
 
 - [ ] **Step 3: Update architecture and user docs**
 
-Document one Prime ACP implementation, Prime-owned login via interactive `/login`, new-conversation model/reasoning selection, reopen behavior, target-unavailable behavior, image-history limits, release-level rollback, preserved data roots, and the explicit `session_recovery_required` limitation after service crash. Do not advertise compaction or IPython restoration guarantees.
+Document one Prime ACP implementation, Prime-owned login via interactive `/login`, new-conversation model/reasoning selection, reopen behavior, target-unavailable behavior, image-history limits, release-level rollback, preserved data roots, and the explicit `session_recovery_required` limitation after service crash. State that Rook installs the required Prime executable and `uv` bootstrap tool with no separate software installation, while first IPython/Rook use may require an internet download and take longer as Prime creates its normal mutable kernel. Do not advertise compaction or IPython restoration guarantees.
 
 - [ ] **Step 4: Run static and full offline unit gates**
 
@@ -1705,7 +1785,7 @@ git commit -m "refactor(chat): remove ChatRunner product path"
 - Create after each authorized execution: `docs/superpowers/reports/<date>-rookchat-prime-acp-<gate>.md`
 
 **Interfaces:**
-- Produces: external, create-only, finite qualification artifacts for combined offline A+B and separately authorized C, D, and E.
+- Produces: external, create-only, finite qualification artifacts for combined model-free pre-contact A+B and separately authorized C, D, and E.
 - Consumes: installed artifacts and public product boundaries only; no qualification module is imported by `mcp_server/src/rook`.
 
 - [ ] **Step 1: Write RED protocol-custody tests**
@@ -1724,9 +1804,37 @@ Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed i
 
 - [ ] **Step 4: Implement Slice B against the installed Prime artifact and deterministic provider**
 
-Use an isolated environment with exact `PRIME_AGENT_CODING_AGENT_DIR`, `HOME`, and `USERPROFILE` beneath the fresh evidence root; an isolated kernel path; a local deterministic provider; and a unique daemon-socket tripwire. The installed runtime must execute `initialize -> session/new -> session/prompt -> session/close -> EOF`, materialize the assigned file, reopen the same file, and answer consistently using prior context. Exercise lazy MCP start, representative Rook calls completing inside Prime's fixed 20-second startup and 60-second call limits, cancellation, MCP cleanup, fresh MCP establishment after reopen, manifest identity, required flags, zero tripwire contact, and clean direct-child exit. Product code still reads only the first-line header envelope.
+Use an isolated environment with exact `PRIME_AGENT_CODING_AGENT_DIR`, `HOME`,
+and `USERPROFILE` beneath the fresh evidence root, an absent isolated kernel
+root, a local deterministic provider, and a unique daemon-socket tripwire.
+Construct the admitted environment without ambient `uv`, Hermes, WSL, Git Bash,
+or the Rook worktree venv on `PATH`; the manifest-bound runtime
+`tools/uv` directory must be the first executable-search location. Do not set
+`PRIME_AGENT_KERNEL_PYTHON`, seed the kernel, or reuse a warm Prime home. The
+first deterministic prompt must cause real IPython execution and
+`mcp.call_tool("rook", ...)`, thereby proving that the bundled `uv` establishes
+Prime's ordinary mutable kernel from a clean customer-equivalent state.
 
-The combined offline gate also runs the static installed-product verifier against a staged install, proves the source-to-installed hash map is complete, and proves the deployment/installer guards preserve ACP data. This is not permission to deploy into Rhino's live plugin directories.
+The installed runtime must execute
+`initialize -> session/new -> session/prompt -> session/close -> EOF`,
+materialize the assigned file, reopen the same file, and answer consistently
+using prior context. Exercise lazy MCP start, representative Rook calls
+completing inside Prime's fixed 20-second startup and 60-second call limits,
+cancellation, MCP cleanup, fresh MCP establishment after reopen, manifest
+identity, required flags, zero tripwire contact, and clean direct-child exit.
+Retain the bundled uv path/hash/version, absent-before/present-after kernel
+root, bounded bootstrap output, and resulting Prime-owned kernel interpreter
+path. Product code still reads only the first-line header envelope.
+
+The existing `offline` artifact name means no external provider/model, Rook,
+Rhino, or Grasshopper contact. Slice B is not network-disconnected: first-time
+Prime kernel setup intentionally downloads Python, `prime-agent-runtime`, and
+default packages through the bundled uv. The frozen protocol gives that one
+bootstrap a predeclared wall-clock bound; failure is terminal for that protocol
+version, with no retry or timeout adjustment. This gate makes no general
+network-containment claim.
+
+The combined model-free pre-contact gate also runs the static installed-product verifier against a staged install, proves the source-to-installed hash map is complete, and proves the deployment/installer guards preserve ACP data. This is not permission to deploy into Rhino's live plugin directories.
 
 - [ ] **Step 5: Run only model-free tests, then commit the frozen qualification code**
 
@@ -1810,7 +1918,7 @@ Native compilation, installed artifact execution, provider contact, Rhino contac
 
 1. Review Tasks 1-5 together as the Python ACP ownership foundation. No installed Prime execution is required for this review.
 2. Review Tasks 6-9 as the product cutover and Rook/GH authority boundary. Run fake/model-free tests only.
-3. Review Tasks 10-12's authored packaging, replacement, data-retention, and qualification code as one offline pre-contact gate covering technical Slices A and B. Build verification may produce artifacts but must not launch Prime.
+3. Review Tasks 10-12's authored packaging, replacement, data-retention, and qualification code as one model-free pre-contact gate covering technical Slices A and B. Build verification may produce artifacts but must not launch Prime.
 4. Review the frozen combined A+B package, then authorize at most one execution.
 5. Review sealed A+B evidence before authorizing Slice C.
 6. Review sealed C evidence before authorizing one installed-product promotion.
@@ -1829,7 +1937,7 @@ Native compilation, installed artifact execution, provider contact, Rhino contac
 - [ ] Prime owns credentials, settings, transcript, goals, compaction, IPython, and model context.
 - [ ] Rook host generation and Rhino serial are authoritative; PID is routing-only.
 - [ ] GH mutation schemas visibly require one centrally enforced optimistic document token; receipts and fenced reads bind the actual document ID.
-- [ ] The installed Prime artifact and Markdown skill are closed-manifest verified and historical runtimes/data survive update, rollback, and data-retaining uninstall.
+- [ ] The installed Prime artifact, Markdown skill, and pinned official uv bootstrap executable/licenses are closed-manifest verified; the Prime child resolves bundled uv before ambient tools; historical runtimes/data survive update, rollback, and data-retaining uninstall.
 - [ ] One approved source commit is built with MSVC 14.44, deployed through the existing product path, and rehashed at every installed consumer before Slices D and E.
 - [ ] ChatRunner, backend selection, private RPC, daemon topology, worker auth, leases, process probes, kernel RPC, and Task 7 code are absent.
-- [ ] Combined offline A+B and separately authorized C/D/E gates preserve immutable, bounded evidence without retries or overwrite.
+- [ ] Combined model-free pre-contact A+B and separately authorized C/D/E gates preserve immutable, bounded evidence without retries or overwrite.
