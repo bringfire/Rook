@@ -5484,7 +5484,10 @@ namespace Rook.Handlers
                 if (string.IsNullOrWhiteSpace(readinessReceiptId))
                     return ReadinessIssueFailure("readiness_receipt_id_invalid");
 
-                var gate = _solveReceiptRegistry.CheckFencedRead(readinessReceiptId, gh.Document!);
+                var gate = _solveReceiptRegistry.CheckFencedRead(
+                    readinessReceiptId,
+                    gh.Document!,
+                    GrasshopperDispatchContext.Current?.DocumentId.ToString("D"));
                 if (!gate.Allowed)
                     return ReadinessFenceFailure(gate);
                 readinessGate = gate;
@@ -6302,6 +6305,17 @@ namespace Rook.Handlers
 
         private GrasshopperContext GetGrasshopper(bool requireDocument = true)
         {
+            var dispatch = GrasshopperDispatchContext.Current;
+            if (dispatch is not null)
+            {
+                return new GrasshopperContext(
+                    true,
+                    null,
+                    dispatch.Assembly,
+                    dispatch.Canvas,
+                    dispatch.Document);
+            }
+
             lock (_lock)
             {
                 _ghAssembly ??= AppDomain.CurrentDomain.GetAssemblies()
@@ -7282,7 +7296,10 @@ namespace Rook.Handlers
                 if (!gh.Success)
                     return GrasshopperNotReadyResponse("gh_snapshot", null, gh.Error);
 
-                var gate = _solveReceiptRegistry.CheckFencedRead(readinessReceiptId!, gh.Document!);
+                var gate = _solveReceiptRegistry.CheckFencedRead(
+                    readinessReceiptId!,
+                    gh.Document!,
+                    GrasshopperDispatchContext.Current?.DocumentId.ToString("D"));
                 if (!gate.Allowed)
                     return ReadinessFenceFailure(gate);
                 readinessGate = gate;
@@ -7560,6 +7577,7 @@ namespace Rook.Handlers
                         mutation_epoch = receipt.MutationEpoch,
                         solution_run_epoch = receipt.SolutionRunEpoch,
                         completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
+                        gh_document_id = receipt.GhDocumentId,
                     };
                     snapshot["behavioral_point_outputs"] = behavioralPointOutputs!;
                 }

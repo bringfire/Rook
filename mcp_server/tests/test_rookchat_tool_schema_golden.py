@@ -108,17 +108,12 @@ def test_fallback_catalog_rhino_execute_schema_is_actionable():
     assert audit_litellm_tool_schema(catalog["rhino_execute"]) == []
 
 
-def test_local_catalog_rhino_execute_intent_schema_is_actionable():
+def test_local_catalog_does_not_reintroduce_retired_rhino_execute_intent():
     from rook.agent.chat.chat_runner import _build_local_tool_catalog
 
     catalog = _build_local_tool_catalog({"rhino_execute_intent": object()})
 
-    intent_params = catalog["rhino_execute_intent"]["function"]["parameters"]
-    assert intent_params["type"] == "object"
-    assert intent_params["required"] == ["intent"]
-    assert intent_params["additionalProperties"] is False
-    assert "intent" in intent_params["properties"]
-    assert audit_litellm_tool_schema(catalog["rhino_execute_intent"]) == []
+    assert "rhino_execute_intent" not in catalog
 
 
 def test_local_catalog_unknown_tools_are_closed_by_default():
@@ -199,17 +194,27 @@ async def test_local_gh_create_required_fields_match_server_mcp_contract():
     })
     server_tools = {tool.name: tool for tool in await server.list_tools()}
 
-    assert (
-        local_catalog["gh_create_script"]["function"]["parameters"]["required"]
-        == server_tools["gh_create_script"].inputSchema["required"]
-        == ["language", "code"]
-    )
+    assert local_catalog["gh_create_script"]["function"]["parameters"]["required"] == [
+        "language",
+        "code",
+    ]
+    assert server_tools["gh_create_script"].inputSchema["required"] == [
+        "language",
+        "code",
+        "expectedGhDocumentId",
+    ]
     for tool_name in ("gh_create_python_script", "gh_create_csharp_script"):
-        assert (
-            local_catalog[tool_name]["function"]["parameters"]["required"]
-            == server_tools[tool_name].inputSchema["required"]
-            == ["code", "pins_in", "pins_out"]
-        )
+        assert local_catalog[tool_name]["function"]["parameters"]["required"] == [
+            "code",
+            "pins_in",
+            "pins_out",
+        ]
+        assert server_tools[tool_name].inputSchema["required"] == [
+            "code",
+            "pins_in",
+            "pins_out",
+            "expectedGhDocumentId",
+        ]
 
 
 def _active_schemas_after_requesting_gh_canvas():

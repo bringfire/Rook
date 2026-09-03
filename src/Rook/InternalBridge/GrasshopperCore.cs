@@ -46,13 +46,30 @@ namespace Rook.InternalBridge
 
         private GrasshopperStatusDto ObserveStatus()
         {
-            lock (_lock)
+            var dispatch = GrasshopperDispatchContext.Current;
+            Assembly? assembly;
+            object? canvas;
+            object? document;
+            if (dispatch is not null)
             {
-                _ghAssembly ??= AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == "Grasshopper");
+                assembly = dispatch.Assembly;
+                canvas = dispatch.Canvas;
+                document = dispatch.Document;
+            }
+            else
+            {
+                lock (_lock)
+                {
+                    _ghAssembly ??= AppDomain.CurrentDomain.GetAssemblies()
+                        .FirstOrDefault(a => a.GetName().Name == "Grasshopper");
+                }
+
+                assembly = _ghAssembly;
+                canvas = null;
+                document = null;
             }
 
-            if (_ghAssembly == null)
+            if (assembly == null)
             {
                 return new GrasshopperStatusDto
                 {
@@ -66,14 +83,18 @@ namespace Rook.InternalBridge
             }
 
             var warnings = new List<string>();
-            var instancesType = _ghAssembly.GetType("Grasshopper.Instances");
+            var instancesType = assembly.GetType("Grasshopper.Instances");
             var available = instancesType != null;
-            object? canvas = null;
-            object? document = null;
             bool? canvasVisible = null;
             var visibilityUnknown = true;
 
-            if (instancesType == null)
+            if (dispatch is not null)
+            {
+                canvasVisible = DetectCanvasVisible(canvas!, out visibilityUnknown);
+                if (visibilityUnknown)
+                    warnings.Add("Grasshopper canvas visibility could not be detected.");
+            }
+            else if (instancesType == null)
             {
                 warnings.Add("Grasshopper.Instances type was not found in the loaded Grasshopper assembly.");
             }
@@ -118,15 +139,13 @@ namespace Rook.InternalBridge
             return new GrasshopperStatusDto
             {
                 Available = available,
-                AssemblyVersion = _ghAssembly.GetName().Version?.ToString() ?? "",
+                AssemblyVersion = assembly.GetName().Version?.ToString() ?? "",
                 HasActiveCanvas = canvas != null,
                 CanvasVisible = canvasVisible,
                 VisibilityUnknown = visibilityUnknown,
                 HasActiveDocument = document != null,
-                DocumentId = GetStringProperty(document, "DocumentID")
-                    ?? GetStringProperty(document, "DocumentGuid")
-                    ?? GetStringProperty(document, "InstanceGuid")
-                    ?? GetStringProperty(document, "Guid"),
+                DocumentId = dispatch?.DocumentId.ToString("D")
+                    ?? GetExactDocumentId(document),
                 DocumentName = documentName,
                 DocumentPath = documentPath,
                 ReadyForEdit = available && canvas != null && document != null && canvasVisible != false,
@@ -252,6 +271,15 @@ namespace Rook.InternalBridge
 
         private ResolvedGrasshopperContext ResolveContext()
         {
+            var dispatch = GrasshopperDispatchContext.Current;
+            if (dispatch is not null)
+            {
+                return ResolvedGrasshopperContext.Ok(
+                    dispatch.Assembly!,
+                    dispatch.Canvas!,
+                    dispatch.Document!);
+            }
+
             lock (_lock)
             {
                 _ghAssembly ??= AppDomain.CurrentDomain.GetAssemblies()
@@ -287,6 +315,26 @@ namespace Rook.InternalBridge
             }
 
             return ResolvedGrasshopperContext.Ok(_ghAssembly, canvas, document);
+        }
+
+        private static string? GetExactDocumentId(object? document)
+        {
+            if (document is null)
+                return null;
+
+            try
+            {
+                var property = document.GetType().GetProperty("DocumentID");
+                return property?.PropertyType == typeof(Guid) &&
+                    property.GetValue(document) is Guid id &&
+                    id != Guid.Empty
+                    ? id.ToString("D")
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static string BuildNotReadyMessage(GrasshopperStatusDto status)

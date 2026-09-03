@@ -12,6 +12,27 @@ namespace Rook.Tests.InternalBridge
     {
         private static readonly object DocumentA = new object();
         private static readonly object DocumentB = new object();
+        private const string GhDocumentA = "11111111-1111-1111-1111-111111111111";
+        private const string GhDocumentB = "22222222-2222-2222-2222-222222222222";
+
+        [Fact]
+        public void MutationReceipt_BindsActualGhDocumentAndFenceRejectsChangedGhDocument()
+        {
+            var registry = CreateRegistry();
+            var issue = registry.IssueMutation(DocumentA, GhDocumentA);
+            var receipt = issue.Receipt!;
+            registry.MarkScheduleAccepted(receipt.ReceiptId);
+            registry.OnSolutionStart(DocumentA);
+            registry.OnSolutionEnd(DocumentA);
+
+            var same = registry.CheckFencedRead(receipt.ReceiptId, DocumentA, GhDocumentA);
+            var changed = registry.CheckFencedRead(receipt.ReceiptId, DocumentA, GhDocumentB);
+
+            Assert.Equal(GhDocumentA, receipt.GhDocumentId);
+            Assert.True(same.Allowed);
+            Assert.False(changed.Allowed);
+            Assert.Equal("gh_target_changed", changed.Error);
+        }
 
         [Fact]
         public void MatchingStartThenEnd_MarksLatestReceiptReady()

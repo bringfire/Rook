@@ -326,6 +326,7 @@ async def test_public_mcp_handoff_is_structured_error_without_private_marker(
 
     monkeypatch.setattr(server, "call_rhino", fail_if_contacted)
     request = _edit_with({"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]})
+    request["expectedGhDocumentId"] = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
     result = await _public_call("gh_edit", request)
 

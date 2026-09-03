@@ -27,7 +27,8 @@ namespace Rook.InternalBridge
         string? Reason,
         string? CompletionSignal,
         DateTimeOffset IssuedAt,
-        DateTimeOffset? CompletedAt);
+        DateTimeOffset? CompletedAt,
+        string? GhDocumentId = null);
 
     internal sealed record GhReadinessIssueResult(
         bool Issued,
@@ -89,7 +90,7 @@ namespace Rook.InternalBridge
             _fencedReadObserver = fencedReadObserver;
         }
 
-        internal GhReadinessIssueResult IssueMutation(object document)
+        internal GhReadinessIssueResult IssueMutation(object document, string? ghDocumentId = null)
         {
             if (document is null)
             {
@@ -119,7 +120,8 @@ namespace Rook.InternalBridge
                     null,
                     null,
                     _utcNow(),
-                    null);
+                    null,
+                    ghDocumentId);
                 var entry = new ReceiptEntry(receipt, now, ++_nextInsertionOrder);
                 _entries.Add(receipt.ReceiptId, entry);
                 session.LatestReceiptId = receipt.ReceiptId;
@@ -337,7 +339,10 @@ namespace Rook.InternalBridge
             }
         }
 
-        internal GhFencedReadGate CheckFencedRead(string receiptId, object activeDocument)
+        internal GhFencedReadGate CheckFencedRead(
+            string receiptId,
+            object activeDocument,
+            string? activeGhDocumentId = null)
         {
             GhFencedReadGate gate;
             lock (_sync)
@@ -353,6 +358,14 @@ namespace Rook.InternalBridge
                     if (receipt.Status != GhSolveReadinessStatus.Ready)
                     {
                         gate = new GhFencedReadGate(false, receipt, FenceErrorFor(receipt));
+                    }
+                    else if (receipt.GhDocumentId is not null &&
+                        !string.Equals(
+                            receipt.GhDocumentId,
+                            activeGhDocumentId,
+                            StringComparison.Ordinal))
+                    {
+                        gate = new GhFencedReadGate(false, receipt, "gh_target_changed");
                     }
                     else if (activeDocument is null ||
                         !_sessions.TryGetValue(activeDocument, out var session) ||

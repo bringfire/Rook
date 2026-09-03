@@ -62,6 +62,13 @@ def test_readonly_is_disjoint_from_sentinels():
     assert PUBLIC_READONLY_TOOL_NAMES.isdisjoint(SENTINEL_TOOL_NAMES)
 
 
+def test_solve_readiness_status_and_wait_are_readonly_observations():
+    assert {
+        "gh_solve_readiness",
+        "gh_wait_for_solve_readiness",
+    } <= PUBLIC_READONLY_TOOL_NAMES
+
+
 def test_lean_is_not_a_subset_of_readonly():
     # lean is a *context* surface that must do work; it deliberately includes
     # 5 mutators plus the openrouter_refresh_catalog provider tool, none in the
