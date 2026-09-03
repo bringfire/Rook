@@ -8,7 +8,14 @@
 
 **Prime upstream baseline:** `c718bf3c30fd8da206ed551837cbb54f7ad15948`
 
-**Prime compatibility patch:** `9c25468b62c79fc4b1419d7800740e8e41e30467`
+**Reviewed Prime compatibility precursor:**
+`9c25468b62c79fc4b1419d7800740e8e41e30467`
+
+**Prime product compatibility patch:** one final independently reviewed commit
+directly over the upstream baseline. It replaces the precursor and contains only
+daemon-free ACP selection, platform-aware kernel-interpreter resolution, and
+completion of Prime's standalone Python-runtime payload. Its exact commit is
+frozen before the release build.
 
 **Protocol dependencies:** Prime ACP SDK `1.3.0`; Python
 `agent-client-protocol==0.12.1`
@@ -35,9 +42,12 @@ The work leaves useful evidence, not reusable product machinery:
 - Failed or ambiguous operations are never replayed automatically.
 - Qualification evidence must be finite, frozen, and external to product code.
 
-The replacement uses Prime's supported ACP surface plus the independently
-removable `--no-daemon` compatibility patch. No other private Prime change is
-part of this design.
+The replacement uses Prime's supported ACP surface plus one independently
+removable compatibility patch. The reviewed `--no-daemon` precursor is folded
+into that single final commit rather than extended as a patch stack. The two
+additional changes make Prime's existing kernel and release paths function as
+documented on Windows; they do not add a Rook protocol or kernel. No other
+private Prime change is part of this design.
 
 ## 2. Objective And Scope
 
@@ -858,6 +868,22 @@ versioned product dependency. It uses Prime's existing supported
 release/standalone artifact shape; Rook does not invent a source layout or copy
 selected `dist` files.
 
+The final removable Prime compatibility commit closes two defects in that
+upstream shape:
+
+- Prime resolves the venv interpreter as `Scripts/python.exe` on Windows and
+  `bin/python` on other platforms. One shared helper supplies both bootstrap and
+  ready-check paths, with causal tests for `win32` and non-Windows selection.
+- Prime's standalone builder copies the complete matching
+  `dist/prime-agent-runtime` subtree produced by `npm run build` into
+  `<standalone-root>/dist/prime-agent-runtime`. This is the location Prime's
+  existing bootstrap already searches. The standalone artifact must not rely
+  on the bare, unpublished `prime-agent-runtime` package name.
+
+The Rook packager consumes that complete standalone directory unchanged. It
+does not reconstruct the Python runtime from source or append selected Prime
+files after the builder finishes.
+
 The executable authority is a closed, relocatable manifest over the installed
 artifact. The manifest and every byte it binds are generated into one release
 staging tree, verified together, and packaged together; source control does not
@@ -874,6 +900,10 @@ provenance, not runtime proof. Runtime metadata records:
 - expected ACP compatibility version;
 - exact `rook-full` manifest identity;
 - exact Python ACP SDK version;
+- exact official `uv` version, executable identity, source archive, and license
+  identities;
+- exact relative `dist/prime-agent-runtime` root and its closed subtree
+  manifest identity;
 - product runtime compatibility schema.
 
 For each immutable package root, the closed manifest includes every regular
@@ -900,6 +930,76 @@ Prime's mutable user data remains outside the immutable executable directory:
 - non-expiring `open.claim` fences remain under the Rook data root;
 - Prime kernel state remains in Prime's supported mutable location.
 
+The immutable runtime contains the two prerequisites Prime needs to create that
+mutable kernel on a clean Windows installation:
+
+- official `uv` 0.12.3 for `x86_64-pc-windows-msvc` at
+  `tools/uv/uv.exe`, including its verified Apache-2.0 and MIT license files;
+- the complete matching Prime-built Python source package at
+  `dist/prime-agent-runtime`.
+
+The `uv` release inputs are frozen as:
+
+```text
+archive: https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-pc-windows-msvc.zip
+archive SHA-256: B23350C79E8AD0192B8124AF13A0F17E8D4E4549524785E1AEF389AE5A06990E
+LICENSE-APACHE SHA-256: C71D239DF91726FC519C6EB72D318EC65820627232B2F796219E87DCF35D0AB4
+LICENSE-MIT SHA-256: 860E3D7A86B84E6A7012C7A635FC64DF475CEBC6CCE34DFEB73A5982EC58176C
+```
+
+Every file in both subtrees is bound by the one runtime manifest. RookChat
+prepends the manifest-verified `tools/uv` directory to the Prime child `PATH`.
+Prime then owns Python 3.11 acquisition, venv creation, package installation,
+bootstrap versioning, and the mutable kernel. RookChat does not create a
+contract-specific kernel or install Python dependencies itself.
+
+Before adding the bundled `uv` directory, the child-environment builder removes
+these inherited keys case-insensitively:
+
+```text
+PI_PACKAGE_DIR
+PRIME_AGENT_KERNEL_PYTHON
+PRIME_AGENT_KERNEL_VENV
+PRIME_AGENT_INSTALL_UV
+VIRTUAL_ENV
+PYTHONHOME
+PYTHONPATH
+UV_PYTHON
+```
+
+This prevents an ambient package-root, warm kernel, virtual environment, or
+Python override from replacing the installed runtime path. Prime may still use
+its supported mutable user directories and independently supplied credentials.
+The existing Rook `.env` credential path remains excluded as specified in
+section 11.
+
+The user installs only Rook. The first Prime session creation may begin a
+background kernel prewarm, and the first IPython/Rook operation may wait while
+bundled `uv` downloads Python, installs the manifest-bound Prime runtime source,
+and resolves Prime's default Python packages.
+That first use requires internet access and can take longer. Failure remains a
+Prime-owned tool failure; RookChat does not retry, repair, or substitute a
+kernel.
+
+The Windows release build has a separate, build-only toolchain contract. It
+binds the actual commands used by Prime's builder, including `dirname` before
+`npm ci` and `git` during `bundle.mjs`. The required `zip` implementation comes
+from the official MSYS2 x86_64 package `zip-3.0-5`:
+
+```text
+https://mirror.msys2.org/msys/x86_64/zip-3.0-5-x86_64.pkg.tar.zst
+SHA-256 874E20BF625FBE577949444FAF30AB9A725DBD4886EC9BFF26459152DA7F831C
+```
+
+It is provisioned as part of the release-machine environment, not downloaded by
+Task 10 and not shipped with Rook. The build contract binds its exact installed
+`zip.exe`, required MSYS runtime files, source package identity, and bounded
+version output. The installed executable and runtime-file hashes are build
+authority; the MSYS2 package URL and archive hash are provenance. All other
+invoked build tools are likewise path-, hash-, and
+version-bound. An incomplete or mismatched build environment refuses before
+`npm ci`; the package script never installs or discovers a substitute.
+
 Ambient Prime skills, extensions, MCP servers, context files, and prompt
 templates are excluded by the explicit launch configuration. Prime-owned
 credentials and selected user settings are intentional mutable inputs.
@@ -922,8 +1022,9 @@ its last known-good Prime artifact. No emergency compatibility mechanism enters
 product runtime.
 
 The compatibility patch is removed when an official Prime release provides
-equivalent daemon-free ACP selection and the installed-artifact compatibility
-suite passes unchanged.
+equivalent daemon-free ACP selection, platform-correct kernel bootstrap, and a
+complete standalone Python-runtime payload, and the installed-artifact
+compatibility suite passes unchanged.
 
 ## 13. Replacement, Cutover, And Rollback
 
@@ -992,14 +1093,16 @@ The following do not enter the ACP product:
 - a Rook-owned MCP facade or `rook_full` Python package;
 - transcript reconstruction or automatic operation replay.
 
-The only Prime compatibility change is the removable daemon-free ACP selector.
+The only Prime compatibility surface is the one removable commit described in
+section 12. It contains the daemon-free ACP selector and the two bounded
+Windows/standalone corrections required to exercise Prime's existing kernel.
 
 ## 15. Qualification
 
 Qualification remains external to product runtime. It progresses through one
-offline review gate and three separately authorized live gates.
+model-free pre-contact review gate and three separately authorized live gates.
 
-### 15.1 Offline Qualification: Slices A And B
+### 15.1 Model-Free Pre-Contact Qualification: Slices A And B
 
 #### Slice A: Product Boundary With Fake ACP Agent
 
@@ -1043,11 +1146,39 @@ Model-free coverage proves:
 - directly owned cleanup and all normal-close failure branches;
 - no PID scan, PowerShell, process surveillance, or process-name cleanup.
 
-#### Slice B: Installed Prime Artifact, Offline
+#### Slice B: Installed Prime Artifact And Cold Kernel Bootstrap
 
 Use the exact installed Prime artifact, isolated Prime directories, a local
 deterministic fake provider, and a unique daemon-socket tripwire. No external
 provider, model, Rook, Rhino, or Grasshopper contact occurs.
+
+Before `session/new`, the gate proves that fresh `HOME`, `USERPROFILE`,
+`APPDATA`, `LOCALAPPDATA`, `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`, and the
+derived Prime kernel root contain no reusable kernel or managed Python. The
+admitted environment contains none of the stripped overrides listed in section
+12. It sets `UV_PYTHON_PREFERENCE=only-managed`, `UV_PYTHON_NO_REGISTRY=1`,
+`UV_PYTHON_INSTALL_REGISTRY=0`, and `UV_NO_CONFIG=1` so an installed or
+registered Python and ambient uv configuration cannot satisfy the gate. The
+installed Prime process runs with `--offline`, which suppresses Prime's
+unrelated updater and catalog traffic; it does not put the separately admitted
+`uv` bootstrap into offline mode. A qualification-owned, deny-by-default
+outbound proxy records and admits only the frozen Python and package downloads
+needed by the manifest-bound `uv`, while loopback serves the deterministic
+provider and Rook MCP double. The frozen host allowlist is exactly
+`github.com`, `api.github.com`, `objects.githubusercontent.com`,
+`release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and
+`files.pythonhosted.org`; a required destination outside that set makes this
+protocol fail and requires a separately reviewed version. No process polling or
+network machinery enters product runtime.
+
+Prime starts kernel prewarm during session creation, so the gate does not claim
+that the first prompt initiates bootstrap. It proves this exact sequence:
+
+```text
+kernel, uv cache, and uv-managed Python absent before session/new
+-> Prime creates its ordinary mutable kernel through bundled uv
+-> first prompt executes real IPython and mcp.call_tool("rook", ...)
+```
 
 The deterministic provider proves persistence behaviorally: after reopen,
 Prime receives prior conversational context and answers consistently. Product
@@ -1060,6 +1191,9 @@ Slice B qualifies:
 - ordinary assistant-turn context continuity across same-file reopen;
 - model-free active cancellation and clean process retirement;
 - lazy MCP startup through the installed Prime artifact;
+- selection of `Scripts/python.exe` from the newly created Windows venv;
+- installation of the manifest-bound local `dist/prime-agent-runtime` rather
+  than a registry fallback;
 - cancellation during an MCP call and session-close MCP cleanup;
 - fresh MCP server establishment after same-file reopen;
 - required launch configuration and excluded ambient resources;
