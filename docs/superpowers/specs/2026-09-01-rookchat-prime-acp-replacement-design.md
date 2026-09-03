@@ -943,9 +943,18 @@ The `uv` release inputs are frozen as:
 ```text
 archive: https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-pc-windows-msvc.zip
 archive SHA-256: B23350C79E8AD0192B8124AF13A0F17E8D4E4549524785E1AEF389AE5A06990E
+archive maximum: 134217728 bytes
 LICENSE-APACHE SHA-256: C71D239DF91726FC519C6EB72D318EC65820627232B2F796219E87DCF35D0AB4
+LICENSE-APACHE maximum: 1048576 bytes
 LICENSE-MIT SHA-256: 860E3D7A86B84E6A7012C7A635FC64DF475CEBC6CCE34DFEB73A5982EC58176C
+LICENSE-MIT maximum: 1048576 bytes
 ```
+
+Release packaging checks a supplied `Content-Length` before reading a body and
+also counts bytes while streaming because the header may be absent or false.
+The applicable ceiling is enforced before each write. Exact-limit content is
+admitted; one byte over is refused. An incomplete create-only file remains only
+inside the failed invocation's quarantined scratch and has no package authority.
 
 Every file in both subtrees is bound by the one runtime manifest. RookChat
 prepends the manifest-verified `tools/uv` directory to the Prime child `PATH`.
@@ -1029,16 +1038,23 @@ The fixed MSYS2 bootstrap inputs are:
 ```text
 base: https://github.com/msys2/msys2-installer/releases/download/2026-06-11/msys2-base-x86_64-20260611.sfx.exe
 base SHA-256: C105946E64E08F099AC0E4647461CE762B95333AD211777666476A9A41451D65
+base maximum: 268435456 bytes
 zip: https://mirror.msys2.org/msys/x86_64/zip-3.0-5-x86_64.pkg.tar.zst
 zip SHA-256: 874E20BF625FBE577949444FAF30AB9A725DBD4886EC9BFF26459152DA7F831C
+zip maximum: 4194304 bytes
 unzip: https://mirror.msys2.org/msys/x86_64/unzip-6.0-3-x86_64.pkg.tar.zst
 unzip SHA-256: C98EBAC31EA92A63CF61C6190ED3E8284CCC0C29C43973F1B2C0DE2874E5ACFE
+unzip maximum: 4194304 bytes
 ```
 
 Each invocation creates a new short ASCII-only same-volume staging sibling and
 uses one `System.Net.Http.HttpClient` request per source with a fixed five-minute
 deadline, redirects enabled, and no application retry. Each response is written
-create-only and hash-verified before use. The verified SFX is launched directly,
+create-only and hash-verified before use. A supplied `Content-Length` above the
+source's fixed maximum refuses before body transfer. A streaming counter
+independently refuses before writing any byte that would exceed that same
+maximum. Exact-limit content is admitted. An incomplete file remains only in
+the failed staging generation and has no authority. The verified SFX is launched directly,
 hidden, and awaited for at most five minutes with the exact argument array
 `["-y", "-o<staging>/extract"]` and the download directory as its working
 directory. Extraction must produce exactly one top-level `msys64` directory,
@@ -1077,6 +1093,106 @@ and output from the beginning. The final versioned output is immutable after
 successful publication. This deterministic provisioning rule is separate from
 the no-retry rule for a frozen live qualification run.
 
+`BuildToolchainContract` is closed at every object boundary. Its exact top-level
+keys are `schemaVersion`, `kind`, `msys2`, `externalInputs`, `tools`, and `npm`:
+
+```text
+schemaVersion: integer exactly 1
+kind: string exactly "rook-prime-build-toolchain"
+msys2:
+  release: string exactly "20260611"
+  root: string exactly "root"
+  files: one-or-more FileRow values
+  manifestSha256: uppercase 64-hex string
+  packages: one-or-more PackageRow values
+  sources: object with exactly base, zip, and unzip SourceRow values
+  provisioning:
+    download: object with exactly attemptsPerSource=1, maxRedirects=5,
+      timeoutSeconds=300
+    extract: CommandRow for the exact SFX call
+    initialize: CommandRow for the exact login call
+    install: CommandRow for the exact pacman call
+    extractEnvironment: object containing exactly SystemRoot, TEMP, TMP, WINDIR
+    msysEnvironment: object containing exactly CHERE_INVOKING, HOME, MSYSTEM,
+      PATH, SystemRoot, TEMP, TMP, USERPROFILE, WINDIR
+    pacmanConfig: FileRow for root/etc/rook-local-pacman.conf
+externalInputs:
+  powershell: VersionedFileRow
+  node: object with exactly root, files, manifestSha256,
+    expectedNodeVersion, observedNodeVersion,
+    expectedNpmVersion, observedNpmVersion
+  git: object with exactly root, files, manifestSha256,
+    expectedVersion, observedVersion
+  bun: VersionedFileRow
+  prime: object with exactly worktree and npmrc FileRow
+  cmd: VersionedFileRow
+tools: exactly 15 ToolRow values for bash, bun, cmd, cp, dirname, git, ls,
+  mkdir, mv, node, npm, rm, tar, unzip, and zip
+npm:
+  userConfig: FileRow for root/etc/rook-user.npmrc with length 0
+  globalConfig: FileRow for root/etc/rook-global.npmrc with length 0
+  scriptShell: string equal to the verified cmd path
+  comSpec: string equal to the verified cmd path
+```
+
+Every `FileRow` has exactly `path` (nonempty string), `length` (nonnegative JSON
+integer), and `sha256` (uppercase 64-hex string). Every `VersionedFileRow` adds
+exactly `expectedVersion` and `observedVersion`, both nonempty strings. Every
+`PackageRow` has exactly nonempty string `name` and `version`. Every `SourceRow`
+has exactly `url` (the frozen HTTPS URL), `sha256` (the frozen uppercase hash),
+and positive integer `maxBytes` (268435456 for `base`, 4194304 for `zip`, and
+4194304 for `unzip`). Every `ToolRow` has exactly `name`, absolute regular-file
+`path`, nonnegative integer `length`, and uppercase `sha256`. Every `CommandRow`
+has exactly `executable`, `arguments`, `workingDirectory`, and positive integer
+`timeoutSeconds`; its strings, ordered argument array, and deadline equal the
+three frozen commands above. Environment values use the exact `{staging}`
+templates above and are materialized only beneath the current staging sibling.
+
+The `node` and `git` roots are absolute nonempty strings, their `files` arrays
+contain one or more `FileRow` values relative to those roots, and their manifest
+hashes are uppercase 64-hex strings. All expected/observed version fields are
+nonempty strings. `prime.worktree` is an absolute nonempty string and its
+`npmrc.path` is the absolute `.npmrc` beneath that worktree. The npm user/global
+config paths are contract-parent-relative strings under `root/etc`; all other
+tool and external file paths are absolute. The two exact environment objects are:
+
+```text
+extractEnvironment = {
+  "SystemRoot":"C:/Windows",
+  "TEMP":"{staging}/scratch/temp",
+  "TMP":"{staging}/scratch/temp",
+  "WINDIR":"C:/Windows"
+}
+msysEnvironment = {
+  "CHERE_INVOKING":"1",
+  "HOME":"{staging}/root/home/rookbuild",
+  "MSYSTEM":"MSYS",
+  "PATH":"{staging}/root/usr/bin;C:/Windows/System32",
+  "SystemRoot":"C:/Windows",
+  "TEMP":"{staging}/scratch/temp",
+  "TMP":"{staging}/scratch/temp",
+  "USERPROFILE":"{staging}/root/home/rookbuild",
+  "WINDIR":"C:/Windows"
+}
+```
+
+File arrays are unique and sorted by `path` using ordinal code-point order.
+Package rows are unique by `name` and sorted by `name`, then `version`, using the
+same order. Tool rows are unique and sorted by `name`; their names must equal the
+complete 15-name set above. Command argument arrays retain their declared
+semantic order. All strings are valid Unicode without unpaired surrogates.
+Missing, extra, or duplicate keys at any depth refuse.
+
+The contract is strict UTF-8 without BOM. Objects are serialized recursively
+with keys sorted ordinally, arrays in the required order, and compact separators
+with no insignificant whitespace. The complete JSON value is followed by
+exactly one LF and no other bytes. Each `manifestSha256` is the SHA-256 of the
+corresponding canonically serialized `files` array followed by one LF. The
+contract SHA-256 is computed over the exact complete file bytes. The Python
+verifier parses with duplicate-key detection, validates the closed schema,
+reconstructs the canonical bytes, requires byte-for-byte equality with the
+stored file, and only then compares the independently approved contract hash.
+
 The build contract binds that whole MSYS2 root, complete manifests of the
 external Node/npm and Git installations, the standalone Bun executable, all
 commands actually consumed by Prime's builder, and the Windows command
@@ -1098,6 +1214,38 @@ gates directly. Missing, malformed, substituted, or changed inputs refuse
 without discovery, fallback, or repair. The provisioned MSYS2 root, `zip`, and
 `unzip` are release-machine dependencies only and never enter the Rook installer
 or a customer machine.
+
+Each package invocation derives the scratch parent from the canonical output
+volume as `<volume-root>/UDEV/RookBuildScratch/prime-acp`; for the frozen Task 10
+output this is `C:/UDEV/RookBuildScratch/prime-acp`. It then creates one unique
+`package.<32-lowercase-hex-guid>` child create-only and refuses a pre-existing
+leaf. The leaf must be empty and canonically outside every source worktree,
+installed-product root, immutable runtime, and immutable build-toolchain root.
+`HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, and `TMP` all resolve
+beneath that invocation-owned directory. The scratch path is recorded only in
+the bounded build report, never in `BuildToolchainContract`, and is never reused
+or resumed. Failed scratch has no authority; another invocation creates a new
+empty generation.
+
+The directly retained Prime build process has a mandatory 1800-second
+wall-clock deadline. Timeout calls process-handle-owned
+`Kill(entireProcessTree: true)`, waits at most 30 additional seconds for exit,
+and reports a failed build. Partial output is not packaged or verified. No
+process discovery, kill by name, PID scan, identity probe, timeout adjustment,
+or automatic retry is admitted.
+
+Model-free qualification covers both boundaries directly. Download tests for
+the MSYS2 base, zip, unzip, uv archive, and each uv license refuse an oversized
+`Content-Length` before reading the body, refuse an oversized stream when the
+header is absent, admit the exact ceiling, and refuse one byte over. Scratch
+tests refuse a pre-existing generated leaf and path escape, prove all six
+profile/temp paths remain beneath the new leaf, and prove a failed generation
+is never reused. A fake Prime build that never exits reaches the 1800-second
+deadline, receives one handle-owned process-tree termination, is awaited for no
+more than the 30-second cleanup interval, and cannot enter packaging or staged
+runtime verification. Contract tests prove producer/verifier canonical-byte
+and SHA-256 parity and reject duplicate, missing, or unknown keys, wrong array
+order, BOM/non-UTF-8, noncompact JSON, and missing or extra terminal LF.
 
 Ambient Prime skills, extensions, MCP servers, context files, and prompt
 templates are excluded by the explicit launch configuration. Prime-owned
