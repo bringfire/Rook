@@ -8,11 +8,11 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; PowerShell/Inno Setup release tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `00badcee0174c1a0dcd1d4c592c9e827bf9025d3` (SHA-256 `2EBD2DE40DBFA367BBD1B20DE5DAEA54D26CECCCD3EB184B3829A9D41B3CFA0B`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `2d6dac3af874359caf919b09ea247c39f3b888fb` (SHA-256 `E43D3D73615005539017957B1C1432507023335BBD0A19BE214E695608E1CCC0`).
 
 ## Global Constraints
 
-- This plan is authored against frozen specification baseline `00badcee0174c1a0dcd1d4c592c9e827bf9025d3`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
+- This plan is authored against frozen specification baseline `2d6dac3af874359caf919b09ea247c39f3b888fb`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
 - Prime commit `9c25468b62c79fc4b1419d7800740e8e41e30467` is the reviewed daemon-free precursor over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. Before the Task 10 release build, amend that precursor into one final independently reviewed commit whose parent remains the exact upstream baseline and whose only additional production changes are platform-aware kernel-interpreter resolution and inclusion of `dist/prime-agent-runtime` in Prime's standalone artifact. Do not create a patch stack or make any other Prime change.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
@@ -1542,6 +1542,7 @@ the published parent contains exactly manifested root/** plus sibling build-tool
 the complete provisioned MSYS2 root and sorted pacman inventory are manifest-bound before release use
 the toolchain includes direct custody for dirname, git, cmd.exe, npm configuration, and the pinned MSYS2 root
 download uses one bounded HttpClient request per source; SFX extraction, login initialization, and local pacman installation use the exact documented executable, argv, working directory, environment, and deadline
+every MSYS2, zip, unzip, uv, and uv-license download rejects oversized Content-Length before body transfer and independently enforces its fixed byte ceiling while streaming; exact-limit succeeds and one-byte-over refuses
 pacman uses the provisioner-authored repository-free config and explicit LocalFileSigLevel policy; no package URL, repository refresh, or package-manager network access is possible
 unexpected SFX layout, initialization writes outside staging, incomplete package identities, or any pre-publication failure leaves the final destination absent
 a retained failed staging tree is never resumed or adopted, while a later invocation with the same pinned inputs may start from a different empty staging sibling and publish successfully
@@ -1549,6 +1550,9 @@ same-volume publication refuses an occupied destination without changing either 
 the packager requires an independently approved ExpectedBuildToolchainContractSha256 before any probe, network access, or npm ci
 all inherited NPM_CONFIG_* keys are removed case-insensitively before empty user/global files and exact cmd.exe script-shell values are inserted
 the exact final npm userconfig, globalconfig, script-shell, ComSpec, PATH, command resolution, and whole-root MSYS2 manifest are verified before npm ci and unchanged after the build
+BuildToolchainContract rejects missing, extra, and duplicate keys and noncanonical ordering/encoding/LF; PowerShell producer and Python verifier reconstruct identical canonical bytes and contract SHA-256
+each package invocation owns a unique empty same-volume scratch outside source, installed-product, runtime, and toolchain roots; all profile/temp paths remain beneath it and no generation is reused
+the Prime build has a mandatory 1800-second deadline and 30-second process-handle cleanup deadline; timeout forbids packaging or verification of partial output
 the exact package-prime-acp-runtime.ps1 invocation receives the approved Prime commit, published contract, independently approved contract hash, and fresh staging output before any staged-runtime verification
 ```
 
@@ -1618,10 +1622,13 @@ The fixed download inputs are:
 ```text
 base: https://github.com/msys2/msys2-installer/releases/download/2026-06-11/msys2-base-x86_64-20260611.sfx.exe
 baseSha256: C105946E64E08F099AC0E4647461CE762B95333AD211777666476A9A41451D65
+baseMaxBytes: 268435456
 zip: https://mirror.msys2.org/msys/x86_64/zip-3.0-5-x86_64.pkg.tar.zst
 zipSha256: 874E20BF625FBE577949444FAF30AB9A725DBD4886EC9BFF26459152DA7F831C
+zipMaxBytes: 4194304
 unzip: https://mirror.msys2.org/msys/x86_64/unzip-6.0-3-x86_64.pkg.tar.zst
 unzipSha256: C98EBAC31EA92A63CF61C6190ED3E8284CCC0C29C43973F1B2C0DE2874E5ACFE
+unzipMaxBytes: 4194304
 ```
 
 The final output parent must be absent. Create a unique empty same-volume sibling
@@ -1630,11 +1637,18 @@ and `scratch/` children. Download each source exactly once per invocation using
 `System.Net.Http.HttpClientHandler` with redirects enabled and a maximum of five
 redirects, plus one `HttpClient` with `Timeout = [TimeSpan]::FromMinutes(5)`.
 Call `GetAsync(uri, ResponseHeadersRead)` once, require a successful status, and
-copy the response to a create-new file using `FileMode.CreateNew`,
-`FileAccess.Write`, and `FileShare.None`. Dispose response, streams, client, and
-handler deterministically. There is no range request, resume, alternate URL, or
-application retry. Hash each completed download before it can be executed,
-extracted, or copied into the MSYS root.
+check `Content-Length` when present. Refuse before opening the destination body
+file when that value is negative, invalid, or greater than the source's fixed
+maximum. Copy the response in fixed 64 KiB chunks to a create-new file using
+`FileMode.CreateNew`, `FileAccess.Write`, and `FileShare.None`; before every
+write, checked-add the chunk length to a 64-bit counter and refuse if it would
+exceed the same maximum. Exact-limit content succeeds. Missing or false
+`Content-Length` cannot bypass the streaming counter. An oversized or failed
+partial remains quarantined only under the failed staging generation and has no
+authority. Dispose response, streams, client, and handler deterministically.
+There is no range request, resume, alternate URL, or application retry. Hash
+each completed download before it can be executed, extracted, or copied into
+the MSYS root.
 
 All provisioner child processes use `UseShellExecute = $false`,
 `CreateNoWindow = $true`, `WindowStyle = Hidden`, a cleared environment,
@@ -1684,25 +1698,85 @@ distinct zero-byte `root/etc/rook-user.npmrc` and
 `root/etc/rook-global.npmrc`. Only after every initialization write and cleanup
 is complete, record every regular file beneath `root/**` with forward-slash
 relative path, raw byte length, and uppercase SHA-256; reject
-symlinks/reparse-point escapes. The canonical `BuildToolchainContract` contains:
+symlinks/reparse-point escapes. The canonical `BuildToolchainContract` has
+exactly six top-level keys and no optional fields:
 
 ```text
-schemaVersion
-MSYS2 relative root exactly "root", complete recursive file rows, and manifest SHA-256
-complete pacman inventory
-base/zip/unzip source URLs and archive SHA-256 values
-complete Node/npm installation root and recursive manifest SHA-256
-complete Git installation root and recursive manifest SHA-256
-exact PowerShell, Bun, Prime worktree/.npmrc, and cmd.exe input paths and hashes
-exact tool rows for bash, dirname, node, npm, bun, git, zip, unzip, cp, rm,
-  mkdir, mv, tar, ls, and C:/Windows/System32/cmd.exe
-exact empty user/global npmrc paths and hashes
-exact Prime project .npmrc path and hash
-exact npm lifecycle shell and ComSpec, both cmd.exe
-explicit expected and observed PowerShell, Node, npm, Git, Bun, cmd.exe, zip, unzip, bash,
-  and libbz2 versions
-exact extraction, initialization, pacman, signature-policy, environment, and deadline contract
+schemaVersion: integer exactly 1
+kind: string exactly "rook-prime-build-toolchain"
+msys2:
+  release: string exactly "20260611"
+  root: string exactly "root"
+  files: FileRow[1..n]
+  manifestSha256: uppercase 64-hex string
+  packages: PackageRow[1..n]
+  sources: {base: SourceRow, zip: SourceRow, unzip: SourceRow}
+  provisioning:
+    download: {attemptsPerSource: 1, maxRedirects: 5, timeoutSeconds: 300}
+    extract: CommandRow
+    initialize: CommandRow
+    install: CommandRow
+    extractEnvironment: exactly SystemRoot, TEMP, TMP, WINDIR
+    msysEnvironment: exactly CHERE_INVOKING, HOME, MSYSTEM, PATH,
+      SystemRoot, TEMP, TMP, USERPROFILE, WINDIR
+    pacmanConfig: FileRow
+externalInputs:
+  powershell: VersionedFileRow
+  node: {root, files, manifestSha256, expectedNodeVersion,
+    observedNodeVersion, expectedNpmVersion, observedNpmVersion}
+  git: {root, files, manifestSha256, expectedVersion, observedVersion}
+  bun: VersionedFileRow
+  prime: {worktree, npmrc: FileRow}
+  cmd: VersionedFileRow
+tools: ToolRow[15]
+npm: {userConfig: FileRow, globalConfig: FileRow, scriptShell, comSpec}
 ```
+
+`FileRow` has exactly `path: string`, `length: nonnegative integer`, and
+`sha256: uppercase 64-hex string`. `VersionedFileRow` adds exactly nonempty
+`expectedVersion` and `observedVersion`. `PackageRow` has exactly nonempty
+`name` and `version`. `SourceRow` has exactly `url`, `sha256`, and positive
+integer `maxBytes`; its three values are the frozen source rows and ceilings
+above. `ToolRow` has exactly `name`, absolute regular-file `path`, nonnegative
+integer `length`, and uppercase `sha256`. `CommandRow` has exactly `executable`,
+`arguments`, `workingDirectory`, and positive integer `timeoutSeconds`; its
+values are the frozen extraction/login/install rows above.
+
+The `node` and `git` `root` values are absolute nonempty strings, each `files`
+array contains one or more root-relative `FileRow` values, each manifest hash is
+uppercase 64-hex, and every version field is nonempty. `prime.worktree` and its
+`.npmrc` path are absolute. Npm user/global config paths are relative beneath
+`root/etc`, have length zero, and match root file rows. `scriptShell` and
+`comSpec` both equal the verified absolute cmd path. The `pacmanConfig` path is
+exactly `root/etc/rook-local-pacman.conf` and its length/hash match the exact
+UTF-8/LF bytes above.
+
+The contract stores these exact environment templates:
+
+```text
+extractEnvironment = {"SystemRoot":"C:/Windows","TEMP":"{staging}/scratch/temp","TMP":"{staging}/scratch/temp","WINDIR":"C:/Windows"}
+msysEnvironment = {"CHERE_INVOKING":"1","HOME":"{staging}/root/home/rookbuild","MSYSTEM":"MSYS","PATH":"{staging}/root/usr/bin;C:/Windows/System32","SystemRoot":"C:/Windows","TEMP":"{staging}/scratch/temp","TMP":"{staging}/scratch/temp","USERPROFILE":"{staging}/root/home/rookbuild","WINDIR":"C:/Windows"}
+```
+
+File rows are unique and sorted by path using ordinal code-point order. Package
+rows are unique by name and sorted by name then version. Tool rows are unique,
+sorted by name, and have exactly these names: `bash`, `bun`, `cmd`, `cp`,
+`dirname`, `git`, `ls`, `mkdir`, `mv`, `node`, `npm`, `rm`, `tar`, `unzip`,
+`zip`. Command argument arrays retain their declared order. Strings must be
+valid Unicode without unpaired surrogates. Reject every missing, extra, or
+duplicate key at every depth.
+
+Serialize strict UTF-8 without BOM, recursively sorted object keys, compact
+separators, required array order, and exactly one terminal LF. Each
+`manifestSha256` hashes the canonical UTF-8 representation of its `files` array
+plus one LF. Hash the entire exact contract file for
+`ExpectedBuildToolchainContractSha256`. The Python verifier parses with a
+duplicate-key-detecting `object_pairs_hook`, validates the complete closed
+schema, reconstructs canonical bytes, requires byte equality with the stored
+file, and only then compares the independently approved hash. Producer/verifier
+parity tests cover duplicate and unknown keys, missing fields, reordered arrays,
+BOM/non-UTF-8, pretty-printing, missing/extra terminal LF, and one valid contract
+whose PowerShell and Python canonical bytes and SHA-256 are identical.
 
 Every tool row contains an absolute regular-file path and uppercase SHA-256.
 MSYS commands resolve beneath the new root; Node/npm and Git must resolve inside
@@ -1711,7 +1785,10 @@ executable. No external tool may resolve through another installation.
 Run only model-free provisioner/verifier tests and bounded version probes. Fake
 process/download tests must prove exact argv, working directories, environments,
 deadlines, expected extracted layout, hash-before-use ordering, local signature
-policy, and manifest-after-initialization ordering. Causal publication tests must
+policy, and manifest-after-initialization ordering. For each source class, fake
+HTTP tests cover oversized `Content-Length` refusal before body read, absent
+`Content-Length` with an oversized stream, exact-limit success, and one-byte-over
+stream refusal; no partial file can enter a manifest. Causal publication tests must
 prove: the contract is absent from the root manifest; changing contract bytes
 changes the contract hash without recursively changing the root manifest;
 changing a root byte breaks contract verification; an occupied output remains
@@ -1801,11 +1878,29 @@ Missing, malformed, substituted, or changed inputs are terminal; the package
 script never discovers, installs, updates, retries, or falls back to another
 build tool.
 
+Canonicalize `OutputRoot`, derive its volume root, and fix the scratch parent to
+`<volume-root>/UDEV/RookBuildScratch/prime-acp`; the Task 10 command therefore
+uses `C:/UDEV/RookBuildScratch/prime-acp`. Generate one new
+`package.<32-lowercase-hex-guid>` leaf and create it create-only. Refuse if that
+leaf already exists or is not empty. Require the canonical leaf to be on the
+same volume as `OutputRoot` and outside the Prime/Rook source worktrees, every
+installed-product or immutable runtime root, and the published immutable
+build-toolchain parent. Never search for, select, resume, or clean an earlier
+scratch generation. A failed generation has no authority; a later invocation
+uses a different newly generated empty leaf. Record the actual canonical leaf
+only in the bounded build report, never in `BuildToolchainContract`.
+Path-injection tests use a deterministic GUID source and prove that a
+pre-existing generated leaf refuses without alteration, a leaf inside any
+forbidden root refuses, all six profile/temp variables canonicalize beneath the
+accepted leaf, and a second invocation after failure receives a different empty
+leaf rather than reopening the first.
+
 Construct a fresh build environment rather than modifying the caller's map.
 Remove every inherited `NPM_CONFIG_*` key case-insensitively. The closed result
-contains only the contract-derived `SystemRoot`, `TEMP`, `TMP`, `HOME`,
-`USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `PATH`, `PATHEXT`, `CHERE_INVOKING`,
-`MSYSTEM`, and these npm/shell values:
+contains only `SystemRoot`, `TEMP`, `TMP`, `HOME`, `USERPROFILE`, `APPDATA`,
+`LOCALAPPDATA`, `PATH`, `PATHEXT`, `CHERE_INVOKING`, `MSYSTEM`, and these
+npm/shell values. Tool, shell, and system values come from the verified
+contract; the six profile/temp values come only from the current scratch leaf:
 
 ```text
 NPM_CONFIG_USERCONFIG=<manifest-bound empty rook-user.npmrc>
@@ -1814,12 +1909,16 @@ NPM_CONFIG_SCRIPT_SHELL=C:/Windows/System32/cmd.exe
 ComSpec=C:/Windows/System32/cmd.exe
 ```
 
-`HOME`, profile, application-data, and temporary paths point to a fresh
-build-scratch root recorded by the contract; `CHERE_INVOKING=yes` and
-`MSYSTEM=MSYS` are fixed. No proxy, `NODE_OPTIONS`, npm configuration, or other
-caller variable is inherited. If this machine later requires a build proxy,
-that value needs a newly versioned and independently reviewed toolchain
-contract; it is not discovered at execution time.
+The exact scratch-derived values are `HOME=<scratch>/home`,
+`USERPROFILE=<scratch>/profile`,
+`APPDATA=<scratch>/profile/AppData/Roaming`,
+`LOCALAPPDATA=<scratch>/profile/AppData/Local`, and
+`TEMP=TMP=<scratch>/temp`. Create those directories create-only as part of the
+new leaf and re-canonicalize every value to prove containment before launch.
+`CHERE_INVOKING=yes` and `MSYSTEM=MSYS` are fixed. No proxy, `NODE_OPTIONS`, npm
+configuration, or other caller variable is inherited. If this machine later
+requires a build proxy, that value needs a newly versioned and independently
+reviewed toolchain contract; it is not discovered at execution time.
 
 Set `PATH` only from the declared tool directories. From inside the exact
 `bash --noprofile --norc` process, require every command to resolve to its
@@ -1858,16 +1957,39 @@ foreach ($argument in @('--noprofile', '--norc', 'scripts/build-binaries.sh', '-
 $process = [System.Diagnostics.Process]::new()
 $process.StartInfo = $start
 if (-not $process.Start()) { throw 'Prime standalone builder did not start.' }
-$process.WaitForExit()
+$buildTimedOut = -not $process.WaitForExit(1_800_000)
+if ($buildTimedOut) {
+    $killFailure = $null
+    try {
+        $process.Kill($true)
+    }
+    catch {
+        $killFailure = $_.Exception.Message
+    }
+    $cleanupSettled = $process.WaitForExit(30_000)
+    if (-not $cleanupSettled) {
+        throw 'Prime standalone builder timed out and direct-handle cleanup did not settle within 30 seconds.'
+    }
+    if ($null -ne $killFailure) {
+        throw "Prime standalone builder timed out; direct-handle cleanup reported: $killFailure"
+    }
+    throw 'Prime standalone builder exceeded the mandatory 1800-second deadline.'
+}
 if ($process.ExitCode -ne 0) {
     throw "Prime standalone builder failed with exit code $($process.ExitCode)"
 }
 ```
 
-The implementation may add the already frozen finite build deadline around
-that exact handle, but it must not use a shell wrapper, process discovery,
-process-name cleanup, retry, or a second launch. Timeout cleanup is restricted
-to the directly retained process handle and its descendants.
+The 1800-second build deadline and 30-second cleanup deadline are mandatory and
+not caller-selectable. Timeout is a failed build and cannot enter artifact
+assembly, manifest generation, staged-runtime verification, or installation.
+Cleanup uses only that directly retained process handle and
+`Kill(entireProcessTree: true)`. It never uses a shell wrapper, process
+discovery, kill by name, PID scanning, identity probes, timeout adjustment,
+automatic retry, or a second launch. A fake-process causal test holds the build
+open through the deadline, requires exactly one handle-owned process-tree kill
+and one bounded cleanup wait, and proves packaging and verification callbacks
+were never reached.
 
 The builder's own `npm ci` is the only dependency restoration. After the build,
 the package script requires the same lockfile hash, no source change, identical
@@ -1883,14 +2005,25 @@ temporary directory from the exact official archive:
 version: 0.12.3
 source: https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-pc-windows-msvc.zip
 archive SHA-256: B23350C79E8AD0192B8124AF13A0F17E8D4E4549524785E1AEF389AE5A06990E
+archive maximum: 134217728 bytes
 LICENSE-APACHE source: https://raw.githubusercontent.com/astral-sh/uv/0.12.3/LICENSE-APACHE
 LICENSE-APACHE SHA-256: C71D239DF91726FC519C6EB72D318EC65820627232B2F796219E87DCF35D0AB4
+LICENSE-APACHE maximum: 1048576 bytes
 LICENSE-MIT source: https://raw.githubusercontent.com/astral-sh/uv/0.12.3/LICENSE-MIT
 LICENSE-MIT SHA-256: 860E3D7A86B84E6A7012C7A635FC64DF475CEBC6CCE34DFEB73A5982EC58176C
+LICENSE-MIT maximum: 1048576 bytes
 ```
 
-Each download is single-attempt and hash-checked before use; a cache or network
-failure is terminal. Extract `uv.exe` with .NET archive APIs into
+Each download uses the same five-minute `HttpClient` deadline, redirect limit,
+create-new destination, supplied-`Content-Length` precheck, and independent
+64 KiB streaming counter as the MSYS2 sources. Apply the corresponding fixed
+ceiling before each write; exact-limit content succeeds and one byte over
+refuses. An incomplete file remains only beneath the failed invocation-owned
+scratch and has no authority. Each download is single-attempt and hash-checked
+before use; a cache or network failure is terminal. Fake HTTP tests exercise
+oversized `Content-Length`, absent `Content-Length` with oversized streaming,
+exact-limit success, and one-byte-over refusal for the uv archive and each
+license class. Extract `uv.exe` with .NET archive APIs into
 `tools/uv/uv.exe`, require its bounded version output to identify exactly
 `uv 0.12.3`, and place both verified license files under
 `licenses/uv/`. Never inspect or copy an ambient `uv`, including the Hermes
