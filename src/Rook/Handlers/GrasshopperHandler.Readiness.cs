@@ -385,21 +385,42 @@ namespace Rook.Handlers
                 : ReadinessFailure("gh_target_changed");
         }
 
-        private static object ReceiptSnapshot(GhSolveReadinessReceipt receipt) => new
+        private static object ReceiptSnapshot(GhSolveReadinessReceipt receipt)
         {
-            schema = "rook.gh_solve_readiness_receipt:v1",
-            receipt_id = receipt.ReceiptId,
-            document_session_id = receipt.DocumentSessionId,
-            mutation_epoch = receipt.MutationEpoch,
-            solution_run_epoch = receipt.SolutionRunEpoch,
-            completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
-            status = ReceiptStatusName(receipt.Status),
-            reason = receipt.Reason,
-            completion_signal = receipt.CompletionSignal,
-            issued_at = receipt.IssuedAt,
-            completed_at = receipt.CompletedAt,
-            gh_document_id = receipt.GhDocumentId,
-        };
+            if (receipt.GhDocumentId is null)
+            {
+                return new
+                {
+                    schema = "rook.gh_solve_readiness_receipt:v1",
+                    receipt_id = receipt.ReceiptId,
+                    document_session_id = receipt.DocumentSessionId,
+                    mutation_epoch = receipt.MutationEpoch,
+                    solution_run_epoch = receipt.SolutionRunEpoch,
+                    completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
+                    status = ReceiptStatusName(receipt.Status),
+                    reason = receipt.Reason,
+                    completion_signal = receipt.CompletionSignal,
+                    issued_at = receipt.IssuedAt,
+                    completed_at = receipt.CompletedAt,
+                };
+            }
+
+            return new
+            {
+                schema = "rook.gh_solve_readiness_receipt:v1",
+                receipt_id = receipt.ReceiptId,
+                document_session_id = receipt.DocumentSessionId,
+                mutation_epoch = receipt.MutationEpoch,
+                solution_run_epoch = receipt.SolutionRunEpoch,
+                completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
+                status = ReceiptStatusName(receipt.Status),
+                reason = receipt.Reason,
+                completion_signal = receipt.CompletionSignal,
+                issued_at = receipt.IssuedAt,
+                completed_at = receipt.CompletedAt,
+                gh_document_id = receipt.GhDocumentId,
+            };
+        }
 
         private static string ReceiptStatusName(GhSolveReadinessStatus status) => status switch
         {

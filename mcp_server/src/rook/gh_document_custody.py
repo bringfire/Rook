@@ -10,11 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Iterator, Mapping
 
-from .mcp_tool_profiles import PUBLIC_READONLY_TOOL_NAMES
-
-
 EXPECTED_GH_DOCUMENT_ID_ARGUMENT = "expectedGhDocumentId"
-INTERNAL_GH_DISPATCH_ARGUMENT = "_rookInternalGhDispatch"
 INTERNAL_GH_SCOPE_FIELD = "_rookGhDispatchScope"
 INTERNAL_EXPECTED_GH_DOCUMENT_ID_FIELD = "_rookExpectedGhDocumentId"
 
@@ -35,9 +31,85 @@ class GhToolClassification(str, Enum):
 
 _DOCUMENT_INDEPENDENT_GH_TOOLS = frozenset(
     {
-        "gh_component_search",
-        "gh_library",
+        "gh_add_pattern",
         "gh_categories",
+        "gh_component_search",
+        "gh_consolidate",
+        "gh_constraints",
+        "gh_end_exploration",
+        "gh_knowledge_query",
+        "gh_knowledge_reload",
+        "gh_library",
+        "gh_migration_status",
+        "gh_pattern_links",
+        "gh_pattern_stats",
+        "gh_query_observations",
+        "gh_query_patterns",
+        "gh_record_investigation",
+        "gh_record_learning",
+        "gh_record_pattern_use",
+        "gh_reflect",
+        "gh_save_pattern",
+        "gh_save_recipe",
+        "gh_session_current",
+        "gh_session_end",
+        "gh_session_history",
+        "gh_session_note",
+        "gh_start_exploration",
+        "gh_structure_query",
+        "gh_validate_latency",
+        "gh_validate_regression",
+        "gh_validate_scenarios",
+    }
+)
+
+_GH_OBSERVATION_TOOLS = frozenset(
+    {
+        "gh_batch_component_info",
+        "gh_canvas_image",
+        "gh_errors",
+        "gh_extract_recipe",
+        "gh_get_reference",
+        "gh_inspect_output",
+        "gh_learn_canvas",
+        "gh_selection",
+        "gh_snapshot",
+        "gh_solve_readiness",
+        "gh_status",
+        "gh_upgrade_recipe",
+        "gh_wait_for_solve_readiness",
+    }
+)
+
+_GH_MUTATION_TOOLS = frozenset(
+    {
+        "chirp_create",
+        "gh_align",
+        "gh_bake_output",
+        "gh_canvas_cleanup",
+        "gh_canvas_focus",
+        "gh_canvas_zoom",
+        "gh_clear",
+        "gh_clear_reference",
+        "gh_cluster",
+        "gh_connect",
+        "gh_create_csharp_script",
+        "gh_create_python_script",
+        "gh_create_script",
+        "gh_distribute",
+        "gh_edit",
+        "gh_explore_component",
+        "gh_explore_deep",
+        "gh_investigate",
+        "gh_move",
+        "gh_preview",
+        "gh_set_reference",
+        "gh_set_script",
+        "gh_set_script_pins",
+        "gh_set_value",
+        "gh_straighten_wires",
+        "gh_undo",
+        "gh_update_script",
     }
 )
 
@@ -48,6 +120,16 @@ _GH_TRANSITION_TOOLS = frozenset(
         "gh_learn_directory",
     }
 )
+
+_GH_TOOL_CLASSIFICATIONS = {
+    **{
+        name: GhToolClassification.DOCUMENT_INDEPENDENT
+        for name in _DOCUMENT_INDEPENDENT_GH_TOOLS
+    },
+    **{name: GhToolClassification.OBSERVATION for name in _GH_OBSERVATION_TOOLS},
+    **{name: GhToolClassification.MUTATION for name in _GH_MUTATION_TOOLS},
+    **{name: GhToolClassification.TRANSITION for name in _GH_TRANSITION_TOOLS},
+}
 
 
 @dataclass(frozen=True)
@@ -73,21 +155,21 @@ _CURRENT_GH_DOCUMENT_ID: ContextVar[str | None] = ContextVar(
 
 def classify_gh_tool(name: str) -> GhToolClassification | None:
     """Classify one public Grasshopper tool, or return ``None`` for other tools."""
-    if not name.startswith("gh_"):
-        return None
-    if name in _DOCUMENT_INDEPENDENT_GH_TOOLS:
-        return GhToolClassification.DOCUMENT_INDEPENDENT
-    if name in _GH_TRANSITION_TOOLS:
-        return GhToolClassification.TRANSITION
-    if name in PUBLIC_READONLY_TOOL_NAMES:
-        return GhToolClassification.OBSERVATION
-    return GhToolClassification.MUTATION
+    return _GH_TOOL_CLASSIFICATIONS.get(name)
 
 
-def augment_gh_input_schema(name: str, schema: Mapping[str, Any]) -> dict[str, Any]:
+def augment_gh_input_schema(
+    name: str,
+    schema: Mapping[str, Any],
+    *,
+    panel_locked: bool = False,
+) -> dict[str, Any]:
     """Project the reserved concurrency field into guarded mutation schemas."""
     projected = copy.deepcopy(dict(schema))
-    if classify_gh_tool(name) is not GhToolClassification.MUTATION:
+    if (
+        not panel_locked
+        or classify_gh_tool(name) is not GhToolClassification.MUTATION
+    ):
         return projected
 
     properties = dict(projected.get("properties") or {})
@@ -103,9 +185,14 @@ def augment_gh_input_schema(name: str, schema: Mapping[str, Any]) -> dict[str, A
 
 
 def validate_public_gh_dispatch(
-    name: str, arguments: Mapping[str, Any]
+    name: str,
+    arguments: Mapping[str, Any],
+    *,
+    panel_locked: bool = False,
 ) -> GhDispatchContext | None:
     """Validate public GH custody arguments without changing the caller mapping."""
+    if not panel_locked:
+        return None
     classification = classify_gh_tool(name)
     if classification is None:
         return None
@@ -114,7 +201,6 @@ def validate_public_gh_dispatch(
         key
         for key in arguments
         if key in {
-            INTERNAL_GH_DISPATCH_ARGUMENT,
             INTERNAL_GH_SCOPE_FIELD,
             INTERNAL_EXPECTED_GH_DOCUMENT_ID_FIELD,
         }
@@ -161,11 +247,18 @@ def validate_public_gh_dispatch(
 
 
 def prepare_public_gh_dispatch(
-    name: str, arguments: Mapping[str, Any]
+    name: str,
+    arguments: Mapping[str, Any],
+    *,
+    panel_locked: bool = False,
 ) -> tuple[dict[str, Any], GhDispatchContext | None]:
     """Separate the reserved public field from ordinary tool arguments."""
     prepared = dict(arguments)
-    context = validate_public_gh_dispatch(name, prepared)
+    context = validate_public_gh_dispatch(
+        name,
+        prepared,
+        panel_locked=panel_locked,
+    )
     if context is None:
         return prepared, None
     prepared.pop(EXPECTED_GH_DOCUMENT_ID_ARGUMENT, None)
@@ -205,6 +298,11 @@ def observe_gh_document_id(result: Mapping[str, Any]) -> None:
         _CURRENT_GH_DOCUMENT_ID.set(raw)
 
 
+def clear_observed_gh_document_id() -> None:
+    """Require a later managed call to establish a fresh document identity."""
+    _CURRENT_GH_DOCUMENT_ID.set(None)
+
+
 def project_current_gh_document_id(
     result: Mapping[str, Any], context: GhDispatchContext | None
 ) -> dict[str, Any]:
@@ -217,11 +315,18 @@ def project_current_gh_document_id(
     ):
         return projected
     document_id = _CURRENT_GH_DOCUMENT_ID.get()
-    if document_id is None:
-        return projected
     data = projected.get("data")
-    if not isinstance(data, Mapping):
-        return projected
+    if document_id is None or not isinstance(data, Mapping):
+        return {
+            "success": False,
+            "data": {
+                "error": "gh_target_unavailable",
+                "message": (
+                    "The Grasshopper operation did not return an authenticated "
+                    "document identity."
+                ),
+            },
+        }
     projected_data = dict(data)
     projected_data["ghDocumentId"] = document_id
     projected["data"] = projected_data

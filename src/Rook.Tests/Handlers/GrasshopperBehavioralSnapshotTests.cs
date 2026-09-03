@@ -47,7 +47,7 @@ namespace Rook.Tests.Handlers
                 data.EnumerateObject().Select(item => item.Name).OrderBy(name => name));
             var fence = data.GetProperty("readiness_fence");
             Assert.Equal(
-                new[] { "completed_solution_run_epoch", "document_session_id", "gh_document_id", "mutation_epoch", "readiness_receipt_id", "solution_run_epoch" },
+                new[] { "completed_solution_run_epoch", "document_session_id", "mutation_epoch", "readiness_receipt_id", "solution_run_epoch" },
                 fence.EnumerateObject().Select(item => item.Name).OrderBy(name => name));
             Assert.Equal(receipt.ReceiptId, fence.GetProperty("readiness_receipt_id").GetString());
             Assert.Equal(receipt.DocumentSessionId, fence.GetProperty("document_session_id").GetString());

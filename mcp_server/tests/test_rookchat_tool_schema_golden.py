@@ -201,7 +201,6 @@ async def test_local_gh_create_required_fields_match_server_mcp_contract():
     assert server_tools["gh_create_script"].inputSchema["required"] == [
         "language",
         "code",
-        "expectedGhDocumentId",
     ]
     for tool_name in ("gh_create_python_script", "gh_create_csharp_script"):
         assert local_catalog[tool_name]["function"]["parameters"]["required"] == [
@@ -213,7 +212,6 @@ async def test_local_gh_create_required_fields_match_server_mcp_contract():
             "code",
             "pins_in",
             "pins_out",
-            "expectedGhDocumentId",
         ]
 
 

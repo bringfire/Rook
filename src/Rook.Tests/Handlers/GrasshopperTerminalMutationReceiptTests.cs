@@ -137,6 +137,29 @@ namespace Rook.Tests.Handlers
             var document = new FakeDocument(component);
             var handler = CreateHandler(document);
 
+            var response = handler.SetScript(JsonSerializer.Serialize(new
+            {
+                guid = component.InstanceGuid,
+                script = "print('ready')",
+            }));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.True(data.GetProperty("solve_relevant_mutation_committed").GetBoolean());
+            Assert.Equal("pending", data.GetProperty("solve_readiness_receipt").GetProperty("status").GetString());
+            Assert.False(data.GetProperty("solve_readiness_receipt").TryGetProperty("gh_document_id", out _));
+            Assert.False(data.TryGetProperty("ghDocumentId", out _));
+            Assert.Equal("print('ready')", component.Source);
+            Assert.Equal(1, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void SetScript_PanelDispatchProjectsCapturedDocumentIdentity()
+        {
+            var component = new FakeScriptComponent(Guid.NewGuid());
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document);
+
             var response = GrasshopperDispatchContext.Execute(
                 new FixedDispatchSource(new FakeCanvas(document), document),
                 GhManagedDispatchScope.Mutation,
@@ -149,8 +172,6 @@ namespace Rook.Tests.Handlers
 
             Assert.True(response.Success);
             var data = Element(response.Data);
-            Assert.True(data.GetProperty("solve_relevant_mutation_committed").GetBoolean());
-            Assert.Equal("pending", data.GetProperty("solve_readiness_receipt").GetProperty("status").GetString());
             Assert.Equal(
                 document.DocumentID.ToString("D"),
                 data.GetProperty("solve_readiness_receipt").GetProperty("gh_document_id").GetString());

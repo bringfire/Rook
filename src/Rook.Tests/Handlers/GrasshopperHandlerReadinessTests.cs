@@ -45,6 +45,20 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void MutationReceipt_WithoutPanelDispatchPreservesLegacyProjection()
+        {
+            var document = new FakeDocument();
+            var handler = CreateHandler(document, out var canvas);
+
+            var issue = handler.BeginMutationReceipt(document, canvas);
+            var response = handler.GetSolveReadiness(issue.Receipt!.ReceiptId);
+
+            Assert.True(response.Success);
+            var receipt = Element(response.Data).GetProperty("receipt");
+            Assert.False(receipt.TryGetProperty("gh_document_id", out _));
+        }
+
+        [Fact]
         public void ReadinessLookupAndWait_RejectAChangedCapturedGhDocument()
         {
             var intended = new FakeDocument();

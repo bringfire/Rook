@@ -7570,15 +7570,24 @@ namespace Rook.Handlers
 
                 if (readinessGate?.Receipt is GhSolveReadinessReceipt receipt)
                 {
-                    snapshot["readiness_fence"] = new
-                    {
-                        readiness_receipt_id = receipt.ReceiptId,
-                        document_session_id = receipt.DocumentSessionId,
-                        mutation_epoch = receipt.MutationEpoch,
-                        solution_run_epoch = receipt.SolutionRunEpoch,
-                        completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
-                        gh_document_id = receipt.GhDocumentId,
-                    };
+                    snapshot["readiness_fence"] = receipt.GhDocumentId is null
+                        ? (object)new
+                        {
+                            readiness_receipt_id = receipt.ReceiptId,
+                            document_session_id = receipt.DocumentSessionId,
+                            mutation_epoch = receipt.MutationEpoch,
+                            solution_run_epoch = receipt.SolutionRunEpoch,
+                            completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
+                        }
+                        : new
+                        {
+                            readiness_receipt_id = receipt.ReceiptId,
+                            document_session_id = receipt.DocumentSessionId,
+                            mutation_epoch = receipt.MutationEpoch,
+                            solution_run_epoch = receipt.SolutionRunEpoch,
+                            completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
+                            gh_document_id = receipt.GhDocumentId,
+                        };
                     snapshot["behavioral_point_outputs"] = behavioralPointOutputs!;
                 }
 

@@ -96,6 +96,8 @@ from .gh_document_custody import (
     GhDocumentCustodyError,
     apply_gh_dispatch_to_http_data,
     augment_gh_input_schema,
+    clear_observed_gh_document_id,
+    current_gh_dispatch_context,
     gh_dispatch_scope,
     observe_gh_document_id,
     prepare_public_gh_dispatch,
@@ -152,16 +154,26 @@ async def call_rhino(
     timeout: httpx.Timeout | float | None = None,
 ) -> dict[str, Any]:
     """Project service-owned GH custody into bridge requests."""
+    context = current_gh_dispatch_context()
     result = await _bridge_call_rhino(
         endpoint,
         method,
-        apply_gh_dispatch_to_http_data(endpoint, data),
+        (
+            apply_gh_dispatch_to_http_data(endpoint, data)
+            if context is not None
+            else data
+        ),
         port=port,
         process_id=process_id,
         timeout=timeout,
     )
-    observe_gh_document_id(result)
+    if context is not None and endpoint.startswith("/gh/"):
+        observe_gh_document_id(result)
     return result
+
+
+def _panel_gh_custody_active() -> bool:
+    return targeting.get_panel_target_lock() is not None
 
 # Configure DSPy at startup — resolves model from profiles (supports local models)
 def _configure_dspy_if_available() -> bool:
@@ -13303,6 +13315,7 @@ async def _all_live_tools() -> list[Tool]:
                 "inputSchema": augment_gh_input_schema(
                     tool.name,
                     tool.inputSchema,
+                    panel_locked=_panel_gh_custody_active(),
                 )
             }
         )
@@ -16272,6 +16285,13 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                             "total_files_found": len(gh_files),
                         }
                     }
+                    if current_gh_dispatch_context() is not None:
+                        clear_observed_gh_document_id()
+                        final_status = await call_rhino(
+                            "/gh/status", "GET", port=port
+                        )
+                        if not final_status.get("success"):
+                            result = final_status
 
         case "gh_move":
             result = await call_rhino("/gh/move", "POST", arguments, port=port)
@@ -21263,7 +21283,11 @@ async def _handle_meta_tool(name, arguments, profile, *, _public_mcp=False):
                                                                   "fields": ["arguments: must be an object"]}},
                                     public_mcp=_public_mcp)
     try:
-        validate_public_gh_dispatch(target, targs)
+        validate_public_gh_dispatch(
+            target,
+            targs,
+            panel_locked=_panel_gh_custody_active(),
+        )
     except GhDocumentCustodyError as exc:
         return _project_tool_result(
             {
@@ -21329,20 +21353,12 @@ async def call_tool(
         return await _handle_meta_tool(name, arguments, _active_profile,
                                        _public_mcp=_public_mcp)
 
-    # Model-facing authoring admission owns the caller's original arguments.
-    # Apply it after containment/profile/meta enforcement but before Rhino
-    # routing or panel document-context enrichment.
-    handoff = model_facing_script_handoff(name, arguments)
-    if handoff is not None:
-        handoff.pop("_is_handoff", None)
-        return _project_tool_result(handoff, public_mcp=_public_mcp)
-    if name == "gh_edit":
-        admission = admit_gh_edit_request(arguments)
-        if admission is not None:
-            return _project_tool_result(admission, public_mcp=_public_mcp)
-
     try:
-        arguments, gh_context = prepare_public_gh_dispatch(name, arguments)
+        arguments, gh_context = prepare_public_gh_dispatch(
+            name,
+            arguments,
+            panel_locked=_panel_gh_custody_active(),
+        )
     except GhDocumentCustodyError as exc:
         return _project_tool_result(
             {
@@ -21355,6 +21371,17 @@ async def call_tool(
             },
             public_mcp=_public_mcp,
         )
+
+    # Authoring preprocessing receives only ordinary tool arguments after the
+    # service-owned GH concurrency field has been validated and removed.
+    handoff = model_facing_script_handoff(name, arguments)
+    if handoff is not None:
+        handoff.pop("_is_handoff", None)
+        return _project_tool_result(handoff, public_mcp=_public_mcp)
+    if name == "gh_edit":
+        admission = admit_gh_edit_request(arguments)
+        if admission is not None:
+            return _project_tool_result(admission, public_mcp=_public_mcp)
     if (
         name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
         and not _interactive_command_learning_enabled()
@@ -21482,7 +21509,11 @@ def _install_mcp_call_tool_containment_wrapper() -> None:
 
         if isinstance(raw_arguments, Mapping):
             try:
-                validate_public_gh_dispatch(raw_name, raw_arguments)
+                validate_public_gh_dispatch(
+                    raw_name,
+                    raw_arguments,
+                    panel_locked=_panel_gh_custody_active(),
+                )
             except GhDocumentCustodyError:
                 result = await call_tool(
                     raw_name,

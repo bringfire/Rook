@@ -144,8 +144,7 @@ namespace Rook.InternalBridge
                 CanvasVisible = canvasVisible,
                 VisibilityUnknown = visibilityUnknown,
                 HasActiveDocument = document != null,
-                DocumentId = dispatch?.DocumentId.ToString("D")
-                    ?? GetExactDocumentId(document),
+                DocumentId = GetObservedDocumentId(document, dispatch?.DocumentId),
                 DocumentName = documentName,
                 DocumentPath = documentPath,
                 ReadyForEdit = available && canvas != null && document != null && canvasVisible != false,
@@ -317,24 +316,17 @@ namespace Rook.InternalBridge
             return ResolvedGrasshopperContext.Ok(_ghAssembly, canvas, document);
         }
 
-        private static string? GetExactDocumentId(object? document)
+        private static string? GetObservedDocumentId(object? document, Guid? capturedDocumentId)
         {
-            if (document is null)
-                return null;
+            if (capturedDocumentId.HasValue)
+            {
+                return capturedDocumentId.Value.ToString("D");
+            }
 
-            try
-            {
-                var property = document.GetType().GetProperty("DocumentID");
-                return property?.PropertyType == typeof(Guid) &&
-                    property.GetValue(document) is Guid id &&
-                    id != Guid.Empty
-                    ? id.ToString("D")
-                    : null;
-            }
-            catch
-            {
-                return null;
-            }
+            return GetStringProperty(document, "DocumentID")
+                ?? GetStringProperty(document, "DocumentGuid")
+                ?? GetStringProperty(document, "InstanceGuid")
+                ?? GetStringProperty(document, "Guid");
         }
 
         private static string BuildNotReadyMessage(GrasshopperStatusDto status)

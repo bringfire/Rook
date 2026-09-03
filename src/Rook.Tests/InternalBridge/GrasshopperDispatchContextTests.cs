@@ -243,6 +243,24 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void GrasshopperCore_PreservesLegacyDocumentIdentityOutsidePanelCustody()
+        {
+            var legacyId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+            var document = new LegacyGhDocument(legacyId);
+            var resolver = typeof(GrasshopperCore).GetMethod(
+                "GetObservedDocumentId",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(resolver);
+            Assert.Equal(
+                legacyId.ToString(),
+                resolver!.Invoke(null, new object?[] { document, null }));
+            Assert.Equal(
+                IntendedId.ToString("D"),
+                resolver.Invoke(null, new object?[] { document, IntendedId }));
+        }
+
+        [Fact]
         public void GrasshopperHandler_ResolvesTheCapturedDocumentWithoutRereadingActiveCanvas()
         {
             var document = new FakeGhDocument(IntendedId);
@@ -309,6 +327,16 @@ namespace Rook.Tests.InternalBridge
             public object[] Objects { get; } = Array.Empty<object>();
             public string FilePath { get; } = string.Empty;
             public string DisplayName { get; } = "Fixture";
+        }
+
+        private sealed class LegacyGhDocument
+        {
+            internal LegacyGhDocument(Guid id)
+            {
+                DocumentGuid = id;
+            }
+
+            public Guid DocumentGuid { get; }
         }
     }
 }
