@@ -1016,11 +1016,13 @@ identity.
 
 Provisioning receives the output parent, complete Node/npm root, complete Git
 root, standalone Bun executable, exact Prime worktree and project `.npmrc`, and
-exact `C:/Windows/System32/cmd.exe` as explicit authoritative inputs. It also
-receives the expected Node, npm, Git, Bun, and `cmd.exe` versions. It validates
-every input before staging, records the complete required roots/files and
-version expectations in the contract, and never discovers a required tool from
-`PATH`, npm configuration, a user profile, or another ambient source.
+exact `C:/Windows/System32/cmd.exe` as explicit authoritative inputs. The outer
+command also launches and passes the exact PowerShell executable that interprets
+the provisioner. It receives the expected PowerShell, Node, npm, Git, Bun, and
+`cmd.exe` versions. It validates every input before staging, records the complete
+required roots/files and version expectations in the contract, and never
+discovers a required tool from `PATH`, npm configuration, a user profile, or
+another ambient source.
 
 The fixed MSYS2 bootstrap inputs are:
 
