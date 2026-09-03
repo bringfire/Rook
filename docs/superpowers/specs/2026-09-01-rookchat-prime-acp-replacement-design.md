@@ -1141,20 +1141,43 @@ exactly `expectedVersion` and `observedVersion`, both nonempty strings. Every
 `PackageRow` has exactly nonempty string `name` and `version`. Every `SourceRow`
 has exactly `url` (the frozen HTTPS URL), `sha256` (the frozen uppercase hash),
 and positive integer `maxBytes` (268435456 for `base`, 4194304 for `zip`, and
-4194304 for `unzip`). Every `ToolRow` has exactly `name`, absolute regular-file
-`path`, nonnegative integer `length`, and uppercase `sha256`. Every `CommandRow`
-has exactly `executable`, `arguments`, `workingDirectory`, and positive integer
-`timeoutSeconds`; its strings, ordered argument array, and deadline equal the
-three frozen commands above. Environment values use the exact `{staging}`
-templates above and are materialized only beneath the current staging sibling.
+4194304 for `unzip`). Every `ToolRow` has exactly `name`, `source`, `path`,
+`length`, and `sha256`. `source` is exactly one of `msys2`, `node`, `git`, `bun`,
+or `cmd`; `path` is a nonempty forward-slash relative path with no empty, `.`, or
+`..` segment; `length` is a nonnegative integer; and `sha256` is uppercase
+64-hex. Every `CommandRow` has exactly `executable`, `arguments`,
+`workingDirectory`, and positive integer `timeoutSeconds`; its strings, ordered
+argument array, and deadline equal the three frozen commands above. Environment
+values use the exact `{staging}` templates above and are materialized only
+beneath the current staging sibling.
 
 The `node` and `git` roots are absolute nonempty strings, their `files` arrays
 contain one or more `FileRow` values relative to those roots, and their manifest
 hashes are uppercase 64-hex strings. All expected/observed version fields are
 nonempty strings. `prime.worktree` is an absolute nonempty string and its
 `npmrc.path` is the absolute `.npmrc` beneath that worktree. The npm user/global
-config paths are contract-parent-relative strings under `root/etc`; all other
-tool and external file paths are absolute. The two exact environment objects are:
+config paths are contract-parent-relative strings under `root/etc`; other
+external file paths remain absolute. Tool paths use the source-root-relative
+representation above. Their source mapping is closed:
+
+```text
+msys2: bash, cp, dirname, ls, mkdir, mv, rm, tar, unzip, zip
+node: node, npm
+git: git
+bun: bun
+cmd: cmd
+```
+
+The resolver selects exactly one canonical source root: the contract parent for
+`msys2`, `externalInputs.node.root` for `node`, `externalInputs.git.root` for
+`git`, the canonical parent of `externalInputs.bun.path` for `bun`, or the
+canonical parent of `externalInputs.cmd.path` for `cmd`. An MSYS2 tool path must
+begin with `root/`. The resolver combines the selected root and relative path,
+canonicalizes the result, requires containment within that root, and verifies a
+regular file with the declared length and hash. Provisioning-stage verification
+and post-publication verification use this same resolver; moving the completed
+contract parent therefore cannot invalidate an MSYS2 tool row. The two exact
+environment objects are:
 
 ```text
 extractEnvironment = {
@@ -1183,15 +1206,24 @@ complete 15-name set above. Command argument arrays retain their declared
 semantic order. All strings are valid Unicode without unpaired surrogates.
 Missing, extra, or duplicate keys at any depth refuse.
 
-The contract is strict UTF-8 without BOM. Objects are serialized recursively
-with keys sorted ordinally, arrays in the required order, and compact separators
-with no insignificant whitespace. The complete JSON value is followed by
-exactly one LF and no other bytes. Each `manifestSha256` is the SHA-256 of the
-corresponding canonically serialized `files` array followed by one LF. The
-contract SHA-256 is computed over the exact complete file bytes. The Python
-verifier parses with duplicate-key detection, validates the closed schema,
-reconstructs the canonical bytes, requires byte-for-byte equality with the
-stored file, and only then compares the independently approved contract hash.
+The contract is strict UTF-8 without BOM. It accepts only Unicode scalar values
+and performs no Unicode normalization: each input code-point sequence is
+preserved exactly, including canonically equivalent composed and decomposed
+forms. Object keys are sorted lexicographically by Unicode scalar value, not by
+a language runtime's UTF-16 code-unit order. Arrays retain their required
+semantic order. Strings escape quotation mark as `\"`, reverse solidus as
+`\\`, and never escape `/`. They use the short escapes `\b`, `\t`, `\n`, `\f`,
+and `\r` for U+0008, U+0009, U+000A, U+000C, and U+000D; every other U+0000
+through U+001F scalar uses a lowercase `\u00xx` escape. Every other scalar,
+including non-ASCII and supplementary-plane characters, is emitted literally
+as UTF-8 with no optional escaping. Objects use compact separators with no
+insignificant whitespace. The complete JSON value is followed by exactly one
+LF and no other bytes. Each `manifestSha256` is the SHA-256 of the corresponding
+canonically serialized `files` array followed by one LF. The contract SHA-256
+is computed over the exact complete file bytes. The Python verifier parses with
+duplicate-key detection, validates the closed schema, reconstructs these
+canonical bytes, requires byte-for-byte equality with the stored file, and only
+then compares the independently approved contract hash.
 
 The build contract binds that whole MSYS2 root, complete manifests of the
 external Node/npm and Git installations, the standalone Bun executable, all
@@ -1222,10 +1254,12 @@ output this is `C:/UDEV/RookBuildScratch/prime-acp`. It then creates one unique
 leaf. The leaf must be empty and canonically outside every source worktree,
 installed-product root, immutable runtime, and immutable build-toolchain root.
 `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, and `TMP` all resolve
-beneath that invocation-owned directory. The scratch path is recorded only in
-the bounded build report, never in `BuildToolchainContract`, and is never reused
-or resumed. Failed scratch has no authority; another invocation creates a new
-empty generation.
+beneath that invocation-owned directory. The scratch path remains an
+invocation-local diagnostic and is never persisted as contract or package
+authority; this design defines no build-report artifact. The exact final build
+environment is validated in memory immediately before process creation and is
+not consumed later as evidence. Scratch is never reused or resumed. Failed
+scratch has no authority; another invocation creates a new empty generation.
 
 The directly retained Prime build process has a mandatory 1800-second
 wall-clock deadline. Timeout calls process-handle-owned
@@ -1234,18 +1268,23 @@ and reports a failed build. Partial output is not packaged or verified. No
 process discovery, kill by name, PID scan, identity probe, timeout adjustment,
 or automatic retry is admitted.
 
-Model-free qualification covers both boundaries directly. Download tests for
-the MSYS2 base, zip, unzip, uv archive, and each uv license refuse an oversized
-`Content-Length` before reading the body, refuse an oversized stream when the
-header is absent, admit the exact ceiling, and refuse one byte over. Scratch
-tests refuse a pre-existing generated leaf and path escape, prove all six
-profile/temp paths remain beneath the new leaf, and prove a failed generation
-is never reused. A fake Prime build that never exits reaches the 1800-second
-deadline, receives one handle-owned process-tree termination, is awaited for no
-more than the 30-second cleanup interval, and cannot enter packaging or staged
-runtime verification. Contract tests prove producer/verifier canonical-byte
-and SHA-256 parity and reject duplicate, missing, or unknown keys, wrong array
-order, BOM/non-UTF-8, noncompact JSON, and missing or extra terminal LF.
+Model-free qualification covers both boundaries directly. For each of the six
+frozen downloads (MSYS2 base, zip, unzip, uv archive, LICENSE-APACHE, and
+LICENSE-MIT), tests refuse an oversized `Content-Length` before reading the
+body, refuse an oversized stream when the header is absent, refuse a body that
+exceeds the ceiling when its declared length is at or below the ceiling, admit
+the exact ceiling, and refuse one byte over. Scratch tests refuse a pre-existing
+generated leaf and path escape, prove all six profile/temp paths remain beneath
+the new leaf, and prove a failed generation is never reused. A fake Prime build
+that never exits reaches the 1800-second deadline, receives one handle-owned
+process-tree termination, is awaited for no more than the 30-second cleanup
+interval, and cannot enter packaging or staged runtime verification. Contract
+tests prove producer/verifier canonical-byte and SHA-256 parity and reject
+duplicate, missing, or unknown keys, wrong array order, BOM/non-UTF-8,
+noncompact JSON, and missing or extra terminal LF. Unicode parity fixtures cover
+non-ASCII and supplementary-plane scalars, quotes, backslashes, unescaped
+slashes, every specified control-character class, and distinct composed and
+decomposed sequences without normalization.
 
 Ambient Prime skills, extensions, MCP servers, context files, and prompt
 templates are excluded by the explicit launch configuration. Prime-owned
