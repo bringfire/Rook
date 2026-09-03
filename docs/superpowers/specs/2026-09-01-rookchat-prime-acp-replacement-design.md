@@ -997,9 +997,32 @@ Prime-owned tool failure; RookChat does not retry, repair, or substitute a
 kernel.
 
 The Windows release build has a separate, build-only toolchain contract. Task 10
-provisions one fresh, disposable MSYS2 root rather than copying selected
-executables or DLLs from the shared machine installation. Its fixed bootstrap
-inputs are:
+provisions one disposable MSYS2 root rather than copying selected executables or
+DLLs from the shared machine installation. The published build-tool artifact has
+exactly this non-self-referential layout:
+
+```text
+C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/
+  root/
+  build-toolchain-contract.json
+```
+
+Only `root/**` is covered by the recursive MSYS2 file manifest. The canonical
+contract is its sibling; its hash identifies the contract, and the contract
+binds the complete `root/**` manifest plus the complete sorted `pacman -Q`
+inventory. The contract refers to its MSYS2 root only by the fixed relative path
+`root`, so publishing its parent does not rewrite the contract or change its
+identity.
+
+Provisioning receives the output parent, complete Node/npm root, complete Git
+root, standalone Bun executable, exact Prime worktree and project `.npmrc`, and
+exact `C:/Windows/System32/cmd.exe` as explicit authoritative inputs. It also
+receives the expected Node, npm, Git, Bun, and `cmd.exe` versions. It validates
+every input before staging, records the complete required roots/files and
+version expectations in the contract, and never discovers a required tool from
+`PATH`, npm configuration, a user profile, or another ambient source.
+
+The fixed MSYS2 bootstrap inputs are:
 
 ```text
 base: https://github.com/msys2/msys2-installer/releases/download/2026-06-11/msys2-base-x86_64-20260611.sfx.exe
@@ -1010,15 +1033,47 @@ unzip: https://mirror.msys2.org/msys/x86_64/unzip-6.0-3-x86_64.pkg.tar.zst
 unzip SHA-256: C98EBAC31EA92A63CF61C6190ED3E8284CCC0C29C43973F1B2C0DE2874E5ACFE
 ```
 
-The provisioner verifies those hashes, extracts the base into a new short
-ASCII-only path outside the source and product trees, and uses that root's
-`pacman -U` with only the two verified local package archives. It performs no
-repository refresh and never alters or consults the shared `C:/msys64`. The
-base already supplies the declared `bash` and `libbz2` dependencies; package
-installation must prove the exact `zip`, `unzip`, `bash`, and `libbz2` package
-identities. The completed root is then frozen by one canonical manifest over
-every regular file plus a complete sorted `pacman -Q` inventory. Build-time use
-must leave that root byte-identical.
+Each invocation creates a new short ASCII-only same-volume staging sibling and
+uses one `System.Net.Http.HttpClient` request per source with a fixed five-minute
+deadline, redirects enabled, and no application retry. Each response is written
+create-only and hash-verified before use. The verified SFX is launched directly,
+hidden, and awaited for at most five minutes with the exact argument array
+`["-y", "-o<staging>/extract"]` and the download directory as its working
+directory. Extraction must produce exactly one top-level `msys64` directory,
+which is moved to `<staging>/root` before initialization.
+
+Initialization uses only `<staging>/root/usr/bin/bash.exe` with exact arguments
+`["-lc", " "]`, working directory `<staging>/root`, a closed MSYS environment,
+and a two-minute deadline. The verified local package archives are then placed
+under `<staging>/root/var/cache/rook-provision/`. The provisioner writes an exact
+repository-free `/etc/rook-local-pacman.conf` that sets
+`SigLevel = Required DatabaseOptional`, `LocalFileSigLevel = Never`, and
+`RemoteFileSigLevel = Required`. The approved archive SHA-256 values are the
+authority for these two local unsigned inputs. The exact directly launched
+pacman operation is `<staging>/root/usr/bin/pacman.exe` with arguments
+`["-U", "--noconfirm", "--needed", "--config",
+"/etc/rook-local-pacman.conf", "/var/cache/rook-provision/zip-3.0-5-x86_64.pkg.tar.zst",
+"/var/cache/rook-provision/unzip-6.0-3-x86_64.pkg.tar.zst"]` and a three-minute
+deadline. The config has no repository sections, the arguments contain no URL,
+and no repository refresh or package-manager network access is admitted.
+
+The base supplies `bash` and `libbz2`; final verification requires exact
+identities for `zip 3.0-5`, `unzip 6.0-3`, `bash`, and `libbz2`. All download,
+extraction, initialization, package installation, and temporary cleanup writes
+remain beneath the unique staging sibling. External Node, Git, Bun, Prime, and
+Windows command inputs remain unchanged. Initialization and local installation
+finish before `root/**` is manifested. Before publication, successful staging
+contains exactly `root/` and `build-toolchain-contract.json`.
+
+Publication is one same-volume create-only directory move from the completed
+staging sibling to `msys2-20260611-v1`; an existing destination refuses without
+alteration. A failed or partial staging tree has no authority and is never
+repaired, resumed, promoted, or adopted. It may be retained for diagnostics. A
+later invocation may use a new empty staging sibling with the same pinned inputs
+and must re-download or re-read, rehash, reconstruct, and reverify every input
+and output from the beginning. The final versioned output is immutable after
+successful publication. This deterministic provisioning rule is separate from
+the no-retry rule for a frozen live qualification run.
 
 The build contract binds that whole MSYS2 root, complete manifests of the
 external Node/npm and Git installations, the standalone Bun executable, all
@@ -1033,10 +1088,14 @@ bound built-in configuration are the only remaining npm configuration sources.
 Provisioning emits canonical contract bytes and a SHA-256 but does not authorize
 a build. An independent review must supply that exact hash as
 `ExpectedBuildToolchainContractSha256`; the package script verifies it before
-any version probe, network access, or `npm ci`. Missing, malformed, substituted,
-or changed inputs refuse without discovery, fallback, or repair. The
-provisioned root is a release-machine dependency only and never enters the Rook
-installer or a customer machine.
+any version probe, network access, or `npm ci`. The package script is then
+invoked explicitly with the exact reviewed Prime worktree and commit, fresh
+staging output root, published contract path, and approved contract hash. Its
+verified staging result feeds the existing runtime verification and installation
+gates directly. Missing, malformed, substituted, or changed inputs refuse
+without discovery, fallback, or repair. The provisioned MSYS2 root, `zip`, and
+`unzip` are release-machine dependencies only and never enter the Rook installer
+or a customer machine.
 
 Ambient Prime skills, extensions, MCP servers, context files, and prompt
 templates are excluded by the explicit launch configuration. Prime-owned
