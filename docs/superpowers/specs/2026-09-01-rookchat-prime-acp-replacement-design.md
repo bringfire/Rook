@@ -964,14 +964,29 @@ PRIME_AGENT_INSTALL_UV
 VIRTUAL_ENV
 PYTHONHOME
 PYTHONPATH
-UV_PYTHON
 ```
 
-This prevents an ambient package-root, warm kernel, virtual environment, or
-Python override from replacing the installed runtime path. Prime may still use
-its supported mutable user directories and independently supplied credentials.
-The existing Rook `.env` credential path remains excluded as specified in
-section 11.
+It also removes every inherited key whose case-insensitive name begins with
+`UV_`, then inserts only these six product-owned values:
+
+```text
+UV_CACHE_DIR=<ROOK_DATA_DIR>/rookchat/acp/v1/prime-uv/cache
+UV_PYTHON_INSTALL_DIR=<ROOK_DATA_DIR>/rookchat/acp/v1/prime-uv/python
+UV_PYTHON_PREFERENCE=only-managed
+UV_PYTHON_NO_REGISTRY=1
+UV_PYTHON_INSTALL_REGISTRY=0
+UV_NO_CONFIG=1
+```
+
+This prevents alternate indexes, mirrors, local find-links, configuration
+files, offline mode, Python mirrors, credentials, or another uv policy from
+replacing the installed runtime path or redirecting first bootstrap. The cache
+and managed-Python bytes are mutable uv-owned support state outside the
+immutable Prime artifact; their locations are product-owned but not keyed per
+conversation or runtime contract. Prime may still use its supported mutable
+user directories, the bundled uv defaults, ordinary system proxy settings, and
+independently supplied credentials. The existing Rook `.env` credential path
+remains excluded as specified in section 11.
 
 The user installs only Rook. The first Prime session creation may begin a
 background kernel prewarm, and the first IPython/Rook operation may wait while
@@ -981,24 +996,47 @@ That first use requires internet access and can take longer. Failure remains a
 Prime-owned tool failure; RookChat does not retry, repair, or substitute a
 kernel.
 
-The Windows release build has a separate, build-only toolchain contract. It
-binds the actual commands used by Prime's builder, including `dirname` before
-`npm ci` and `git` during `bundle.mjs`. The required `zip` implementation comes
-from the official MSYS2 x86_64 package `zip-3.0-5`:
+The Windows release build has a separate, build-only toolchain contract. Task 10
+provisions one fresh, disposable MSYS2 root rather than copying selected
+executables or DLLs from the shared machine installation. Its fixed bootstrap
+inputs are:
 
 ```text
-https://mirror.msys2.org/msys/x86_64/zip-3.0-5-x86_64.pkg.tar.zst
-SHA-256 874E20BF625FBE577949444FAF30AB9A725DBD4886EC9BFF26459152DA7F831C
+base: https://github.com/msys2/msys2-installer/releases/download/2026-06-11/msys2-base-x86_64-20260611.sfx.exe
+base SHA-256: C105946E64E08F099AC0E4647461CE762B95333AD211777666476A9A41451D65
+zip: https://mirror.msys2.org/msys/x86_64/zip-3.0-5-x86_64.pkg.tar.zst
+zip SHA-256: 874E20BF625FBE577949444FAF30AB9A725DBD4886EC9BFF26459152DA7F831C
+unzip: https://mirror.msys2.org/msys/x86_64/unzip-6.0-3-x86_64.pkg.tar.zst
+unzip SHA-256: C98EBAC31EA92A63CF61C6190ED3E8284CCC0C29C43973F1B2C0DE2874E5ACFE
 ```
 
-It is provisioned as part of the release-machine environment, not downloaded by
-Task 10 and not shipped with Rook. The build contract binds its exact installed
-`zip.exe`, required MSYS runtime files, source package identity, and bounded
-version output. The installed executable and runtime-file hashes are build
-authority; the MSYS2 package URL and archive hash are provenance. All other
-invoked build tools are likewise path-, hash-, and
-version-bound. An incomplete or mismatched build environment refuses before
-`npm ci`; the package script never installs or discovers a substitute.
+The provisioner verifies those hashes, extracts the base into a new short
+ASCII-only path outside the source and product trees, and uses that root's
+`pacman -U` with only the two verified local package archives. It performs no
+repository refresh and never alters or consults the shared `C:/msys64`. The
+base already supplies the declared `bash` and `libbz2` dependencies; package
+installation must prove the exact `zip`, `unzip`, `bash`, and `libbz2` package
+identities. The completed root is then frozen by one canonical manifest over
+every regular file plus a complete sorted `pacman -Q` inventory. Build-time use
+must leave that root byte-identical.
+
+The build contract binds that whole MSYS2 root, complete manifests of the
+external Node/npm and Git installations, the standalone Bun executable, all
+commands actually consumed by Prime's builder, and the Windows command
+processor identity. It removes every inherited `NPM_CONFIG_*` key
+case-insensitively; points npm's user and global configuration at distinct,
+manifest-bound empty files; and fixes both `ComSpec` and
+`NPM_CONFIG_SCRIPT_SHELL` to the same manifest-bound
+`C:/Windows/System32/cmd.exe`. Prime's reviewed project `.npmrc` and npm's
+bound built-in configuration are the only remaining npm configuration sources.
+
+Provisioning emits canonical contract bytes and a SHA-256 but does not authorize
+a build. An independent review must supply that exact hash as
+`ExpectedBuildToolchainContractSha256`; the package script verifies it before
+any version probe, network access, or `npm ci`. Missing, malformed, substituted,
+or changed inputs refuse without discovery, fallback, or repair. The
+provisioned root is a release-machine dependency only and never enters the Rook
+installer or a customer machine.
 
 Ambient Prime skills, extensions, MCP servers, context files, and prompt
 templates are excluded by the explicit launch configuration. Prime-owned
@@ -1155,16 +1193,23 @@ provider, model, Rook, Rhino, or Grasshopper contact occurs.
 Before `session/new`, the gate proves that fresh `HOME`, `USERPROFILE`,
 `APPDATA`, `LOCALAPPDATA`, `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`, and the
 derived Prime kernel root contain no reusable kernel or managed Python. The
-admitted environment contains none of the stripped overrides listed in section
-12. It sets `UV_PYTHON_PREFERENCE=only-managed`, `UV_PYTHON_NO_REGISTRY=1`,
-`UV_PYTHON_INSTALL_REGISTRY=0`, and `UV_NO_CONFIG=1` so an installed or
-registered Python and ambient uv configuration cannot satisfy the gate. The
+runner removes every inherited `UV_*` key case-insensitively and then inserts
+only the protocol-owned `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`,
+`UV_PYTHON_PREFERENCE=only-managed`, `UV_PYTHON_NO_REGISTRY=1`,
+`UV_PYTHON_INSTALL_REGISTRY=0`, and `UV_NO_CONFIG=1` values. It proves the
+resulting final Prime child environment contains exactly those admitted `UV_*`
+keys, so an installed or registered Python and ambient uv policy cannot satisfy
+the gate. The
 installed Prime process runs with `--offline`, which suppresses Prime's
 unrelated updater and catalog traffic; it does not put the separately admitted
 `uv` bootstrap into offline mode. A qualification-owned, deny-by-default
 outbound proxy records and admits only the frozen Python and package downloads
 needed by the manifest-bound `uv`, while loopback serves the deterministic
-provider and Rook MCP double. The frozen host allowlist is exactly
+provider and Rook MCP double. Before inserting that proxy, the runner removes
+all inherited `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` keys
+case-insensitively. It then inserts only the protocol-owned proxy URL and
+loopback bypass and asserts the complete final proxy map. The frozen host
+allowlist is exactly
 `github.com`, `api.github.com`, `objects.githubusercontent.com`,
 `release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and
 `files.pythonhosted.org`; a required destination outside that set makes this
@@ -1201,7 +1246,7 @@ Slice B qualifies:
 - zero daemon-tripwire contact;
 - no surviving directly owned child after clean close.
 
-The combined offline gate also proves the installed replacement:
+The combined model-free pre-contact gate also proves the installed replacement:
 
 - no ChatRunner execution path, backend selector, credential-health route, or
   tool loop remains;
@@ -1331,5 +1376,5 @@ The design is accepted when:
 - model selection is limited to supported new-conversation launch arguments;
 - the exact installed Prime artifact and skill bytes are manifest-bound;
 - ChatRunner and Task 7 product machinery are absent;
-- the offline gate and separately authorized live gates pass without evidence
+- the model-free pre-contact gate and separately authorized live gates pass without evidence
   overwrite or automatic retry.
