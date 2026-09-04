@@ -24,11 +24,13 @@ PRIME_COMMIT = "48015aefa41c6c2678ddac9e4000009c1d7c3b63"
 UV_SOURCE = "https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-pc-windows-msvc.zip"
 UV_ARCHIVE_SHA256 = "B23350C79E8AD0192B8124AF13A0F17E8D4E4549524785E1AEF389AE5A06990E"
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+MAX_ROOT_SKILL_UTF8_BYTES = 16 * 1024
 MAX_FILE_ROWS = 100_000
 ID_PATTERN = re.compile(r"[A-F0-9]{64}\Z")
+COMMIT_PATTERN = re.compile(r"[a-f0-9]{40}\Z")
+# Compatibility constraints are independent of the pins used for new assembly.
 FIXED_FIELDS = {
     "schemaVersion": 1, "platform": "windows", "architecture": "amd64",
-    "upstreamCommit": UPSTREAM_COMMIT, "compatibilityPatchCommit": PRIME_COMMIT,
     "acpProtocolVersion": 1, "pythonAcpSdkVersion": "0.12.1", "executable": "pi.exe",
     "goalSkill": "skills/goal", "rookSkill": "skills/rook-full", "claimKeyVersion": 1,
 }
@@ -58,6 +60,7 @@ class VerifiedRuntimePayload:
     root: Path
     runtime_id: str
     manifest: Mapping[str, object]
+    rook_skill_system_prompt: str
 
 
 def canonical_json_bytes(value: object) -> bytes:
@@ -163,18 +166,30 @@ def _read_canonical(path: Path, limit: int) -> tuple[dict, bytes]:
 
 
 def _validate_manifest(manifest: Mapping, rows: list[dict[str, object]]) -> None:
-    if set(manifest) != set(FIXED_FIELDS) | {"rookSkillManifestSha256", "uv", "pythonRuntime", "files"}:
+    if set(manifest) != set(FIXED_FIELDS) | {"upstreamCommit", "compatibilityPatchCommit", "rookSkillManifestSha256", "uv", "pythonRuntime", "files"}:
         raise RuntimeUnavailable("runtime manifest keys are invalid")
     for key, expected in FIXED_FIELDS.items():
         if type(manifest[key]) is not type(expected) or manifest[key] != expected:
             raise RuntimeUnavailable(f"runtime field {key} is unsupported")
-    if manifest["uv"] != UV:
+    upstream, patch = manifest["upstreamCommit"], manifest["compatibilityPatchCommit"]
+    if type(upstream) is not str or not COMMIT_PATTERN.fullmatch(upstream):
+        raise RuntimeUnavailable("runtime upstreamCommit is invalid")
+    if patch is not None and (type(patch) is not str or not COMMIT_PATTERN.fullmatch(patch)):
+        raise RuntimeUnavailable("runtime compatibilityPatchCommit is invalid")
+    uv = manifest["uv"]
+    if type(uv) is not dict or set(uv) != {"version", "executable", "source", "sourceArchiveSha256", "licenses"}:
+        raise RuntimeUnavailable("runtime uv keys are invalid")
+    if (type(uv["version"]) is not str or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", uv["version"])
+            or uv["executable"] != "tools/uv/uv.exe"
+            or uv["licenses"] != ["tools/uv/LICENSE-APACHE", "tools/uv/LICENSE-MIT"]
+            or uv["source"] != f"https://github.com/astral-sh/uv/releases/download/{uv['version']}/uv-x86_64-pc-windows-msvc.zip"
+            or type(uv["sourceArchiveSha256"]) is not str or not ID_PATTERN.fullmatch(uv["sourceArchiveSha256"])):
         raise RuntimeUnavailable("runtime uv contract differs")
     python_runtime = manifest["pythonRuntime"]
     if type(python_runtime) is not dict or set(python_runtime) != {"root", "sourceCommit", "manifestSha256"}:
         raise RuntimeUnavailable("runtime pythonRuntime keys are invalid")
     if python_runtime != {
-        "root": "dist/prime-agent-runtime", "sourceCommit": PRIME_COMMIT,
+        "root": "dist/prime-agent-runtime", "sourceCommit": patch or upstream,
         "manifestSha256": subtree_sha256(rows, "dist/prime-agent-runtime/"),
     }:
         raise RuntimeUnavailable("runtime Python subtree identity differs")
@@ -204,18 +219,37 @@ def _validate_manifest(manifest: Mapping, rows: list[dict[str, object]]) -> None
         raise RuntimeUnavailable("required runtime artifact file is missing")
 
 
+def _verified_root_skill(root: Path, rows: Sequence[Mapping[str, object]]) -> str:
+    try:
+        path = require_direct_path(root / "skills/rook-full/SKILL.md")
+        with path.open("rb") as stream:
+            data = stream.read(MAX_ROOT_SKILL_UTF8_BYTES + 1)
+        if len(data) > MAX_ROOT_SKILL_UTF8_BYTES:
+            raise RuntimeUnavailable("root_skill_too_large")
+        row = next(row for row in rows if row["path"] == "skills/rook-full/SKILL.md")
+        if len(data) != row["bytes"] or sha256_bytes(data) != row["sha256"]:
+            raise RuntimeUnavailable("root Rook skill changed after verification")
+        return data.decode("utf-8", "strict")
+    except UnicodeDecodeError as exc:
+        raise RuntimeUnavailable("root_skill_invalid_utf8") from exc
+    except OSError as exc:
+        raise RuntimeUnavailable("root Rook skill is unavailable") from exc
+
+
 def create_runtime_manifest(payload_root: Path, metadata: RuntimeManifestMetadata) -> str:
     root = require_direct_path(payload_root, directory=True)
     rows = payload_rows(root)
     manifest = {
-        **FIXED_FIELDS, "acpProtocolVersion": metadata.acp_protocol_version,
+        **FIXED_FIELDS, "upstreamCommit": UPSTREAM_COMMIT, "compatibilityPatchCommit": PRIME_COMMIT,
+        "acpProtocolVersion": metadata.acp_protocol_version,
         "pythonAcpSdkVersion": metadata.python_acp_sdk_version,
         "rookSkillManifestSha256": metadata.rook_skill_manifest_sha256, "uv": UV,
-        "pythonRuntime": {"root": "dist/prime-agent-runtime", "sourceCommit": PRIME_COMMIT,
+        "pythonRuntime": {"root": "dist/prime-agent-runtime", "sourceCommit": PRIME_COMMIT or UPSTREAM_COMMIT,
                           "manifestSha256": subtree_sha256(rows, "dist/prime-agent-runtime/")},
         "files": rows,
     }
     _validate_manifest(manifest, rows)
+    _verified_root_skill(root, rows)
     data = canonical_json_bytes(manifest)
     if len(data) > MAX_MANIFEST_BYTES:
         raise RuntimeUnavailable("runtime manifest exceeds byte limit")
@@ -235,8 +269,9 @@ def verify_runtime_payload(runtime_root: Path, expected_runtime_id: str | None =
         if expected_runtime_id is not None and (type(expected_runtime_id) is not str
                 or not ID_PATTERN.fullmatch(expected_runtime_id) or expected_runtime_id != runtime_id):
             raise RuntimeUnavailable("runtime_id differs from manifest")
-        _validate_manifest(manifest, payload_rows(root))
-        return VerifiedRuntimePayload(root, runtime_id, manifest)
+        rows = payload_rows(root)
+        _validate_manifest(manifest, rows)
+        return VerifiedRuntimePayload(root, runtime_id, manifest, _verified_root_skill(root, rows))
     except OSError as exc:
         raise RuntimeUnavailable("runtime payload cannot be read") from exc
 

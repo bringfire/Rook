@@ -14,7 +14,8 @@ from acp import PROTOCOL_VERSION
 from importlib.metadata import version
 
 from rook.agent.chat.acp_storage import RookBinding
-from .test_prime_runtime_artifact import PAYLOAD
+from .test_prime_runtime_artifact import PAYLOAD, metadata, write_payload
+from rook.agent.chat import prime_runtime_artifact as artifact
 from rook.agent.chat.prime_runtime import (
     MAX_ROOT_SKILL_UTF8_BYTES,
     MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS,
@@ -194,6 +195,59 @@ def test_prime_child_environment_uses_pre_dotenv_snapshot(verified_runtime, monk
     assert child["PATH"] == str(contract.uv_executable_path.parent) + os.pathsep + pre_dotenv["PATH"]
     assert child["UV_CACHE_DIR"] == str(tmp_path / "data/rookchat/acp/v1/prime-uv/cache")
     assert child["UV_PYTHON_INSTALL_DIR"] == str(tmp_path / "data/rookchat/acp/v1/prime-uv/python")
+
+
+@pytest.mark.parametrize("policy_key", ["PYTHONDONTWRITEBYTECODE", "pythondontwritebytecode", "PythonDontWriteBytecode"])
+def test_goal_style_editable_import_preserves_verified_runtime(tmp_path, policy_key):
+    files = {**PAYLOAD, "skills/goal/src/goal/__init__.py": (
+        b"from rlm import host_request\nasync def get():\n    return await host_request('goal.get')\n"
+    )}
+    prime = tmp_path / "prime"
+    staging = write_payload(prime / "staging", files)
+    runtime_id = artifact.create_runtime_manifest(staging, metadata(files))
+    root = prime / "runtimes" / runtime_id
+    root.parent.mkdir()
+    staging.rename(root)
+    contract = load_and_verify_runtime(prime, runtime_id)
+    base = {k: os.environ[k] for k in ("SYSTEMROOT", "WINDIR") if k in os.environ}
+    base.update({"ROOK_DATA_DIR": str(tmp_path / "data"), policy_key: "",
+                 "PythonPycachePrefix": str(root / "ambient-cache")})
+    for name in ("HOME", "USERPROFILE", "TEMP", "TMP"):
+        base[name] = str(tmp_path)
+    child = build_prime_child_env(base, contract)
+    before = {p.relative_to(root): _sha256(p.read_bytes()) for p in root.rglob("*") if p.is_file()}
+    code = """
+import pathlib, sys, types
+bridge = types.ModuleType('rlm')
+def forbidden(*args, **kwargs):
+    raise AssertionError('no host operations are allowed')
+bridge.host_request = forbidden
+sys.modules['rlm'] = bridge
+sys.path.insert(0, sys.argv[1])
+import goal
+assert pathlib.Path(goal.__file__).resolve() == pathlib.Path(sys.argv[1]) / 'goal/__init__.py'
+assert callable(goal.get)
+"""
+    # -S avoids ambient site imports; unlike -I/-B it still exercises the
+    # bytecode policy actually projected by the production child boundary.
+    command = [str(Path(sys.executable).resolve()), "-S", "-c", code, str(root / "skills/goal/src")]
+    imported = subprocess.run(command, cwd=tmp_path, env=child, capture_output=True, text=True, timeout=10, shell=False)
+    assert imported.returncode == 0, imported.stderr
+    assert before == {p.relative_to(root): _sha256(p.read_bytes()) for p in root.rglob("*") if p.is_file()}
+    assert load_and_verify_runtime(prime, runtime_id).runtime_id == runtime_id
+    assert child["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert not any(k.upper() == "PYTHONPYCACHEPREFIX" for k in child)
+
+    # Control: the same ordinary import without the owned policy writes pyc,
+    # and the verifier must continue to reject that extra executable file.
+    uncontrolled = {k: v for k, v in child.items() if k.upper() != "PYTHONDONTWRITEBYTECODE"}
+    # Contain even standard-library caches within this disposable tree.
+    uncontrolled["PYTHONPYCACHEPREFIX"] = str(root / "control-cache")
+    imported = subprocess.run(command, cwd=tmp_path, env=uncontrolled, capture_output=True, text=True, timeout=10, shell=False)
+    assert imported.returncode == 0, imported.stderr
+    assert any("/skills/goal/src/goal/" in p.as_posix() for p in (root / "control-cache").rglob("*.pyc"))
+    with pytest.raises(RuntimeUnavailable, match="manifest file set"):
+        load_and_verify_runtime(prime, runtime_id)
 
 
 def test_complete_rendered_windows_argv_refuses_before_spawn(verified_runtime, tmp_path: Path):
@@ -393,3 +447,49 @@ def test_relocated_payload_reaches_real_argv_consumer(tmp_path):
     argv = build_prime_argv(contract, tmp_path / "session.jsonl", None, None, True)
     assert argv[0] == str(new / "runtimes" / runtime_id / "pi.exe")
     assert str(old) not in " ".join(argv)
+
+
+@pytest.mark.parametrize("next_patch", ["2" * 40, None], ids=["patched", "upstream-only"])
+def test_new_release_provenance_does_not_reject_recorded_historical_runtime(tmp_path, monkeypatch, next_patch):
+    prime = tmp_path / "prime"
+    old = write_payload(prime / ".incoming/old")
+    old_id = artifact.create_runtime_manifest(old, metadata())
+    old_manifest = (old / "runtime-manifest.json").read_bytes()
+    assert artifact.promote_incoming_runtime(old, prime) == old_id
+
+    # Synthetic next qualified release. Only new assembly uses these pins;
+    # already recorded runtime IDs remain the authority for existing sessions.
+    monkeypatch.setattr(artifact, "UPSTREAM_COMMIT", "1" * 40)
+    monkeypatch.setattr(artifact, "PRIME_COMMIT", next_patch)
+    monkeypatch.setattr(artifact, "UV", {
+        "version": "1.0.0", "executable": "tools/uv/uv.exe",
+        "source": "https://github.com/astral-sh/uv/releases/download/1.0.0/uv-x86_64-pc-windows-msvc.zip",
+        "sourceArchiveSha256": "D" * 64,
+        "licenses": ["tools/uv/LICENSE-APACHE", "tools/uv/LICENSE-MIT"],
+    })
+    assert load_and_verify_runtime(prime, old_id).runtime_id == old_id
+    new = write_payload(prime / ".incoming/new", {**PAYLOAD, "pi.exe": b"next executable fixture"})
+    new_id = artifact.create_runtime_manifest(new, metadata())
+    new_manifest = json.loads((new / "runtime-manifest.json").read_bytes())
+    assert new_manifest["upstreamCommit"] == "1" * 40
+    assert new_manifest["compatibilityPatchCommit"] == next_patch
+    assert new_manifest["pythonRuntime"]["sourceCommit"] == (next_patch or "1" * 40)
+    assert new_manifest["uv"]["version"] == "1.0.0"
+    assert artifact.promote_incoming_runtime(new, prime) == new_id
+    assert new_id != old_id
+    assert artifact.read_current_runtime_id(prime) == new_id
+
+    for runtime_id, expected_prime, expected_uv in (
+        (old_id, "48015aefa41c6c2678ddac9e4000009c1d7c3b63", "0.12.3"),
+        (new_id, next_patch, "1.0.0"),
+    ):
+        contract = load_and_verify_runtime(prime, runtime_id)
+        assert contract.compatibility_patch_commit == expected_prime
+        assert contract.uv_version == expected_uv
+        assert build_prime_argv(contract, tmp_path / "session.jsonl", None, None, True)[0] == str(prime / "runtimes" / runtime_id / "pi.exe")
+    assert (prime / "runtimes" / old_id / "runtime-manifest.json").read_bytes() == old_manifest
+
+    (prime / "runtimes" / old_id / "pi.exe").write_bytes(b"changed history")
+    with pytest.raises(RuntimeUnavailable, match="manifest file set"):
+        load_and_verify_runtime(prime, old_id)
+    assert artifact.read_current_runtime_id(prime) == new_id

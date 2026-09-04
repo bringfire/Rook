@@ -110,13 +110,20 @@ def test_manifest_roundtrip_public_cli_and_closed_payload(tmp_path):
     lambda m: m.update(platform="linux"),
     lambda m: m.update(architecture="x64"),
     lambda m: m.update(compatibilityPatchCommit="9c25468b"),
+    lambda m: m.update(upstreamCommit="F" * 40),
+    lambda m: m.update(upstreamCommit=None),
     lambda m: m.update(acpProtocolVersion=True),
     lambda m: m.update(pythonAcpSdkVersion="0.12.2"),
     lambda m: m["uv"].update(extra=True),
     lambda m: m["uv"].update(source="https://invalid.example/uv.zip"),
+    lambda m: m["uv"].update(version=True),
+    lambda m: m["uv"].update(version="01.2.3"),
+    lambda m: m["uv"].update(sourceArchiveSha256=None),
+    lambda m: m["uv"].update(sourceArchiveSha256="a" * 64),
     lambda m: m["uv"].update(licenses=["tools/uv/LICENSE-MIT"]),
     lambda m: m["pythonRuntime"].update(manifestSha256="0" * 64),
     lambda m: m["pythonRuntime"].pop("sourceCommit"),
+    lambda m: m["pythonRuntime"].update(sourceCommit="3" * 40),
     lambda m: m["files"][0].update(extra=True),
     lambda m: m["files"][0].update(bytes=True),
     lambda m: m["files"].reverse(),
@@ -176,6 +183,47 @@ def test_manifest_creation_is_create_only(tmp_path):
     with pytest.raises(artifact.RuntimeUnavailable):
         artifact.create_runtime_manifest(root, metadata())
     assert (root / "runtime-manifest.json").read_bytes() == original
+
+
+@pytest.mark.parametrize("skill_bytes,error", [(b"\xff", "root_skill_invalid_utf8"), (b"x" * 16385, "root_skill_too_large")], ids=["invalid-utf8", "over-limit"])
+def test_manifest_creation_requires_launchable_root_skill(tmp_path, skill_bytes, error):
+    files = {**PAYLOAD, "skills/rook-full/SKILL.md": skill_bytes}
+    root = write_payload(tmp_path / "runtime", files)
+    with pytest.raises(artifact.RuntimeUnavailable, match=error):
+        artifact.create_runtime_manifest(root, metadata(files))
+    assert not (root / "runtime-manifest.json").exists()
+
+
+@pytest.mark.parametrize("skill_bytes,error", [(b"\xff", "root_skill_invalid_utf8"), (b"x" * 16385, "root_skill_too_large")], ids=["invalid-utf8", "over-limit"])
+def test_truthfully_hashed_invalid_skill_cannot_verify_or_advance_pointer(tmp_path, skill_bytes, error):
+    prime = tmp_path / "prime"
+    root, _ = materialize(prime / ".incoming" / "invalid-skill")
+    (root / "skills/rook-full/SKILL.md").write_bytes(skill_bytes)
+    files = {**PAYLOAD, "skills/rook-full/SKILL.md": skill_bytes}
+
+    def rehash(manifest):
+        for row in manifest["files"]:
+            if row["path"] == "skills/rook-full/SKILL.md":
+                row.update(bytes=len(skill_bytes), sha256=digest(skill_bytes))
+        manifest["rookSkillManifestSha256"] = subtree_id(files, "skills/rook-full/")
+
+    runtime_id = rewrite(root, rehash)
+    pointer = prime / "current.json"
+    pointer.write_bytes(b'old selection\n')
+    with pytest.raises(artifact.RuntimeUnavailable, match=error):
+        artifact.verify_runtime_payload(root, runtime_id)
+    assert artifact.main(["promote", "--incoming-root", str(root), "--prime-root", str(prime)]) == 1
+    assert pointer.read_bytes() == b'old selection\n'
+    assert not (prime / "runtimes").exists()
+
+
+def test_shared_verification_retains_exact_decoded_skill_at_byte_limit(tmp_path):
+    skill = "\u00e9" * 8192
+    files = {**PAYLOAD, "skills/rook-full/SKILL.md": skill.encode("utf-8")}
+    root = write_payload(tmp_path / "runtime", files)
+    runtime_id = artifact.create_runtime_manifest(root, metadata(files))
+    verified = artifact.verify_runtime_payload(root, runtime_id)
+    assert verified.rook_skill_system_prompt == skill
 
 
 def test_unreadable_payload_stays_inside_runtime_unavailable_boundary(tmp_path, monkeypatch):

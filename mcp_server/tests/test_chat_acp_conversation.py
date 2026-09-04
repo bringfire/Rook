@@ -841,7 +841,8 @@ async def test_direct_factory_reopen_drops_creation_time_model_overrides(tmp_pat
 
     monkeypatch.setattr("rook.agent.chat.acp_conversation.OwnedAcpProcess.start", fake_start)
     forbidden = ["PI_PACKAGE_DIR", "PRIME_AGENT_KERNEL_PYTHON", "PRIME_AGENT_KERNEL_VENV", "PRIME_AGENT_INSTALL_UV",
-                 "VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", "UV_INDEX", "UV_OFFLINE", "UV_FUTURE_SETTING"]
+                 "VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX",
+                 "UV_INDEX", "UV_OFFLINE", "UV_FUTURE_SETTING"]
     base = {variant: "must-not-reach-child" for name in forbidden for variant in (name, name.lower(), name.title())}
     base.update({"PATH": "C:/approved", "ROOK_DATA_DIR": str(tmp_path / "data"), "ANTHROPIC_API_KEY": "user-owned"})
     factory = DirectAcpProcessFactory(base)
@@ -858,6 +859,7 @@ async def test_direct_factory_reopen_drops_creation_time_model_overrides(tmp_pat
         "UV_PYTHON_INSTALL_DIR": str(tmp_path / "data/rookchat/acp/v1/prime-uv/python"),
         "UV_PYTHON_PREFERENCE": "only-managed", "UV_PYTHON_NO_REGISTRY": "1",
         "UV_PYTHON_INSTALL_REGISTRY": "0", "UV_NO_CONFIG": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
     }
 
 

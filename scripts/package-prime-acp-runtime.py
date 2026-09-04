@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import shutil
 import stat
 import sys
@@ -13,7 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from rook.agent.chat.prime_runtime_artifact import (
-    ID_PATTERN, RuntimeManifestMetadata, RuntimeUnavailable, create_runtime_manifest,
+    ID_PATTERN, UV, RuntimeManifestMetadata, RuntimeUnavailable, create_runtime_manifest,
     payload_rows, publish_runtime_directory, require_direct_path, safe_relative_path,
     subtree_sha256, verify_runtime_payload,
 )
@@ -25,6 +26,8 @@ MAX_ARCHIVE_ENTRIES = 100_000
 MAX_UV_ZIP_BYTES = 128 * 1024**2
 MAX_LICENSE_BYTES = 1024**2
 PRIME_LICENSE_SHA256 = "B288615FB31DC504623582FB790A28E6D86BC2F5C1396845AF555E43386DA5A0"
+UV_LICENSE_APACHE_SHA256 = "C71D239DF91726FC519C6EB72D318EC65820627232B2F796219E87DCF35D0AB4"
+UV_LICENSE_MIT_SHA256 = "860E3D7A86B84E6A7012C7A635FC64DF475CEBC6CCE34DFEB73A5982EC58176C"
 RESERVED = ("runtime-manifest.json", "skills/rook-full", "tools/uv", "notices/prime-agent")
 
 
@@ -33,6 +36,16 @@ def bounded_file(path: Path, limit: int) -> Path:
     if not 0 < path.stat().st_size <= limit:
         raise RuntimeUnavailable("assembly input exceeds byte limit or is empty")
     return path
+
+
+def verified_input_bytes(path: Path, limit: int, expected_sha256: str) -> bytes:
+    with bounded_file(path, limit).open("rb") as stream:
+        data = stream.read(limit + 1)
+    if not 0 < len(data) <= limit:
+        raise RuntimeUnavailable("assembly input exceeds byte limit or is empty")
+    if hashlib.sha256(data).hexdigest().upper() != expected_sha256:
+        raise RuntimeUnavailable(f"{path.name} SHA-256 differs")
+    return data
 
 
 def admitted_entries(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
@@ -104,9 +117,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not ID_PATTERN.fullmatch(args.expected_prime_zip_sha256):
             raise RuntimeUnavailable("ZIP SHA-256 is invalid")
         prime_zip = bounded_file(args.prime_zip, MAX_PRIME_ZIP_BYTES)
-        uv_zip = bounded_file(args.uv_zip, MAX_UV_ZIP_BYTES)
-        apache = bounded_file(args.uv_license_apache, MAX_LICENSE_BYTES)
-        mit = bounded_file(args.uv_license_mit, MAX_LICENSE_BYTES)
+        uv_bytes = verified_input_bytes(args.uv_zip, MAX_UV_ZIP_BYTES, UV["sourceArchiveSha256"])
+        apache = verified_input_bytes(args.uv_license_apache, MAX_LICENSE_BYTES, UV_LICENSE_APACHE_SHA256)
+        mit = verified_input_bytes(args.uv_license_mit, MAX_LICENSE_BYTES, UV_LICENSE_MIT_SHA256)
         notice = bounded_file(args.prime_license, MAX_LICENSE_BYTES)
         notice_data = notice.read_bytes()
         if len(notice_data) != 1105 or hashlib.sha256(notice_data).hexdigest().upper() != PRIME_LICENSE_SHA256:
@@ -121,7 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if archive_hash != args.expected_prime_zip_sha256:
                 raise RuntimeUnavailable("upstream ZIP hash differs before extraction")
             stream.seek(0)
-            with zipfile.ZipFile(stream) as prime, zipfile.ZipFile(uv_zip) as uv:
+            with zipfile.ZipFile(stream) as prime, zipfile.ZipFile(io.BytesIO(uv_bytes)) as uv:
                 entries = admitted_entries(prime)
                 uv_entries = admitted_entries(uv)
                 uv_exe = [item for item in uv_entries if item.filename == "uv.exe" and not item.is_dir()]
@@ -145,9 +158,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 tools.mkdir(parents=True)
                 with uv.open(uv_exe[0]) as source:
                     copy_stream(source, tools / "uv.exe", MAX_UV_ZIP_BYTES)
-                for source, destination in ((apache, tools / "LICENSE-APACHE"), (mit, tools / "LICENSE-MIT")):
-                    with source.open("rb") as input_stream:
-                        copy_stream(input_stream, destination, MAX_LICENSE_BYTES)
+                for data, destination in ((apache, tools / "LICENSE-APACHE"), (mit, tools / "LICENSE-MIT")):
+                    with destination.open("xb") as output_stream:
+                        output_stream.write(data)
                 legal = stage / "notices/prime-agent"
                 legal.mkdir(parents=True)
                 with (legal / "LICENSE").open("xb") as output_stream:

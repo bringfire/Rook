@@ -1089,8 +1089,9 @@ unchanged `LICENSE` at upstream commit
 The final runtime manifest binds the exact installed notice bytes.
 
 The release preparation supplies predownloaded `uv` inputs. The packager does
-not perform network acquisition. Before copying them, trusted Rook tooling
-rechecks their regular-file shape, byte ceiling, and frozen SHA-256:
+not perform network acquisition. The offline packager itself rechecks all three
+inputs' regular-file shape, byte ceiling, and frozen SHA-256 before assembly,
+then consumes the retained verified bytes rather than reopening input paths:
 
 ```text
 uv archive
@@ -1139,7 +1140,7 @@ pythonRuntime
 files
 ```
 
-The fixed scalar values are:
+New assembly uses these exact scalar values:
 
 ```text
 schemaVersion = 1
@@ -1158,15 +1159,30 @@ contract. `rookSkillManifestSha256` is the canonical recursive identity of the
 complete installed `skills/rook-full` subtree.
 
 The closed `uv` object has exactly `version`, `executable`, `source`,
-`sourceArchiveSha256`, and `licenses`. It identifies version `0.12.3`, fixed
+`sourceArchiveSha256`, and `licenses`. New assembly identifies version `0.12.3`, fixed
 path `tools/uv/uv.exe`, the frozen archive source and hash above, and exactly
 the two installed relative license paths.
 
 The closed `pythonRuntime` object has exactly `root`, `manifestSha256`, and
-`sourceCommit`. Its root is `dist/prime-agent-runtime`, its source commit is the
+`sourceCommit`. Its root is `dist/prime-agent-runtime`; new assembly records the
 approved compatibility commit, and its subtree hash covers every regular file
 under that root. This diagnostic subtree identity never replaces any outer
 file row.
+
+Exact new-build pins are not historical-runtime compatibility requirements.
+Creation admits the currently approved build inputs above. Verification and
+reopen instead bind the recorded runtime ID to its unchanged bytes and the
+supported schema, platform, architecture, ACP/SDK, claim, and relative-path
+contract. Recorded upstream and optional compatibility commits are lowercase
+40-hex values (the compatibility commit may be null); `pythonRuntime.sourceCommit`
+must equal the compatibility commit when present, otherwise the upstream commit.
+Historical `uv.version` is a canonical three-part numeric version with no
+leading zeros; its source must be the official Windows archive URL for that
+recorded version, its source hash is uppercase 64-hex, and executable/license
+paths remain fixed. These provenance values are bound by the recorded runtime
+ID, not compared with the newest build pins. No updater, migration, repair, or
+substitution is implied, and a runtime missing its recorded approval/association
+cannot gain authority merely by supplying different provenance.
 
 For every regular payload file except `runtime-manifest.json`, `files` contains
 one row with exactly:
@@ -1188,6 +1204,13 @@ normalization, and exactly one terminal LF. The uppercase SHA-256 of those exact
 bytes is the runtime ID. A small hand-frozen test vector fixes exact input rows,
 expected canonical manifest bytes, and expected runtime ID so generator and
 verifier cannot agree on the same accidental serialization change.
+
+Shared artifact verification also reads the root `skills/rook-full/SKILL.md`
+with a 16,384-byte UTF-8 ceiling, strictly decodes it, and binds the retained
+text to the verified file row. Creation, packaging, promotion, and loading all
+refuse invalid text before runtime publication or pointer advancement. Launch
+uses that retained exact text; the path-dependent 30,000-UTF-16-unit rendered
+command-line check remains at the launch boundary.
 
 The staging directory is created as a unique sibling under the final release
 `runtimes` parent. After complete verification, publication is:
@@ -1286,6 +1309,8 @@ PRIME_AGENT_INSTALL_UV
 VIRTUAL_ENV
 PYTHONHOME
 PYTHONPATH
+PYTHONDONTWRITEBYTECODE
+PYTHONPYCACHEPREFIX
 ```
 
 It also removes every inherited key whose case-insensitive name begins with
@@ -1299,6 +1324,13 @@ UV_PYTHON_NO_REGISTRY=1
 UV_PYTHON_INSTALL_REGISTRY=0
 UV_NO_CONFIG=1
 ```
+
+It additionally establishes `PYTHONDONTWRITEBYTECODE=1` after scrubbing inherited
+bytecode-policy overrides. Prime passes that standard policy into its Python
+processes, so ordinary imports of editable goal/runtime source do not write
+bytecode into the immutable payload. The verifier does not ignore `.pyc` or
+`__pycache__`; an import-then-reverify fixture must preserve the full closed file
+set. This adds no kernel or Prime-owned-state implementation to Rook.
 
 The manifest-verified `tools/uv` directory is prepended to the remaining child
 `PATH`. Prime then owns Python acquisition, virtual-environment creation,

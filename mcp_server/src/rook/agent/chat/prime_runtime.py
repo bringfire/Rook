@@ -16,10 +16,9 @@ from acp import PROTOCOL_VERSION
 from acp.schema import EnvVariable, McpServerStdio
 
 from .acp_storage import RookBinding
-from .prime_runtime_artifact import ID_PATTERN, RuntimeUnavailable, sha256_bytes, verify_runtime_payload
+from .prime_runtime_artifact import ID_PATTERN, MAX_ROOT_SKILL_UTF8_BYTES, RuntimeUnavailable, verify_runtime_payload
 
 
-MAX_ROOT_SKILL_UTF8_BYTES = 16 * 1024
 MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS = 30_000
 RUNTIME_SCHEMA_VERSION = 1
 SUPPORTED_REASONING = frozenset({"off", "minimal", "low", "medium", "high", "xhigh", "max"})
@@ -67,19 +66,6 @@ def load_and_verify_runtime(install_root: Path, runtime_id: str) -> PrimeRuntime
         raise RuntimeUnavailable("runtime platform or architecture differs from this host")
     if manifest["acpProtocolVersion"] != PROTOCOL_VERSION or manifest["pythonAcpSdkVersion"] != version("agent-client-protocol"):
         raise RuntimeUnavailable("ACP compatibility differs from the installed client")
-    try:
-        with (root / "skills/rook-full/SKILL.md").open("rb") as stream:
-            skill_bytes = stream.read(MAX_ROOT_SKILL_UTF8_BYTES + 1)
-        if len(skill_bytes) > MAX_ROOT_SKILL_UTF8_BYTES:
-            raise RuntimeUnavailable("root_skill_too_large")
-        row = next(row for row in manifest["files"] if row["path"] == "skills/rook-full/SKILL.md")
-        if len(skill_bytes) != row["bytes"] or sha256_bytes(skill_bytes) != row["sha256"]:
-            raise RuntimeUnavailable("root Rook skill changed after verification")
-        system_prompt = skill_bytes.decode("utf-8", errors="strict")
-    except UnicodeDecodeError as exc:
-        raise RuntimeUnavailable("root_skill_invalid_utf8") from exc
-    except OSError as exc:
-        raise RuntimeUnavailable("root Rook skill is unavailable") from exc
     return PrimeRuntimeContract(
         schema_version=manifest["schemaVersion"], runtime_id=runtime_id,
         platform=manifest["platform"], architecture=manifest["architecture"],
@@ -88,7 +74,7 @@ def load_and_verify_runtime(install_root: Path, runtime_id: str) -> PrimeRuntime
         python_acp_sdk_version=manifest["pythonAcpSdkVersion"],
         executable_path=root / "pi.exe", goal_skill_path=root / "skills/goal",
         rook_skill_path=root / "skills/rook-full", rook_skill_manifest_sha256=manifest["rookSkillManifestSha256"],
-        rook_skill_system_prompt=system_prompt, uv_version=manifest["uv"]["version"],
+        rook_skill_system_prompt=verified.rook_skill_system_prompt, uv_version=manifest["uv"]["version"],
         uv_executable_path=root / manifest["uv"]["executable"],
         prime_agent_runtime_path=root / manifest["pythonRuntime"]["root"],
         prime_agent_runtime_manifest_sha256=manifest["pythonRuntime"]["manifestSha256"],
@@ -177,7 +163,8 @@ def build_prime_child_env(
         except UnicodeEncodeError as exc:
             raise PrimeLaunchError("invalid_child_environment") from exc
     blocked = {"PI_PACKAGE_DIR", "PRIME_AGENT_KERNEL_PYTHON", "PRIME_AGENT_KERNEL_VENV",
-               "PRIME_AGENT_INSTALL_UV", "VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH"}
+               "PRIME_AGENT_INSTALL_UV", "VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH",
+               "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"}
     environment = {key: value for key, value in base_environment.items()
                    if key.upper() not in blocked and not key.upper().startswith("UV_")}
     data_values = [value for key, value in environment.items() if key.upper() == "ROOK_DATA_DIR"]
@@ -194,6 +181,7 @@ def build_prime_child_env(
         "UV_PYTHON_INSTALL_DIR": str(data / "python"),
         "UV_PYTHON_PREFERENCE": "only-managed", "UV_PYTHON_NO_REGISTRY": "1",
         "UV_PYTHON_INSTALL_REGISTRY": "0", "UV_NO_CONFIG": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
     })
     return environment
 

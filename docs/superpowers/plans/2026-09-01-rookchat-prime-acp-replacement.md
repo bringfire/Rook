@@ -1394,7 +1394,7 @@ git commit -m "feat(grasshopper): fence mutations to observed document"
 - Retain outside source and product trees: the Git bundle, WSL build record, transferred Prime ZIP, downloaded `uv` inputs, and artifact review hashes
 
 **Interfaces:**
-- Consumes: frozen specification `8b844fff1289b27313ca2908f5f4264d465836ad`; clean Prime commit `48015aefa41c6c2678ddac9e4000009c1d7c3b63` directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; Prime's unchanged `scripts/build-binaries.sh --platform windows-x64`; Task 8's tracked `installer/agent-assets/prime-skills/rook-full`; the installed Rook Python service; and the existing installer/local-deployment entrypoints.
+- Consumes: frozen specification baseline `8b844fff1289b27313ca2908f5f4264d465836ad` plus the Section 12 artifact-consumer corrections in this amendment; clean Prime commit `48015aefa41c6c2678ddac9e4000009c1d7c3b63` directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; Prime's unchanged `scripts/build-binaries.sh --platform windows-x64`; Task 8's tracked `installer/agent-assets/prime-skills/rook-full`; the installed Rook Python service; and the existing installer/local-deployment entrypoints.
 - Produces: one portable Ubuntu build entrypoint; one complete upstream `pi-windows-x64.zip`; one Rook-owned runtime-manifest implementation; one offline Windows packager; one shared promotion function used by installer and local deployment; one closed `current.json` selector; one installed-product verifier; and an ignored, complete installer runtime payload.
 - Does not produce: a build-toolchain contract, MSYS2 root, per-tool executable manifest, private-helper test loader, Prime patch, product WSL dependency, or Prime lifecycle execution.
 
@@ -1612,6 +1612,7 @@ class VerifiedRuntimePayload:
     root: Path
     runtime_id: str
     manifest: Mapping[str, object]
+    rook_skill_system_prompt: str
 
 def canonical_json_bytes(value: object) -> bytes:
     raise NotImplementedError
@@ -1642,7 +1643,15 @@ these public subcommands rather than extracted private helpers.
 The initial RED tests cover canonical UTF-8/no-BOM/sorted-key/compact/LF bytes,
 the exact closed manifest schema from specification Section 12.5, ordinal file
 rows, duplicate-normalized paths, non-regular/link/reparse paths, closed file
-sets, runtime-ID equality, and the fixed Windows/AMD64/Prime/ACP identities.
+sets, runtime-ID equality, and the fixed Windows/AMD64/ACP compatibility.
+New assembly retains the exact approved Prime/uv build pins. Historical loading
+validates recorded provenance and internal source consistency as specified in
+Section 12.5, without requiring the newest build pins. A two-release fixture
+must promote the new runtime, then reopen both recorded IDs through the actual
+loader and argv constructor without changing old bytes; tampering still refuses.
+Shared verification rejects invalid UTF-8 and root-skill content above 16,384
+bytes before manifest publication or pointer advancement, returning the exact
+retained decoded text for launch. These are artifact checks, not just launch checks.
 
 Add one hand-frozen oracle whose literal fixture rows, literal expected manifest
 bytes, and literal uppercase runtime ID are reviewable constants. The test must
@@ -1663,7 +1672,8 @@ runtime-manifest.json, skills/rook-full, tools/uv, and notices/prime-agent must 
 every Rook-owned addition is create-only
 Prime ZIP bytes remain unchanged when a reserved collision refuses
 rook-full is copied as one complete tracked subtree
-the preadmitted uv archive and licenses remain regular, bounded inputs
+the packager rechecks each frozen uv archive/license hash over bounded regular-file bytes
+each wrong hash refuses before output creation; assembly consumes retained verified bytes
 the uv ZIP receives the same traversal/link/collision checks and only uv.exe is selected
 every installed uv and license byte is bound by the generated closed file rows
 Prime's tracked notice requires 1,105 bytes and SHA-256 B288615FB31DC504623582FB790A28E6D86BC2F5C1396845AF555E43386DA5A0
@@ -1693,10 +1703,13 @@ The packager uses a fresh same-volume sibling for extraction and assembly,
 calls `create_runtime_manifest()`, immediately calls
 `verify_runtime_payload()`, and only then renames create-only to
 `runtimes/<runtime-id>`. It consumes already downloaded inputs and has no URL,
-HTTP, retry, or test-mode option. Frozen `uv` source/hash admission belongs to
-the Step 8 release procedure; the packager rechecks regular-file shape and byte
-ceilings, safely reads the archive, and binds the exact installed bytes. This
-keeps synthetic packager tests offline without weakening final payload custody.
+HTTP, retry, or test-mode option. Step 8 acquires and checks frozen `uv` inputs;
+the offline packager independently repeats all three frozen hash checks, regular-
+file checks, and byte ceilings before retaining and consuming those exact bytes.
+Synthetic positive tests may substitute expected hashes only in the imported
+test-local module context; no production CLI override is added. A production-pin
+test must reject those synthetic inputs. This keeps tests offline without
+claiming official provenance for unchecked inputs.
 
 Copy Prime's exact root `LICENSE` from upstream baseline
 `c718bf3c30fd8da206ed551837cbb54f7ad15948` to
@@ -1893,6 +1906,8 @@ PRIME_AGENT_INSTALL_UV
 VIRTUAL_ENV
 PYTHONHOME
 PYTHONPATH
+PYTHONDONTWRITEBYTECODE
+PYTHONPYCACHEPREFIX
 ```
 
 It removes every inherited key beginning with `UV_`, then inserts only:
@@ -1910,6 +1925,13 @@ The manifest-verified `tools/uv` directory is first on child `PATH`. Seed exact,
 lowercase, and mixed-case variants of every forbidden key plus representative
 future `UV_*` keys in tests. Assert the final map immediately before the fake
 process factory consumes it. No test launches Prime or an ambient executable.
+
+After scrubbing inherited bytecode-policy keys, insert
+`PYTHONDONTWRITEBYTECODE=1`. Test an ordinary goal-style editable import with
+the exact worktree Python in a disposable fixture and the projected environment,
+then reverify the unchanged closed payload. A control import without this policy
+must create bytecode that the verifier still rejects. Do not launch a kernel,
+modify Prime, or ignore generated executable files in the manifest verifier.
 
 Run the focused product-consumer gate:
 
