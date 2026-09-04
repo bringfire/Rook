@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - This plan is authored against frozen specification baseline `8b844fff1289b27313ca2908f5f4264d465836ad`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
-- Prime commit `48015aefa41c6c2678ddac9e4000009c1d7c3b63` is the final reviewed product compatibility commit directly over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. It contains only daemon-free ACP selection, platform-aware kernel-interpreter resolution, and completion of Prime's standalone Python-runtime payload. Do not amend it, stack another Prime patch, or substitute another Prime source identity.
+- Prime commit `1b9dfabb04901de4823d259c88b39dfc78ec3b34` is the final reviewed product compatibility commit directly over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. It contains only daemon-free ACP selection, platform-aware kernel-interpreter resolution, completion of Prime's standalone Python-runtime payload, and explicit frozen-model-catalog binary builds. Do not stack another Prime patch or substitute another Prime source identity.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
 - Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon`; never use a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. The Prime and Rook MCP executable paths are absolute and never selected through `PATH`. The sole intentional exception is upstream Prime's supported kernel bootstrap lookup for `uv`: RookChat prepends the exact manifest-bound `tools/uv` directory, and qualification proves that executable was selected before any ambient entry.
@@ -1394,18 +1394,28 @@ git commit -m "feat(grasshopper): fence mutations to observed document"
 - Retain outside source and product trees: the Git bundle, WSL build record, transferred Prime ZIP, downloaded `uv` inputs, and artifact review hashes
 
 **Interfaces:**
-- Consumes: frozen specification baseline `8b844fff1289b27313ca2908f5f4264d465836ad` plus the Section 12 artifact-consumer corrections in this amendment; clean Prime commit `48015aefa41c6c2678ddac9e4000009c1d7c3b63` directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; Prime's unchanged `scripts/build-binaries.sh --platform windows-x64`; Task 8's tracked `installer/agent-assets/prime-skills/rook-full`; the installed Rook Python service; and the existing installer/local-deployment entrypoints.
+- Consumes: frozen specification baseline `8b844fff1289b27313ca2908f5f4264d465836ad` plus the Section 12 artifact-consumer corrections in this amendment; clean Prime commit `1b9dfabb04901de4823d259c88b39dfc78ec3b34` directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; Prime's `scripts/build-binaries.sh --platform windows-x64 --frozen-model-catalog`; Task 8's tracked `installer/agent-assets/prime-skills/rook-full`; the installed Rook Python service; and the existing installer/local-deployment entrypoints.
 - Produces: one portable Ubuntu build entrypoint; one complete upstream `pi-windows-x64.zip`; one Rook-owned runtime-manifest implementation; one offline Windows packager; one shared promotion function used by installer and local deployment; one closed `current.json` selector; one installed-product verifier; and an ignored, complete installer runtime payload.
-- Does not produce: a build-toolchain contract, MSYS2 root, per-tool executable manifest, private-helper test loader, Prime patch, product WSL dependency, or Prime lifecycle execution.
+- Does not produce: a build-toolchain contract, MSYS2 root, per-tool executable manifest, private-helper test loader, another Prime patch, product WSL dependency, or Prime lifecycle execution.
 
-The Prime compatibility work is already complete. Task 10 does not edit or
-amend Prime. Its first read-only precondition is:
+The bounded Prime compatibility correction is complete before another real
+build is authorized. Its first read-only precondition is:
 
 ```text
-Prime HEAD  = 48015aefa41c6c2678ddac9e4000009c1d7c3b63
+Prime HEAD  = 1b9dfabb04901de4823d259c88b39dfc78ec3b34
 Prime HEAD^ = c718bf3c30fd8da206ed551837cbb54f7ad15948
 Prime tracked and untracked status = clean
 ```
+
+That one removable Prime commit adds only the public
+`--frozen-model-catalog` builder selector, its small internal refresh/frozen
+selection seam, tests, and changelog entry on top of the previously reviewed
+ACP/runtime changes. Focused tests prove that frozen mode never calls the
+catalog refresh boundary and leaves `models.generated.ts` unchanged; ordinary
+mode still selects refresh; malformed public forms refuse; and an offline
+AI-package compilation contains `global.openai.gpt-5.6-sol` from the committed
+snapshot. The real Windows binary marker check remains part of the post-build
+review and is not inferred from those focused tests.
 
 All generated release payloads remain ignored. Customers receive the completed
 Windows runtime through the Rook installer and never need WSL, Node, npm, Bun,
@@ -1501,11 +1511,13 @@ the default fake builder sees only the six deliberate inputs plus Bash-generated
 an explicit network fixture admits only HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, and NO_PROXY after ambient values are cleared
 lowercase, mixed-case, unknown, or ambient network-setting names refuse; the build record contains admitted names but no values
 ambient API keys, provider variables, PRIME_*, PI_*, and NPM_CONFIG_* are absent
-argv is exactly ./scripts/build-binaries.sh --platform windows-x64
+argv is exactly ./scripts/build-binaries.sh --platform windows-x64 --frozen-model-catalog
 the direct command is wrapped by timeout --kill-after=30s 1800s
 post-build HEAD, clean-tree, and lockfile changes reject the ZIP
 missing, linked, or non-regular ZIP output refuses
 success records observed tool versions, exact command, times, outcome, and ZIP SHA-256
+complete builder stdout and stderr are retained in one create-only attempt-owned build-console.log
+an existing build-console.log refuses before the fake builder starts
 test-harness failure is distinct from an expected product refusal
 ```
 
@@ -1527,7 +1539,7 @@ Implement the public script with this fixed interface and constants:
 scripts/build-prime-acp-runtime.sh \
   --prime-worktree /home/$USER/rook-prime-acp/prime-agent \
   --build-record /home/$USER/rook-prime-acp/build-record.txt \
-  --expected-prime-commit 48015aefa41c6c2678ddac9e4000009c1d7c3b63 \
+  --expected-prime-commit 1b9dfabb04901de4823d259c88b39dfc78ec3b34 \
   --expected-prime-parent c718bf3c30fd8da206ed551837cbb54f7ad15948
 
 EXPECTED_BUN_VERSION=1.3.14
@@ -1571,7 +1583,7 @@ env -i \
   TMPDIR="$fresh_tmp" \
   CI=1 \
   timeout --kill-after=30s 1800s \
-  ./scripts/build-binaries.sh --platform windows-x64
+  ./scripts/build-binaries.sh --platform windows-x64 --frozen-model-catalog
 ```
 
 Those six assignments are the only deliberate child-environment inputs. Bash
@@ -2094,7 +2106,7 @@ if ($buildEntrypoint.PSIsContainer -or
 
 $primeStatus = @(git -C D:/prime-agent/.worktrees/prime-acp-no-daemon status --short)
 if ($LASTEXITCODE -ne 0 -or $primeStatus.Count -ne 0) { throw 'Prime worktree is not clean.' }
-if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD) -ne '48015aefa41c6c2678ddac9e4000009c1d7c3b63') { throw 'Prime HEAD differs.' }
+if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD) -ne '1b9dfabb04901de4823d259c88b39dfc78ec3b34') { throw 'Prime HEAD differs.' }
 if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD^) -ne 'c718bf3c30fd8da206ed551837cbb54f7ad15948') { throw 'Prime parent differs.' }
 
 wsl.exe --list --verbose
@@ -2145,16 +2157,21 @@ if ($LASTEXITCODE -ne 0) { throw 'Ubuntu build prerequisites are not admitted.' 
 ```
 
 Only after that preflight succeeds, create one explicit build-attempt
-generation. The first authorized generation is `build-attempt-v1`; a failed
-build generation remains preserved and is never repaired, resumed, or reused.
-Any later authorized build must name a new absent generation such as
-`build-attempt-v2` and repeat all build checks from the beginning.
+generation. `build-attempt-v1` remains permanently preserved as failed evidence.
+The next authorized generation is `build-attempt-v2`; a failed build generation
+is never repaired, resumed, or reused. Any later authorized build must name a
+new absent generation and repeat all build checks from the beginning.
+
+The failed v1 roots remain under the prior Prime identity at
+`C:/UDEV/RookRelease/prime-acp/48015aef/builds/build-attempt-v1` and
+`$HOME/rook-prime-acp-48015aef/builds/build-attempt-v1`. They are not inputs to
+v2 and must not be modified, normalized, transferred, or adopted.
 
 ```powershell
-$buildAttempt = 'build-attempt-v1'
+$buildAttempt = 'build-attempt-v2'
 if ($buildAttempt -cnotmatch '^build-attempt-v[1-9][0-9]*$') { throw 'Invalid build attempt generation.' }
-$releaseRoot = "C:/UDEV/RookRelease/prime-acp/48015aef/builds/$buildAttempt"
-$bundle = "$releaseRoot/source/prime-48015aef.bundle"
+$releaseRoot = "C:/UDEV/RookRelease/prime-acp/1b9dfabb/builds/$buildAttempt"
+$bundle = "$releaseRoot/source/prime-1b9dfabb.bundle"
 if (Test-Path -LiteralPath $releaseRoot) { throw 'Build attempt root must be absent.' }
 New-Item -ItemType Directory -Path "$releaseRoot/source" | Out-Null
 
@@ -2174,19 +2191,42 @@ $wslBuildCommand = @'
 set -euo pipefail
 tools=/home/bring/.local/share/rook-prime-build
 export PATH="$tools/node-v22.23.2-linux-x64/bin:$tools/bun-v1.3.14:/usr/bin"
-root="$HOME/rook-prime-acp-48015aef/builds/{buildAttempt}"
+root="$HOME/rook-prime-acp-1b9dfabb/builds/{buildAttempt}"
 test ! -e "$root"
 mkdir -p "$root/source"
-cp "/mnt/c/UDEV/RookRelease/prime-acp/48015aef/builds/{buildAttempt}/source/prime-48015aef.bundle" "$root/source/"
-git clone "$root/source/prime-48015aef.bundle" "$root/prime-agent"
-git -C "$root/prime-agent" bundle verify "$root/source/prime-48015aef.bundle"
-git -C "$root/prime-agent" checkout --detach 48015aefa41c6c2678ddac9e4000009c1d7c3b63
+cp "/mnt/c/UDEV/RookRelease/prime-acp/1b9dfabb/builds/{buildAttempt}/source/prime-1b9dfabb.bundle" "$root/source/"
+git clone "$root/source/prime-1b9dfabb.bundle" "$root/prime-agent"
+git -C "$root/prime-agent" bundle verify "$root/source/prime-1b9dfabb.bundle"
+git -C "$root/prime-agent" checkout --detach 1b9dfabb04901de4823d259c88b39dfc78ec3b34
 env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 TMPDIR=/tmp CI=1 \
   /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/scripts/build-prime-acp-runtime.sh \
   --prime-worktree "$root/prime-agent" \
   --build-record "$root/build-record.txt" \
-  --expected-prime-commit 48015aefa41c6c2678ddac9e4000009c1d7c3b63 \
+  --expected-prime-commit 1b9dfabb04901de4823d259c88b39dfc78ec3b34 \
   --expected-prime-parent c718bf3c30fd8da206ed551837cbb54f7ad15948
+binary="$root/prime-agent/packages/coding-agent/binaries/windows-x64/pi.exe"
+test -f "$binary" -a ! -L "$binary"
+node - "$binary" <<'NODE'
+const bytes = require("fs").readFileSync(process.argv[2]);
+if (!bytes.includes(Buffer.from("global.openai.gpt-5.6-sol")) ||
+    bytes.includes(Buffer.from("anthropic.claude-fable-5-1"))) process.exit(1);
+NODE
+audit="$root/npm-audit.json"
+test ! -e "$audit"
+mkdir "$root/audit-home" "$root/audit-tmp"
+set +e
+(
+  set -o noclobber
+  env -i HOME="$root/audit-home" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    TMPDIR="$root/audit-tmp" CI=1 \
+    npm --prefix "$root/prime-agent" audit --json > "$audit"
+)
+audit_status=$?
+set -e
+case "$audit_status" in 0|1) ;; *) exit "$audit_status";; esac
+node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$audit"
+test "$(git -C "$root/prime-agent" rev-parse HEAD)" = 1b9dfabb04901de4823d259c88b39dfc78ec3b34
+test -z "$(git -C "$root/prime-agent" status --porcelain --untracked-files=no)"
 '@.Replace('{buildAttempt}', $buildAttempt)
 wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslBuildCommand
 if ($LASTEXITCODE -ne 0) { throw 'Prime WSL build attempt failed.' }
@@ -2210,6 +2250,12 @@ local or CI command may add only uppercase `HTTP_PROXY`, `HTTPS_PROXY`,
 name those assignments explicitly; it may not forward the caller's environment.
 The entrypoint clears its builder environment again and inserts only those
 reviewed names. Their names, never values, enter the diagnostic build record.
+
+The create-only `npm-audit.json` is diagnostic and separately reviewable. Its
+vulnerability exit status does not rewrite the build result. Review records the
+exact package, dependency path, production/development scope, and fixed-version
+information for every finding. Do not run `npm audit fix` or change dependencies
+in this task.
 
 Any build or custody failure rejects this invocation. Do not repair or resume
 its checkout or any sibling output. Preserve the complete build attempt and build
@@ -2262,19 +2308,19 @@ if ($LASTEXITCODE -ne 0 -or
     throw 'Rook verifier does not import from the approved checkout.'
 }
 
-$approvedBuildAttempt = 'build-attempt-v1'
+$approvedBuildAttempt = 'build-attempt-v2'
 if ($approvedBuildAttempt -cnotmatch '^build-attempt-v[1-9][0-9]*$') { throw 'Invalid approved build attempt.' }
 $assemblyAttempt = 'assembly-attempt-v1'
 if ($assemblyAttempt -cnotmatch '^assembly-attempt-v[1-9][0-9]*$') { throw 'Invalid assembly attempt.' }
-$releaseRoot = "C:/UDEV/RookRelease/prime-acp/48015aef/assemblies/$assemblyAttempt"
+$releaseRoot = "C:/UDEV/RookRelease/prime-acp/1b9dfabb/assemblies/$assemblyAttempt"
 $windowsRoot = "$releaseRoot/windows"
 if (Test-Path -LiteralPath $releaseRoot) { throw 'Assembly attempt root must be absent.' }
 New-Item -ItemType Directory -Path $windowsRoot | Out-Null
 $windowsZip = "$windowsRoot/pi-windows-x64.zip"
 $wslTransferCommand = @'
 set -euo pipefail
-cp "$HOME/rook-prime-acp-48015aef/builds/{buildAttempt}/prime-agent/packages/coding-agent/binaries/pi-windows-x64.zip" \
-  "/mnt/c/UDEV/RookRelease/prime-acp/48015aef/assemblies/{assemblyAttempt}/windows/pi-windows-x64.zip"
+cp "$HOME/rook-prime-acp-1b9dfabb/builds/{buildAttempt}/prime-agent/packages/coding-agent/binaries/pi-windows-x64.zip" \
+  "/mnt/c/UDEV/RookRelease/prime-acp/1b9dfabb/assemblies/{assemblyAttempt}/windows/pi-windows-x64.zip"
 '@.Replace('{buildAttempt}', $approvedBuildAttempt).Replace('{assemblyAttempt}', $assemblyAttempt)
 wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslTransferCommand
 $windowsZipSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $windowsZip).Hash

@@ -10,7 +10,7 @@
 
 **Reviewed Prime product compatibility commit:**
 
-`48015aefa41c6c2678ddac9e4000009c1d7c3b63`
+`1b9dfabb04901de4823d259c88b39dfc78ec3b34`
 
 This is one independently reviewed commit directly over the Prime upstream
 baseline.
@@ -888,17 +888,21 @@ reviewed Git source + ordinary build record
 ```
 
 The approved Prime compatibility commit is
-`48015aefa41c6c2678ddac9e4000009c1d7c3b63`, directly over upstream
+`1b9dfabb04901de4823d259c88b39dfc78ec3b34`, directly over upstream
 `c718bf3c30fd8da206ed551837cbb54f7ad15948`. It contains the removable
-daemon-free ACP selector plus the two packaging corrections required by Rook:
+daemon-free ACP selector plus the release-compatibility corrections required by Rook:
 
 - Prime resolves a kernel interpreter as `Scripts/python.exe` on Windows and
   `bin/python` elsewhere through one shared helper used by bootstrap and ready
   checks.
 - Prime's standalone builder copies the complete generated
   `dist/prime-agent-runtime` subtree into the standalone artifact.
+- Prime's standalone builder accepts explicit `--frozen-model-catalog`. In
+  that mode it compiles the checked-in `models.generated.ts`, performs no
+  catalog refresh, and leaves tracked source unchanged. Without the flag,
+  Prime retains its ordinary live-refresh behavior.
 
-No further Prime patch is part of Task 10.
+No other Prime patch is part of Task 10.
 
 ### 12.1 Git-Owned Source Custody
 
@@ -918,7 +922,7 @@ Copying a materialized checkout is prohibited. The Linux checkout is detached
 at the exact approved commit. Before the build it must prove:
 
 ```text
-HEAD == 48015aefa41c6c2678ddac9e4000009c1d7c3b63
+HEAD == 1b9dfabb04901de4823d259c88b39dfc78ec3b34
 HEAD^ == c718bf3c30fd8da206ed551837cbb54f7ad15948
 tracked worktree clean
 package-lock.json present as one regular file
@@ -988,24 +992,26 @@ From the clean Linux checkout, the portable entrypoint invokes exactly:
 
 ```bash
 timeout --kill-after=30s 1800s \
-  ./scripts/build-binaries.sh --platform windows-x64
+  ./scripts/build-binaries.sh --platform windows-x64 --frozen-model-catalog
 ```
 
-It does not pass `--skip-deps`; Prime's unchanged builder remains responsible
+It does not pass `--skip-deps`; Prime's builder remains responsible
 for obtaining the Windows native dependencies needed for cross-compilation.
 GNU `timeout` owns the one bounded command. No Windows PID lookup, process
 scan, kill by name, WSL distribution termination, or custom process supervisor
 is introduced.
 
-Prime's unchanged build may contact npm and its public model-catalog sources.
-It does not perform provider inference. A network or build failure rejects that
-invocation. A later deterministic build may start from another fresh Git-owned
-checkout; partial output is never resumed or adopted.
+Prime's build may contact npm for ordinary build dependencies, but frozen mode
+must not contact any public model-catalog source. It deliberately skips refresh;
+read-only source, broken network, or a swallowed generator failure is not an
+acceptable substitute. It does not perform provider inference. A network or
+build failure rejects that invocation. A later deterministic build may start
+from another fresh Git-owned checkout; partial output is never resumed or adopted.
 
 Before accepting or hashing an output, the entrypoint rechecks:
 
 ```text
-HEAD remains 48015aefa41c6c2678ddac9e4000009c1d7c3b63
+HEAD remains 1b9dfabb04901de4823d259c88b39dfc78ec3b34
 tracked worktree remains clean
 package-lock.json SHA-256 equals its pre-build SHA-256
 packages/coding-agent/binaries/pi-windows-x64.zip exists as one regular file
@@ -1020,6 +1026,29 @@ build record containing the commit, parent, pre/post lockfile hash, observed
 tool versions, exact command, start/end timestamps, outcome, and ZIP SHA-256.
 The record is release provenance only. It is not canonicalized, shipped, or
 consulted by RookChat.
+
+Each attempt also owns one create-only `build-console.log` beside its build
+record. The wrapper redirects complete builder stdout/stderr into that file,
+preserves the real command exit status, and emits the retained text after
+settlement. Failure to create or retain the log rejects the attempt. This is
+diagnostic capture, not another evidence or authority system.
+
+After a successful build, the release procedure also retains one create-only
+`npm-audit.json` produced by `npm audit --json` from that exact checkout and
+dependency tree. The diagnostic must expose each reported package, dependency
+path, production or development scope, and available fixed-version information
+for post-build review. Vulnerability exit status is retained without changing
+the accepted build command; malformed or operationally failed audit output
+stops review. `npm audit fix`, dependency changes, and audit data in product
+runtime are prohibited.
+
+Focused Prime tests prove frozen mode leaves the checked-in catalog unchanged,
+does not invoke its refresh boundary, and compiles a known committed marker;
+ordinary mode still selects refresh, and unknown or malformed flag forms refuse.
+The subsequent real build proves post-build HEAD, tracked cleanliness, lockfile
+hash, and that the produced binary contains the committed
+`global.openai.gpt-5.6-sol` marker but not the failed-v1 refresh-only
+`anthropic.claude-fable-5-1` marker.
 
 ### 12.3 One Archive Transfer Boundary
 
@@ -1147,7 +1176,7 @@ schemaVersion = 1
 platform = "windows"
 architecture = "amd64"
 upstreamCommit = "c718bf3c30fd8da206ed551837cbb54f7ad15948"
-compatibilityPatchCommit = "48015aefa41c6c2678ddac9e4000009c1d7c3b63"
+compatibilityPatchCommit = "1b9dfabb04901de4823d259c88b39dfc78ec3b34"
 executable = "pi.exe"
 goalSkill = "skills/goal"
 rookSkill = "skills/rook-full"
