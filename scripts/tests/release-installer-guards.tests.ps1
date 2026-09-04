@@ -858,6 +858,41 @@ function Test-InstallerExactRefreshesPythonWheelhouse {
     Assert-True -Condition ($copyLines[0] -ceq $copyLine) -Message 'Wheelhouse replacement must preserve the exact source, destination, components, and flags.'
 }
 
+function Test-PrimeIncomingPromotionConsumers {
+    $content = Get-Content -LiteralPath $InstallerScript -Raw
+    $active = ($content -split '\r?\n' | Where-Object { $_ -notmatch '^\s*;' }) -join "`n"
+    Assert-Contains $active '#ifndef PrimeRuntimePayload' 'ISCC must require an explicit assembled Prime payload.'
+    $copies = @($active -split '\n' | Where-Object { $_ -match '^Source:.*\{#PrimeRuntimePayload\}' })
+    Assert-True ($copies.Count -eq 1) 'Only one complete Prime payload copy is permitted.'
+    Assert-Contains $copies[0] 'DestDir: "{code:GetPrimeIncomingDir}"' 'Installer must only stage incoming Prime bytes.'
+    Assert-Contains $active "' --prime-incoming-dir `"' + GetPrimeIncomingDir('')" 'Post-install must consume that same cached incoming path.'
+    Assert-NotContains $active 'DestDir: "{app}\prime\runtimes' 'Installer must not overlay final runtime directories.'
+    Assert-NotContains $active 'DestName: "current.json"' 'Installer must not publish the current pointer.'
+    $delete = [regex]::Match($active, '(?ms)^\[InstallDelete\](.*?)(?=^\[)').Groups[1].Value
+    Assert-True (-not ($delete -match '(?i)[\\/]prime|[\\/]rookchat[\\/]acp|Name: "\{app\}"')) 'Repair/upgrade deletion must exclude Prime siblings and ACP data.'
+    $skill = Get-Content -LiteralPath $BuildReleaseSkill -Raw
+    $gate = [regex]::Match($skill, '(?ms)<!-- prime-payload-admission -->\s*```powershell\s*(.*?)```').Groups[1].Value
+    Assert-True (-not [string]::IsNullOrWhiteSpace($gate)) 'Release must admit the assembled payload before ISCC.'
+    $tokens = $null; $errors = $null
+    $gateAst = [System.Management.Automation.Language.Parser]::ParseInput($gate, [ref]$tokens, [ref]$errors)
+    Assert-True ($errors.Count -eq 0) 'Release admission command must parse.'
+    $commands = @($gateAst.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))
+    $verification = @($commands | Where-Object { $_.Extent.Text -match 'prime_runtime_artifact verify' })
+    Assert-True ($verification.Count -eq 1) 'Release must invoke the shared verifier exactly once.'
+    Assert-Contains $verification[0].Extent.Text '& $verificationPython -I -m rook.agent.chat.prime_runtime_artifact verify' 'Only sealed-wheel Python can admit the incoming runtime.'
+    Assert-Contains $gate 'verify-rook-venv/Scripts/python.exe' 'Verifier interpreter must be the exact wheelhouse environment.'
+    foreach ($consumer in @($gate, (Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/deploy-local-testing.ps1') -Raw))) {
+        foreach ($check in @('record["audit_site_packages"]', 'record["pip_install_no_index"] is True',
+            'record["pip_install_looked_in_links"] is True', 'record["pip_install_looked_in_indexes"] is False',
+            'record["pip_check"] == "No broken requirements found."', 'record["import_record"]["origin"] == "site-packages"')) {
+            Assert-Contains $consumer $check 'Both consumers must validate existing sealed-wheel verification results before runtime admission.'
+        }
+    }
+    Assert-Contains $skill '"/DPrimeRuntimePayload=$PrimeRuntimePayload"' 'ISCC must receive the already verified payload.'
+    Assert-True ($skill.IndexOf('<!-- prime-payload-admission -->') -lt $skill.IndexOf('## Step 6:')) 'Admission must precede source-path verification.'
+}
+
+Test-PrimeIncomingPromotionConsumers
 Test-InstallerPackagesBundledPythonRuntime
 Test-PublicInstallerDoesNotRequireUserPython
 Test-InstallerPreservesExistingChirpEnvironment

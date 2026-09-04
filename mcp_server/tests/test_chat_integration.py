@@ -284,7 +284,7 @@ def test_installed_runtime_catalog_bounds_current_pointer_before_decoding(
     prime_root = tmp_path / "prime"
     prime_root.mkdir()
     current = prime_root / "current.json"
-    current.write_bytes(b"x" * (service_main._MAX_CURRENT_POINTER_BYTES + 1))
+    current.write_bytes(b"x" * 257)
 
     def unbounded_read_forbidden(_path: Path) -> bytes:
         raise AssertionError("current.json must not be read without a byte bound")
@@ -313,5 +313,23 @@ def test_service_manager_composition_uses_product_data_and_preserved_environment
 
     assert manager.store.paths.root == tmp_path / "data" / "rookchat" / "acp" / "v1"
     assert manager.store.paths.conversations_root.is_dir()
-    assert manager._process_factory._base_environment == {"PRE_DOTENV": "yes"}
+    assert manager._process_factory._base_environment == {"PRE_DOTENV": "yes", "ROOK_DATA_DIR": str(tmp_path / "data")}
     assert runtime_available is False
+
+
+def test_catalog_pins_one_pointer_snapshot_when_later_selection_changes(tmp_path, monkeypatch):
+    prime = tmp_path / "prime"
+    prime.mkdir()
+    pointer = prime / "current.json"
+    old, new = "A" * 64, "B" * 64
+    pointer.write_bytes(('{"runtimeId":"' + old + '"}\n').encode())
+    received = []
+
+    def verify(root, selected):
+        pointer.write_bytes(('{"runtimeId":"' + new + '"}\n').encode())
+        received.append(selected)
+        return selected
+
+    monkeypatch.setattr(service_main, "load_and_verify_runtime", verify)
+    assert service_main.InstalledRuntimeCatalog(prime).latest() == old
+    assert received == [old]

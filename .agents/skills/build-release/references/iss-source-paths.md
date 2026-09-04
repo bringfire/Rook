@@ -6,6 +6,29 @@ is missing, ISCC will either fail or silently exclude the component (if
 
 Unless marked as a build-machine prerequisite, paths are relative to the repo root.
 
+## Qualified Prime Runtime Payload
+
+`PrimeRuntimePayload` is an explicit canonical assembly-attempt
+`runtimes/<runtime-id>` directory, not a source checkout or a global installation.
+The sealed-wheel verification Python must verify the complete closed manifest
+before ISCC receives `/DPrimeRuntimePayload=<path>`. Inno copies the whole tree
+only to its unique `prime/.incoming` generation. Installed Rook promotion owns
+final runtime publication and `current.json`; file-copy rules never write them.
+
+| Required relative path | Producer |
+| --- | --- |
+| `pi.exe` | Complete upstream Windows ZIP |
+| `skills/goal/SKILL.md` | Complete upstream skills |
+| `dist/prime-agent-runtime/**` | Complete upstream Python runtime subtree |
+| `skills/rook-full/**` | Tracked Rook Markdown skill |
+| `tools/uv/uv.exe` | Preadmitted official uv archive |
+| `tools/uv/LICENSE-APACHE` and `tools/uv/LICENSE-MIT` | Preadmitted uv notices |
+| `notices/prime-agent/LICENSE` | Reviewed tracked Prime legal notice |
+| `runtime-manifest.json` | Rook Windows assembly over all payload bytes |
+
+These paths are a checklist, not a selected-file copy list. WSL, Node, npm, Bun,
+zip, unzip, and build scripts do not become customer prerequisites.
+
 ## Build Outputs (must be fresh — rebuilt after version bump)
 
 | File | Source |

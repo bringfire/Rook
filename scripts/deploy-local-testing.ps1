@@ -20,6 +20,7 @@ param(
     [switch]$SkipChirpInstall,
     [switch]$UseRepoVenv,
     [string]$DevPythonRuntime = '',
+    [string]$PrimeRuntimePayload = '',
     [switch]$LiveSmoke,
     [switch]$ManifestSmokeOnly
 )
@@ -637,6 +638,58 @@ function Sync-ChirpPayload {
     Sync-Directory $ChirpSourceRoot $ChirpInstallRoot -ExtraExcludeDirs @('traces') -ExtraExcludeFiles @('Chirp_API_Key.txt')
 }
 
+function Assert-PrimeRuntimePayload {
+    if ([string]::IsNullOrWhiteSpace($PrimeRuntimePayload)) {
+        throw 'A complete release deploy requires -PrimeRuntimePayload.'
+    }
+    $payload = Get-Item -LiteralPath $PrimeRuntimePayload -Force
+    if (-not $payload.PSIsContainer -or ($payload.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Prime runtime payload must be a direct directory.'
+    }
+    if ($payload.Name -cnotmatch '^[A-F0-9]{64}$' -or $payload.Parent.Name -cne 'runtimes') {
+        throw 'Prime payload must be an assembled runtimes/<runtime-id> directory.'
+    }
+    $siblings = @(Get-ChildItem -LiteralPath $payload.Parent.FullName -Directory | Where-Object { $_.Name -cmatch '^[A-F0-9]{64}$' })
+    if ($siblings.Count -ne 1) { throw 'Select an assembly attempt containing exactly one runtime.' }
+    $script:PrimeRuntimePayload = $payload.FullName
+    $verificationPython = Join-Path $RepoRoot 'artifacts/python-wheelhouse/verify-rook-venv/Scripts/python.exe'
+    foreach ($path in @($verificationPython, (Join-Path $RepoRoot 'artifacts/python-wheelhouse/verification-rook.json'))) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Sealed wheel verification input missing: $path" }
+    }
+    if (Test-Path Env:PYTHONPATH) { throw 'PYTHONPATH must be absent for release payload admission.' }
+    $wheelManifest = Get-Content -LiteralPath (Join-Path $RepoRoot 'installer/runtime/python-runtime-manifest.json') -Raw | ConvertFrom-Json
+    $sourceCommit = (& git -C $RepoRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $wheelManifest.rook_git_sha -cne $sourceCommit) { throw 'Sealed wheel source commit differs.' }
+    $project = Get-Content -LiteralPath (Join-Path $RepoRoot 'mcp_server/pyproject.toml') -Raw
+    $sourceVersion = [regex]::Match($project, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+    if (-not $sourceVersion -or $wheelManifest.release_version -cne $sourceVersion) { throw 'Sealed wheel version differs.' }
+    $originProbe = @'
+import importlib.util, json, pathlib, sys
+site = pathlib.Path(sys.argv[1]).resolve() / 'Lib' / 'site-packages'
+record = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
+assert pathlib.Path(record["audit_site_packages"]).resolve() == site
+assert record["pip_install_no_index"] is True and record["pip_install_looked_in_links"] is True
+assert record["pip_install_looked_in_indexes"] is False
+assert record["pip_check"] == "No broken requirements found."
+assert record["import_record"]["module"] == "rook" and record["import_record"]["origin"] == "site-packages"
+spec = importlib.util.find_spec('rook.agent.chat.prime_runtime_artifact')
+assert spec is not None and spec.origin and pathlib.Path(spec.origin).resolve().is_relative_to(site), 'verifier is not from sealed-wheel site-packages'
+'@
+    & $verificationPython -I -c $originProbe (Join-Path $RepoRoot 'artifacts/python-wheelhouse/verify-rook-venv') (Join-Path $RepoRoot 'artifacts/python-wheelhouse/verification-rook.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Sealed-wheel verifier origin refused.' }
+    & $verificationPython -I -m rook.agent.chat.prime_runtime_artifact verify --runtime-root $PrimeRuntimePayload --expected-runtime-id $payload.Name
+    if ($LASTEXITCODE -ne 0) { throw 'Prime runtime payload verification refused.' }
+}
+
+function Stage-PrimeRuntimePayload {
+    $parent = Join-Path $InstallRoot 'prime/.incoming'
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    $incoming = Join-Path $parent ([Guid]::NewGuid().ToString('N'))
+    if (Test-Path -LiteralPath $incoming) { throw 'Incoming Prime generation already exists.' }
+    Copy-Item -LiteralPath $PrimeRuntimePayload -Destination $incoming -Recurse
+    return $incoming
+}
+
 function Invoke-PostInstallConfig {
     $python = Resolve-BootstrapPython
     $postInstall = Join-Path $InstallRoot 'post_install.py'
@@ -645,6 +698,7 @@ function Invoke-PostInstallConfig {
         '--install-dir', $InstallRoot,
         '--runtime-root', $RuntimeRoot,
         '--mcp-server-dir', (Join-Path $InstallRoot 'mcp_server'),
+        '--prime-incoming-dir', $PrimeIncomingDir,
         '--claude',
         '--codex',
         '--plugins',
@@ -1313,6 +1367,7 @@ if ($NativeOnly) {
     exit 0
 }
 
+if (-not $RuntimeContract.IsDev) { Assert-PrimeRuntimePayload }
 Assert-NoRunningFullDeployBlockers
 
 if (-not $PayloadOnly) {
@@ -1347,6 +1402,7 @@ if ($RuntimeContract.IsDev) {
 } else {
     Write-Step "Sync sealed Python release payload"
     Sync-ReleasePythonPayload
+    $PrimeIncomingDir = Stage-PrimeRuntimePayload
     Write-Step "Refresh MCP, Chirp, and config installs"
     Invoke-PostInstallConfig
     Write-Step "Mirror current source into release venv site-packages"

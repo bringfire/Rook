@@ -55,6 +55,9 @@ def _contract(tmp_path: Path, runtime_id: str = "A" * 64) -> PrimeRuntimeContrac
     rook = tmp_path / "rook-full"
     goal.mkdir(exist_ok=True)
     rook.mkdir(exist_ok=True)
+    uv = tmp_path / "tools/uv/uv.exe"
+    uv.parent.mkdir(parents=True, exist_ok=True)
+    uv.write_bytes(b"fixture uv")
     return PrimeRuntimeContract(
         schema_version=1,
         runtime_id=runtime_id,
@@ -70,9 +73,10 @@ def _contract(tmp_path: Path, runtime_id: str = "A" * 64) -> PrimeRuntimeContrac
         rook_skill_path=rook,
         rook_skill_manifest_sha256="B" * 64,
         rook_skill_system_prompt="# Rook\n",
-        rook_mcp_command=Path(sys.executable),
-        rook_mcp_args=("-m", "rook"),
-        rook_mcp_environment=(),
+        uv_version="0.12.3",
+        uv_executable_path=uv,
+        prime_agent_runtime_path=tmp_path / "dist/prime-agent-runtime",
+        prime_agent_runtime_manifest_sha256="C" * 64,
         claim_key_version=1,
     )
 
@@ -624,7 +628,7 @@ async def test_invalid_creation_launch_is_refused_before_claim_acquisition(tmp_p
     manager = AcpConversationManager(
         AssociationStore(paths),
         FakeRuntimeCatalog(_contract(tmp_path)),
-        DirectAcpProcessFactory({"PATH": "C:/approved"}),
+        DirectAcpProcessFactory({"PATH": "C:/approved", "ROOK_DATA_DIR": str(tmp_path / "data")}),
         PresentationCache(paths.presentation_root),
     )
     saved = tmp_path / "saved"
@@ -831,15 +835,30 @@ async def test_direct_factory_reopen_drops_creation_time_model_overrides(tmp_pat
 
     async def fake_start(launch, received_claim, *, launch_generation):
         observed["argv"] = launch.argv
+        observed["environment"] = dict(launch.environment)
         received_claim.release_no_child_created()
         return object()
 
     monkeypatch.setattr("rook.agent.chat.acp_conversation.OwnedAcpProcess.start", fake_start)
-    factory = DirectAcpProcessFactory({"PATH": "C:/approved"})
+    forbidden = ["PI_PACKAGE_DIR", "PRIME_AGENT_KERNEL_PYTHON", "PRIME_AGENT_KERNEL_VENV", "PRIME_AGENT_INSTALL_UV",
+                 "VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", "UV_INDEX", "UV_OFFLINE", "UV_FUTURE_SETTING"]
+    base = {variant: "must-not-reach-child" for name in forbidden for variant in (name, name.lower(), name.title())}
+    base.update({"PATH": "C:/approved", "ROOK_DATA_DIR": str(tmp_path / "data"), "ANTHROPIC_API_KEY": "user-owned"})
+    factory = DirectAcpProcessFactory(base)
     prepared = factory.prepare(contract, provisional, True)
     await prepared.start(claim, launch_generation=2)
     assert "--model" not in observed["argv"]
     assert "--thinking" not in observed["argv"]
+    environment = observed["environment"]
+    assert not any(value == "must-not-reach-child" for value in environment.values())
+    assert environment == {
+        "PATH": str(contract.uv_executable_path.parent) + ";C:/approved",
+        "ROOK_DATA_DIR": str(tmp_path / "data"), "ANTHROPIC_API_KEY": "user-owned",
+        "UV_CACHE_DIR": str(tmp_path / "data/rookchat/acp/v1/prime-uv/cache"),
+        "UV_PYTHON_INSTALL_DIR": str(tmp_path / "data/rookchat/acp/v1/prime-uv/python"),
+        "UV_PYTHON_PREFERENCE": "only-managed", "UV_PYTHON_NO_REGISTRY": "1",
+        "UV_PYTHON_INSTALL_REGISTRY": "0", "UV_NO_CONFIG": "1",
+    }
 
 
 @pytest.mark.asyncio

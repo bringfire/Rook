@@ -1294,6 +1294,7 @@ def main() -> int:
     parser.add_argument("--mcp-server-dir", required=False, help="MCP server directory")
     parser.add_argument("--runtime-root", required=False, help="Managed Rook runtime root")
     parser.add_argument("--chirp-dir", default=None, help="Chirp adapter directory")
+    parser.add_argument("--prime-incoming-dir", help="Verified Prime payload staged beneath the installed prime/.incoming root")
     parser.add_argument("--claude", action="store_true", help="Configure Claude Code/Desktop MCP registration (skills/hooks come from the marketplace plugin, not this installer)")
     parser.add_argument("--codex", action="store_true", help="Configure OpenAI Codex CLI")
     parser.add_argument("--plugins", action="store_true", help="Validate Rhino plugin deployment")
@@ -1334,6 +1335,17 @@ def main() -> int:
         print("You can install manually later by creating a venv under %LOCALAPPDATA%\\Rook\\venv")
         return 1
     managed_python_path = str(managed_python).replace("\\", "/")
+
+    if args.prime_incoming_dir:
+        result = subprocess.run(
+            [str(managed_python), "-I", "-m", "rook.agent.chat.prime_runtime_artifact", "promote",
+             "--incoming-root", str(Path(args.prime_incoming_dir)), "--prime-root", str(install_dir / "prime")],
+            shell=False,
+            check=False,
+        )
+        if result.returncode != 0:
+            print("\nERROR: Prime runtime promotion failed; chat service manifest was not published.")
+            return 1
 
     # Step 2: Install Chirp (if selected)
     if chirp_dir:

@@ -14,6 +14,7 @@ from acp import PROTOCOL_VERSION
 from importlib.metadata import version
 
 from rook.agent.chat.acp_storage import RookBinding
+from .test_prime_runtime_artifact import PAYLOAD
 from rook.agent.chat.prime_runtime import (
     MAX_ROOT_SKILL_UTF8_BYTES,
     MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS,
@@ -55,8 +56,8 @@ def _write_runtime(
 ) -> tuple[str, Path]:
     staging = install_root / "staging"
     files = {
-        "bin/prime-agent.exe": b"prime executable fixture",
-        "LICENSE": b"MIT fixture\n",
+        **{name: data for name, data in PAYLOAD.items() if not name.startswith("skills/rook-full/")},
+        "pi.exe": b"prime executable fixture",
         "skills/goal/SKILL.md": b"# Goal\n",
         "skills/rook-full/SKILL.md": skill_bytes,
         "skills/rook-full/references/grasshopper.md": b"# Grasshopper\n",
@@ -71,16 +72,23 @@ def _write_runtime(
         "platform": platform.system().lower(),
         "architecture": platform.machine().lower(),
         "upstreamCommit": "c718bf3c30fd8da206ed551837cbb54f7ad15948",
-        "compatibilityPatchCommit": "9c25468b62c79fc4b1419d7800740e8e41e30467",
+        "compatibilityPatchCommit": "48015aefa41c6c2678ddac9e4000009c1d7c3b63",
         "acpProtocolVersion": PROTOCOL_VERSION,
         "pythonAcpSdkVersion": version("agent-client-protocol"),
-        "executable": "bin/prime-agent.exe",
+        "executable": "pi.exe",
         "goalSkill": "skills/goal",
         "rookSkill": "skills/rook-full",
         "rookSkillManifestSha256": _subtree_manifest_sha256(files, "skills/rook-full/"),
-        "rookMcpCommand": sys.executable,
-        "rookMcpArgs": ["-m", "rook"],
-        "rookMcpEnvironment": {"PYTHONNOUSERSITE": "1"},
+        "uv": {
+            "version": "0.12.3", "executable": "tools/uv/uv.exe",
+            "source": "https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-pc-windows-msvc.zip",
+            "sourceArchiveSha256": "B23350C79E8AD0192B8124AF13A0F17E8D4E4549524785E1AEF389AE5A06990E",
+            "licenses": ["tools/uv/LICENSE-APACHE", "tools/uv/LICENSE-MIT"],
+        },
+        "pythonRuntime": {
+            "root": "dist/prime-agent-runtime", "sourceCommit": "48015aefa41c6c2678ddac9e4000009c1d7c3b63",
+            "manifestSha256": _subtree_manifest_sha256(files, "dist/prime-agent-runtime/"),
+        },
         "claimKeyVersion": 1,
         "files": [
             {"path": relative, "bytes": len(payload), "sha256": _sha256(payload)}
@@ -176,12 +184,16 @@ def test_invalid_reasoning_and_reopen_overrides_refuse(verified_runtime, tmp_pat
         build_prime_argv(contract, tmp_path / "b.jsonl", "anthropic/x", None, reopen=True)
 
 
-def test_prime_child_environment_uses_pre_dotenv_snapshot(verified_runtime, monkeypatch):
+def test_prime_child_environment_uses_pre_dotenv_snapshot(verified_runtime, monkeypatch, tmp_path):
     contract, _ = verified_runtime
-    pre_dotenv = {"PATH": "C:/approved", "ANTHROPIC_API_KEY": "user-owned"}
+    pre_dotenv = {"PATH": "C:/approved", "ANTHROPIC_API_KEY": "user-owned", "ROOK_DATA_DIR": str(tmp_path / "data")}
     monkeypatch.setenv("ROOK_INSTALLED_DOTENV_SENTINEL", "must-not-pass")
     child = build_prime_child_env(pre_dotenv, contract)
-    assert child == pre_dotenv
+    assert child["ANTHROPIC_API_KEY"] == "user-owned"
+    assert "ROOK_INSTALLED_DOTENV_SENTINEL" not in child
+    assert child["PATH"] == str(contract.uv_executable_path.parent) + os.pathsep + pre_dotenv["PATH"]
+    assert child["UV_CACHE_DIR"] == str(tmp_path / "data/rookchat/acp/v1/prime-uv/cache")
+    assert child["UV_PYTHON_INSTALL_DIR"] == str(tmp_path / "data/rookchat/acp/v1/prime-uv/python")
 
 
 def test_complete_rendered_windows_argv_refuses_before_spawn(verified_runtime, tmp_path: Path):
@@ -229,7 +241,9 @@ def test_prime_child_environment_rejects_invalid_entries(verified_runtime, envir
 
 def test_runtime_manifest_replay_and_required_paths(verified_runtime):
     contract, runtime_root = verified_runtime
-    assert contract.executable_path == (runtime_root / "bin/prime-agent.exe").resolve()
+    assert contract.executable_path == (runtime_root / "pi.exe").resolve()
+    assert contract.uv_executable_path == (runtime_root / "tools/uv/uv.exe").resolve()
+    assert contract.prime_agent_runtime_path == (runtime_root / "dist/prime-agent-runtime").resolve()
     assert contract.goal_skill_path == (runtime_root / "skills/goal").resolve()
     assert contract.rook_skill_path == (runtime_root / "skills/rook-full").resolve()
     assert contract.python_acp_sdk_version == "0.12.1"
@@ -341,7 +355,7 @@ def test_rook_mcp_declaration_is_contract_owned(verified_runtime):
         rhino_document_serial=41,
         route_process_id=2024,
     )
-    server = build_rook_mcp_server(contract, binding)
+    server = build_rook_mcp_server(binding)
     env = {item.name: item.value for item in server.env}
 
     assert server.name == "rook"
@@ -360,3 +374,22 @@ def test_rook_mcp_declaration_is_contract_owned(verified_runtime):
 def test_runtime_id_cannot_escape_install_root(tmp_path: Path):
     with pytest.raises(RuntimeUnavailable, match="runtime_id"):
         load_and_verify_runtime(tmp_path, "../outside")
+
+
+@pytest.mark.parametrize("key,value", [("rookMcpCommand", "C:/other/python.exe"), ("rookMcpArgs", ["-m", "other"]), ("rookMcpEnvironment", {})])
+def test_machine_specific_mcp_manifest_keys_are_rejected(tmp_path, key, value):
+    prime = tmp_path / "prime"
+    _, root = _write_runtime(prime)
+    runtime_id, _ = _rewrite_manifest(root, **{key: value})
+    with pytest.raises(RuntimeUnavailable): load_and_verify_runtime(prime, runtime_id)
+
+
+def test_relocated_payload_reaches_real_argv_consumer(tmp_path):
+    old = tmp_path / "old"
+    runtime_id, root = _write_runtime(old)
+    new = tmp_path / "new"
+    old.rename(new)
+    contract = load_and_verify_runtime(new, runtime_id)
+    argv = build_prime_argv(contract, tmp_path / "session.jsonl", None, None, True)
+    assert argv[0] == str(new / "runtimes" / runtime_id / "pi.exe")
+    assert str(old) not in " ".join(argv)

@@ -56,11 +56,16 @@ $rhino = Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)
 if ($rhino) { $rhino | Select-Object ProcessName, Id; throw "Close Rhino before building" }
 
 # 4. VS build tools exist
+if ([string]::IsNullOrWhiteSpace($ChirpRoot)) { throw 'Select the exact Chirp checkout explicitly.' }
+$ChirpRoot = (Resolve-Path -LiteralPath $ChirpRoot).Path
+if (git -C $ChirpRoot status --porcelain) { throw 'Selected Chirp checkout must be clean.' }
+$chirpGitSha = (git -C $ChirpRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Selected Chirp checkout is invalid.' }
 $requiredPaths = @(
   "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat",
   "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\atlmfc",
   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-  "..\Chirp\pyproject.toml"
+  (Join-Path $ChirpRoot 'pyproject.toml')
 )
 
 foreach ($path in $requiredPaths) {
@@ -194,7 +199,10 @@ Run this stage from the exact checked-out release SHA, after recording
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\stage-rook-python-runtime.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\build-rook-python-wheelhouse.ps1 -Version $Version
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\python-runtime\build-rook-python-wheelhouse.ps1 -Version $Version -ChirpRoot $ChirpRoot
+if ($LASTEXITCODE -ne 0) { throw 'Wheelhouse build failed.' }
+$builtManifest = Get-Content -LiteralPath 'installer/runtime/python-runtime-manifest.json' -Raw | ConvertFrom-Json
+if ($builtManifest.chirp_git_sha -cne $chirpGitSha) { throw 'Wheelhouse Chirp source identity differs.' }
 ```
 
 This stages CPython 3.11.9 from the pinned official Python NuGet package, builds
@@ -304,6 +312,54 @@ Test-Path src\Rook\bin\Release\net48\RookBim.dll
 Test-Path src\Rook\bin\Release\net48\runtimes
 ```
 
+## Prime Payload Admission
+
+Supply `$PrimeRuntimePayload` as the exact independently qualified
+`runtimes/<runtime-id>` directory from one assembly attempt. This step never
+builds Prime or acquires dependencies. Run from the exact release repository
+root after the sealed wheelhouse has been verified and before Step 6 or ISCC.
+
+<!-- prime-payload-admission -->
+```powershell
+$repoRoot = (Resolve-Path .).Path
+$payload = Get-Item -LiteralPath $PrimeRuntimePayload -Force
+if (-not $payload.PSIsContainer -or ($payload.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+    $payload.Name -cnotmatch '^[A-F0-9]{64}$' -or $payload.Parent.Name -cne 'runtimes') {
+  throw 'Select a direct assembled runtimes/<runtime-id> payload.'
+}
+$siblings = @(Get-ChildItem -LiteralPath $payload.Parent.FullName -Directory |
+  Where-Object { $_.Name -cmatch '^[A-F0-9]{64}$' })
+if ($siblings.Count -ne 1) { throw 'Assembly attempt must contain exactly one runtime.' }
+$PrimeRuntimePayload = $payload.FullName
+$verificationRoot = Join-Path $repoRoot 'artifacts/python-wheelhouse/verify-rook-venv'
+$verificationPython = Join-Path $repoRoot 'artifacts/python-wheelhouse/verify-rook-venv/Scripts/python.exe'
+$verificationRecord = Join-Path $repoRoot 'artifacts/python-wheelhouse/verification-rook.json'
+foreach ($path in @($verificationPython, $verificationRecord)) {
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing sealed-wheel input: $path" }
+}
+if (Test-Path Env:PYTHONPATH) { throw 'PYTHONPATH must be absent.' }
+$wheelManifest = Get-Content -LiteralPath 'installer/runtime/python-runtime-manifest.json' -Raw | ConvertFrom-Json
+if ($wheelManifest.release_version -cne $Version -or $wheelManifest.rook_git_sha -cne $gitSha) {
+  throw 'Sealed wheel does not match the final release version and source commit.'
+}
+$originProbe = @'
+import importlib.util, json, pathlib, sys
+site = pathlib.Path(sys.argv[1]).resolve() / 'Lib' / 'site-packages'
+record = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
+assert pathlib.Path(record["audit_site_packages"]).resolve() == site
+assert record["pip_install_no_index"] is True and record["pip_install_looked_in_links"] is True
+assert record["pip_install_looked_in_indexes"] is False
+assert record["pip_check"] == "No broken requirements found."
+assert record["import_record"]["module"] == "rook" and record["import_record"]["origin"] == "site-packages"
+spec = importlib.util.find_spec('rook.agent.chat.prime_runtime_artifact')
+assert spec is not None and spec.origin and pathlib.Path(spec.origin).resolve().is_relative_to(site), 'verifier must come from sealed-wheel site-packages, not mcp_server/src or an editable installation'
+'@
+& $verificationPython -I -c $originProbe $verificationRoot $verificationRecord
+if ($LASTEXITCODE -ne 0) { throw 'Sealed-wheel verifier origin refused.' }
+& $verificationPython -I -m rook.agent.chat.prime_runtime_artifact verify --runtime-root $PrimeRuntimePayload --expected-runtime-id $payload.Name
+if ($LASTEXITCODE -ne 0) { throw 'Prime runtime payload verification refused.' }
+```
+
 ## Step 6: Verify All .iss Source Paths
 
 Read the reference file for the full checklist:
@@ -326,7 +382,8 @@ if ($LASTEXITCODE -ne 0) { throw "Release-installer payload guard failed" }
 ## Step 7: Run Inno Setup Compiler
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "C:\Users\aryan\source\repos\Rook\installer\RookSetup.iss"
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DPrimeRuntimePayload=$PrimeRuntimePayload" (Join-Path $repoRoot 'installer/RookSetup.iss')
+if ($LASTEXITCODE -ne 0) { throw 'ISCC failed; no runtime is published.' }
 ```
 
 Check the tail of the output for `Successful compile`. Verify:

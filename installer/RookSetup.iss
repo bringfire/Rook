@@ -39,6 +39,9 @@
 #define BootstrapLockfile RepoRoot + "\installer\runtime\requirements-bootstrap-lock.txt"
 #define RookLockfile RepoRoot + "\installer\runtime\requirements-rook-lock.txt"
 #define ChirpLockfile RepoRoot + "\installer\runtime\requirements-chirp-lock.txt"
+#ifndef PrimeRuntimePayload
+  #error PrimeRuntimePayload must identify the complete verified Prime runtime payload
+#endif
 #ifndef VcRedistRoot
 #define VcRedistRoot "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\14.44.35112\x64"
 #endif
@@ -98,6 +101,7 @@ Name: "codex"; Description: "OpenAI Codex CLI MCP configuration + curated skills
 ; ---------------------------------------------------------------------------
 
 [InstallDelete]
+; Historical prime/runtimes and persistent data/rookchat/acp/v1 are never repair targets.
 ; Remove stale agent payload from older installs (pre-curated-payload versions)
 Type: filesandordirs; Name: "{app}\.claude-plugin"
 Type: filesandordirs; Name: "{app}\.claude"
@@ -202,6 +206,7 @@ Source: "{#RepoRoot}\installer\agent-assets\ROOK_CODEX_POST_INSTALL.md"; DestDir
 
 ; --- Post-install setup script (always included, launched from Pascal script) ---
 Source: "post_install.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PrimeRuntimePayload}\*"; DestDir: "{code:GetPrimeIncomingDir}"; Components: mcp; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "python_runtime_install.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "rook_process_preflight.ps1"; Flags: dontcopy
 Source: "process_rebuild_guard.py"; DestDir: "{app}"; Flags: ignoreversion
@@ -316,6 +321,7 @@ Type: filesandordirs; Name: "{localappdata}\Rook\docs"
 
 [Code]
 var
+  PrimeIncomingDir: String;
   PythonPath: String;
   PythonDetected: Boolean;
   ApiKeyPage: TInputQueryWizardPage;
@@ -579,6 +585,29 @@ begin
     FinalizingRookPage.Hide;
 end;
 
+function CoCreateGuid(var Guid: TGUID): Integer;
+  external 'CoCreateGuid@ole32.dll stdcall';
+function StringFromGUID2(const Guid: TGUID; Buffer: String; BufferLength: Integer): Integer;
+  external 'StringFromGUID2@ole32.dll stdcall';
+
+function GetPrimeIncomingDir(Param: String): String;
+var
+  Guid: TGUID;
+  Text: String;
+begin
+  if PrimeIncomingDir = '' then
+  begin
+    OleCheck(CoCreateGuid(Guid));
+    SetLength(Text, 39);
+    if StringFromGUID2(Guid, Text, 39) <> 39 then
+      RaiseException('Cannot create Prime incoming generation.');
+    PrimeIncomingDir := ExpandConstant('{app}\prime\.incoming\') + LowerCase(Copy(Text, 2, 36));
+    if DirExists(PrimeIncomingDir) or FileExists(PrimeIncomingDir) then
+      RaiseException('Prime incoming generation already exists.');
+  end;
+  Result := PrimeIncomingDir;
+end;
+
 function RunPostInstallSetup(): Boolean;
 var
   PythonExe: String;
@@ -607,6 +636,7 @@ begin
     ' --install-dir "' + ExpandConstant('{app}') + '"' +
     ' --runtime-root "' + ExpandConstant('{localappdata}\Rook') + '"' +
     ' --mcp-server-dir "' + ExpandConstant('{app}') + '\mcp_server"' +
+    ' --prime-incoming-dir "' + GetPrimeIncomingDir('') + '"' +
     ' ' + GetChirpArgs('') +
     ' ' + GetClaudeArgs('') +
     ' ' + GetCodexArgs('') +

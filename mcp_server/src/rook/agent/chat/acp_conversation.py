@@ -364,7 +364,7 @@ class AcpConversationManager:
             await process.initialize()
             await process.new_session(
                 cwd=association.working_directory,
-                mcp_servers=[build_rook_mcp_server(contract, association.binding)],
+                mcp_servers=[build_rook_mcp_server(association.binding)],
             )
             return process
         except BaseException:
