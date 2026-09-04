@@ -946,7 +946,9 @@ The supported environment supplies:
 - Rook-qualified Bun `1.3.14`;
 - Git;
 - `zip` and `unzip` from the Ubuntu build environment; and
-- standard Ubuntu shell utilities used by Prime's unchanged builder.
+- the ordinary Ubuntu commands `bash`, `sh`, `dirname`, `rm`, `mkdir`, `cp`,
+  `ls`, `env`, `timeout`, `sha256sum`, `uname`, `findmnt`, `readlink`, and
+  `head`.
 
 Bun `1.3.14` is a Rook-qualified build version, not an upstream Prime
 requirement. The observed Node, npm, Bun, Git, `zip`, and `unzip` versions are
@@ -957,16 +959,30 @@ Each invocation creates a fresh build-only `HOME` and `TMPDIR`. Before launch,
 the portable entrypoint resolves every required build tool, requires both its
 command path and canonical target to be regular Linux-native executable files
 outside `/mnt/*`, and constructs a Linux-only `PATH` from the unique parent
-directories of those admitted command paths. Windows executables and inherited
-Windows `PATH` entries are never build inputs.
+directories of those admitted command paths while preserving their original
+admitted `PATH` precedence. Inside the exact clean child environment, every
+required command is resolved again before the builder starts. Its command path
+and canonical target must equal the pair admitted during preflight, and Node
+and Bun must still satisfy their admitted versions. Conflicting same-name
+executables, changed precedence, or any mismatch refuses before the builder.
+Windows executables and inherited Windows `PATH` entries are never build
+inputs.
 
 The Prime builder deliberately receives only `HOME`, the constructed `PATH`,
 `LANG`, `LC_ALL`, `TMPDIR`, and `CI`. The executing Bash process may add only
 its finite bookkeeping variables `PWD`, `SHLVL`, and `_`. Provider credentials,
 API keys, Prime configuration overrides, inherited `NPM_CONFIG_*` values,
-network overrides, and arbitrary ambient variables are not inherited. These
-environment rules are invocation-local isolation, not an executable manifest
-or another build authority artifact.
+and arbitrary ambient variables are not inherited.
+
+By default, no proxy or network-setting variable is admitted. A reviewed local
+or CI release invocation may explicitly supply only `HTTP_PROXY`, `HTTPS_PROXY`,
+`ALL_PROXY`, and `NO_PROXY`. The launcher first clears ambient environment
+values and then inserts only the deliberately supplied members of that closed
+set; lowercase, mixed-case, and other network-setting names are refused. The
+diagnostic build record retains only the supplied variable names, never their
+potentially credential-bearing values. These environment rules are
+invocation-local isolation, not an executable manifest or another build
+authority artifact.
 
 From the clean Linux checkout, the portable entrypoint invokes exactly:
 
@@ -1025,9 +1041,11 @@ collisions, link entries, reparse-point escapes, and any destination outside
 the new payload root. Extraction never overlays an existing directory.
 
 A failed transfer or extraction has no authority and is never repaired,
-resumed, or adopted. A later attempt uses another empty staging generation and
-reverifies the archive from the beginning. The ZIP hash remains build
-provenance; it is not the installed runtime identity.
+resumed, or adopted. A later Windows assembly attempt uses another empty
+staging generation and may consume the same independently approved build ZIP
+and hash, reverifying the archive from the beginning. A failed Linux build
+requires a new build attempt and review. The ZIP hash remains build provenance;
+it is not the installed runtime identity.
 
 ### 12.4 Final Payload Assembly
 
