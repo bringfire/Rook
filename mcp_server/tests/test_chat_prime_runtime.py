@@ -73,7 +73,7 @@ def _write_runtime(
         "platform": platform.system().lower(),
         "architecture": platform.machine().lower(),
         "upstreamCommit": "c718bf3c30fd8da206ed551837cbb54f7ad15948",
-        "compatibilityPatchCommit": "48015aefa41c6c2678ddac9e4000009c1d7c3b63",
+        "compatibilityPatchCommit": "1b9dfabb04901de4823d259c88b39dfc78ec3b34",
         "acpProtocolVersion": PROTOCOL_VERSION,
         "pythonAcpSdkVersion": version("agent-client-protocol"),
         "executable": "pi.exe",
@@ -87,7 +87,7 @@ def _write_runtime(
             "licenses": ["tools/uv/LICENSE-APACHE", "tools/uv/LICENSE-MIT"],
         },
         "pythonRuntime": {
-            "root": "dist/prime-agent-runtime", "sourceCommit": "48015aefa41c6c2678ddac9e4000009c1d7c3b63",
+            "root": "dist/prime-agent-runtime", "sourceCommit": "1b9dfabb04901de4823d259c88b39dfc78ec3b34",
             "manifestSha256": _subtree_manifest_sha256(files, "dist/prime-agent-runtime/"),
         },
         "claimKeyVersion": 1,
@@ -480,7 +480,7 @@ def test_new_release_provenance_does_not_reject_recorded_historical_runtime(tmp_
     assert artifact.read_current_runtime_id(prime) == new_id
 
     for runtime_id, expected_prime, expected_uv in (
-        (old_id, "48015aefa41c6c2678ddac9e4000009c1d7c3b63", "0.12.3"),
+        (old_id, "1b9dfabb04901de4823d259c88b39dfc78ec3b34", "0.12.3"),
         (new_id, next_patch, "1.0.0"),
     ):
         contract = load_and_verify_runtime(prime, runtime_id)

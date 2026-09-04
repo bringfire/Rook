@@ -60,6 +60,8 @@ record_parent=$("${commands[readlink]}" -f -- "$("${commands[dirname]}" -- "$rec
 [[ -d $record_parent && $record_parent != /mnt/* ]] || refuse 'non-native record parent'
 record=$record_parent/${record##*/}
 [[ ! -e $record && ! -L $record && $record != "$worktree"/* ]] || refuse 'record must be new and outside source'
+console=$record_parent/build-console.log
+[[ ! -e $console && ! -L $console ]] || refuse 'build console must be new'
 
 # Only explicitly supplied uppercase proxy names may survive the caller's clean environment.
 network=()
@@ -108,6 +110,10 @@ for tool in "${required[@]}"; do probe_args+=("$tool" "${commands[$tool]}" "${ta
 printf -v started '%(%Y-%m-%dT%H:%M:%SZ)T' -1
 result=0
 (
+    set -o noclobber
+    : > "$console"
+) || refuse 'build console publication failed'
+(
     cd -- "$worktree"
     "${clean[@]}" "${commands[bash]}" --noprofile --norc -c '
         set -eu
@@ -117,9 +123,10 @@ result=0
             shift 3
         done
         [[ $(node --version) == "$node_version" && $(bun --version) == "$bun_version" ]] || exit 73
-        exec timeout --kill-after=30s 1800s ./scripts/build-binaries.sh --platform windows-x64
+        exec timeout --kill-after=30s 1800s ./scripts/build-binaries.sh --platform windows-x64 --frozen-model-catalog
     ' build "$node_version" "$bun_version" "${probe_args[@]}"
-) || result=$?
+) > "$console" 2>&1 || result=$?
+while IFS= read -r line || [[ -n $line ]]; do printf '%s\n' "$line"; done < "$console"
 printf -v finished '%(%Y-%m-%dT%H:%M:%SZ)T' -1
 outcome=failed
 zip_hash=
@@ -134,7 +141,7 @@ if [[ $result == 0 ]] && source_valid; then
 fi
 (
     set -o noclobber
-    printf 'outcome=%s\nstarted=%s\nfinished=%s\ncommand=timeout --kill-after=30s 1800s ./scripts/build-binaries.sh --platform windows-x64\nprime=%s\nparent=%s\nlockfile=%s\nnode=%s\nnpm=%s\nbun=%s\ngit=%s\nzip=%s\nunzip=%s\nnetwork_names=%s\nzip_sha256=%s\nexit_code=%s\n' \
+    printf 'outcome=%s\nstarted=%s\nfinished=%s\ncommand=timeout --kill-after=30s 1800s ./scripts/build-binaries.sh --platform windows-x64 --frozen-model-catalog\nconsole=build-console.log\nprime=%s\nparent=%s\nlockfile=%s\nnode=%s\nnpm=%s\nbun=%s\ngit=%s\nzip=%s\nunzip=%s\nnetwork_names=%s\nzip_sha256=%s\nexit_code=%s\n' \
         "$outcome" "$started" "$finished" "$expected" "$parent" "$lock_hash" \
         "${node_version:0:1024}" "${npm_version:0:1024}" "${bun_version:0:1024}" "${git_version:0:1024}" \
         "${zip_version:0:1024}" "${unzip_version:0:1024}" "${network_names[*]}" "$zip_hash" "$result" > "$record"

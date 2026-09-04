@@ -42,6 +42,8 @@ set -eu
 base=${PWD%/prime}
 printf '%s\n' "$@" > "$base/builder.args"
 env > "$base/builder.env"
+printf 'synthetic builder stdout\n'
+printf 'synthetic builder stderr\n' >&2
 mode=success
 [[ ! -f $base/mode ]] || read -r mode < "$base/mode"
 mkdir -p packages/coding-agent/binaries
@@ -95,8 +97,11 @@ run_case() {
 success_case() {
     invoke
     assert test "$result" -eq 0
-    assert test "$(cat "$case_root/builder.args")" = "$(printf '%s\n' --platform windows-x64)"
-    assert test "$(cat "$case_root/timeout.args")" = "$(printf '%s\n' --kill-after=30s 1800s ./scripts/build-binaries.sh --platform windows-x64)"
+    assert test "$(cat "$case_root/builder.args")" = "$(printf '%s\n' --platform windows-x64 --frozen-model-catalog)"
+    assert test "$(cat "$case_root/timeout.args")" = "$(printf '%s\n' --kill-after=30s 1800s ./scripts/build-binaries.sh --platform windows-x64 --frozen-model-catalog)"
+    assert test -f "$case_root/build-console.log"
+    assert grep -q -F 'synthetic builder stdout' "$case_root/build-console.log"
+    assert grep -q -F 'synthetic builder stderr' "$case_root/build-console.log"
     local keys
     keys=$(cut -d= -f1 "$case_root/builder.env" | LC_ALL=C sort)
     assert test "$keys" = "$(printf '%s\n' CI HOME LANG LC_ALL PATH PWD SHLVL TMPDIR _ | LC_ALL=C sort)"
@@ -147,6 +152,12 @@ post_build() {
 }
 existing_output() { mkdir -p "$repo/packages/coding-agent/binaries"; invoke; refused_before_build; }
 existing_record() { printf 'preserve\n' > "$record"; invoke; refused_before_build; assert test "$(cat "$record")" = preserve; }
+existing_console() {
+    printf 'preserve\n' > "$case_root/build-console.log"
+    invoke
+    refused_before_build
+    assert test "$(cat "$case_root/build-console.log")" = preserve
+}
 network_case() {
     extra_env=(HTTP_PROXY=https://redacted.example HTTPS_PROXY=https://redacted.example ALL_PROXY=https://redacted.example NO_PROXY=localhost)
     invoke; assert test "$result" -eq 0
@@ -195,6 +206,7 @@ run_case qualified_bun bad_bun
 for mode in dirty head missing link directory timeout; do run_case "post_build_${mode}" post_build "$mode"; done
 run_case old_output_refusal existing_output
 run_case record_create_only existing_record
+run_case console_create_only existing_console
 run_case explicit_network_names network_case
 for name in http_proxy Http_Proxy FTP_PROXY; do run_case "unapproved_${name}" network_refusal "$name"; done
 run_case final_node_version changed_version node v23.0.0 v22.8.0
