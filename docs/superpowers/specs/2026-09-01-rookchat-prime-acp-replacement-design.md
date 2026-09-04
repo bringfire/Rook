@@ -602,6 +602,16 @@ frozen byte limit, strictly decodes it as UTF-8, and supplies those exact
 decoded contents once through `--append-system-prompt` without rewriting them.
 Domain references are read through IPython only when relevant.
 
+The launch limits are fixed:
+
+```text
+rook-full/SKILL.md maximum: 16,384 UTF-8 bytes
+complete rendered Windows command line maximum: 30,000 UTF-16 code units,
+including the terminating null
+```
+
+Both limits are enforced before process creation.
+
 The skill requires the payload-first public path:
 
 ```python
@@ -1040,9 +1050,10 @@ tools/uv
 notices/prime-agent
 ```
 
-A collision refuses before the staging generation is modified. Every addition
-is create-only; the packager never overlays, merges, repairs, or removes bytes
-at a reserved destination.
+A collision refuses before any Rook-owned addition or manifest write. The
+extracted Prime payload remains unchanged, and the failed staging generation
+gains no authority. Every addition is create-only; the packager never overlays,
+merges, repairs, or removes bytes at a reserved destination.
 
 Only `rook-full` and `uv` are additional executable or product dependencies.
 Prime's root license is legal notice material. Its tracked source is the
