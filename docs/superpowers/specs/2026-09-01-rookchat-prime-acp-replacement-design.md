@@ -146,7 +146,7 @@ Prime is launched with the approved runtime configuration, including:
 --no-skills
 --skill <exact pinned Prime goal skill directory>
 --skill <exact manifest-bound rook-full directory>
---append-system-prompt <exact rook-full/SKILL.md path>
+--append-system-prompt <exact verified UTF-8 contents of rook-full/SKILL.md>
 --no-extensions
 --no-context-files
 --no-prompt-templates
@@ -597,9 +597,10 @@ Python package, contract-specific kernel, source-event recorder, campaign
 limits, or transport implementation.
 
 `--skill` advertises the skill but does not inject its full instructions.
-Therefore the exact verified root `SKILL.md` is also supplied once through
-`--append-system-prompt`. The broker does not parse or rewrite it. Domain
-references are read through IPython only when relevant.
+Therefore the broker reads the manifest-verified root `SKILL.md`, enforces its
+frozen byte limit, strictly decodes it as UTF-8, and supplies those exact
+decoded contents once through `--append-system-prompt` without rewriting them.
+Domain references are read through IPython only when relevant.
 
 The skill requires the payload-first public path:
 
@@ -1028,6 +1029,20 @@ adds exactly three fixed inputs before manifest generation:
 2. Official `uv` 0.12.3 and its two license files under `tools/uv/`.
 3. An exact reviewed copy of Prime's root license at
    `notices/prime-agent/LICENSE`.
+
+Before any Rook-owned assembly write, the packager requires these reserved
+destinations to be absent from the extracted Prime payload:
+
+```text
+runtime-manifest.json
+skills/rook-full
+tools/uv
+notices/prime-agent
+```
+
+A collision refuses before the staging generation is modified. Every addition
+is create-only; the packager never overlays, merges, repairs, or removes bytes
+at a reserved destination.
 
 Only `rook-full` and `uv` are additional executable or product dependencies.
 Prime's root license is legal notice material. Its tracked source is the
