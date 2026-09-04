@@ -953,12 +953,20 @@ requirement. The observed Node, npm, Bun, Git, `zip`, and `unzip` versions are
 recorded as diagnostic provenance. They are not executable manifests or
 product runtime authority.
 
-Each invocation creates a fresh build-only `HOME` and `TMPDIR`. The Prime
-builder receives a small allowlisted environment containing only `HOME`,
-`PATH`, `LANG`, `LC_ALL`, `TMPDIR`, and `CI`, plus deliberately supplied
-network variables when the release environment requires them. Provider
-credentials, API keys, Prime configuration overrides, inherited
-`NPM_CONFIG_*` values, and arbitrary ambient variables are not inherited.
+Each invocation creates a fresh build-only `HOME` and `TMPDIR`. Before launch,
+the portable entrypoint resolves every required build tool, requires both its
+command path and canonical target to be regular Linux-native executable files
+outside `/mnt/*`, and constructs a Linux-only `PATH` from the unique parent
+directories of those admitted command paths. Windows executables and inherited
+Windows `PATH` entries are never build inputs.
+
+The Prime builder deliberately receives only `HOME`, the constructed `PATH`,
+`LANG`, `LC_ALL`, `TMPDIR`, and `CI`. The executing Bash process may add only
+its finite bookkeeping variables `PWD`, `SHLVL`, and `_`. Provider credentials,
+API keys, Prime configuration overrides, inherited `NPM_CONFIG_*` values,
+network overrides, and arbitrary ambient variables are not inherited. These
+environment rules are invocation-local isolation, not an executable manifest
+or another build authority artifact.
 
 From the clean Linux checkout, the portable entrypoint invokes exactly:
 
