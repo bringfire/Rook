@@ -2211,20 +2211,6 @@ const bytes = require("fs").readFileSync(process.argv[2]);
 if (!bytes.includes(Buffer.from("global.openai.gpt-5.6-sol")) ||
     bytes.includes(Buffer.from("anthropic.claude-fable-5-1"))) process.exit(1);
 NODE
-audit="$root/npm-audit.json"
-test ! -e "$audit"
-mkdir "$root/audit-home" "$root/audit-tmp"
-set +e
-(
-  set -o noclobber
-  env -i HOME="$root/audit-home" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
-    TMPDIR="$root/audit-tmp" CI=1 \
-    npm --prefix "$root/prime-agent" audit --json > "$audit"
-)
-audit_status=$?
-set -e
-case "$audit_status" in 0|1) ;; *) exit "$audit_status";; esac
-node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$audit"
 test "$(git -C "$root/prime-agent" rev-parse HEAD)" = 1b9dfabb04901de4823d259c88b39dfc78ec3b34
 test -z "$(git -C "$root/prime-agent" status --porcelain --untracked-files=no)"
 '@.Replace('{buildAttempt}', $buildAttempt)
@@ -2251,11 +2237,11 @@ name those assignments explicitly; it may not forward the caller's environment.
 The entrypoint clears its builder environment again and inserts only those
 reviewed names. Their names, never values, enter the diagnostic build record.
 
-The create-only `npm-audit.json` is diagnostic and separately reviewable. Its
-vulnerability exit status does not rewrite the build result. Review records the
-exact package, dependency path, production/development scope, and fixed-version
-information for every finding. Do not run `npm audit fix` or change dependencies
-in this task.
+Do not run `npm audit` inside this build-admission command. The dependency
+findings observed in v1 remain unclassified. A later diagnostic requires its own
+authorization with an explicit deadline, output-byte ceiling, cleanup behavior,
+and retained status; it remains non-authoritative for the build artifact. Do not
+run `npm audit fix` or change dependencies in this task.
 
 Any build or custody failure rejects this invocation. Do not repair or resume
 its checkout or any sibling output. Preserve the complete build attempt and build

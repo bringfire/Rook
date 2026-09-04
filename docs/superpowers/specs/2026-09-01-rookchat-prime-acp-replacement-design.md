@@ -1033,13 +1033,12 @@ preserves the real command exit status, and emits the retained text after
 settlement. Failure to create or retain the log rejects the attempt. This is
 diagnostic capture, not another evidence or authority system.
 
-After a successful build, the release procedure also retains one create-only
-`npm-audit.json` produced by `npm audit --json` from that exact checkout and
-dependency tree. The diagnostic must expose each reported package, dependency
-path, production or development scope, and available fixed-version information
-for post-build review. Vulnerability exit status is retained without changing
-the accepted build command; malformed or operationally failed audit output
-stops review. `npm audit fix`, dependency changes, and audit data in product
+Dependency vulnerability classification is not part of build admission. The
+builder's native console output is retained, but any follow-up `npm audit`
+belongs to a separately authorized, explicitly time- and byte-bounded diagnostic
+after the build gate settles. Its result cannot grant or revoke artifact
+authority. Until that diagnostic runs, reported dependency findings remain
+unclassified. `npm audit fix`, dependency changes, and audit data in product
 runtime are prohibited.
 
 Focused Prime tests prove frozen mode leaves the checked-in catalog unchanged,
