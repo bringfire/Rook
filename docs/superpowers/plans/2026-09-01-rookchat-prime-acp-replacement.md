@@ -1422,8 +1422,22 @@ approved Rook implementation
 -> exact reviewed Windows packager and verifier
 -> one verified Prime payload
 -> sealed Rook wheel and verification venv
--> installed post_install promotion
--> local-deploy and ISCC consumers
+```
+
+Then follow the applicable consumer branch:
+
+```text
+Release:
+verified payload + sealed wheel
+-> ISCC
+-> installer stages incoming payload
+-> post_install invokes shared promotion
+-> installed verification
+
+Local deployment:
+verified payload + sealed wheel
+-> deployment stages incoming payload
+-> post_install invokes shared promotion
 -> installed verification
 ```
 
@@ -1728,7 +1742,7 @@ installer post-install passes its exact incoming root and <install-dir>/prime to
 the two build-release skill copies and their source-path references remain byte-identical
 the release workflow admits exactly one verified assembly-attempt-scoped Prime payload before ISCC
 the release workflow uses only artifacts/python-wheelhouse/verify-rook-venv/Scripts/python.exe with -I from the exact repo-root cwd
-the verifier module imports from that venv's Lib/site-packages installation produced by the sealed wheelhouse, never the source tree
+the verifier module imports from that exact venv's Lib/site-packages installation produced by the sealed wheelhouse, never mcp_server/src or an editable source installation
 the release workflow invokes the exact prime_runtime_artifact verify argv before ISCC
 PATH Python, the worktree .venv, PYTHONPATH, and source-tree import fallback cannot satisfy the release gate
 the ISCC argv contains exactly /DPrimeRuntimePayload=<canonical admitted payload>
@@ -1798,7 +1812,9 @@ installed from the sealed wheelhouse and imported from that verification venv's
 successful. From the exact Rook repository root, with `PYTHONPATH` absent, the
 release skill first uses that exact interpreter under `-I` to verify that
 `rook.agent.chat.prime_runtime_artifact.__file__` resolves beneath the same
-verification venv's `Lib/site-packages` and not beneath the source worktree.
+verification venv's `Lib/site-packages`. Reject resolution from `mcp_server/src`
+or an editable source installation, not from the enclosing worktree directory:
+the required verification venv itself resides beneath that worktree.
 It then invokes exactly:
 
 ```powershell
@@ -2544,8 +2560,14 @@ evidence root, Release configuration, and MSVC `14.44.35207`.
 Before invoking deployment, require the product worktree to be clean at exactly
 `$ApprovedImplementationCommit`. Rebuild and validate the private Python runtime
 and sealed wheelhouse from that exact source using the existing release
-pipeline. This must happen before `post_install.py`: local deployment installs
-the sealed wheel first and only mirrors current source afterward, while Prime
+pipeline. Explicitly select `C:/UDEV/Chirp` through the wheelhouse builder's
+existing `-ChirpRoot` parameter. Before Python-runtime staging, require that
+checkout's `pyproject.toml`, valid Git HEAD, and clean tracked/untracked source.
+Do not use the builder's worktree-relative sibling default or modify Chirp to
+satisfy these checks. The later `-SkipChirpInstall` flag does not bypass the
+wheelhouse's Chirp prerequisite. This must happen before `post_install.py`:
+local deployment installs the sealed wheel first and only mirrors current
+source afterward, while Prime
 promotion imports `prime_runtime_artifact` during post-install. A stale wheel
 would therefore break or misdirect promotion even if the later mirror were
 correct.
@@ -2558,10 +2580,28 @@ if ((git rev-parse HEAD) -ne $ApprovedImplementationCommit) {
     throw 'Promotion source does not match the approved implementation commit.'
 }
 
+$chirpRoot = (Resolve-Path -LiteralPath 'C:/UDEV/Chirp' -ErrorAction Stop).Path
+if (-not (Test-Path -LiteralPath "$chirpRoot/pyproject.toml" -PathType Leaf)) {
+    throw 'The selected Chirp checkout is missing pyproject.toml.'
+}
+$chirpTop = git -C $chirpRoot rev-parse --show-toplevel
+if ($LASTEXITCODE -ne 0 -or
+    [IO.Path]::GetFullPath($chirpTop) -ine [IO.Path]::GetFullPath($chirpRoot)) {
+    throw 'The selected Chirp path is not its Git checkout root.'
+}
+$chirpCommit = git -C $chirpRoot rev-parse HEAD
+if ($LASTEXITCODE -ne 0 -or $chirpCommit -cnotmatch '^[0-9a-f]{40}$') {
+    throw 'Cannot resolve the selected Chirp source commit.'
+}
+$chirpStatus = @(git --no-optional-locks -C $chirpRoot status --porcelain --untracked-files=all)
+if ($LASTEXITCODE -ne 0 -or $chirpStatus.Count -ne 0) {
+    throw 'Chirp source worktree must be clean before Python-runtime staging.'
+}
+
 $version = '1.5.18'
 pwsh -NoProfile -File scripts/python-runtime/stage-rook-python-runtime.ps1
 if ($LASTEXITCODE -ne 0) { throw 'Private Python runtime staging failed.' }
-pwsh -NoProfile -File scripts/python-runtime/build-rook-python-wheelhouse.ps1 -Version $version
+pwsh -NoProfile -File scripts/python-runtime/build-rook-python-wheelhouse.ps1 -Version $version -ChirpRoot $chirpRoot
 if ($LASTEXITCODE -ne 0) { throw 'Private wheelhouse build failed.' }
 pwsh -NoProfile -File scripts/validate-python-wheelhouse.ps1 -Version $version
 if ($LASTEXITCODE -ne 0) { throw 'Private wheelhouse validation failed.' }
@@ -2569,6 +2609,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Private wheelhouse validation failed.' }
 $pythonManifest = Get-Content -LiteralPath installer/runtime/python-runtime-manifest.json -Raw | ConvertFrom-Json
 if ([string]$pythonManifest.rook_git_sha -ne $ApprovedImplementationCommit) {
     throw 'Private wheelhouse source identity differs from the approved implementation commit.'
+}
+if ([string]$pythonManifest.chirp_git_sha -ne $chirpCommit) {
+    throw 'Private wheelhouse Chirp identity differs from the selected clean source.'
 }
 
 $primePayload = (Resolve-Path -LiteralPath $ApprovedPrimeRuntimePayload).Path
