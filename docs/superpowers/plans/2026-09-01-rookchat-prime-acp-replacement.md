@@ -1514,7 +1514,7 @@ the same test without the `wsl.exe` prefix:
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-wsl.exe -d Ubuntu-24.04 -- bash -lc 'cd /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset && bash scripts/tests/prime-wsl-build.tests.sh'
+wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc 'cd /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset && bash scripts/tests/prime-wsl-build.tests.sh'
 ```
 
 Expected RED: only the named `build_entrypoint_missing` case fails because
@@ -1997,7 +1997,7 @@ real runtime, install Rook, or launch Prime/Rhino/Grasshopper/models.
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-wsl.exe -d Ubuntu-24.04 -- bash -lc 'cd /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset && bash scripts/tests/prime-wsl-build.tests.sh'
+wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc 'cd /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset && bash scripts/tests/prime-wsl-build.tests.sh'
 
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
 ./.venv/Scripts/python.exe -m pytest tests/test_prime_runtime_artifact.py tests/test_package_prime_acp_runtime.py tests/test_post_install_prime_runtime.py tests/test_chat_prime_runtime.py tests/test_chat_integration.py tests/test_chat_acp_conversation.py tests/test_verify_installed_rookchat_acp.py -q
@@ -2028,7 +2028,10 @@ prerequisites or run the real builder before approval.
 
 The local command selects WSL2; the portable Bash entrypoint remains unaware of
 WSL. Before creating a Windows release directory, Git bundle, WSL checkout,
-support root, or staging directory, complete every read-only prerequisite check.
+build support root, or staging directory, complete every source/tool prerequisite
+check. Version probes use a fresh prerequisite-only HOME/TMPDIR outside the build
+attempt; npm may write its normal compile cache there. These probe directories
+are diagnostics, not build inputs, and are never reused by the builder.
 The independently approved Step 6 review must issue the Step 7 command with the
 exact 40-hex Task 10 implementation commit assigned as a literal local
 PowerShell value. It is never read from an environment variable, inferred from
@@ -2040,6 +2043,36 @@ is absent, linked, or outside the checkout, Ubuntu is not 24.04, WSL is not
 version 2, Node is below 22.8.0, Bun is not 1.3.14, or any required tool resolves
 through `/mnt/*` or a Windows-hosted filesystem, stop before creating an
 attempt. The product scripts never auto-install tools.
+
+Use `--exec /bin/bash -lc` for every local WSL invocation. The alternative
+`-- bash -lc` lost literal shell variables on this machine. Keep Bash text in
+PowerShell single-quoted strings or single-quoted here-strings. Before any
+mutating setup or release command, require this harmless transport probe:
+
+```powershell
+$wslTransportProbe = @'
+set -euo pipefail
+value='literal $HOME stays literal'
+set -- 'argument with spaces' '' '$PATH'
+test "$value" = 'literal $HOME stays literal'
+test "$#" -eq 3
+test "$1" = 'argument with spaces'
+test -z "$2"
+test "$3" = '$PATH'
+printf 'TRANSPORT_PROBE=PASS\n'
+'@
+wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslTransportProbe
+if ($LASTEXITCODE -ne 0) { throw 'Literal WSL transport failed; stop before mutation.' }
+```
+
+The prepared local build-only tools are Node 22.23.2 with its supplied npm
+10.9.8 and Bun 1.3.14 beneath `/home/bring/.local/share/rook-prime-build`, plus
+Ubuntu zip/unzip in `/usr/bin`. The preflight and build commands below select
+that same explicit Linux PATH; neither uses the interactive shell's PATH.
+System Node 20 and Windows tools remain unchanged. These are release-machine
+prerequisites only, not customer installation requirements. A differently
+prepared release machine must explicitly select and preflight its own Linux
+paths, preserving the portable builder's existing version contract.
 
 ```powershell
 $rookRoot = (Resolve-Path -LiteralPath 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset').Path
@@ -2066,7 +2099,48 @@ if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD^) -ne '
 
 wsl.exe --list --verbose
 if ($LASTEXITCODE -ne 0) { throw 'WSL distribution query failed.' }
-wsl.exe -d Ubuntu-24.04 -- bash -lc 'set -euo pipefail; for tool in uname findmnt readlink head; do command -v "$tool" >/dev/null; done; case "$(uname -r)" in *microsoft-standard-WSL2*) ;; *) exit 1 ;; esac; . /etc/os-release; test "$VERSION_ID" = 24.04; case "$(findmnt -n -o FSTYPE -T "$HOME")" in drvfs|9p|ntfs|fuseblk) exit 1 ;; esac; for tool in bash sh node npm bun git zip unzip dirname rm mkdir cp ls env timeout sha256sum uname findmnt readlink head; do p="$(command -v "$tool")"; c="$(readlink -f "$p")"; test -f "$p" -o -L "$p"; test -x "$p"; test -f "$c"; test -x "$c"; case "$p:$c" in /mnt/*:*|*:/mnt/*) exit 1 ;; esac; case "$(findmnt -n -o FSTYPE -T "$c")" in drvfs|9p|ntfs|fuseblk) exit 1 ;; esac; done; node_version="$(node --version)"; IFS=. read -r node_major node_minor node_patch <<< "${node_version#v}"; (( node_major > 22 || (node_major == 22 && node_minor >= 8) )); test "$(bun --version)" = 1.3.14; printf "%s\n" "$node_version"; npm --version; bun --version; git --version; zip -v | head -n 2; unzip -v | head -n 2'
+$wslPreflight = @'
+set -euo pipefail
+tools=/home/bring/.local/share/rook-prime-build
+build_path="$tools/node-v22.23.2-linux-x64/bin:$tools/bun-v1.3.14:/usr/bin"
+probe_root=$(/usr/bin/mktemp -d "$tools/preflight.XXXXXXXX")
+/usr/bin/mkdir "$probe_root/home" "$probe_root/tmp"
+cd "$probe_root"
+exec /usr/bin/env -i HOME="$probe_root/home" PATH="$build_path" LANG=C.UTF-8 LC_ALL=C.UTF-8 TMPDIR="$probe_root/tmp" CI=1 /bin/bash --noprofile --norc -s <<'PREFLIGHT'
+set -euo pipefail
+. /etc/os-release
+test "$ID" = ubuntu
+test "$VERSION_ID" = 24.04
+test "$(uname -s)" = Linux
+case "$(uname -r)" in *microsoft-standard-WSL2*) ;; *) exit 1 ;; esac
+for root in "$HOME" "$TMPDIR"; do
+  test -d "$root"
+  test -z "$(ls -A "$root")"
+  case "$(findmnt -n -o FSTYPE -T "$root")" in ''|drvfs|9p|ntfs|ntfs3|fuseblk) exit 1 ;; esac
+done
+for tool in bash sh node npm bun git zip unzip dirname rm mkdir cp ls env timeout sha256sum uname findmnt readlink head; do
+  p="$(type -P "$tool")"
+  c="$(readlink -f "$p")"
+  test -f "$p"; test -x "$p"
+  test -f "$c"; test -x "$c"
+  case "$p:$c" in /mnt/*:*|*:/mnt/*) exit 1 ;; esac
+  for resolved in "$p" "$c"; do
+    case "$(findmnt -n -o FSTYPE -T "$resolved")" in ''|drvfs|9p|ntfs|ntfs3|fuseblk) exit 1 ;; esac
+  done
+  printf 'TOOL %s=%s -> %s\n' "$tool" "$p" "$c"
+done
+node_version="$(node --version)"
+[[ "$node_version" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
+(( BASH_REMATCH[1] > 22 || (BASH_REMATCH[1] == 22 && BASH_REMATCH[2] >= 8) ))
+test "$(bun --version)" = 1.3.14
+printf 'NODE=%s\nNPM=%s\nBUN=%s\nGIT=%s\n' "$node_version" "$(npm --version)" "$(bun --version)" "$(git --version)"
+zip_version="$(zip -v)"; printf '%s\n' "$zip_version" | head -n 2
+unzip_version="$(unzip -v)"; printf '%s\n' "$unzip_version" | head -n 2
+printf 'EFFECTIVE_ENVIRONMENT\n'; env
+printf 'UBUNTU_BUILD_PREREQUISITES=PASS\n'
+PREFLIGHT
+'@
+wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslPreflight
 if ($LASTEXITCODE -ne 0) { throw 'Ubuntu build prerequisites are not admitted.' }
 ```
 
@@ -2098,6 +2172,8 @@ and ZIP all remain inside that Linux-native attempt generation:
 ```powershell
 $wslBuildCommand = @'
 set -euo pipefail
+tools=/home/bring/.local/share/rook-prime-build
+export PATH="$tools/node-v22.23.2-linux-x64/bin:$tools/bun-v1.3.14:/usr/bin"
 root="$HOME/rook-prime-acp-48015aef/builds/{buildAttempt}"
 test ! -e "$root"
 mkdir -p "$root/source"
@@ -2112,7 +2188,7 @@ env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 TMPDIR=/tmp CI=1 \
   --expected-prime-commit 48015aefa41c6c2678ddac9e4000009c1d7c3b63 \
   --expected-prime-parent c718bf3c30fd8da206ed551837cbb54f7ad15948
 '@.Replace('{buildAttempt}', $buildAttempt)
-wsl.exe -d Ubuntu-24.04 -- bash -lc $wslBuildCommand
+wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslBuildCommand
 if ($LASTEXITCODE -ne 0) { throw 'Prime WSL build attempt failed.' }
 
 $rookStatus = @(git -C $rookRoot status --short)
@@ -2200,7 +2276,7 @@ set -euo pipefail
 cp "$HOME/rook-prime-acp-48015aef/builds/{buildAttempt}/prime-agent/packages/coding-agent/binaries/pi-windows-x64.zip" \
   "/mnt/c/UDEV/RookRelease/prime-acp/48015aef/assemblies/{assemblyAttempt}/windows/pi-windows-x64.zip"
 '@.Replace('{buildAttempt}', $approvedBuildAttempt).Replace('{assemblyAttempt}', $assemblyAttempt)
-wsl.exe -d Ubuntu-24.04 -- bash -lc $wslTransferCommand
+wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslTransferCommand
 $windowsZipSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $windowsZip).Hash
 if ($windowsZipSha256 -ne $ApprovedWslZipSha256) { throw 'WSL-to-Windows ZIP hash differs.' }
 ```
