@@ -6,14 +6,14 @@
 
 **Architecture:** C# remains the user-input and presentation client of the authenticated local HTTP service. The Python service uses the official Python ACP SDK to own one Prime process/ACP connection, a complete durable association, a non-expiring `open.claim`, and bounded disposable presentation history; Prime remains the sole conversation and reasoning authority, and Rook remains the sole host-operation authority. Standard ACP MCP injection supplies a manifest-bound Markdown-only `rook-full` skill and the service-owned `rook` stdio server; no private Prime RPC, daemon topology, backend abstraction, or ChatRunner fallback survives cutover.
 
-**Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; PowerShell/Inno Setup release tooling; pytest/xUnit.
+**Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; Ubuntu 24.04 Bash release builds with local WSL2 selection; PowerShell/Inno Setup installation tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `7c876d5c34f8d557ebd8cd06b93c07307c730234` (SHA-256 `676340C3CAFA75A10B1DEFBA38B722B66279E13BEC27B169FFE1DA230B1E3E4C`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `76eba90a46a931eb719d0e9c73ba3f945f080aef` (SHA-256 `F8FD6412FD4B6AAE277A9991FEAC921551C2F534977A663806D957985E502BC2`).
 
 ## Global Constraints
 
-- This plan is authored against frozen specification baseline `7c876d5c34f8d557ebd8cd06b93c07307c730234`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
-- Prime commit `9c25468b62c79fc4b1419d7800740e8e41e30467` is the reviewed daemon-free precursor over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. Before the Task 10 release build, amend that precursor into one final independently reviewed commit whose parent remains the exact upstream baseline and whose only additional production changes are platform-aware kernel-interpreter resolution and inclusion of `dist/prime-agent-runtime` in Prime's standalone artifact. Do not create a patch stack or make any other Prime change.
+- This plan is authored against frozen specification baseline `76eba90a46a931eb719d0e9c73ba3f945f080aef`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
+- Prime commit `48015aefa41c6c2678ddac9e4000009c1d7c3b63` is the final reviewed product compatibility commit directly over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. It contains only daemon-free ACP selection, platform-aware kernel-interpreter resolution, and completion of Prime's standalone Python-runtime payload. Do not amend it, stack another Prime patch, or substitute another Prime source identity.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
 - Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon`; never use a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. The Prime and Rook MCP executable paths are absolute and never selected through `PATH`. The sole intentional exception is upstream Prime's supported kernel bootstrap lookup for `uv`: RookChat prepends the exact manifest-bound `tools/uv` directory, and qualification proves that executable was selected before any ambient entry.
@@ -26,7 +26,7 @@
 - New conversations may pass a fully qualified `--model` and one of `off|minimal|low|medium|high|xhigh|max`; reopen passes neither override.
 - The installed `rook-full` package is Markdown-only. Do not add a Rook-owned Python facade or contract-specific kernel.
 - The immutable Prime runtime carries official `uv` 0.12.3 at fixed relative path `tools/uv/uv.exe` and the final Prime build's complete `dist/prime-agent-runtime` subtree. Source, license, executable, and subtree custody share the same closed manifest. Prime remains the sole owner of its ordinary mutable kernel environment. Remove every inherited `UV_*` key case-insensitively and insert only the six product-owned values derived from `ROOK_DATA_DIR`; no ambient kernel override, package-root override, virtual environment, uv policy, or Rook-venv `uv` is runtime authority.
-- Prime release builds use only the separately provisioned MSYS2 20260611 artifact at `C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/`, containing manifested `root/**` and sibling `build-toolchain-contract.json`. No build may reach `npm ci` until an independent review supplies the exact `ExpectedBuildToolchainContractSha256`; the shared `C:/msys64` and customer installations are never involved.
+- Prime release builds use the portable `scripts/build-prime-acp-runtime.sh` entrypoint in Ubuntu 24.04 on a Linux-native filesystem. Local Windows release work selects the installed `Ubuntu-24.04` WSL2 distribution; CI may invoke the same Bash entrypoint directly. WSL, Node, npm, Bun, Git, `zip`, and `unzip` are release-machine dependencies only and never enter the Rook installer or customer runtime.
 - One service-owned ACP MCP declaration named exactly `rook` uses the installed service's already verified exact `sys.executable -m rook` boundary without `PATH` fallback. Its closed environment, profile, and immutable host/Rhino binding come from installed service configuration and the durable association, not from the portable Prime runtime manifest. The verified association working directory is supplied through `session/new.cwd` because ACP stdio declarations have no working-directory field.
 - Prime's accepted MCP operating limits remain 20 seconds for server startup and 60 seconds for a tool call. Representative Rook operations must qualify within them; this plan adds no facade or Prime timeout patch.
 - Preserve full Rook authoring. Grasshopper uses dynamic document context with centrally advertised and enforced `expectedGhDocumentId` optimistic concurrency, not permanent GH binding or hostile-code containment.
@@ -1360,867 +1360,398 @@ git add mcp_server/src/rook/gh_document_custody.py mcp_server/src/rook/server.py
 git commit -m "feat(grasshopper): fence mutations to observed document"
 ```
 
-### Task 10: Reconcile And Package One Complete Prime Runtime
+### Task 10: Build, Manifest, And Promote One Complete Prime Runtime
 
 **Files:**
-- Modify in the clean Prime compatibility worktree: `packages/coding-agent/src/core/kernel/bootstrap.ts`
-- Modify in the clean Prime compatibility worktree: `packages/coding-agent/test/kernel-bootstrap.test.ts`
-- Modify in the clean Prime compatibility worktree: `scripts/build-binaries.sh`
-- Modify in the clean Prime compatibility worktree: `packages/coding-agent/test/builtin-skills.test.ts`
-- Create: `scripts/provision-prime-build-toolchain.ps1`
-- Create: `scripts/verify-prime-build-toolchain.py`
-- Create: `scripts/package-prime-acp-runtime.ps1`
-- Create: `scripts/verify-prime-acp-runtime.py`
-- Create: `scripts/verify-installed-rookchat-acp.py`
-- Create: `scripts/tests/prime-build-toolchain.tests.ps1`
-- Create: `scripts/tests/prime-acp-runtime.tests.ps1`
+- Delete before writing replacement tests: `scripts/tests/prime-build-toolchain.tests.ps1`
+- Delete before writing replacement tests: `scripts/tests/prime-acp-runtime.tests.ps1`
+- Create: `scripts/build-prime-acp-runtime.sh`
+- Create: `scripts/tests/prime-wsl-build.tests.sh`
+- Create: `mcp_server/src/rook/agent/chat/prime_runtime_artifact.py`
+- Create: `mcp_server/tests/test_prime_runtime_artifact.py`
+- Create: `scripts/package-prime-acp-runtime.py`
+- Create: `mcp_server/tests/test_package_prime_acp_runtime.py`
+- Create: `third_party/prime-agent/LICENSE`
 - Modify: `mcp_server/src/rook/agent/chat/prime_runtime.py`
+- Modify: `mcp_server/src/rook/agent/chat/service_main.py`
 - Modify: `mcp_server/src/rook/agent/chat/acp_conversation.py`
 - Modify: `mcp_server/tests/test_chat_prime_runtime.py`
+- Modify: `mcp_server/tests/test_chat_integration.py`
 - Modify: `mcp_server/tests/test_chat_acp_conversation.py`
+- Modify: `installer/post_install.py`
+- Create: `mcp_server/tests/test_post_install_prime_runtime.py`
 - Modify: `scripts/deploy-local-testing.ps1`
 - Modify: `scripts/tests/deploy-local-testing-guards.tests.ps1`
 - Modify: `installer/RookSetup.iss`
 - Modify: `scripts/tests/release-installer-guards.tests.ps1`
-- Modify: `installer/post_install.py`
+- Create: `scripts/verify-installed-rookchat-acp.py`
 - Create: `mcp_server/tests/test_verify_installed_rookchat_acp.py`
-- Generate together for release staging, never commit separately: `installer/runtime/prime/staging/**`, including the complete payload and `runtime-manifest.json`
-- Generate outside source and product trees, never commit or ship: `C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/root/**` plus sibling `build-toolchain-contract.json`
-- Add: Prime-required license/notice files to the generated installer payload
+- Generate after the implementation review, never commit: `installer/runtime/prime/staging/runtimes/<runtime-id>/**`
+- Retain outside source and product trees: the Git bundle, WSL build record, transferred Prime ZIP, downloaded `uv` inputs, and artifact review hashes
 
 **Interfaces:**
-- Produces: one final independently reviewed Prime compatibility commit directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; one independently reviewed non-self-referential MSYS2 build-tool artifact for this machine whose sibling contract binds complete `root/**`; official-shape immutable runtime at `ROOK_INSTALL_ROOT/prime/runtimes/<runtime-id>/`; an atomically replaced qualified-runtime pointer `current.json`; one portable closed manifest packaged with every byte it binds; manifest-bound official `uv` at `tools/uv/uv.exe`; manifest-bound matching Prime Python runtime at `dist/prime-agent-runtime`; an exact service-owned `sys.executable -m rook` MCP launch boundary; persistent data under `ROOK_DATA_DIR/rookchat/acp/v1/`; and one bounded installed-product identity report.
-- Consumes: reviewed Prime precursor `9c25468b62c79fc4b1419d7800740e8e41e30467`, upstream parent `c718bf3c30fd8da206ed551837cbb54f7ad15948`, Prime's supported `scripts/build-binaries.sh --platform windows-x64 --skip-deps` path, the complete extracted `packages/coding-agent/binaries/windows-x64/` artifact, Task 8 skill, and Task 4 runtime verifier.
+- Consumes: frozen specification `76eba90a46a931eb719d0e9c73ba3f945f080aef`; clean Prime commit `48015aefa41c6c2678ddac9e4000009c1d7c3b63` directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; Prime's unchanged `scripts/build-binaries.sh --platform windows-x64`; Task 8's tracked `installer/agent-assets/prime-skills/rook-full`; the installed Rook Python service; and the existing installer/local-deployment entrypoints.
+- Produces: one portable Ubuntu build entrypoint; one complete upstream `pi-windows-x64.zip`; one Rook-owned runtime-manifest implementation; one offline Windows packager; one shared promotion function used by installer and local deployment; one closed `current.json` selector; one installed-product verifier; and an ignored, complete installer runtime payload.
+- Does not produce: a build-toolchain contract, MSYS2 root, per-tool executable manifest, private-helper test loader, Prime patch, product WSL dependency, or Prime lifecycle execution.
 
-The Prime builder performs `npm ci` before compilation even with `--skip-deps`.
-Task 10 authorizes that exact lockfile restoration on the release machine. It
-may download packages pinned by Prime's committed `package-lock.json`, but it
-must not update the lockfile, change package metadata, add dependencies, or
-contact any provider/model service. Record the lockfile hash before and after;
-any change refuses promotion. Generated ignored `node_modules`, `dist`, and
-`binaries` output is allowed, but the Prime worktree must have no tracked or
-untracked source changes after the build.
+The Prime compatibility work is already complete. Task 10 does not edit or
+amend Prime. Its first read-only precondition is:
 
-`runtime-manifest.json` is the single canonical executable contract. Its
-canonical bytes hash to `runtime-id`; the installed runtime directory is named
-by that identity, and `current.json` contains only `{"runtimeId":"..."}`.
-There is no second runtime schema. The manifest contains only relative paths
-beneath its runtime root and no machine-specific Rook MCP command, arguments,
-or environment. The generated manifest and complete staged payload are one
-release artifact: they are produced, verified, installed, and retained
-together, and neither is committed as a substitute for the release artifact.
+```text
+Prime HEAD  = 48015aefa41c6c2678ddac9e4000009c1d7c3b63
+Prime HEAD^ = c718bf3c30fd8da206ed551837cbb54f7ad15948
+Prime tracked and untracked status = clean
+```
 
-Prime's Python kernel remains Prime-owned mutable state, not part of this
-content-addressed runtime. The immutable artifact carries both bootstrap
-prerequisites: official `uv` 0.12.3 for `x86_64-pc-windows-msvc` at fixed
-relative path `tools/uv/uv.exe`, and the complete matching Prime-built source
-package at `dist/prime-agent-runtime`. Prime resolves `uv` because
-`build_prime_child_env()` prepends that exact manifest-verified directory to
-`PATH`, and resolves the Python source through its existing package-root lookup.
-RookChat creates no contract-specific kernel and installs no Python package. On
-first session creation Prime may begin background prewarm; the first IPython
-operation waits for Prime to download Python, install its local matching runtime
-source, and resolve default packages. This requires internet access and may take
-time, but requires no separate user installation.
+All generated release payloads remain ignored. Customers receive the completed
+Windows runtime through the Rook installer and never need WSL, Node, npm, Bun,
+Git, `zip`, `unzip`, or a separate Prime installation.
 
-- [ ] **Step 1: Reconcile one final Prime compatibility commit and stop for review**
+- [ ] **Step 1: Replace the abandoned RED matrix with one portable build-entrypoint test**
 
-Work only in the clean Prime compatibility worktree at precursor
-`9c25468b62c79fc4b1419d7800740e8e41e30467`; first prove its parent is exactly
-`c718bf3c30fd8da206ed551837cbb54f7ad15948` and its worktree is clean.
-
-Execution record, 2026-09-03: a pre-amendment focused run omitted the coding-agent
-Vitest configuration. Its POSIX-only kernel fixture was bypassed on Windows and
-ambient `C:/Users/bring/AppData/Local/hermes/bin/uv.exe` was selected. During
-that failed window, ambient uv refreshed existing managed-Python junctions for
-3.11 and 3.12; no new Python installation or surviving process was observed.
-This is incident evidence, not a baseline pass. Deleting or rewriting shared uv
-state is not authorized.
-
-Before adding Task 10 feature assertions or editing production, repair only the
-existing `kernel-bootstrap.test.ts` process fixture. Intercept subprocess
-creation at the test boundary while leaving production executable resolution
-real. Create a marker named `uv.exe` on Windows and `uv` elsewhere in one
-fixture-only executable directory. Maintain a closed registry of canonical fake
-executable paths and deterministic handlers; reject every spawn whose canonical
-path is absent. No admitted fake uses a shell, network installer, or real child
-process. Set `PATH` to that fixture directory only (`PATHEXT=.EXE` on Windows),
-and isolate `HOME`, `USERPROFILE`, and `XDG_DATA_HOME` beneath the test root. Set
-`PRIME_AGENT_INSTALL_UV=0`; set `UV_CACHE_DIR` and
-`UV_PYTHON_INSTALL_DIR` beneath the same test root. Restore the original process
-environment after each test. Any unexpected executable, network attempt,
-user-home access, unaccounted fake spawn, or additional baseline failure is a
-terminal stop.
-
-With no Task 10 feature assertions or production edits yet, run the corrected
-pre-existing tests through the package configuration and require green:
+Before creating replacement tests, prove the two rejected scripts are the only
+untracked files and remove only those exact paths:
 
 ```powershell
-Set-Location D:/prime-agent/.worktrees/prime-acp-no-daemon
-if (-not (Test-Path -LiteralPath './node_modules/.bin/vitest.cmd' -PathType Leaf)) {
-    throw 'Prime test dependencies are absent; stop for separately authorized lockfile restoration.'
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+$expected = @(
+    '?? scripts/tests/prime-acp-runtime.tests.ps1',
+    '?? scripts/tests/prime-build-toolchain.tests.ps1'
+)
+$actual = @(git status --short | Sort-Object)
+if (Compare-Object ($expected | Sort-Object) $actual) {
+    throw 'The preserved RED-script boundary changed; stop.'
 }
-./node_modules/.bin/vitest.cmd --config ./packages/coding-agent/vitest.config.ts run packages/coding-agent/test/kernel-bootstrap.test.ts packages/coding-agent/test/builtin-skills.test.ts
+Remove-Item -LiteralPath scripts/tests/prime-acp-runtime.tests.ps1
+Remove-Item -LiteralPath scripts/tests/prime-build-toolchain.tests.ps1
 ```
 
-Do not generate workspace `dist`, run `npm run build`, invoke model-catalog
-generation, run `npm ci`, restore dependencies, or contact the network to obtain
-this baseline. Only after the corrected existing suite passes with every fake
-spawn accounted for, add these RED feature assertions before production edits:
+Create `scripts/tests/prime-wsl-build.tests.sh` as an ordinary Bash test that
+creates a temporary Git repository on a Linux-native filesystem. Its fake Prime
+tree contains a normal executable `scripts/build-binaries.sh`; that fake records
+argv and environment, optionally changes the lockfile or tracked source, and
+creates a synthetic `packages/coding-agent/binaries/pi-windows-x64.zip`.
+Fixture-local fake tool commands provide deterministic version output and a
+recording `timeout` boundary; the test does not depend on host Node, npm, Bun,
+`zip`, or `unzip` behavior.
 
-```typescript
-expect(getKernelPythonPath("C:/kernel", "win32")).toBe("C:\\kernel\\Scripts\\python.exe");
-expect(getKernelPythonPath("/kernel", "linux")).toBe("/kernel/bin/python");
+The test invokes only the public `scripts/build-prime-acp-runtime.sh` entrypoint,
+passing the temporary repository's real commit and parent as the required
+expected identities, and covers these cases:
+
+```text
+exact HEAD, parent, clean tree, and package-lock hash admit the fake build
+missing, malformed, or extra entrypoint arguments refuse before tool use
+an expected-commit mismatch refuses before the fake builder runs
+a dirty tracked tree refuses before the fake builder runs
+/mnt/c and /mnt/d build roots refuse without requiring a WSL marker
+a findmnt result of drvfs, 9p, ntfs, or fuseblk refuses
+the fake builder sees only HOME, PATH, LANG, LC_ALL, TMPDIR, and CI
+ambient API keys, provider variables, PRIME_*, PI_*, and NPM_CONFIG_* are absent
+argv is exactly ./scripts/build-binaries.sh --platform windows-x64
+the direct command is wrapped by timeout --kill-after=30s 1800s
+post-build HEAD, clean-tree, and lockfile changes reject the ZIP
+missing, linked, or non-regular ZIP output refuses
+success records observed tool versions, exact command, times, outcome, and ZIP SHA-256
+test-harness failure is distinct from an expected product refusal
 ```
 
-The kernel test must also prove that both the pre-bootstrap readiness path and
-the `uv pip install --python` path consume the same helper. Extend the existing
-standalone packaging test to require this exact builder-owned copy:
+Run the test directly in Ubuntu. Local Windows execution selects WSL2; CI runs
+the same test without the `wsl.exe` prefix:
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+wsl.exe -d Ubuntu-24.04 -- bash -lc 'cd /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset && bash scripts/tests/prime-wsl-build.tests.sh'
+```
+
+Expected RED: only the named `build_entrypoint_missing` case fails because
+`scripts/build-prime-acp-runtime.sh` does not exist. Fixture, Git, and assertion
+failures terminate with a different harness-error outcome.
+
+Implement the public script with this fixed interface and constants:
 
 ```bash
-mkdir -p binaries/$platform/dist
-cp -r dist/prime-agent-runtime binaries/$platform/dist/
+scripts/build-prime-acp-runtime.sh \
+  --prime-worktree /home/$USER/rook-prime-acp/prime-agent \
+  --build-record /home/$USER/rook-prime-acp/build-record.txt \
+  --expected-prime-commit 48015aefa41c6c2678ddac9e4000009c1d7c3b63 \
+  --expected-prime-parent c718bf3c30fd8da206ed551837cbb54f7ad15948
+
+EXPECTED_BUN_VERSION=1.3.14
+MINIMUM_NODE_VERSION=22.8.0
+BUILD_TIMEOUT_SECONDS=1800
+BUILD_KILL_AFTER_SECONDS=30
 ```
 
-The Prime static test requires one recursive builder-owned subtree copy and
-refuses a selected-file list. Step 2's Rook packaging tests inspect the built
-result and require `pyproject.toml`, `uv.lock`, `src/**`, and every other regular
-file emitted by Prime's existing `copy-assets` build. Run the same focused gate
-and require only the new Task 10 assertions to fail before changing production:
+The script resolves the worktree and rejects Windows-hosted filesystems. It
+requires Ubuntu 24.04 but no WSL-specific marker. It checks Node, npm, Bun, Git,
+`zip`, `unzip`, `timeout`, and `sha256sum`; only Bun is exact and Node has the
+fixed minimum. It records observed versions as diagnostic provenance.
 
-```powershell
-Set-Location D:/prime-agent/.worktrees/prime-acp-no-daemon
-if (-not (Test-Path -LiteralPath './node_modules/.bin/vitest.cmd' -PathType Leaf)) {
-    throw 'Prime test dependencies are absent; stop for separately authorized lockfile restoration.'
-}
-./node_modules/.bin/vitest.cmd --config ./packages/coding-agent/vitest.config.ts run packages/coding-agent/test/kernel-bootstrap.test.ts packages/coding-agent/test/builtin-skills.test.ts
+For each invocation, the script creates one unique empty support root on the
+same Linux-native filesystem but outside the Prime source. Fresh `home` and
+`tmp` children supply `HOME` and `TMPDIR`; neither an existing support root nor
+state from a failed invocation is reused.
+
+Immediately before the build, require exact HEAD/parent, a clean tracked tree,
+one regular `package-lock.json`, its SHA-256, and absent ignored build output.
+Invoke Prime exactly through an invocation-local environment:
+
+```bash
+env -i \
+  HOME="$fresh_home" \
+  PATH="$PATH" \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  TMPDIR="$fresh_tmp" \
+  CI=1 \
+  timeout --kill-after=30s 1800s \
+  ./scripts/build-binaries.sh --platform windows-x64
 ```
 
-Implement one helper in `bootstrap.ts`:
+After exit zero, recheck exact HEAD, clean tracked state, unchanged lockfile
+hash, and one regular ZIP before hashing it. The build record is bounded plain
+text, diagnostic only, and written create-only. A failed invocation never
+adopts existing output and never retries automatically.
 
-```typescript
-export function getKernelPythonPath(
-	venv: string,
-	platform: NodeJS.Platform = process.platform,
-): string {
-	const pathApi = platform === "win32" ? path.win32 : path.posix;
-	return platform === "win32"
-		? pathApi.join(venv, "Scripts", "python.exe")
-		: pathApi.join(venv, "bin", "python");
-}
+Rerun the Bash test and require all cases to pass. This step launches only the
+fixture builder, never Prime's real builder.
+
+- [ ] **Step 2: Implement one manifest core and the offline Windows packager through TDD**
+
+Write `mcp_server/tests/test_prime_runtime_artifact.py` first. Fix these public
+interfaces before implementation:
+
+```python
+# mcp_server/src/rook/agent/chat/prime_runtime_artifact.py
+@dataclass(frozen=True)
+class RuntimeManifestMetadata:
+    acp_protocol_version: int
+    python_acp_sdk_version: str
+    rook_skill_manifest_sha256: str
+
+@dataclass(frozen=True)
+class VerifiedRuntimePayload:
+    root: Path
+    runtime_id: str
+    manifest: Mapping[str, object]
+
+def canonical_json_bytes(value: object) -> bytes:
+    raise NotImplementedError
+def create_runtime_manifest(
+    payload_root: Path,
+    metadata: RuntimeManifestMetadata,
+) -> str:
+    raise NotImplementedError
+def verify_runtime_payload(
+    runtime_root: Path,
+    expected_runtime_id: str | None = None,
+) -> VerifiedRuntimePayload:
+    raise NotImplementedError
+def read_current_runtime_id(prime_root: Path) -> str:
+    raise NotImplementedError
+def promote_incoming_runtime(incoming_root: Path, prime_root: Path) -> str:
+    raise NotImplementedError
+def main(argv: Sequence[str] | None = None) -> int:
+    raise NotImplementedError
 ```
 
-Use it at both existing interpreter decision points. Make the minimal
-`build-binaries.sh` copy above so Prime, not the Rook packager, produces its
-complete supported artifact. Run the focused tests and `npm run check` without
-launching Prime or a kernel. Stage only the four Prime files listed for this
-task and amend the precursor rather than adding a second commit:
+The module CLI has only two subcommands. `verify --runtime-root
+<path> --expected-runtime-id <id>` calls `verify_runtime_payload()` and emits no
+authority file. `promote --incoming-root <path> --prime-root <path>` calls
+`promote_incoming_runtime()`. Both return nonzero on any refusal. Tests invoke
+these public subcommands rather than extracted private helpers.
 
-```powershell
-Set-Location D:/prime-agent/.worktrees/prime-acp-no-daemon
-if (-not (Test-Path -LiteralPath './node_modules/.bin/vitest.cmd' -PathType Leaf)) {
-    throw 'Prime test dependencies are absent; stop for separately authorized lockfile restoration.'
-}
-./node_modules/.bin/vitest.cmd --config ./packages/coding-agent/vitest.config.ts run packages/coding-agent/test/kernel-bootstrap.test.ts packages/coding-agent/test/builtin-skills.test.ts
-npm run check
-git add packages/coding-agent/src/core/kernel/bootstrap.ts packages/coding-agent/test/kernel-bootstrap.test.ts scripts/build-binaries.sh packages/coding-agent/test/builtin-skills.test.ts
-git commit --amend -m "feat(coding-agent): complete daemon-free ACP runtime"
-git rev-parse HEAD^
-git diff --name-only c718bf3c30fd8da206ed551837cbb54f7ad15948..HEAD
-git diff --check c718bf3c30fd8da206ed551837cbb54f7ad15948..HEAD
-git status --short
-```
+The initial RED tests cover canonical UTF-8/no-BOM/sorted-key/compact/LF bytes,
+the exact closed manifest schema from specification Section 12.5, ordinal file
+rows, duplicate-normalized paths, non-regular/link/reparse paths, closed file
+sets, runtime-ID equality, and the fixed Windows/AMD64/Prime/ACP identities.
 
-The parent must remain exactly `c718bf3c30fd8da206ed551837cbb54f7ad15948`,
-the worktree must be clean, and the complete one-commit diff may contain only
-the already reviewed daemon-free ACP surfaces plus these four bounded files.
-Stop for independent review of that exact final commit. The reviewer-supplied
-commit identity becomes `ExpectedPrimeCommit`; no release dependency restore,
-standalone build, packaging, or Rook product edit is admitted before that
-review.
+Add one hand-frozen oracle whose literal fixture rows, literal expected manifest
+bytes, and literal uppercase runtime ID are reviewable constants. The test must
+compare exact bytes and the exact ID; it must not derive its expected value by
+calling production serialization or manifest helpers.
 
-- [ ] **Step 2: Write RED packaging guard tests**
-
-Tests must assert:
+Write `mcp_server/tests/test_package_prime_acp_runtime.py` against the public
+CLI before creating it. The complete synthetic ZIP contains the expected Prime
+artifact shape, including `pi.exe`, `package.json`, `README.md`, `CHANGELOG.md`,
+`skills/goal/SKILL.md`, assets, docs, examples, and
+`dist/prime-agent-runtime`. The cases prove:
 
 ```text
-official Prime standalone Windows builder is invoked from the exact reviewed Prime commit
-Prime package-lock hash is unchanged by the build
-the complete windows-x64 artifact directory is staged; no selected-file copy exists
-the Prime-produced artifact contains a byte-identical complete dist/prime-agent-runtime subtree
-the manifest binds that subtree and refuses a missing, extra, or changed runtime-source file
-the npm release-tarball packer is not used
-the builder target is fixed as windows-x64 and maps exactly to manifest platform windows and architecture amd64
-runtime-manifest.json records the fixed platform pair, upstream commit, patch commit,
-ACP protocol, Python SDK, goal skill, rook skill, and claim-key version
-official uv 0.12.3 is obtained only from its pinned upstream archive, never from PATH, Hermes, the Rook venv, or another installation
-the uv archive checksum, version, source URL, extracted executable bytes, fixed relative path, and both license files are manifest-bound
-the Prime child PATH begins with the manifest-verified tools/uv directory
-child-environment keys are removed case-insensitively for PI_PACKAGE_DIR, PRIME_AGENT_KERNEL_PYTHON, PRIME_AGENT_KERNEL_VENV, PRIME_AGENT_INSTALL_UV, VIRTUAL_ENV, PYTHONHOME, and PYTHONPATH
-every inherited UV_* key is removed case-insensitively before the six fixed product-owned UV values are inserted
-the fixed UV cache and managed-Python paths derive only from the verified Rook data root
-runtime-manifest.json contains no rookMcpCommand, rookMcpArgs, rookMcpEnvironment, or other machine-local path
-canonical runtime-manifest.json bytes produce the runtime ID
-the unchanged manifest and payload verify after relocation beneath two different install roots
-runtime-manifest.json is accepted by the updated production load_and_verify_runtime()
-the manifest-selected pi.exe becomes argv[0]
-the service-owned rook MCP declaration uses the exact current sys.executable, fixed -m rook arguments, and no PATH lookup
-no second runtime schema exists or is consulted
-runtime paths are immutable siblings, never an in-place overwrite
-an existing runtime ID is reused only after complete byte-for-byte verification
-installed executable is resolved only from the recorded runtime
-current.json selects that exact verified runtime ID
-sessions, presentation, and claims are outside replaceable app payloads
-upgrade and rollback preserve historical runtimes and ACP data
-uninstall with data retention does not remove ACP data
-Prime licenses/notices are installed
-installed verifier compares reviewed build outputs and source payloads with every installed consumer
-installed identity report binds implementation commit, native/managed/Python/skill/Prime hashes, and chat-service paths
-tampering, extra authority files, missing assets, or manifest mismatch refuse before publication
-the complete release builder toolchain is validated before npm ci, and a missing or mismatched tool is terminal without installation or fallback
-the provisioner receives OutputRoot, its exact PowerShell interpreter, NodeRoot, GitRoot, BunExecutable, PrimeWorktree, cmd.exe, and every expected version as explicit arguments and never discovers them from PATH or ambient state
-the provisioner creates one fresh MSYS2 20260611 staging sibling from the exact base, zip 3.0-5, and unzip 6.0-3 inputs without consulting or changing C:/msys64
-the published parent contains exactly manifested root/** plus sibling build-toolchain-contract.json; the contract is absent from the root manifest and changing either side invalidates the appropriate identity
-the complete provisioned MSYS2 root and sorted pacman inventory are manifest-bound before release use
-the toolchain includes direct custody for dirname, git, cmd.exe, npm configuration, and the pinned MSYS2 root; every tool row is source-root-relative and resolves identically before and after publication
-every CommandRow retains literal {staging} only in its frozen positions, expands exactly once immediately before process creation, and rejects alternate tokens, materialized contract paths, repeated expansion, or path escape
-Node, npm, Git, Bun, cmd.exe, and PowerShell version evidence is produced by the exact resolved executable later admitted for use; a second file beneath the same source root cannot supply it
-download uses one bounded HttpClient request per source; SFX extraction, login initialization, and local pacman installation use the exact documented executable, argv, working directory, environment, and deadline
-every MSYS2, zip, unzip, uv, and uv-license download rejects oversized Content-Length before body transfer and independently enforces its fixed byte ceiling while streaming; a header at or below the limit cannot authorize an oversized body; exact-limit succeeds and one-byte-over refuses
-pacman uses the provisioner-authored repository-free config and explicit LocalFileSigLevel policy; no package URL, repository refresh, or package-manager network access is possible
-unexpected SFX layout, initialization writes outside staging, incomplete package identities, or any pre-publication failure leaves the final destination absent
-a retained failed staging tree is never resumed or adopted, while a later invocation with the same pinned inputs may start from a different empty staging sibling and publish successfully
-same-volume publication refuses an occupied destination without changing either the destination or failed staging evidence
-the packager requires an independently approved ExpectedBuildToolchainContractSha256 before any probe, network access, or npm ci
-all inherited NPM_CONFIG_* keys are removed case-insensitively before empty user/global files and exact cmd.exe script-shell values are inserted
-the exact final npm userconfig, globalconfig, script-shell, ComSpec, PATH, command resolution, and whole-root MSYS2 manifest are verified before npm ci and unchanged after the build
-BuildToolchainContract rejects missing, extra, and duplicate keys and noncanonical ordering/encoding/LF; PowerShell producer and Python verifier reconstruct identical canonical bytes and contract SHA-256 for the complete frozen Unicode corpus without normalization or optional escaping
-each package invocation owns a unique empty same-volume scratch outside source, installed-product, runtime, and toolchain roots; all profile/temp paths remain beneath it and no generation is reused
-scratch and the exact final build environment are validated for the current invocation but are not persisted as a second build-report authority
-the Prime build has a mandatory 1800-second deadline and 30-second process-handle cleanup deadline; timeout forbids packaging or verification of partial output
-the exact package-prime-acp-runtime.ps1 invocation receives the approved Prime commit, published contract, independently approved contract hash, and fresh staging output before any staged-runtime verification
+the supplied ZIP SHA-256 must match before extraction
+rooted, traversal, empty, noncanonical, link, and case-colliding ZIP entries refuse
+extraction is whole-archive and never overlays an existing path
+runtime-manifest.json, skills/rook-full, tools/uv, and notices/prime-agent must be absent
+every Rook-owned addition is create-only
+Prime ZIP bytes remain unchanged when a reserved collision refuses
+rook-full is copied as one complete tracked subtree
+the preadmitted uv archive and licenses remain regular, bounded inputs
+the uv ZIP receives the same traversal/link/collision checks and only uv.exe is selected
+every installed uv and license byte is bound by the generated closed file rows
+Prime's tracked notice requires 1,105 bytes and SHA-256 B288615FB31DC504623582FB790A28E6D86BC2F5C1396845AF555E43386DA5A0
+the packager performs no network access
+failure publishes no runtime directory
+success creates and verifies exactly runtimes/<runtime-id>
+an invalid existing destination is never overlaid or repaired
+an existing identical verified destination may be reused
 ```
 
-Run the new static/fake tests before implementing either script and require RED
-without downloading or executing MSYS2:
+The CLI is fixed as:
 
-```powershell
-Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-$pwsh = 'C:/Program Files/PowerShell/7/pwsh.exe'
-& $pwsh -NoProfile -File scripts/tests/prime-build-toolchain.tests.ps1
-$buildToolchainRedExit = $LASTEXITCODE
-& $pwsh -NoProfile -File scripts/tests/prime-acp-runtime.tests.ps1
-$primeRuntimeRedExit = $LASTEXITCODE
-if ($buildToolchainRedExit -eq 0 -or $primeRuntimeRedExit -eq 0) {
-    throw 'Both new Task 10 test surfaces must demonstrate their named RED assertions.'
-}
+```python
+# scripts/package-prime-acp-runtime.py
+def main(argv: Sequence[str] | None = None) -> int:
+    raise NotImplementedError
 ```
 
-Both scripts must exist and load their intended test harnesses. Each nonzero
-result must be caused solely by the named missing Task 10 behavior; a missing
-script, syntax/import error, unrelated failure, or ambient executable contact is
-a terminal stop rather than acceptable RED evidence.
+The required CLI options are exactly `--prime-zip`,
+`--expected-prime-zip-sha256`, `--rook-skill`, `--uv-zip`,
+`--uv-license-apache`, `--uv-license-mit`, `--prime-license`, and
+`--output-runtimes-root`; none has a default. Step 2 invokes that CLI only with
+synthetic local inputs. The one real release invocation is frozen separately in
+Step 8 after the ZIP hash review.
 
-- [ ] **Step 3: Provision one disposable MSYS2 build root and stop for review**
+The packager uses a fresh same-volume sibling for extraction and assembly,
+calls `create_runtime_manifest()`, immediately calls
+`verify_runtime_payload()`, and only then renames create-only to
+`runtimes/<runtime-id>`. It consumes already downloaded inputs and has no URL,
+HTTP, retry, or test-mode option. Frozen `uv` source/hash admission belongs to
+the Step 8 release procedure; the packager rechecks regular-file shape and byte
+ceilings, safely reads the archive, and binds the exact installed bytes. This
+keeps synthetic packager tests offline without weakening final payload custody.
 
-Implement `provision-prime-build-toolchain.ps1` and
-`verify-prime-build-toolchain.py` from the RED tests. This development machine's
-shared `C:/msys64` contains Bash and coreutils but no `zip.exe` or `unzip.exe`;
-neither script may inspect, update, or copy from it. The provisioner has this
-closed interface; no parameter has a default or ambient fallback:
+Copy Prime's exact root `LICENSE` from upstream baseline
+`c718bf3c30fd8da206ed551837cbb54f7ad15948` to
+`third_party/prime-agent/LICENSE`. Assert that the same bytes remain present at
+the approved compatibility commit, then enforce the frozen 1,105-byte length
+and SHA-256 in the packager tests.
+
+Run RED before implementation and GREEN afterward:
 
 ```powershell
-param(
-  [Parameter(Mandatory=$true)][string]$OutputRoot,
-  [Parameter(Mandatory=$true)][string]$PowerShellExecutable,
-  [Parameter(Mandatory=$true)][string]$ExpectedPowerShellVersion,
-  [Parameter(Mandatory=$true)][string]$NodeRoot,
-  [Parameter(Mandatory=$true)][string]$ExpectedNodeVersion,
-  [Parameter(Mandatory=$true)][string]$ExpectedNpmVersion,
-  [Parameter(Mandatory=$true)][string]$GitRoot,
-  [Parameter(Mandatory=$true)][string]$ExpectedGitVersion,
-  [Parameter(Mandatory=$true)][string]$BunExecutable,
-  [Parameter(Mandatory=$true)][string]$ExpectedBunVersion,
-  [Parameter(Mandatory=$true)][string]$PrimeWorktree,
-  [Parameter(Mandatory=$true)][string]$CmdExecutable,
-  [Parameter(Mandatory=$true)][string]$ExpectedCmdFileVersion
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
+./.venv/Scripts/python.exe -m pytest tests/test_prime_runtime_artifact.py tests/test_package_prime_acp_runtime.py -q
+```
+
+- [ ] **Step 3: Route installer and local deployment through one promotion function**
+
+Extend `test_prime_runtime_artifact.py` with causal promotion tests before
+implementation:
+
+```text
+incoming runtime verifies before any final-directory or pointer write
+incoming and final staging must be on the same volume
+publication is a create-only directory move to runtimes/<runtime-id>
+an identical existing destination is verified and reused without overlay
+an invalid existing destination leaves both trees unchanged
+current.json is exactly {"runtimeId":"<64 uppercase hex>"}\n
+pointer publication uses a same-directory temporary and atomic replacement
+invalid, missing, changing, or extra-key pointer data refuses without directory scan fallback
+historical runtime siblings remain untouched
+```
+
+`promote_incoming_runtime()` is the only function allowed to create the final
+runtime-ID directory or replace `current.json`. It requires a direct incoming
+payload root beneath `prime/.incoming/`, verifies it, confirms it shares the
+final runtime parent's volume, publishes it by directory move, verifies the
+published destination again, then selects it. It never executes incoming code.
+
+Add `mcp_server/tests/test_post_install_prime_runtime.py` and extend the two
+existing PowerShell guard suites before changing consumers. The tests prove:
+
+```text
+installer post-install passes its exact incoming root and <install-dir>/prime to the public promotion entrypoint
+local deployment copies the one staged payload into one unique <install-dir>/prime/.incoming generation
+local deployment passes that exact generation to the same post-install/promotion path
+neither Inno nor PowerShell writes prime/runtimes/<runtime-id> or prime/current.json
+installer [Files] writes Prime bytes only beneath its unique incoming directory
+InstallDelete and upgrade/repair cleanup exclude prime/runtimes/** and data/rookchat/acp/v1/**
+```
+
+Add one optional `--prime-incoming-dir` argument to `installer/post_install.py`.
+When present, invoke the installed Rook package's public promotion entrypoint
+through the newly established managed Python after the Rook venv is installed
+and before the chat-service manifest is published:
+
+```python
+result = subprocess.run(
+    [
+        str(managed_python),
+        "-I",
+        "-m",
+        "rook.agent.chat.prime_runtime_artifact",
+        "promote",
+        "--incoming-root",
+        str(Path(args.prime_incoming_dir)),
+        "--prime-root",
+        str(install_dir / "prime"),
+    ],
+    shell=False,
+    check=False,
 )
+if result.returncode != 0:
+    return 1
 ```
 
-Before creating staging, canonicalize and validate every explicit path. Require
-`NodeRoot`, `GitRoot`, and `PrimeWorktree` to be existing absolute directories;
-the other path inputs must be existing absolute regular files. Require
-`node.exe`, `npm.cmd`, and `node_modules/npm/package.json` beneath `NodeRoot`,
-`cmd/git.exe` beneath `GitRoot`, `.npmrc` beneath `PrimeWorktree`, and
-`CmdExecutable` to canonically equal `C:/Windows/System32/cmd.exe`, and
-`PowerShellExecutable` to equal the current process executable. Construct each
-candidate tool path only from these explicit roots/files; version evidence is
-accepted only after that candidate is recorded as the exact ToolRow resolved
-by the shared resolver below. Npm's package JSON may corroborate the expected
-package version but cannot substitute for executing resolved `tools.npm`.
-Manifest the complete Node and Git roots plus the exact Bun, Prime `.npmrc`, and
-`cmd.exe` files before staging. Reverify the same bytes after provisioning. The
-script never calls `Get-Command`, searches `PATH`, reads npm user/global
-configuration, or invents a machine path.
+The incoming Prime payload supplies no verification code. The invoked module
+is the Rook-owned implementation already installed into the managed venv from
+the signed/current Rook payload. Tests assert the exact executable and argument
+array and require refusal before chat-service publication on nonzero exit.
 
-The provisioner publishes only this versioned build-only artifact, outside every
-source and product directory:
+`installer/RookSetup.iss` requires the release builder to define one exact
+`PrimeRuntimePayload` directory. Its ordinary file table copies only that
+payload's contents beneath one setup-owned incoming directory; the cached
+`GetPrimeIncomingDir` scripted constant is created once under
+`{app}\prime\.incoming` and passed to `post_install.py` as
+`--prime-incoming-dir`. No file-table or Pascal path targets `runtimes` or
+`current.json`.
 
-```text
-C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/
-  root/
-  build-toolchain-contract.json
-```
+`scripts/deploy-local-testing.ps1` resolves exactly one payload directory under
+`installer/runtime/prime/staging/runtimes`, verifies that its directory name is
+64 uppercase hexadecimal characters, copies it create-only to one GUID-named
+`$InstallRoot\prime\.incoming` directory, and passes that direct incoming root
+to `Invoke-PostInstallConfig`. It never selects from installed runtime siblings.
 
-Only `root/**` belongs to the recursive MSYS2 file manifest. The contract is its
-sibling and contains the complete root file rows, root-manifest SHA-256, and
-sorted `pacman -Q` inventory. It identifies the MSYS root only by relative path
-`root`; it never manifests or hashes itself as a root member.
-
-The fixed download inputs are:
-
-```text
-base: https://github.com/msys2/msys2-installer/releases/download/2026-06-11/msys2-base-x86_64-20260611.sfx.exe
-baseSha256: C105946E64E08F099AC0E4647461CE762B95333AD211777666476A9A41451D65
-baseMaxBytes: 268435456
-zip: https://mirror.msys2.org/msys/x86_64/zip-3.0-5-x86_64.pkg.tar.zst
-zipSha256: 874E20BF625FBE577949444FAF30AB9A725DBD4886EC9BFF26459152DA7F831C
-zipMaxBytes: 4194304
-unzip: https://mirror.msys2.org/msys/x86_64/unzip-6.0-3-x86_64.pkg.tar.zst
-unzipSha256: C98EBAC31EA92A63CF61C6190ED3E8284CCC0C29C43973F1B2C0DE2874E5ACFE
-unzipMaxBytes: 4194304
-```
-
-The final output parent must be absent. Create a unique empty same-volume sibling
-named `msys2-20260611-v1.staging.<guid>` with temporary `downloads/`, `extract/`,
-and `scratch/` children. Download each source exactly once per invocation using
-`System.Net.Http.HttpClientHandler` with redirects enabled and a maximum of five
-redirects, plus one `HttpClient` with `Timeout = [TimeSpan]::FromMinutes(5)`.
-Call `GetAsync(uri, ResponseHeadersRead)` once, require a successful status, and
-check `Content-Length` when present. Refuse before opening the destination body
-file when that value is negative, invalid, or greater than the source's fixed
-maximum. Copy the response in fixed 64 KiB chunks to a create-new file using
-`FileMode.CreateNew`, `FileAccess.Write`, and `FileShare.None`; before every
-write, checked-add the chunk length to a 64-bit counter and refuse if it would
-exceed the same maximum. Exact-limit content succeeds. Missing or false
-`Content-Length` cannot bypass the streaming counter. An oversized or failed
-partial remains quarantined only under the failed staging generation and has no
-authority. Dispose response, streams, client, and handler deterministically.
-There is no range request, resume, alternate URL, or application retry. Hash
-each completed download before it can be executed, extracted, or copied into
-the MSYS root.
-
-All provisioner child processes use `UseShellExecute = $false`,
-`CreateNoWindow = $true`, `WindowStyle = Hidden`, a cleared environment,
-concurrent bounded stdout/stderr drains, one retained process handle, and the
-following exact calls. This table is also the literal unexpanded CommandRow
-content serialized into the canonical contract:
-
-| Phase | `executable` | `arguments` | `workingDirectory` | `timeoutSeconds` |
-| --- | --- | --- | --- | --- |
-| Base extraction | `{staging}/downloads/msys2-base-x86_64-20260611.sfx.exe` | `["-y", "-o{staging}/extract"]` | `{staging}/downloads` | `300` |
-| First login | `{staging}/root/usr/bin/bash.exe` | `["-lc", " "]` | `{staging}/root` | `120` |
-| Local package install | `{staging}/root/usr/bin/pacman.exe` | `["-U", "--noconfirm", "--needed", "--config", "/etc/rook-local-pacman.conf", "/var/cache/rook-provision/zip-3.0-5-x86_64.pkg.tar.zst", "/var/cache/rook-provision/unzip-6.0-3-x86_64.pkg.tar.zst"]` | `{staging}/root` | `180` |
-
-For extraction, the cleared environment contains only the validated
-`SystemRoot`, `WINDIR`, and staging-owned `TEMP`/`TMP`. The SFX must exit zero and
-produce exactly one top-level `extract/msys64/` directory beneath the current
-staging generation; no sibling entry is accepted. Move that directory to the
-current generation's `root/` before any initialization. For login and pacman,
-add only `CHERE_INVOKING=1`, `MSYSTEM=MSYS`,
-`HOME={staging}/root/home/rookbuild`, `USERPROFILE` at the same staging-owned
-home, and `PATH={staging}/root/usr/bin;C:/Windows/System32` to the stored
-environment template before its one execution-time expansion.
-
-Copy the two hash-verified package archives to
-`root/var/cache/rook-provision/` beneath the current staging generation under
-their exact filenames. Before pacman runs, write
-`/etc/rook-local-pacman.conf` with these exact UTF-8/LF bytes:
-
-```ini
-[options]
-Architecture = auto
-SigLevel = Required DatabaseOptional
-LocalFileSigLevel = Never
-RemoteFileSigLevel = Required
-```
-
-The file has no repository section. The exact approved archive SHA-256 values,
-not an inherited keyring policy, authorize these two local unsigned package
-files. Pacman's arguments contain only local MSYS paths and no URL. Missing base
-dependencies fail the operation; no sync database refresh, package download, or
-network fallback is admitted. A nonzero exit or deadline kills only the retained
-child and its directly owned descendants, awaits settlement, and fails the
-staging attempt without publishing.
-
-The login shell and pacman may write only beneath the unique staging tree.
-External Node, Git, Bun, Prime, and Windows inputs are read-only and must retain
-their preflight manifests. After pacman exits, require exact package identities
-for `zip 3.0-5`, `unzip 6.0-3`, `bash`, and `libbz2`; remove the two temporary
-package copies and all `downloads/`, `extract/`, and `scratch/` content. Create
-distinct zero-byte `root/etc/rook-user.npmrc` and
-`root/etc/rook-global.npmrc`. Only after every initialization write and cleanup
-is complete, record every regular file beneath `root/**` with forward-slash
-relative path, raw byte length, and uppercase SHA-256; reject
-symlinks/reparse-point escapes. The canonical `BuildToolchainContract` has
-exactly six top-level keys and no optional fields:
-
-```text
-schemaVersion: integer exactly 1
-kind: string exactly "rook-prime-build-toolchain"
-msys2:
-  release: string exactly "20260611"
-  root: string exactly "root"
-  files: FileRow[1..n]
-  manifestSha256: uppercase 64-hex string
-  packages: PackageRow[1..n]
-  sources: {base: SourceRow, zip: SourceRow, unzip: SourceRow}
-  provisioning:
-    download: {attemptsPerSource: 1, maxRedirects: 5, timeoutSeconds: 300}
-    extract: CommandRow
-    initialize: CommandRow
-    install: CommandRow
-    extractEnvironment: exactly SystemRoot, TEMP, TMP, WINDIR
-    msysEnvironment: exactly CHERE_INVOKING, HOME, MSYSTEM, PATH,
-      SystemRoot, TEMP, TMP, USERPROFILE, WINDIR
-    pacmanConfig: FileRow
-externalInputs:
-  powershell: VersionedFileRow
-  node: {root, files, manifestSha256, expectedNodeVersion,
-    observedNodeVersion, expectedNpmVersion, observedNpmVersion}
-  git: {root, files, manifestSha256, expectedVersion, observedVersion}
-  bun: VersionedFileRow
-  prime: {worktree, npmrc: FileRow}
-  cmd: VersionedFileRow
-tools: ToolRow[15]
-npm: {userConfig: FileRow, globalConfig: FileRow, scriptShell, comSpec}
-```
-
-`FileRow` has exactly `path: string`, `length: nonnegative integer`, and
-`sha256: uppercase 64-hex string`. `VersionedFileRow` adds exactly nonempty
-`expectedVersion` and `observedVersion`. `PackageRow` has exactly nonempty
-`name` and `version`. `SourceRow` has exactly `url`, `sha256`, and positive
-integer `maxBytes`; its three values are the frozen source rows and ceilings
-above. `ToolRow` has exactly `name`, `source`, `path`, `length`, and `sha256`.
-`source` is one of `msys2`, `node`, `git`, `bun`, or `cmd`; `path` is a nonempty
-forward-slash relative path with no empty, `.`, or `..` segment; `length` is a
-nonnegative integer; and `sha256` is uppercase 64-hex. `CommandRow` has exactly
-`executable`, `arguments`, `workingDirectory`, and positive integer
-`timeoutSeconds`; its values are the frozen extraction/login/install rows above.
-
-Every path-bearing CommandRow string stores literal `{staging}` in exactly the
-table positions: extraction `executable`, zero-based `arguments[1]`, and
-`workingDirectory`; initialization `executable` and `workingDirectory`; and
-installation `executable` and `workingDirectory`. No other CommandRow field may
-contain it. Reject `<staging>`, unknown brace tokens, a wrong occurrence count
-or position, or an absolute materialized staging path stored in the contract.
-Immediately before each process creation, one shared function performs exactly
-one nonrecursive expansion pass over that row, replacing every permitted token
-with the canonical current staging path. Reject an already expanded row,
-residual token, repeated expansion, or any expanded executable, working
-directory, or host path-bearing argument outside the current staging
-generation. Pass the exact expanded executable, argument array, and working
-directory to `ProcessStartInfo`; canonical serialization and hashing always use
-the unexpanded row.
-
-The `node` and `git` `root` values are absolute nonempty strings, each `files`
-array contains one or more root-relative `FileRow` values, each manifest hash is
-uppercase 64-hex, and every version field is nonempty. `prime.worktree` and its
-`.npmrc` path are absolute. Npm user/global config paths are relative beneath
-`root/etc`, have length zero, and match root file rows. `scriptShell` and
-`comSpec` both equal the verified absolute cmd path. The `pacmanConfig` path is
-exactly `root/etc/rook-local-pacman.conf` and its length/hash match the exact
-UTF-8/LF bytes above.
-
-The contract stores these exact environment templates:
-
-```text
-extractEnvironment = {"SystemRoot":"C:/Windows","TEMP":"{staging}/scratch/temp","TMP":"{staging}/scratch/temp","WINDIR":"C:/Windows"}
-msysEnvironment = {"CHERE_INVOKING":"1","HOME":"{staging}/root/home/rookbuild","MSYSTEM":"MSYS","PATH":"{staging}/root/usr/bin;C:/Windows/System32","SystemRoot":"C:/Windows","TEMP":"{staging}/scratch/temp","TMP":"{staging}/scratch/temp","USERPROFILE":"{staging}/root/home/rookbuild","WINDIR":"C:/Windows"}
-```
-
-File rows are unique and sorted by path using ordinal code-point order. Package
-rows are unique by name and sorted by name then version. Tool rows are unique,
-sorted by name, and have exactly these name/source pairs:
-
-```text
-msys2: bash, cp, dirname, ls, mkdir, mv, rm, tar, unzip, zip
-node: node, npm
-git: git
-bun: bun
-cmd: cmd
-```
-
-Command argument arrays retain their declared order. Strings must be valid
-Unicode scalar sequences without unpaired surrogates. Reject every missing,
-extra, or duplicate key at every depth.
-
-The one ToolRow resolver selects the canonical contract parent for `msys2`,
-`externalInputs.node.root` for `node`, `externalInputs.git.root` for `git`, the
-canonical parent of `externalInputs.bun.path` for `bun`, or the canonical parent
-of `externalInputs.cmd.path` for `cmd`. An MSYS2 path begins with `root/`.
-Combine the selected root and relative path, canonicalize the result, require it
-to remain beneath that root, and then verify regular-file type, length, and
-hash. Use this same resolver while the contract is in its GUID staging parent
-and after create-only publication. No tool may resolve through another source
-or installation.
-
-Bind every version observation to the exact path that this resolver admits and
-the build later consumes. Resolved `tools.node`, `tools.npm`, and `tools.git`
-produce `observedNodeVersion`, `observedNpmVersion`, and Git's
-`observedVersion`. Resolved `tools.bun` must canonically equal
-`externalInputs.bun.path` and produces Bun's `observedVersion`. Resolved
-`tools.cmd` must canonically equal `externalInputs.cmd.path` and supplies the
-recorded file version. The explicitly supplied PowerShell path must canonically
-equal `externalInputs.powershell.path` and produces PowerShell's
-`observedVersion`. Probe by canonical resolved path, never by tool name or a
-separately located candidate. If a resolved tool is a script requiring the
-manifest-bound Bash interpreter, pass its exact path as the interpreter operand
-and do not rediscover it through `PATH`. A mismatched version source refuses
-even when both files are under the same Node, Git, Bun, cmd, or PowerShell
-source root.
-
-Serialize strict UTF-8 without BOM and perform no Unicode normalization.
-Preserve each code-point sequence exactly, including distinct composed and
-decomposed forms. Sort object keys lexicographically by Unicode scalar value,
-not by UTF-16 code unit. Arrays retain their required semantic order. Escape
-quotation mark as `\"`, reverse solidus as `\\`, and never escape `/`. Use
-`\b`, `\t`, `\n`, `\f`, and `\r` only for U+0008, U+0009, U+000A, U+000C, and
-U+000D; encode every other U+0000 through U+001F scalar with lowercase
-`\u00xx`. Emit every other scalar, including supplementary-plane characters,
-literally as UTF-8 with no optional escaping. Use compact separators and exactly
-one terminal LF. Each `manifestSha256` hashes the canonical UTF-8 representation
-of its `files` array plus one LF. Hash the entire exact contract file for
-`ExpectedBuildToolchainContractSha256`. The Python verifier parses with a
-duplicate-key-detecting `object_pairs_hook`, validates the complete closed
-schema, reconstructs canonical bytes, requires byte equality with the stored
-file, and only then compares the independently approved hash. Producer/verifier
-parity tests cover duplicate and unknown keys, missing fields, reordered arrays,
-BOM/non-UTF-8, pretty-printing, missing/extra terminal LF, non-ASCII and
-supplementary-plane scalars, quotes, backslashes, unescaped slashes, every
-specified control-character class, and composed/decomposed sequences proving no
-normalization. One valid contract must produce byte-identical PowerShell and
-Python canonical bytes and SHA-256.
-Run only model-free provisioner/verifier tests and bounded version probes. Fake
-process/download tests must prove exact argv, working directories, environments,
-deadlines, expected extracted layout, hash-before-use ordering, local signature
-policy, and manifest-after-initialization ordering. CommandRow parity tests
-require identical unexpanded producer/verifier bytes and exact execution-time
-materialization of executable, argument array, and working directory. They
-reject `<staging>`, unknown tokens, wrong token count or position, a stored
-absolute staging path, repeated expansion, residual tokens, and path escape.
-Version-binding tests place a second executable under each source root and prove
-that no Node, npm, Git, Bun, cmd, or PowerShell observation can come from a path
-other than the exact resolved file later admitted for use. For each of the
-MSYS2 base, zip, and unzip sources, fake HTTP tests cover refusal before body
-read for oversized `Content-Length`, absent `Content-Length` with an oversized
-stream, a header at or below the limit followed by an oversized body,
-exact-limit success, and one-byte-over stream refusal; no partial file can enter
-a manifest. Causal publication tests must prove: the contract is absent from the
-root manifest; changing contract bytes changes the contract hash without
-recursively changing the root manifest;
-changing a root byte breaks contract verification; an occupied output remains
-unchanged; concurrent publishers admit at most one completed parent; and a
-failed staging generation is never resumed or adopted while a later new staging
-generation with the same pinned inputs may succeed.
-
-After verification, require the staging parent to contain exactly `root/` and
-`build-toolchain-contract.json`. Publish with one same-volume create-only
-`Directory.Move(<completed-staging-parent>, <OutputRoot>)`; an existing
-destination refuses without alteration. Print the canonical contract SHA-256
-and stop. The
-provisioner does not invoke Prime's builder or `npm ci`.
-
-After the fake tests pass, perform the one real provisioning operation from an
-absent root:
+Run the focused promotion and consumer tests:
 
 ```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
+./.venv/Scripts/python.exe -m pytest tests/test_prime_runtime_artifact.py tests/test_post_install_prime_runtime.py -q
+
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-$root = 'C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1'
-if (Test-Path -LiteralPath $root) {
-    throw 'The versioned build-tool root already exists; do not repair or overwrite it.'
-}
-$pwsh = 'C:/Program Files/PowerShell/7/pwsh.exe'
-& $pwsh -NoProfile -File scripts/provision-prime-build-toolchain.ps1 `
-    -OutputRoot $root `
-    -PowerShellExecutable $pwsh `
-    -ExpectedPowerShellVersion '7.6.5' `
-    -NodeRoot 'C:/Program Files/nodejs' `
-    -ExpectedNodeVersion '24.11.1' `
-    -ExpectedNpmVersion '11.6.2' `
-    -GitRoot 'C:/Program Files/Git' `
-    -ExpectedGitVersion '2.53.0.windows.2' `
-    -BunExecutable 'C:/Users/bring/.bun/bin/bun.exe' `
-    -ExpectedBunVersion '1.3.14' `
-    -PrimeWorktree 'D:/prime-agent/.worktrees/prime-acp-no-daemon' `
-    -CmdExecutable 'C:/Windows/System32/cmd.exe' `
-    -ExpectedCmdFileVersion '10.0.26100.1'
-if ($LASTEXITCODE -ne 0) {
-    throw "Build-tool provisioning failed with exit code $LASTEXITCODE. The failed staging tree has no authority."
-}
-$python = 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe'
-& $python scripts/verify-prime-build-toolchain.py --contract "$root/build-toolchain-contract.json"
-if ($LASTEXITCODE -ne 0) {
-    throw "Build-tool verification failed with exit code $LASTEXITCODE. Do not build."
-}
-Get-FileHash -LiteralPath "$root/build-toolchain-contract.json" -Algorithm SHA256
-git add scripts/provision-prime-build-toolchain.ps1 scripts/verify-prime-build-toolchain.py scripts/tests/prime-build-toolchain.tests.ps1
-git commit -m "build(chat): provision pinned Prime build tools"
+pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
+pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
 ```
 
-Stop for independent review of the complete package inventory, root manifest,
-tool/configuration rows, exact source commit, and contract hash. The
-reviewer-supplied hash becomes `ExpectedBuildToolchainContractSha256`. A failed
-or partial staging generation has no authority and is never repaired, resumed,
-promoted, or adopted. It may be retained as diagnostic evidence. A later
-invocation may create a different empty staging sibling with the same fixed
-inputs; every download, input, command, and output is then reverified from the
-beginning. The final output parent remains create-only and immutable after
-publication. No release build is authorized before its exact contract hash is
-approved.
+- [ ] **Step 4: Make the product runtime consume the new manifest and bundled uv**
 
-- [ ] **Step 4: Implement Prime's supported standalone packager**
+Update `test_chat_prime_runtime.py`, `test_chat_integration.py`, and the affected
+contract fixtures in `test_chat_acp_conversation.py` first. One complete valid
+fixture must use the exact Section 12.5 schema and then mutate one boundary per
+test.
 
-`package-prime-acp-runtime.ps1` receives these mandatory parameters:
-
-```powershell
-param(
-  [Parameter(Mandatory=$true)][string]$PrimeWorktree,
-  [Parameter(Mandatory=$true)][string]$ExpectedPrimeCommit,
-  [Parameter(Mandatory=$true)][string]$OutputRoot,
-  [Parameter(Mandatory=$true)][string]$BuildToolchainContract,
-  [Parameter(Mandatory=$true)][string]$ExpectedBuildToolchainContractSha256
-)
-```
-
-Before any version probe, network access, or `npm ci`, hash the unchanged
-canonical contract bytes and require the independently supplied expected hash.
-Require `BuildToolchainContract` to be the published sibling
-`C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/build-toolchain-contract.json`
-and resolve its relative `root` only beneath that parent.
-Then run `verify-prime-build-toolchain.py` to replay the complete MSYS2 root
-manifest and `pacman -Q` inventory, the complete Node/npm and Git root manifests,
-every external tool/configuration file hash, and every bounded version
-expectation. Verify that Bash reports the expected MSYS environment rather than
-WSL and that the two npmrc files remain zero-byte.
-Missing, malformed, substituted, or changed inputs are terminal; the package
-script never discovers, installs, updates, retries, or falls back to another
-build tool.
-
-Canonicalize `OutputRoot`, derive its volume root, and fix the scratch parent to
-`<volume-root>/UDEV/RookBuildScratch/prime-acp`; the Task 10 command therefore
-uses `C:/UDEV/RookBuildScratch/prime-acp`. Generate one new
-`package.<32-lowercase-hex-guid>` leaf and create it create-only. Refuse if that
-leaf already exists or is not empty. Require the canonical leaf to be on the
-same volume as `OutputRoot` and outside the Prime/Rook source worktrees, every
-installed-product or immutable runtime root, and the published immutable
-build-toolchain parent. Never search for, select, resume, or clean an earlier
-scratch generation. A failed generation has no authority; a later invocation
-uses a different newly generated empty leaf. Keep the actual canonical leaf only
-as an invocation-local diagnostic; do not persist it in
-`BuildToolchainContract`, the packaged runtime, or a separate build report. This
-plan defines no build-report artifact or downstream build-report consumer.
-Path-injection tests use a deterministic GUID source and prove that a
-pre-existing generated leaf refuses without alteration, a leaf inside any
-forbidden root refuses, all six profile/temp variables canonicalize beneath the
-accepted leaf, and a second invocation after failure receives a different empty
-leaf rather than reopening the first.
-
-Construct a fresh build environment rather than modifying the caller's map.
-Remove every inherited `NPM_CONFIG_*` key case-insensitively. The closed result
-contains only `SystemRoot`, `TEMP`, `TMP`, `HOME`, `USERPROFILE`, `APPDATA`,
-`LOCALAPPDATA`, `PATH`, `PATHEXT`, `CHERE_INVOKING`, `MSYSTEM`, and these
-npm/shell values. Tool, shell, and system values come from the verified
-contract; the six profile/temp values come only from the current scratch leaf:
+The RED cases prove:
 
 ```text
-NPM_CONFIG_USERCONFIG=<manifest-bound empty rook-user.npmrc>
-NPM_CONFIG_GLOBALCONFIG=<manifest-bound empty rook-global.npmrc>
-NPM_CONFIG_SCRIPT_SHELL=C:/Windows/System32/cmd.exe
-ComSpec=C:/Windows/System32/cmd.exe
+load_and_verify_runtime delegates closed payload verification before returning paths
+pi.exe, goal skill, rook-full, uv.exe, both uv licenses, Prime runtime subtree, and Prime notice are required
+rookMcpCommand, rookMcpArgs, and rookMcpEnvironment are rejected manifest keys
+the retained verified SKILL.md bytes are size-checked, strictly decoded once, and passed as prompt text
+the complete rendered Windows argv remains bounded before spawn
+build_rook_mcp_server uses the exact current sys.executable and fixed -m rook arguments
+current.json is read once and no latest-directory fallback exists
+the selected runtime ID is recorded before launch argv is constructed
 ```
 
-The exact scratch-derived values are `HOME=<scratch>/home`,
-`USERPROFILE=<scratch>/profile`,
-`APPDATA=<scratch>/profile/AppData/Roaming`,
-`LOCALAPPDATA=<scratch>/profile/AppData/Local`, and
-`TEMP=TMP=<scratch>/temp`. Create those directories create-only as part of the
-new leaf and re-canonicalize every value to prove containment before launch.
-`CHERE_INVOKING=yes` and `MSYSTEM=MSYS` are fixed. No proxy, `NODE_OPTIONS`, npm
-configuration, or other caller variable is inherited. If this machine later
-requires a build proxy, that value needs a newly versioned and independently
-reviewed toolchain contract; it is not discovered at execution time.
+Change `PrimeRuntimeContract` to the already frozen interface-ledger shape. Move
+canonical manifest/file-set verification into `prime_runtime_artifact.py`; keep
+launch-specific validation and `PrimeRuntimeContract` construction in
+`prime_runtime.py`. `service_main.InstalledRuntimeCatalog` calls the shared
+`read_current_runtime_id()` and `load_and_verify_runtime()` only.
 
-Set `PATH` only from the declared tool directories. From inside the exact
-`bash --noprofile --norc` process, require every command to resolve to its
-contract row. Through the declared npm executable and that same environment,
-require `npm config get userconfig`, `globalconfig`, and `script-shell` to equal
-the three fixed paths. Prime's source-controlled project `.npmrc` and npm's
-bound built-in configuration are the only other configuration sources.
-`dirname` is verified before invoking Prime's script because line 23 consumes it
-before `npm ci`; `git` is verified because `bundle.mjs` consumes it for build
-provenance. Revalidate the exact final build environment's closed nonsecret
-key/value map in memory immediately before process creation. It is
-invocation-local and is not persisted as package authority or consumed by a
-later gate.
-
-The script has no caller-selectable platform or architecture. It fixes the
-Prime builder target to `windows-x64` and the portable runtime-manifest values
-to `platform: "windows"` and `architecture: "amd64"`. It verifies that clean
-`HEAD` equals the exact final Prime commit independently approved in Step 1,
-that its parent is `c718bf3c30fd8da206ed551837cbb54f7ad15948`, and that the
-approved one-commit diff contains the required artifact and Windows-kernel
-corrections. It hashes Prime's committed `package-lock.json` and invokes the
-exact existing builder through the declared Bash path and final closed build
-environment:
-
-```powershell
-$start = [System.Diagnostics.ProcessStartInfo]::new()
-$start.FileName = $bashPath
-$start.WorkingDirectory = $PrimeWorktree
-$start.UseShellExecute = $false
-$start.CreateNoWindow = $true
-$start.Environment.Clear()
-foreach ($entry in $buildEnvironment.GetEnumerator()) {
-    $start.Environment.Add($entry.Key, $entry.Value)
-}
-foreach ($argument in @('--noprofile', '--norc', 'scripts/build-binaries.sh', '--platform', 'windows-x64', '--skip-deps')) {
-    [void]$start.ArgumentList.Add($argument)
-}
-$process = [System.Diagnostics.Process]::new()
-$process.StartInfo = $start
-if (-not $process.Start()) { throw 'Prime standalone builder did not start.' }
-$buildTimedOut = -not $process.WaitForExit(1_800_000)
-if ($buildTimedOut) {
-    $killFailure = $null
-    try {
-        $process.Kill($true)
-    }
-    catch {
-        $killFailure = $_.Exception.Message
-    }
-    $cleanupSettled = $process.WaitForExit(30_000)
-    if (-not $cleanupSettled) {
-        throw 'Prime standalone builder timed out and direct-handle cleanup did not settle within 30 seconds.'
-    }
-    if ($null -ne $killFailure) {
-        throw "Prime standalone builder timed out; direct-handle cleanup reported: $killFailure"
-    }
-    throw 'Prime standalone builder exceeded the mandatory 1800-second deadline.'
-}
-if ($process.ExitCode -ne 0) {
-    throw "Prime standalone builder failed with exit code $($process.ExitCode)"
-}
-```
-
-The 1800-second build deadline and 30-second cleanup deadline are mandatory and
-not caller-selectable. Timeout is a failed build and cannot enter artifact
-assembly, manifest generation, staged-runtime verification, or installation.
-Cleanup uses only that directly retained process handle and
-`Kill(entireProcessTree: true)`. It never uses a shell wrapper, process
-discovery, kill by name, PID scanning, identity probes, timeout adjustment,
-automatic retry, or a second launch. A fake-process causal test holds the build
-open through the deadline, requires exactly one handle-owned process-tree kill
-and one bounded cleanup wait, and proves packaging and verification callbacks
-were never reached.
-
-The builder's own `npm ci` is the only dependency restoration. After the build,
-the package script requires the same lockfile hash, no source change, identical
-empty npmrc files, and a complete replay of the unchanged MSYS2, Node/npm, and
-Git root manifests plus package inventory. A cache or network failure is terminal; the package
-script does not retry, change dependency inputs, or substitute another Prime
-checkout.
-
-The package script separately fetches the product dependency `uv` into its own
-temporary directory from the exact official archive:
-
-```text
-version: 0.12.3
-source: https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-pc-windows-msvc.zip
-archive SHA-256: B23350C79E8AD0192B8124AF13A0F17E8D4E4549524785E1AEF389AE5A06990E
-archive maximum: 134217728 bytes
-LICENSE-APACHE source: https://raw.githubusercontent.com/astral-sh/uv/0.12.3/LICENSE-APACHE
-LICENSE-APACHE SHA-256: C71D239DF91726FC519C6EB72D318EC65820627232B2F796219E87DCF35D0AB4
-LICENSE-APACHE maximum: 1048576 bytes
-LICENSE-MIT source: https://raw.githubusercontent.com/astral-sh/uv/0.12.3/LICENSE-MIT
-LICENSE-MIT SHA-256: 860E3D7A86B84E6A7012C7A635FC64DF475CEBC6CCE34DFEB73A5982EC58176C
-LICENSE-MIT maximum: 1048576 bytes
-```
-
-Each download uses the same five-minute `HttpClient` deadline, redirect limit,
-create-new destination, supplied-`Content-Length` precheck, and independent
-64 KiB streaming counter as the MSYS2 sources. Apply the corresponding fixed
-ceiling before each write; exact-limit content succeeds and one byte over
-refuses. An incomplete file remains only beneath the failed invocation-owned
-scratch and has no authority. Each download is single-attempt and hash-checked
-before use; a cache or network failure is terminal. For each of the uv archive,
-LICENSE-APACHE, and LICENSE-MIT sources, fake HTTP tests exercise oversized
-`Content-Length`, absent `Content-Length` with oversized streaming, a header at
-or below the limit followed by an oversized body, exact-limit success, and
-one-byte-over refusal. Extract `uv.exe` with .NET archive APIs into
-`tools/uv/uv.exe`, require its bounded version output to identify exactly
-`uv 0.12.3`, and place both verified license files under
-`licenses/uv/`. Never inspect or copy an ambient `uv`, including the Hermes
-installation visible on this development machine.
-
-Treat `packages/coding-agent/binaries/windows-x64/` as one indivisible
-Prime-produced artifact. Copy that complete directory wholesale into a fresh
-disposable staging root. Do not select files, reconstruct its layout, rename
-`pi.exe`, create a wrapper, or invoke the npm release-tarball packer. Before the
-copy, require the builder-produced
-`packages/coding-agent/binaries/windows-x64/dist/prime-agent-runtime` subtree
-to be byte-identical to
-`packages/coding-agent/dist/prime-agent-runtime`, including every regular file
-and no symlink/reparse-point escape. The package script does not append that
-subtree itself. Add the exact manifest-bound Rook skill and pinned Prime root
-`LICENSE`; include any notice files already carried by the standalone artifact.
-The reviewed Prime baseline has no separate root `NOTICE` file. Call
-`verify-prime-acp-runtime.py` against the complete staged root without launching
-`pi.exe`.
-
-The package script writes `runtime-manifest.json` into that same fresh staging
-root only after the payload is complete, then verifies the pair. The entire
-`installer/runtime/prime/staging/` tree remains ignored build output. Task 10
-commits the reproducible build, verification, deployment, and installer logic;
-it does not commit either the generated manifest or an incomplete payload. This
-step implements the package operation; Step 7 invokes it only after Steps 5 and
-6 have implemented its verifier and installed-product consumers.
-
-- [ ] **Step 5: Implement the closed manifest algorithm**
-
-For every admitted regular file except `runtime-manifest.json`, record forward-slash relative path, raw byte length, and uppercase SHA-256; sort paths ordinally. Refuse symlinks/reparse points and path escapes. Hash canonical UTF-8 JSON with sorted keys, compact separators, and LF to obtain `runtime_id`. Verify the unchanged packaged `pi.exe`, complete Prime artifact, complete matching `dist/prime-agent-runtime` subtree, exact Prime goal skill subtree, exact Rook skill subtree, manifest-bound `tools/uv/uv.exe`, both uv licenses, and required Prime licenses/notices are included. Every manifest path is relative to its runtime root. The schema removes `rookMcpCommand`, `rookMcpArgs`, and `rookMcpEnvironment`; absolute build-machine or install-machine paths are invalid.
-
-Add one closed `uv` object to `runtime-manifest.json` with exact keys
-`version`, `executable`, `source`, `sourceArchiveSha256`, and `licenses`.
-Require the exact values above, require `executable` to equal
-`tools/uv/uv.exe`, and require `licenses` to name the two verified relative
-license paths. The ordinary `files` rows bind the installed executable and
-license bytes; the `uv` object binds version and provenance without creating a
-second manifest.
-
-Add one closed `pythonRuntime` object with exact keys `root`,
-`manifestSha256`, and `sourceCommit`. Require `root` to equal
-`dist/prime-agent-runtime`, `sourceCommit` to equal the final reviewed Prime
-compatibility commit, and `manifestSha256` to be the canonical recursive
-manifest of every regular file under that root using the same path/length/hash
-algorithm as the outer manifest. The outer `files` rows remain the executable
-authority; this subtree hash is a diagnostic identity and cannot replace or
-exclude any outer row. Missing, extra, changed, escaped, or non-regular Python
-runtime content returns `runtime_unavailable`.
-
-The manifest's `executable` field points to the packaged `pi.exe`. The verifier
-must place the staged bytes and the unchanged manifest into a disposable
-`runtimes/<runtime-id>/` layout, pass them through the existing production
-`load_and_verify_runtime()`, and prove `build_prime_argv()` selects that exact
-file as `argv[0]`.
-
-Update `PrimeRuntimeContract` and `load_and_verify_runtime()` to remove the
-three Rook MCP launch fields and retain the exact verified uv version/path plus
-the verified Prime Python-runtime path/subtree hash. Update
-`DirectAcpProcessFactory` to receive the already validated `ROOK_DATA_DIR`, and
-pass it as the mutable runtime root to `build_prime_child_env()`. That function
-first validates every inherited key/value, then removes these keys by
-case-insensitive exact-name comparison:
+`build_prime_child_env()` validates the complete input before transforming it.
+It removes these names case-insensitively:
 
 ```text
 PI_PACKAGE_DIR
@@ -2232,9 +1763,7 @@ PYTHONHOME
 PYTHONPATH
 ```
 
-Also remove every inherited key whose case-insensitive name starts with `UV_`,
-including unknown future names. Then insert exactly these six product-owned
-values:
+It removes every inherited key beginning with `UV_`, then inserts only:
 
 ```text
 UV_CACHE_DIR=<ROOK_DATA_DIR>/rookchat/acp/v1/prime-uv/cache
@@ -2245,153 +1774,237 @@ UV_PYTHON_INSTALL_REGISTRY=0
 UV_NO_CONFIG=1
 ```
 
-Prepend the parent of the manifest-bound uv executable to the remaining `PATH`.
-Tests seed every forbidden exact name plus representative and unknown-future
-`UV_*` names in canonical, lowercase, and mixed-case forms; none may survive,
-only the six derived values may exist, and an unrelated environment entry must
-survive. Verify the complete final child environment immediately before spawn,
-not only the input transformation. A missing, changed, non-regular, or escaped
-uv or Python-runtime path returns `runtime_unavailable` before Prime starts.
-Update
-`build_rook_mcp_server()` and its caller so
-the declaration uses the running service's resolved exact `sys.executable`,
-fixed arguments `-m rook`, and the product-owned closed environment plus the
-association's immutable target/profile fields. The command is validated as the
-current absolute executable and is never resolved through `PATH`. A relocation
-test copies the identical manifest-bound tree beneath two distinct product
-roots and proves that both produce the same runtime ID and valid contract while
-their service-owned MCP command remains local to the interpreting service.
+The manifest-verified `tools/uv` directory is first on child `PATH`. Seed exact,
+lowercase, and mixed-case variants of every forbidden key plus representative
+future `UV_*` keys in tests. Assert the final map immediately before the fake
+process factory consumes it. No test launches Prime or an ambient executable.
 
-The authority chain is fixed:
-
-```text
-canonical runtime-manifest.json bytes
--> uppercase SHA-256 runtime ID
--> prime/runtimes/<runtime-id>/
--> current.json containing only {"runtimeId":"..."}
--> InstalledRuntimeCatalog
--> load_and_verify_runtime()
--> DirectAcpProcessFactory
-```
-
-- [ ] **Step 6: Extend deploy and installer contracts**
-
-Do not add `primeRuntimeRoot` or `primeCurrentContract` to the chat service
-manifest. The installed service already derives `prime/current.json` from its
-verified `ROOK_INSTALL_ROOT`, and its persistent ACP root from
-`ROOK_DATA_DIR`. Local deploy stages a new sibling runtime and verifies it
-before writing `current.json`; it never overlays an existing runtime. Inno
-Setup copies the complete generated staging artifact but does not list
-`ROOK_DATA_DIR/rookchat/acp/v1` in `[InstallDelete]`, `[UninstallDelete]`, or
-replacement cleanup.
-
-Deployment and installation copy the complete staged payload and unchanged
-manifest into a fresh temporary sibling, verify the result, atomically publish
-the runtime-ID directory, and only then replace `current.json`. If that
-runtime-ID directory already exists, they may reuse it only after complete
-manifest and byte-for-byte verification. Any mismatch, missing file, or extra
-authority file refuses without overlay, repair, or pointer replacement.
-
-Keep Prime credentials/settings/kernel in Prime's supported mutable user locations. Do not relocate or parse them into the immutable runtime.
-
-The installed product and documentation state the first-use behavior plainly:
-users install only Rook, and bundled `uv` plus the matching local
-`prime-agent-runtime` source require no separate setup. Prime may begin kernel
-prewarm during first session creation; the first Prime IPython/Rook operation
-may take longer while Prime downloads Python, creates its normal kernel,
-installs the local runtime source, and resolves default packages. A failed
-download or install surfaces as a Prime-owned tool failure and is never
-converted into a RookChat installer, retry loop, or alternate kernel.
-
-Implement `verify-installed-rookchat-acp.py` as a read-only deployment-custody verifier, not a qualification runner. It receives the exact clean implementation commit, worktree root, installed Rook root, installed chat-service manifest, and output path. It fails closed unless all of the following match:
-
-```text
-source Release RookNative.rhp -> installed RookNative.rhp
-source managed net8.0/net7.0/net48 Rook.rhp payloads -> installed runtime payloads
-closed source mcp_server/src/rook tree -> installed chat-service Rook tree selected by its manifest
-installed rook-full manifest and literal SKILL.md bytes -> installed runtime-manifest.json
-installed Prime executable, dist/prime-agent-runtime subtree, bundled uv, and complete runtime manifest -> current runtime pointer
-chat-service manifest Python executable/source/install/data roots -> exact installed service and derived runtime/data paths
-```
-
-The verifier uses the same closed regular-file manifest rules as the product contracts, refuses symlinks/reparse-point escapes and unexpected extra authority files, and writes one bounded canonical JSON identity report only after every comparison succeeds. It does not launch the installed Python, Prime, Rhino, or any plugin. A later live gate rechecks this report and records actual service import origins separately.
-
-- [ ] **Step 7: Invoke the approved package build, then run static gates**
-
-The execution turn must receive the exact 40-hex `ApprovedPrimeCommit` named by
-the Step 1 review and exact 64-hex `ApprovedBuildToolchainContractSha256` named
-by the Step 3 review. They are literal approval inputs: do not derive either
-from `HEAD`, the contract contents, a report, or the filesystem. Bind those two
-values in the current PowerShell process, then run this command exactly once
-from a fresh output root:
+Run the focused product-consumer gate:
 
 ```powershell
-Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-$pwsh = 'C:/Program Files/PowerShell/7/pwsh.exe'
-$prime = 'D:/prime-agent/.worktrees/prime-acp-no-daemon'
-$contract = 'C:/UDEV/RookBuildTools/prime-acp/msys2-20260611-v1/build-toolchain-contract.json'
-$output = 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/installer/runtime/prime/staging'
-if ($ApprovedPrimeCommit -notmatch '^[0-9a-f]{40}$') {
-    throw 'Step 1 review must supply the exact approved Prime commit.'
-}
-if ($ApprovedBuildToolchainContractSha256 -notmatch '^[0-9A-F]{64}$') {
-    throw 'Step 3 review must supply the exact approved build-toolchain contract SHA-256.'
-}
-if (Test-Path -LiteralPath $output) {
-    throw 'Prime staging output must be absent before packaging.'
-}
-& $pwsh -NoProfile -File scripts/package-prime-acp-runtime.ps1 `
-    -PrimeWorktree $prime `
-    -ExpectedPrimeCommit $ApprovedPrimeCommit `
-    -OutputRoot $output `
-    -BuildToolchainContract $contract `
-    -ExpectedBuildToolchainContractSha256 $ApprovedBuildToolchainContractSha256
-if ($LASTEXITCODE -ne 0) {
-    throw "Prime packaging failed with exit code $LASTEXITCODE. Do not verify or install its staging output."
-}
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
+./.venv/Scripts/python.exe -m pytest tests/test_chat_prime_runtime.py tests/test_chat_integration.py tests/test_chat_acp_conversation.py -q
+```
 
-& $pwsh -NoProfile -File scripts/tests/prime-build-toolchain.tests.ps1
-if ($LASTEXITCODE -ne 0) { throw 'Build-toolchain tests failed.' }
-& $pwsh -NoProfile -File scripts/tests/prime-acp-runtime.tests.ps1
-if ($LASTEXITCODE -ne 0) { throw 'Prime runtime tests failed.' }
-& $pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
-if ($LASTEXITCODE -ne 0) { throw 'Deployment guard tests failed.' }
-& $pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
-if ($LASTEXITCODE -ne 0) { throw 'Installer guard tests failed.' }
+- [ ] **Step 5: Add the installed verifier and complete retention proofs**
+
+Write `test_verify_installed_rookchat_acp.py` before the verifier. Invoke the
+real CLI `main()` over a complete synthetic source/install fixture; do not test
+an extracted private helper. Fix this public interface:
+
+```powershell
 $python = 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe'
-& $python scripts/verify-prime-acp-runtime.py --runtime-root $output --manifest "$output/runtime-manifest.json" --verify-only
-if ($LASTEXITCODE -ne 0) { throw 'Staged Prime runtime verification failed.' }
-& $python -m pytest mcp_server/tests/test_chat_prime_runtime.py mcp_server/tests/test_chat_acp_conversation.py mcp_server/tests/test_verify_installed_rookchat_acp.py -q
-if ($LASTEXITCODE -ne 0) { throw 'Prime packaging Python tests failed.' }
+& $python -I scripts/verify-installed-rookchat-acp.py `
+    --rook-worktree C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset `
+    --expected-rook-commit $ApprovedImplementationCommit `
+    --install-root "$env:LOCALAPPDATA/Rook/app" `
+    --chat-service-manifest "$env:APPDATA/McNeel/Rhinoceros/8.0/Plug-ins/RookNative/net8.0/RookChatService.json" `
+    --output C:/RookEvidence/rookchat-prime-acp-installed/identity.json
 ```
 
-The packaging invocation is the sole producer of
-`installer/runtime/prime/staging/`; every subsequent verifier and installer test
-consumes that exact tree. The verifier reads bytes only. Building the standalone artifact is allowed, but
-`pi.exe`, providers, models, Rhino, Grasshopper, Rook MCP, and the installer are
-not launched. The tests prove the npm release-tarball path is absent, the whole
-standalone directory and manifest travel together, no generated runtime
-authority is committed alone, no second runtime schema exists, relocation does
-not change runtime identity, the production loader accepts the manifest, the
-service owns its local MCP command, bundled uv is the first and only qualified
-kernel-bootstrap executable, forbidden package/kernel/Python environment
-overrides and every ambient `UV_*` key are removed case-insensitively, the six
-product-owned uv values are exact in the final child environment, the artifact's
-local Python runtime exactly matches the reviewed Prime build, the release build
-cannot reach `npm ci` without the independently approved build-contract hash,
-whole-root MSYS2 parity, empty npm user/global configuration, and exact
-`cmd.exe` lifecycle shell, and ACP data remains outside every
-replaceable runtime and installer cleanup path. Task 10 does not launch Prime
-or qualify kernel creation; that single first-use runtime proof belongs to
-Slice B.
+The test fixture proves the public CLI refuses a dirty or wrong source commit,
+invalid chat-service interpreter/import roots, invalid `current.json`, and any
+missing, changed, extra, relocated, linked, or substituted runtime authority
+file. It proves `pi.exe`, `rook-full`, `uv`, Prime's Python runtime subtree, and
+Prime's notice all resolve beneath the recorded runtime. No success report may
+exist after refusal. A success report is bounded, create-only diagnostic JSON
+containing the source commit, pointer snapshot, runtime ID, manifest SHA-256,
+and verified absolute consumer paths; it is not product authority.
 
-- [ ] **Step 8: Commit Task 10**
+Extend installer and deployment fixtures to simulate install, upgrade, repair,
+release rollback, and data-retaining uninstall. Require:
+
+```text
+upgrade and repair preserve all existing prime/runtimes siblings
+rollback does not rewrite or remove newer runtime siblings
+current.json changes only through successful promotion
+%LOCALAPPDATA%/Rook/data/rookchat/acp/v1 survives every fixture
+normal uninstall may remove {app} and Prime runtimes but not ACP data
+incoming or failed staging generations are never selected
+```
+
+Run:
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
+./.venv/Scripts/python.exe -m pytest tests/test_verify_installed_rookchat_acp.py tests/test_post_install_prime_runtime.py -q
+
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
+pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
+```
+
+- [ ] **Step 6: Run the complete model-free Task 10 gate, commit, and stop**
+
+Run every public seam together. This gate may execute fixture Bash/Python and
+PowerShell only. It does not build Prime, download dependencies, package the
+real runtime, install Rook, or launch Prime/Rhino/Grasshopper/models.
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-git add scripts/package-prime-acp-runtime.ps1 scripts/verify-prime-acp-runtime.py scripts/verify-installed-rookchat-acp.py scripts/tests/prime-acp-runtime.tests.ps1 mcp_server/src/rook/agent/chat/prime_runtime.py mcp_server/src/rook/agent/chat/acp_conversation.py mcp_server/tests/test_chat_prime_runtime.py mcp_server/tests/test_chat_acp_conversation.py scripts/deploy-local-testing.ps1 scripts/tests/deploy-local-testing-guards.tests.ps1 installer/RookSetup.iss scripts/tests/release-installer-guards.tests.ps1 installer/post_install.py mcp_server/tests/test_verify_installed_rookchat_acp.py
-git commit -m "build(chat): package immutable Prime ACP runtime"
+wsl.exe -d Ubuntu-24.04 -- bash -lc 'cd /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset && bash scripts/tests/prime-wsl-build.tests.sh'
+
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
+./.venv/Scripts/python.exe -m pytest tests/test_prime_runtime_artifact.py tests/test_package_prime_acp_runtime.py tests/test_post_install_prime_runtime.py tests/test_chat_prime_runtime.py tests/test_chat_integration.py tests/test_chat_acp_conversation.py tests/test_verify_installed_rookchat_acp.py -q
+./.venv/Scripts/python.exe -m compileall -q src/rook ../../scripts/package-prime-acp-runtime.py ../../scripts/verify-installed-rookchat-acp.py ../../installer/post_install.py
+
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
+pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
+git diff --check
+git status --short
 ```
+
+The status must contain no abandoned RED scripts and no generated runtime. Stage
+only the explicit Task 10 source/test files and commit once:
+
+```powershell
+git add scripts/build-prime-acp-runtime.sh scripts/tests/prime-wsl-build.tests.sh mcp_server/src/rook/agent/chat/prime_runtime_artifact.py mcp_server/src/rook/agent/chat/prime_runtime.py mcp_server/src/rook/agent/chat/service_main.py mcp_server/src/rook/agent/chat/acp_conversation.py mcp_server/tests/test_prime_runtime_artifact.py mcp_server/tests/test_package_prime_acp_runtime.py mcp_server/tests/test_chat_prime_runtime.py mcp_server/tests/test_chat_integration.py mcp_server/tests/test_chat_acp_conversation.py mcp_server/tests/test_post_install_prime_runtime.py scripts/package-prime-acp-runtime.py third_party/prime-agent/LICENSE installer/post_install.py scripts/deploy-local-testing.ps1 scripts/tests/deploy-local-testing-guards.tests.ps1 installer/RookSetup.iss scripts/tests/release-installer-guards.tests.ps1 scripts/verify-installed-rookchat-acp.py mcp_server/tests/test_verify_installed_rookchat_acp.py
+git commit -m "build: add Prime ACP runtime packaging"
+```
+
+STOP for independent review. Report the exact test outputs, commit and parent,
+Prime's unchanged clean identity, and absence of generated release payloads.
+Do not alter WSL prerequisites or run the real builder before approval.
+
+- [ ] **Step 7: After approval, create the Git-owned Ubuntu source and run one real build**
+
+The local command selects WSL2; the portable Bash entrypoint remains unaware of
+WSL. Begin with one fresh release root and refuse an existing path:
+
+```powershell
+$releaseRoot = 'C:/UDEV/RookRelease/prime-acp/48015aef'
+$bundle = "$releaseRoot/source/prime-48015aef.bundle"
+if (Test-Path -LiteralPath $releaseRoot) { throw 'Release root must be absent.' }
+New-Item -ItemType Directory -Path "$releaseRoot/source" | Out-Null
+
+$primeStatus = @(git -C D:/prime-agent/.worktrees/prime-acp-no-daemon status --short)
+if ($LASTEXITCODE -ne 0 -or $primeStatus.Count -ne 0) { throw 'Prime worktree is not clean.' }
+if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD) -ne '48015aefa41c6c2678ddac9e4000009c1d7c3b63') { throw 'Prime HEAD differs.' }
+if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD^) -ne 'c718bf3c30fd8da206ed551837cbb54f7ad15948') { throw 'Prime parent differs.' }
+git -C D:/prime-agent/.worktrees/prime-acp-no-daemon bundle create $bundle HEAD
+git -C D:/prime-agent/.worktrees/prime-acp-no-daemon bundle verify $bundle
+```
+
+Verify WSL distribution/version and required tools before changing anything. If
+Ubuntu is not 24.04, WSL is not version 2, Node is below 22.8.0, Bun is not
+1.3.14, or any required tool is absent, stop for a separately reviewed ordinary
+build-machine provisioning action. The product scripts never auto-install tools.
+
+```powershell
+wsl.exe --list --verbose
+wsl.exe -d Ubuntu-24.04 -- bash -lc 'set -euo pipefail; case "$(uname -r)" in *microsoft-standard-WSL2*) ;; *) exit 1 ;; esac; . /etc/os-release; test "$VERSION_ID" = 24.04; command -v git node npm bun zip unzip timeout sha256sum; node --version; npm --version; bun --version; git --version; zip -v | head -n 2; unzip -v | head -n 2'
+```
+
+Transfer only the Git bundle through `/mnt/c`, clone it into the Linux
+filesystem, detach the approved commit, and run the public entrypoint:
+
+```powershell
+wsl.exe -d Ubuntu-24.04 -- bash -lc 'set -euo pipefail; root="$HOME/rook-prime-acp-48015aef"; test ! -e "$root"; mkdir -p "$root/source"; cp /mnt/c/UDEV/RookRelease/prime-acp/48015aef/source/prime-48015aef.bundle "$root/source/"; git clone "$root/source/prime-48015aef.bundle" "$root/prime-agent"; git -C "$root/prime-agent" bundle verify "$root/source/prime-48015aef.bundle"; git -C "$root/prime-agent" checkout --detach 48015aefa41c6c2678ddac9e4000009c1d7c3b63; /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/scripts/build-prime-acp-runtime.sh --prime-worktree "$root/prime-agent" --build-record "$root/build-record.txt" --expected-prime-commit 48015aefa41c6c2678ddac9e4000009c1d7c3b63 --expected-prime-parent c718bf3c30fd8da206ed551837cbb54f7ad15948'
+```
+
+Any build or custody failure rejects this invocation. Do not repair or resume
+its checkout. A later attempt starts from another absent Linux root. Preserve
+the build record and report its exact ZIP SHA-256; do not launch `pi.exe`.
+
+- [ ] **Step 8: Transfer the one ZIP, assemble the installer payload, and stop**
+
+Copy only the upstream ZIP into a fresh Windows directory and compare its hash
+with the WSL result before extraction:
+
+```powershell
+Set-StrictMode -Version Latest
+if (-not (Test-Path Variable:ApprovedWslZipSha256) -or
+    $ApprovedWslZipSha256 -cnotmatch '^[0-9A-F]{64}$') {
+    throw 'The independent Step 7 review must supply the approved ZIP SHA-256.'
+}
+$releaseRoot = 'C:/UDEV/RookRelease/prime-acp/48015aef'
+$windowsRoot = "$releaseRoot/windows"
+if (Test-Path -LiteralPath $windowsRoot) { throw 'Windows staging must be absent.' }
+New-Item -ItemType Directory -Path $windowsRoot | Out-Null
+$windowsZip = "$windowsRoot/pi-windows-x64.zip"
+wsl.exe -d Ubuntu-24.04 -- bash -lc 'set -euo pipefail; cp "$HOME/rook-prime-acp-48015aef/prime-agent/packages/coding-agent/binaries/pi-windows-x64.zip" /mnt/c/UDEV/RookRelease/prime-acp/48015aef/windows/pi-windows-x64.zip'
+$windowsZipSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $windowsZip).Hash
+if ($windowsZipSha256 -ne $ApprovedWslZipSha256) { throw 'WSL-to-Windows ZIP hash differs.' }
+```
+
+`ApprovedWslZipSha256` is the exact value independently read from the Step 7
+build record at this review boundary. It is not self-supplied by the packager.
+
+Acquire the three frozen `uv` inputs into a fresh release-input directory. The
+release procedure owns network acquisition; the offline packager independently
+rechecks each ceiling and SHA-256:
+
+```powershell
+$inputs = 'C:/UDEV/RookRelease/prime-acp/inputs/uv-0.12.3'
+if (Test-Path -LiteralPath $inputs) { throw 'uv input root must be absent.' }
+New-Item -ItemType Directory -Path $inputs | Out-Null
+curl.exe --fail --location --max-filesize 134217728 --output "$inputs/uv-x86_64-pc-windows-msvc.zip" https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-pc-windows-msvc.zip
+if ($LASTEXITCODE -ne 0) { throw 'uv archive download failed.' }
+curl.exe --fail --location --max-filesize 1048576 --output "$inputs/LICENSE-APACHE" https://raw.githubusercontent.com/astral-sh/uv/0.12.3/LICENSE-APACHE
+if ($LASTEXITCODE -ne 0) { throw 'uv Apache license download failed.' }
+curl.exe --fail --location --max-filesize 1048576 --output "$inputs/LICENSE-MIT" https://raw.githubusercontent.com/astral-sh/uv/0.12.3/LICENSE-MIT
+if ($LASTEXITCODE -ne 0) { throw 'uv MIT license download failed.' }
+
+$approvedInputs = @(
+    @{ Path = "$inputs/uv-x86_64-pc-windows-msvc.zip"; Maximum = 134217728; Sha256 = 'B23350C79E8AD0192B8124AF13A0F17E8D4E4549524785E1AEF389AE5A06990E' },
+    @{ Path = "$inputs/LICENSE-APACHE"; Maximum = 1048576; Sha256 = 'C71D239DF91726FC519C6EB72D318EC65820627232B2F796219E87DCF35D0AB4' },
+    @{ Path = "$inputs/LICENSE-MIT"; Maximum = 1048576; Sha256 = '860E3D7A86B84E6A7012C7A635FC64DF475CEBC6CCE34DFEB73A5982EC58176C' }
+)
+foreach ($input in $approvedInputs) {
+    if (-not (Test-Path -LiteralPath $input.Path -PathType Leaf)) {
+        throw "Missing release input: $($input.Path)"
+    }
+    $file = Get-Item -LiteralPath $input.Path -Force
+    if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        $file.PSIsContainer -or $file.Length -gt $input.Maximum) {
+        throw "Invalid release input: $($input.Path)"
+    }
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $input.Path).Hash -ne $input.Sha256) {
+        throw "Release input hash differs: $($input.Path)"
+    }
+}
+```
+
+Invoke the offline packager against a fresh ignored release-staging root:
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+$python = 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe'
+$output = 'installer/runtime/prime/staging/runtimes'
+if (Test-Path -LiteralPath $output) { throw 'Prime runtime staging must be absent.' }
+& $python -I scripts/package-prime-acp-runtime.py `
+    --prime-zip $windowsZip `
+    --expected-prime-zip-sha256 $ApprovedWslZipSha256 `
+    --rook-skill installer/agent-assets/prime-skills/rook-full `
+    --uv-zip "$inputs/uv-x86_64-pc-windows-msvc.zip" `
+    --uv-license-apache "$inputs/LICENSE-APACHE" `
+    --uv-license-mit "$inputs/LICENSE-MIT" `
+    --prime-license third_party/prime-agent/LICENSE `
+    --output-runtimes-root $output
+if ($LASTEXITCODE -ne 0) { throw 'Prime runtime packaging failed.' }
+
+$runtimeDirs = @(Get-ChildItem -LiteralPath $output -Directory -Force)
+if ($runtimeDirs.Count -ne 1 -or $runtimeDirs[0].Name -cnotmatch '^[0-9A-F]{64}$') {
+    throw 'Prime runtime staging must contain exactly one runtime-ID directory.'
+}
+$runtimeId = $runtimeDirs[0].Name
+& $python -I -m rook.agent.chat.prime_runtime_artifact verify `
+    --runtime-root $runtimeDirs[0].FullName `
+    --expected-runtime-id $runtimeId
+if ($LASTEXITCODE -ne 0) { throw 'Staged Prime runtime verification failed.' }
+```
+
+Rerun the complete Step 6 gate and confirm Git has no new tracked or untracked
+files. The installed-verifier entrypoint remains covered by its complete
+synthetic install fixture; Task 10 does not pretend this release-staging root is
+already installed. Do not compile the installer, deploy, install, or launch
+Prime in Task 10.
+
+Report the source commit/parent, pre/post lockfile hash, observed build-tool
+versions, exact build command, WSL and Windows ZIP hashes, runtime ID, manifest
+SHA-256, complete output root, and all test results. STOP for independent
+artifact review before Task 11 or any external Slice B lifecycle execution.
 
 ### Task 11: Complete The ChatRunner Non-Port And Installed-Product Static Gate
 
