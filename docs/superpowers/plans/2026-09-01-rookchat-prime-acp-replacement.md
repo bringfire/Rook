@@ -8,11 +8,11 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; Ubuntu 24.04 Bash release builds with local WSL2 selection; PowerShell/Inno Setup installation tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `134ca3ecf277931441125f043a3e200a130ca40d` (SHA-256 `C84780D0295CE13B725CD43F8F21F1C37C0AE1442637C31F16B612E8163C89EA`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `8b844fff1289b27313ca2908f5f4264d465836ad` (SHA-256 `E023932F217D033C34E63230EF1BEF92E5A2EA56F19E6D515BB6AB0509EFCFCE`).
 
 ## Global Constraints
 
-- This plan is authored against frozen specification baseline `134ca3ecf277931441125f043a3e200a130ca40d`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
+- This plan is authored against frozen specification baseline `8b844fff1289b27313ca2908f5f4264d465836ad`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
 - Prime commit `48015aefa41c6c2678ddac9e4000009c1d7c3b63` is the final reviewed product compatibility commit directly over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. It contains only daemon-free ACP selection, platform-aware kernel-interpreter resolution, and completion of Prime's standalone Python-runtime payload. Do not amend it, stack another Prime patch, or substitute another Prime source identity.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
@@ -1390,11 +1390,11 @@ git commit -m "feat(grasshopper): fence mutations to observed document"
 - Modify: `.claude/skills/build-release/references/iss-source-paths.md`
 - Create: `scripts/verify-installed-rookchat-acp.py`
 - Create: `mcp_server/tests/test_verify_installed_rookchat_acp.py`
-- Generate after the implementation review, never commit: `installer/runtime/prime/staging/<attempt-generation>/runtimes/<runtime-id>/**`
+- Generate after the implementation review, never commit: `installer/runtime/prime/staging/<assembly-attempt-generation>/runtimes/<runtime-id>/**`
 - Retain outside source and product trees: the Git bundle, WSL build record, transferred Prime ZIP, downloaded `uv` inputs, and artifact review hashes
 
 **Interfaces:**
-- Consumes: frozen specification `134ca3ecf277931441125f043a3e200a130ca40d`; clean Prime commit `48015aefa41c6c2678ddac9e4000009c1d7c3b63` directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; Prime's unchanged `scripts/build-binaries.sh --platform windows-x64`; Task 8's tracked `installer/agent-assets/prime-skills/rook-full`; the installed Rook Python service; and the existing installer/local-deployment entrypoints.
+- Consumes: frozen specification `8b844fff1289b27313ca2908f5f4264d465836ad`; clean Prime commit `48015aefa41c6c2678ddac9e4000009c1d7c3b63` directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; Prime's unchanged `scripts/build-binaries.sh --platform windows-x64`; Task 8's tracked `installer/agent-assets/prime-skills/rook-full`; the installed Rook Python service; and the existing installer/local-deployment entrypoints.
 - Produces: one portable Ubuntu build entrypoint; one complete upstream `pi-windows-x64.zip`; one Rook-owned runtime-manifest implementation; one offline Windows packager; one shared promotion function used by installer and local deployment; one closed `current.json` selector; one installed-product verifier; and an ignored, complete installer runtime payload.
 - Does not produce: a build-toolchain contract, MSYS2 root, per-tool executable manifest, private-helper test loader, Prime patch, product WSL dependency, or Prime lifecycle execution.
 
@@ -1411,15 +1411,31 @@ All generated release payloads remain ignored. Customers receive the completed
 Windows runtime through the Rook installer and never need WSL, Node, npm, Bun,
 Git, `zip`, `unzip`, or a separate Prime installation.
 
-The Task 10 consumer trace is normative:
+The Task 10 consumer trace is normative. At each review boundary, replay it in
+this order without inserting another authority artifact:
+
+```text
+approved Rook implementation
+-> exact reviewed build entrypoint
+-> isolated WSL builder
+-> independently reviewed ZIP hash
+-> exact reviewed Windows packager and verifier
+-> one verified Prime payload
+-> sealed Rook wheel and verification venv
+-> installed post_install promotion
+-> local-deploy and ISCC consumers
+-> installed verification
+```
+
+The concrete handoffs are:
 
 | Producer | Exact handoff | Consumer and working directory | Admission and failure rule |
 | --- | --- | --- | --- |
-| Clean Prime Git worktree | Attempt-scoped Git bundle | `git clone` beneath the Linux-native WSL attempt root | Exact commit/parent and clean tracked source before the bundle; a failed attempt is retained and never reused. |
-| `scripts/build-prime-acp-runtime.sh` from the reviewed Rook worktree | WSL `pi-windows-x64.zip` and diagnostic build record | Windows transfer step; build runs with the Prime worktree as cwd | Post-build commit/clean/lockfile checks precede ZIP authority; WSL and Windows archive hashes must match. |
-| `scripts/package-prime-acp-runtime.py` from the Rook repo root | One attempt-scoped `runtimes/<runtime-id>` payload | Build-release and local-deploy consumers receive the same canonical payload path | Closed manifest verification precedes either consumer; failure leaves the attempt non-authoritative. |
-| Existing private-runtime and wheelhouse release scripts from the exact Rook source | Sealed Python runtime, wheelhouse, and source manifest | Installer or local `post_install.py` before it invokes promotion | Exact release version and final implementation commit must match; stale payloads refuse before promotion. |
-| Build-release skill from the Rook repo root | `/DPrimeRuntimePayload=<exact-path>` | `installer/RookSetup.iss`, which stages only beneath `prime/.incoming` | Exactly one verified payload is admitted; ISCC failure cannot publish a runtime. |
+| Clean Prime Git worktree | Build-attempt-scoped Git bundle | `git clone` beneath the Linux-native WSL build-attempt root | Exact commit/parent and clean tracked source before the bundle; a failed build attempt is retained and never reused. |
+| `scripts/build-prime-acp-runtime.sh` from the exact independently approved clean Rook implementation | WSL `pi-windows-x64.zip` and diagnostic build record | Windows transfer step; build runs with the Prime worktree as cwd | Rook identity is checked before and after execution; post-build Prime commit/clean/lockfile checks precede ZIP authority; WSL and Windows archive hashes must match. |
+| `scripts/package-prime-acp-runtime.py` and `prime_runtime_artifact` from the same exact independently approved clean Rook implementation | One assembly-attempt-scoped `runtimes/<runtime-id>` payload | Build-release and local-deploy consumers receive the same canonical payload path | Rook identity is checked before and after assembly; closed manifest verification precedes either consumer; failure leaves only that assembly attempt non-authoritative. |
+| Existing private-runtime and wheelhouse release scripts from the exact Rook source | Sealed Python runtime, wheelhouse, verification venv, and source manifest | Installer or local `post_install.py` before it invokes promotion | Exact release version and final implementation commit must match; the verifier imports from the sealed wheel only; stale payloads refuse before promotion. |
+| Build-release skill from the Rook repo root | Verified payload plus `/DPrimeRuntimePayload=<exact-path>` | Exact `verify-rook-venv/Scripts/python.exe -I -m rook.agent.chat.prime_runtime_artifact verify` from repo-root cwd, then `installer/RookSetup.iss` | Exactly one payload is verified by the sealed wheel before ISCC; ISCC failure cannot publish a runtime. |
 | `scripts/deploy-local-testing.ps1` from the Rook repo root | Exact verified payload copied to one unique incoming directory | The same installed `post_install.py` promotion path used by the installer | Promotion alone may create runtime siblings or `current.json`; failed incoming generations are never selected. |
 | Rook-owned promotion code | Verified immutable runtime sibling and atomic `current.json` | New-conversation runtime selection | Pointer and payload verify before argv construction; invalid authority refuses without scanning for an alternative. |
 
@@ -1462,9 +1478,14 @@ an expected-commit mismatch refuses before the fake builder runs
 a dirty tracked tree refuses before the fake builder runs
 /mnt/c and /mnt/d build roots refuse without requiring a WSL marker
 a findmnt result of drvfs, 9p, ntfs, or fuseblk refuses
+absence of uname, findmnt, readlink, or head refuses during prerequisite admission
 every admitted child tool command and canonical target is Linux-native and outside /mnt/*
-the constructed child PATH contains only unique admitted Linux command directories
-the fake builder sees only the six deliberate inputs plus Bash-generated PWD, SHLVL, and _
+the constructed child PATH contains only unique admitted Linux command directories in their original admitted PATH precedence
+a fixture with conflicting same-name executables proves the final clean environment resolves the exact command path and canonical target admitted by preflight
+any final-environment command-path, canonical-target, Node-version, or Bun-version mismatch refuses before the fake builder runs
+the default fake builder sees only the six deliberate inputs plus Bash-generated PWD, SHLVL, and _
+an explicit network fixture admits only HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, and NO_PROXY after ambient values are cleared
+lowercase, mixed-case, unknown, or ambient network-setting names refuse; the build record contains admitted names but no values
 ambient API keys, provider variables, PRIME_*, PI_*, and NPM_CONFIG_* are absent
 argv is exactly ./scripts/build-binaries.sh --platform windows-x64
 the direct command is wrapped by timeout --kill-after=30s 1800s
@@ -1504,13 +1525,19 @@ BUILD_KILL_AFTER_SECONDS=30
 The script resolves the worktree and rejects Windows-hosted filesystems. It
 requires Ubuntu 24.04 but no WSL-specific marker. Before constructing the child
 environment, resolve `bash`, `sh`, `node`, `npm`, `bun`, `git`, `zip`, `unzip`,
-`dirname`, `rm`, `mkdir`, `cp`, `ls`, `env`, `timeout`, and `sha256sum`. For
+`dirname`, `rm`, `mkdir`, `cp`, `ls`, `env`, `timeout`, `sha256sum`, `uname`,
+`findmnt`, `readlink`, and `head`. For
 each command, require both the command path and its canonical target to be a
 regular executable on a Linux-native filesystem and outside `/mnt/*`. Construct
 `linux_build_path` from the unique parent directories of those admitted command
-paths in first-use order; inherited `PATH` entries never flow into the child.
-Only Bun is exact and Node has the fixed minimum. Record observed Node, npm,
-Bun, Git, `zip`, and `unzip` versions as diagnostic provenance, not authority.
+paths while preserving their order in the admitted input `PATH`; inherited
+entries that contain no admitted command never flow into the child. Inside the
+exact clean child environment and before the builder starts, resolve every
+required command again and require its command path and canonical target to
+equal the preflight pair. Recheck Node and Bun versions through that final
+environment. Any conflict, changed precedence, or mismatch refuses. Only Bun is
+exact and Node has the fixed minimum. Record observed Node, npm, Bun, Git,
+`zip`, and `unzip` versions as diagnostic provenance, not authority.
 
 For each invocation, the script creates one unique empty support root on the
 same Linux-native filesystem but outside the Prime source. Fresh `home` and
@@ -1536,8 +1563,14 @@ env -i \
 Those six assignments are the only deliberate child-environment inputs. Bash
 may add only `PWD`, `SHLVL`, and `_`; the fixture records the environment from
 inside the fake builder and rejects every other key. No provider credential,
-Prime override, `NPM_CONFIG_*` value, network override, or other ambient
-variable is admitted.
+Prime override, `NPM_CONFIG_*` value, or other ambient variable is admitted.
+The default network-input map is empty. A reviewed local or CI invocation may
+explicitly add only uppercase `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and
+`NO_PROXY` after clearing all ambient environment values; lowercase,
+mixed-case, and other network-setting names refuse. The build record stores
+only the admitted variable names, never values. The implementation keeps this
+as a small invocation argument/map and does not create another manifest or
+configuration subsystem.
 
 After exit zero, recheck exact HEAD, clean tracked state, unchanged lockfile
 hash, and one regular ZIP before hashing it. The build record is bounded plain
@@ -1693,7 +1726,11 @@ existing PowerShell guard suites before changing consumers. The tests prove:
 ```text
 installer post-install passes its exact incoming root and <install-dir>/prime to the public promotion entrypoint
 the two build-release skill copies and their source-path references remain byte-identical
-the release workflow admits exactly one verified attempt-scoped Prime payload before ISCC
+the release workflow admits exactly one verified assembly-attempt-scoped Prime payload before ISCC
+the release workflow uses only artifacts/python-wheelhouse/verify-rook-venv/Scripts/python.exe with -I from the exact repo-root cwd
+the verifier module imports from that venv's Lib/site-packages installation produced by the sealed wheelhouse, never the source tree
+the release workflow invokes the exact prime_runtime_artifact verify argv before ISCC
+PATH Python, the worktree .venv, PYTHONPATH, and source-tree import fallback cannot satisfy the release gate
 the ISCC argv contains exactly /DPrimeRuntimePayload=<canonical admitted payload>
 local deployment admits that same exact payload path and copies it into one unique <install-dir>/prime/.incoming generation
 local deployment passes that exact generation to the same post-install/promotion path
@@ -1743,12 +1780,39 @@ payload's contents beneath one setup-owned incoming directory; the cached
 
 Update both `.agents/skills/build-release/SKILL.md` and
 `.claude/skills/build-release/SKILL.md` in lockstep. The release invocation
-supplies one exact attempt-scoped `PrimeRuntimePayload`; before source-path
+supplies one exact assembly-attempt-scoped `PrimeRuntimePayload`; before source-path
 validation or ISCC, the workflow requires its `runtimes` parent to contain
-exactly that one 64-uppercase-hex runtime directory and invokes the reviewed
-worktree's `prime_runtime_artifact verify` entrypoint against it. It then calls
-ISCC with exactly `/DPrimeRuntimePayload=<canonical verified directory>`. The
-two synchronized `references/iss-source-paths.md` files add the runtime payload,
+exactly that one 64-uppercase-hex runtime directory. The existing wheelhouse
+release step must already have produced and validated:
+
+```text
+artifacts/python-wheelhouse/verify-rook-venv/Scripts/python.exe
+artifacts/python-wheelhouse/verification-rook.json
+installer/runtime/python-runtime-manifest.json
+```
+
+The Python runtime manifest must name the exact release version and final Rook
+implementation commit. `verification-rook.json` must prove that `rook` was
+installed from the sealed wheelhouse and imported from that verification venv's
+`Lib/site-packages`; its existing install and `pip check` results must be
+successful. From the exact Rook repository root, with `PYTHONPATH` absent, the
+release skill first uses that exact interpreter under `-I` to verify that
+`rook.agent.chat.prime_runtime_artifact.__file__` resolves beneath the same
+verification venv's `Lib/site-packages` and not beneath the source worktree.
+It then invokes exactly:
+
+```powershell
+& 'artifacts/python-wheelhouse/verify-rook-venv/Scripts/python.exe' -I `
+    -m rook.agent.chat.prime_runtime_artifact verify `
+    --runtime-root $PrimeRuntimePayload `
+    --expected-runtime-id (Split-Path -Leaf $PrimeRuntimePayload)
+```
+
+Only after that command exits zero may the skill call ISCC with exactly
+`/DPrimeRuntimePayload=<canonical verified directory>`. No `python` from
+`PATH`, worktree `.venv`, `PYTHONPATH`, source fallback, or verifier from the
+incoming Prime payload is admitted. The two synchronized
+`references/iss-source-paths.md` files add the runtime payload,
 `runtime-manifest.json`, `pi.exe`, `tools/uv/uv.exe`, `skills/rook-full`,
 `dist/prime-agent-runtime`, and `notices/prime-agent` to the required source
 boundary. Neither skill may discover or select a payload from installed runtime
@@ -1756,7 +1820,7 @@ siblings.
 
 `scripts/deploy-local-testing.ps1` accepts the exact same
 `-PrimeRuntimePayload` directory for a release-mode full deployment. Its
-attempt-scoped `runtimes` parent must contain exactly that one verified runtime
+assembly-attempt-scoped `runtimes` parent must contain exactly that one verified runtime
 directory. The script copies it create-only to one GUID-named
 `$InstallRoot\prime\.incoming` directory and passes that direct incoming root
 to `Invoke-PostInstallConfig`. It never selects from installed runtime siblings.
@@ -1918,21 +1982,45 @@ git commit -m "build: add Prime ACP runtime packaging"
 
 STOP for independent review. Report the exact test outputs, commit and parent,
 Prime's unchanged clean identity, and absence of generated release payloads.
-Do not alter WSL prerequisites or run the real builder before approval.
+That review must name the exact Task 10 implementation commit and issue the
+Step 7 command with that literal identity before execution. Do not alter WSL
+prerequisites or run the real builder before approval.
 
 - [ ] **Step 7: After approval, create the Git-owned Ubuntu source and run one real build**
 
 The local command selects WSL2; the portable Bash entrypoint remains unaware of
 WSL. Before creating a Windows release directory, Git bundle, WSL checkout,
 support root, or staging directory, complete every read-only prerequisite check.
-Verify the clean Prime identity on Windows, then verify the distribution,
-version, Linux-native filesystem, and complete required tool set in WSL. If
-Ubuntu is not 24.04, WSL is not version 2, Node is below 22.8.0, Bun is not
-1.3.14, or any required tool resolves through `/mnt/*` or a Windows-hosted
-filesystem, stop before creating an attempt. The product scripts never
-auto-install tools.
+The independently approved Step 6 review must issue the Step 7 command with the
+exact 40-hex Task 10 implementation commit assigned as a literal local
+PowerShell value. It is never read from an environment variable, inferred from
+`HEAD`, or supplied by the build script. Verify the clean Rook implementation
+and exact public build entrypoint first, then verify the clean Prime identity on
+Windows and the distribution, version, Linux-native filesystem, and complete
+required tool set in WSL. If either source identity differs, the Rook entrypoint
+is absent, linked, or outside the checkout, Ubuntu is not 24.04, WSL is not
+version 2, Node is below 22.8.0, Bun is not 1.3.14, or any required tool resolves
+through `/mnt/*` or a Windows-hosted filesystem, stop before creating an
+attempt. The product scripts never auto-install tools.
 
 ```powershell
+$rookRoot = (Resolve-Path -LiteralPath 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset').Path
+# The independently reviewed Step 7 command assigns the approved commit here as
+# a literal 40-hex string before execution; this body is not executable authority by itself.
+if (-not (Test-Path Variable:approvedRookCommit) -or
+    $approvedRookCommit -cnotmatch '^[0-9a-f]{40}$') {
+    throw 'The reviewed Step 7 command must name the approved Rook commit literally.'
+}
+$rookStatus = @(git -C $rookRoot status --short)
+if ($LASTEXITCODE -ne 0 -or $rookStatus.Count -ne 0) { throw 'Rook worktree is not clean.' }
+if ((git -C $rookRoot rev-parse HEAD) -cne $approvedRookCommit) { throw 'Rook HEAD differs.' }
+$buildEntrypoint = Get-Item -LiteralPath "$rookRoot/scripts/build-prime-acp-runtime.sh" -Force
+if ($buildEntrypoint.PSIsContainer -or
+    ($buildEntrypoint.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+    -not $buildEntrypoint.FullName.StartsWith("$rookRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Rook build entrypoint is not a regular file beneath the approved checkout.'
+}
+
 $primeStatus = @(git -C D:/prime-agent/.worktrees/prime-acp-no-daemon status --short)
 if ($LASTEXITCODE -ne 0 -or $primeStatus.Count -ne 0) { throw 'Prime worktree is not clean.' }
 if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD) -ne '48015aefa41c6c2678ddac9e4000009c1d7c3b63') { throw 'Prime HEAD differs.' }
@@ -1940,22 +2028,22 @@ if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD^) -ne '
 
 wsl.exe --list --verbose
 if ($LASTEXITCODE -ne 0) { throw 'WSL distribution query failed.' }
-wsl.exe -d Ubuntu-24.04 -- bash -lc 'set -euo pipefail; case "$(uname -r)" in *microsoft-standard-WSL2*) ;; *) exit 1 ;; esac; . /etc/os-release; test "$VERSION_ID" = 24.04; case "$(findmnt -n -o FSTYPE -T "$HOME")" in drvfs|9p|ntfs|fuseblk) exit 1 ;; esac; for tool in bash sh node npm bun git zip unzip dirname rm mkdir cp ls env timeout sha256sum; do p="$(command -v "$tool")"; c="$(readlink -f "$p")"; test -f "$p" -o -L "$p"; test -x "$p"; test -f "$c"; test -x "$c"; case "$p:$c" in /mnt/*:*|*:/mnt/*) exit 1 ;; esac; case "$(findmnt -n -o FSTYPE -T "$c")" in drvfs|9p|ntfs|fuseblk) exit 1 ;; esac; done; node_version="$(node --version)"; IFS=. read -r node_major node_minor node_patch <<< "${node_version#v}"; (( node_major > 22 || (node_major == 22 && node_minor >= 8) )); test "$(bun --version)" = 1.3.14; printf "%s\n" "$node_version"; npm --version; bun --version; git --version; zip -v | head -n 2; unzip -v | head -n 2'
+wsl.exe -d Ubuntu-24.04 -- bash -lc 'set -euo pipefail; for tool in uname findmnt readlink head; do command -v "$tool" >/dev/null; done; case "$(uname -r)" in *microsoft-standard-WSL2*) ;; *) exit 1 ;; esac; . /etc/os-release; test "$VERSION_ID" = 24.04; case "$(findmnt -n -o FSTYPE -T "$HOME")" in drvfs|9p|ntfs|fuseblk) exit 1 ;; esac; for tool in bash sh node npm bun git zip unzip dirname rm mkdir cp ls env timeout sha256sum uname findmnt readlink head; do p="$(command -v "$tool")"; c="$(readlink -f "$p")"; test -f "$p" -o -L "$p"; test -x "$p"; test -f "$c"; test -x "$c"; case "$p:$c" in /mnt/*:*|*:/mnt/*) exit 1 ;; esac; case "$(findmnt -n -o FSTYPE -T "$c")" in drvfs|9p|ntfs|fuseblk) exit 1 ;; esac; done; node_version="$(node --version)"; IFS=. read -r node_major node_minor node_patch <<< "${node_version#v}"; (( node_major > 22 || (node_major == 22 && node_minor >= 8) )); test "$(bun --version)" = 1.3.14; printf "%s\n" "$node_version"; npm --version; bun --version; git --version; zip -v | head -n 2; unzip -v | head -n 2'
 if ($LASTEXITCODE -ne 0) { throw 'Ubuntu build prerequisites are not admitted.' }
 ```
 
-Only after that preflight succeeds, create one explicit attempt generation. The
-first authorized generation is `attempt-v1`; a failed generation remains
-preserved and is never repaired, resumed, or reused. Any later authorized
-invocation must name a new absent generation such as `attempt-v2` and repeat all
-checks from the beginning.
+Only after that preflight succeeds, create one explicit build-attempt
+generation. The first authorized generation is `build-attempt-v1`; a failed
+build generation remains preserved and is never repaired, resumed, or reused.
+Any later authorized build must name a new absent generation such as
+`build-attempt-v2` and repeat all build checks from the beginning.
 
 ```powershell
-$attempt = 'attempt-v1'
-if ($attempt -cnotmatch '^attempt-v[1-9][0-9]*$') { throw 'Invalid release attempt generation.' }
-$releaseRoot = "C:/UDEV/RookRelease/prime-acp/48015aef/$attempt"
+$buildAttempt = 'build-attempt-v1'
+if ($buildAttempt -cnotmatch '^build-attempt-v[1-9][0-9]*$') { throw 'Invalid build attempt generation.' }
+$releaseRoot = "C:/UDEV/RookRelease/prime-acp/48015aef/builds/$buildAttempt"
 $bundle = "$releaseRoot/source/prime-48015aef.bundle"
-if (Test-Path -LiteralPath $releaseRoot) { throw 'Release attempt root must be absent.' }
+if (Test-Path -LiteralPath $releaseRoot) { throw 'Build attempt root must be absent.' }
 New-Item -ItemType Directory -Path "$releaseRoot/source" | Out-Null
 
 git -C D:/prime-agent/.worktrees/prime-acp-no-daemon bundle create $bundle HEAD
@@ -1972,32 +2060,56 @@ and ZIP all remain inside that Linux-native attempt generation:
 ```powershell
 $wslBuildCommand = @'
 set -euo pipefail
-root="$HOME/rook-prime-acp-48015aef/{attempt}"
+root="$HOME/rook-prime-acp-48015aef/builds/{buildAttempt}"
 test ! -e "$root"
 mkdir -p "$root/source"
-cp "/mnt/c/UDEV/RookRelease/prime-acp/48015aef/{attempt}/source/prime-48015aef.bundle" "$root/source/"
+cp "/mnt/c/UDEV/RookRelease/prime-acp/48015aef/builds/{buildAttempt}/source/prime-48015aef.bundle" "$root/source/"
 git clone "$root/source/prime-48015aef.bundle" "$root/prime-agent"
 git -C "$root/prime-agent" bundle verify "$root/source/prime-48015aef.bundle"
 git -C "$root/prime-agent" checkout --detach 48015aefa41c6c2678ddac9e4000009c1d7c3b63
-/mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/scripts/build-prime-acp-runtime.sh \
+env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 TMPDIR=/tmp CI=1 \
+  /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/scripts/build-prime-acp-runtime.sh \
   --prime-worktree "$root/prime-agent" \
   --build-record "$root/build-record.txt" \
   --expected-prime-commit 48015aefa41c6c2678ddac9e4000009c1d7c3b63 \
   --expected-prime-parent c718bf3c30fd8da206ed551837cbb54f7ad15948
-'@.Replace('{attempt}', $attempt)
+'@.Replace('{buildAttempt}', $buildAttempt)
 wsl.exe -d Ubuntu-24.04 -- bash -lc $wslBuildCommand
 if ($LASTEXITCODE -ne 0) { throw 'Prime WSL build attempt failed.' }
+
+$rookStatus = @(git -C $rookRoot status --short)
+if ($LASTEXITCODE -ne 0 -or $rookStatus.Count -ne 0 -or
+    (git -C $rookRoot rev-parse HEAD) -cne $approvedRookCommit) {
+    throw 'Rook source identity changed during Step 7.'
+}
+$buildEntrypoint = Get-Item -LiteralPath "$rookRoot/scripts/build-prime-acp-runtime.sh" -Force
+if ($buildEntrypoint.PSIsContainer -or
+    ($buildEntrypoint.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+    -not $buildEntrypoint.FullName.StartsWith("$rookRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Rook build entrypoint changed during Step 7.'
+}
 ```
 
+The command above is the default no-proxy invocation. A separately reviewed
+local or CI command may add only uppercase `HTTP_PROXY`, `HTTPS_PROXY`,
+`ALL_PROXY`, and `NO_PROXY` assignments to the outer `env -i` command. It must
+name those assignments explicitly; it may not forward the caller's environment.
+The entrypoint clears its builder environment again and inserts only those
+reviewed names. Their names, never values, enter the diagnostic build record.
+
 Any build or custody failure rejects this invocation. Do not repair or resume
-its checkout or any sibling output. Preserve the complete attempt and build
+its checkout or any sibling output. Preserve the complete build attempt and build
 record as diagnostics. Report its exact ZIP SHA-256 and stop for independent
 review; do not launch `pi.exe`.
 
 - [ ] **Step 8: Transfer the one ZIP, assemble the installer payload, and stop**
 
 Copy only the upstream ZIP into a fresh Windows directory and compare its hash
-with the WSL result before extraction:
+with the WSL result before extraction. The independently approved Step 8
+command again names the exact Task 10 implementation commit as a literal local
+PowerShell value. Before creating an assembly attempt, require that clean Rook
+identity and the exact packager and verifier source files as regular,
+non-reparse files beneath that checkout:
 
 ```powershell
 Set-StrictMode -Version Latest
@@ -2005,28 +2117,64 @@ if (-not (Test-Path Variable:ApprovedWslZipSha256) -or
     $ApprovedWslZipSha256 -cnotmatch '^[0-9A-F]{64}$') {
     throw 'The independent Step 7 review must supply the approved ZIP SHA-256.'
 }
-$attempt = 'attempt-v1'
-if ($attempt -cnotmatch '^attempt-v[1-9][0-9]*$') { throw 'Invalid release attempt generation.' }
-$releaseRoot = "C:/UDEV/RookRelease/prime-acp/48015aef/$attempt"
+$rookRoot = (Resolve-Path -LiteralPath 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset').Path
+# The independently reviewed Step 8 command assigns the same approved commit
+# here as a literal 40-hex string; it is not read from environment or HEAD.
+if (-not (Test-Path Variable:approvedRookCommit) -or
+    $approvedRookCommit -cnotmatch '^[0-9a-f]{40}$') {
+    throw 'The reviewed Step 8 command must name the approved Rook commit literally.'
+}
+$rookStatus = @(git -C $rookRoot status --short)
+if ($LASTEXITCODE -ne 0 -or $rookStatus.Count -ne 0 -or
+    (git -C $rookRoot rev-parse HEAD) -cne $approvedRookCommit) {
+    throw 'Rook worktree is not the approved clean Task 10 implementation.'
+}
+$packagerPath = "$rookRoot/scripts/package-prime-acp-runtime.py"
+$verifierSource = "$rookRoot/mcp_server/src/rook/agent/chat/prime_runtime_artifact.py"
+foreach ($entrypointPath in @($packagerPath, $verifierSource)) {
+    $entrypoint = Get-Item -LiteralPath $entrypointPath -Force
+    if ($entrypoint.PSIsContainer -or
+        ($entrypoint.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        -not $entrypoint.FullName.StartsWith("$rookRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Invalid Rook assembly entrypoint: $entrypointPath"
+    }
+}
+$python = "$rookRoot/mcp_server/.venv/Scripts/python.exe"
+if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Exact worktree Python is absent.' }
+if (Test-Path Env:PYTHONPATH) { throw 'Step 8 does not admit PYTHONPATH.' }
+$verifierOrigin = (& $python -I -c 'import pathlib, rook.agent.chat.prime_runtime_artifact as m; print(pathlib.Path(m.__file__).resolve())').Trim()
+if ($LASTEXITCODE -ne 0 -or
+    [IO.Path]::GetFullPath($verifierOrigin) -cne [IO.Path]::GetFullPath($verifierSource)) {
+    throw 'Rook verifier does not import from the approved checkout.'
+}
+
+$approvedBuildAttempt = 'build-attempt-v1'
+if ($approvedBuildAttempt -cnotmatch '^build-attempt-v[1-9][0-9]*$') { throw 'Invalid approved build attempt.' }
+$assemblyAttempt = 'assembly-attempt-v1'
+if ($assemblyAttempt -cnotmatch '^assembly-attempt-v[1-9][0-9]*$') { throw 'Invalid assembly attempt.' }
+$releaseRoot = "C:/UDEV/RookRelease/prime-acp/48015aef/assemblies/$assemblyAttempt"
 $windowsRoot = "$releaseRoot/windows"
-if (Test-Path -LiteralPath $windowsRoot) { throw 'Windows staging must be absent.' }
+if (Test-Path -LiteralPath $releaseRoot) { throw 'Assembly attempt root must be absent.' }
 New-Item -ItemType Directory -Path $windowsRoot | Out-Null
 $windowsZip = "$windowsRoot/pi-windows-x64.zip"
 $wslTransferCommand = @'
 set -euo pipefail
-cp "$HOME/rook-prime-acp-48015aef/{attempt}/prime-agent/packages/coding-agent/binaries/pi-windows-x64.zip" \
-  "/mnt/c/UDEV/RookRelease/prime-acp/48015aef/{attempt}/windows/pi-windows-x64.zip"
-'@.Replace('{attempt}', $attempt)
+cp "$HOME/rook-prime-acp-48015aef/builds/{buildAttempt}/prime-agent/packages/coding-agent/binaries/pi-windows-x64.zip" \
+  "/mnt/c/UDEV/RookRelease/prime-acp/48015aef/assemblies/{assemblyAttempt}/windows/pi-windows-x64.zip"
+'@.Replace('{buildAttempt}', $approvedBuildAttempt).Replace('{assemblyAttempt}', $assemblyAttempt)
 wsl.exe -d Ubuntu-24.04 -- bash -lc $wslTransferCommand
 $windowsZipSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $windowsZip).Hash
 if ($windowsZipSha256 -ne $ApprovedWslZipSha256) { throw 'WSL-to-Windows ZIP hash differs.' }
 ```
 
-The Windows transfer root, transferred ZIP, `uv` inputs, and ignored packager
-output all carry the same attempt-generation name. None may exist before its
-producer runs. Any failure preserves that generation as non-authoritative; a
-later authorized assembly uses a new absent generation and repeats transfer,
-input acquisition, hashing, packaging, and verification from the beginning.
+The WSL ZIP remains owned by its immutable build-attempt name. The Windows
+transfer root, `uv` inputs, and ignored packager output carry a separate
+assembly-attempt name. None may exist before its producer runs. Any assembly
+failure preserves only that generation as non-authoritative; a later authorized
+`assembly-attempt-v2` may consume the same independently approved build-attempt
+and ZIP hash while repeating transfer, input acquisition, hashing, packaging,
+and verification from the beginning. A build failure still requires a new
+build attempt and separate review.
 
 `ApprovedWslZipSha256` is the exact value independently read from the Step 7
 build record at this review boundary. It is not self-supplied by the packager.
@@ -2069,11 +2217,10 @@ foreach ($input in $approvedInputs) {
 Invoke the offline packager against a fresh ignored release-staging root:
 
 ```powershell
-Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
-$python = 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server/.venv/Scripts/python.exe'
-$output = "installer/runtime/prime/staging/$attempt/runtimes"
+Set-Location $rookRoot
+$output = "installer/runtime/prime/staging/$assemblyAttempt/runtimes"
 if (Test-Path -LiteralPath $output) { throw 'Prime runtime staging must be absent.' }
-& $python -I scripts/package-prime-acp-runtime.py `
+& $python -I $packagerPath `
     --prime-zip $windowsZip `
     --expected-prime-zip-sha256 $ApprovedWslZipSha256 `
     --rook-skill installer/agent-assets/prime-skills/rook-full `
@@ -2083,6 +2230,11 @@ if (Test-Path -LiteralPath $output) { throw 'Prime runtime staging must be absen
     --prime-license third_party/prime-agent/LICENSE `
     --output-runtimes-root $output
 if ($LASTEXITCODE -ne 0) { throw 'Prime runtime packaging failed.' }
+$rookStatus = @(git -C $rookRoot status --short)
+if ($LASTEXITCODE -ne 0 -or $rookStatus.Count -ne 0 -or
+    (git -C $rookRoot rev-parse HEAD) -cne $approvedRookCommit) {
+    throw 'Rook source identity changed during packaging.'
+}
 
 $runtimeDirs = @(Get-ChildItem -LiteralPath $output -Directory -Force)
 if ($runtimeDirs.Count -ne 1 -or $runtimeDirs[0].Name -cnotmatch '^[0-9A-F]{64}$') {
@@ -2093,6 +2245,20 @@ $runtimeId = $runtimeDirs[0].Name
     --runtime-root $runtimeDirs[0].FullName `
     --expected-runtime-id $runtimeId
 if ($LASTEXITCODE -ne 0) { throw 'Staged Prime runtime verification failed.' }
+
+$rookStatus = @(git -C $rookRoot status --short)
+if ($LASTEXITCODE -ne 0 -or $rookStatus.Count -ne 0 -or
+    (git -C $rookRoot rev-parse HEAD) -cne $approvedRookCommit) {
+    throw 'Rook source identity changed during Step 8.'
+}
+foreach ($entrypointPath in @($packagerPath, $verifierSource)) {
+    $entrypoint = Get-Item -LiteralPath $entrypointPath -Force
+    if ($entrypoint.PSIsContainer -or
+        ($entrypoint.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        -not $entrypoint.FullName.StartsWith("$rookRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Rook assembly entrypoint changed during Step 8: $entrypointPath"
+    }
+}
 ```
 
 Rerun the complete Step 6 gate and confirm Git has no new tracked or untracked
@@ -2101,10 +2267,13 @@ synthetic install fixture; Task 10 does not pretend this release-staging root is
 already installed. Do not compile the installer, deploy, install, or launch
 Prime in Task 10.
 
-Report the source commit/parent, pre/post lockfile hash, observed build-tool
-versions, exact build command, WSL and Windows ZIP hashes, runtime ID, manifest
-SHA-256, complete output root, and all test results. STOP for independent
-artifact review before Task 11 or any external Slice B lifecycle execution.
+Report the exact approved Rook implementation commit, its pre/post clean
+identity, build-attempt and assembly-attempt names, Prime source commit/parent,
+pre/post lockfile hash, observed build-tool versions, explicit network-setting
+names if any, exact build command, WSL and Windows ZIP hashes, runtime ID,
+manifest SHA-256, complete output root, and all test results. STOP for
+independent artifact review before Task 11 or any external Slice B lifecycle
+execution.
 
 ### Task 11: Complete The ChatRunner Non-Port And Installed-Product Static Gate
 
@@ -2466,8 +2635,8 @@ Native compilation, installed artifact execution, provider contact, Rhino contac
 1. Review Tasks 1-5 together as the Python ACP ownership foundation. No installed Prime execution is required for this review.
 2. Review Tasks 6-9 as the product cutover and Rook/GH authority boundary. Run fake/model-free tests only.
 3. Review Task 10 Steps 1-6 as one model-free public-seam implementation gate. No real Prime build, dependency download, installation, or Prime launch is authorized by this review.
-4. Review and explicitly authorize Task 10 Step 7 as one attempt-generation WSL build. Review its post-build Git custody and ZIP hash before any transfer or assembly.
-5. Review and explicitly authorize Task 10 Step 8 against that approved ZIP hash. Review the assembled runtime manifest, runtime ID, exact payload path, and consumer wiring before Task 11.
+4. Review and explicitly authorize Task 10 Step 7 as one named build-attempt WSL build from the literal approved Rook implementation commit. Review both Rook and Prime post-build Git custody and the ZIP hash before any transfer or assembly.
+5. Review and explicitly authorize Task 10 Step 8 as one independently named assembly attempt from that same literal Rook implementation commit and approved build-attempt ZIP hash. Review the assembled runtime manifest, runtime ID, exact payload path, and consumer wiring before Task 11. A failed assembly may receive a new assembly-attempt name without repeating the approved build.
 6. Review Task 11's ChatRunner non-port and installed-product static gate independently. It may consume the approved staged payload but may not launch Prime.
 7. Review Task 12's authored qualification code as the single model-free pre-contact gate covering technical Slices A and B.
 8. Review the frozen combined A+B package, then authorize at most one execution.
