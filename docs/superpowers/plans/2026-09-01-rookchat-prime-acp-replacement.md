@@ -8,15 +8,15 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; Ubuntu 24.04 Bash release builds with local WSL2 selection; PowerShell/Inno Setup installation tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at frozen baseline `8b844fff1289b27313ca2908f5f4264d465836ad` (SHA-256 `E023932F217D033C34E63230EF1BEF92E5A2EA56F19E6D515BB6AB0509EFCFCE`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at the revision carried by this documentation amendment (SHA-256 `69C3D84C7F35161E69B48BEA86D12C65835B4B4D02BC2035AFA5E5CC8CE4053E`).
 
 ## Global Constraints
 
-- This plan is authored against frozen specification baseline `8b844fff1289b27313ca2908f5f4264d465836ad`. Implementation begins from the later exact approved plan commit named in the implementation `/goal`; its lineage must contain that baseline. Do not reset to the baseline or replay superseded RPC Tasks 0-7.
-- Prime commit `1b9dfabb04901de4823d259c88b39dfc78ec3b34` is the final reviewed product compatibility commit directly over upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`. It contains only daemon-free ACP selection, platform-aware kernel-interpreter resolution, completion of Prime's standalone Python-runtime payload, and explicit frozen-model-catalog binary builds. Do not stack another Prime patch or substitute another Prime source identity.
+- This plan is authored against the exact specification hash above. Implementation begins only from the exact approved documentation commit later named by review. Do not reset to an older specification or replay superseded RPC Tasks 0-7.
+- Prime upstream remains `c718bf3c30fd8da206ed551837cbb54f7ad15948`. Commit `1b9dfabb04901de4823d259c88b39dfc78ec3b34` is the reviewed implementation precursor, not release authority. Before another build, organize the six approved concerns as the short ordered patch series in the specification, independently review every commit and parent, and freeze one exact final head as runtime identity. Do not add unrelated Prime behavior or another runtime contract.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
-- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon`; never use a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. The Prime and Rook MCP executable paths are absolute and never selected through `PATH`. The sole intentional exception is upstream Prime's supported kernel bootstrap lookup for `uv`: RookChat prepends the exact manifest-bound `tools/uv` directory, and qualification proves that executable was selected before any ambient entry.
+- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon --no-approve --no-managed-tool-downloads`; never use production `--offline`, a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. Scrub inherited `PI_OFFLINE` case-insensitively from the Prime child environment. The Prime and Rook MCP executable paths are absolute and never selected through `PATH`. The sole intentional exception is upstream Prime's supported kernel bootstrap lookup for `uv`: RookChat prepends the exact manifest-bound `tools/uv` directory, and qualification proves that executable was selected before any ambient entry.
 - Persist associations, not broker lifecycle. Prime JSONL is the only authoritative transcript/goal/settings/compaction store.
 - A durable association is create-only, complete, materialized, has a nonempty Prime header ID, and is reopenable only when no `open.claim` exists and custody checks pass.
 - The atomic non-expiring `open.claim` has no metadata or recovery logic. Remove it only after the directly owned Prime child is observed exited, or when launch positively proves no child was created.
@@ -1394,28 +1394,27 @@ git commit -m "feat(grasshopper): fence mutations to observed document"
 - Retain outside source and product trees: the Git bundle, WSL build record, transferred Prime ZIP, downloaded `uv` inputs, and artifact review hashes
 
 **Interfaces:**
-- Consumes: frozen specification baseline `8b844fff1289b27313ca2908f5f4264d465836ad` plus the Section 12 artifact-consumer corrections in this amendment; clean Prime commit `1b9dfabb04901de4823d259c88b39dfc78ec3b34` directly over `c718bf3c30fd8da206ed551837cbb54f7ad15948`; Prime's `scripts/build-binaries.sh --platform windows-x64 --frozen-model-catalog`; Task 8's tracked `installer/agent-assets/prime-skills/rook-full`; the installed Rook Python service; and the existing installer/local-deployment entrypoints.
+- Consumes: the exact specification SHA-256 named in this plan header; Prime upstream `c718bf3c30fd8da206ed551837cbb54f7ad15948`; reviewed implementation precursor `1b9dfabb04901de4823d259c88b39dfc78ec3b34`; the independently approved final ordered Prime patch series; Prime's `scripts/build-binaries.sh --platform windows-x64 --frozen-model-catalog`; Task 8's tracked `installer/agent-assets/prime-skills/rook-full`; the installed Rook Python service; and the existing installer/local-deployment entrypoints.
 - Produces: one portable Ubuntu build entrypoint; one complete upstream `pi-windows-x64.zip`; one Rook-owned runtime-manifest implementation; one offline Windows packager; one shared promotion function used by installer and local deployment; one closed `current.json` selector; one installed-product verifier; and an ignored, complete installer runtime payload.
-- Does not produce: a build-toolchain contract, MSYS2 root, per-tool executable manifest, private-helper test loader, another Prime patch, product WSL dependency, or Prime lifecycle execution.
+- Does not produce: a build-toolchain contract, MSYS2 root, per-tool executable manifest, private-helper test loader, product WSL dependency, Prime lifecycle execution, project-trust database, permission UI, helper-download facade, or release-time patch registry.
 
-The bounded Prime compatibility correction is complete before another real
-build is authorized. Its first read-only precondition is:
+The bounded Prime compatibility corrections must be organized and independently
+approved before another real build is authorized. Their initial read-only
+precondition is:
 
 ```text
-Prime HEAD  = 1b9dfabb04901de4823d259c88b39dfc78ec3b34
-Prime HEAD^ = c718bf3c30fd8da206ed551837cbb54f7ad15948
+Prime HEAD = 1b9dfabb04901de4823d259c88b39dfc78ec3b34 (reviewed precursor only)
+Prime base = c718bf3c30fd8da206ed551837cbb54f7ad15948
 Prime tracked and untracked status = clean
 ```
 
-That one removable Prime commit adds only the public
-`--frozen-model-catalog` builder selector, its small internal refresh/frozen
-selection seam, tests, and changelog entry on top of the previously reviewed
-ACP/runtime changes. Focused tests prove that frozen mode never calls the
-catalog refresh boundary and leaves `models.generated.ts` unchanged; ordinary
-mode still selects refresh; malformed public forms refuse; and an offline
-AI-package compilation contains `global.openai.gpt-5.6-sol` from the committed
-snapshot. The real Windows binary marker check remains part of the post-build
-review and is not inferred from those focused tests.
+The precursor contains the first four reviewed behaviors, including the public
+`--frozen-model-catalog` selector. Step 7 converts those concerns and the two
+new product-security selectors into the short ordered series defined by the
+specification, proves each public seam causally, records the `5c2750bd`
+adoption or deferral decision, and stops before creating another build attempt.
+The real Windows binary checks remain part of the later post-build review and
+are not inferred from focused source tests.
 
 All generated release payloads remain ignored. Customers receive the completed
 Windows runtime through the Rook installer and never need WSL, Node, npm, Bun,
@@ -1455,7 +1454,7 @@ The concrete handoffs are:
 
 | Producer | Exact handoff | Consumer and working directory | Admission and failure rule |
 | --- | --- | --- | --- |
-| Clean Prime Git worktree | Build-attempt-scoped Git bundle | `git clone` beneath the Linux-native WSL build-attempt root | Exact commit/parent and clean tracked source before the bundle; a failed build attempt is retained and never reused. |
+| Clean Prime Git worktree | Build-attempt-scoped Git bundle | `git clone` beneath the Linux-native WSL build-attempt root | Exact approved final head, direct parent, complete ordered series, and clean tracked source before the bundle; a failed build attempt is retained and never reused. |
 | `scripts/build-prime-acp-runtime.sh` from the exact independently approved clean Rook implementation | WSL `pi-windows-x64.zip` and diagnostic build record | Windows transfer step; build runs with the Prime worktree as cwd | Rook identity is checked before and after execution; post-build Prime commit/clean/lockfile checks precede ZIP authority; WSL and Windows archive hashes must match. |
 | `scripts/package-prime-acp-runtime.py` and `prime_runtime_artifact` from the same exact independently approved clean Rook implementation | One assembly-attempt-scoped `runtimes/<runtime-id>` payload | Build-release and local-deploy consumers receive the same canonical payload path | Rook identity is checked before and after assembly; closed manifest verification precedes either consumer; failure leaves only that assembly attempt non-authoritative. |
 | Existing private-runtime and wheelhouse release scripts from the exact Rook source | Sealed Python runtime, wheelhouse, verification venv, and source manifest | Installer or local `post_install.py` before it invokes promotion | Exact release version and final implementation commit must match; the verifier imports from the sealed wheel only; stale payloads refuse before promotion. |
@@ -1539,7 +1538,7 @@ Implement the public script with this fixed interface and constants:
 scripts/build-prime-acp-runtime.sh \
   --prime-worktree /home/$USER/rook-prime-acp/prime-agent \
   --build-record /home/$USER/rook-prime-acp/build-record.txt \
-  --expected-prime-commit 1b9dfabb04901de4823d259c88b39dfc78ec3b34 \
+  --expected-prime-commit "$approved_prime_head" \
   --expected-prime-parent c718bf3c30fd8da206ed551837cbb54f7ad15948
 
 EXPECTED_BUN_VERSION=1.3.14
@@ -1547,6 +1546,10 @@ MINIMUM_NODE_VERSION=22.8.0
 BUILD_TIMEOUT_SECONDS=1800
 BUILD_KILL_AFTER_SECONDS=30
 ```
+
+`approved_prime_head` is the exact 40-hex final series head supplied by the
+independent Step 7 compatibility review. The public script receives and checks
+that identity; it never discovers or chooses a Prime head.
 
 The script resolves the worktree and rejects Windows-hosted filesystems. It
 requires Ubuntu 24.04 but no WSL-specific marker. Before constructing the child
@@ -2036,7 +2039,144 @@ That review must name the exact Task 10 implementation commit and issue the
 Step 7 command with that literal identity before execution. Do not alter WSL
 prerequisites or run the real builder before approval.
 
-- [ ] **Step 7: After approval, create the Git-owned Ubuntu source and run one real build**
+- [ ] **Step 7: Close Prime product policy, freeze the patch series, then run one approved v3 build**
+
+This step has two hard gates. The source-policy and patch-series work completes
+and stops for independent review before any build-attempt-v3 path is created.
+Only the subsequent review command may authorize the real build.
+
+**7A. Write focused RED tests before production changes**
+
+Work from a new clean Prime implementation worktree rooted at
+`c718bf3c30fd8da206ed551837cbb54f7ad15948`; retain the clean
+`prime-acp-no-daemon` worktree at `1b9dfabb04901de4823d259c88b39dfc78ec3b34`
+as reviewed precursor evidence. Use branch `codex/rookchat-prime-final-series`.
+Do not copy ignored output or `node_modules` between worktrees.
+
+Modify only Prime's parser/help, startup migration/settings/resource seams,
+managed helper acquisition, focused tests/docs/changelog, and the already
+reviewed four compatibility concerns. Expected production files are:
+
+```text
+packages/coding-agent/src/cli/args.ts
+packages/coding-agent/src/cli/command-registry.ts
+packages/coding-agent/src/main.ts
+packages/coding-agent/src/migrations.ts
+packages/coding-agent/src/core/agent-session-services.ts
+packages/coding-agent/src/core/settings-manager.ts
+packages/coding-agent/src/core/resource-loader.ts
+packages/coding-agent/src/utils/tools-manager.ts
+scripts/build-binaries.sh
+```
+
+Use existing focused tests `args.test.ts`, `migrations.test.ts`,
+`settings-manager.test.ts`, `resource-loader.test.ts`, `tools-manager.test.ts`,
+`model-registry.test.ts`, and `prime-inference-auth.test.ts`. Add one narrowly
+named startup-composition test that drives the launch-cwd and resumed-cwd flow
+together through the same startup owner used by `main()`.
+
+The `--no-approve` RED contract is:
+
+```text
+exact flag before -- parses true; the same token after -- remains prompt content
+--no-approve=<value> and malformed attempted forms refuse before migrations
+one immutable Boolean exists before runMigrations() and the first SettingsManager.create()
+global migrations, global settings, and Prime authentication remain available
+project commands-to-prompts migration is skipped without reading or mutating the project tree
+startup settings do not read <launch-cwd>/.prime/agent/settings.json
+resumed settings do not read <session-cwd>/.prime/agent/settings.json
+project packages, extensions, skills, prompts, themes, SYSTEM.md, APPEND_SYSTEM.md, AGENTS.md, and CLAUDE.md are not read or loaded
+explicit --skill goal and --skill rook paths remain loaded
+omitting --no-approve preserves current project behavior
+```
+
+Both cwd fixtures are hostile and instrument filesystem reads, directory walks,
+renames, and writes. A test fails on the first project access; absence is not
+inferred from an empty result. Implement one immutable `allowProjectResources`
+decision and pass it into `runMigrations`, every startup and resumed
+`SettingsManager.create`, `createAgentSessionServices`, and
+`DefaultResourceLoader`. Global paths and explicit CLI paths remain admitted.
+Do not add trust persistence, approval prompts, permission state, Rook-side
+directory scanning, or special ACP behavior.
+
+The `--no-managed-tool-downloads` RED contract is:
+
+```text
+exact flag before -- parses true; the same token after -- remains prompt content
+equals/malformed forms refuse before startup work; no environment alias exists
+an existing managed fd or rg is returned unchanged
+a missing managed fd or rg returns unavailable before fetch and extraction
+fetch count = 0 and extract-zip invocation count = 0 under the selector
+omitting the selector retains the current download boundary
+provider/model discovery output is equivalent to the control
+private Prime-inference authorization decisions are equivalent to the control
+```
+
+Pass this Boolean through the existing helper-manager seam into
+`ensureToolWithStatus()`; do not use `PI_OFFLINE`, mutate global environment,
+remove `extract-zip`, or add a facade. Unit tests prove zero extractor
+invocation, not installed-network behavior.
+
+In Rook, extend `test_chat_prime_runtime.py` before changing
+`prime_runtime.py`. Prove new and reopen argv contain exact
+`--no-approve --no-managed-tool-downloads`, never contain `--offline`, and the
+final child environment removes every exact/lowercase/mixed-case `PI_OFFLINE`
+key. Preserve every uv, bytecode, skill-content, and command-line bound. Slice B
+adds `--offline` only in its isolated external protocol.
+
+After the Prime series head exists, update only the new-assembly Prime identity
+pin in `prime_runtime_artifact.py`, `package-prime-acp-runtime.py`, and their
+existing tests. Historical runtime verification remains manifest-driven and
+must not require the newest head. The resulting Rook commit is the identity the
+independent build authorization supplies; do not edit it during the build.
+
+**7B. Implement minimally, organize one concern per commit, and stop**
+
+Make the tests green without changing Prime's default behavior. Recreate the
+already reviewed precursor behavior and the two new selectors as this exact
+ordered concern series over the baseline:
+
+```text
+1 daemon-free ACP selection
+2 platform-aware kernel interpreter
+3 complete standalone Python-runtime payload
+4 frozen model catalog build
+5 project-resource denial
+6 managed helper-download denial
+```
+
+Each commit contains only its production surface, focused tests, and its own
+help/docs/changelog entry. The final tree for concerns 1-4 must match the
+reviewed precursor behavior. Concerns 5-6 remain independently removable. Do
+not create an in-product patch registry or retain omnibus and series builds as
+competing release identities.
+
+Before freezing the head, produce this concise upstream matrix:
+
+```text
+5c2750bdc3c99cc4225c1167a3484371a7a221ab | bounded kernel stderr | adopt or defer | conflict | focused test
+7f21fa3435cd1c63724b6e427edb3a60a309c266 | native ACP MCP tools | defer | model-visible contract/cpython | future product decision
+```
+
+The `5c2750bd` row requires an explicit independent adopt-or-defer ruling. If
+adopted, retain its upstream source identity and apply it as one separately
+attributable backport immediately after concern 2 in the reviewed ancestry; if deferred, record the reason
+and required later qualification. Do not merge or rebase current Prime main.
+The `7f21fa3` deferral is fixed for this task.
+
+Run the focused Prime tests with
+`packages/coding-agent/vitest.config.ts`, the hostile cwd/resume cases, the
+existing 45-test Step 1 gate, and `npm run check` with
+`C:/Program Files/Git/usr/bin` prepended to `PATH`. Run the focused Rook runtime
+tests. Verify every series commit and parent, final-tree scope, baseline
+ancestry, `git show --check`, and clean Prime/Rook worktrees.
+
+STOP for independent review. Report the ordered commit list, exact final Prime
+head, exact Rook head, test outputs, the `5c2750bd` ruling, and confirmation that
+no project fixture was touched and no helper fetch/extractor ran. Do not create
+`build-attempt-v3`, transfer an artifact, or launch Prime.
+
+**7C. Only after that review, run one real build-attempt-v3**
 
 The local command selects WSL2; the portable Bash entrypoint remains unaware of
 WSL. Before creating a Windows release directory, Git bundle, WSL checkout,
@@ -2044,10 +2184,11 @@ build support root, or staging directory, complete every source/tool prerequisit
 check. Version probes use a fresh prerequisite-only HOME/TMPDIR outside the build
 attempt; npm may write its normal compile cache there. These probe directories
 are diagnostics, not build inputs, and are never reused by the builder.
-The independently approved Step 6 review must issue the Step 7 command with the
-exact 40-hex Task 10 implementation commit assigned as a literal local
-PowerShell value. It is never read from an environment variable, inferred from
-`HEAD`, or supplied by the build script. Verify the clean Rook implementation
+The independently approved Step 7B review must issue the Step 7C command with
+the exact 40-hex Rook implementation commit, final Prime head, direct parent,
+and complete ordered Prime series assigned as literal local PowerShell values.
+They are never read from environment variables, inferred from `HEAD`, or
+supplied by the build script. Verify the clean Rook implementation
 and exact public build entrypoint first, then verify the clean Prime identity on
 Windows and the distribution, version, Linux-native filesystem, and complete
 required tool set in WSL. If either source identity differs, the Rook entrypoint
@@ -2088,11 +2229,22 @@ paths, preserving the portable builder's existing version contract.
 
 ```powershell
 $rookRoot = (Resolve-Path -LiteralPath 'C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset').Path
-# The independently reviewed Step 7 command assigns the approved commit here as
-# a literal 40-hex string before execution; this body is not executable authority by itself.
+$primeRoot = (Resolve-Path -LiteralPath 'D:/prime-agent/.worktrees/rookchat-prime-final-series').Path
+# The independently reviewed Step 7C command assigns these literal values before
+# execution; this body is not executable authority by itself.
 if (-not (Test-Path Variable:approvedRookCommit) -or
     $approvedRookCommit -cnotmatch '^[0-9a-f]{40}$') {
     throw 'The reviewed Step 7 command must name the approved Rook commit literally.'
+}
+if (-not (Test-Path Variable:approvedPrimeHead) -or
+    $approvedPrimeHead -cnotmatch '^[0-9a-f]{40}$' -or
+    -not (Test-Path Variable:approvedPrimeParent) -or
+    $approvedPrimeParent -cnotmatch '^[0-9a-f]{40}$' -or
+    -not (Test-Path Variable:approvedPrimeSeries) -or
+    @($approvedPrimeSeries).Count -lt 6 -or
+    @($approvedPrimeSeries | Where-Object { $_ -cnotmatch '^[0-9a-f]{40}$' }).Count -ne 0 -or
+    $approvedPrimeSeries[-1] -cne $approvedPrimeHead) {
+    throw 'The reviewed Step 7 command must name the approved Prime series literally.'
 }
 $rookStatus = @(git -C $rookRoot status --short)
 if ($LASTEXITCODE -ne 0 -or $rookStatus.Count -ne 0) { throw 'Rook worktree is not clean.' }
@@ -2104,10 +2256,16 @@ if ($buildEntrypoint.PSIsContainer -or
     throw 'Rook build entrypoint is not a regular file beneath the approved checkout.'
 }
 
-$primeStatus = @(git -C D:/prime-agent/.worktrees/prime-acp-no-daemon status --short)
+$primeStatus = @(git -C $primeRoot status --short)
 if ($LASTEXITCODE -ne 0 -or $primeStatus.Count -ne 0) { throw 'Prime worktree is not clean.' }
-if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD) -ne '1b9dfabb04901de4823d259c88b39dfc78ec3b34') { throw 'Prime HEAD differs.' }
-if ((git -C D:/prime-agent/.worktrees/prime-acp-no-daemon rev-parse HEAD^) -ne 'c718bf3c30fd8da206ed551837cbb54f7ad15948') { throw 'Prime parent differs.' }
+if ((git -C $primeRoot rev-parse HEAD) -cne $approvedPrimeHead) { throw 'Prime HEAD differs.' }
+if ((git -C $primeRoot rev-parse HEAD^) -cne $approvedPrimeParent) { throw 'Prime parent differs.' }
+$baseline = 'c718bf3c30fd8da206ed551837cbb54f7ad15948'
+$actualPrimeSeries = @(git -C $primeRoot rev-list --reverse --first-parent "$baseline..$approvedPrimeHead")
+if ($LASTEXITCODE -ne 0 -or
+    ($actualPrimeSeries -join "`n") -cne ($approvedPrimeSeries -join "`n")) {
+    throw 'Prime compatibility series differs from independent approval.'
+}
 
 wsl.exe --list --verbose
 if ($LASTEXITCODE -ne 0) { throw 'WSL distribution query failed.' }
@@ -2154,30 +2312,31 @@ PREFLIGHT
 '@
 wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslPreflight
 if ($LASTEXITCODE -ne 0) { throw 'Ubuntu build prerequisites are not admitted.' }
+$buildAttempt = 'build-attempt-v3'
+$primeShort = $approvedPrimeHead.Substring(0, 8)
+$releaseRoot = "C:/UDEV/RookRelease/prime-acp/$primeShort/builds/$buildAttempt"
+if (Test-Path -LiteralPath $releaseRoot) { throw 'Windows build attempt root must be absent.' }
+$wslAttemptAbsence = 'test ! -e "$HOME/rook-prime-acp-{primeShort}/builds/{buildAttempt}"'.Replace('{primeShort}', $primeShort).Replace('{buildAttempt}', $buildAttempt)
+wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslAttemptAbsence
+if ($LASTEXITCODE -ne 0) { throw 'WSL build attempt root must be absent.' }
 ```
 
 Only after that preflight succeeds, create one explicit build-attempt
-generation. `build-attempt-v1` remains permanently preserved as failed evidence.
-The next authorized generation is `build-attempt-v2`; a failed build generation
-is never repaired, resumed, or reused. Any later authorized build must name a
-new absent generation and repeat all build checks from the beginning.
-
-The failed v1 roots remain under the prior Prime identity at
-`C:/UDEV/RookRelease/prime-acp/48015aef/builds/build-attempt-v1` and
-`$HOME/rook-prime-acp-48015aef/builds/build-attempt-v1`. They are not inputs to
-v2 and must not be modified, normalized, transferred, or adopted.
+generation. `build-attempt-v1` and `build-attempt-v2` remain permanently
+preserved as inadmissible evidence under their original Prime identities. They
+are never modified, normalized, repaired, transferred, adopted, or used as
+inputs. The next authorized generation is exactly `build-attempt-v3` under the
+independently approved final Prime head. A failed generation is never repaired,
+resumed, or reused; any later build requires a new absent generation and review.
 
 ```powershell
-$buildAttempt = 'build-attempt-v2'
 if ($buildAttempt -cnotmatch '^build-attempt-v[1-9][0-9]*$') { throw 'Invalid build attempt generation.' }
-$releaseRoot = "C:/UDEV/RookRelease/prime-acp/1b9dfabb/builds/$buildAttempt"
-$bundle = "$releaseRoot/source/prime-1b9dfabb.bundle"
-if (Test-Path -LiteralPath $releaseRoot) { throw 'Build attempt root must be absent.' }
+$bundle = "$releaseRoot/source/prime-$primeShort.bundle"
 New-Item -ItemType Directory -Path "$releaseRoot/source" | Out-Null
 
-git -C D:/prime-agent/.worktrees/prime-acp-no-daemon bundle create $bundle HEAD
+git -C $primeRoot bundle create $bundle $approvedPrimeHead
 if ($LASTEXITCODE -ne 0) { throw 'Prime Git bundle creation failed.' }
-git -C D:/prime-agent/.worktrees/prime-acp-no-daemon bundle verify $bundle
+git -C $primeRoot bundle verify $bundle
 if ($LASTEXITCODE -ne 0) { throw 'Prime Git bundle verification failed.' }
 ```
 
@@ -2191,19 +2350,19 @@ $wslBuildCommand = @'
 set -euo pipefail
 tools=/home/bring/.local/share/rook-prime-build
 export PATH="$tools/node-v22.23.2-linux-x64/bin:$tools/bun-v1.3.14:/usr/bin"
-root="$HOME/rook-prime-acp-1b9dfabb/builds/{buildAttempt}"
+root="$HOME/rook-prime-acp-{primeShort}/builds/{buildAttempt}"
 test ! -e "$root"
 mkdir -p "$root/source"
-cp "/mnt/c/UDEV/RookRelease/prime-acp/1b9dfabb/builds/{buildAttempt}/source/prime-1b9dfabb.bundle" "$root/source/"
-git clone "$root/source/prime-1b9dfabb.bundle" "$root/prime-agent"
-git -C "$root/prime-agent" bundle verify "$root/source/prime-1b9dfabb.bundle"
-git -C "$root/prime-agent" checkout --detach 1b9dfabb04901de4823d259c88b39dfc78ec3b34
+cp "/mnt/c/UDEV/RookRelease/prime-acp/{primeShort}/builds/{buildAttempt}/source/prime-{primeShort}.bundle" "$root/source/"
+git clone "$root/source/prime-{primeShort}.bundle" "$root/prime-agent"
+git -C "$root/prime-agent" bundle verify "$root/source/prime-{primeShort}.bundle"
+git -C "$root/prime-agent" checkout --detach {primeHead}
 env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 TMPDIR=/tmp CI=1 \
   /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/scripts/build-prime-acp-runtime.sh \
   --prime-worktree "$root/prime-agent" \
   --build-record "$root/build-record.txt" \
-  --expected-prime-commit 1b9dfabb04901de4823d259c88b39dfc78ec3b34 \
-  --expected-prime-parent c718bf3c30fd8da206ed551837cbb54f7ad15948
+  --expected-prime-commit {primeHead} \
+  --expected-prime-parent {primeParent}
 binary="$root/prime-agent/packages/coding-agent/binaries/windows-x64/pi.exe"
 test -f "$binary" -a ! -L "$binary"
 node - "$binary" <<'NODE'
@@ -2211,9 +2370,10 @@ const bytes = require("fs").readFileSync(process.argv[2]);
 if (!bytes.includes(Buffer.from("global.openai.gpt-5.6-sol")) ||
     bytes.includes(Buffer.from("anthropic.claude-fable-5-1"))) process.exit(1);
 NODE
-test "$(git -C "$root/prime-agent" rev-parse HEAD)" = 1b9dfabb04901de4823d259c88b39dfc78ec3b34
+test "$(git -C "$root/prime-agent" rev-parse HEAD)" = {primeHead}
+test "$(git -C "$root/prime-agent" rev-parse HEAD^)" = {primeParent}
 test -z "$(git -C "$root/prime-agent" status --porcelain --untracked-files=no)"
-'@.Replace('{buildAttempt}', $buildAttempt)
+'@.Replace('{primeShort}', $primeShort).Replace('{buildAttempt}', $buildAttempt).Replace('{primeHead}', $approvedPrimeHead).Replace('{primeParent}', $approvedPrimeParent)
 wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslBuildCommand
 if ($LASTEXITCODE -ne 0) { throw 'Prime WSL build attempt failed.' }
 
@@ -2252,9 +2412,9 @@ review; do not launch `pi.exe`.
 
 Copy only the upstream ZIP into a fresh Windows directory and compare its hash
 with the WSL result before extraction. The independently approved Step 8
-command again names the exact Task 10 implementation commit as a literal local
-PowerShell value. Before creating an assembly attempt, require that clean Rook
-identity and the exact packager and verifier source files as regular,
+command again names the exact Task 10 implementation commit and final Prime
+series head as literal local PowerShell values. Before creating an assembly
+attempt, require that clean Rook identity and the exact packager and verifier source files as regular,
 non-reparse files beneath that checkout:
 
 ```powershell
@@ -2269,6 +2429,10 @@ $rookRoot = (Resolve-Path -LiteralPath 'C:/UDEV/Rook/.worktrees/rookchat-prime-a
 if (-not (Test-Path Variable:approvedRookCommit) -or
     $approvedRookCommit -cnotmatch '^[0-9a-f]{40}$') {
     throw 'The reviewed Step 8 command must name the approved Rook commit literally.'
+}
+if (-not (Test-Path Variable:approvedPrimeHead) -or
+    $approvedPrimeHead -cnotmatch '^[0-9a-f]{40}$') {
+    throw 'The reviewed Step 8 command must name the approved Prime head literally.'
 }
 $rookStatus = @(git -C $rookRoot status --short)
 if ($LASTEXITCODE -ne 0 -or $rookStatus.Count -ne 0 -or
@@ -2294,20 +2458,21 @@ if ($LASTEXITCODE -ne 0 -or
     throw 'Rook verifier does not import from the approved checkout.'
 }
 
-$approvedBuildAttempt = 'build-attempt-v2'
+$approvedBuildAttempt = 'build-attempt-v3'
 if ($approvedBuildAttempt -cnotmatch '^build-attempt-v[1-9][0-9]*$') { throw 'Invalid approved build attempt.' }
 $assemblyAttempt = 'assembly-attempt-v1'
 if ($assemblyAttempt -cnotmatch '^assembly-attempt-v[1-9][0-9]*$') { throw 'Invalid assembly attempt.' }
-$releaseRoot = "C:/UDEV/RookRelease/prime-acp/1b9dfabb/assemblies/$assemblyAttempt"
+$primeShort = $approvedPrimeHead.Substring(0, 8)
+$releaseRoot = "C:/UDEV/RookRelease/prime-acp/$primeShort/assemblies/$assemblyAttempt"
 $windowsRoot = "$releaseRoot/windows"
 if (Test-Path -LiteralPath $releaseRoot) { throw 'Assembly attempt root must be absent.' }
 New-Item -ItemType Directory -Path $windowsRoot | Out-Null
 $windowsZip = "$windowsRoot/pi-windows-x64.zip"
 $wslTransferCommand = @'
 set -euo pipefail
-cp "$HOME/rook-prime-acp-1b9dfabb/builds/{buildAttempt}/prime-agent/packages/coding-agent/binaries/pi-windows-x64.zip" \
-  "/mnt/c/UDEV/RookRelease/prime-acp/1b9dfabb/assemblies/{assemblyAttempt}/windows/pi-windows-x64.zip"
-'@.Replace('{buildAttempt}', $approvedBuildAttempt).Replace('{assemblyAttempt}', $assemblyAttempt)
+cp "$HOME/rook-prime-acp-{primeShort}/builds/{buildAttempt}/prime-agent/packages/coding-agent/binaries/pi-windows-x64.zip" \
+  "/mnt/c/UDEV/RookRelease/prime-acp/{primeShort}/assemblies/{assemblyAttempt}/windows/pi-windows-x64.zip"
+'@.Replace('{primeShort}', $primeShort).Replace('{buildAttempt}', $approvedBuildAttempt).Replace('{assemblyAttempt}', $assemblyAttempt)
 wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslTransferCommand
 $windowsZipSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $windowsZip).Hash
 if ($windowsZipSha256 -ne $ApprovedWslZipSha256) { throw 'WSL-to-Windows ZIP hash differs.' }
@@ -2414,7 +2579,7 @@ already installed. Do not compile the installer, deploy, install, or launch
 Prime in Task 10.
 
 Report the exact approved Rook implementation commit, its pre/post clean
-identity, build-attempt and assembly-attempt names, Prime source commit/parent,
+identity, build-attempt and assembly-attempt names, complete Prime series and final head,
 pre/post lockfile hash, observed build-tool versions, explicit network-setting
 names if any, exact build command, WSL and Windows ZIP hashes, runtime ID,
 manifest SHA-256, complete output root, and all test results. STOP for
@@ -2567,7 +2732,7 @@ git commit -m "refactor(chat): remove ChatRunner product path"
 
 - [ ] **Step 1: Write RED protocol-custody tests**
 
-Each protocol must contain exact schema/version, clean implementation commit, installed runtime/skill manifests, prompt/input hashes, wall-clock/token/process-close limits, target/profile identity, evaluator identity when applicable, fresh evidence root, and a one-execution version. The A+B pre-contact protocol additionally binds the fresh `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, and `ROOK_DATA_DIR`; the product-derived `UV_CACHE_DIR` and `UV_PYTHON_INSTALL_DIR`; the derived absent-before kernel path; the complete six-key product-owned `UV_*` map; the exact seeded ambient `UV_*` and proxy-key cases; Prime's required `--offline` flag; the deny-by-default outbound-proxy identity and exact inserted `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` values; the complete expected final Prime child-environment map and hash; and the exact admitted host set `github.com`, `api.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and `files.pythonhosted.org`. The promotion protocol additionally binds MSVC toolset `14.44.35207`, Release configuration, the exact deployment command, expected source/installed artifact paths, and installed-verifier identity. The runner refuses existing evidence roots, hash drift, missing limits, mismatched commits, or any product import of `scripts/qualification`.
+Each protocol must contain exact schema/version, clean implementation commit, installed runtime/skill manifests, prompt/input hashes, wall-clock/token/process-close limits, target/profile identity, evaluator identity when applicable, fresh evidence root, and a one-execution version. The A+B pre-contact protocol additionally binds the fresh `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, and `ROOK_DATA_DIR`; the product-derived `UV_CACHE_DIR` and `UV_PYTHON_INSTALL_DIR`; the derived absent-before kernel path; the complete six-key product-owned `UV_*` map; the exact seeded ambient `UV_*` and proxy-key cases; Slice B's qualification-only `--offline` flag; the production `--no-approve` and `--no-managed-tool-downloads` selectors; the deny-by-default outbound-proxy identity and exact inserted `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` values; the complete expected final Prime child-environment map and hash; and the exact admitted host set `github.com`, `api.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and `files.pythonhosted.org`. The promotion protocol additionally binds MSVC toolset `14.44.35207`, Release configuration, the exact deployment command, expected source/installed artifact paths, and installed-verifier identity. The runner refuses existing evidence roots, hash drift, missing limits, mismatched commits, or any product import of `scripts/qualification`.
 
 Each frozen live version executes once and its result is immutable. Any correction requires a newly versioned protocol, fresh evidence root, and separate authorization; the runner never retries or overwrites a failed version.
 
@@ -2577,7 +2742,7 @@ Each frozen live version executes once and its result is immutable. Any correcti
 
 - [ ] **Step 3: Implement Slice A against the fake ACP agent**
 
-Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes and rendered-Windows-argv bounds, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, close/delete/shutdown detach-before-retirement races, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, SDK-callback source-ordinal preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
+Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes and rendered-Windows-argv bounds, production inclusion of `--no-approve` and `--no-managed-tool-downloads`, production exclusion of `--offline`, case-insensitive `PI_OFFLINE` removal, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, close/delete/shutdown detach-before-retirement races, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, SDK-callback source-ordinal preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
 
 - [ ] **Step 4: Implement Slice B against the installed Prime artifact and deterministic provider**
 
@@ -2608,9 +2773,11 @@ through the production process factory, then compare the complete final
 nonsecret child environment and its canonical hash with the frozen protocol
 before spawn.
 
-Launch the installed Prime artifact with `--offline` so Prime's updater,
-catalog, and unrelated startup network operations remain disabled. This flag
-does not make the separately admitted uv bootstrap offline. Route all
+Only this isolated Slice B launch adds `--offline` so Prime's updater, catalog,
+and unrelated startup network operations remain disabled. The production argv
+must omit it, and the protocol must add it externally after verifying the
+product selectors. This qualification-only flag does not make the separately
+admitted uv bootstrap offline. Route all
 non-loopback traffic through a qualification-owned deny-by-default proxy; the
 frozen protocol admits only `github.com`, `api.github.com`,
 `objects.githubusercontent.com`, `release-assets.githubusercontent.com`,
@@ -2619,6 +2786,14 @@ retains a bounded request ledger. Any required destination outside that set is
 a terminal result for this protocol version. Loopback remains available only to
 the deterministic provider and Rook MCP double. No proxy or network policy
 enters product runtime.
+
+Use hostile project-resource fixtures under both the launch cwd and the resumed
+session cwd. Prove neither tree is read or migrated while global Prime auth and
+settings plus the explicit goal/Rook skills remain available. With managed
+`fd` and `rg` absent, separately trigger their installed helper boundary and
+prove the network ledger contains no helper catalog or archive request. This
+tripwire establishes network behavior; the Prime source unit test remains the
+authority for zero extractor invocation.
 
 Prime may start kernel prewarm during `session/new`; do not attribute bootstrap
 initiation to the first prompt. Prove the actual sequence:
@@ -2821,7 +2996,7 @@ Native compilation, installed artifact execution, provider contact, Rhino contac
 
 ## Final Acceptance Checklist
 
-- [ ] One product path exists: C# panel -> authenticated HTTP -> Python ACP SDK -> exact installed Prime `--mode acp --no-daemon` -> standard ACP MCP `rook` -> Rook.
+- [ ] One product path exists: C# panel -> authenticated HTTP -> Python ACP SDK -> exact installed Prime `--mode acp --no-daemon --no-approve --no-managed-tool-downloads` -> standard ACP MCP `rook` -> Rook; production omits `--offline` and removes inherited `PI_OFFLINE`.
 - [ ] Every durable association is complete, materialized, create-only, and contains a validated Prime header ID.
 - [ ] One metadata-free non-expiring claim fences launch/Delete; it is never reclaimed automatically.
 - [ ] Cleanup uses only the SDK/directly owned process handle and preserves the claim unless child exit is observed.

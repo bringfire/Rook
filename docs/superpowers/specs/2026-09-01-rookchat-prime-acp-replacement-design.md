@@ -8,12 +8,16 @@
 
 **Prime upstream baseline:** `c718bf3c30fd8da206ed551837cbb54f7ad15948`
 
-**Reviewed Prime product compatibility commit:**
+**Current reviewed Prime compatibility precursor:**
 
 `1b9dfabb04901de4823d259c88b39dfc78ec3b34`
 
-This is one independently reviewed commit directly over the Prime upstream
-baseline.
+This precursor is one independently reviewed commit directly over the Prime
+upstream baseline. It is implementation evidence, not the final release
+identity. Before another build, its bounded concerns and the two product-
+security corrections in section 12 are organized as a short independently
+reviewed patch series over the same upstream baseline. The exact final series
+head is the single Prime identity recorded by a runtime manifest.
 
 **Protocol dependencies:** Prime ACP SDK `1.3.0`; Python
 `agent-client-protocol==0.12.1`
@@ -40,12 +44,11 @@ The work leaves useful evidence, not reusable product machinery:
 - Failed or ambiguous operations are never replayed automatically.
 - Qualification evidence must be finite, frozen, and external to product code.
 
-The replacement uses Prime's supported ACP surface plus one independently
-removable compatibility patch. The reviewed `--no-daemon` precursor is folded
-into that single final commit rather than extended as a patch stack. The two
-additional changes make Prime's existing kernel and release paths function as
-documented on Windows; they do not add a Rook protocol or kernel. No other
-private Prime change is part of this design.
+The replacement uses Prime's supported ACP surface plus a short ordered series
+of independently removable compatibility patches. Each patch owns one bounded
+concern; one exact reviewed final head identifies the complete runtime source.
+The series does not add a Rook protocol, kernel, daemon, trust database, or
+release subsystem. No other private Prime change is part of this design.
 
 ## 2. Objective And Scope
 
@@ -150,8 +153,33 @@ Prime is launched with the approved runtime configuration, including:
 --no-extensions
 --no-context-files
 --no-prompt-templates
+--no-approve
+--no-managed-tool-downloads
 --tools ipython
 ```
+
+`--no-approve` is one immutable parsed Boolean established before the first
+project-local read. Global migrations, global settings, Prime authentication,
+and explicitly supplied CLI resources remain admitted. Project-local migration,
+startup settings, packages, extensions, skills, prompt templates, themes,
+`SYSTEM.md`, `APPEND_SYSTEM.md`, and other discovered project resources are not
+read, loaded, or mutated. The same decision governs both the launch working
+directory and a resumed session's stored working directory. It does not create
+a trust database, prompt, permission workflow, or lifecycle state, and it does
+not change RookChat's separately defined ACP permission auto-approval policy.
+
+`--no-managed-tool-downloads` affects only Prime's optional managed `fd` and
+`rg` acquisition. An already available helper remains usable. A missing helper
+is reported unavailable before catalog fetch, archive download, or extraction.
+The selector has no environment alias, and omitting it preserves Prime's
+default helper-install behavior. It does not alter provider or model discovery,
+Prime-inference authorization, authentication, updater policy, or any other
+network behavior.
+
+Production RookChat never passes Prime's broad `--offline` flag. Before process
+creation, the service removes every inherited `PI_OFFLINE` key case-
+insensitively from the Prime child environment. `--offline` remains admitted
+only in the isolated Slice B qualification protocol described in section 15.
 
 The Rook MCP server is declared through standard ACP `session/new` parameters.
 No product-owned RPC or `AgentConnection` protocol exists.
@@ -887,22 +915,39 @@ reviewed Git source + ordinary build record
 -> one closed Rook runtime manifest over every shipped byte
 ```
 
-The approved Prime compatibility commit is
-`1b9dfabb04901de4823d259c88b39dfc78ec3b34`, directly over upstream
-`c718bf3c30fd8da206ed551837cbb54f7ad15948`. It contains the removable
-daemon-free ACP selector plus the release-compatibility corrections required by Rook:
+The upstream baseline remains
+`c718bf3c30fd8da206ed551837cbb54f7ad15948`. The currently reviewed precursor
+`1b9dfabb04901de4823d259c88b39dfc78ec3b34` proves the first four corrections,
+but is not release authority. Before another Prime build, the final source is
+organized as a linear, independently reviewed patch series with one concern per
+commit, in this order:
 
-- Prime resolves a kernel interpreter as `Scripts/python.exe` on Windows and
-  `bin/python` elsewhere through one shared helper used by bootstrap and ready
-  checks.
-- Prime's standalone builder copies the complete generated
-  `dist/prime-agent-runtime` subtree into the standalone artifact.
-- Prime's standalone builder accepts explicit `--frozen-model-catalog`. In
-  that mode it compiles the checked-in `models.generated.ts`, performs no
-  catalog refresh, and leaves tracked source unchanged. Without the flag,
-  Prime retains its ordinary live-refresh behavior.
+1. daemon-free in-process ACP selection through `--no-daemon`;
+2. platform-aware Prime kernel-interpreter resolution;
+3. complete `dist/prime-agent-runtime` inclusion in the standalone artifact;
+4. explicit frozen-model-catalog binary builds;
+5. project-resource denial through `--no-approve`; and
+6. optional helper-download denial through `--no-managed-tool-downloads`.
 
-No other Prime patch is part of Task 10.
+The exact commit and parent of every series member are recorded at the Prime
+compatibility review gate. The exact final series head is the one Prime source
+identity used by the build, runtime manifest, qualification protocol, and
+installed product. The series is maintenance structure, not runtime machinery:
+it adds no patch registry, dynamic selection, or second product contract.
+
+Before that final head is approved, one named upstream review gate compares
+`5c2750bdc3c99cc4225c1167a3484371a7a221ab` (bounded kernel stderr) with the
+pinned baseline and series. The gate records exactly one decision:
+
+- adopt it as a separately attributable upstream backport in the reviewed
+  ancestry immediately after concern 2, with its focused kernel tests; or
+- defer it with the observed conflict/risk and required future qualification.
+
+No new real Prime build is admitted until that decision is independently
+approved. Upstream `7f21fa3435cd1c63724b6e427edb3a60a309c266`
+(native ACP MCP tools) is explicitly deferred because it changes Rook's model-
+visible tool contract and still requires `cpython`; adopting it requires a
+separate product decision. No other Prime patch is part of Task 10.
 
 ### 12.1 Git-Owned Source Custody
 
@@ -919,11 +964,12 @@ The reviewed commit reaches the Linux environment through Git custody only:
   and clone from it.
 
 Copying a materialized checkout is prohibited. The Linux checkout is detached
-at the exact approved commit. Before the build it must prove:
+at the exact independently approved final series head. Before the build it must
+prove:
 
 ```text
-HEAD == 1b9dfabb04901de4823d259c88b39dfc78ec3b34
-HEAD^ == c718bf3c30fd8da206ed551837cbb54f7ad15948
+HEAD == the exact approved final Prime series head
+first-parent ancestry == the exact approved ordered series over c718bf3c30fd8da206ed551837cbb54f7ad15948
 tracked worktree clean
 package-lock.json present as one regular file
 package-lock.json SHA-256 recorded
@@ -1011,7 +1057,8 @@ from another fresh Git-owned checkout; partial output is never resumed or adopte
 Before accepting or hashing an output, the entrypoint rechecks:
 
 ```text
-HEAD remains 1b9dfabb04901de4823d259c88b39dfc78ec3b34
+HEAD remains the exact approved final Prime series head
+first-parent ancestry remains the exact approved ordered series
 tracked worktree remains clean
 package-lock.json SHA-256 equals its pre-build SHA-256
 packages/coding-agent/binaries/pi-windows-x64.zip exists as one regular file
@@ -1175,16 +1222,18 @@ schemaVersion = 1
 platform = "windows"
 architecture = "amd64"
 upstreamCommit = "c718bf3c30fd8da206ed551837cbb54f7ad15948"
-compatibilityPatchCommit = "1b9dfabb04901de4823d259c88b39dfc78ec3b34"
+compatibilityPatchCommit = the exact approved final Prime series head
 executable = "pi.exe"
 goalSkill = "skills/goal"
 rookSkill = "skills/rook-full"
 claimKeyVersion = 1
 ```
 
-`acpProtocolVersion` and `pythonAcpSdkVersion` equal the pinned product ACP
-contract. `rookSkillManifestSha256` is the canonical recursive identity of the
-complete installed `skills/rook-full` subtree.
+`compatibilityPatchCommit` retains its schema-v1 field name but identifies the
+final reviewed head of the complete ordered compatibility series, not an
+omnibus one-commit patch. `acpProtocolVersion` and `pythonAcpSdkVersion` equal
+the pinned product ACP contract. `rookSkillManifestSha256` is the canonical
+recursive identity of the complete installed `skills/rook-full` subtree.
 
 The closed `uv` object has exactly `version`, `executable`, `source`,
 `sourceArchiveSha256`, and `licenses`. New assembly identifies version `0.12.3`, fixed
@@ -1193,7 +1242,7 @@ the two installed relative license paths.
 
 The closed `pythonRuntime` object has exactly `root`, `manifestSha256`, and
 `sourceCommit`. Its root is `dist/prime-agent-runtime`; new assembly records the
-approved compatibility commit, and its subtree hash covers every regular file
+approved final Prime series head, and its subtree hash covers every regular file
 under that root. This diagnostic subtree identity never replaces any outer
 file row.
 
@@ -1403,12 +1452,14 @@ requirement phrases. Its bounded model-free tests cover:
    `argv[0]` without launching it.
 
 Implementation of these public seams and tests stops for independent review
-before WSL prerequisites are changed or a real Prime build runs. After approval,
-the real build starts from a fresh Git-owned Linux checkout and applies the
-post-build checks, transfers one ZIP, assembles one Windows payload, verifies
-one runtime manifest, and stages the installer input. Prime itself is not
-launched during Task 10. The exact archive hash, runtime ID, manifest, installed
-layout verification, and source states are retained for review.
+before a real Prime build runs. The same review freezes the ordered Prime patch
+series, its exact final head, the `5c2750bd` adoption or deferral decision, and
+the causal source tests for project-resource and managed-helper-download denial.
+After approval, the real build starts from a fresh Git-owned Linux checkout and
+applies the post-build checks, transfers one ZIP, assembles one Windows payload,
+verifies one runtime manifest, and stages the installer input. Prime itself is
+not launched during Task 10. The exact archive hash, runtime ID, manifest,
+installed layout verification, and source states are retained for review.
 
 The actual packaged `pi.exe` lifecycle runs only in the separately authorized
 external model-free Slice B qualification on Windows:
@@ -1431,7 +1482,7 @@ The upgrade loop remains finite:
 
 ```text
 new Prime upstream
--> determine whether the compatibility patch is still needed
+-> determine which compatibility patches are still needed
 -> build the supported Windows artifact in Ubuntu
 -> run frozen ACP compatibility gates
 -> publish a new immutable Rook runtime sibling
@@ -1509,9 +1560,9 @@ The following do not enter the ACP product:
 - a Rook-owned MCP facade or `rook_full` Python package;
 - transcript reconstruction or automatic operation replay.
 
-The only Prime compatibility surface is the one removable commit described in
-section 12. It contains the daemon-free ACP selector and the two bounded
-Windows/standalone corrections required to exercise Prime's existing kernel.
+The only Prime compatibility surface is the short removable patch series
+described in section 12. Each commit owns one bounded upstream-compatible
+concern, and one exact final head identifies the complete runtime source.
 
 ## 15. Qualification
 
@@ -1552,6 +1603,10 @@ Model-free coverage proves:
 - image validation and exact ACP image blocks;
 - launch-time model/reasoning argument construction;
 - absence of `--api-key` and reopen overrides;
+- production launch inclusion of `--no-approve` and
+  `--no-managed-tool-downloads`, absence of production `--offline`, and case-
+  insensitive removal of inherited `PI_OFFLINE` from the final child
+  environment;
 - exact service-owned `rook` MCP declaration injection;
 - structured Rook success and refusal-envelope projection;
 - direct and `rook_tools_read` GH mutation schemas advertising the required
@@ -1577,10 +1632,11 @@ only the protocol-owned `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`,
 `UV_PYTHON_INSTALL_REGISTRY=0`, and `UV_NO_CONFIG=1` values. It proves the
 resulting final Prime child environment contains exactly those admitted `UV_*`
 keys, so an installed or registered Python and ambient uv policy cannot satisfy
-the gate. The
-installed Prime process runs with `--offline`, which suppresses Prime's
-unrelated updater and catalog traffic; it does not put the separately admitted
-`uv` bootstrap into offline mode. A qualification-owned, deny-by-default
+the gate. Only this isolated Slice B protocol adds Prime's broad `--offline`
+flag. That qualification-only control suppresses unrelated updater and catalog
+traffic; it is not a RookChat product launch argument and does not put the
+separately admitted `uv` bootstrap into offline mode. A qualification-owned,
+deny-by-default
 outbound proxy records and admits only the frozen Python and package downloads
 needed by the manifest-bound `uv`, while loopback serves the deterministic
 provider and Rook MCP double. Before inserting that proxy, the runner removes
@@ -1613,6 +1669,13 @@ Slice B qualifies:
 - first-turn materialization and create-only association publication;
 - ordinary assistant-turn context continuity across same-file reopen;
 - model-free active cancellation and clean process retirement;
+- hostile project fixtures at both the launch and resumed-session working
+  directories, proving `--no-approve` performs no project read, load, or
+  migration while global auth/settings and explicit goal/Rook skills remain;
+- missing managed `fd` and `rg` under the product selector, with the installed
+  network tripwire proving no helper catalog or archive request. Source unit
+  tests separately prove that no extractor is invoked; neither result is
+  treated as proof of the other;
 - lazy MCP startup through the installed Prime artifact;
 - selection of `Scripts/python.exe` from the newly created Windows venv;
 - installation of the manifest-bound local `dist/prime-agent-runtime` rather
@@ -1748,6 +1811,8 @@ The design is accepted when:
 - every durable association identifies a validated materialized Prime session;
 - no broker lifecycle or transcript authority competes with Prime;
 - current-turn and cached presentation are bounded;
+- production launches deny ambient project resources and managed helper
+  downloads without enabling Prime's broad offline policy;
 - Rook remains the sole authority for host operations and evidence;
 - Grasshopper mutations use explicit optimistic document concurrency;
 - Prime authentication remains Prime-owned;
