@@ -97,17 +97,6 @@ namespace Rook.UI.Chat
         }
 
         /// <summary>
-        /// Called when the WebView's UI block submits a value (Apply click,
-        /// button choice, text input, confirmation). Default is no-op so
-        /// non-agent ChatTab subclasses don't need to handle it. AgentChatTab
-        /// overrides to run a streaming agent turn. Returns a Task so the
-        /// bridge handler can await completion (or fire-and-forget with
-        /// observed exceptions); avoids the brittle `async void` pattern.
-        /// </summary>
-        protected virtual Task OnUIBlockSubmitAsync(string blockId, JsonNode? value)
-            => Task.CompletedTask;
-
-        /// <summary>
         /// Receives the closed WebView composer envelope. AgentChat overrides this
         /// for image-capable ACP prompts; other tabs retain the Eto text composer.
         /// </summary>
@@ -180,8 +169,8 @@ namespace Rook.UI.Chat
             // Status cell is a vertical stack: the status label, plus an optional
             // auxiliary row that subclasses fill via SetAuxiliaryRow. With a single
             // item, StackLayout applies no inter-item spacing, so tabs that never
-            // set an auxiliary row (e.g. ClaudeCodeTab) render identically to the
-            // original single-label status row.
+            // set an auxiliary row render identically to the original single-label
+            // status row.
             _statusStack = new StackLayout
             {
                 Orientation = Orientation.Vertical,
@@ -552,7 +541,6 @@ namespace Rook.UI.Chat
             public ChatWebSurface(ChatTab owner)
             {
                 _owner = owner;
-                RegisterBridgeHandler("ui_block_submit", HandleUIBlockSubmit);
                 RegisterBridgeHandler("submit", HandleSubmit);
             }
 
@@ -584,25 +572,6 @@ namespace Rook.UI.Chat
                 }
 
                 await _owner.SubmitWebInputAsync(text ?? string.Empty, images);
-                return null;
-            }
-
-            private async Task<JsonNode?> HandleUIBlockSubmit(JsonNode? args)
-            {
-                // Bridge invokes are RPC-shaped, but UI block submission triggers
-                // a long-running streaming agent turn. We await OnUIBlockSubmitAsync
-                // so exceptions surface to the dispatcher's logger; the streaming
-                // events themselves flow back to the WebView via ExecuteScript
-                // inside HandleChatEvent — not through this return value.
-                if (args is JsonObject obj)
-                {
-                    var blockId = obj["blockId"]?.GetValue<string>();
-                    var value = obj["value"];
-                    if (!string.IsNullOrEmpty(blockId))
-                    {
-                        await _owner.OnUIBlockSubmitAsync(blockId!, value);
-                    }
-                }
                 return null;
             }
 

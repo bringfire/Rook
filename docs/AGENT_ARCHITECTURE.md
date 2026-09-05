@@ -1,6 +1,6 @@
 # Agent Architecture
 
-Updated: 2026-08-02
+Updated: 2026-09-05
 
 This document describes the agent system as it exists today.
 
@@ -11,38 +11,36 @@ Current sequencing is governed by the
 
 ## Overview
 
-The agent system is ~12,000 lines of Python in `mcp_server/src/rook/agent/` and `mcp_server/src/rook/learning/intent_*.py`. It provides two production execution paths:
+The agent system is implemented primarily in `mcp_server/src/rook/agent/` and `mcp_server/src/rook/learning/intent_*.py`. It provides two production entry paths:
 
 1. **MCP path** — Claude Code/Desktop selects explicit MCP tools → `server.py` → bridge → RookNative
-2. **Chat path** — Rook chat panel → ChatRunner → ToolDispatcher → bridge → RookNative
+2. **RookChat path** — RookChat C# panel → authenticated local HTTP → Python ACP conversation service → official ACP SDK → directly owned Prime process → service-declared Rook MCP server → Rook gateway / RookNative
 
-Both paths converge at the HTTP bridge layer. Internal agent modules call RookNative HTTP endpoints directly via `bridge.py`; autonomous MCP creation entry points are lifecycle-contained and are not a production execution path.
+Both paths converge at Rook's MCP/gateway authority boundary. Internal agent modules call RookNative HTTP endpoints directly via `bridge.py`; autonomous MCP creation entry points are lifecycle-contained and are not a production execution path.
 
 ```
-MCP Client (Claude Code)          Chat Panel (Rook C# UI)
-         │                                │
-      server.py                     chat/server.py
-         │                                │
- _call_tool_dispatch              ChatRunner + ExecutionPolicy
-         │                                │
-         │                         ToolDispatcher
-         │                                │
-         └──────────────┬─────────────────┘
-                        │
-                  bridge.py → HTTP → RookNative C++ → Rhino
+MCP Client                         RookChat C# panel
+    │                                      │
+ server.py                    authenticated local HTTP
+    │                                      │
+    │                         Python ACP conversation service
+    │                                      │
+    │                              official ACP SDK
+    │                                      │
+    │                         directly owned Prime process
+    │                                      │
+    │                         service-declared Rook MCP server
+    │                                      │
+    └──────────────────┬───────────────────┘
+                       │
+              Rook gateway / bridge.py
+                       │
+             RookNative C++ → Rhino
 ```
 
-### Current Semantic-Harness Status
+### Semantic-Harness Direction
 
-Rook also retains an internal Worker-first C# specimen. It proves the complete
-Planner → local Worker → real Grasshopper create → compile-receipt path for one fixed
-interface: no inputs and one `A:double` output. Its former product button is removed,
-and ordinary RookChat continues through `ChatRunner`.
-
-The specimen is not a general planner. In particular, arbitrary intent text does not
-yet author variable components, pins, flows, or mixed Rhino/Grasshopper operations.
-
-The next architecture separates two graph roles:
+The retained Planner and Worker internals distinguish two graph roles:
 
 | Graph | Ownership | Meaning |
 |---|---|---|
@@ -148,7 +146,7 @@ The MCP surface is large enough that showing every admitted tool to every agent 
 
 ### Tier 0: Always Active (~12 tools, ~1,800 tokens)
 
-Tier 0 contains explicit knowledge queries, Rhino and Grasshopper inspection, scene context, and progressive-disclosure meta-tools. `AGENT_TIER_0` adds supported script mutation, session history, prompt-state inspection, and the `ui_block` pseudo-tool.
+Tier 0 contains explicit knowledge queries, Rhino and Grasshopper inspection, scene context, and progressive-disclosure meta-tools. `AGENT_TIER_0` adds supported script mutation, Grasshopper snapshot, session history, and Rhino prompt-state inspection.
 
 ### Tier 1: Named Groups (on-demand)
 
@@ -163,56 +161,27 @@ Any active tool can be found via `search_tools("boolean")`. Returns matching too
 
 ### Stale Tool Deactivation
 
-Tools unused for N turns (default: 5 in agents, 8 in chat) are automatically deactivated to free context space.
+Tools unused for N turns (default: 5 in internal agents) are automatically deactivated to free context space.
 
 ---
 
-## Chat Agent (`agent/chat/`, ~1,780 lines)
+## RookChat (Prime ACP)
 
-The interactive chat service powers the Rook chat panel in Rhino's sidebar.
+[CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md) is the canonical concise description of RookChat's product boundary. The active path is:
 
-### Architecture
-
-```
-User message (from C# chat panel via HTTP)
-    │
-    ▼
-ChatRunner — LLM call (LiteLLM) + streaming
-    │
-    ▼
-ToolRegistry — progressive disclosure (Tier 0/1/2)
-    │
-    ▼
-ToolDispatcher — HTTP routing to RookNative
-    │
-    ▼
-ExecutionPolicy — annotate_result() adds "verified" field
-    │
-    ▼
-ChatEvent stream — text_delta, tool_start, tool_result, ui_block
+```text
+RookChat C# panel
+→ authenticated local HTTP
+→ Python ACP conversation service
+→ official ACP SDK
+→ directly owned Prime process
+→ service-declared Rook MCP server
+→ Rook gateway / RookNative
 ```
 
-### Execution Policy (Guarded Runtime)
+RookChat owns the durable conversation association, directly owned ACP process and connection, transport correlation, bounded presentation, runtime identity, and immutable Rook target binding. Prime owns reasoning, transcript, goals, compaction, model context, and semantic completion. Normal Rook tools are delivered through the service-declared MCP server and remain subject to Rook's capability, target, command, and gateway enforcement.
 
-Post-dispatch annotation for write-path tools. No pre-dispatch gate (would require intent classification).
-
-| Tool Category | Tools | Verification |
-|--------------|-------|-------------|
-| CREATION_TOOLS | rhino_create, rhino_boolean, rhino_loft, rhino_sweep, rhino_extrude | `objectsCreated == 0` → `verified: false` |
-| MODAL_RISK_TOOLS | rhino_execute, rhino_command (RunScript paths) | Polls `rhino_command_prompt` after dispatch; `prompt_poll_failed` → `verified: false` |
-
-After every CREATION or MODAL_RISK dispatch, the runner automatically polls `rhino_command_prompt` to check if Rhino is stuck in a modal dialog.
-
-### Components
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `server.py` | 470 | aiohttp HTTP server, port discovery, route handlers |
-| `chat_runner.py` | 692 | Conversation turn execution, streaming, tool dispatch |
-| `execution_policy.py` | 199 | Post-dispatch result annotation (verified field) |
-| `prompt_builder.py` | 94 | Dynamic system prompt with runtime health facts |
-| `conversation_store.py` | 91 | Session conversation persistence to JSON |
-| `runtime_health.py` | 136 | Bridge health and runtime facts injected into prompt |
+The modules under `agent/chat/` implement ACP transport, conversation storage, bounded presentation, runtime verification, and the authenticated HTTP surface. RookChat does not retain the internal `RookAgent`/`ToolRegistry` loop as a second chat backend. Shared helpers that remain under this package serve classified non-chat or internal-agent consumers; they do not form another RookChat implementation.
 
 ---
 
@@ -373,7 +342,7 @@ Known constraints of the current flat orchestration model:
 2. **No sibling awareness** — Parallel workers cannot see what their siblings have created on the canvas during execution.
 3. **No escalation** — Workers have no `ask()` primitive to request human input mid-task.
 4. **No mid-task validation** — Composition errors (wrong wiring, missing intermediaries) cascade until the task completes.
-5. **No general semantic design graph** — The internal Worker-first specimen compiles a fixed C# interface regardless of broader intent.
+5. **No universal semantic design graph** — Retained Planner and Worker internals use bounded task and execution structures; no active decision promotes them into a universal cross-domain IR.
 6. **No receipt-driven semantic replan** — Existing receipts can stop and verify execution, but they do not yet drive one bounded Planner-authored topology revision.
 
 ---
@@ -392,9 +361,10 @@ Known constraints of the current flat orchestration model:
 | Tool registry | `mcp_server/src/rook/agent/tool_registry.py` |
 | Events | `mcp_server/src/rook/agent/events.py` |
 | Config | `mcp_server/src/rook/agent/config.py` |
-| Chat server | `mcp_server/src/rook/agent/chat/server.py` |
-| Chat runner | `mcp_server/src/rook/agent/chat/chat_runner.py` |
-| Execution policy | `mcp_server/src/rook/agent/chat/execution_policy.py` |
+| Chat service entrypoint | `mcp_server/src/rook/agent/chat/service_main.py` |
+| ACP conversation owner | `mcp_server/src/rook/agent/chat/acp_conversation.py` |
+| Authenticated chat HTTP surface | `mcp_server/src/rook/agent/chat/server.py` |
+| Internal-agent execution policy | `mcp_server/src/rook/agent/chat/execution_policy.py` |
 | Intent orchestrator | `mcp_server/src/rook/learning/intent_orchestrator.py` |
 | Intent planner | `mcp_server/src/rook/learning/intent_planner.py` |
 | Smart executor | `mcp_server/src/rook/learning/smart_executor.py` |

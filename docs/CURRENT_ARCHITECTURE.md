@@ -195,10 +195,14 @@ target concurrency, not a sandbox for authored code.
 Durable ACP data resides under
 `%LOCALAPPDATA%\Rook\data\rookchat\acp\v1`. Prime runtimes reside under
 `%LOCALAPPDATA%\Rook\app\prime\runtimes\<runtime-id>`. Install, upgrade, repair,
-release rollback, and retained-data uninstall preserve conversation data and
-historical runtimes. An `open.claim` is created before Prime launch and removed only
-after the directly owned child is observed exited. A crash therefore fails closed
-with `session_recovery_required`; there is no automatic stale-claim recovery.
+and release rollback preserve conversation data and historical runtimes. A
+retained-data uninstall preserves ACP data, but a normal uninstall may remove the
+application payload and its Prime runtimes. After reinstall, a conversation whose
+recorded runtime is absent returns `runtime_unavailable`; RookChat does not scan for
+or substitute another runtime. An `open.claim` is created before Prime launch and
+removed only after the directly owned child is observed exited. A crash therefore
+fails closed with `session_recovery_required`; there is no automatic stale-claim
+recovery.
 
 The presentation cache is disposable and bounded: at most 4 MiB per projected turn,
 64 MiB per conversation, and 256 retained complete turns. Eviction removes only a

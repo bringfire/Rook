@@ -287,11 +287,14 @@ Durable data is outside replaceable application payloads:
 - `%LOCALAPPDATA%\Rook\data\rookchat\acp\v1\workspaces`
 - `%LOCALAPPDATA%\Rook\app\prime\runtimes\<runtime-id>`
 
-Install, upgrade, repair, release rollback, and retained-data uninstall preserve
-these roots. A crash can leave a non-expiring `open.claim`; reopen and delete then
-return `session_recovery_required` pending a separately designed recovery action.
-Never infer that a failed ACP prompt rolled back Prime's session, and never replay
-an uncertain Rook mutation.
+Install, upgrade, repair, and release rollback preserve these roots. A retained-data
+uninstall preserves the ACP data roots, but a normal uninstall may remove the
+application payload and its Prime runtimes. After reinstall, a conversation whose
+recorded runtime is absent returns `runtime_unavailable`; RookChat does not scan for
+or substitute another runtime. A crash can leave a non-expiring `open.claim`;
+reopen and delete then return `session_recovery_required` pending a separately
+designed recovery action. Never infer that a failed ACP prompt rolled back Prime's
+session, and never replay an uncertain Rook mutation.
 
 ## Python Dependencies
 

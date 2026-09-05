@@ -23,6 +23,13 @@ _FORBIDDEN_PATHS = (
     "mcp_server/src/rook/agent/chat/prompt_builder.py",
     "mcp_server/src/rook/agent/worker_first_csharp_application.py",
     "scripts/chatrunner_headless_qualification.py",
+    "src/Rook/UI/Chat/ClaudeCodeTab.cs",
+    "src/Rook/UI/Chat/ClaudeCodeWrapper.cs",
+    "src/Rook/UI/Chat/ClaudePanelMcpConfigBuilder.cs",
+    "src/Rook/UI/Chat/SettingsDialog.cs",
+    "src/Rook/UI/Chat/StreamJsonParser.cs",
+    "src/Rook.Tests/UI/Chat/ClaudePanelMcpConfigBuilderTests.cs",
+    "src/Rook/UI/Chat/Resources/prototype.html",
 )
 
 _PRODUCT_ROOTS = (
@@ -32,18 +39,30 @@ _PRODUCT_ROOTS = (
     "scripts",
 )
 
-_TEXT_SUFFIXES = frozenset({".cs", ".html", ".iss", ".js", ".py", ".ps1", ".sh", ".ts"})
+_TEXT_SUFFIXES = frozenset({".cs", ".css", ".html", ".iss", ".js", ".py", ".ps1", ".sh", ".ts"})
 _OBSOLETE_IMPORT = re.compile(
     r"(?:from|import)\s+rook\.agent\.(?:chat\.(?:conversation_store|chat_runner|model_status|prompt_builder)|worker_first_csharp_application)\b"
 )
 _OBSOLETE_ROUTE = re.compile(
     r"/agent/chat/(?:personas|models?|start|message|stop|ui-response|worker-first)(?:[/'\"\s]|$)"
 )
-_BACKEND_ABSTRACTION = re.compile(r"\b(?:availableBackends|backendSelector|ChatRunnerBackend)\b")
-_PRIVATE_PRIME_TRANSPORT = re.compile(r"\bAgentConnection\b|--daemon-socket\b")
+_LEGACY_DIRECT_CLAUDE = re.compile(r"\b(?:ClaudeCodeTab|ClaudeCodeWrapper|ClaudePanelMcpConfigBuilder)\b")
+_PRIVATE_PRIME_TRANSPORT = re.compile(r"\b(?:PrimeRpcProcess|PrimeRpcClient|prime_rpc|AgentConnection)\b")
+_DAEMON_TOPOLOGY = re.compile(
+    r"(?:\b(?:DaemonClient|PrimeDaemonClient|DaemonAgentConnection|daemonTransport|daemon_transport|daemonSocket|"
+    r"daemon_socket|PrimeWorkerProcess|workerProcess|worker_process|prime_worker)\b|--daemon-socket)"
+)
+_PROCESS_START_AUTHORITY = re.compile(
+    r"\b(?:processStartUtcTicks|process_start_utc_ticks|processStartTicks|process_start_ticks)\b"
+)
+_BACKEND_ABSTRACTION = re.compile(
+    r"\b(?:availableBackends|available_backends|backendRegistry|backend_registry|backendSelector|backend_selector|"
+    r"ChatRunnerBackend)\b"
+)
 _PROCESS_SURVEILLANCE = re.compile(
     r"(?is)(?:powershell[^\n]{0,160}Get-Process|Get-Process[^\n]{0,160}powershell|psutil\.process_iter|CreateToolhelp32Snapshot|kill-by-name)"
 )
+_OBSOLETE_UI_BLOCK = re.compile(r"(?:\b(?:ui_block|ui_block_submit|renderUIBlock|updateUIBlock)\b|\.ui-block\b)")
 _ACP_SDK = re.compile(r"agent-client-protocol|\bAgentClientProtocol\b", re.IGNORECASE)
 
 
@@ -103,15 +122,24 @@ def scan(root: Path) -> list[Finding]:
             findings.append(Finding("unreadable_product_source", relative, str(exc)))
             continue
 
-        checks = (
+        checks = [
             ("obsolete_import", _OBSOLETE_IMPORT, "obsolete RookChat import remains"),
             ("obsolete_route", _OBSOLETE_ROUTE, "obsolete RookChat HTTP route remains"),
-            ("backend_abstraction", _BACKEND_ABSTRACTION, "RookChat backend abstraction remains"),
-            ("private_prime_transport", _PRIVATE_PRIME_TRANSPORT if is_chat_surface else None, "private Prime transport remains"),
-            ("process_surveillance", _PROCESS_SURVEILLANCE if is_chat_surface else None, "process surveillance remains"),
-        )
+        ]
+        if is_chat_surface:
+            checks.extend(
+                (
+                    ("legacy_direct_claude", _LEGACY_DIRECT_CLAUDE, "legacy direct-Claude RookChat implementation remains"),
+                    ("private_prime_transport", _PRIVATE_PRIME_TRANSPORT, "private Prime transport remains"),
+                    ("daemon_topology", _DAEMON_TOPOLOGY, "daemon or worker topology remains"),
+                    ("process_start_authority", _PROCESS_START_AUTHORITY, "process-start identity authority remains"),
+                    ("backend_abstraction", _BACKEND_ABSTRACTION, "RookChat backend abstraction remains"),
+                    ("process_surveillance", _PROCESS_SURVEILLANCE, "process surveillance remains"),
+                    ("obsolete_ui_block", _OBSOLETE_UI_BLOCK, "obsolete adaptive UI block remains"),
+                )
+            )
         for code, pattern, message in checks:
-            if pattern is not None and pattern.search(text):
+            if pattern.search(text):
                 findings.append(Finding(code, relative, message))
 
         if path.suffix.lower() == ".cs" and _ACP_SDK.search(text):
