@@ -1881,8 +1881,15 @@ Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
 
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
 pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
-pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
+pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1 -SkipBuiltPayloadCheck
 ```
+
+Task 10 uses the release guard's source-only mode because this task does not
+build Rook's native or managed Release outputs. This gate verifies installer
+source wiring, the exact Prime payload argument, shared promotion ownership, and
+retention behavior. The full guard without `-SkipBuiltPayloadCheck` remains
+mandatory in the actual build-release workflow after the native and managed
+Release builds have produced their payloads.
 
 - [ ] **Step 4: Make the product runtime consume the new manifest and bundled uv**
 
@@ -2001,7 +2008,7 @@ Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
 
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
 pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
-pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
+pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1 -SkipBuiltPayloadCheck
 ```
 
 - [ ] **Step 6: Run the complete model-free Task 10 gate, commit, and stop**
@@ -2020,7 +2027,7 @@ Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
 
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
 pwsh -NoProfile -File scripts/tests/deploy-local-testing-guards.tests.ps1
-pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1
+pwsh -NoProfile -File scripts/tests/release-installer-guards.tests.ps1 -SkipBuiltPayloadCheck
 git diff --check
 git status --short
 ```
@@ -2633,11 +2640,15 @@ foreach ($entrypointPath in @($packagerPath, $verifierSource)) {
 }
 ```
 
-Rerun the complete Step 6 gate and confirm Git has no new tracked or untracked
-files. The installed-verifier entrypoint remains covered by its complete
-synthetic install fixture; Task 10 does not pretend this release-staging root is
-already installed. Do not compile the installer, deploy, install, or launch
-Prime in Task 10.
+Rerun the complete Step 6 gate in its documented source-only installer-guard
+mode and confirm Git has no new tracked or untracked files. The
+installed-verifier entrypoint remains covered by its complete synthetic install
+fixture; Task 10 does not pretend this release-staging root is already installed.
+Prime runtime assembly and installer source/promotion wiring are the Task 10
+claims. Full built-plugin payload qualification is deliberately deferred to the
+installed-product promotion and release-build gate, where the unchanged full
+guard runs after real Release outputs exist. Do not compile the installer,
+deploy, install, or launch Prime in Task 10.
 
 Report the exact approved Rook implementation commit, its pre/post clean
 identity, build-attempt and assembly-attempt names, complete Prime series and final head,
