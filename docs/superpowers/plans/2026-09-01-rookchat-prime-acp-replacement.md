@@ -2833,23 +2833,36 @@ lands over that commit.
 
 Modify only `mcp_server/tests/test_rookchat_acp_cutover.py` first. Continue using
 temporary product trees and `scan(root)`; no test may inspect the verifier's own
-source text and count matching phrases as evidence. Add one independently named or
-parameterized behavioral fixture for every row below and require the exact finding
-code:
+source text and count matching phrases as evidence. Expand every row below into one
+separately parameterized behavioral case for each individual forbidden path, symbol,
+or spelling. Every case contains exactly one planted violation and requires its
+exact finding code; no fixture may combine alternative spellings and let one match
+stand as evidence for the others. The complete matrix must exercise every finding
+code independently:
 
 | Family | Exact fixture paths or symbols | Finding |
 | --- | --- | --- |
-| Closed managed paths | The six exact managed source/test paths in Task 11's file table | `obsolete_path` |
+| Existing obsolete Python paths | `mcp_server/src/rook/agent/chat/conversation_store.py`, `mcp_server/src/rook/agent/chat/chat_runner.py`, `mcp_server/src/rook/agent/chat/model_status.py`, `mcp_server/src/rook/agent/chat/prompt_builder.py`, `mcp_server/src/rook/agent/worker_first_csharp_application.py`, `scripts/chatrunner_headless_qualification.py` | `obsolete_path` |
+| Closed managed paths | `src/Rook/UI/Chat/ClaudeCodeTab.cs`, `src/Rook/UI/Chat/ClaudeCodeWrapper.cs`, `src/Rook/UI/Chat/ClaudePanelMcpConfigBuilder.cs`, `src/Rook/UI/Chat/SettingsDialog.cs`, `src/Rook/UI/Chat/StreamJsonParser.cs`, `src/Rook.Tests/UI/Chat/ClaudePanelMcpConfigBuilderTests.cs` | `obsolete_path` |
 | Embedded prototype | `src/Rook/UI/Chat/Resources/prototype.html` | `obsolete_path` |
+| Obsolete module imports | `rook.agent.chat.conversation_store`, `rook.agent.chat.chat_runner`, `rook.agent.chat.model_status`, `rook.agent.chat.prompt_builder`, `rook.agent.worker_first_csharp_application` | `obsolete_import` |
+| Obsolete HTTP routes | `/agent/chat/personas`, `/agent/chat/model`, `/agent/chat/models`, `/agent/chat/start`, `/agent/chat/message`, `/agent/chat/stop`, `/agent/chat/ui-response`, `/agent/chat/worker-first` | `obsolete_route` |
 | Direct-Claude implementation | `ClaudeCodeTab`, `ClaudeCodeWrapper`, `ClaudePanelMcpConfigBuilder` | `legacy_direct_claude` |
 | Private Prime RPC | `PrimeRpcProcess`, `PrimeRpcClient`, `prime_rpc`, `AgentConnection` | `private_prime_transport` |
 | Daemon/worker topology | `DaemonClient`, `PrimeDaemonClient`, `DaemonAgentConnection`, `daemonTransport`, `daemon_transport`, `daemonSocket`, `daemon_socket`, `--daemon-socket`, `PrimeWorkerProcess`, `workerProcess`, `worker_process`, `prime_worker` | `daemon_topology` |
 | Process-start authority | `processStartUtcTicks`, `process_start_utc_ticks`, `processStartTicks`, `process_start_ticks` | `process_start_authority` |
 | Backend registry/selector | `availableBackends`, `available_backends`, `backendRegistry`, `backend_registry`, `backendSelector`, `backend_selector`, `ChatRunnerBackend` | `backend_abstraction` |
+| Process surveillance | PowerShell plus `Get-Process` in either order, `psutil.process_iter`, `CreateToolhelp32Snapshot`, `kill-by-name` | `process_surveillance` |
+| C# ACP SDK ownership | `AgentClientProtocol`, `agent-client-protocol` | `csharp_acp_owner` |
+| Other non-Python ACP SDK ownership | `AgentClientProtocol`, `agent-client-protocol` | `non_python_acp_sdk` |
+| Runtime evaluator imports | import paths containing the exact segment `campaign`, `qualification`, or `evaluator` | `runtime_evaluator` |
 | Obsolete adaptive UI | `ui_block`, `ui_block_submit`, `renderUIBlock`, `updateUIBlock`, `.ui-block` | `obsolete_ui_block` |
+| Unreadable product source | one malformed UTF-8 product-source fixture written as bytes | `unreadable_product_source` |
 
 Each symbol fixture lives under a Rook-owned chat source root. The scanner must not
 apply these RookChat topology bans to the manifest-bound third-party Prime payload.
+The test matrix declares its cases independently; it does not import the verifier's
+patterns or forbidden-path constants as its expected oracle.
 Add `.css` to the product text suffixes so `.ui-block` rules are observable. Keep
 the existing repository fixture. It may remain green under the old verifier in
 Step 6; after Step 7 strengthens the verifier and before product deletion, it must
@@ -2868,9 +2881,13 @@ Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
 ./.venv/Scripts/python.exe -m pytest tests/test_rookchat_acp_cutover.py -q
 ```
 
-Expected RED boundary: existing clean controls remain green, while every newly
-introduced forbidden-family fixture fails because the current verifier does not yet
-produce its required finding. Record each named missing-finding failure. The real
+Expected RED boundary is intentionally mixed. Existing recognized cases remain
+green, including `AgentConnection` with `private_prime_transport` and
+`availableBackends`, `backendSelector`, and `ChatRunnerBackend` with
+`backend_abstraction`. Every previously unsupported exact path or spelling is RED
+because its required finding is absent; `--daemon-socket` is also RED for
+`daemon_topology` while the old verifier still assigns it to
+`private_prime_transport`. Record every individual case and its result. The real
 repository test may remain green under the old verifier at this point; it does not
 become authoritative until Step 7 strengthens the verifier. Any harness, fixture,
 interpreter, or unrelated failure stops the correction.
@@ -2895,8 +2912,9 @@ Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
 ./.venv/Scripts/python.exe -m pytest tests/test_rookchat_acp_cutover.py -q
 ```
 
-Expected: every temporary fixture is green because the strengthened verifier
-produces its exact finding, while the complete file has exactly one RED test:
+Expected: every individually parameterized adversarial fixture is green because the
+strengthened verifier produces its exact finding for that one path or spelling,
+while the complete file has exactly one RED test:
 `test_repository_has_only_the_prime_acp_chat_product`. That failure must report the
 actual legacy C# paths and `ui_block` residue still in the repository. Do not delete
 that residue until this causal detection is retained.
@@ -2961,13 +2979,15 @@ git add src/Rook/UI/Chat/ClaudeCodeTab.cs src/Rook/UI/Chat/ClaudeCodeWrapper.cs 
 git commit -m "refactor(chat): finish ACP-only panel cutover"
 ```
 
-This plan-only amendment is committed directly over
-`347a2d9b3e963b662ad2f0868a7fb6e83629f85d8a9`. Implementation starts only
-from the exact amended plan head subsequently approved by independent review.
-Verify that approved plan head is the implementation correction commit's direct
-parent; do not reset to or branch the correction directly from `7f69aa9e`. Also
-verify closed scope, `git show --check`, and clean Rook/Prime/Chirp worktrees. Stop
-for independent Task 11 review. Task 12 remains unauthorized.
+Plan lineage before this correction is exact:
+`347a2d9b3e963b66241ad356e01e22c3f0b61e80` ->
+`641c4d7410be3c034f66e4bd46e9c255f21f8be6`. Implementation starts only
+from the exact amended plan head subsequently approved by independent review; a
+later plan-only correction supersedes `641c4d74` as that head. Verify that approved
+plan head is the implementation correction commit's direct parent; do not reset to
+or branch the correction directly from `7f69aa9e`. Also verify closed scope,
+`git show --check`, and clean Rook/Prime/Chirp worktrees. Stop for independent Task
+11 review. Task 12 remains unauthorized.
 
 ### Task 12: Build The External A-E Qualification Ladder With Hard Review Stops
 
