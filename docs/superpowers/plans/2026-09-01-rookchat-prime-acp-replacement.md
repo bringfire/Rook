@@ -2841,7 +2841,7 @@ code:
 | --- | --- | --- |
 | Closed managed paths | The six exact managed source/test paths in Task 11's file table | `obsolete_path` |
 | Embedded prototype | `src/Rook/UI/Chat/Resources/prototype.html` | `obsolete_path` |
-| Direct-Claude implementation | `ClaudeCodeTab`, `ClaudeCodeWrapper`, `ClaudePanelMcpConfigBuilder`, `SettingsDialog`, `StreamJsonParser` | `legacy_direct_claude` |
+| Direct-Claude implementation | `ClaudeCodeTab`, `ClaudeCodeWrapper`, `ClaudePanelMcpConfigBuilder` | `legacy_direct_claude` |
 | Private Prime RPC | `PrimeRpcProcess`, `PrimeRpcClient`, `prime_rpc`, `AgentConnection` | `private_prime_transport` |
 | Daemon/worker topology | `DaemonClient`, `PrimeDaemonClient`, `DaemonAgentConnection`, `daemonTransport`, `daemon_transport`, `daemonSocket`, `daemon_socket`, `--daemon-socket`, `PrimeWorkerProcess`, `workerProcess`, `worker_process`, `prime_worker` | `daemon_topology` |
 | Process-start authority | `processStartUtcTicks`, `process_start_utc_ticks`, `processStartTicks`, `process_start_ticks` | `process_start_authority` |
@@ -2851,8 +2851,9 @@ code:
 Each symbol fixture lives under a Rook-owned chat source root. The scanner must not
 apply these RookChat topology bans to the manifest-bound third-party Prime payload.
 Add `.css` to the product text suffixes so `.ui-block` rules are observable. Keep
-the existing repository fixture; before product deletion it must fail because the
-closed managed paths and obsolete UI symbols are present.
+the existing repository fixture. It may remain green under the old verifier in
+Step 6; after Step 7 strengthens the verifier and before product deletion, it must
+fail on the closed managed paths and obsolete UI symbols.
 
 Add one admitted fixture containing a retained non-chat
 `mcp_server/src/rook/learning/agent.py` with ordinary Claude/LiteLLM/DSPy/Chirp
@@ -2867,36 +2868,55 @@ Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
 ./.venv/Scripts/python.exe -m pytest tests/test_rookchat_acp_cutover.py -q
 ```
 
-Expected: the adversarial temporary fixtures pass by producing their exact finding,
-while `test_repository_has_only_the_prime_acp_chat_product` fails on the known
-legacy C# paths/UI symbols. Any harness or unrelated failure stops the correction.
+Expected RED boundary: existing clean controls remain green, while every newly
+introduced forbidden-family fixture fails because the current verifier does not yet
+produce its required finding. Record each named missing-finding failure. The real
+repository test may remain green under the old verifier at this point; it does not
+become authoritative until Step 7 strengthens the verifier. Any harness, fixture,
+interpreter, or unrelated failure stops the correction.
 
-- [ ] **Step 7: Delete the proven-unowned managed implementation and UI-block path**
+- [ ] **Step 7: Strengthen the verifier while the real residue is still present**
 
-Delete exactly the seven closed files added to Task 11's file table. Apply the
-symbol removals listed above to `ChatTab.cs`, `chat.html`, and `chat.css`. Do not
-change `AgentChatTab`, `AgentChatClient`, `RookChatPanel`, service ownership, or any
-non-chat Claude/LiteLLM/DSPy/Chirp consumer.
+Update `scripts/verify-rookchat-acp-cutover.py` to implement the exact closed paths,
+suffixes, unmistakable legacy symbol families, and finding codes exercised in Step
+6. `SettingsDialog` and `StreamJsonParser` are forbidden only through their exact
+closed file paths; do not prohibit those generic class names elsewhere in future
+RookChat code. Use bounded text scanning of Rook-owned product sources and the
+existing AST import check. Do not add process inspection, compiled-assembly
+reflection, a general policy engine, or a second manifest. Keep the scanner itself,
+test directories, the manifest-bound third-party Prime payload, and retained
+non-chat provider consumers outside symbol-policy scanning.
 
-Run the repository audit before implementing scanner changes:
+Run the adversarial fixtures independently, then the complete file:
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
+./.venv/Scripts/python.exe -m pytest tests/test_rookchat_acp_cutover.py -q -k "not repository_has_only_the_prime_acp_chat_product"
+./.venv/Scripts/python.exe -m pytest tests/test_rookchat_acp_cutover.py -q
+```
+
+Expected: every temporary fixture is green because the strengthened verifier
+produces its exact finding, while the complete file has exactly one RED test:
+`test_repository_has_only_the_prime_acp_chat_product`. That failure must report the
+actual legacy C# paths and `ui_block` residue still in the repository. Do not delete
+that residue until this causal detection is retained.
+
+- [ ] **Step 8: Delete the proven-unowned managed implementation and UI-block path**
+
+Before deletion, run the closed ownership audit:
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
 rg -n -i "ClaudeCodeTab|ClaudeCodeWrapper|ClaudePanelMcpConfigBuilder|SettingsDialog|StreamJsonParser|ui_block|ui-block|renderUIBlock|updateUIBlock|prototype.html" src/Rook src/Rook.Tests
 ```
 
-Expected: only negative/admission assertions explicitly introduced by this Task 11
-correction may remain. Any additional production owner stops the correction.
+Delete exactly the seven closed files added to Task 11's file table. Apply the
+symbol removals listed above to `ChatTab.cs`, `chat.html`, and `chat.css`. Do not
+change `AgentChatTab`, `AgentChatClient`, `RookChatPanel`, service ownership, or any
+non-chat Claude/LiteLLM/DSPy/Chirp consumer. Any additional production owner found
+by the audit stops the correction.
 
-- [ ] **Step 8: Strengthen the product cutover verifier**
-
-Update `scripts/verify-rookchat-acp-cutover.py` to implement the exact closed paths,
-suffixes, symbol families, and finding codes exercised in Step 6. Use bounded text
-scanning of Rook-owned product sources and the existing AST import check. Do not add
-process inspection, compiled-assembly reflection, a general policy engine, or a
-second manifest. Keep the scanner itself and test directories excluded.
-
-The repository test and CLI must now pass:
+The repository test and CLI now become green:
 
 ```powershell
 Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
@@ -2907,8 +2927,8 @@ mcp_server/.venv/Scripts/python.exe scripts/verify-rookchat-acp-cutover.py --roo
 ```
 
 Expected: all adversarial fixtures pass, the real repository has zero findings,
-and the five deleted C# implementations cannot be reintroduced without failing the
-gate.
+and the five deleted legacy C# files/classes cannot be reintroduced without failing
+the gate.
 
 - [ ] **Step 9: Correct uninstall/runtime-retention documentation**
 
@@ -2941,9 +2961,13 @@ git add src/Rook/UI/Chat/ClaudeCodeTab.cs src/Rook/UI/Chat/ClaudeCodeWrapper.cs 
 git commit -m "refactor(chat): finish ACP-only panel cutover"
 ```
 
-Verify exact parent `7f69aa9edf4da0ad2f0868a7fb6e83629f85d8a9`, closed
-scope, `git show --check`, and clean Rook/Prime/Chirp worktrees. Stop for
-independent Task 11 review. Task 12 remains unauthorized.
+This plan-only amendment is committed directly over
+`347a2d9b3e963b662ad2f0868a7fb6e83629f85d8a9`. Implementation starts only
+from the exact amended plan head subsequently approved by independent review.
+Verify that approved plan head is the implementation correction commit's direct
+parent; do not reset to or branch the correction directly from `7f69aa9e`. Also
+verify closed scope, `git show --check`, and clean Rook/Prime/Chirp worktrees. Stop
+for independent Task 11 review. Task 12 remains unauthorized.
 
 ### Task 12: Build The External A-E Qualification Ladder With Hard Review Stops
 
