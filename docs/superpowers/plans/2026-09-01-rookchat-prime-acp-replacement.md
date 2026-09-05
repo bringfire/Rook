@@ -2672,6 +2672,16 @@ execution.
 - Delete: `mcp_server/tests/test_model_override_options.py`
 - Delete: `mcp_server/tests/test_rookchat_worker_first_csharp_integration.py`
 - Delete: `mcp_server/tests/test_worker_first_csharp_application.py`
+- Delete: `src/Rook/UI/Chat/ClaudeCodeTab.cs`
+- Delete: `src/Rook/UI/Chat/ClaudeCodeWrapper.cs`
+- Delete: `src/Rook/UI/Chat/ClaudePanelMcpConfigBuilder.cs`
+- Delete: `src/Rook/UI/Chat/SettingsDialog.cs`
+- Delete: `src/Rook/UI/Chat/StreamJsonParser.cs`
+- Delete: `src/Rook.Tests/UI/Chat/ClaudePanelMcpConfigBuilderTests.cs`
+- Delete: `src/Rook/UI/Chat/Resources/prototype.html`
+- Modify: `src/Rook/UI/Chat/ChatTab.cs`
+- Modify: `src/Rook/UI/Chat/Resources/chat.html`
+- Modify: `src/Rook/UI/Chat/Resources/chat.css`
 - Modify: `mcp_server/src/rook/agent/capability_inventory.py`
 - Modify: `mcp_server/src/rook/agent/chat/tool_contracts.py`
 - Modify: `mcp_server/src/rook/agent/tool_dispatcher.py`
@@ -2754,6 +2764,31 @@ The audit must classify every current import or path reference before deleting t
 
 `worker_first_csharp_application.py` has no retained production caller after Task 6 and implements the removed RookChat worker-first mode directly. Delete it and its dedicated `test_worker_first_csharp_application.py`; preserve lower-level planner/worker modules that have independent non-chat ownership unless the audit separately proves them unowned.
 
+The managed project uses SDK-default compile inclusion and embeds every file below
+`src/Rook/UI/Chat/Resources`. Although `RookChatPanel` constructs only
+`AgentChatTab`, the five legacy `ClaudeCode*`/settings/stream-parser source files
+therefore remain compiled product code, and `prototype.html` remains shipped
+content. Delete those five production files, their dedicated
+`ClaudePanelMcpConfigBuilderTests.cs`, and the embedded prototype. Do not retain a
+second direct-Claude subprocess, process restart/termination owner, temporary MCP
+configuration path, stream protocol, or Claude-specific settings path merely
+because no current constructor reaches it.
+
+The removed server pseudo-tool also leaves an unowned `ui_block` presentation path.
+Remove only that path from the retained generic panel surface:
+
+- `ChatTab.cs`: remove `OnUIBlockSubmitAsync`, the `ui_block_submit` bridge
+  registration and handler, and comments that claim an agent-tab owner;
+- `chat.html`: remove stale-block submission, all `renderUIBlock`/
+  `updateUIBlock` helpers and interactions, and their exported API entries;
+- `chat.css`: remove the `.ui-block*` presentation and state rules;
+- `prototype.html`: delete the obsolete embedded adaptive-UI prototype completely.
+
+Keep `ChatTab`, its ordinary `submit` bridge, generic rendering, and
+`AgentChatTab` intact. If another caller of any deleted class or `ui_block` symbol
+appears, stop for plan correction instead of deleting or adapting it
+opportunistically.
+
 Shared production cleanup is equally explicit. Remove the ChatRunner-only `list_chat_models`, `set_chat_model`, and `ui_block` pseudo-tool sentinels and their tool-group memberships. Retain internal-agent interceptions such as `request_tools`, `search_tools`, and the MCP capability gateway, but rename shared dispatchability terminology from `chatrunner_intercepted` to owner-neutral internal-agent terminology. Keep the capability inventory, dispatcher, gateway profile intersection, `tool_result_view`, `tool_contracts`, `execution_policy`, persona infrastructure used by planner/spawn, knowledge routes, authenticated HTTP middleware, service discovery, and generic panel rendering. The `server.py` gateway profile helper remains shared; only its obsolete ChatRunner wording changes.
 
 If the audit finds another production owner or test caller beyond this closed classification, stop for plan correction instead of broadening deletion opportunistically.
@@ -2761,6 +2796,14 @@ If the audit finds another production owner or test caller beyond this closed cl
 - [ ] **Step 3: Update architecture and user docs**
 
 Document one Prime ACP implementation, Prime-owned login via interactive `/login`, new-conversation model/reasoning selection, reopen behavior, target-unavailable behavior, image-history limits, release-level rollback, preserved data roots, and the explicit `session_recovery_required` limitation after service crash. State that Rook installs the required Prime executable and `uv` bootstrap tool with no separate software installation, while first IPython/Rook use may require an internet download and take longer as Prime creates its normal mutable kernel. Do not advertise compaction or IPython restoration guarantees.
+
+Keep uninstall custody exact: ACP data below
+`%LOCALAPPDATA%\Rook\data\rookchat\acp\v1` survives a retained-data uninstall, but
+a normal uninstall may remove `%LOCALAPPDATA%\Rook\app`, including installed Prime
+runtimes. After reinstall, reopening a conversation whose recorded runtime is no
+longer installed returns `runtime_unavailable`; there is no fallback scan or
+substitution. Correct this wording in `docs/CURRENT_ARCHITECTURE.md` and
+`AGENT_SETUP.md` without weakening upgrade, repair, or release-rollback retention.
 
 - [ ] **Step 4: Run static and full offline unit gates**
 
@@ -2780,6 +2823,127 @@ Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
 git add mcp_server/src/rook/agent/chat/conversation_store.py mcp_server/src/rook/agent/chat/chat_runner.py mcp_server/src/rook/agent/chat/model_status.py mcp_server/src/rook/agent/chat/prompt_builder.py mcp_server/src/rook/agent/worker_first_csharp_application.py scripts/chatrunner_headless_qualification.py mcp_server/src/rook/agent/capability_inventory.py mcp_server/src/rook/agent/chat/tool_contracts.py mcp_server/src/rook/agent/tool_dispatcher.py mcp_server/src/rook/agent/tool_groups.py mcp_server/src/rook/server.py mcp_server/tests/test_chatrunner_headless_qualification.py mcp_server/tests/test_chatrunner_mcp_capability_gateway.py mcp_server/tests/test_model_override_options.py mcp_server/tests/test_rookchat_worker_first_csharp_integration.py mcp_server/tests/test_worker_first_csharp_application.py mcp_server/tests/test_capability_inventory.py mcp_server/tests/test_containment_agent_protocols.py mcp_server/tests/test_containment_catalogs.py mcp_server/tests/test_containment_guidance.py mcp_server/tests/test_dispatcher_safety.py mcp_server/tests/test_persona_prompt_schema.py mcp_server/tests/test_rookchat_gh_script_creation_parity.py mcp_server/tests/test_rookchat_tool_contracts.py mcp_server/tests/test_rookchat_tool_schema_golden.py mcp_server/tests/test_rookchat_visible_dispatchability.py mcp_server/tests/test_rookchat_tool_transcripts.py mcp_server/tests/test_vertex_runtime_integration.py scripts/vertex_oauth_acceptance.py mcp_server/tests/test_vertex_acceptance_harness.py mcp_server/tests/test_rookchat_acp_cutover.py docs/CURRENT_ARCHITECTURE.md README.md QUICK_START.md AGENT_SETUP.md scripts/verify-rookchat-acp-cutover.py
 git commit -m "refactor(chat): remove ChatRunner product path"
 ```
+
+Commit `7f69aa9edf4da0ad2f0868a7fb6e83629f85d8a9` is the preserved
+Python ChatRunner-removal base. Independent review found the additional compiled
+managed owner above, so Task 11 remains open until the following bounded correction
+lands over that commit.
+
+- [ ] **Step 6: Extend the RED non-port fixtures across every forbidden family**
+
+Modify only `mcp_server/tests/test_rookchat_acp_cutover.py` first. Continue using
+temporary product trees and `scan(root)`; no test may inspect the verifier's own
+source text and count matching phrases as evidence. Add one independently named or
+parameterized behavioral fixture for every row below and require the exact finding
+code:
+
+| Family | Exact fixture paths or symbols | Finding |
+| --- | --- | --- |
+| Closed managed paths | The six exact managed source/test paths in Task 11's file table | `obsolete_path` |
+| Embedded prototype | `src/Rook/UI/Chat/Resources/prototype.html` | `obsolete_path` |
+| Direct-Claude implementation | `ClaudeCodeTab`, `ClaudeCodeWrapper`, `ClaudePanelMcpConfigBuilder`, `SettingsDialog`, `StreamJsonParser` | `legacy_direct_claude` |
+| Private Prime RPC | `PrimeRpcProcess`, `PrimeRpcClient`, `prime_rpc`, `AgentConnection` | `private_prime_transport` |
+| Daemon/worker topology | `DaemonClient`, `PrimeDaemonClient`, `DaemonAgentConnection`, `daemonTransport`, `daemon_transport`, `daemonSocket`, `daemon_socket`, `--daemon-socket`, `PrimeWorkerProcess`, `workerProcess`, `worker_process`, `prime_worker` | `daemon_topology` |
+| Process-start authority | `processStartUtcTicks`, `process_start_utc_ticks`, `processStartTicks`, `process_start_ticks` | `process_start_authority` |
+| Backend registry/selector | `availableBackends`, `available_backends`, `backendRegistry`, `backend_registry`, `backendSelector`, `backend_selector`, `ChatRunnerBackend` | `backend_abstraction` |
+| Obsolete adaptive UI | `ui_block`, `ui_block_submit`, `renderUIBlock`, `updateUIBlock`, `.ui-block` | `obsolete_ui_block` |
+
+Each symbol fixture lives under a Rook-owned chat source root. The scanner must not
+apply these RookChat topology bans to the manifest-bound third-party Prime payload.
+Add `.css` to the product text suffixes so `.ui-block` rules are observable. Keep
+the existing repository fixture; before product deletion it must fail because the
+closed managed paths and obsolete UI symbols are present.
+
+Add one admitted fixture containing a retained non-chat
+`mcp_server/src/rook/learning/agent.py` with ordinary Claude/LiteLLM/DSPy/Chirp
+references and prove that it receives no finding. The exact production file remains
+unchanged. The scanner forbids obsolete RookChat ownership, not supported non-chat
+provider consumers.
+
+Run:
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
+./.venv/Scripts/python.exe -m pytest tests/test_rookchat_acp_cutover.py -q
+```
+
+Expected: the adversarial temporary fixtures pass by producing their exact finding,
+while `test_repository_has_only_the_prime_acp_chat_product` fails on the known
+legacy C# paths/UI symbols. Any harness or unrelated failure stops the correction.
+
+- [ ] **Step 7: Delete the proven-unowned managed implementation and UI-block path**
+
+Delete exactly the seven closed files added to Task 11's file table. Apply the
+symbol removals listed above to `ChatTab.cs`, `chat.html`, and `chat.css`. Do not
+change `AgentChatTab`, `AgentChatClient`, `RookChatPanel`, service ownership, or any
+non-chat Claude/LiteLLM/DSPy/Chirp consumer.
+
+Run the repository audit before implementing scanner changes:
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+rg -n -i "ClaudeCodeTab|ClaudeCodeWrapper|ClaudePanelMcpConfigBuilder|SettingsDialog|StreamJsonParser|ui_block|ui-block|renderUIBlock|updateUIBlock|prototype.html" src/Rook src/Rook.Tests
+```
+
+Expected: only negative/admission assertions explicitly introduced by this Task 11
+correction may remain. Any additional production owner stops the correction.
+
+- [ ] **Step 8: Strengthen the product cutover verifier**
+
+Update `scripts/verify-rookchat-acp-cutover.py` to implement the exact closed paths,
+suffixes, symbol families, and finding codes exercised in Step 6. Use bounded text
+scanning of Rook-owned product sources and the existing AST import check. Do not add
+process inspection, compiled-assembly reflection, a general policy engine, or a
+second manifest. Keep the scanner itself and test directories excluded.
+
+The repository test and CLI must now pass:
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/mcp_server
+./.venv/Scripts/python.exe -m pytest tests/test_rookchat_acp_cutover.py -q
+
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+mcp_server/.venv/Scripts/python.exe scripts/verify-rookchat-acp-cutover.py --root C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+```
+
+Expected: all adversarial fixtures pass, the real repository has zero findings,
+and the five deleted C# implementations cannot be reintroduced without failing the
+gate.
+
+- [ ] **Step 9: Correct uninstall/runtime-retention documentation**
+
+Modify only `docs/CURRENT_ARCHITECTURE.md` and `AGENT_SETUP.md` as specified in
+Step 3. Preserve the rest of the approved ACP ownership and recovery wording.
+
+- [ ] **Step 10: Run the complete Task 11 correction gate**
+
+Run the adapted 308-test Python suite and frozen 365-test ACP suite from Step 4,
+then:
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+dotnet test src/Rook.Tests/Rook.Tests.csproj --no-restore
+mcp_server/.venv/Scripts/python.exe -m compileall -q mcp_server/src mcp_server/tests/test_rookchat_acp_cutover.py scripts/verify-rookchat-acp-cutover.py scripts/vertex_oauth_acceptance.py
+mcp_server/.venv/Scripts/python.exe scripts/verify-rookchat-acp-cutover.py --root C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+git diff --check
+```
+
+The managed suite must compile without the deleted classes and contain only
+`AgentChatTab` as its conversation implementation. No build, deployment,
+installation, Prime process, kernel, provider, model, Rhino, or Grasshopper runtime
+is admitted by this gate.
+
+- [ ] **Step 11: Commit the bounded Task 11 correction and stop**
+
+```powershell
+Set-Location C:/UDEV/Rook/.worktrees/rookchat-prime-acp-reset
+git add src/Rook/UI/Chat/ClaudeCodeTab.cs src/Rook/UI/Chat/ClaudeCodeWrapper.cs src/Rook/UI/Chat/ClaudePanelMcpConfigBuilder.cs src/Rook/UI/Chat/SettingsDialog.cs src/Rook/UI/Chat/StreamJsonParser.cs src/Rook.Tests/UI/Chat/ClaudePanelMcpConfigBuilderTests.cs src/Rook/UI/Chat/Resources/prototype.html src/Rook/UI/Chat/ChatTab.cs src/Rook/UI/Chat/Resources/chat.html src/Rook/UI/Chat/Resources/chat.css mcp_server/tests/test_rookchat_acp_cutover.py scripts/verify-rookchat-acp-cutover.py docs/CURRENT_ARCHITECTURE.md AGENT_SETUP.md
+git commit -m "refactor(chat): finish ACP-only panel cutover"
+```
+
+Verify exact parent `7f69aa9edf4da0ad2f0868a7fb6e83629f85d8a9`, closed
+scope, `git show --check`, and clean Rook/Prime/Chirp worktrees. Stop for
+independent Task 11 review. Task 12 remains unauthorized.
 
 ### Task 12: Build The External A-E Qualification Ladder With Hard Review Stops
 
