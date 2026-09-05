@@ -64,8 +64,8 @@ async def test_future_rc_namespace_is_hidden_by_central_live_filter(monkeypatch)
 
     async def raw_tools():
         return [
-            SimpleNamespace(name="safe_probe"),
-            SimpleNamespace(name="rc_future_probe"),
+            server.Tool(name="safe_probe", description="safe", inputSchema={}),
+            server.Tool(name="rc_future_probe", description="contained", inputSchema={}),
         ]
 
     monkeypatch.setattr(server, "_all_tool_schemas", raw_tools)
@@ -187,7 +187,7 @@ def test_fresh_mcp_catalog_filters_contained_names() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_and_chat_model_projections_filter_injected_and_local_schemas(monkeypatch) -> None:
+async def test_internal_agent_projection_filters_injected_schemas() -> None:
     async def executor(_name: str, _arguments: dict) -> dict:
         return {"success": True}
 
@@ -200,18 +200,6 @@ async def test_agent_and_chat_model_projections_filter_injected_and_local_schema
     assert _schema_names(agent._get_tool_schemas()) == {"gh_edit"}
     agent.set_tool_schemas([_schema("rhino_execute"), _schema("spawn_agent")])
     assert _schema_names(agent._get_tool_schemas()) == {"rhino_execute"}
-
-    import rook.agent.chat.chat_runner as chat_module
-
-    monkeypatch.setattr(
-        chat_module,
-        "load_catalog_from_cache",
-        lambda: {"gh_edit": _schema("gh_edit"), "gh_replay_recipe": _schema("gh_replay_recipe")},
-    )
-    chat = chat_module.ChatRunner(tool_executor=executor)
-    assert CONTAINED.isdisjoint(chat._registry._catalog)
-    assert "rhino_execute_intent" not in chat_module._build_local_tool_catalog({"rhino_execute_intent": executor})
-
 
 def _strings(value: object) -> set[str]:
     if isinstance(value, str):

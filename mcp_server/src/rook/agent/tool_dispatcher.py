@@ -1908,25 +1908,6 @@ def build_local_tools() -> Dict[str, Any]:
     except ImportError:
         logger.debug("gh_straighten_wires local tool unavailable (import failed)")
 
-    # --- chat model pseudo-tools (intercepted by ChatRunner, never dispatched) ---
-    async def _chat_model_sentinel(**kwargs):
-        return {
-            "success": False,
-            "data": "chat model tools must be intercepted by ChatRunner.",
-        }
-    tools["list_chat_models"] = _chat_model_sentinel
-    tools["set_chat_model"] = _chat_model_sentinel
-
-    # --- ui_block (pseudo-tool — intercepted by ChatRunner, never dispatched) ---
-    # Registering it here makes it appear in the tool catalog so the LLM can call it.
-    # ChatRunner intercepts it before dispatch; this sentinel is a safety net.
-    async def _ui_block_sentinel(**kwargs):
-        return {
-            "success": False,
-            "data": "ui_block must be intercepted by ChatRunner, not dispatched directly.",
-        }
-    tools["ui_block"] = _ui_block_sentinel
-
     return tools
 
 

@@ -7,18 +7,18 @@ wrapper, `pos: [x, y]` in gh_edit.create, and `gh_move.positions`.
 
 See docs/superpowers/plans/2026-04-29-agent-prompt-tool-schema-audit.md.
 
-The runtime worker/architect/specialist/scripter prompts come from
-`PromptBuilder.build_system(persona)` (which reads personas/<name>/role.md).
+The runtime worker/architect/specialist/scripter guidance comes from the shared
+persona source in personas/<name>/{personality,role}.md.
 The `prompts/WORKER.md` file is a display snapshot loaded directly by humans
 debugging an agent — it must also stay in sync with the schema, but is checked
-as a raw file read here, not via PromptBuilder.
+as a raw file read here.
 """
 import re
 from pathlib import Path
 
 import pytest
 
-from rook.agent.chat.prompt_builder import PromptBuilder
+from rook.agent.personas import load_persona
 
 
 # Patterns that MUST NOT appear in any agent-facing prompt.
@@ -56,10 +56,15 @@ def _assert_has_schema_cues(prompt: str, label: str) -> None:
         )
 
 
+def _persona_text(persona: str) -> str:
+    content = load_persona(persona)
+    return "\n".join((content["personality"], content["role"]))
+
+
 @pytest.mark.parametrize("persona", ["worker", "architect", "specialist", "scripter"])
 def test_persona_prompt_uses_current_gh_edit_schema(persona):
-    """PromptBuilder output for each persona must use current schema field names."""
-    prompt = PromptBuilder().build_system(persona)
+    """Shared persona guidance must use current schema field names."""
+    prompt = _persona_text(persona)
     _assert_clean(prompt, f"persona {persona}")
 
 
@@ -71,7 +76,7 @@ def test_persona_prompt_documents_current_gh_edit_cues(persona):
     ("do NOT use gh_edit with name='Python 3 Script'") and is not expected
     to carry a positive gh_edit example with epoch/pos/temp_id.
     """
-    prompt = PromptBuilder().build_system(persona)
+    prompt = _persona_text(persona)
     _assert_has_schema_cues(prompt, f"persona {persona}")
 
 
@@ -84,7 +89,7 @@ def test_persona_prompt_documents_gh_move_signature(persona):
     drift in one persona doesn't get masked by the other still having it
     (concatenation would have hidden a single-prompt regression).
     """
-    prompt = PromptBuilder().build_system(persona)
+    prompt = _persona_text(persona)
     assert "gh_move(positions=" in prompt, (
         f"persona {persona}: prompt lists gh_move but no longer documents the "
         f"gh_move(positions=...) signature — agents will guess the wrong field names."

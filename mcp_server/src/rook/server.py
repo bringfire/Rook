@@ -897,7 +897,7 @@ def _mcp_contents_to_agent_result(result: Any) -> Any:
 
 
 def _effective_mcp_gateway_profile(tool_access: str, active: Profile) -> Profile:
-    """Intersect a fixed ChatRunner ceiling with the active MCP profile."""
+    """Intersect a fixed internal-agent ceiling with the active MCP profile."""
     if tool_access not in {"full", "readonly"}:
         raise ValueError("tool_access must be 'full' or 'readonly'")
     if tool_access == "readonly" or active is Profile.READONLY:

@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -16,10 +16,7 @@ if str(SRC) not in sys.path:
 
 from rook.agent.base_agent import RookAgent  # noqa: E402
 from rook.agent.config import AgentConfig  # noqa: E402
-from rook.agent.chat.chat_runner import ChatRunner  # noqa: E402
-from rook.agent.chat.conversation_store import Conversation  # noqa: E402
 from rook.agent.plan_graph_live import EXECUTION_PARAMS_KEY, apply_live_producer_node  # noqa: E402
-from rook.agent.tool_registry import ToolRegistry  # noqa: E402
 from rook.learning.plan_graph import PlanGraph, PlanGraphNode  # noqa: E402
 from rook.learning.plan_graph_projection import OUTCOME_PROJECTION_ROLE_KEY  # noqa: E402
 from rook.tool_lifecycle import CONTAINED_TOOLS  # noqa: E402
@@ -90,67 +87,6 @@ async def test_rook_agent_model_loop_records_denial_without_decoding_and_continu
     assert json.loads(protocol[0]["content"])["code"] == "legacy_semantic_tool_contained"
     assert executor_calls == []
     assert any(m.get("content") == "continued" for m in agent.messages)
-
-
-def _chat_tool_stream(name: str):
-    async def stream():
-        chunk = MagicMock()
-        chunk.choices = [MagicMock()]
-        chunk.choices[0].delta.content = None
-        delta = MagicMock()
-        delta.index = 0
-        delta.id = "chat-denied"
-        delta.function.name = name
-        delta.function.arguments = "{invalid-json"
-        chunk.choices[0].delta.tool_calls = [delta]
-        chunk.usage = None
-        yield chunk
-    return stream()
-
-
-def _chat_text_stream(text: str):
-    async def stream():
-        chunk = MagicMock()
-        chunk.choices = [MagicMock()]
-        chunk.choices[0].delta.content = text
-        chunk.choices[0].delta.tool_calls = None
-        chunk.usage = None
-        yield chunk
-    return stream()
-
-
-@pytest.mark.asyncio
-async def test_rook_chat_model_loop_records_denial_without_decoding_and_continues(monkeypatch) -> None:
-    import rook.agent.chat.chat_runner as chat_module
-
-    executor = AsyncMock(return_value={"success": True})
-    registry = ToolRegistry(catalog={
-        "gh_edit": {
-            "type": "function",
-            "function": {
-                "name": "gh_edit",
-                "description": "edit",
-                "parameters": {"type": "object", "properties": {}},
-            },
-        },
-    }, tier0={"gh_edit"})
-    runner = ChatRunner(tool_executor=executor, registry=registry)
-    streams = [_chat_tool_stream("gh_execute_intent"), _chat_text_stream("continued")]
-
-    async def completion(**_kwargs):
-        return streams.pop(0)
-
-    monkeypatch.setattr(chat_module.litellm, "acompletion", completion)
-    monkeypatch.setattr(chat_module, "collect_runtime_facts", AsyncMock(return_value={}))
-    conversation = Conversation(id="contained-chat", persona="worker", model="test")
-    events = [event async for event in runner.run_turn(conversation, "test", "system")]
-
-    protocol = [m for m in conversation.messages if m.get("tool_call_id") == "chat-denied"]
-    assert len(protocol) == 1
-    assert json.loads(protocol[0]["content"])["code"] == "legacy_semantic_tool_contained"
-    assert executor.await_count == 0
-    assert all(event.type not in {"tool_start", "tool_result"} for event in events)
-    assert any(m.get("content") == "continued" for m in conversation.messages)
 
 
 @pytest.mark.asyncio

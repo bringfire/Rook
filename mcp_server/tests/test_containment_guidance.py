@@ -37,7 +37,6 @@ GUIDANCE_FILES = (
     ROOT / "docs" / "CURRENT_ARCHITECTURE.md",
     ROOT / "docs" / "rook_docs" / "POSITIONING.md",
     ROOT / "scripts" / "session-start.sh",
-    ROOT / "mcp_server" / "src" / "rook" / "agent" / "chat" / "prompt_builder.py",
     ROOT / "mcp_server" / "src" / "rook" / "learning" / "dspy_signatures.py",
 )
 INSTALLER_GUIDANCE_FILES = (

@@ -17,9 +17,7 @@ ZERO_ARGUMENT_TOOLS: frozenset[str] = STRICT_NO_ARGUMENT_BRIDGE_TOOLS
 
 ROOT_OPEN_ALLOWLIST: frozenset[str] = frozenset()
 
-DYNAMIC_NESTED_OBJECT_ALLOWLIST: dict[str, set[tuple[str, ...]]] = {
-    "ui_block": {("config",)},
-}
+DYNAMIC_NESTED_OBJECT_ALLOWLIST: dict[str, set[tuple[str, ...]]] = {}
 
 
 @dataclass(frozen=True)
@@ -270,12 +268,10 @@ def audit_litellm_tool_schema(schema: dict[str, Any]) -> list[dict[str, str]]:
 def classify_visible_tool(tool_name: str, context: DispatchContext) -> str:
     """Classify a model-visible tool against structural dispatch surfaces.
 
-    Precedence is intentional: ChatRunner-intercepted pseudo tools may also
-    have dispatcher sentinel registrations, but the ChatRunner intercept is the
-    real execution path for model-visible calls.
+    Internal-agent meta tools take precedence over ordinary dispatch surfaces.
     """
     if tool_name in context.intercepted_names:
-        return "chatrunner_intercepted"
+        return "internal_agent_intercepted"
     if tool_name in context.local_tool_names:
         return "dispatcher_local_tool"
     if tool_name in context.transform_names:
@@ -352,7 +348,7 @@ def audit_visible_tool_dispatchability(
                 tool=tool_name,
                 classification=classification,
                 message=(
-                    f"Visible tool '{tool_name}' has no ChatRunner intercept, "
+                    f"Visible tool '{tool_name}' has no internal-agent intercept, "
                     "dispatcher local handler, transform function, bridge route, "
                     "or named exclusion."
                 ),

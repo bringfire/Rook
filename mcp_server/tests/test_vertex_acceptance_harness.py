@@ -97,9 +97,6 @@ def _passing_operations(module, calls: list[str] | None = None):
         calls.append("readiness")
         return SimpleNamespace(success=True, code=None)
 
-    async def chat(_model, _marker):
-        calls.append("chat")
-
     async def dspy(_model, _marker):
         calls.append("dspy")
 
@@ -119,7 +116,6 @@ def _passing_operations(module, calls: list[str] | None = None):
         provenance=provenance,
         connect=connect,
         readiness=readiness,
-        chat=chat,
         dspy=dspy,
         chirp=chirp,
         disconnect=disconnect,
@@ -233,7 +229,6 @@ def test_technical_run_writes_only_redacted_allowlisted_evidence(tmp_path):
         "installed_provenance": "passed",
         "oauth": "passed",
         "readiness": "passed",
-        "chat": "passed",
         "dspy": "passed",
         "chirp": "passed",
         "canvas_cleanup": "passed",
@@ -248,7 +243,7 @@ def test_technical_run_writes_only_redacted_allowlisted_evidence(tmp_path):
         "client-secret-sentinel",
     ):
         assert forbidden not in serialized
-    assert calls == ["provenance", "connect", "readiness", "chat", "dspy", "chirp"]
+    assert calls == ["provenance", "connect", "readiness", "dspy", "chirp"]
 
 
 def test_production_run_can_report_production_ready(tmp_path):
@@ -289,7 +284,6 @@ def test_body_and_cleanup_failures_are_preserved_as_stage_statuses(tmp_path):
         provenance=operations.provenance,
         connect=operations.connect,
         readiness=operations.readiness,
-        chat=operations.chat,
         dspy=operations.dspy,
         chirp=fail_chirp,
         disconnect=operations.disconnect,
@@ -306,27 +300,12 @@ def test_body_and_cleanup_failures_are_preserved_as_stage_statuses(tmp_path):
     assert payload["stages"]["process_cleanup"] == "failed"
 
 
-def test_chat_and_dspy_predicates_require_marker_without_tools():
+def test_dspy_predicate_requires_marker():
     module = _load_harness()
     marker = "rook-vertex-marker-01234567"
 
-    module.validate_chat_events(
-        [
-            SimpleNamespace(type="text_delta", content=f"Marker: {marker}"),
-            SimpleNamespace(type="done", content=None),
-        ],
-        marker,
-    )
     module.validate_dspy_result(SimpleNamespace(echoed_marker=marker), marker)
 
-    with pytest.raises(module.AcceptanceFailure):
-        module.validate_chat_events(
-            [
-                SimpleNamespace(type="tool_start", content=None),
-                SimpleNamespace(type="done", content=None),
-            ],
-            marker,
-        )
     with pytest.raises(module.AcceptanceFailure):
         module.validate_dspy_result(SimpleNamespace(echoed_marker="wrong"), marker)
 

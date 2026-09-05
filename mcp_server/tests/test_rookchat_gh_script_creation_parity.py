@@ -470,17 +470,21 @@ def test_gh_set_script_transform_remains_raw_escape_hatch():
     }
 
 
-def _local_tool_schema(tool_name):
-    from rook.agent.chat.chat_runner import _build_local_tool_catalog
+def _public_tool_catalog():
+    import asyncio
 
-    catalog = _build_local_tool_catalog({tool_name: object()})
-    return catalog[tool_name]["function"]["parameters"]
+    from rook import server
+    from rook.agent.tool_registry import build_catalog_from_mcp_tools
+
+    return build_catalog_from_mcp_tools(asyncio.run(server.list_tools()))
 
 
-def test_fallback_gh_errors_schema_rejects_arguments():
-    from rook.agent.chat.chat_runner import _build_fallback_catalog
+def _public_tool_schema(tool_name):
+    return _public_tool_catalog()[tool_name]["function"]["parameters"]
 
-    schema = _build_fallback_catalog()["gh_errors"]["function"]["parameters"]
+
+def test_public_gh_errors_schema_rejects_arguments():
+    schema = _public_tool_schema("gh_errors")
 
     assert schema["type"] == "object"
     assert schema["properties"] == {}
@@ -497,8 +501,8 @@ def _schema_text(schema: dict) -> str:
     return "\n".join(pieces)
 
 
-def test_local_catalog_schema_for_unified_create_script_matches_server_contract():
-    schema = _local_tool_schema("gh_create_script")
+def test_public_schema_for_unified_create_script_matches_server_contract():
+    schema = _public_tool_schema("gh_create_script")
 
     assert schema["required"] == ["language", "code"]
     assert schema["properties"]["language"]["enum"] == ["python", "csharp"]
@@ -508,8 +512,8 @@ def test_local_catalog_schema_for_unified_create_script_matches_server_contract(
 
 
 @pytest.mark.parametrize("tool_name", ["gh_create_python_script", "gh_create_csharp_script"])
-def test_local_catalog_schema_for_create_aliases_matches_server_required_fields(tool_name):
-    schema = _local_tool_schema(tool_name)
+def test_public_schema_for_create_aliases_matches_server_required_fields(tool_name):
+    schema = _public_tool_schema(tool_name)
 
     assert schema["required"] == ["code", "pins_in", "pins_out"]
     assert "language" not in schema["properties"]
@@ -519,22 +523,16 @@ def test_local_catalog_schema_for_create_aliases_matches_server_required_fields(
     assert schema.get("additionalProperties") is not True
 
 
-def test_local_csharp_alias_schema_teaches_rhinocode_script_contract():
-    from rook.agent.chat.chat_runner import _build_local_tool_catalog
-
-    catalog = _build_local_tool_catalog({"gh_create_csharp_script": object()})
+def test_public_csharp_alias_schema_identifies_rhinocode_contract():
+    catalog = _public_tool_catalog()
     text = _schema_text(catalog["gh_create_csharp_script"])
 
     assert "RhinoCode C# Script" in text
-    assert "body" in text and "RunScript" in text
-    assert "GH_Component" in text and "do not" in text.lower()
-    assert "B:Brep" in text
+    assert "gh_create_script" in text
 
 
 def test_gh_create_pin_objects_match_server_pin_contract_without_arbitrary_keys():
-    from rook.agent.chat.chat_runner import _build_local_tool_catalog
-
-    catalog = _build_local_tool_catalog({"gh_create_csharp_script": object()})
+    catalog = _public_tool_catalog()
     pin_item = (
         catalog["gh_create_csharp_script"]["function"]["parameters"]
         ["properties"]["pins_out"]["items"]["oneOf"][1]
@@ -552,53 +550,42 @@ def test_gh_create_pin_objects_match_server_pin_contract_without_arbitrary_keys(
     }
 
 
-def test_local_unified_schema_teaches_csharp_contract_when_language_is_csharp():
-    from rook.agent.chat.chat_runner import _build_local_tool_catalog
+def test_public_unified_schema_advertises_csharp_language():
+    catalog = _public_tool_catalog()
+    language = catalog["gh_create_script"]["function"]["parameters"]["properties"]["language"]
 
-    catalog = _build_local_tool_catalog({"gh_create_script": object()})
-    text = _schema_text(catalog["gh_create_script"])
-
-    assert "language=\"csharp\"" in text or "language: csharp" in text
-    assert "RhinoCode C# Script" in text
-    assert "body" in text and "RunScript" in text
-    assert "GH_Component" in text and "do not" in text.lower()
+    assert language["enum"] == ["python", "csharp"]
 
 
-def test_local_csharp_schema_tells_model_to_update_after_errors():
-    from rook.agent.chat.chat_runner import _build_local_tool_catalog
+def test_public_surface_includes_script_error_inspection_and_update_tools():
+    catalog = _public_tool_catalog()
 
-    catalog = _build_local_tool_catalog({"gh_create_csharp_script": object()})
-    text = _schema_text(catalog["gh_create_csharp_script"])
-
-    assert "gh_errors" in text
-    assert "gh_update_script" in text
-    assert "do not just paste" in text.lower()
+    assert "gh_errors" in catalog
+    assert "gh_update_script" in catalog
+    assert catalog["gh_update_script"]["function"]["parameters"]["required"] == [
+        "guid",
+        "code",
+    ]
 
 
 @pytest.mark.asyncio
-async def test_local_create_script_required_fields_match_mcp_server_schemas():
+async def test_public_create_script_required_fields_match_mcp_server_schemas():
     from rook import server
-    from rook.agent.chat.chat_runner import _build_local_tool_catalog
+    from rook.agent.tool_registry import build_catalog_from_mcp_tools
 
-    local_catalog = _build_local_tool_catalog(
-        {
-            "gh_create_script": object(),
-            "gh_create_python_script": object(),
-            "gh_create_csharp_script": object(),
-        }
-    )
     mcp_tools = {tool.name: tool for tool in await server.list_tools()}
+    public_catalog = build_catalog_from_mcp_tools(list(mcp_tools.values()))
 
     for tool_name in (
         "gh_create_script",
         "gh_create_python_script",
         "gh_create_csharp_script",
     ):
-        local_schema = local_catalog[tool_name]["function"]["parameters"]
+        local_schema = public_catalog[tool_name]["function"]["parameters"]
         server_schema = mcp_tools[tool_name].inputSchema
         assert local_schema["required"] == server_schema["required"]
 
-    local_language = local_catalog["gh_create_script"]["function"]["parameters"]["properties"]["language"]
+    local_language = public_catalog["gh_create_script"]["function"]["parameters"]["properties"]["language"]
     server_language = mcp_tools["gh_create_script"].inputSchema["properties"]["language"]
     assert local_language["enum"] == server_language["enum"]
 

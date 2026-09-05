@@ -17,7 +17,6 @@ from rook.agent.tool_dispatcher import (
     BRIDGE_ROUTES,
     TRANSFORM_FUNCTIONS,
 )
-from rook.agent.chat.chat_runner import _build_fallback_catalog
 from rook.agent.chat.execution_policy import (
     CREATION_TOOLS,
     MODAL_RISK_TOOLS,
@@ -534,15 +533,20 @@ def test_gh_query_not_exposed_to_agent_dispatch_surfaces():
     assert exposed_groups == []
 
 
-def test_interactive_start_send_not_exposed_to_agent_bridge_or_fallback_catalog():
-    catalog = _build_fallback_catalog()
+@pytest.mark.asyncio
+async def test_interactive_start_send_not_exposed_to_agent_bridge_or_public_mcp(monkeypatch):
+    from rook import server
+
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    monkeypatch.delenv("ROOK_ENABLE_INTERACTIVE_COMMAND_LEARNING", raising=False)
+    public_names = {tool.name for tool in await server.list_tools()}
 
     assert "rhino_command_interactive_start" not in BRIDGE_ROUTES
     assert "rhino_command_interactive_send" not in BRIDGE_ROUTES
-    assert "rhino_command_interactive_start" not in catalog
-    assert "rhino_command_interactive_send" not in catalog
-    assert "rhino_command_experiment" not in catalog
-    assert "rhino_learn_next" not in catalog
+    assert "rhino_command_interactive_start" not in public_names
+    assert "rhino_command_interactive_send" not in public_names
+    assert "rhino_command_experiment" not in public_names
+    assert "rhino_learn_next" not in public_names
     assert "rhino_command_interactive_prompt" in BRIDGE_ROUTES
     assert "rhino_command_interactive_cancel" in BRIDGE_ROUTES
 
