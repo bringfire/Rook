@@ -8,15 +8,15 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; Ubuntu 24.04 Bash release builds with local WSL2 selection; PowerShell/Inno Setup installation tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at the revision carried by this documentation amendment (SHA-256 `69C3D84C7F35161E69B48BEA86D12C65835B4B4D02BC2035AFA5E5CC8CE4053E`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at the revision carried by this documentation amendment (SHA-256 `0096B145270ACC1B95305416514365E931B4AE6885643867818C124DDE0E7D1B`).
 
 ## Global Constraints
 
 - This plan is authored against the exact specification hash above. Implementation begins only from the exact approved documentation commit later named by review. Do not reset to an older specification or replay superseded RPC Tasks 0-7.
-- Prime upstream remains `c718bf3c30fd8da206ed551837cbb54f7ad15948`. Commit `1b9dfabb04901de4823d259c88b39dfc78ec3b34` is the reviewed implementation precursor, not release authority. Before another build, organize the six approved concerns as the short ordered patch series in the specification, independently review every commit and parent, and freeze one exact final head as runtime identity. Do not add unrelated Prime behavior or another runtime contract.
+- Prime upstream remains `c718bf3c30fd8da206ed551837cbb54f7ad15948`. Commit `1b9dfabb04901de4823d259c88b39dfc78ec3b34` is the reviewed implementation precursor, not release authority. Before another build, organize the five approved concerns as the short ordered patch series in the specification, independently review every commit and parent, and freeze one exact final head as runtime identity. Do not add unrelated Prime behavior or another runtime contract.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
-- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon --no-approve --no-managed-tool-downloads`; never use production `--offline`, a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. Scrub inherited `PI_OFFLINE` case-insensitively from the Prime child environment. The Prime and Rook MCP executable paths are absolute and never selected through `PATH`. The sole intentional exception is upstream Prime's supported kernel bootstrap lookup for `uv`: RookChat prepends the exact manifest-bound `tools/uv` directory, and qualification proves that executable was selected before any ambient entry.
+- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon --no-approve`; never use production `--offline`, a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. Scrub inherited `PI_OFFLINE` case-insensitively from the Prime child environment. The Prime and Rook MCP executable paths are absolute and never selected through `PATH`. The sole intentional exception is upstream Prime's supported kernel bootstrap lookup for `uv`: RookChat prepends the exact manifest-bound `tools/uv` directory, and qualification proves that executable was selected before any ambient entry. At the reviewed Prime baseline, the direct ACP composition cannot reach managed `fd`/`rg` acquisition; retain that fact as a causal composition and installed-network-tripwire invariant instead of adding an inert product selector.
 - Persist associations, not broker lifecycle. Prime JSONL is the only authoritative transcript/goal/settings/compaction store.
 - A durable association is create-only, complete, materialized, has a nonempty Prime header ID, and is reopenable only when no `open.claim` exists and custody checks pass.
 - The atomic non-expiring `open.claim` has no metadata or recovery logic. Remove it only after the directly owned Prime child is observed exited, or when launch positively proves no child was created.
@@ -2053,27 +2053,33 @@ Work from a new clean Prime implementation worktree rooted at
 as reviewed precursor evidence. Use branch `codex/rookchat-prime-final-series`.
 Do not copy ignored output or `node_modules` between worktrees.
 
-Modify only Prime's parser/help, startup migration/settings/resource seams,
-managed helper acquisition, focused tests/docs/changelog, and the already
-reviewed four compatibility concerns. Expected production files are:
+The following concern-by-concern table is the closed Prime scope. Concerns 1-4
+reproduce every file in the reviewed `c718bf3c...1b9dfabb` delta; concern 5 is
+the new project-resource selector. If implementation requires a file outside
+this table, stop for review instead of violating the scope or silently leaving
+the consumer path incomplete.
 
-```text
-packages/coding-agent/src/cli/args.ts
-packages/coding-agent/src/cli/command-registry.ts
-packages/coding-agent/src/main.ts
-packages/coding-agent/src/migrations.ts
-packages/coding-agent/src/core/agent-session-services.ts
-packages/coding-agent/src/core/settings-manager.ts
-packages/coding-agent/src/core/resource-loader.ts
-packages/coding-agent/src/utils/tools-manager.ts
-scripts/build-binaries.sh
-```
+| Concern | Production files | Focused test files | Documentation / release files |
+| --- | --- | --- | --- |
+| 1. Daemon-free ACP | `packages/coding-agent/src/cli/args.ts`<br>`packages/coding-agent/src/cli/command-registry.ts`<br>`packages/coding-agent/src/cli/daemon-launch.ts`<br>`packages/coding-agent/src/cli/no-daemon-args.ts`<br>`packages/coding-agent/src/main.ts` | `packages/coding-agent/test/acp-no-daemon-cli.test.ts`<br>`packages/coding-agent/test/args.test.ts`<br>`packages/coding-agent/test/daemon-launch.test.ts`<br>`packages/coding-agent/test/main-interactive-routing.test.ts`<br>`packages/coding-agent/test/no-daemon-argv-consistency.test.ts` | `packages/coding-agent/docs/acp.md`<br>`packages/coding-agent/.changes/acp-no-daemon.md`<br>Changelog: none |
+| 2. Platform-aware kernel interpreter | `packages/coding-agent/src/core/kernel/bootstrap.ts` | `packages/coding-agent/test/kernel-bootstrap.test.ts` | Documentation/release: none |
+| 3. Complete standalone Python runtime | `scripts/build-binaries.sh` | `packages/coding-agent/test/builtin-skills.test.ts` | Documentation/release: none |
+| 4. Frozen model catalog | `packages/ai/scripts/generate-models.ts`<br>`packages/ai/scripts/model-catalog-build-mode.ts`<br>`scripts/build-binaries.sh` | `packages/ai/test/model-catalog-build-mode.test.ts`<br>`packages/coding-agent/test/build-binaries-frozen-catalog.test.ts` | Documentation: none<br>`packages/coding-agent/CHANGELOG.md` |
+| 5. Project-resource denial | `packages/coding-agent/src/cli/args.ts`<br>`packages/coding-agent/src/cli/command-registry.ts`<br>`packages/coding-agent/src/main.ts`<br>`packages/coding-agent/src/migrations.ts`<br>`packages/coding-agent/src/core/agent-session-config.ts`<br>`packages/coding-agent/src/core/agent-session-services.ts`<br>`packages/coding-agent/src/core/settings-manager.ts`<br>`packages/coding-agent/src/core/package-manager.ts`<br>`packages/coding-agent/src/core/resource-loader.ts` | `packages/coding-agent/test/args.test.ts`<br>`packages/coding-agent/test/migrations.test.ts`<br>`packages/coding-agent/test/agent-session-config.test.ts`<br>`packages/coding-agent/test/agent-session-services.test.ts`<br>`packages/coding-agent/test/settings-manager.test.ts`<br>`packages/coding-agent/test/package-manager.test.ts`<br>`packages/coding-agent/test/resource-loader.test.ts`<br>`packages/coding-agent/test/no-approve-startup-composition.test.ts` | `packages/coding-agent/docs/acp.md`<br>`packages/coding-agent/.changes/acp-no-approve.md`<br>Changelog: none |
 
-Use existing focused tests `args.test.ts`, `migrations.test.ts`,
-`settings-manager.test.ts`, `resource-loader.test.ts`, `tools-manager.test.ts`,
-`model-registry.test.ts`, and `prime-inference-auth.test.ts`. Add one narrowly
-named startup-composition test that drives the launch-cwd and resumed-cwd flow
-together through the same startup owner used by `main()`.
+The optional `5c2750bd...` bounded-kernel-stderr backport is not part of those
+five concern scopes. If independently adopted, its exact separate scope is:
+
+| Scope | Production files | Focused test files | Release file |
+| --- | --- | --- | --- |
+| Upstream `5c2750bd...` backport | `packages/coding-agent/src/core/kernel/repl-manager.ts`<br>`packages/coding-agent/src/core/kernel/shared.ts`<br>`packages/coding-agent/src/core/tools/ipython.ts` | `packages/coding-agent/test/repl-kernel-shutdown.test.ts`<br>`packages/coding-agent/test/repl-kernel-startup.test.ts` | `packages/coding-agent/.changes/kernel-stderr-log.md` |
+
+Use the concern-5 tests named above. The startup-composition test drives the
+launch-cwd and resumed-cwd flow together through the same startup owner used by
+`main()`. `model-registry.test.ts` and `prime-inference-auth.test.ts` remain
+unchanged control gates proving that project-resource denial does not alter
+model discovery or Prime authentication; they are not modified merely to make
+the scope appear larger.
 
 The `--no-approve` RED contract is:
 
@@ -2082,47 +2088,51 @@ exact flag before -- parses true; the same token after -- remains prompt content
 --no-approve=<value> and malformed attempted forms refuse before migrations
 one immutable Boolean exists before runMigrations() and the first SettingsManager.create()
 global migrations, global settings, and Prime authentication remain available
-project commands-to-prompts migration is skipped without reading or mutating the project tree
-startup settings do not read <launch-cwd>/.prime/agent/settings.json
-resumed settings do not read <session-cwd>/.prime/agent/settings.json
-project packages, extensions, skills, prompts, themes, SYSTEM.md, APPEND_SYSTEM.md, AGENTS.md, and CLAUDE.md are not read or loaded
+project commands-to-prompts migration is skipped without automatic reading or mutating the project tree
+startup settings do not automatically read <launch-cwd>/.prime/agent/settings.json
+resumed settings do not automatically read <session-cwd>/.prime/agent/settings.json
+project packages, extensions, skills, prompts, themes, SYSTEM.md, APPEND_SYSTEM.md, AGENTS.md, and CLAUDE.md are not automatically discovered or loaded before model work
+the user-global <agentDir>/SYSTEM.md remains eligible as Prime's base prompt; the explicit verified Rook body is appended separately
 explicit --skill goal and --skill rook paths remain loaded
 omitting --no-approve preserves current project behavior
+after model work begins, admitted IPython and Rook tools may intentionally access project files; this selector is not a filesystem sandbox
 ```
 
 Both cwd fixtures are hostile and instrument filesystem reads, directory walks,
-renames, and writes. A test fails on the first project access; absence is not
-inferred from an empty result. Implement one immutable `allowProjectResources`
-decision and pass it into `runMigrations`, every startup and resumed
-`SettingsManager.create`, `createAgentSessionServices`, and
-`DefaultResourceLoader`. Global paths and explicit CLI paths remain admitted.
+renames, and writes by the automatic startup/resume resource pipeline. A test
+fails on the first such access; absence is not inferred from an empty result.
+Implement one immutable `allowProjectResources` decision and pass it into
+`runMigrations`, every startup and resumed `SettingsManager.create`,
+`AgentSessionRuntimeConfig`, `createAgentSessionServices`,
+`DefaultPackageManager`, and `DefaultResourceLoader`. Global paths and explicit
+CLI paths remain admitted.
 Do not add trust persistence, approval prompts, permission state, Rook-side
-directory scanning, or special ACP behavior.
+directory scanning, special ACP behavior, or a claim that later tool-driven
+filesystem access is denied.
 
-The `--no-managed-tool-downloads` RED contract is:
+The managed-helper RED contract is non-reachability, not a new selector:
 
 ```text
-exact flag before -- parses true; the same token after -- remains prompt content
-equals/malformed forms refuse before startup work; no environment alias exists
-an existing managed fd or rg is returned unchanged
-a missing managed fd or rg returns unavailable before fetch and extraction
-fetch count = 0 and extract-zip invocation count = 0 under the selector
-omitting the selector retains the current download boundary
-provider/model discovery output is equivalent to the control
-private Prime-inference authorization decisions are equivalent to the control
+the actual direct main(["--mode", "acp", "--no-daemon", ...]) composition reaches runAcpMode(runtime)
+the same composition never calls ensureTool() or ensureToolWithStatus()
+with fd and rg absent, an acquisition-boundary spy that throws remains untouched through ACP initialization/session composition
+the only production acquisition callers remain postinstall, interactive mode, and agents-view mode
+no environment alias, module-global policy, facade, or helper-download selector is added
 ```
 
-Pass this Boolean through the existing helper-manager seam into
-`ensureToolWithStatus()`; do not use `PI_OFFLINE`, mutate global environment,
-remove `extract-zip`, or add a facade. Unit tests prove zero extractor
-invocation, not installed-network behavior.
+Drive this through the actual ACP startup/composition owner with the runtime and
+transport mocked model-free; do not settle for a helper-unit test. Retain one
+small static call-site inventory guard so a future ACP caller forces review.
+The installed Slice B network tripwire separately proves that the packaged ACP
+lifecycle makes no helper catalog, archive, or extraction contact. Neither test
+is allowed to substitute for the other.
 
 In Rook, extend `test_chat_prime_runtime.py` before changing
-`prime_runtime.py`. Prove new and reopen argv contain exact
-`--no-approve --no-managed-tool-downloads`, never contain `--offline`, and the
-final child environment removes every exact/lowercase/mixed-case `PI_OFFLINE`
-key. Preserve every uv, bytecode, skill-content, and command-line bound. Slice B
-adds `--offline` only in its isolated external protocol.
+`prime_runtime.py`. Prove new and reopen argv contain exact `--no-approve`, do
+not contain `--no-managed-tool-downloads` or `--offline`, and the final child
+environment removes every exact/lowercase/mixed-case `PI_OFFLINE` key. Preserve
+every uv, bytecode, skill-content, and command-line bound. Slice B adds
+`--offline` only in its isolated external protocol.
 
 After the Prime series head exists, update only the new-assembly Prime identity
 pin in `prime_runtime_artifact.py`, `package-prime-acp-runtime.py`, and their
@@ -2133,7 +2143,7 @@ independent build authorization supplies; do not edit it during the build.
 **7B. Implement minimally, organize one concern per commit, and stop**
 
 Make the tests green without changing Prime's default behavior. Recreate the
-already reviewed precursor behavior and the two new selectors as this exact
+already reviewed precursor behavior and the one new selector as this exact
 ordered concern series over the baseline:
 
 ```text
@@ -2142,14 +2152,13 @@ ordered concern series over the baseline:
 3 complete standalone Python-runtime payload
 4 frozen model catalog build
 5 project-resource denial
-6 managed helper-download denial
 ```
 
-Each commit contains only its production surface, focused tests, and its own
-help/docs/changelog entry. The final tree for concerns 1-4 must match the
-reviewed precursor behavior. Concerns 5-6 remain independently removable. Do
-not create an in-product patch registry or retain omnibus and series builds as
-competing release identities.
+Each commit contains only the exact production, focused-test, and
+documentation/release files assigned to it in the closed table above. The final
+tree for concerns 1-4 must match the reviewed precursor behavior. Concern 5
+remains independently removable. Do not create an in-product patch registry or
+retain omnibus and series builds as competing release identities.
 
 Before freezing the head, produce this concise upstream matrix:
 
@@ -2173,7 +2182,8 @@ ancestry, `git show --check`, and clean Prime/Rook worktrees.
 
 STOP for independent review. Report the ordered commit list, exact final Prime
 head, exact Rook head, test outputs, the `5c2750bd` ruling, and confirmation that
-no project fixture was touched and no helper fetch/extractor ran. Do not create
+no project fixture was touched and the ACP composition invoked no helper
+acquisition/fetch/extractor boundary. Do not create
 `build-attempt-v3`, transfer an artifact, or launch Prime.
 
 **7C. Only after that review, run one real build-attempt-v3**
@@ -2241,7 +2251,7 @@ if (-not (Test-Path Variable:approvedPrimeHead) -or
     -not (Test-Path Variable:approvedPrimeParent) -or
     $approvedPrimeParent -cnotmatch '^[0-9a-f]{40}$' -or
     -not (Test-Path Variable:approvedPrimeSeries) -or
-    @($approvedPrimeSeries).Count -lt 6 -or
+    @($approvedPrimeSeries).Count -lt 5 -or
     @($approvedPrimeSeries | Where-Object { $_ -cnotmatch '^[0-9a-f]{40}$' }).Count -ne 0 -or
     $approvedPrimeSeries[-1] -cne $approvedPrimeHead) {
     throw 'The reviewed Step 7 command must name the approved Prime series literally.'
@@ -2732,7 +2742,7 @@ git commit -m "refactor(chat): remove ChatRunner product path"
 
 - [ ] **Step 1: Write RED protocol-custody tests**
 
-Each protocol must contain exact schema/version, clean implementation commit, installed runtime/skill manifests, prompt/input hashes, wall-clock/token/process-close limits, target/profile identity, evaluator identity when applicable, fresh evidence root, and a one-execution version. The A+B pre-contact protocol additionally binds the fresh `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, and `ROOK_DATA_DIR`; the product-derived `UV_CACHE_DIR` and `UV_PYTHON_INSTALL_DIR`; the derived absent-before kernel path; the complete six-key product-owned `UV_*` map; the exact seeded ambient `UV_*` and proxy-key cases; Slice B's qualification-only `--offline` flag; the production `--no-approve` and `--no-managed-tool-downloads` selectors; the deny-by-default outbound-proxy identity and exact inserted `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` values; the complete expected final Prime child-environment map and hash; and the exact admitted host set `github.com`, `api.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and `files.pythonhosted.org`. The promotion protocol additionally binds MSVC toolset `14.44.35207`, Release configuration, the exact deployment command, expected source/installed artifact paths, and installed-verifier identity. The runner refuses existing evidence roots, hash drift, missing limits, mismatched commits, or any product import of `scripts/qualification`.
+Each protocol must contain exact schema/version, clean implementation commit, installed runtime/skill manifests, prompt/input hashes, wall-clock/token/process-close limits, target/profile identity, evaluator identity when applicable, fresh evidence root, and a one-execution version. The A+B pre-contact protocol additionally binds the fresh `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, and `ROOK_DATA_DIR`; the product-derived `UV_CACHE_DIR` and `UV_PYTHON_INSTALL_DIR`; the derived absent-before kernel path; the complete six-key product-owned `UV_*` map; the exact seeded ambient `UV_*` and proxy-key cases; Slice B's qualification-only `--offline` flag; the production `--no-approve` selector; the ACP managed-helper non-reachability assertion; the deny-by-default outbound-proxy identity and exact inserted `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` values; the complete expected final Prime child-environment map and hash; and the exact admitted host set `github.com`, `api.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and `files.pythonhosted.org`. The promotion protocol additionally binds MSVC toolset `14.44.35207`, Release configuration, the exact deployment command, expected source/installed artifact paths, and installed-verifier identity. The runner refuses existing evidence roots, hash drift, missing limits, mismatched commits, or any product import of `scripts/qualification`.
 
 Each frozen live version executes once and its result is immutable. Any correction requires a newly versioned protocol, fresh evidence root, and separate authorization; the runner never retries or overwrites a failed version.
 
@@ -2742,7 +2752,7 @@ Each frozen live version executes once and its result is immutable. Any correcti
 
 - [ ] **Step 3: Implement Slice A against the fake ACP agent**
 
-Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes and rendered-Windows-argv bounds, production inclusion of `--no-approve` and `--no-managed-tool-downloads`, production exclusion of `--offline`, case-insensitive `PI_OFFLINE` removal, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, close/delete/shutdown detach-before-retirement races, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, SDK-callback source-ordinal preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
+Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes and rendered-Windows-argv bounds, production inclusion of `--no-approve`, production exclusion of `--offline` and `--no-managed-tool-downloads`, case-insensitive `PI_OFFLINE` removal, direct ACP composition non-reachability of managed helper acquisition, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, close/delete/shutdown detach-before-retirement races, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, SDK-callback source-ordinal preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
 
 - [ ] **Step 4: Implement Slice B against the installed Prime artifact and deterministic provider**
 
@@ -2788,12 +2798,15 @@ the deterministic provider and Rook MCP double. No proxy or network policy
 enters product runtime.
 
 Use hostile project-resource fixtures under both the launch cwd and the resumed
-session cwd. Prove neither tree is read or migrated while global Prime auth and
-settings plus the explicit goal/Rook skills remain available. With managed
-`fd` and `rg` absent, separately trigger their installed helper boundary and
-prove the network ledger contains no helper catalog or archive request. This
-tripwire establishes network behavior; the Prime source unit test remains the
-authority for zero extractor invocation.
+session cwd. Prove no automatic project-resource discovery, loading,
+project-settings access, or project migration occurs during startup/resume
+before model work, while global Prime auth/settings and the explicit goal/Rook
+skills remain available. State explicitly that this is not a filesystem sandbox
+for later model-initiated tool access. With managed `fd` and `rg` absent, run the
+actual installed ACP lifecycle and prove the network ledger contains no helper
+catalog, archive, or extraction request. This tripwire establishes installed
+network behavior; the Prime source composition test remains the authority that
+ACP never invokes the managed acquisition boundary.
 
 Prime may start kernel prewarm during `session/new`; do not attribute bootstrap
 initiation to the first prompt. Prove the actual sequence:
@@ -2996,7 +3009,7 @@ Native compilation, installed artifact execution, provider contact, Rhino contac
 
 ## Final Acceptance Checklist
 
-- [ ] One product path exists: C# panel -> authenticated HTTP -> Python ACP SDK -> exact installed Prime `--mode acp --no-daemon --no-approve --no-managed-tool-downloads` -> standard ACP MCP `rook` -> Rook; production omits `--offline` and removes inherited `PI_OFFLINE`.
+- [ ] One product path exists: C# panel -> authenticated HTTP -> Python ACP SDK -> exact installed Prime `--mode acp --no-daemon --no-approve` -> standard ACP MCP `rook` -> Rook; production omits `--offline` and `--no-managed-tool-downloads`, removes inherited `PI_OFFLINE`, and causally proves direct ACP cannot reach managed helper acquisition.
 - [ ] Every durable association is complete, materialized, create-only, and contains a validated Prime header ID.
 - [ ] One metadata-free non-expiring claim fences launch/Delete; it is never reclaimed automatically.
 - [ ] Cleanup uses only the SDK/directly owned process handle and preserves the claim unless child exit is observed.

@@ -154,27 +154,41 @@ Prime is launched with the approved runtime configuration, including:
 --no-context-files
 --no-prompt-templates
 --no-approve
---no-managed-tool-downloads
 --tools ipython
 ```
 
 `--no-approve` is one immutable parsed Boolean established before the first
-project-local read. Global migrations, global settings, Prime authentication,
-and explicitly supplied CLI resources remain admitted. Project-local migration,
-startup settings, packages, extensions, skills, prompt templates, themes,
-`SYSTEM.md`, `APPEND_SYSTEM.md`, and other discovered project resources are not
-read, loaded, or mutated. The same decision governs both the launch working
-directory and a resumed session's stored working directory. It does not create
-a trust database, prompt, permission workflow, or lifecycle state, and it does
-not change RookChat's separately defined ACP permission auto-approval policy.
+automatic project-resource access. Global migrations, global settings, Prime
+authentication, and explicitly supplied CLI resources remain admitted. During
+startup and resume before model work, no automatic project-resource discovery,
+loading, project-settings access, or project migration occurs. This includes
+project-local packages, extensions, skills, prompt templates, themes,
+`SYSTEM.md`, `APPEND_SYSTEM.md`, AGENTS/CLAUDE context files, and migration
+inputs at both the launch working directory and a resumed session's stored
+working directory.
 
-`--no-managed-tool-downloads` affects only Prime's optional managed `fd` and
-`rg` acquisition. An already available helper remains usable. A missing helper
-is reported unavailable before catalog fetch, archive download, or extraction.
-The selector has no environment alias, and omitting it preserves Prime's
-default helper-install behavior. It does not alter provider or model discovery,
-Prime-inference authorization, authentication, updater policy, or any other
-network behavior.
+`--no-approve` preserves Prime's user-global prompt authority. Because RookChat
+does not pass `--system-prompt`, the user-global `<agentDir>/SYSTEM.md`
+(`~/.prime/agent/SYSTEM.md` under the default layout) remains eligible as the
+base system prompt and may affect Prime's base instructions. The exact verified
+`rook-full/SKILL.md` body is supplied separately through
+`--append-system-prompt`; that explicit append source suppresses automatic
+`APPEND_SYSTEM.md` discovery for the launch. The selector creates no trust
+database, prompt, permission workflow, or lifecycle state, and it does not
+change RookChat's separately defined ACP permission auto-approval policy. It is
+not a filesystem sandbox: after model work begins, admitted IPython and Rook
+tools may intentionally access project files within their own authority.
+
+The reviewed Prime baseline confines managed `fd`/`rg` acquisition to
+postinstall, interactive mode, and agents-view mode. Direct in-process ACP
+composition calls neither `ensureTool()` nor `ensureToolWithStatus()`, so
+RookChat adds no inert helper-download selector. A source-level ACP composition
+test owns that non-reachability invariant, and the installed Slice B network
+tripwire separately proves that the packaged ACP lifecycle makes no helper
+catalog, archive, or extraction contact. A future Prime baseline that makes
+managed acquisition reachable from ACP requires a new bounded security review
+before adoption; RookChat does not preemptively add policy machinery for an
+unreachable path.
 
 Production RookChat never passes Prime's broad `--offline` flag. Before process
 creation, the service removes every inherited `PI_OFFLINE` key case-
@@ -926,8 +940,7 @@ commit, in this order:
 2. platform-aware Prime kernel-interpreter resolution;
 3. complete `dist/prime-agent-runtime` inclusion in the standalone artifact;
 4. explicit frozen-model-catalog binary builds;
-5. project-resource denial through `--no-approve`; and
-6. optional helper-download denial through `--no-managed-tool-downloads`.
+5. project-resource denial through `--no-approve`.
 
 The exact commit and parent of every series member are recorded at the Prime
 compatibility review gate. The exact final series head is the one Prime source
@@ -1454,7 +1467,8 @@ requirement phrases. Its bounded model-free tests cover:
 Implementation of these public seams and tests stops for independent review
 before a real Prime build runs. The same review freezes the ordered Prime patch
 series, its exact final head, the `5c2750bd` adoption or deferral decision, and
-the causal source tests for project-resource and managed-helper-download denial.
+the causal source tests for project-resource denial and ACP non-reachability of
+managed helper acquisition.
 After approval, the real build starts from a fresh Git-owned Linux checkout and
 applies the post-build checks, transfers one ZIP, assembles one Windows payload,
 verifies one runtime manifest, and stages the installer input. Prime itself is
@@ -1603,10 +1617,11 @@ Model-free coverage proves:
 - image validation and exact ACP image blocks;
 - launch-time model/reasoning argument construction;
 - absence of `--api-key` and reopen overrides;
-- production launch inclusion of `--no-approve` and
-  `--no-managed-tool-downloads`, absence of production `--offline`, and case-
-  insensitive removal of inherited `PI_OFFLINE` from the final child
-  environment;
+- production launch inclusion of `--no-approve`, absence of production
+  `--offline`, and case-insensitive removal of inherited `PI_OFFLINE` from the
+  final child environment;
+- direct ACP startup/composition never reaching Prime's managed `fd`/`rg`
+  acquisition boundary;
 - exact service-owned `rook` MCP declaration injection;
 - structured Rook success and refusal-envelope projection;
 - direct and `rook_tools_read` GH mutation schemas advertising the required
@@ -1670,12 +1685,16 @@ Slice B qualifies:
 - ordinary assistant-turn context continuity across same-file reopen;
 - model-free active cancellation and clean process retirement;
 - hostile project fixtures at both the launch and resumed-session working
-  directories, proving `--no-approve` performs no project read, load, or
-  migration while global auth/settings and explicit goal/Rook skills remain;
-- missing managed `fd` and `rg` under the product selector, with the installed
-  network tripwire proving no helper catalog or archive request. Source unit
-  tests separately prove that no extractor is invoked; neither result is
-  treated as proof of the other;
+  directories, proving `--no-approve` performs no automatic project-resource
+  discovery, loading, project-settings access, or project migration during
+  startup/resume before model work, while global auth/settings and explicit
+  goal/Rook skills remain. This is not a filesystem-sandbox claim about later
+  model-initiated IPython or Rook access;
+- `fd` and `rg` absent while the actual installed ACP composition and lifecycle
+  run, with the network tripwire proving no helper catalog, archive, or
+  extraction contact. The source composition test separately proves that ACP
+  never invokes the managed acquisition boundary; neither result substitutes
+  for the other;
 - lazy MCP startup through the installed Prime artifact;
 - selection of `Scripts/python.exe` from the newly created Windows venv;
 - installation of the manifest-bound local `dist/prime-agent-runtime` rather
