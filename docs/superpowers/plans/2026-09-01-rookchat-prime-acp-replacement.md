@@ -1454,7 +1454,7 @@ The concrete handoffs are:
 
 | Producer | Exact handoff | Consumer and working directory | Admission and failure rule |
 | --- | --- | --- | --- |
-| Clean Prime Git worktree | Build-attempt-scoped Git bundle | `git clone` beneath the Linux-native WSL build-attempt root | Exact approved final head, direct parent, complete ordered series, and clean tracked source before the bundle; a failed build attempt is retained and never reused. |
+| Clean Prime Git worktree | Build-attempt-scoped Git bundle advertising exactly the reviewed `refs/heads/codex/rookchat-prime-final-series` ref | Exact-branch `git clone --no-checkout` beneath the Linux-native WSL build-attempt root, followed by detached checkout of the approved SHA | Exact approved final head, named-ref resolution, direct parent, complete ordered series, and clean tracked source before the bundle; a failed build attempt is retained and never reused. |
 | `scripts/build-prime-acp-runtime.sh` from the exact independently approved clean Rook implementation | WSL `pi-windows-x64.zip` and diagnostic build record | Windows transfer step; build runs with the Prime worktree as cwd | Rook identity is checked before and after execution; post-build Prime commit/clean/lockfile checks precede ZIP authority; WSL and Windows archive hashes must match. |
 | `scripts/package-prime-acp-runtime.py` and `prime_runtime_artifact` from the same exact independently approved clean Rook implementation | One assembly-attempt-scoped `runtimes/<runtime-id>` payload | Build-release and local-deploy consumers receive the same canonical payload path | Rook identity is checked before and after assembly; closed manifest verification precedes either consumer; failure leaves only that assembly attempt non-authoritative. |
 | Existing private-runtime and wheelhouse release scripts from the exact Rook source | Sealed Python runtime, wheelhouse, verification venv, and source manifest | Installer or local `post_install.py` before it invokes promotion | Exact release version and final implementation commit must match; the verifier imports from the sealed wheel only; stale payloads refuse before promotion. |
@@ -2039,10 +2039,10 @@ That review must name the exact Task 10 implementation commit and issue the
 Step 7 command with that literal identity before execution. Do not alter WSL
 prerequisites or run the real builder before approval.
 
-- [ ] **Step 7: Close Prime product policy, freeze the patch series, then run one approved v3 build**
+- [ ] **Step 7: Close Prime product policy, freeze the patch series, then run one approved v4 build**
 
 This step has two hard gates. The source-policy and patch-series work completes
-and stops for independent review before any build-attempt-v3 path is created.
+and stops for independent review before any build-attempt-v4 path is created.
 Only the subsequent review command may authorize the real build.
 
 **7A. Write focused RED tests before production changes**
@@ -2184,9 +2184,30 @@ STOP for independent review. Report the ordered commit list, exact final Prime
 head, exact Rook head, test outputs, the `5c2750bd` ruling, and confirmation that
 no project fixture was touched and the ACP composition invoked no helper
 acquisition/fetch/extractor boundary. Do not create
-`build-attempt-v3`, transfer an artifact, or launch Prime.
+`build-attempt-v4`, transfer an artifact, or launch Prime.
 
-**7C. Only after that review, run one real build-attempt-v3**
+**7C. Only after a fresh independent execution review, run one real build-attempt-v4**
+
+`build-attempt-v3` is permanently failed and inadmissible. Its bounded retained
+record is:
+
+```text
+outcome=failed
+timestamp_utc=2026-09-05T14:35:55Z (attempt-root creation; failure followed immediately)
+rook=42819aaf23a3251c3eb176f021d5eb4141d681a7
+prime=b71badc503f650cd7c10c4acd1206a8406aa0a0b
+parent=74b75df146090ec924fd3e185d522911738f14b7
+command=git -C D:/prime-agent/.worktrees/rookchat-prime-final-series bundle create C:/UDEV/RookRelease/prime-acp/b71badc5/builds/build-attempt-v3/source/prime-b71badc5.bundle b71badc503f650cd7c10c4acd1206a8406aa0a0b
+exit_code=1
+stderr=fatal: Refusing to create empty bundle.
+windows_attempt=C:/UDEV/RookRelease/prime-acp/b71badc5/builds/build-attempt-v3
+windows_contents=empty source directory only
+bundle=absent
+wsl_attempt=absent
+```
+
+The v3 directory remains unchanged. This adjacent plan record does not grant it
+authority, populate its `source/` directory, or permit reuse, repair, or resume.
 
 The local command selects WSL2; the portable Bash entrypoint remains unaware of
 WSL. Before creating a Windows release directory, Git bundle, WSL checkout,
@@ -2194,9 +2215,11 @@ build support root, or staging directory, complete every source/tool prerequisit
 check. Version probes use a fresh prerequisite-only HOME/TMPDIR outside the build
 attempt; npm may write its normal compile cache there. These probe directories
 are diagnostics, not build inputs, and are never reused by the builder.
-The independently approved Step 7B review must issue the Step 7C command with
+The independently approved v4 execution review must issue the Step 7C command with
 the exact 40-hex Rook implementation commit, final Prime head, direct parent,
-and complete ordered Prime series assigned as literal local PowerShell values.
+complete ordered Prime series, and full Prime bundle ref
+`refs/heads/codex/rookchat-prime-final-series` assigned as literal local
+PowerShell values.
 They are never read from environment variables, inferred from `HEAD`, or
 supplied by the build script. Verify the clean Rook implementation
 and exact public build entrypoint first, then verify the clean Prime identity on
@@ -2256,6 +2279,10 @@ if (-not (Test-Path Variable:approvedPrimeHead) -or
     $approvedPrimeSeries[-1] -cne $approvedPrimeHead) {
     throw 'The reviewed Step 7 command must name the approved Prime series literally.'
 }
+if (-not (Test-Path Variable:approvedPrimeBundleRef) -or
+    $approvedPrimeBundleRef -cne 'refs/heads/codex/rookchat-prime-final-series') {
+    throw 'The reviewed Step 7 command must name the approved Prime bundle ref literally.'
+}
 $rookStatus = @(git -C $rookRoot status --short)
 if ($LASTEXITCODE -ne 0 -or $rookStatus.Count -ne 0) { throw 'Rook worktree is not clean.' }
 if ((git -C $rookRoot rev-parse HEAD) -cne $approvedRookCommit) { throw 'Rook HEAD differs.' }
@@ -2270,6 +2297,12 @@ $primeStatus = @(git -C $primeRoot status --short)
 if ($LASTEXITCODE -ne 0 -or $primeStatus.Count -ne 0) { throw 'Prime worktree is not clean.' }
 if ((git -C $primeRoot rev-parse HEAD) -cne $approvedPrimeHead) { throw 'Prime HEAD differs.' }
 if ((git -C $primeRoot rev-parse HEAD^) -cne $approvedPrimeParent) { throw 'Prime parent differs.' }
+git -C $primeRoot show-ref --verify --quiet $approvedPrimeBundleRef
+if ($LASTEXITCODE -ne 0) { throw 'Approved Prime bundle ref is absent.' }
+$resolvedPrimeBundleHead = git -C $primeRoot rev-parse ($approvedPrimeBundleRef + '^{commit}')
+if ($LASTEXITCODE -ne 0 -or $resolvedPrimeBundleHead -cne $approvedPrimeHead) {
+    throw 'Approved Prime bundle ref does not resolve to the approved head.'
+}
 $baseline = 'c718bf3c30fd8da206ed551837cbb54f7ad15948'
 $actualPrimeSeries = @(git -C $primeRoot rev-list --reverse --first-parent "$baseline..$approvedPrimeHead")
 if ($LASTEXITCODE -ne 0 -or
@@ -2322,7 +2355,7 @@ PREFLIGHT
 '@
 wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslPreflight
 if ($LASTEXITCODE -ne 0) { throw 'Ubuntu build prerequisites are not admitted.' }
-$buildAttempt = 'build-attempt-v3'
+$buildAttempt = 'build-attempt-v4'
 $primeShort = $approvedPrimeHead.Substring(0, 8)
 $releaseRoot = "C:/UDEV/RookRelease/prime-acp/$primeShort/builds/$buildAttempt"
 if (Test-Path -LiteralPath $releaseRoot) { throw 'Windows build attempt root must be absent.' }
@@ -2332,22 +2365,30 @@ if ($LASTEXITCODE -ne 0) { throw 'WSL build attempt root must be absent.' }
 ```
 
 Only after that preflight succeeds, create one explicit build-attempt
-generation. `build-attempt-v1` and `build-attempt-v2` remain permanently
-preserved as inadmissible evidence under their original Prime identities. They
-are never modified, normalized, repaired, transferred, adopted, or used as
-inputs. The next authorized generation is exactly `build-attempt-v3` under the
-independently approved final Prime head. A failed generation is never repaired,
-resumed, or reused; any later build requires a new absent generation and review.
+generation. `build-attempt-v1`, `build-attempt-v2`, and `build-attempt-v3`
+remain permanently preserved as inadmissible evidence under their original
+Prime identities. They are never modified, normalized, repaired, transferred,
+adopted, or used as inputs. The next authorized generation is exactly
+`build-attempt-v4` under the independently approved final Prime head. A failed
+generation is never repaired, resumed, or reused; any later build requires a
+new absent generation and review.
 
 ```powershell
 if ($buildAttempt -cnotmatch '^build-attempt-v[1-9][0-9]*$') { throw 'Invalid build attempt generation.' }
 $bundle = "$releaseRoot/source/prime-$primeShort.bundle"
 New-Item -ItemType Directory -Path "$releaseRoot/source" | Out-Null
 
-git -C $primeRoot bundle create $bundle $approvedPrimeHead
+git -C $primeRoot bundle create $bundle $approvedPrimeBundleRef
 if ($LASTEXITCODE -ne 0) { throw 'Prime Git bundle creation failed.' }
 git -C $primeRoot bundle verify $bundle
 if ($LASTEXITCODE -ne 0) { throw 'Prime Git bundle verification failed.' }
+$advertisedBundleHeads = @(git -C $primeRoot bundle list-heads $bundle)
+$expectedBundleHead = "$approvedPrimeHead $approvedPrimeBundleRef"
+if ($LASTEXITCODE -ne 0 -or
+    $advertisedBundleHeads.Count -ne 1 -or
+    $advertisedBundleHeads[0] -cne $expectedBundleHead) {
+    throw 'Prime Git bundle does not advertise exactly the approved head and ref.'
+}
 ```
 
 Transfer only that Git bundle through `/mnt/c`, clone it beneath the matching
@@ -2364,9 +2405,17 @@ root="$HOME/rook-prime-acp-{primeShort}/builds/{buildAttempt}"
 test ! -e "$root"
 mkdir -p "$root/source"
 cp "/mnt/c/UDEV/RookRelease/prime-acp/{primeShort}/builds/{buildAttempt}/source/prime-{primeShort}.bundle" "$root/source/"
-git clone "$root/source/prime-{primeShort}.bundle" "$root/prime-agent"
+git clone --no-checkout --branch codex/rookchat-prime-final-series \
+  "$root/source/prime-{primeShort}.bundle" "$root/prime-agent"
 git -C "$root/prime-agent" bundle verify "$root/source/prime-{primeShort}.bundle"
 git -C "$root/prime-agent" checkout --detach {primeHead}
+test "$(git -C "$root/prime-agent" rev-parse HEAD)" = {primeHead}
+test "$(git -C "$root/prime-agent" rev-parse HEAD^)" = {primeParent}
+test -z "$(git -C "$root/prime-agent" status --porcelain --untracked-files=no)"
+test -f "$root/prime-agent/package-lock.json" -a ! -L "$root/prime-agent/package-lock.json"
+lockfile_before="$(sha256sum "$root/prime-agent/package-lock.json")"
+lockfile_before="${lockfile_before%% *}"
+[[ "$lockfile_before" =~ ^[0-9a-f]{64}$ ]]
 env -i HOME="$HOME" PATH="$PATH" LANG=C.UTF-8 LC_ALL=C.UTF-8 TMPDIR=/tmp CI=1 \
   /mnt/c/UDEV/Rook/.worktrees/rookchat-prime-acp-reset/scripts/build-prime-acp-runtime.sh \
   --prime-worktree "$root/prime-agent" \
@@ -2383,6 +2432,8 @@ NODE
 test "$(git -C "$root/prime-agent" rev-parse HEAD)" = {primeHead}
 test "$(git -C "$root/prime-agent" rev-parse HEAD^)" = {primeParent}
 test -z "$(git -C "$root/prime-agent" status --porcelain --untracked-files=no)"
+lockfile_after="$(sha256sum "$root/prime-agent/package-lock.json")"
+test "${lockfile_after%% *}" = "$lockfile_before"
 '@.Replace('{primeShort}', $primeShort).Replace('{buildAttempt}', $buildAttempt).Replace('{primeHead}', $approvedPrimeHead).Replace('{primeParent}', $approvedPrimeParent)
 wsl.exe -d Ubuntu-24.04 --exec /bin/bash -lc $wslBuildCommand
 if ($LASTEXITCODE -ne 0) { throw 'Prime WSL build attempt failed.' }
@@ -2468,7 +2519,7 @@ if ($LASTEXITCODE -ne 0 -or
     throw 'Rook verifier does not import from the approved checkout.'
 }
 
-$approvedBuildAttempt = 'build-attempt-v3'
+$approvedBuildAttempt = 'build-attempt-v4'
 if ($approvedBuildAttempt -cnotmatch '^build-attempt-v[1-9][0-9]*$') { throw 'Invalid approved build attempt.' }
 $assemblyAttempt = 'assembly-attempt-v1'
 if ($assemblyAttempt -cnotmatch '^assembly-attempt-v[1-9][0-9]*$') { throw 'Invalid assembly attempt.' }
