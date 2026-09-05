@@ -87,12 +87,12 @@ def test_manifest_roundtrip_public_cli_and_closed_payload(tmp_path):
         "acpProtocolVersion", "pythonAcpSdkVersion", "executable", "goalSkill", "rookSkill",
         "rookSkillManifestSha256", "claimKeyVersion", "uv", "pythonRuntime", "files",
     }
-    assert verified.manifest["compatibilityPatchCommit"] == "1b9dfabb04901de4823d259c88b39dfc78ec3b34"
+    assert verified.manifest["compatibilityPatchCommit"] == "b71badc503f650cd7c10c4acd1206a8406aa0a0b"
     assert verified.manifest["platform"] == "windows"
     assert verified.manifest["architecture"] == "amd64"
     assert verified.manifest["pythonRuntime"] == {
         "root": "dist/prime-agent-runtime",
-        "sourceCommit": "1b9dfabb04901de4823d259c88b39dfc78ec3b34",
+        "sourceCommit": "b71badc503f650cd7c10c4acd1206a8406aa0a0b",
         "manifestSha256": subtree_id(PAYLOAD, "dist/prime-agent-runtime/"),
     }
     assert verified.manifest["files"] == [
@@ -333,8 +333,8 @@ def test_complete_manifest_matches_hand_frozen_oracle(tmp_path):
     names = ["CHANGELOG.md","README.md","assets/a","dist/prime-agent-runtime/p.py","docs/a","examples/a","notices/prime-agent/LICENSE","package.json","pi.exe","skills/goal/SKILL.md","skills/rook-full/SKILL.md","tools/uv/LICENSE-APACHE","tools/uv/LICENSE-MIT","tools/uv/uv.exe"]
     root = write_payload(tmp_path / "oracle", {name: b"x" for name in names})
     expected = (
-        b"{\"acpProtocolVersion\":1,\"architecture\":\"amd64\",\"claimKeyVersion\":1,\"compatibilityPatchCommit\":\"1b9df"
-        b"abb04901de4823d259c88b39dfc78ec3b34\",\"executable\":\"pi.exe\",\"files\":[{\"bytes\":1,\"path\":\"CHANGELOG.md\""
+        b"{\"acpProtocolVersion\":1,\"architecture\":\"amd64\",\"claimKeyVersion\":1,\"compatibilityPatchCommit\":\"b71ba"
+        b"dc503f650cd7c10c4acd1206a8406aa0a0b\",\"executable\":\"pi.exe\",\"files\":[{\"bytes\":1,\"path\":\"CHANGELOG.md\""
         b",\"sha256\":\"2D711642B726B04401627CA9FBAC32F5C8530FB1903CC4DB02258717921A4881\"},{\"bytes\":1,\"path\":\"REA"
         b"DME.md\",\"sha256\":\"2D711642B726B04401627CA9FBAC32F5C8530FB1903CC4DB02258717921A4881\"},{\"bytes\":1,\"pat"
         b"h\":\"assets/a\",\"sha256\":\"2D711642B726B04401627CA9FBAC32F5C8530FB1903CC4DB02258717921A4881\"},{\"bytes\":"
@@ -352,15 +352,15 @@ def test_complete_manifest_matches_hand_frozen_oracle(tmp_path):
         b"627CA9FBAC32F5C8530FB1903CC4DB02258717921A4881\"},{\"bytes\":1,\"path\":\"tools/uv/uv.exe\",\"sha256\":\"2D711"
         b"642B726B04401627CA9FBAC32F5C8530FB1903CC4DB02258717921A4881\"}],\"goalSkill\":\"skills/goal\",\"platform\":"
         b"\"windows\",\"pythonAcpSdkVersion\":\"0.12.1\",\"pythonRuntime\":{\"manifestSha256\":\"074DF15105791ADD7FA19F1C"
-        b"8B08B43F19BEEB308847CF3351AB5E5FCDB5E9C3\",\"root\":\"dist/prime-agent-runtime\",\"sourceCommit\":\"1b9dfabb"
-        b"04901de4823d259c88b39dfc78ec3b34\"},\"rookSkill\":\"skills/rook-full\",\"rookSkillManifestSha256\":\"CABB2CD"
+        b"8B08B43F19BEEB308847CF3351AB5E5FCDB5E9C3\",\"root\":\"dist/prime-agent-runtime\",\"sourceCommit\":\"b71badc5"
+        b"03f650cd7c10c4acd1206a8406aa0a0b\"},\"rookSkill\":\"skills/rook-full\",\"rookSkillManifestSha256\":\"CABB2CD"
         b"872B5F088C893201D19864D5DF41F84CB784B884E8C49A7BCB9965FD1\",\"schemaVersion\":1,\"upstreamCommit\":\"c718b"
         b"f3c30fd8da206ed551837cbb54f7ad15948\",\"uv\":{\"executable\":\"tools/uv/uv.exe\",\"licenses\":[\"tools/uv/LICE"
         b"NSE-APACHE\",\"tools/uv/LICENSE-MIT\"],\"source\":\"https://github.com/astral-sh/uv/releases/download/0.12"
         b".3/uv-x86_64-pc-windows-msvc.zip\",\"sourceArchiveSha256\":\"B23350C79E8AD0192B8124AF13A0F17E8D4E4549524"
         b"785E1AEF389AE5A06990E\",\"version\":\"0.12.3\"}}\n"
     )
-    expected_id = "E7F47B271CFEE7A055E45335B91C0A04B2D963E9D0587AC1575F1A6D946E467A"
+    expected_id = "9A035791EF3CB160EF93B2BCD15AA136D7E9B065A7D45A008B3E8DB92284618F"
     result = artifact.create_runtime_manifest(root, artifact.RuntimeManifestMetadata(
         1, "0.12.1", "CABB2CD872B5F088C893201D19864D5DF41F84CB784B884E8C49A7BCB9965FD1",
     ))

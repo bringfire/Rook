@@ -73,7 +73,7 @@ def _write_runtime(
         "platform": platform.system().lower(),
         "architecture": platform.machine().lower(),
         "upstreamCommit": "c718bf3c30fd8da206ed551837cbb54f7ad15948",
-        "compatibilityPatchCommit": "1b9dfabb04901de4823d259c88b39dfc78ec3b34",
+        "compatibilityPatchCommit": "b71badc503f650cd7c10c4acd1206a8406aa0a0b",
         "acpProtocolVersion": PROTOCOL_VERSION,
         "pythonAcpSdkVersion": version("agent-client-protocol"),
         "executable": "pi.exe",
@@ -87,7 +87,7 @@ def _write_runtime(
             "licenses": ["tools/uv/LICENSE-APACHE", "tools/uv/LICENSE-MIT"],
         },
         "pythonRuntime": {
-            "root": "dist/prime-agent-runtime", "sourceCommit": "1b9dfabb04901de4823d259c88b39dfc78ec3b34",
+            "root": "dist/prime-agent-runtime", "sourceCommit": "b71badc503f650cd7c10c4acd1206a8406aa0a0b",
             "manifestSha256": _subtree_manifest_sha256(files, "dist/prime-agent-runtime/"),
         },
         "claimKeyVersion": 1,
@@ -142,6 +142,7 @@ def test_new_launch_uses_exact_flags_and_reopen_has_no_model_override(verified_r
         "--mode",
         "acp",
         "--no-daemon",
+        "--no-approve",
         "--no-skills",
         "--no-extensions",
         "--no-context-files",
@@ -165,6 +166,9 @@ def test_new_launch_uses_exact_flags_and_reopen_has_no_model_override(verified_r
     reopened = build_prime_argv(contract, session_path, None, None, reopen=True)
     assert "--model" not in reopened
     assert "--thinking" not in reopened
+    assert "--no-approve" in reopened
+    assert "--no-managed-tool-downloads" not in reopened
+    assert "--offline" not in reopened
     assert _pair(reopened, "--append-system-prompt") == contract.rook_skill_system_prompt
 
 
@@ -195,6 +199,21 @@ def test_prime_child_environment_uses_pre_dotenv_snapshot(verified_runtime, monk
     assert child["PATH"] == str(contract.uv_executable_path.parent) + os.pathsep + pre_dotenv["PATH"]
     assert child["UV_CACHE_DIR"] == str(tmp_path / "data/rookchat/acp/v1/prime-uv/cache")
     assert child["UV_PYTHON_INSTALL_DIR"] == str(tmp_path / "data/rookchat/acp/v1/prime-uv/python")
+
+
+@pytest.mark.parametrize("offline_key", ["PI_OFFLINE", "pi_offline", "Pi_Offline"])
+def test_prime_child_environment_removes_ambient_offline_policy(verified_runtime, tmp_path, offline_key):
+    contract, _ = verified_runtime
+    child = build_prime_child_env(
+        {
+            "PATH": "C:/approved",
+            "ROOK_DATA_DIR": str(tmp_path / "data"),
+            offline_key: "1",
+        },
+        contract,
+    )
+
+    assert not any(key.upper() == "PI_OFFLINE" for key in child)
 
 
 @pytest.mark.parametrize("policy_key", ["PYTHONDONTWRITEBYTECODE", "pythondontwritebytecode", "PythonDontWriteBytecode"])
@@ -480,7 +499,7 @@ def test_new_release_provenance_does_not_reject_recorded_historical_runtime(tmp_
     assert artifact.read_current_runtime_id(prime) == new_id
 
     for runtime_id, expected_prime, expected_uv in (
-        (old_id, "1b9dfabb04901de4823d259c88b39dfc78ec3b34", "0.12.3"),
+        (old_id, "b71badc503f650cd7c10c4acd1206a8406aa0a0b", "0.12.3"),
         (new_id, next_patch, "1.0.0"),
     ):
         contract = load_and_verify_runtime(prime, runtime_id)

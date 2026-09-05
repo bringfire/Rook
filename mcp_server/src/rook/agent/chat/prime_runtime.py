@@ -117,6 +117,7 @@ def build_prime_argv(
         "--mode",
         "acp",
         "--no-daemon",
+        "--no-approve",
         "--no-skills",
         "--no-extensions",
         "--no-context-files",
@@ -162,7 +163,7 @@ def build_prime_child_env(
             value.encode("utf-16-le")
         except UnicodeEncodeError as exc:
             raise PrimeLaunchError("invalid_child_environment") from exc
-    blocked = {"PI_PACKAGE_DIR", "PRIME_AGENT_KERNEL_PYTHON", "PRIME_AGENT_KERNEL_VENV",
+    blocked = {"PI_OFFLINE", "PI_PACKAGE_DIR", "PRIME_AGENT_KERNEL_PYTHON", "PRIME_AGENT_KERNEL_VENV",
                "PRIME_AGENT_INSTALL_UV", "VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH",
                "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"}
     environment = {key: value for key, value in base_environment.items()
