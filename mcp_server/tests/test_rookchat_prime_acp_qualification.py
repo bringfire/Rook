@@ -1670,6 +1670,105 @@ def test_real_proxy_termination_diagnostics(tmp_path, monkeypatch, termination):
             _precontact().verify_proxy_observations(rows, {"pypi.org"})
 
 
+@pytest.mark.parametrize("exchange", ["complete_eof", "complete_abort", "interrupted_abort"])
+def test_proxy_application_result_is_independent_of_connection_termination(tmp_path, monkeypatch, exchange):
+    import struct
+
+    provider = _provider()
+    original_connect = socket.create_connection
+    body = _canonical({"success": True, "data": {"echo": "alpha"}})
+    terminate = threading.Event()
+    errors = []
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(5)
+
+        def serve():
+            try:
+                conn, _ = listener.accept()
+                with conn:
+                    conn.settimeout(5)
+                    request = bytearray()
+                    while not request.endswith(b"\r\n\r\n"):
+                        part = conn.recv(1)
+                        assert part and len(request) < 4096
+                        request.extend(part)
+                    assert request.startswith(b"GET /result HTTP/1.1\r\n")
+                    conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(body)).encode("ascii") + b"\r\n\r\n")
+                    conn.sendall(body[:len(body) // 2] if exchange == "interrupted_abort" else body)
+                    assert terminate.wait(5)
+                    if exchange.endswith("abort"):
+                        linger = struct.pack("hh" if os.name == "nt" else "ii", 1, 0)
+                        conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
+            except BaseException as exc:
+                errors.append(exc)
+
+        peer = threading.Thread(target=serve)
+        peer.start()
+
+        def connect(address, *args, **kwargs):
+            if address == ("pypi.org", 443):
+                return original_connect(listener.getsockname(), timeout=5)
+            return original_connect(address, *args, **kwargs)
+
+        monkeypatch.setattr(socket, "create_connection", connect)
+        journal = provider.BoundedJsonlJournal(tmp_path / "application.jsonl", max_records=16, max_bytes=8192)
+        proxy = provider.ConnectProxyServer("http://127.0.0.1:0", {"pypi.org"}, journal)
+        application_passed = False
+        try:
+            with proxy:
+                with socket.create_connection(("127.0.0.1", proxy.port), timeout=5) as client:
+                    client.sendall(b"CONNECT pypi.org:443 HTTP/1.1\r\n\r\n")
+                    header = bytearray()
+                    while not header.endswith(b"\r\n\r\n"):
+                        part = client.recv(1)
+                        assert part and len(header) < 4096
+                        header.extend(part)
+                    assert header.startswith(b"HTTP/1.1 200")
+                    client.sendall(b"GET /result HTTP/1.1\r\nHost: local-control\r\n\r\n")
+                    with http.client.HTTPResponse(client) as response:
+                        response.begin()
+                        assert response.status == 200
+                        if exchange == "interrupted_abort":
+                            terminate.set()
+                            with pytest.raises(http.client.IncompleteRead) as failure:
+                                response.read()
+                            assert failure.value.partial == body[:len(body) // 2]
+                        else:
+                            received = response.read()
+                            assert received == body
+                            assert json.loads(received) == {"success": True, "data": {"echo": "alpha"}}
+                            application_passed = True
+                            # Reset only AFTER the standard parser has proved a complete body.
+                            terminate.set()
+                    assert client.recv(1) == b""
+                stopped_at = time.monotonic()
+            assert time.monotonic() - stopped_at < 6
+        finally:
+            terminate.set()
+            peer.join(timeout=6)
+        assert not peer.is_alive() and not errors
+        assert proxy._thread is None and proxy._server is None
+        rows = [json.loads(line) for line in journal.path.read_bytes().splitlines()]
+        failures = [row for row in rows if row["event"] == "proxy_forward_failed"]
+        assert application_passed is (exchange != "interrupted_abort")
+        if exchange.endswith("abort"):
+            assert len(failures) == 1
+            assert failures[0]["operation"] == "recv"
+            assert failures[0]["direction"] == "upstream_to_client"
+            # Current qualification acceptance is deliberately NOT changed by this control.
+            with pytest.raises(_common().QualificationRefused, match="proxy"):
+                _precontact().verify_proxy_observations(rows, {"pypi.org"})
+        else:
+            assert failures == []
+            _precontact().verify_proxy_observations(rows, {"pypi.org"})
+        print("LOCAL_APPLICATION_CONTROL=" + json.dumps({
+            "exchange": exchange, "applicationPassed": application_passed,
+            "proxyFailures": failures, "cleanupObserved": True,
+        }, sort_keys=True))
+
+
 def test_deny_proxy_records_and_refuses_unadmitted_connect(tmp_path: Path) -> None:
     provider = _provider()
     journal = _symbol(provider, "BoundedJsonlJournal")(
