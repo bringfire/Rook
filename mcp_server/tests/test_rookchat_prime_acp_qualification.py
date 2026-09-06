@@ -861,6 +861,118 @@ async def test_correction_exact_qualification_identity_rejects_drift(tmp_path, m
     assert not (tmp_path / "evidence").exists()
 
 
+def _tracked_versioned_protocol(tmp_path, monkeypatch, filename, version):
+    common = _common()
+    protocol, repo, evidence = _valid_protocol(tmp_path)
+    for module, relative in ((common, common.QUALIFICATION_MODULES[common.__name__]),
+                             (_precontact(), common.QUALIFICATION_MODULES[_precontact().__name__]),
+                             (_provider(), common.QUALIFICATION_MODULES[_provider().__name__])):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"# reviewed fixture\n")
+        monkeypatch.setattr(module, "__file__", str(path))
+
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
+
+    git("init", "-q")
+    git("config", "core.autocrlf", "false")
+    git("add", ".")
+    git("-c", "user.name=Rook", "-c", "user.email=rook@example.invalid", "commit", "-qm", "product")
+    protocol["implementationCommit"] = git("rev-parse", "HEAD")
+    protocol["executionVersion"] = version
+    path = repo / "scripts/qualification/protocols" / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(_canonical(protocol))
+    git("add", ".")
+    git("-c", "user.name=Rook", "-c", "user.email=rook@example.invalid", "commit", "-qm", "protocol")
+    return protocol, repo, path, git("rev-parse", "HEAD"), git
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [1, 2, 13])
+async def test_versioned_protocol_admits_exact_tracked_version_without_creating_roots(tmp_path, monkeypatch, version):
+    protocol, repo, path, head, _ = _tracked_versioned_protocol(
+        tmp_path, monkeypatch, f"rookchat-prime-acp-precontact-v{version}.json", version)
+    admitted = await _common().admit_precontact_protocol(path, repo, expected_qualification_commit=head)
+    assert admitted == protocol
+    assert not Path(protocol["evidenceRoot"]).exists()
+    assert not Path(protocol["executionRoot"]).exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filename", [
+    "rookchat-prime-acp-precontact-v0.json", "rookchat-prime-acp-precontact-v02.json",
+    "rookchat-prime-acp-precontact-v-2.json", "rookchat-prime-acp-precontact-v+2.json",
+    "rookchat-prime-acp-precontact-v2.0.json", "rookchat-prime-acp-precontact-v2.JSON",
+    "rookchat-prime-acp-precontact-v\u0662.json", "arbitrary.json",
+    "nested/rookchat-prime-acp-precontact-v2.json",
+])
+async def test_versioned_protocol_refuses_noncanonical_tracked_name(tmp_path, monkeypatch, filename):
+    protocol, repo, path, head, _ = _tracked_versioned_protocol(tmp_path, monkeypatch, filename, 2)
+    with pytest.raises(_common().QualificationRefused, match="qualification protocol"):
+        await _common().admit_precontact_protocol(path, repo, expected_qualification_commit=head)
+    assert not Path(protocol["evidenceRoot"]).exists()
+    assert not Path(protocol["executionRoot"]).exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", ["version_mismatch", "untracked", "dirty", "hidden_modified",
+    "external", "traversal", "symlink", "directory", "reparse"])
+async def test_versioned_protocol_refuses_before_root_creation(tmp_path, monkeypatch, damage):
+    common = _common()
+    protocol, repo, path, head, git = _tracked_versioned_protocol(
+        tmp_path, monkeypatch, "rookchat-prime-acp-precontact-v2.json", 1 if damage == "version_mismatch" else 2)
+    if damage != "version_mismatch":
+        assert await common.admit_precontact_protocol(path, repo, expected_qualification_commit=head) == protocol
+    if damage == "untracked":
+        path = path.with_name("rookchat-prime-acp-precontact-v3.json")
+        protocol["executionVersion"] = 3
+        path.write_bytes(_canonical(protocol))
+    elif damage in {"dirty", "hidden_modified"}:
+        if damage == "hidden_modified":
+            git("update-index", "--assume-unchanged", path.relative_to(repo).as_posix())
+        path.write_bytes(path.read_bytes() + b" ")
+        if damage == "hidden_modified":
+            assert git("status", "--porcelain") == ""
+    elif damage in {"external", "symlink"}:
+        external = tmp_path / path.name
+        external.write_bytes(path.read_bytes())
+        if damage == "external":
+            path = external
+        else:
+            path.unlink()
+            path.symlink_to(external)
+    elif damage == "traversal":
+        path = path.parent / ".." / "protocols" / path.name
+    elif damage == "directory":
+        path.unlink()
+        path.mkdir()
+    elif damage == "reparse":
+        original = Path.lstat
+        def reparse_stat(candidate, *args, **kwargs):
+            result = original(candidate, *args, **kwargs)
+            if candidate == path.parent:
+                return SimpleNamespace(st_mode=result.st_mode,
+                    st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)
+            return result
+        monkeypatch.setattr(Path, "lstat", reparse_stat)
+    operations = _FakePrecontactOperations()
+    refusal = {
+        "version_mismatch": "filename/body version differs",
+        "untracked": "worktree is not clean", "dirty": "worktree is not clean",
+        "hidden_modified": "blob bytes differ", "external": "protocol path differs",
+        "traversal": "protocol path differs", "symlink": "protocol origin differs",
+        "directory": "protocol origin differs", "reparse": "protocol origin differs",
+    }[damage]
+    with pytest.raises(common.QualificationRefused, match=refusal):
+        await _precontact().execute_precontact(path, repo,
+            expected_qualification_commit=head, operations=operations)
+    assert operations.calls == []
+    assert not Path(protocol["evidenceRoot"]).exists()
+    assert not Path(protocol["executionRoot"]).exists()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("uncertain", [False, True])
 async def test_correction_git_admission_uses_shared_bounded_process(tmp_path, monkeypatch, uncertain):

@@ -47,7 +47,7 @@ PRODUCT_SOURCE_PATHS = (
     "src/Rook",
     "src/RookNative",
 )
-QUALIFICATION_PROTOCOL = "scripts/qualification/protocols/rookchat-prime-acp-precontact-v1.json"
+QUALIFICATION_PROTOCOL_NAME = re.compile(r"rookchat-prime-acp-precontact-v([1-9][0-9]*)\.json")
 QUALIFICATION_MODULES = {
     "scripts.qualification.rookchat_prime_acp_common": "scripts/qualification/rookchat_prime_acp_common.py",
     "scripts.qualification.rookchat_prime_acp_precontact": "scripts/qualification/rookchat_prime_acp_precontact.py",
@@ -459,17 +459,39 @@ async def verify_source_custody(repo_root: Path, implementation_commit: str) -> 
         raise QualificationRefused("product source differs from implementation commit")
 
 
-async def verify_qualification_custody(repo_root: Path, protocol_path: Path, expected_commit: str | None) -> None:
+def _qualification_protocol_identity(root: Path, protocol_path: Path) -> tuple[str, str]:
+    candidate = protocol_path.absolute()
+    match = QUALIFICATION_PROTOCOL_NAME.fullmatch(candidate.name)
+    if (".." in protocol_path.parts or match is None
+            or candidate.parent != root / "scripts/qualification/protocols"):
+        raise QualificationRefused("qualification protocol path differs")
+    try:
+        # Check the file and each repository-local ancestor without following links.
+        for path in (candidate, *candidate.parents):
+            info = path.lstat()
+            if (stat.S_ISLNK(info.st_mode)
+                    or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+                    or not (stat.S_ISREG(info.st_mode) if path == candidate else stat.S_ISDIR(info.st_mode))):
+                raise QualificationRefused("qualification protocol origin differs")
+            if path == root:
+                break
+        if candidate.resolve(strict=True) != candidate:
+            raise QualificationRefused("qualification protocol origin differs")
+    except (OSError, ValueError) as exc:
+        raise QualificationRefused("qualification protocol origin differs") from exc
+    return candidate.relative_to(root).as_posix(), match.group(1)
+
+
+async def verify_qualification_custody(repo_root: Path, protocol_path: Path, expected_commit: str | None) -> str:
     if type(expected_commit) is not str or COMMIT_PATTERN.fullmatch(expected_commit) is None:
         raise QualificationRefused("expected qualification commit is required")
     root = repo_root.resolve(strict=True)
-    if protocol_path.resolve(strict=True) != root / QUALIFICATION_PROTOCOL:
-        raise QualificationRefused("qualification protocol path differs")
+    protocol_relative, version = _qualification_protocol_identity(root, protocol_path)
     if (await _git(root, "rev-parse", "HEAD")).stdout.strip() != expected_commit:
         raise QualificationRefused("qualification HEAD differs")
     if (await _git(root, "status", "--porcelain")).stdout:
         raise QualificationRefused("qualification worktree is not clean")
-    for relative in (QUALIFICATION_PROTOCOL, *QUALIFICATION_MODULES.values()):
+    for relative in (protocol_relative, *QUALIFICATION_MODULES.values()):
         path = root / relative
         if not path.is_file() or path.is_symlink() or path.resolve(strict=True) != path:
             raise QualificationRefused("qualification input origin differs")
@@ -485,6 +507,7 @@ async def verify_qualification_custody(repo_root: Path, protocol_path: Path, exp
             module = sys.modules.get("__main__")
         if module is None or Path(module.__file__).resolve(strict=True) != root / relative:
             raise QualificationRefused("loaded qualification module origin differs")
+    return version
 
 
 def assert_no_product_qualification_imports(repo_root: Path) -> None:
@@ -510,8 +533,10 @@ def assert_no_product_qualification_imports(repo_root: Path) -> None:
 async def admit_precontact_protocol(path: Path, repo_root: Path, *, verify_git: bool = True,
                               expected_qualification_commit: str | None = None) -> dict[str, Any]:
     if verify_git:
-        await verify_qualification_custody(repo_root, path, expected_qualification_commit)
+        version = await verify_qualification_custody(repo_root, path, expected_qualification_commit)
     protocol = load_precontact_protocol(path)
+    if verify_git and version != str(protocol["executionVersion"]):
+        raise QualificationRefused("qualification protocol filename/body version differs")
     root = repo_root.resolve(strict=True)
     evidence = Path(protocol["evidenceRoot"])
     if evidence.exists() or evidence.is_symlink():
