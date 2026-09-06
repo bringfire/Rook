@@ -1597,14 +1597,28 @@ pre-contact runner, and deterministic provider. Loaded qualification modules
 must resolve to those same worktree files. A clean descendant or an alternate
 protocol path cannot qualify. The protocol's product implementation commit and
 source-input checks remain separate from this qualification-code identity.
+Bounded, read-only Git subprocesses are permitted during admission to establish
+that custody; they remain subject to exact-child ownership and cleanup.
 
 The same read-only admission calls the production closed-file runtime loader,
 compares the complete runtime contract with the protocol, constructs new and
 reopen argv for the prospective session path, and checks the full final child
-environment and hash. Both roots must be absent. No child, service, Slice A
-command, workspace, or evidence directory is created until all checks pass.
+environment and hash. Both roots must be absent. No Prime, test, provider/proxy,
+MCP, kernel, or other contact-capable process/service is started, and no workspace
+or evidence directory is created, until all checks pass.
 Pass that admitted preparation into Slice B; do not defer full payload
 verification until after Slice A or replace the admitted session path later.
+
+The protocol freezes one `qualificationConversationId`, exactly 32 lowercase
+UUID hex characters. Before root creation, derive its path with the existing
+`AcpDataPaths.session_path(qualificationConversationId)` under the protocol's
+workspace-owned Rook data root: `.../sessions/<qualificationConversationId>.jsonl`.
+Do not construct `AssociationStore` during admission. After admission and root
+creation, construct `ProvisionalAssociation` with that same frozen ID, admitted
+path, and admitted fields; validate the resulting Prime session header and use
+the real `AssociationStore.publish()` path. Slice A retains coverage of ordinary
+`reserve_provisional()` allocation. No new product allocator API or duplicated
+UUID/path generator is needed.
 
 Execution uses one fresh disposable workspace and one separate small evidence
 directory. Their canonical paths are protocol inputs; neither may contain the
@@ -1613,6 +1627,10 @@ claims, presentation, temporary files, uv cache, managed Python, and kernel
 files live in the workspace. Evidence receives only explicitly selected logs,
 results, hashes, and bounded session-header evidence. Never recursively adopt,
 hash, or chmod the workspace as evidence, and never reuse it for another run.
+Workspace deletion is permitted only after every exact owned process and thread
+has been observed stopped. If cleanup remains uncertain, retain the complete
+workspace unchanged as non-authoritative diagnostic state; never reuse or adopt
+it.
 
 Evidence is limited to 16,777,216 bytes per file, 67,108,864 bytes in total, and
 64 regular files, including admission, terminal, index, and seal files. Every

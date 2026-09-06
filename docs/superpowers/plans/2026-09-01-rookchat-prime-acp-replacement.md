@@ -8,7 +8,7 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; Ubuntu 24.04 Bash release builds with local WSL2 selection; PowerShell/Inno Setup installation tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at the revision carried by this documentation amendment (SHA-256 `D2AFEB7074C24440B9A9BB236709E08F4EE64C407E5E66856A644FA5600537C9`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at the revision carried by this documentation amendment (SHA-256 `93D3E964A5F217B03BA6A3B31D01D5DDEC2068B302532634FC58F6E07C21BA2D`).
 
 ## Global Constraints
 
@@ -2138,7 +2138,7 @@ source-composition test.
 
 In Rook, extend `test_chat_prime_runtime.py` before changing
 `prime_runtime.py`. Prove new and reopen argv contain exact `--no-approve`, do
-not contain `--no-managed-tool-downloads` or `--offline`, and the final child
+not contain `--offline`, and the final child
 environment removes every exact/lowercase/mixed-case `PI_OFFLINE` key. Preserve
 every uv, bytecode, skill-content, and command-line bound. Slice B adds
 `--offline` only in its isolated external protocol.
@@ -3033,15 +3033,27 @@ qualification modules (common, pre-contact, deterministic provider). Resolve
 those modules from the same worktree. Preserve the separate product baseline
 and source-input checks; a clean descendant is not sufficient qualification
 authority. No self-referential commit/hash field is added to the protocol.
+Bounded, read-only Git subprocesses are allowed for this admission and use the
+same exact-child cleanup path. Before admission succeeds, prohibit Prime, test,
+provider/proxy, MCP, kernel, and other contact-capable processes/services, not
+the Git commands establishing source custody.
 
 Complete read-only preparation before `EvidenceRoot.create()` or execution
 workspace creation: call production `load_and_verify_runtime()`, compare its
 contract with the frozen protocol, construct initial/reopen argv through
 `build_prime_argv()`, and compare the complete `build_prime_child_env()` result
-and hash. Select the prospective conversation/session path in memory using
-the product path layout; defer filesystem-creating store/fixture setup until
-admission passes and reuse that exact path. Pass the admitted preparation to
-Slice B. A partial manifest/pi.exe check cannot replace closed-file runtime
+and hash. Freeze `qualificationConversationId` in the A+B protocol as
+`11111111111141118111111111111111` (32 lowercase UUID hex characters). Derive
+`AcpDataPaths` from the explicit workspace-owned Rook data root without calling
+`create_roots()` or constructing `AssociationStore`; use its existing
+`session_path(qualificationConversationId)` for the prospective session path.
+After admission and root creation, construct `ProvisionalAssociation` with
+that same ID/path and admitted working directory, runtime, binding, and model
+fields. Exercise the real header-validation and `AssociationStore.publish()`
+path, not a fixture-only publication substitute. Slice A continues testing
+ordinary `reserve_provisional()` allocation. Add no product allocator API and
+do not duplicate its UUID/path logic. Pass the admitted preparation to Slice B.
+A partial manifest/pi.exe check cannot replace closed-file runtime
 verification. Missing/extra/altered payload bytes, identity drift, invalid
 arguments/environment, existing roots, or product imports of qualification
 code refuse with zero Slice A commands and neither root created.
@@ -3049,7 +3061,17 @@ code refuse with zero Slice A commands and neither root created.
 Add separately parameterized causal tests for runner, common, provider, and
 protocol drift (including a later clean commit and an alternate protocol),
 and missing/extra/altered runtime files. Exercise the entrypoint's admission
-order; assert zero operations and absent execution/evidence roots on refusal.
+order; allow only bounded read-only Git custody commands and assert zero
+contact-capable operations and absent execution/evidence roots on refusal.
+Add a causal case proving that the exact pre-admitted session path is supplied
+to initial/reopen argv, ACP persistence, header validation, and real association
+publication; no post-admission reservation may allocate a replacement ID/path.
+
+During the separately approved harness correction, remove the nonexistent
+managed-tool-download selector from the protocol's forbidden-argument list and
+qualification assertions. Preserve the source-composition test and helper-artifact
+checks as the actual evidence; add no absence assertion for an unimplemented flag.
+The protocol JSON and tests remain untouched in this documentation-only amendment.
 
 Each frozen live version executes once and its result is immutable. Any correction after execution requires a newly versioned protocol, fresh execution/evidence roots, and separate authorization; the runner never retries or overwrites a failed version. The unexecuted A+B draft is corrected and reviewed before its first authorization.
 
@@ -3064,6 +3086,11 @@ and temporary output there. Only explicitly selected bounded logs, results,
 hashes, and first-line session-header evidence enter the evidence directory.
 Do not recursively manifest or seal the workspace. Failed workspaces have no
 qualification authority and are never adopted or reused.
+Workspace deletion is permitted only after every exact owned process and thread
+has been observed stopped. If cleanup remains uncertain, retain the complete
+workspace unchanged as non-authoritative diagnostic state; never reuse or adopt
+it. Cover unobserved child exit and unobserved service-thread shutdown with
+before/after workspace assertions proving no deletion is attempted.
 
 Enforce file-count, total-byte, and per-file evidence ceilings before each
 write/copy, reserving capacity for terminal/index/seal files. Sealing indexes
@@ -3090,7 +3117,7 @@ seal failures, retaining the triggering exception and single result attempt.
 
 - [ ] **Step 3: Implement Slice A against the fake ACP agent**
 
-Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes and rendered-Windows-argv bounds, production inclusion of `--no-approve`, production exclusion of `--offline` and `--no-managed-tool-downloads`, case-insensitive `PI_OFFLINE` removal, direct ACP composition non-reachability of managed helper acquisition, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, close/delete/shutdown detach-before-retirement races, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, SDK-callback source-ordinal preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
+Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes and rendered-Windows-argv bounds, production inclusion of `--no-approve`, production exclusion of `--offline`, case-insensitive `PI_OFFLINE` removal, direct ACP composition non-reachability of managed helper acquisition, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, close/delete/shutdown detach-before-retirement races, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, SDK-callback source-ordinal preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
 
 Resolve exact executable paths for the five existing commands before launch.
 Construct one small test environment from explicit Windows/runtime essentials
@@ -3370,7 +3397,7 @@ Native compilation, installed artifact execution, provider contact, Rhino contac
 
 ## Final Acceptance Checklist
 
-- [ ] One product path exists: C# panel -> authenticated HTTP -> Python ACP SDK -> exact installed Prime `--mode acp --no-daemon --no-approve` -> standard ACP MCP `rook` -> Rook; production omits `--offline` and `--no-managed-tool-downloads`, removes inherited `PI_OFFLINE`, and causally proves direct ACP cannot reach managed helper acquisition.
+- [ ] One product path exists: C# panel -> authenticated HTTP -> Python ACP SDK -> exact installed Prime `--mode acp --no-daemon --no-approve` -> standard ACP MCP `rook` -> Rook; production omits `--offline`, removes inherited `PI_OFFLINE`, and causally proves direct ACP cannot reach managed helper acquisition.
 - [ ] Every durable association is complete, materialized, create-only, and contains a validated Prime header ID.
 - [ ] One metadata-free non-expiring claim fences launch/Delete; it is never reclaimed automatically.
 - [ ] Cleanup uses only the SDK/directly owned process handle and preserves the claim unless child exit is observed.
