@@ -98,6 +98,20 @@ def _local_contact_only(monkeypatch):
 def _valid_protocol(tmp_path: Path) -> tuple[dict, Path, Path]:
     source = tmp_path / "source"
     source.mkdir()
+    cache = tmp_path / "nuget"
+    package = cache / "xunit.runner.visualstudio/2.8.2"
+    adapter = package / "build/net462"
+    adapter.mkdir(parents=True)
+    for name in ("xunit.runner.visualstudio.props", "xunit.runner.visualstudio.testadapter.dll",
+                 "xunit.abstractions.dll", "xunit.runner.reporters.net452.dll", "xunit.runner.utility.net452.dll"):
+        (adapter / name).write_bytes(b"fixture")
+    (package / ".nupkg.metadata").write_bytes(_canonical({"contentHash": "fixture-hash"}))
+    assets = source / "src/Rook.Tests/obj/project.assets.json"
+    assets.parent.mkdir(parents=True)
+    assets.write_bytes(_canonical({"packageFolders": {str(cache): {}},
+        "project": {"restore": {"packagesPath": str(cache), "projectPath": str(assets.parent.parent / "Rook.Tests.csproj")}},
+        "libraries": {"xunit.runner.visualstudio/2.8.2": {
+            "type": "package", "path": "xunit.runner.visualstudio/2.8.2", "sha512": "fixture-hash"}}}))
     source_input = source / "authority.txt"
     source_input.write_text("reviewed\n", encoding="utf-8", newline="\n")
 
@@ -359,6 +373,122 @@ def test_slice_a_managed_assembly_admission(tmp_path, monkeypatch, damage):
             assert properties == ([f"-p:RhinoSystemDir={system.resolve()}"] if label == "managed-chat-panel" else [])
             assert not {"programfiles", "programfiles(x86)", "programw6432"}.intersection(
                 key.lower() for key in spec.environment)
+
+
+@pytest.mark.asyncio
+async def test_managed_nuget_property_restores_real_adapter_import(tmp_path):
+    from dataclasses import replace
+    protocol = _common().load_precontact_protocol(REPO / "scripts/qualification/protocols/rookchat-prime-acp-precontact-v1.json")
+    protocol["executionRoot"] = str(tmp_path / "workspace")
+    spec = dict(_precontact().ProductPrecontactOperations._slice_a_commands(protocol, REPO))["managed-chat-panel"]
+    for key in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
+        Path(spec.environment[key]).mkdir(parents=True, exist_ok=True)
+    argv = (spec.argv[0], "msbuild", "src/Rook.Tests/Rook.Tests.csproj", "-getItem:None", "-nologo")
+    binding = tuple(arg for arg in spec.argv if arg.startswith("-p:NuGetPackageRoot="))
+    observed = []
+    for extra in ((), binding):
+        result = await _common().run_bounded_process(replace(spec, argv=argv + extra))
+        assert result.exit_code == 0 and result.direct_child_exit_observed
+        rows = json.loads(result.stdout)["Items"]["None"]
+        observed.append(any(Path(row["Identity"]).name == "xunit.runner.visualstudio.testadapter.dll" for row in rows))
+    assert observed == [False, True], "generated NuGet property must restore the actual adapter import"
+
+
+def _managed_trx(count=97):
+    import xml.etree.ElementTree as ET
+    root = ET.Element("TestRun", xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010")
+    results = ET.SubElement(root, "Results")
+    for index in range(count):
+        ET.SubElement(results, "UnitTestResult", testId=f"test-{index}", executionId=f"execution-{index}",
+                      testName=f"Rook.Tests.UI.Chat.Fixture.Case{index}", outcome="Passed")
+    summary = ET.SubElement(root, "ResultSummary", outcome="Completed")
+    ET.SubElement(summary, "Counters", total=str(count), executed=str(count), passed=str(count),
+                  failed="0", aborted="0", notExecuted="0")
+    return ET.tostring(root, encoding="utf-8")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", ["no-trx", "missing", "malformed", "zero", "fewer", "more",
+                                    "failed", "unexecuted", "aborted", "duplicate", "extra-file", "directory",
+                                    "row-missing", "oversize", "dtd", None])
+async def test_real_slice_a_requires_exact_managed_trx(tmp_path, damage):
+    precontact, common = _precontact(), _common()
+    protocol, source, evidence_root = _valid_protocol(tmp_path)
+    evidence = common.EvidenceRoot.create(evidence_root, max_file_bytes=1048576)
+    commands = precontact.ProductPrecontactOperations._slice_a_commands(protocol, source)
+    spec = dict(commands)["managed-chat-panel"]
+    calls = []
+
+    async def run(actual):
+        calls.append(actual)
+        if "--results-directory" in actual.argv:
+            directory = Path(actual.argv[actual.argv.index("--results-directory") + 1])
+            assert directory.is_dir() and list(directory.iterdir()) == []
+            data = _managed_trx({"zero": 0, "fewer": 96, "more": 98}.get(damage, 97))
+            if damage == "malformed": data = b"<TestRun"
+            if damage == "failed": data = data.replace(b'outcome="Passed"', b'outcome="Failed"', 1)
+            if damage == "unexecuted": data = data.replace(b'notExecuted="0"', b'notExecuted="1"')
+            if damage == "aborted": data = data.replace(b'aborted="0"', b'aborted="1"')
+            if damage == "duplicate": data = data.replace(b'executionId="execution-1"', b'executionId="execution-0"')
+            if damage == "row-missing":
+                import xml.etree.ElementTree as ET
+                tree = ET.fromstring(data)
+                tree[0].remove(tree[0][0])
+                data = ET.tostring(tree)
+            if damage == "oversize": data = b" " * (1048576 + 1)
+            if damage == "dtd": data = b'<!DOCTYPE TestRun [<!ENTITY x SYSTEM "https://example.invalid/">]>' + data
+            if damage == "missing": directory.rmdir()
+            elif damage == "directory": (directory / "managed.trx").mkdir()
+            elif damage != "no-trx": (directory / "managed.trx").write_bytes(data)
+            if damage == "extra-file": (directory / "second.trx").write_bytes(data)
+        return common.ProcessResult(0, b"exit zero\n", b"", False, False, True)
+
+    operations = precontact.ProductPrecontactOperations(process_runner=run)
+    operations._commands = [("managed-chat-panel", spec)]
+    if damage is None:
+        result = await operations.run_slice_a(protocol, source, evidence)
+        assert result["commands"][0].get("managedTestsPassed") == 97
+    else:
+        with pytest.raises(common.QualificationRefused, match="managed.*TRX"):
+            await operations.run_slice_a(protocol, source, evidence)
+    assert calls == [spec]
+
+
+@pytest.mark.parametrize("damage", ["missing-assets", "wrong-project", "relative-root", "wrong-hash", "missing-adapter"])
+def test_managed_nuget_admission_refuses_incomplete_restoration(tmp_path, monkeypatch, damage):
+    protocol, source, _ = _valid_protocol(tmp_path)
+    path = source / "src/Rook.Tests/obj/project.assets.json"
+    assets = json.loads(path.read_bytes())
+    if damage == "wrong-project": assets["project"]["restore"]["projectPath"] = str(tmp_path / "other.csproj")
+    if damage == "relative-root": assets["project"]["restore"]["packagesPath"] = "relative"
+    if damage == "wrong-hash": assets["libraries"]["xunit.runner.visualstudio/2.8.2"]["sha512"] = "different"
+    path.write_bytes(_canonical(assets))
+    if damage == "missing-assets": path.unlink()
+    if damage == "missing-adapter":
+        (tmp_path / "nuget/xunit.runner.visualstudio/2.8.2/build/net462/xunit.runner.visualstudio.testadapter.dll").unlink()
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: pytest.fail("must refuse before child launch"))
+    with pytest.raises(_common().QualificationRefused, match="managed NuGet admission"):
+        _precontact().ProductPrecontactOperations._slice_a_commands(protocol, source)
+
+
+@pytest.mark.asyncio
+async def test_managed_results_directory_is_unique_and_never_reused(tmp_path):
+    precontact, common = _precontact(), _common()
+    protocol, source, evidence_root = _valid_protocol(tmp_path)
+    first = dict(precontact.ProductPrecontactOperations._slice_a_commands(protocol, source))["managed-chat-panel"]
+    second = dict(precontact.ProductPrecontactOperations._slice_a_commands(protocol, source))["managed-chat-panel"]
+    path = Path(first.argv[first.argv.index("--results-directory") + 1])
+    assert path != Path(second.argv[second.argv.index("--results-directory") + 1])
+    assert path.parent == Path(protocol["executionRoot"]) / "slice-a"
+    path.mkdir(parents=True)
+
+    async def no_launch(spec):
+        pytest.fail("occupied results directory must refuse before dotnet")
+
+    operations = precontact.ProductPrecontactOperations(process_runner=no_launch)
+    operations._commands = [("managed-chat-panel", first)]
+    with pytest.raises(common.QualificationRefused, match="managed TRX.*fresh"):
+        await operations.run_slice_a(protocol, source, common.EvidenceRoot.create(evidence_root, max_file_bytes=1048576))
 
 
 @pytest.mark.asyncio
@@ -1282,6 +1412,9 @@ async def test_slice_a_uses_the_frozen_public_model_free_commands(tmp_path: Path
 
     async def run(spec):
         captured.append(spec)
+        if "--results-directory" in spec.argv:
+            directory = Path(spec.argv[spec.argv.index("--results-directory") + 1])
+            (directory / "managed.trx").write_bytes(_managed_trx())
         return _symbol(common, "ProcessResult")(
             exit_code=0,
             stdout=b"passed\n",

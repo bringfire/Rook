@@ -10,12 +10,14 @@ import json
 import os
 import shutil
 import sys
+import xml.etree.ElementTree as ET
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 from urllib.parse import urlparse
+from uuid import uuid4
 
 # Direct script execution must resolve the reviewed worktree, not an ambient scripts package.
 if __package__ in (None, ""):
@@ -890,6 +892,89 @@ async def run_installed_slice_b(
 
 
 SLICE_A_RHINO_SYSTEM_DIR = Path("C:/Program Files/Rhino 8/System")
+SLICE_A_MANAGED_TEST_COUNT = 97
+MANAGED_TRX_MAX_BYTES = 1_048_576
+
+
+def _restored_managed_nuget_root(repo_root: Path) -> Path:
+    try:
+        project = repo_root / "src/Rook.Tests/Rook.Tests.csproj"
+        assets = json.loads((project.parent / "obj/project.assets.json").read_text(encoding="utf-8-sig"))
+        restore = assets["project"]["restore"]
+        root = Path(restore["packagesPath"])
+        if (not root.is_absolute() or not root.is_dir()
+                or root.as_posix().rstrip("/").casefold() not in {
+                    Path(folder).as_posix().rstrip("/").casefold() for folder in assets["packageFolders"]}
+                or Path(restore["projectPath"]).resolve() != project.resolve()):
+            raise ValueError("restored project/package root differs")
+        rows = [(key, row) for key, row in assets["libraries"].items()
+                if key.startswith("xunit.runner.visualstudio/") and row["type"] == "package"]
+        if len(rows) != 1:
+            raise ValueError("one restored xUnit adapter is required")
+        key, row = rows[0]
+        if row["path"] != key:
+            raise ValueError("adapter package path differs")
+        package = (root / row["path"]).resolve(strict=True)
+        if not package.is_relative_to(root.resolve(strict=True)):
+            raise ValueError("adapter package escapes cache")
+        metadata = json.loads((package / ".nupkg.metadata").read_text(encoding="utf-8-sig"))
+        if metadata["contentHash"] != row["sha512"]:
+            raise ValueError("restored adapter identity differs")
+        for name in ("xunit.runner.visualstudio.props", "xunit.runner.visualstudio.testadapter.dll",
+                     "xunit.abstractions.dll", "xunit.runner.reporters.net452.dll", "xunit.runner.utility.net452.dll"):
+            path = package / "build/net462" / name
+            if path.is_symlink() or not path.is_file():
+                raise ValueError("restored adapter file is unavailable")
+        return root.resolve(strict=True)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise QualificationRefused(f"managed NuGet admission failed: {exc}") from exc
+
+
+def _validate_managed_trx(directory: Path) -> bytes:
+    try:
+        if directory.is_symlink() or not directory.is_dir():
+            raise ValueError("results directory is unavailable")
+        entries = directory.iterdir()
+        path = next(entries, None)
+        if (path is None or next(entries, None) is not None or path.name != "managed.trx"
+                or path.is_symlink() or not path.is_file() or path.stat().st_size > MANAGED_TRX_MAX_BYTES):
+            raise ValueError("exactly one bounded regular managed.trx is required")
+        with path.open("rb") as stream:
+            data = stream.read(MANAGED_TRX_MAX_BYTES + 1)
+        if len(data) > MANAGED_TRX_MAX_BYTES:
+            raise ValueError("TRX exceeds byte limit")
+        text = data.decode("utf-8-sig", errors="strict")
+        if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
+            raise ValueError("DTD/entities are forbidden")
+        tree = ET.fromstring(text)  # ElementTree does not fetch external resources.
+        ns = "{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}"
+        summaries = tree.findall(ns + "ResultSummary")
+        results = tree.findall(ns + "Results")
+        if tree.tag != ns + "TestRun" or len(summaries) != 1 or len(results) != 1:
+            raise ValueError("TRX structure differs")
+        counters = summaries[0].findall(ns + "Counters")
+        if len(counters) != 1 or summaries[0].get("outcome") not in {"Passed", "Completed"}:
+            raise ValueError("TRX summary did not pass")
+        values = counters[0].attrib
+        if not {"total", "executed", "passed", "failed", "aborted", "notExecuted"}.issubset(values):
+            raise ValueError("TRX counters are missing")
+        for key, value in values.items():
+            expected = SLICE_A_MANAGED_TEST_COUNT if key in {"total", "executed", "passed"} else 0
+            if not value.isascii() or not value.isdecimal() or int(value) != expected:
+                raise ValueError("TRX counters differ from the frozen nonzero count")
+        rows = list(results[0])
+        if len(rows) != SLICE_A_MANAGED_TEST_COUNT:
+            raise ValueError("TRX result count differs")
+        for key in ("executionId", "testId"):
+            ids = [row.get(key) for row in rows]
+            if any(not value for value in ids) or len(set(ids)) != len(rows):
+                raise ValueError("TRX contains missing or duplicate identities")
+        if any(row.tag != ns + "UnitTestResult" or row.get("outcome") != "Passed"
+               or not row.get("testName", "").startswith("Rook.Tests.UI.Chat.") for row in rows):
+            raise ValueError("TRX contains an unexecuted, failing, or unselected test")
+        return data
+    except (OSError, ValueError, ET.ParseError) as exc:
+        raise QualificationRefused(f"managed TRX refused: {exc}") from exc
 
 
 def _required_executable(name: str) -> str:
@@ -996,6 +1081,8 @@ class ProductPrecontactOperations:
             if assembly.is_symlink() or not assembly.is_file():
                 raise QualificationRefused(f"required Rhino managed assembly is unavailable: {name}")
         test_root = Path(protocol["executionRoot"]) / "slice-a"
+        nuget_root = _restored_managed_nuget_root(repo_root)
+        managed_results = test_root / f"managed-results-{uuid4().hex}"
         roots = {key: str(test_root / key) for key in ("home", "userProfile", "appData", "localAppData", "temp")}
         windows = Path(protocol["environment"]["expectedFinal"].get("SYSTEMROOT", "C:/Windows"))
         environment = {
@@ -1032,6 +1119,9 @@ class ProductPrecontactOperations:
                         "src/Rook.Tests/Rook.Tests.csproj",
                         "--no-restore",
                         f"-p:RhinoSystemDir={rhino_system}",
+                        f"-p:NuGetPackageRoot={nuget_root}{os.sep}",
+                        "--logger", "trx;LogFileName=managed.trx",
+                        "--results-directory", str(managed_results),
                         "--filter",
                         "FullyQualifiedName~Rook.Tests.UI.Chat",
                     ),
@@ -1081,6 +1171,17 @@ class ProductPrecontactOperations:
         for index, (label, spec) in enumerate(commands, start=1):
             for key in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
                 Path(spec.environment[key]).mkdir(parents=True, exist_ok=True)
+            if label == "managed-chat-panel":
+                if spec.argv.count("--results-directory") != 1:
+                    raise QualificationRefused("managed TRX results path is required")
+                managed_results = Path(spec.argv[spec.argv.index("--results-directory") + 1])
+                if (not managed_results.is_absolute() or managed_results.is_symlink()
+                        or managed_results.parent.resolve() != (Path(protocol["executionRoot"]) / "slice-a").resolve()):
+                    raise QualificationRefused("managed TRX results path escapes Slice A")
+                try:
+                    managed_results.mkdir(exist_ok=False)
+                except OSError as exc:
+                    raise QualificationRefused("managed TRX results directory must be fresh") from exc
             result = await self._process_runner(spec)
             prefix = f"slice-a/{index:02d}-{label}"
             evidence.write_bytes(prefix + ".stdout", result.stdout)
@@ -1105,6 +1206,11 @@ class ProductPrecontactOperations:
                 or not result.direct_child_exit_observed
             ):
                 raise QualificationRefused(f"Slice A command failed: {label}")
+            if label == "managed-chat-panel":
+                trx = _validate_managed_trx(managed_results)
+                evidence.write_bytes(prefix + ".trx", trx)
+                row["managedTestsPassed"] = SLICE_A_MANAGED_TEST_COUNT
+                row["managedTrxSha256"] = sha256_bytes(trx)
         return {"commands": rows, "outcome": "passed"}
 
     async def run_slice_b(self, protocol: dict[str, Any], repo_root: Path, evidence: EvidenceRoot) -> dict[str, Any]:
