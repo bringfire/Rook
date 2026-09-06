@@ -79,7 +79,8 @@ def project_context_markers(body_text: str, goal_skill_path: Path | None = None)
     except ET.ParseError:
         goals = []
     goal_present = (goal_skill_path is not None and len(goals) == 1
-                    and goals[0].findtext("type") == "markdown"
+                    and goals[0].findtext("type") == "python"
+                    and goals[0].findtext("python_import") == "goal"
                     and goals[0].findtext("location") == str(goal_skill_path))
     return {
         "globalSystemPresent": "ROOK_QUALIFICATION_GLOBAL_SYSTEM" in body_text,
@@ -356,57 +357,81 @@ class DeterministicProviderServer:
         self.close()
 
 
-def _forward_tunnel(left: socket.socket, right: socket.socket, stopping: threading.Event) -> None:
+def _forward_tunnel(
+    left: socket.socket, right: socket.socket, stopping: threading.Event, failure_details: dict[str, Any]
+) -> None:
     # At most 64 KiB pending per destination; pause its peer's reads under backpressure.
     limit = 64 * 1024
     peers = {left: right, right: left}
     pending = {left: bytearray(), right: bytearray()}
     eof: set[socket.socket] = set()
     write_closed: set[socket.socket] = set()
-    for sock in peers:
-        sock.setblocking(False)
-    with selectors.DefaultSelector() as selector:
-        while not stopping.is_set():
-            for source in eof:
-                destination = peers[source]
-                if not pending[destination] and destination not in write_closed:
-                    destination.shutdown(socket.SHUT_WR)
-                    write_closed.add(destination)
-            if len(eof) == 2 and not any(pending.values()):
-                return
-            for sock, peer in peers.items():
-                events = selectors.EVENT_READ if sock not in eof and len(pending[peer]) < limit else 0
-                if pending[sock]:
-                    events |= selectors.EVENT_WRITE
-                if sock in selector.get_map():
-                    if events:
-                        selector.modify(sock, events)
-                    else:
-                        selector.unregister(sock)
-                elif events:
-                    selector.register(sock, events)
-            for key, events in selector.select(timeout=0.25):
-                sock = key.fileobj
-                if events & selectors.EVENT_WRITE:
-                    try:
-                        sent = sock.send(pending[sock])
-                    except (BlockingIOError, InterruptedError):
-                        pass
-                    else:
-                        if sent <= 0:
-                            raise OSError("proxy write made no progress")
-                        del pending[sock][:sent]
-                if events & selectors.EVENT_READ:
-                    try:
-                        data = sock.recv(limit - len(pending[peers[sock]]))
-                    except (BlockingIOError, InterruptedError):
-                        continue
-                    if data:
-                        pending[peers[sock]].extend(data)
-                    else:
-                        eof.add(sock)
-        if any(pending.values()):
-            raise OSError("proxy stopped with unsent bytes")
+    sides = {left: "client", right: "upstream"}
+    operation, side, direction = "set_nonblocking", "client", "none"
+    try:
+        for sock in peers:
+            side = sides[sock]
+            sock.setblocking(False)
+        with selectors.DefaultSelector() as selector:
+            while not stopping.is_set():
+                for source in eof:
+                    destination = peers[source]
+                    if not pending[destination] and destination not in write_closed:
+                        operation, side = "shutdown_write", sides[destination]
+                        direction = f"{sides[source]}_to_{side}"
+                        destination.shutdown(socket.SHUT_WR)
+                        write_closed.add(destination)
+                if len(eof) == 2 and not any(pending.values()):
+                    return
+                operation, side, direction = "select", "both", "both"
+                for sock, peer in peers.items():
+                    events = selectors.EVENT_READ if sock not in eof and len(pending[peer]) < limit else 0
+                    if pending[sock]:
+                        events |= selectors.EVENT_WRITE
+                    if sock in selector.get_map():
+                        if events:
+                            selector.modify(sock, events)
+                        else:
+                            selector.unregister(sock)
+                    elif events:
+                        selector.register(sock, events)
+                for key, events in selector.select(timeout=0.25):
+                    sock = key.fileobj
+                    if events & selectors.EVENT_WRITE:
+                        operation, side = "send", sides[sock]
+                        direction = f"{sides[peers[sock]]}_to_{side}"
+                        try:
+                            sent = sock.send(pending[sock])
+                        except (BlockingIOError, InterruptedError):
+                            pass
+                        else:
+                            if sent <= 0:
+                                raise OSError("proxy write made no progress")
+                            del pending[sock][:sent]
+                    if events & selectors.EVENT_READ:
+                        operation, side = "recv", sides[sock]
+                        direction = f"{side}_to_{sides[peers[sock]]}"
+                        try:
+                            data = sock.recv(limit - len(pending[peers[sock]]))
+                        except (BlockingIOError, InterruptedError):
+                            continue
+                        if data:
+                            pending[peers[sock]].extend(data)
+                        else:
+                            eof.add(sock)
+            operation, side, direction = "stop", "both", "both"
+            if any(pending.values()):
+                raise OSError("proxy stopped with unsent bytes")
+    except OSError:
+        # Bounded transport facts only: an abort does not establish application success.
+        failure_details.update(
+            operation=operation, socketSide=side, direction=direction,
+            pendingBytes={"toClient": len(pending[left]), "toUpstream": len(pending[right])},
+            eof={sides[sock]: sock in eof for sock in peers},
+            writeClosed={sides[sock]: sock in write_closed for sock in peers},
+            stopping=stopping.is_set(),
+        )
+        raise
 
 
 class _ProxyHandler(socketserver.StreamRequestHandler):
@@ -450,12 +475,23 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
             self.wfile.flush()
             return
         with upstream:
+            failure_details: dict[str, Any] = {
+                "operation": "connect_response", "socketSide": "client", "direction": "proxy_to_client",
+                # sendall may fail after partial progress on the CONNECT response.
+                "pendingBytes": {"toClient": None, "toUpstream": 0},
+                "eof": {"client": False, "upstream": False},
+                "writeClosed": {"client": False, "upstream": False},
+            }
             try:
                 self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 self.wfile.flush()
-                _forward_tunnel(self.connection, upstream, owner.stopping)
+                _forward_tunnel(self.connection, upstream, owner.stopping, failure_details)
             except OSError as exc:
-                owner.journal.append({"authority": authority, "detail": str(exc)[:512], "event": "proxy_forward_failed"})
+                owner.journal.append({
+                    "authority": authority, "detail": str(exc)[:512], "event": "proxy_forward_failed",
+                    "stopping": owner.stopping.is_set(), **failure_details,
+                    "errno": exc.errno, "winerror": getattr(exc, "winerror", None),
+                })
 
 
 class _ThreadingProxyServer(_OwnedRequestThreads, socketserver.TCPServer):

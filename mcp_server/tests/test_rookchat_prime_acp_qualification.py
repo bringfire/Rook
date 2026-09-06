@@ -1324,10 +1324,15 @@ def test_provider_journal_projects_contract_markers_without_retaining_prompt_byt
 
 def _goal_advertisement(path):
     from xml.sax.saxutils import escape
-    # Exact shape emitted by pinned Prime formatSkillsForPrompt(), not SKILL.md body.
-    return ("<available_skills>\n  <skill>\n    <name>goal</name>\n    <type>markdown</type>\n"
-            "    <description>Manage the persistent thread goal from the Python REPL.</description>\n"
-            f"    <location>{escape(str(path))}</location>\n  </skill>\n</available_skills>")
+    # Captured from the real pinned loader/formatter against the shipped package.
+    # prime-goal-producer.test.ts independently verifies the complete capture.
+    recorded = json.loads((PROVIDER.parent / "prime-goal-advertisement.json").read_bytes())
+    return recorded["text"].replace(escape(recorded["location"]), escape(str(path)))
+
+
+def test_goal_skill_accepts_unmodified_prime_producer_output():
+    recorded = json.loads((PROVIDER.parent / "prime-goal-advertisement.json").read_bytes())
+    assert _provider().project_context_markers(recorded["text"], Path(recorded["location"]))["goalSkillPresent"]
 
 
 def test_goal_skill_marker_cannot_be_satisfied_by_rook_contract_alone(tmp_path) -> None:
@@ -1345,7 +1350,8 @@ def test_goal_skill_marker_cannot_be_satisfied_by_rook_contract_alone(tmp_path) 
     assert markers["goalSkillPresent"] is True
 
 
-@pytest.mark.parametrize("damage", ["wrong_location", "wrong_name", "duplicate", "body_only", "malformed"])
+@pytest.mark.parametrize("damage", ["wrong_location", "wrong_name", "duplicate", "body_only", "malformed",
+                                    "markdown_impostor", "wrong_import", "missing_import"])
 def test_goal_skill_advertisement_requires_exact_goal_location(tmp_path, damage):
     goal = tmp_path / "skills/goal/SKILL.md"
     text = _goal_advertisement(goal)
@@ -1357,6 +1363,12 @@ def test_goal_skill_advertisement_requires_exact_goal_location(tmp_path, damage)
         text += text
     elif damage == "body_only":
         text = "completion_budget_report " + str(goal)
+    elif damage == "markdown_impostor":
+        text = text.replace("<type>python</type>", "<type>markdown</type>").replace("<python_import>goal</python_import>", "")
+    elif damage == "wrong_import":
+        text = text.replace("<python_import>goal</python_import>", "<python_import>other</python_import>")
+    elif damage == "missing_import":
+        text = text.replace("<python_import>goal</python_import>", "")
     else:
         text = text.replace("</skill>", "")
     assert not _provider().project_context_markers(text, goal)["goalSkillPresent"]
@@ -1538,7 +1550,17 @@ def test_proxy_forwards_exact_bytes_under_backpressure_and_records_failure(tmp_p
             assert not peer.is_alive()
         rows = [json.loads(line) for line in journal.path.read_bytes().splitlines()]
         if broken:
-            assert any(row["event"] == "proxy_forward_failed" for row in rows)
+            failure = next(row for row in rows if row["event"] == "proxy_forward_failed")
+            print("LOCAL_PROXY_FAILURE=" + json.dumps(failure, sort_keys=True))
+            assert failure["operation"] == "send"
+            assert failure["socketSide"] == "upstream"
+            assert failure["direction"] == "client_to_upstream"
+            assert 0 < failure["pendingBytes"]["toUpstream"] <= 65536
+            assert failure["pendingBytes"]["toClient"] == 0
+            assert failure["stopping"] is False
+            assert set(failure["eof"]) == {"client", "upstream"}
+            assert set(failure["writeClosed"]) == {"client", "upstream"}
+            assert "errno" in failure and "winerror" in failure
             with pytest.raises(_common().QualificationRefused, match="proxy"):
                 _precontact().verify_proxy_observations(rows, {"pypi.org"})
         else:
@@ -1549,6 +1571,103 @@ def test_proxy_forwards_exact_bytes_under_backpressure_and_records_failure(tmp_p
             _precontact().verify_proxy_observations(rows, {"pypi.org"})
         assert rows[-1]["event"] == "proxy_stopped"
         assert proxy._server is None and proxy._thread is None
+
+
+@pytest.mark.parametrize("termination", ["normal_eof", "half_close", "abrupt_abort"])
+def test_real_proxy_termination_diagnostics(tmp_path, monkeypatch, termination):
+    import struct
+
+    provider = _provider()
+    original_connect = socket.create_connection
+    response = b"response after client EOF"
+    errors = []
+    observed = bytearray()
+    release = threading.Event()
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(5)
+
+        def serve():
+            try:
+                conn, _ = listener.accept()
+                with conn:
+                    conn.settimeout(5)
+                    assert release.wait(5)
+                    if termination == "abrupt_abort":
+                        linger = struct.pack("hh" if os.name == "nt" else "ii", 1, 0)
+                        conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
+                        return
+                    if termination == "half_close":
+                        while data := conn.recv(1024):
+                            observed.extend(data)
+                    conn.sendall(response)
+                    conn.shutdown(socket.SHUT_WR)
+                    if termination == "normal_eof":
+                        while data := conn.recv(1024):
+                            observed.extend(data)
+            except BaseException as exc:
+                errors.append(exc)
+
+        peer = threading.Thread(target=serve)
+        peer.start()
+
+        def connect(address, *args, **kwargs):
+            if address == ("pypi.org", 443):
+                return original_connect(listener.getsockname(), timeout=5)
+            return original_connect(address, *args, **kwargs)
+
+        monkeypatch.setattr(socket, "create_connection", connect)
+        journal = provider.BoundedJsonlJournal(tmp_path / "termination.jsonl", max_records=16, max_bytes=8192)
+        proxy = provider.ConnectProxyServer("http://127.0.0.1:0", {"pypi.org"}, journal)
+        reply = bytearray()
+        try:
+            with proxy:
+                with socket.create_connection(("127.0.0.1", proxy.port), timeout=5) as client:
+                    client.sendall(b"CONNECT pypi.org:443 HTTP/1.1\r\n\r\n")
+                    header = bytearray()
+                    while not header.endswith(b"\r\n\r\n"):
+                        part = client.recv(1)
+                        assert part
+                        header.extend(part)
+                    assert header.startswith(b"HTTP/1.1 200")
+                    if termination == "half_close":
+                        client.sendall(b"request")
+                        client.shutdown(socket.SHUT_WR)
+                    release.set()
+                    while data := client.recv(1024):
+                        reply.extend(data)
+                    if termination == "normal_eof":
+                        client.shutdown(socket.SHUT_WR)
+                stopped_at = time.monotonic()
+            assert time.monotonic() - stopped_at < 6
+        finally:
+            release.set()
+            peer.join(timeout=6)
+        assert not peer.is_alive()
+        assert not errors
+        assert proxy._thread is None and proxy._server is None
+        rows = [json.loads(line) for line in journal.path.read_bytes().splitlines()]
+        failures = [row for row in rows if row["event"] == "proxy_forward_failed"]
+        if termination == "abrupt_abort":
+            assert len(failures) == 1
+            failure = failures[0]
+            print("LOCAL_PROXY_FAILURE=" + json.dumps(failure, sort_keys=True))
+            assert failure["operation"] == "recv"
+            assert failure["socketSide"] == "upstream"
+            assert failure["direction"] == "upstream_to_client"
+            assert isinstance(failure["errno"], int)
+            assert failure["pendingBytes"] == {"toClient": 0, "toUpstream": 0}
+            assert failure["eof"] == {"client": False, "upstream": False}
+            assert failure["writeClosed"] == {"client": False, "upstream": False}
+            assert failure["stopping"] is False
+            with pytest.raises(_common().QualificationRefused, match="proxy"):
+                _precontact().verify_proxy_observations(rows, {"pypi.org"})
+        else:
+            assert failures == []
+            assert bytes(reply) == response
+            assert bytes(observed) == (b"request" if termination == "half_close" else b"")
+            _precontact().verify_proxy_observations(rows, {"pypi.org"})
 
 
 def test_deny_proxy_records_and_refuses_unadmitted_connect(tmp_path: Path) -> None:
