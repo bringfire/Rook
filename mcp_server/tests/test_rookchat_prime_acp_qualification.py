@@ -324,6 +324,43 @@ def test_correction_slice_a_environment_is_explicit(tmp_path, monkeypatch):
         assert spec.environment["HOME"] != os.environ.get("HOME")
 
 
+@pytest.mark.parametrize("damage", [None, "relative", "missing-directory", "Eto.dll", "Eto.Wpf.dll",
+                                    "Microsoft.WindowsAPICodePack.dll", "Microsoft.WindowsAPICodePack.Shell.dll",
+                                    "Xceed.Wpf.Toolkit.dll", "assembly-directory"])
+def test_slice_a_managed_assembly_admission(tmp_path, monkeypatch, damage):
+    precontact = _precontact()
+    protocol, source, _ = _valid_protocol(tmp_path)
+    system = tmp_path / "Rhino 8" / "System"
+    system.mkdir(parents=True)
+    names = ("Eto.dll", "Eto.Wpf.dll", "Microsoft.WindowsAPICodePack.dll",
+             "Microsoft.WindowsAPICodePack.Shell.dll", "Xceed.Wpf.Toolkit.dll")
+    for name in names:
+        (system / name).write_bytes(b"fixture assembly")
+    if damage in names:
+        (system / damage).unlink()
+    elif damage == "assembly-directory":
+        (system / "Eto.dll").unlink()
+        (system / "Eto.dll").mkdir()
+    candidate = Path("relative/System") if damage == "relative" else (
+        tmp_path / "absent" if damage == "missing-directory" else system)
+    monkeypatch.setattr(precontact, "SLICE_A_RHINO_SYSTEM_DIR", candidate, raising=False)
+
+    def no_launch(*args, **kwargs):
+        pytest.fail("assembly admission must occur before any child launch")
+
+    monkeypatch.setattr(subprocess, "Popen", no_launch)
+    if damage is not None:
+        with pytest.raises(_common().QualificationRefused, match="Rhino.*(directory|assembly)"):
+            precontact.ProductPrecontactOperations._slice_a_commands(protocol, source)
+    else:
+        commands = precontact.ProductPrecontactOperations._slice_a_commands(protocol, source)
+        for label, spec in commands:
+            properties = [arg for arg in spec.argv if arg.startswith("-p:RhinoSystemDir=")]
+            assert properties == ([f"-p:RhinoSystemDir={system.resolve()}"] if label == "managed-chat-panel" else [])
+            assert not {"programfiles", "programfiles(x86)", "programw6432"}.intersection(
+                key.lower() for key in spec.environment)
+
+
 @pytest.mark.asyncio
 async def test_slice_a_python_child_resolves_selected_git_not_ambient_tools(tmp_path, monkeypatch):
     import shutil
@@ -456,22 +493,32 @@ def test_producer_contract_rejects_nonproduct_session_topology(tmp_path):
 @pytest.mark.parametrize("mode", ["help", "wrong-head"])
 def test_producer_contract_real_operator_cli(tmp_path, mode):
     import shutil
-    protocol_path = REPO / "scripts/qualification/protocols/rookchat-prime-acp-precontact-v1.json"
-    protocol = json.loads(protocol_path.read_bytes())
-    for key in ("evidenceRoot", "executionRoot"):
-        assert not Path(protocol[key]).exists()
-    args = ["--help"] if mode == "help" else ["--repo-root", str(REPO), "--protocol", str(protocol_path),
-                                              "--expected-qualification-commit", "0" * 40]
     environment = {key: os.environ[key] for key in ("SYSTEMROOT", "WINDIR")}
     environment.update(HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONDONTWRITEBYTECODE="1",
+                       GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0",
                        PATH=os.pathsep.join([str(Path(shutil.which("git")).parent), str(Path(os.environ["SYSTEMROOT"]) / "System32")]))
+    roots = [tmp_path / "evidence", tmp_path / "execution"]
+    args = ["--help"]
+    if mode == "wrong-head":
+        repo = tmp_path / "repo"
+        protocol_path = repo / "scripts/qualification/protocols/rookchat-prime-acp-precontact-v1.json"
+        protocol_path.parent.mkdir(parents=True)
+        protocol = json.loads((REPO / protocol_path.relative_to(repo)).read_bytes())
+        protocol.update(evidenceRoot=str(roots[0]), executionRoot=str(roots[1]))
+        protocol_path.write_bytes(_canonical(protocol))
+        for command in (["git", "init", "-q", str(repo)],
+                        ["git", "-C", str(repo), "-c", "user.name=Rook", "-c", "user.email=rook@example.invalid",
+                         "commit", "--allow-empty", "-qm", "fixture"]):
+            subprocess.run(command, env=environment, capture_output=True, check=True, timeout=15)
+        args = ["--repo-root", str(repo), "--protocol", str(protocol_path),
+                "--expected-qualification-commit", "0" * 40]
+    assert all(not root.exists() for root in roots)
     result = subprocess.run([sys.executable, "-I", str(PRECONTACT), *args], cwd=REPO,
                             env=environment, capture_output=True, text=True, timeout=15)
     assert result.returncode == (0 if mode == "help" else 1), result.stderr
     expected = "--expected-qualification-commit" if mode == "help" else "precontact_refused: qualification HEAD differs"
     assert expected in result.stdout, result.stderr
-    for key in ("evidenceRoot", "executionRoot"):
-        assert not Path(protocol[key]).exists()
+    assert all(not root.exists() for root in roots)
 
 
 @pytest.mark.parametrize("kind,failure", [(kind, failure) for kind in ("provider", "proxy")
@@ -1408,15 +1455,22 @@ def test_slice_b_preparation_refuses_authority_drift(tmp_path: Path, damage: str
 async def test_frozen_precontact_protocol_prepares_staged_runtime_without_creating_roots() -> None:
     common = _common()
     path = REPO / "scripts/qualification/protocols/rookchat-prime-acp-precontact-v1.json"
-    protocol = await _symbol(common, "admit_precontact_protocol")(path, REPO, verify_git=False)
+    protocol = common.load_precontact_protocol(path)
+    roots = [Path(protocol[key]) for key in ("executionRoot", "evidenceRoot")]
+
+    def root_state():
+        return {str(path): (path.lstat().st_mode, path.stat().st_size, path.stat().st_mtime_ns,
+                           _sha(path.read_bytes()) if path.is_file() else None)
+                for root in roots if root.exists() for path in [root, *root.rglob("*")]}
+
+    before = root_state()
     assert protocol["implementationCommit"] == "0900d913c1cc0e4bd76c2df018fbe0ac4fccac2e"
     assert protocol["runtime"]["runtimeId"] == "4BFA4A0500FECEAAEC737563623521562C5F4FDF2592EA443C956E0063A12579"
     assert protocol["environment"]["expectedFinalSha256"] == "52C5F7829ECA0BCFA32733AA8D680E66E29BA0346F795B7F01CD7B747DAA0BA6"
     prepared = _precontact().prepare_slice_b(protocol, REPO)
     assert str(prepared.session_path) in prepared.initial_argv
     assert str(prepared.session_path) in prepared.reopen_argv
-    assert not Path(protocol["executionRoot"]).exists()
-    assert not Path(protocol["evidenceRoot"]).exists()
+    assert root_state() == before
 
 
 def test_slice_b_workspace_is_fresh_and_binds_hostile_and_global_resources(tmp_path: Path) -> None:

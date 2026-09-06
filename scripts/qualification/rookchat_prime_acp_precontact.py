@@ -889,6 +889,9 @@ async def run_installed_slice_b(
     }
 
 
+SLICE_A_RHINO_SYSTEM_DIR = Path("C:/Program Files/Rhino 8/System")
+
+
 def _required_executable(name: str) -> str:
     path = shutil.which(name)
     if path is None:
@@ -983,6 +986,15 @@ class ProductPrecontactOperations:
         limits = protocol["limits"]
         python = str(Path(sys.executable).resolve(strict=True))
         tools = {name: _required_executable(name) for name in ("dotnet", "node", "pwsh", "git")}
+        rhino_system = SLICE_A_RHINO_SYSTEM_DIR
+        if not rhino_system.is_absolute() or not rhino_system.is_dir():
+            raise QualificationRefused("required Rhino System directory is unavailable")
+        rhino_system = rhino_system.resolve(strict=True)
+        for name in ("Eto.dll", "Eto.Wpf.dll", "Microsoft.WindowsAPICodePack.dll",
+                     "Microsoft.WindowsAPICodePack.Shell.dll", "Xceed.Wpf.Toolkit.dll"):
+            assembly = rhino_system / name
+            if assembly.is_symlink() or not assembly.is_file():
+                raise QualificationRefused(f"required Rhino managed assembly is unavailable: {name}")
         test_root = Path(protocol["executionRoot"]) / "slice-a"
         roots = {key: str(test_root / key) for key in ("home", "userProfile", "appData", "localAppData", "temp")}
         windows = Path(protocol["environment"]["expectedFinal"].get("SYSTEMROOT", "C:/Windows"))
@@ -1019,6 +1031,7 @@ class ProductPrecontactOperations:
                         "test",
                         "src/Rook.Tests/Rook.Tests.csproj",
                         "--no-restore",
+                        f"-p:RhinoSystemDir={rhino_system}",
                         "--filter",
                         "FullyQualifiedName~Rook.Tests.UI.Chat",
                     ),
