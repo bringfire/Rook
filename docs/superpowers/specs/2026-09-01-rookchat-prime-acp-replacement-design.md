@@ -183,9 +183,11 @@ The reviewed Prime baseline confines managed `fd`/`rg` acquisition to
 postinstall, interactive mode, and agents-view mode. Direct in-process ACP
 composition calls neither `ensureTool()` nor `ensureToolWithStatus()`, so
 RookChat adds no inert helper-download selector. A source-level ACP composition
-test owns that non-reachability invariant, and the installed Slice B network
-tripwire separately proves that the packaged ACP lifecycle makes no helper
-catalog, archive, or extraction contact. A future Prime baseline that makes
+test owns that non-reachability invariant. Slice B separately records the
+allowlisted host/port destinations observed by its configured CONNECT proxy
+and verifies that managed-helper artifacts were not created. This does not
+prove encrypted URL paths, extractor invocation, or exhaustive network
+containment. A future Prime baseline that makes
 managed acquisition reachable from ACP requires a new bounded security review
 before adoption; RookChat does not preemptively add policy machinery for an
 unreachable path.
@@ -1585,6 +1587,58 @@ model-free pre-contact review gate and three separately authorized live gates.
 
 ### 15.1 Model-Free Pre-Contact Qualification: Slices A And B
 
+Before creating any execution or evidence directory, admission requires the
+exact independently reviewed qualification commit supplied by the execution
+authorization. A mandatory `--expected-qualification-commit` argument carries
+that literal; it is never inferred from current HEAD or from the protocol.
+Require a clean worktree at exactly that HEAD, the protocol at its fixed
+tracked path, and exact Git-blob bytes for the protocol, common runner,
+pre-contact runner, and deterministic provider. Loaded qualification modules
+must resolve to those same worktree files. A clean descendant or an alternate
+protocol path cannot qualify. The protocol's product implementation commit and
+source-input checks remain separate from this qualification-code identity.
+
+The same read-only admission calls the production closed-file runtime loader,
+compares the complete runtime contract with the protocol, constructs new and
+reopen argv for the prospective session path, and checks the full final child
+environment and hash. Both roots must be absent. No child, service, Slice A
+command, workspace, or evidence directory is created until all checks pass.
+Pass that admitted preparation into Slice B; do not defer full payload
+verification until after Slice A or replace the admitted session path later.
+
+Execution uses one fresh disposable workspace and one separate small evidence
+directory. Their canonical paths are protocol inputs; neither may contain the
+other or overlap source or runtime payloads. All mutable homes, sessions,
+claims, presentation, temporary files, uv cache, managed Python, and kernel
+files live in the workspace. Evidence receives only explicitly selected logs,
+results, hashes, and bounded session-header evidence. Never recursively adopt,
+hash, or chmod the workspace as evidence, and never reuse it for another run.
+
+Evidence is limited to 16,777,216 bytes per file, 67,108,864 bytes in total, and
+64 regular files, including admission, terminal, index, and seal files. Every
+write or selected-file copy checks these limits before retaining bytes;
+terminal/index/seal capacity is reserved. Unknown files, links, oversized
+inputs, or excess entries refuse rather than becoming evidence by discovery.
+Sealing covers only admitted evidence files. A large kernel or cache file in
+the workspace cannot consume evidence capacity or make sealing traverse it.
+
+Direct qualification children remain owned from successful spawn through
+observed exit. Timeout, overflow, caller cancellation, Ctrl+C, and any other
+exception use the same shielded cleanup of the retained handle, with terminate
+then kill and a bounded wait within the existing 30-second cleanup deadline.
+Unobserved exit is a failure; cancel pipe readers and settle them boundedly
+instead of waiting forever for EOF. Preserve and re-raise the triggering
+exception. Local provider/proxy shutdown likewise requires each exact owned
+thread to stop after its bounded join before copying journals or reporting
+success; a live thread makes closure incomplete.
+
+One protected finalization path covers admission-record writes as well as
+execution. Attempt `result.json` once, create-only, then seal once. If result
+publication or sealing fails, report that failure separately through bounded
+runner diagnostics and nonzero exit, preserving any original exception. Never
+recreate a terminal result to report a seal error or report failed sealing as
+successful qualification.
+
 #### Slice A: Product Boundary With Fake ACP Agent
 
 ```text
@@ -1594,6 +1648,15 @@ C# panel
 -> official Python ACP SDK
 -> deterministic fake ACP agent
 ```
+
+Resolve the Python, .NET, Node, and PowerShell executable paths before launch.
+Build one small Slice A environment from explicit Windows/runtime essentials
+and workspace-owned home/temp paths, with only the tool directories required
+by the frozen commands on PATH. Do not inherit `os.environ`: provider secrets,
+proxy values, `PI_*`, `UV_*`, `PYTHONPATH`, `PYTHONHOME`, Node/npm overrides,
+ambient pytest controls, and arbitrary execution-policy values are excluded.
+Any required addition must be explicit and nonsecret. Causal tests seed those
+values and assert their absence at the subprocess boundary.
 
 Model-free coverage proves:
 
@@ -1632,11 +1695,13 @@ Model-free coverage proves:
 - directly owned cleanup and all normal-close failure branches;
 - no PID scan, PowerShell, process surveillance, or process-name cleanup.
 
-#### Slice B: Installed Prime Artifact And Cold Kernel Bootstrap
+#### Slice B: Staged Prime Payload And Cold Kernel Bootstrap
 
-Use the exact installed Prime artifact, isolated Prime directories, a local
-deterministic fake provider, and a unique daemon-socket tripwire. No external
-provider, model, Rook, Rhino, or Grasshopper contact occurs.
+Use the exact assembled/staged Prime runtime payload verified through the
+production loader, isolated Prime directories in the execution workspace, a
+local deterministic fake provider, and a unique daemon-socket tripwire. This
+does not qualify an installed Rook product; that remains the later promotion
+gate. No external provider, model, Rook, Rhino, or Grasshopper contact occurs.
 
 Before `session/new`, the gate proves that fresh `HOME`, `USERPROFILE`,
 `APPDATA`, `LOCALAPPDATA`, `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`, and the
@@ -1650,20 +1715,23 @@ keys, so an installed or registered Python and ambient uv policy cannot satisfy
 the gate. Only this isolated Slice B protocol adds Prime's broad `--offline`
 flag. That qualification-only control suppresses unrelated updater and catalog
 traffic; it is not a RookChat product launch argument and does not put the
-separately admitted `uv` bootstrap into offline mode. A qualification-owned,
-deny-by-default
-outbound proxy records and admits only the frozen Python and package downloads
-needed by the manifest-bound `uv`, while loopback serves the deterministic
-provider and Rook MCP double. Before inserting that proxy, the runner removes
+separately admitted `uv` bootstrap into offline mode. A qualification-owned
+CONNECT proxy admits only the frozen host/port destinations for clients using
+the configured proxy, while loopback serves the deterministic provider and
+Rook MCP double. Before inserting that proxy, the runner removes
 all inherited `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` keys
 case-insensitively. It then inserts only the protocol-owned proxy URL and
 loopback bypass and asserts the complete final proxy map. The frozen host
 allowlist is exactly
 `github.com`, `api.github.com`, `objects.githubusercontent.com`,
 `release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and
-`files.pythonhosted.org`; a required destination outside that set makes this
-protocol fail and requires a separately reviewed version. No process polling or
-network machinery enters product runtime.
+`files.pythonhosted.org`, on port 443. Cold bootstrap must produce at least one
+`proxy_admitted` event, every observed admitted destination must be allowlisted,
+and zero proxy refusals or connection failures are allowed. An empty or
+start/stop-only ledger fails. The bounded ledger describes observed configured
+destinations only: CONNECT cannot inspect encrypted URL paths, and proxy
+environment variables do not prevent direct network access. No firewall, TLS
+interception, process polling, or product network machinery is added.
 
 Prime starts kernel prewarm during session creation, so the gate does not claim
 that the first prompt initiates bootstrap. It proves this exact sequence:
@@ -1690,23 +1758,23 @@ Slice B qualifies:
   startup/resume before model work, while global auth/settings and explicit
   goal/Rook skills remain. This is not a filesystem-sandbox claim about later
   model-initiated IPython or Rook access;
-- `fd` and `rg` absent while the actual installed ACP composition and lifecycle
-  run, with the network tripwire proving no helper catalog, archive, or
-  extraction contact. The source composition test separately proves that ACP
-  never invokes the managed acquisition boundary; neither result substitutes
-  for the other;
-- lazy MCP startup through the installed Prime artifact;
+- managed `fd`/`rg` executables and their Prime-owned download directories
+  absent before and after the staged payload's ACP lifecycle. The source
+  composition test remains the authority that ACP never invokes helper
+  acquisition; proxy destinations cannot substitute for that causal test;
+- lazy MCP startup through the staged Prime payload;
 - selection of `Scripts/python.exe` from the newly created Windows venv;
 - installation of the manifest-bound local `dist/prime-agent-runtime` rather
   than a registry fallback;
 - cancellation during an MCP call and session-close MCP cleanup;
 - fresh MCP server establishment after same-file reopen;
 - required launch configuration and excluded ambient resources;
-- installed artifact manifest identity;
+- staged runtime manifest identity;
 - zero daemon-tripwire contact;
 - no surviving directly owned child after clean close.
 
-The combined model-free pre-contact gate also proves the installed replacement:
+The combined model-free pre-contact gate checks replacement and installation
+contracts through source and staged fixtures:
 
 - no ChatRunner execution path, backend selector, credential-health route, or
   tool loop remains;
@@ -1716,7 +1784,7 @@ The combined model-free pre-contact gate also proves the installed replacement:
 - cleanup uses directly owned handles only.
 
 Slices A and B have separate technical results but one pre-contact independent
-review gate.
+review gate. These results do not establish installed-product qualification.
 
 ### 15.2 Slice C: Prime-Managed Authentication And Image
 

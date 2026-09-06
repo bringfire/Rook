@@ -8,7 +8,7 @@
 
 **Tech Stack:** C#/.NET 8, 7, and 4.8 with Eto/WebView2; Python 3.10+ with `aiohttp` and exact `agent-client-protocol==0.12.1`; ACP 1.3 as implemented by the pinned Prime artifact; MCP 1.28.1; Rhino 8 C++ SDK; Grasshopper managed bridge; Ubuntu 24.04 Bash release builds with local WSL2 selection; PowerShell/Inno Setup installation tooling; pytest/xUnit.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at the revision carried by this documentation amendment (SHA-256 `0096B145270ACC1B95305416514365E931B4AE6885643867818C124DDE0E7D1B`).
+**Spec:** `docs/superpowers/specs/2026-09-01-rookchat-prime-acp-replacement-design.md` at the revision carried by this documentation amendment (SHA-256 `D2AFEB7074C24440B9A9BB236709E08F4EE64C407E5E66856A644FA5600537C9`).
 
 ## Global Constraints
 
@@ -16,7 +16,7 @@
 - Prime upstream remains `c718bf3c30fd8da206ed551837cbb54f7ad15948`. Commit `1b9dfabb04901de4823d259c88b39dfc78ec3b34` is the reviewed implementation precursor, not release authority. Before another build, organize the five approved concerns as the short ordered patch series in the specification, independently review every commit and parent, and freeze one exact final head as runtime identity. Do not add unrelated Prime behavior or another runtime contract.
 - Preserve every quarantined Task 7 worktree and retained evidence byte-for-byte. Never copy product code from those worktrees.
 - Pin `agent-client-protocol==0.12.1` exactly and use its public `spawn_agent_process`, `ClientSideConnection`, schema models, cancellation notification, and close APIs.
-- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon --no-approve`; never use production `--offline`, a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. Scrub inherited `PI_OFFLINE` case-insensitively from the Prime child environment. The Prime and Rook MCP executable paths are absolute and never selected through `PATH`. The sole intentional exception is upstream Prime's supported kernel bootstrap lookup for `uv`: RookChat prepends the exact manifest-bound `tools/uv` directory, and qualification proves that executable was selected before any ambient entry. At the reviewed Prime baseline, the direct ACP composition cannot reach managed `fd`/`rg` acquisition; retain that fact as a causal composition and installed-network-tripwire invariant instead of adding an inert product selector.
+- Launch the exact installed Prime executable with an argument array and `--mode acp --no-daemon --no-approve`; never use production `--offline`, a shell, global npm, a daemon socket, PID discovery, PowerShell probing, process scanning, or process-name cleanup. Scrub inherited `PI_OFFLINE` case-insensitively from the Prime child environment. The Prime and Rook MCP executable paths are absolute and never selected through `PATH`. The sole intentional exception is upstream Prime's supported kernel bootstrap lookup for `uv`: RookChat prepends the exact manifest-bound `tools/uv` directory, and qualification proves that executable was selected before any ambient entry. At the reviewed Prime baseline, the direct ACP composition cannot reach managed `fd`/`rg` acquisition; the causal source-composition test owns that invariant. Slice B separately checks managed-helper artifact absence and observed configured proxy destinations, without claiming encrypted URL visibility or exhaustive network containment.
 - Persist associations, not broker lifecycle. Prime JSONL is the only authoritative transcript/goal/settings/compaction store.
 - A durable association is create-only, complete, materialized, has a nonempty Prime header ID, and is reopenable only when no `open.claim` exists and custody checks pass.
 - The atomic non-expiring `open.claim` has no metadata or recovery logic. Remove it only after the directly owned Prime child is observed exited, or when launch positively proves no child was created.
@@ -2130,9 +2130,11 @@ no environment alias, module-global policy, facade, or helper-download selector 
 Drive this through the actual ACP startup/composition owner with the runtime and
 transport mocked model-free; do not settle for a helper-unit test. Retain one
 small static call-site inventory guard so a future ACP caller forces review.
-The installed Slice B network tripwire separately proves that the packaged ACP
-lifecycle makes no helper catalog, archive, or extraction contact. Neither test
-is allowed to substitute for the other.
+Slice B separately checks that managed-helper artifacts were not created and
+records allowlisted host/port destinations observed by its configured CONNECT
+proxy. That ledger cannot identify encrypted URL paths or prove extractor
+non-invocation or exhaustive network containment; it cannot substitute for the
+source-composition test.
 
 In Rook, extend `test_chat_prime_runtime.py` before changing
 `prime_runtime.py`. Prove new and reopen argv contain exact `--no-approve`, do
@@ -3008,25 +3010,102 @@ or branch the correction directly from `7f69aa9e`. Also verify closed scope,
 
 **Interfaces:**
 - Produces: external, create-only, finite qualification artifacts for combined model-free pre-contact A+B and separately authorized C, D, and E.
-- Consumes: installed artifacts and public product boundaries only; no qualification module is imported by `mcp_server/src/rook`.
+- Consumes: the assembled/staged Prime payload through the production runtime loader for A+B; installed-product authority begins at the later promotion gate. No qualification module is imported by `mcp_server/src/rook`.
+
+**Current correction boundary:** Preserve the authored harness at `3594ff72`.
+This documentation amendment must receive review before correcting those five
+qualification files and their causal tests. A+B remains unexecuted; no
+execution or evidence root is created during this correction. After the
+harness correction, return to Step 6 for review of the exact qualification
+commit and hashes before any execution authorization.
 
 - [ ] **Step 1: Write RED protocol-custody tests**
 
-Each protocol must contain exact schema/version, clean implementation commit, installed runtime/skill manifests, prompt/input hashes, wall-clock/token/process-close limits, target/profile identity, evaluator identity when applicable, fresh evidence root, and a one-execution version. The A+B pre-contact protocol additionally binds the fresh `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, and `ROOK_DATA_DIR`; the product-derived `UV_CACHE_DIR` and `UV_PYTHON_INSTALL_DIR`; the derived absent-before kernel path; the complete six-key product-owned `UV_*` map; the exact seeded ambient `UV_*` and proxy-key cases; Slice B's qualification-only `--offline` flag; the production `--no-approve` selector; the ACP managed-helper non-reachability assertion; the deny-by-default outbound-proxy identity and exact inserted `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` values; the complete expected final Prime child-environment map and hash; and the exact admitted host set `github.com`, `api.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and `files.pythonhosted.org`. The promotion protocol additionally binds MSVC toolset `14.44.35207`, Release configuration, the exact deployment command, expected source/installed artifact paths, and installed-verifier identity. The runner refuses existing evidence roots, hash drift, missing limits, mismatched commits, or any product import of `scripts/qualification`.
+Each protocol must contain exact schema/version, product implementation commit, runtime/skill manifests, prompt/input hashes, wall-clock/token/process-close limits, target/profile identity, evaluator identity when applicable, fresh separate `executionRoot` and `evidenceRoot` paths, and a one-execution version. Freeze evidence limits of 16,777,216 bytes per file, 67,108,864 total bytes (`maxEvidenceTotalBytes`), and 64 regular files (`maxEvidenceFiles`), including terminal/index/seal files. The A+B pre-contact protocol additionally binds the fresh `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, and `ROOK_DATA_DIR`; the product-derived `UV_CACHE_DIR` and `UV_PYTHON_INSTALL_DIR`; the derived absent-before kernel path; the complete six-key product-owned `UV_*` map; the exact seeded ambient `UV_*` and proxy-key cases; Slice B's qualification-only `--offline` flag; the production `--no-approve` selector; the ACP source-composition non-reachability assertion; the CONNECT proxy identity and exact inserted `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` values; the complete expected final Prime child-environment map and hash; and the exact admitted host set `github.com`, `api.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and `files.pythonhosted.org`. The promotion protocol additionally binds MSVC toolset `14.44.35207`, Release configuration, the exact deployment command, expected source/installed artifact paths, and installed-verifier identity.
 
-Each frozen live version executes once and its result is immutable. Any correction requires a newly versioned protocol, fresh evidence root, and separate authorization; the runner never retries or overwrites a failed version.
+A+B execution authorization supplies the literal independently reviewed
+qualification HEAD through mandatory `--expected-qualification-commit`, with
+no default or inference from HEAD/protocol. Before any root creation, require
+exact HEAD equality and a clean worktree. Require `--protocol` to resolve to
+the exact tracked `scripts/qualification/protocols/rookchat-prime-acp-precontact-v1.json`
+at that commit, and compare raw Git-blob bytes for it and the three loaded
+qualification modules (common, pre-contact, deterministic provider). Resolve
+those modules from the same worktree. Preserve the separate product baseline
+and source-input checks; a clean descendant is not sufficient qualification
+authority. No self-referential commit/hash field is added to the protocol.
+
+Complete read-only preparation before `EvidenceRoot.create()` or execution
+workspace creation: call production `load_and_verify_runtime()`, compare its
+contract with the frozen protocol, construct initial/reopen argv through
+`build_prime_argv()`, and compare the complete `build_prime_child_env()` result
+and hash. Select the prospective conversation/session path in memory using
+the product path layout; defer filesystem-creating store/fixture setup until
+admission passes and reuse that exact path. Pass the admitted preparation to
+Slice B. A partial manifest/pi.exe check cannot replace closed-file runtime
+verification. Missing/extra/altered payload bytes, identity drift, invalid
+arguments/environment, existing roots, or product imports of qualification
+code refuse with zero Slice A commands and neither root created.
+
+Add separately parameterized causal tests for runner, common, provider, and
+protocol drift (including a later clean commit and an alternate protocol),
+and missing/extra/altered runtime files. Exercise the entrypoint's admission
+order; assert zero operations and absent execution/evidence roots on refusal.
+
+Each frozen live version executes once and its result is immutable. Any correction after execution requires a newly versioned protocol, fresh execution/evidence roots, and separate authorization; the runner never retries or overwrites a failed version. The unexecuted A+B draft is corrected and reviewed before its first authorization.
 
 - [ ] **Step 2: Implement one finite common runner**
 
-`rookchat_prime_acp_common.py` may hash inputs, create evidence roots, write bounded JSON results, and own directly launched qualification processes. It must not poll the Windows process table, use PowerShell process probes, kill by name/PID discovery, retry, alter a timeout after failure, or become a product dependency.
+`rookchat_prime_acp_common.py` may hash admitted inputs, create the two fresh
+roots, write bounded results, and own directly launched qualification
+processes. Use one fresh disposable execution workspace, separate from and
+not enclosing the evidence directory, source, or staged payload. Keep mutable
+homes, sessions, claims, presentation, uv/cache/managed-Python/kernel files,
+and temporary output there. Only explicitly selected bounded logs, results,
+hashes, and first-line session-header evidence enter the evidence directory.
+Do not recursively manifest or seal the workspace. Failed workspaces have no
+qualification authority and are never adopted or reused.
+
+Enforce file-count, total-byte, and per-file evidence ceilings before each
+write/copy, reserving capacity for terminal/index/seal files. Sealing indexes
+only the known retained files and refuses unknown files or links. Test a
+large workspace file and excess workspace entries that do not enter evidence,
+plus exact-limit/over-limit evidence writes and create-only publication.
+
+From successful spawn through observed exit, preserve ownership of the exact
+process handle. On `BaseException`, including cancellation/outer timeout and
+Ctrl+C, shield the same bounded retirement used for timeout/overflow, then
+re-raise. Terminate, escalate to kill if needed, and observe exit within the
+single 30-second cleanup deadline. If exit remains unobserved, report failure
+and cancel/settle reader tasks boundedly; never wait indefinitely for EOF.
+Test a real sleeping test-Python child cancelled after spawn, capturing that
+same handle, plus a fake unexitable child with blocked readers. No PID lookup,
+process table, PowerShell probe, kill-by-name, retry, or new product state.
+
+Put admission-record writes and execution inside one protected finalization
+path. Attempt one create-only `result.json`, then seal once. Preserve the
+original failure if result publication or sealing also fails; report the
+finalization failure separately in bounded stderr with a nonzero exit, without
+recreating result.json or claiming a seal succeeded. Test admission-write and
+seal failures, retaining the triggering exception and single result attempt.
 
 - [ ] **Step 3: Implement Slice A against the fake ACP agent**
 
 Exercise the exact C#-equivalent HTTP boundary and all model-free cases listed in spec section 15.1: protocol/capability admission, literal verified system-contract bytes and rendered-Windows-argv bounds, production inclusion of `--no-approve`, production exclusion of `--offline` and `--no-managed-tool-downloads`, case-insensitive `PI_OFFLINE` removal, direct ACP composition non-reachability of managed helper acquisition, bounded stderr drainage under pipe pressure, service-owned prompt survival after HTTP waiter cancellation, close/delete/shutdown detach-before-retirement races, first-turn publication, saved/unsaved working-directory custody, internal latest-runtime selection, two-service claim contention, crash claim preservation, failed/uncertain spawn, SDK-callback source-ordinal preservation, generation fences, overflow cancellation, permission policy, cache/image/model arguments, MCP injection, strict Rook envelope projection, GH schemas, bounds, 20-second startup/60-second call contract projection, and close failures.
 
-- [ ] **Step 4: Implement Slice B against the installed Prime artifact and deterministic provider**
+Resolve exact executable paths for the five existing commands before launch.
+Construct one small test environment from explicit Windows/runtime essentials
+and execution-workspace home/temp paths. PATH contains only required resolved
+tool directories and Windows essentials. Do not pass `dict(os.environ)`:
+provider credentials, proxy values, `PI_*`, `UV_*`, `PYTHONPATH`, `PYTHONHOME`,
+Node/npm overrides, pytest controls, and arbitrary ambient execution policy
+are absent. Required extra values must be explicit and nonsecret. Add causal
+tests seeding representative credentials, mixed-case proxy/policy variables,
+and Python/Node/test overrides, asserting the final environment at every
+command boundary. No executable manifest or credential-scanning framework.
 
-Use a fresh evidence root containing exact isolated `PRIME_AGENT_CODING_AGENT_DIR`,
+- [ ] **Step 4: Implement Slice B against the staged Prime payload and deterministic provider**
+
+Use the admitted preparation and fresh execution workspace containing isolated `PRIME_AGENT_CODING_AGENT_DIR`,
 `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, and `ROOK_DATA_DIR` paths.
 The production child-environment builder must derive `UV_CACHE_DIR` and
 `UV_PYTHON_INSTALL_DIR` beneath that fresh Rook data root and insert the other
@@ -3057,26 +3136,36 @@ Only this isolated Slice B launch adds `--offline` so Prime's updater, catalog,
 and unrelated startup network operations remain disabled. The production argv
 must omit it, and the protocol must add it externally after verifying the
 product selectors. This qualification-only flag does not make the separately
-admitted uv bootstrap offline. Route all
-non-loopback traffic through a qualification-owned deny-by-default proxy; the
-frozen protocol admits only `github.com`, `api.github.com`,
+admitted uv bootstrap offline. Configure the qualification-owned CONNECT
+proxy for bootstrap clients; it admits only `github.com`, `api.github.com`,
 `objects.githubusercontent.com`, `release-assets.githubusercontent.com`,
 `releases.astral.sh`, `pypi.org`, and `files.pythonhosted.org`, and the evidence
-retains a bounded request ledger. Any required destination outside that set is
-a terminal result for this protocol version. Loopback remains available only to
-the deterministic provider and Rook MCP double. No proxy or network policy
-enters product runtime.
+retains a bounded host/port ledger. Require at least one `proxy_admitted`
+event for cold bootstrap, every observed admission on an allowlisted host at
+port 443, and zero proxy refusals or connection failures. Empty and
+start/stop-only ledgers fail. The configured loopback bypass serves the local
+provider/MCP double; it is not an enforced loopback or outbound firewall.
+CONNECT cannot inspect encrypted URL paths, and proxy environment variables
+do not prohibit direct traffic. Evidence supports only the destinations
+observed by the configured proxy. No TLS interception or network enforcement
+system is added to qualification or product runtime.
 
 Use hostile project-resource fixtures under both the launch cwd and the resumed
 session cwd. Prove no automatic project-resource discovery, loading,
 project-settings access, or project migration occurs during startup/resume
 before model work, while global Prime auth/settings and the explicit goal/Rook
 skills remain available. State explicitly that this is not a filesystem sandbox
-for later model-initiated tool access. With managed `fd` and `rg` absent, run the
-actual installed ACP lifecycle and prove the network ledger contains no helper
-catalog, archive, or extraction request. This tripwire establishes installed
-network behavior; the Prime source composition test remains the authority that
-ACP never invokes the managed acquisition boundary.
+for later model-initiated tool access. Verify that managed `fd`/`rg` executables
+and their Prime-owned download directories are absent before and after the
+staged payload's ACP lifecycle. The Prime source composition test remains the
+authority that ACP never invokes the managed acquisition boundary. Add cases
+rejecting empty/start-only proxy ledgers, refused or unallowlisted admissions,
+and created helper artifacts; include one allowlisted-admission control.
+
+Provider/proxy shutdown must observe every exact owned thread stopped after a
+bounded join. A still-live thread fails closure; copy final journals only
+after shutdown is observed. Exercise a fake stuck owned thread for each
+service and a real local start/stop control without enumerating threads.
 
 Prime may start kernel prewarm during `session/new`; do not attribute bootstrap
 initiation to the first prompt. Prove the actual sequence:
@@ -3088,7 +3177,7 @@ kernel root, uv cache, and uv-managed Python absent before session/new
 -> first deterministic prompt executes real IPython and mcp.call_tool("rook", ...)
 ```
 
-The installed runtime must execute
+The assembled/staged runtime payload must execute
 `initialize -> session/new -> session/prompt -> session/close -> EOF`,
 materialize the assigned file, reopen the same file, and answer consistently
 using prior context. Exercise lazy MCP start, representative Rook calls
@@ -3104,14 +3193,16 @@ still reads only the first-line header envelope.
 The pre-contact artifact makes no external provider/model, Rook, Rhino, or
 Grasshopper contact. It is intentionally not network-disconnected: first-time
 Prime kernel setup downloads Python and resolves default packages through the
-bundled uv, while the matching Prime runtime itself comes from the installed
+bundled uv, while the matching Prime runtime itself comes from the staged
 manifest-bound local subtree. The frozen protocol gives that one bootstrap a
 predeclared wall-clock bound; failure is terminal for that protocol version,
-with no retry or timeout adjustment. The bounded proxy ledger supports only
-this gate's admitted-download claim, not a general product network-containment
-claim.
+with no retry or timeout adjustment. Retain only selected bounded bootstrap
+diagnostics and source/path hashes; leave the mutable kernel/cache/session
+tree in the execution workspace. The proxy ledger reports observed configured
+destinations, not URL paths, complete download provenance, extractor behavior,
+or exhaustive network containment.
 
-The combined model-free pre-contact gate also runs the static installed-product verifier against a staged install, proves the source-to-installed hash map is complete, and proves the deployment/installer guards preserve ACP data. This is not permission to deploy into Rhino's live plugin directories.
+The combined model-free pre-contact gate also exercises the static installed-product verifier against staged installation fixtures, the source-to-installed hash mapping, and deployment/installer data-retention guards. Reports identify these as source/fixture checks and the Prime payload as assembled/staged; installed-product qualification remains deferred to Step 9 promotion. This is not permission to deploy into Rhino's live plugin directories.
 
 - [ ] **Step 5: Run only model-free tests, then commit the frozen qualification code**
 
@@ -3126,11 +3217,11 @@ git commit -m "test(chat): freeze ACP qualification ladder"
 
 - [ ] **Step 6: STOP at the combined A+B pre-contact review gate**
 
-Do not execute `rookchat_prime_acp_precontact.py` yet. Present the frozen runner/protocol hashes, implementation commit, installed runtime manifest, tests, and proof that evidence roots are absent. Independent approval must explicitly authorize one A+B execution.
+Do not execute `rookchat_prime_acp_precontact.py` yet. Present the exact clean qualification HEAD, tracked protocol blob/hash, common/runner/provider hashes, separate product implementation commit, full production-loader verification of the staged runtime, focused causal results, and proof that execution and evidence roots are absent. Independent approval must explicitly authorize one A+B execution and supply the exact value for `--expected-qualification-commit`.
 
 - [ ] **Step 7: After authorization, execute A+B exactly once and stop**
 
-Run the exact independently reviewed command only. Whether it passes or fails, make the evidence root read-only, hash every bounded evidence file, write the A+B report, commit only that report, and stop for independent review. Do not continue to Slice C automatically.
+Run the exact independently reviewed command only. Repeat full admission before root creation or Slice A. Whether execution passes or fails, finalize one terminal result and seal only the selected bounded evidence; never recursively adopt the execution workspace. Report finalization failure separately if a seal cannot be completed. Write the A+B report, commit only that report, and stop for independent review. Do not continue to Slice C automatically.
 
 - [ ] **Step 8: Prepare and review Slice C without executing it**
 
