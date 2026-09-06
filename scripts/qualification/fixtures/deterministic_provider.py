@@ -287,25 +287,33 @@ class DeterministicProviderServer:
         if self._server is not None:
             raise RuntimeError("deterministic provider is already started")
         server = _ProviderServer((self.host, self.port), _ProviderHandler)
-        server.owner = self  # type: ignore[attr-defined]
-        thread = threading.Thread(target=server.serve_forever, name="rook-qualification-provider", daemon=True)
-        thread.start()
         self._server = server
-        self._thread = thread
-        self.journal.append({"event": "provider_started", "host": self.host, "port": self.port})
+        try:
+            server.owner = self  # type: ignore[attr-defined]
+            self._thread = threading.Thread(target=server.serve_forever, name="rook-qualification-provider", daemon=True)
+            self._thread.start()
+            self.journal.append({"event": "provider_started", "host": self.host, "port": self.port})
+        except BaseException as exc:
+            try:
+                self.close()
+            except BaseException as cleanup_error:
+                exc.add_note(f"provider startup cleanup failed: {cleanup_error}")
+            raise
 
     def close(self) -> None:
         if self._server is None:
             return
-        self._server.shutdown()
+        started = self._thread is not None and self._thread.ident is not None
+        if started:
+            self._server.shutdown()
         self._server.server_close()
-        if self._thread is not None:
+        if started:
             self._thread.join(timeout=5)
             if self._thread.is_alive():
                 raise RuntimeError("provider thread shutdown remains unobserved")
-        self.journal.append({"event": "provider_stopped"})
         self._server = None
         self._thread = None
+        self.journal.append({"event": "provider_stopped"})
 
     def __enter__(self) -> "DeterministicProviderServer":
         self.start()
@@ -399,28 +407,38 @@ class ConnectProxyServer:
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
+        if self._server is not None:
+            raise RuntimeError("qualification proxy is already started")
         server = _ThreadingProxyServer((self.host, self.port), _ProxyHandler)
-        server.owner = self  # type: ignore[attr-defined]
-        self.port = int(server.server_address[1])
-        thread = threading.Thread(target=server.serve_forever, name="rook-qualification-proxy", daemon=True)
-        thread.start()
         self._server = server
-        self._thread = thread
-        self.journal.append({"event": "proxy_started", "host": self.host, "port": self.port})
+        try:
+            server.owner = self  # type: ignore[attr-defined]
+            self.port = int(server.server_address[1])
+            self._thread = threading.Thread(target=server.serve_forever, name="rook-qualification-proxy", daemon=True)
+            self._thread.start()
+            self.journal.append({"event": "proxy_started", "host": self.host, "port": self.port})
+        except BaseException as exc:
+            try:
+                self.close()
+            except BaseException as cleanup_error:
+                exc.add_note(f"proxy startup cleanup failed: {cleanup_error}")
+            raise
 
     def close(self) -> None:
         if self._server is None:
             return
         self.stopping.set()
-        self._server.shutdown()
+        started = self._thread is not None and self._thread.ident is not None
+        if started:
+            self._server.shutdown()
         self._server.server_close()
-        if self._thread is not None:
+        if started:
             self._thread.join(timeout=5)
             if self._thread.is_alive():
                 raise RuntimeError("proxy thread shutdown remains unobserved")
-        self.journal.append({"event": "proxy_stopped"})
         self._server = None
         self._thread = None
+        self.journal.append({"event": "proxy_stopped"})
 
     def __enter__(self) -> "ConnectProxyServer":
         self.start()
@@ -463,8 +481,15 @@ class NamedPipeTripwire:
                     with self._condition:
                         self._condition.notify_all()
 
-        self._thread = threading.Thread(target=accept_connections, name="rook-daemon-tripwire", daemon=True)
-        self._thread.start()
+        try:
+            self._thread = threading.Thread(target=accept_connections, name="rook-daemon-tripwire", daemon=True)
+            self._thread.start()
+        except BaseException as exc:
+            try:
+                self.close()
+            except BaseException as cleanup_error:
+                exc.add_note(f"tripwire startup cleanup failed: {cleanup_error}")
+            raise
 
     def wait_for_contacts(self, count: int, *, timeout_seconds: float) -> None:
         with self._condition:
@@ -481,9 +506,10 @@ class NamedPipeTripwire:
         if self._listener is None:
             return
         self._stopping.set()
-        wake = Client(self.path, family="AF_PIPE", authkey=None)
-        wake.close()
-        if self._thread is not None:
+        if self._thread is not None and self._thread.ident is not None:
+            if self._thread.is_alive():
+                wake = Client(self.path, family="AF_PIPE", authkey=None)
+                wake.close()
             self._thread.join(timeout=5)
             if self._thread.is_alive():
                 raise RuntimeError("daemon tripwire did not stop")

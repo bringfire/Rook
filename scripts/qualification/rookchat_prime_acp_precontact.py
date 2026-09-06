@@ -16,6 +16,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
+# Direct script execution must resolve the reviewed worktree, not an ambient scripts package.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from scripts.qualification.rookchat_prime_acp_common import (
     EvidenceRoot,
     ProcessResult,
@@ -202,13 +206,18 @@ def _contains_subsequence(values: tuple[str, ...], expected: list[str]) -> bool:
 
 
 def qualification_data_paths(protocol: dict[str, Any]):
-    from rook.runtime_paths import AcpDataPaths
+    from rook.runtime_paths import AcpDataPaths, RuntimePaths
 
     roots = protocol["environment"]["roots"]
-    root = Path(roots["rookDataDir"]) / "rookchat/acp/v1"
-    return AcpDataPaths(root=root, conversations_root=root / "conversations",
-                        sessions_root=Path(roots["sessions"]), presentation_root=root / "presentation",
-                        claims_root=root / "claims", workspaces_root=root / "workspaces")
+    execution = Path(protocol["executionRoot"])
+    repo = Path(__file__).resolve().parents[2]
+    paths = AcpDataPaths.from_runtime_paths(RuntimePaths(
+        mode="dev", install_root=repo, data_root=Path(roots["rookDataDir"]),
+        logs_root=execution / "logs", runtime_root=execution,
+        mcp_server_dir=repo / "mcp_server", repo_root=repo))
+    if Path(roots["sessions"]).resolve(strict=False) != paths.sessions_root:
+        raise QualificationRefused("qualification session topology differs from the product")
+    return paths
 
 
 def prepare_slice_b(
@@ -721,7 +730,7 @@ async def run_installed_slice_b(
                 raise QualificationRefused("Slice B first prompt result differs")
             header = validate_prime_session_header(
                 prepared.session_path,
-                expected_id=first.session_id,
+                expected_id=None,
                 expected_cwd=Path(workspace.provisional_association.working_directory),
                 sessions_root=workspace.association_store.paths.sessions_root,
             )

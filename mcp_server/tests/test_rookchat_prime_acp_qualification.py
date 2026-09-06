@@ -203,7 +203,7 @@ def _valid_protocol(tmp_path: Path) -> tuple[dict, Path, Path]:
                 "projectLaunch": str(execution_root / "project-launch"),
                 "projectResume": str(execution_root / "project-resume"),
                 "rookDataDir": str(execution_root / "rook-data"),
-                "sessions": str(execution_root / "sessions"),
+                "sessions": str(execution_root / "rook-data/rookchat/acp/v1/sessions"),
                 "temp": str(execution_root / "temp"),
                 "userProfile": str(execution_root / "user-profile"),
             },
@@ -395,7 +395,7 @@ def test_correction_unobserved_service_thread_refuses_close(tmp_path, kind):
     service = (provider.DeterministicProviderServer("http://127.0.0.1:1234/v1", tmp_path / "assigned", journal)
                if kind == "provider" else provider.ConnectProxyServer("http://127.0.0.1:1234", {"pypi.org"}, journal))
     service._server = SimpleNamespace(shutdown=lambda: None, server_close=lambda: None)
-    thread = SimpleNamespace(join=lambda **_: None, is_alive=lambda: True)
+    thread = SimpleNamespace(ident=1, join=lambda **_: None, is_alive=lambda: True)
     service._thread = thread
     with pytest.raises(RuntimeError, match="thread"):
         service.close()
@@ -410,6 +410,9 @@ def test_correction_session_path_admitted_without_product_roots(tmp_path, monkey
     monkeypatch.setattr(runtime_paths, "resolve_runtime_paths", lambda: pytest.fail("ambient data discovery"))
     path_builder = _symbol(_precontact(), "qualification_data_paths")
     paths = path_builder(protocol)
+    canonical = runtime_paths.AcpDataPaths.from_runtime_paths(SimpleNamespace(
+        data_root=Path(protocol["environment"]["roots"]["rookDataDir"])))
+    assert paths == canonical
     admitted = paths.session_path(protocol["qualificationConversationId"])
     assert not Path(protocol["executionRoot"]).exists()
     monkeypatch.setattr(AssociationStore, "reserve_provisional", lambda *_a, **_k: pytest.fail("second allocation"))
@@ -417,6 +420,135 @@ def test_correction_session_path_admitted_without_product_roots(tmp_path, monkey
     workspace = _precontact().prepare_slice_b_workspace(protocol, source, evidence)
     assert Path(workspace.provisional_association.session_path) == admitted
     assert workspace.provisional_association.conversation_id == protocol["qualificationConversationId"]
+
+
+def test_producer_contract_rejects_nonproduct_session_topology(tmp_path):
+    protocol, _, _ = _valid_protocol(tmp_path)
+    protocol["environment"]["roots"]["sessions"] = str(Path(protocol["executionRoot"]) / "invented-sessions")
+    with pytest.raises(_common().QualificationRefused, match="session.*topology"):
+        _precontact().qualification_data_paths(protocol)
+    assert not Path(protocol["executionRoot"]).exists()
+
+
+@pytest.mark.parametrize("mode", ["help", "wrong-head"])
+def test_producer_contract_real_operator_cli(tmp_path, mode):
+    import shutil
+    protocol_path = REPO / "scripts/qualification/protocols/rookchat-prime-acp-precontact-v1.json"
+    protocol = json.loads(protocol_path.read_bytes())
+    for key in ("evidenceRoot", "executionRoot"):
+        assert not Path(protocol[key]).exists()
+    args = ["--help"] if mode == "help" else ["--repo-root", str(REPO), "--protocol", str(protocol_path),
+                                              "--expected-qualification-commit", "0" * 40]
+    environment = {key: os.environ[key] for key in ("SYSTEMROOT", "WINDIR")}
+    environment.update(HOME=str(tmp_path), USERPROFILE=str(tmp_path), PYTHONDONTWRITEBYTECODE="1",
+                       PATH=os.pathsep.join([str(Path(shutil.which("git")).parent), str(Path(os.environ["SYSTEMROOT"]) / "System32")]))
+    result = subprocess.run([sys.executable, "-I", str(PRECONTACT), *args], cwd=REPO,
+                            env=environment, capture_output=True, text=True, timeout=15)
+    assert result.returncode == (0 if mode == "help" else 1), result.stderr
+    expected = "--expected-qualification-commit" if mode == "help" else "precontact_refused: qualification HEAD differs"
+    assert expected in result.stdout, result.stderr
+    for key in ("evidenceRoot", "executionRoot"):
+        assert not Path(protocol[key]).exists()
+
+
+@pytest.mark.parametrize("kind,failure", [(kind, failure) for kind in ("provider", "proxy")
+                                         for failure in ("thread-start", "journal")])
+def test_producer_contract_partial_service_startup(tmp_path, monkeypatch, kind, failure):
+    provider = _provider()
+    journal = provider.BoundedJsonlJournal(tmp_path / "journal", max_records=20, max_bytes=4096)
+    service = (provider.DeterministicProviderServer("http://127.0.0.1:0/v1", tmp_path / "assigned", journal)
+               if kind == "provider" else provider.ConnectProxyServer("http://127.0.0.1:0", {"pypi.org"}, journal))
+    resources, threads = [], []
+    name = "_ProviderServer" if kind == "provider" else "_ThreadingProxyServer"
+    factory = getattr(provider, name)
+    def capture(*args, **kwargs):
+        resource = factory(*args, **kwargs)
+        resources.append(resource)
+        return resource
+    monkeypatch.setattr(provider, name, capture)
+    start = provider.threading.Thread.start
+    error = RuntimeError("injected partial startup")
+    def start_thread(thread):
+        threads.append(thread)
+        if failure == "thread-start":
+            raise error
+        return start(thread)
+    monkeypatch.setattr(provider.threading.Thread, "start", start_thread)
+    append = journal.append
+    def append_record(row):
+        if row["event"].endswith("_started"):
+            raise error
+        append(row)
+    if failure == "journal":
+        monkeypatch.setattr(journal, "append", append_record)
+    try:
+        with pytest.raises(RuntimeError) as raised:
+            with service:
+                pytest.fail("partial startup entered service body")
+        assert raised.value is error
+        assert all(not thread.is_alive() for thread in threads)
+        assert resources[0].socket.fileno() == -1
+    finally:
+        # Exact test-owned handles must be reclaimed even while the regression is RED.
+        for resource in resources:
+            if any(thread.is_alive() for thread in threads):
+                resource.shutdown()
+            resource.server_close()
+        for thread in threads:
+            if thread.ident is not None:
+                thread.join(timeout=2)
+
+
+def test_producer_contract_partial_tripwire_startup(tmp_path, monkeypatch):
+    provider = _provider()
+    import uuid
+    service = provider.NamedPipeTripwire(r"\\.\pipe\rook-test-partial-" + uuid.uuid4().hex)
+    listeners = []
+    factory = provider.Listener
+    def capture(*args, **kwargs):
+        listener = factory(*args, **kwargs)
+        listeners.append(listener)
+        return listener
+    monkeypatch.setattr(provider, "Listener", capture)
+    def fail_start(_):
+        raise RuntimeError("injected tripwire thread start")
+    monkeypatch.setattr(provider.threading.Thread, "start", fail_start)
+    try:
+        with pytest.raises(RuntimeError, match="injected tripwire"):
+            with service:
+                pytest.fail("partial startup entered tripwire body")
+        assert listeners[0]._listener is None
+        assert service._listener is None
+    finally:
+        for listener in listeners:
+            listener.close()
+
+
+def test_producer_contract_service_composition_unwinds_partial_proxy(tmp_path, monkeypatch):
+    provider = _provider()
+    protocol, _, _ = _valid_protocol(tmp_path)
+    execution = Path(protocol["executionRoot"])
+    execution.mkdir()
+    protocol["network"].update(providerUrl="http://127.0.0.1:0/v1", proxyUrl="http://127.0.0.1:0")
+    threads = []
+    start = provider.threading.Thread.start
+    def capture(thread):
+        threads.append(thread)
+        return start(thread)
+    monkeypatch.setattr(provider.threading.Thread, "start", capture)
+    append = provider.BoundedJsonlJournal.append
+    def fail_proxy(journal, row):
+        if row["event"] == "proxy_started":
+            raise RuntimeError("proxy publication failed")
+        append(journal, row)
+    monkeypatch.setattr(provider.BoundedJsonlJournal, "append", fail_proxy)
+    monkeypatch.setattr(provider.NamedPipeTripwire, "start", lambda _: pytest.fail("tripwire started after proxy failure"))
+    with pytest.raises(RuntimeError, match="proxy publication failed"):
+        with _precontact()._start_slice_b_services(protocol, SimpleNamespace(assigned_file=execution / "assigned"), None):
+            pytest.fail("incomplete services reached the lifecycle")
+    assert len(threads) == 2 and all(not thread.is_alive() for thread in threads)
+    assert b"provider_stopped" in (execution / "provider.jsonl").read_bytes()
+    assert b"proxy_stopped" in (execution / "proxy.jsonl").read_bytes()
 
 
 @pytest.mark.asyncio
@@ -1443,7 +1575,7 @@ class _FakeAcpProcess:
                 _canonical(
                     {
                         "cwd": self.protocol["environment"]["roots"]["projectResume"],
-                        "id": self.session_id,
+                        "id": "durable-prime-header-identity",
                         "type": "session",
                         "version": 3,
                     }
@@ -1596,6 +1728,8 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
     assert result["reopenAssistantText"] == "REOPEN_OK:FIRST_OK:alpha"
     assert result["cancelStopReason"] == "cancelled"
     association = workspace.association_store.get(protocol["qualificationConversationId"])
+    assert association.prime_session_id == "durable-prime-header-identity"
+    assert result["sessionIds"] == ["acp-1", "acp-2"]
     assert Path(association.session_path) == admitted_path
     assert admitted_path.is_file()
     assert (evidence_root / "slice-b/session-header.json").read_bytes() == admitted_path.read_bytes().splitlines(keepends=True)[0]
