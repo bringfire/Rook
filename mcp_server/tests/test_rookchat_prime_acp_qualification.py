@@ -946,6 +946,8 @@ def test_provider_journal_projects_contract_markers_without_retaining_prompt_byt
     assert request["goalSkillPresent"] is True
     assert request["rookContractPresent"] is True
     assert request["hostileMarkerPresent"] is False
+    assert request["lastUserSha256"] == _sha(b"CREATE_AND_CALL_ROOK")
+    assert request["messageRoles"] == ["system", "user"]
     assert "messages" not in request
 
 
@@ -1621,17 +1623,19 @@ class _FakeAcpProcess:
         self.calls.append((self.generation, "prompt", text, generation))
         if text == "CANCEL_ME":
             with self._mcp_journal.open("ab") as stream:
-                stream.write(_canonical({"event": "mcp_call_started", "name": "qualification_wait"}))
+                stream.write(_canonical({"event": "mcp_call_started", "name": "qualification_wait", "arguments": {"value": "cancel"}}))
             await self._cancelled.wait()
             return SimpleNamespace(stop_reason="cancelled")
         if text == "CREATE_AND_CALL_ROOK":
             self.assigned_file.write_bytes(b"qualified\n")
             projection.accumulate_assistant_text("FIRST_OK:alpha")
             with self._mcp_journal.open("ab") as stream:
+                stream.write(_canonical({"event": "mcp_call_started", "name": "qualification_echo", "arguments": {"value": "alpha"}}))
                 stream.write(_canonical({"event": "mcp_call_finished", "name": "qualification_echo"}))
             return SimpleNamespace(stop_reason="end_turn")
         projection.accumulate_assistant_text("REOPEN_OK:FIRST_OK:alpha")
         with self._mcp_journal.open("ab") as stream:
+            stream.write(_canonical({"event": "mcp_call_started", "name": "qualification_echo", "arguments": {"value": "reopen"}}))
             stream.write(_canonical({"event": "mcp_call_finished", "name": "qualification_echo"}))
         return SimpleNamespace(stop_reason="end_turn")
 
@@ -1653,7 +1657,9 @@ class _FakeAcpProcess:
 
 
 @pytest.mark.asyncio
-async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_fresh_mcp(tmp_path: Path) -> None:
+@pytest.mark.parametrize("damage", [None, "provider-duplicate", "provider-missing", "provider-order", "provider-unexpected",
+    *[f"mcp-{launch}-{change}" for launch in (0, 1) for change in ("start", "list", "extra", "order", "missing")]])
+async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_fresh_mcp(tmp_path: Path, damage) -> None:
     precontact = _precontact()
     common = _common()
     protocol, source, evidence_root = _valid_protocol(tmp_path)
@@ -1695,15 +1701,32 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
             prepared.session_path,
         )
 
-    provider_rows = [
-        {
+    from urllib.parse import urlparse
+    provider_url = urlparse(protocol["network"]["providerUrl"])
+    provider_rows = [{"event": "provider_started", "host": provider_url.hostname, "port": provider_url.port}]
+    for text, after_user in (("CREATE_AND_CALL_ROOK", []), ("CREATE_AND_CALL_ROOK", ["assistant", "tool"]),
+                             ("CANCEL_ME", []), ("PROVE_CONTEXT", []), ("PROVE_CONTEXT", ["assistant", "tool"])):
+        provider_rows.append({
             "event": "provider_request",
+            "path": "/v1/chat/completions",
+            "lastUserSha256": _sha(text.encode()),
+            "messageRoles": ["system", "user", *after_user],
+            "bodyBytes": 100,
+            "bodySha256": "A" * 64,
             "globalSystemPresent": True,
             "goalSkillPresent": True,
             "hostileMarkerPresent": False,
             "rookContractPresent": True,
-        }
-    ]
+        })
+    provider_rows.append({"event": "provider_stopped"})
+    if damage == "provider-duplicate":
+        provider_rows.insert(2, dict(provider_rows[1]))
+    elif damage == "provider-missing":
+        del provider_rows[2]
+    elif damage == "provider-order":
+        provider_rows[1], provider_rows[2] = provider_rows[2], provider_rows[1]
+    elif damage == "provider-unexpected":
+        provider_rows.insert(2, {"event": "unadmitted"})
     services = SimpleNamespace(
         daemon_tripwire=_FakeTripwire(),
         provider_journal=_FakeJournal(Path(protocol["executionRoot"]) / "provider.jsonl", provider_rows),
@@ -1713,8 +1736,23 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
     @contextlib.contextmanager
     def service_factory(*_args):
         yield services
+        if damage and damage.startswith("mcp-"):
+            _, launch, change = damage.split("-")
+            path = workspace.mcp_journal_paths[int(launch)]
+            rows = [json.loads(line) for line in path.read_bytes().splitlines()]
+            if change == "start":
+                rows.insert(1, dict(rows[0]))
+            elif change == "list":
+                rows.insert(2, dict(rows[1]))
+            elif change == "extra":
+                rows.append({"event": "mcp_call_started", "name": "qualification_echo", "arguments": {"value": "extra"}})
+            elif change == "order":
+                rows[2], rows[3] = rows[3], rows[2]
+            elif change == "missing":
+                del rows[2]
+            path.write_bytes(b"".join(_canonical(row) for row in rows))
 
-    result = await _symbol(precontact, "run_installed_slice_b")(
+    operation = _symbol(precontact, "run_installed_slice_b")(
         protocol,
         source,
         evidence,
@@ -1723,6 +1761,12 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
         process_starter=start,
         services_factory=service_factory,
     )
+    if damage:
+        with pytest.raises(common.QualificationRefused, match="journal"):
+            await operation
+        assert not (evidence_root / "slice-b/session-header.json").exists()
+        return
+    result = await operation
     assert result["outcome"] == "passed"
     assert result["firstAssistantText"] == "FIRST_OK:alpha"
     assert result["reopenAssistantText"] == "REOPEN_OK:FIRST_OK:alpha"

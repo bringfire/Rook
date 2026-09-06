@@ -211,11 +211,14 @@ class _ProviderHandler(BaseHTTPRequestHandler):
             if type(request) is not dict:
                 raise ValueError("request is not an object")
             response = encode_sse(plan_openai_response(request, owner.assigned_file))
+            last_user = next((item for item in reversed(request.get("messages", []))
+                              if type(item) is dict and item.get("role") == "user"), None)
             owner.journal.append(
                 {
                     "bodyBytes": len(body),
                     "bodySha256": hashlib.sha256(body).hexdigest().upper(),
                     "event": "provider_request",
+                    "lastUserSha256": hashlib.sha256(_message_text(last_user).encode("utf-8")).hexdigest().upper(),
                     "messageRoles": [
                         item.get("role") for item in request.get("messages", []) if type(item) is dict
                     ],

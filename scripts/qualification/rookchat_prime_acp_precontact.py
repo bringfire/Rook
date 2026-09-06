@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, Sequence
+from urllib.parse import urlparse
 
 # Direct script execution must resolve the reviewed worktree, not an ambient scripts package.
 if __package__ in (None, ""):
@@ -829,15 +830,7 @@ async def run_installed_slice_b(
         max_records=limits["maxProxyLedgerRecords"],
         max_bytes=limits["maxProxyLedgerBytes"],
     )
-    provider_requests = [row for row in provider_rows if row.get("event") == "provider_request"]
-    if not provider_requests or any(
-        row.get("hostileMarkerPresent") is not False
-        or row.get("globalSystemPresent") is not True
-        or row.get("goalSkillPresent") is not True
-        or row.get("rookContractPresent") is not True
-        for row in provider_requests
-    ):
-        raise QualificationRefused("Slice B provider context custody differs")
+    verify_slice_b_provider_journal(protocol, provider_rows)
 
     proxy_rows = _read_bounded_jsonl(
         services.proxy_journal.path,
@@ -855,13 +848,7 @@ async def run_installed_slice_b(
         )
         for path in workspace.mcp_journal_paths
     ]
-    if any(
-        not any(row.get("event") == "mcp_process_started" for row in rows)
-        or not any(row.get("event") == "mcp_list_tools" for row in rows)
-        or not any(row.get("event") == "mcp_call_finished" and row.get("name") == "qualification_echo" for row in rows)
-        for rows in mcp_rows
-    ):
-        raise QualificationRefused("Slice B did not establish a fresh Rook MCP server per launch")
+    verify_slice_b_mcp_journals(mcp_rows)
 
     kernel = _kernel_result(protocol, Path(prepared.contract.prime_agent_runtime_path))
     for name, path in (("provider", services.provider_journal.path), ("proxy", services.proxy_journal.path),
@@ -907,6 +894,48 @@ def _required_executable(name: str) -> str:
     if path is None:
         raise QualificationRefused(f"required qualification executable is unavailable: {name}")
     return str(Path(path).resolve(strict=True))
+
+
+def verify_slice_b_provider_journal(protocol: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    # Two first-turn requests, one cancelled request, then two reopen requests.
+    if [row.get("event") for row in rows] != ["provider_started", *(["provider_request"] * 5), "provider_stopped"]:
+        raise QualificationRefused("Slice B provider journal event sequence differs")
+    url = urlparse(protocol["network"]["providerUrl"])
+    if rows[0] != {"event": "provider_started", "host": url.hostname, "port": url.port} or rows[-1] != {"event": "provider_stopped"}:
+        raise QualificationRefused("Slice B provider journal lifecycle differs")
+    expected = [("sliceBFirstPrompt", []), ("sliceBFirstPrompt", ["assistant", "tool"]),
+                ("sliceBCancelPrompt", []), ("sliceBReopenPrompt", []),
+                ("sliceBReopenPrompt", ["assistant", "tool"])]
+    for row, (prompt, following_roles) in zip(rows[1:-1], expected, strict=True):
+        roles = row.get("messageRoles")
+        if (type(roles) is not list or "user" not in roles
+                or any(role not in ("system", "developer", "user", "assistant", "tool") for role in roles)):
+            raise QualificationRefused("Slice B provider journal message roles differ")
+        last_user = len(roles) - 1 - roles[::-1].index("user")
+        if (row.get("path") != "/v1/chat/completions"
+                or row.get("lastUserSha256") != protocol["inputs"][prompt]["sha256"]
+                or roles[last_user + 1:] != following_roles
+                or row.get("hostileMarkerPresent") is not False
+                or row.get("globalSystemPresent") is not True
+                or row.get("goalSkillPresent") is not True
+                or row.get("rookContractPresent") is not True):
+            raise QualificationRefused("Slice B provider journal ordered request properties differ")
+
+
+def verify_slice_b_mcp_journals(journals: list[list[dict[str, Any]]]) -> None:
+    expected = []
+    for value in ("alpha", "reopen"):
+        rows = [
+            {"event": "mcp_process_started"},
+            {"event": "mcp_list_tools"},
+            {"event": "mcp_call_started", "name": "qualification_echo", "arguments": {"value": value}},
+            {"event": "mcp_call_finished", "name": "qualification_echo"},
+        ]
+        if value == "alpha":
+            rows.append({"event": "mcp_call_started", "name": "qualification_wait", "arguments": {"value": "cancel"}})
+        expected.append(rows)
+    if journals != expected:
+        raise QualificationRefused("Slice B MCP journal sequence differs")
 
 
 def verify_proxy_observations(rows: list[dict[str, Any]], allowed: set[str]) -> None:
