@@ -815,6 +815,34 @@ async def test_reopen_claim_precedes_authoritative_revalidation_and_launch(tmp_p
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reopen", [False, True])
+async def test_prepared_launch_carries_association_cwd_through_real_sdk(tmp_path, monkeypatch, reopen):
+    contract = _contract(tmp_path)
+    paths = _paths(tmp_path)
+    saved = tmp_path / "association-working-directory"
+    saved.mkdir()
+    provisional = AssociationStore(paths).reserve_provisional(
+        binding=_binding(), runtime_id=contract.runtime_id, working_directory=saved,
+        requested_model=None, requested_reasoning=None)
+    output = tmp_path / "observed-cwd.txt"
+    # Replace only the executable behavior; retain factory -> prepared launch -> SDK subprocess.
+    argv = (sys.executable, "-I", "-c",
+            f"from pathlib import Path; Path({str(output)!r}).write_text(str(Path.cwd()), encoding='utf-8')")
+    monkeypatch.setattr("rook.agent.chat.acp_conversation.build_prime_argv", lambda *_: argv)
+    prepared = DirectAcpProcessFactory({"PATH": str(Path(sys.executable).parent),
+        "ROOK_DATA_DIR": str(tmp_path / "data")}).prepare(contract, provisional, reopen)
+    claim = OpenClaim.acquire(paths.claims_root, provisional.session_path)
+    process = await prepared.start(claim, launch_generation=2 if reopen else 1)
+    try:
+        await asyncio.wait_for(process.process.wait(), timeout=5)
+        assert output.read_text(encoding="utf-8") == str(saved.resolve())
+    finally:
+        result = await process.retire(send_close=False)
+        assert result.child_exit_observed
+        assert not claim.path.exists()
+
+
+@pytest.mark.asyncio
 async def test_direct_factory_reopen_drops_creation_time_model_overrides(tmp_path: Path, monkeypatch):
     contract = _contract(tmp_path)
     paths = _paths(tmp_path)

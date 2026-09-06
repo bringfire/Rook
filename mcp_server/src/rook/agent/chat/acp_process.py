@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from acp import PROTOCOL_VERSION
@@ -42,6 +43,7 @@ class AcpCancellationUncertain(RuntimeError):
 class PrimeLaunch:
     argv: tuple[str, ...]
     environment: Mapping[str, str]
+    cwd: Path
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,7 @@ class OwnedAcpProcess:
             client,
             *launch.argv,
             env=launch.environment,
+            cwd=launch.cwd,
             transport_kwargs={"stderr": asyncio.subprocess.PIPE},
             use_unstable_protocol=True,
         )

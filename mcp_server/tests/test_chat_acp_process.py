@@ -47,7 +47,7 @@ def _fake_launch(tmp_path: Path, **scenario_overrides) -> tuple[PrimeLaunch, Pat
         "--append-system-prompt",
         "# Exact Rook Full body\n",
     )
-    return PrimeLaunch(argv=argv, environment=dict(os.environ)), journal_path
+    return PrimeLaunch(argv=argv, environment=dict(os.environ), cwd=tmp_path), journal_path
 
 
 async def _start(tmp_path: Path, launch: PrimeLaunch) -> tuple[OwnedAcpProcess, OpenClaim]:
@@ -293,7 +293,7 @@ async def test_unobserved_exit_is_bounded_and_preserves_claim(tmp_path: Path, mo
 
     child = HangingProcess()
     process = OwnedAcpProcess(
-        PrimeLaunch(argv=(sys.executable,), environment={}),
+        PrimeLaunch(argv=(sys.executable,), environment={}, cwd=tmp_path),
         claim,
         1,
         RookChatAcpClient(),
@@ -313,7 +313,7 @@ async def test_unobserved_exit_is_bounded_and_preserves_claim(tmp_path: Path, mo
 
 @pytest.mark.asyncio
 async def test_positive_spawn_failure_releases_claim_and_uncertain_failure_preserves_it(tmp_path: Path):
-    missing = PrimeLaunch(argv=(str(tmp_path / "missing.exe"),), environment={})
+    missing = PrimeLaunch(argv=(str(tmp_path / "missing.exe"),), environment={}, cwd=tmp_path)
     first_claim = OpenClaim.acquire(tmp_path / "claims", str(tmp_path / "one.jsonl"))
     with pytest.raises(FileNotFoundError):
         await OwnedAcpProcess.start(missing, first_claim, launch_generation=1)
@@ -330,7 +330,7 @@ async def test_positive_spawn_failure_releases_claim_and_uncertain_failure_prese
 
     with pytest.raises(RuntimeError, match="unknown spawn state"):
         await OwnedAcpProcess.start(
-            PrimeLaunch(argv=(sys.executable,), environment={}),
+            PrimeLaunch(argv=(sys.executable,), environment={}, cwd=tmp_path),
             second_claim,
             launch_generation=2,
             spawn_context_factory=lambda *_args, **_kwargs: UncertainContext(),
@@ -354,7 +354,7 @@ async def test_cancelled_spawn_attempt_closes_context_without_releasing_uncertai
 
     task = asyncio.create_task(
         OwnedAcpProcess.start(
-            PrimeLaunch(argv=(sys.executable,), environment={}),
+            PrimeLaunch(argv=(sys.executable,), environment={}, cwd=tmp_path),
             claim,
             launch_generation=1,
             spawn_context_factory=lambda *_args, **_kwargs: BlockedContext(),
@@ -402,7 +402,7 @@ async def test_retirement_continues_after_waiter_cancellation(tmp_path: Path):
             child_exited.set()
 
     process = OwnedAcpProcess(
-        PrimeLaunch(argv=(sys.executable,), environment={}),
+        PrimeLaunch(argv=(sys.executable,), environment={}, cwd=tmp_path),
         claim,
         1,
         RookChatAcpClient(),
@@ -438,7 +438,7 @@ async def test_cancel_send_has_own_deadline_and_is_never_retried(tmp_path: Path,
 
     connection = HangingConnection()
     process = OwnedAcpProcess(
-        PrimeLaunch(argv=(sys.executable,), environment={}),
+        PrimeLaunch(argv=(sys.executable,), environment={}, cwd=tmp_path),
         claim,
         1,
         RookChatAcpClient(),

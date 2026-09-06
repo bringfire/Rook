@@ -11,6 +11,8 @@ import socket
 import stat
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -1183,6 +1185,36 @@ def test_deterministic_provider_drives_real_ipython_and_rook_mcp_call(tmp_path: 
     assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prompt,value", [("CREATE_AND_CALL_ROOK", "alpha"), ("PROVE_CONTEXT", "reopen")])
+@pytest.mark.parametrize("succeeds", [False, True])
+async def test_provider_generated_code_and_echo_result_round_trip(tmp_path, prompt, value, succeeds):
+    import ast
+    import io
+
+    provider = _provider()
+    assigned = tmp_path / "assigned.txt"
+    messages = [{"role": "assistant", "content": "FIRST_OK:alpha"}, {"role": "user", "content": prompt}]
+    response = provider.plan_openai_response({"messages": messages}, assigned)
+    call = response[0]["choices"][0]["delta"]["tool_calls"][0]
+    code = json.loads(call["function"]["arguments"])["code"]
+    async def call_tool(server, name, arguments):
+        assert (server, name, arguments) == ("rook", "qualification_echo", {"value": value})
+        return provider.qualification_echo(arguments) if succeeds else {"success": False, "error": "fixture failure"}
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        await eval(compile(code, "qualification-ipython", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT),
+                   {"mcp": SimpleNamespace(call_tool=call_tool)})
+    messages.append({"role": "tool", "tool_call_id": call["id"], "content": output.getvalue()})
+    final = provider.plan_openai_response({"messages": messages}, assigned)[0]["choices"][0]["delta"]["content"]
+    if succeeds:
+        assert final == ("FIRST_OK:alpha" if value == "alpha" else "REOPEN_OK:FIRST_OK:alpha")
+    else:
+        assert final.startswith("TOOL_FAILED")
+    if value == "alpha":
+        assert assigned.read_bytes() == b"qualified\n"
+
+
 def test_deterministic_provider_requires_tool_result_and_prior_context(tmp_path: Path) -> None:
     provider = _provider()
     plan = _symbol(provider, "plan_openai_response")
@@ -1192,7 +1224,7 @@ def test_deterministic_provider_requires_tool_result_and_prior_context(tmp_path:
             "messages": [
                 {"role": "user", "content": "CREATE_AND_CALL_ROOK"},
                 {"role": "assistant", "tool_calls": [{"id": "qualification-call-1"}]},
-                {"role": "tool", "tool_call_id": "qualification-call-1", "content": "echo:alpha"},
+                {"role": "tool", "tool_call_id": "qualification-call-1", "content": '{"success":true,"data":{"echo":"alpha"}}'},
             ]
         },
         assigned,
@@ -1208,18 +1240,44 @@ def test_deterministic_provider_requires_tool_result_and_prior_context(tmp_path:
     }
     reopened = plan(reopened_request, assigned)
     assert reopened[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"] == "ipython"
-    reopened_request["messages"].append({"role": "tool", "content": "reopen MCP result"})
+    reopened_request["messages"].append({"role": "tool", "tool_call_id": "qualification-reopen-1",
+        "content": '{"success":true,"data":{"echo":"reopen"}}'})
     settled = plan(reopened_request, assigned)
     assert settled[0]["choices"][0]["delta"]["content"] == "REOPEN_OK:FIRST_OK:alpha"
 
     missing_request = {"messages": [{"role": "user", "content": "PROVE_CONTEXT"}]}
     plan(missing_request, assigned)
-    missing_request["messages"].append({"role": "tool", "content": "reopen MCP result"})
+    missing_request["messages"].append({"role": "tool", "tool_call_id": "qualification-reopen-1",
+        "content": '{"success":true,"data":{"echo":"reopen"}}'})
     missing = plan(missing_request, assigned)
     assert missing[0]["choices"][0]["delta"]["content"] == "CONTEXT_MISSING"
 
 
-def test_provider_journal_projects_contract_markers_without_retaining_prompt_bytes(tmp_path: Path) -> None:
+@pytest.mark.parametrize("prompt,call_id,value", [("CREATE_AND_CALL_ROOK", "qualification-call-1", "alpha"),
+    ("PROVE_CONTEXT", "qualification-reopen-1", "reopen")])
+@pytest.mark.parametrize("damage", ["bootstrap_failure", "wrong_echo", "false_success", "wrong_call", "duplicate", "error_flag"])
+def test_provider_does_not_promote_failed_or_unrelated_tool_results(tmp_path, prompt, call_id, value, damage):
+    result = {"role": "tool", "tool_call_id": call_id,
+              "content": json.dumps({"success": True, "data": {"echo": value}})}
+    if damage == "bootstrap_failure":
+        result["content"] = "Kernel bootstrap failed: download failed"
+    elif damage == "wrong_echo":
+        result["content"] = '{"success":true,"data":{"echo":"other"}}'
+    elif damage == "false_success":
+        result["content"] = json.dumps({"success": False, "data": {"echo": value}})
+    elif damage == "wrong_call":
+        result["tool_call_id"] = "unrelated"
+    elif damage == "error_flag":
+        result["isError"] = True
+    messages = [{"role": "assistant", "content": "FIRST_OK:alpha"}, {"role": "user", "content": prompt}, result]
+    if damage == "duplicate":
+        messages.append(dict(result))
+    response = _provider().plan_openai_response({"messages": messages}, tmp_path / "assigned.txt")
+    assert response[0]["choices"][0]["delta"]["content"].startswith("TOOL_FAILED")
+
+
+@pytest.mark.parametrize("role", ["system", "user"])
+def test_provider_journal_projects_contract_markers_without_retaining_prompt_bytes(tmp_path: Path, role) -> None:
     provider = _provider()
     journal = _symbol(provider, "BoundedJsonlJournal")(tmp_path / "provider.jsonl", max_records=8, max_bytes=8192)
     with socket.socket() as reservation:
@@ -1229,15 +1287,16 @@ def test_provider_journal_projects_contract_markers_without_retaining_prompt_byt
         f"http://127.0.0.1:{port}/v1",
         tmp_path / "assigned.txt",
         journal,
+        goal_skill_path=tmp_path / "skills/goal/SKILL.md",
     )
     body = _canonical(
         {
             "messages": [
                 {
-                    "role": "system",
+                    "role": role,
                     "content": (
                         "ROOK_QUALIFICATION_GLOBAL_SYSTEM # RookChat Operating Contract "
-                        "completion_budget_report"
+                        + _goal_advertisement(tmp_path / "skills/goal/SKILL.md")
                     ),
                 },
                 {"role": "user", "content": "CREATE_AND_CALL_ROOK"},
@@ -1254,26 +1313,53 @@ def test_provider_journal_projects_contract_markers_without_retaining_prompt_byt
     assert response.status == 200
     rows = [json.loads(line) for line in journal.path.read_text(encoding="utf-8").splitlines()]
     request = next(row for row in rows if row["event"] == "provider_request")
-    assert request["globalSystemPresent"] is True
-    assert request["goalSkillPresent"] is True
-    assert request["rookContractPresent"] is True
+    assert request["globalSystemPresent"] is (role == "system")
+    assert request["goalSkillPresent"] is (role == "system")
+    assert request["rookContractPresent"] is (role == "system")
     assert request["hostileMarkerPresent"] is False
     assert request["lastUserSha256"] == _sha(b"CREATE_AND_CALL_ROOK")
-    assert request["messageRoles"] == ["system", "user"]
+    assert request["messageRoles"] == [role, "user"]
     assert "messages" not in request
 
 
-def test_goal_skill_marker_cannot_be_satisfied_by_rook_contract_alone() -> None:
+def _goal_advertisement(path):
+    from xml.sax.saxutils import escape
+    # Exact shape emitted by pinned Prime formatSkillsForPrompt(), not SKILL.md body.
+    return ("<available_skills>\n  <skill>\n    <name>goal</name>\n    <type>markdown</type>\n"
+            "    <description>Manage the persistent thread goal from the Python REPL.</description>\n"
+            f"    <location>{escape(str(path))}</location>\n  </skill>\n</available_skills>")
+
+
+def test_goal_skill_marker_cannot_be_satisfied_by_rook_contract_alone(tmp_path) -> None:
     provider = _provider()
     markers = _symbol(provider, "project_context_markers")(
-        "# RookChat Operating Contract await goal.get() await goal.complete()"
+        "# RookChat Operating Contract await goal.get() await goal.complete() completion_budget_report",
+        tmp_path / "skills/goal/SKILL.md",
     )
     assert markers["rookContractPresent"] is True
     assert markers["goalSkillPresent"] is False
     markers = _symbol(provider, "project_context_markers")(
-        "# RookChat Operating Contract completion_budget_report"
+        "# RookChat Operating Contract " + _goal_advertisement(tmp_path / "skills/goal/SKILL.md"),
+        tmp_path / "skills/goal/SKILL.md",
     )
     assert markers["goalSkillPresent"] is True
+
+
+@pytest.mark.parametrize("damage", ["wrong_location", "wrong_name", "duplicate", "body_only", "malformed"])
+def test_goal_skill_advertisement_requires_exact_goal_location(tmp_path, damage):
+    goal = tmp_path / "skills/goal/SKILL.md"
+    text = _goal_advertisement(goal)
+    if damage == "wrong_location":
+        text = _goal_advertisement(tmp_path / "ambient/goal/SKILL.md")
+    elif damage == "wrong_name":
+        text = text.replace("<name>goal</name>", "<name>other</name>")
+    elif damage == "duplicate":
+        text += text
+    elif damage == "body_only":
+        text = "completion_budget_report " + str(goal)
+    else:
+        text = text.replace("</skill>", "")
+    assert not _provider().project_context_markers(text, goal)["goalSkillPresent"]
 
 
 def test_deterministic_cancellation_uses_waiting_rook_tool(tmp_path: Path) -> None:
@@ -1370,6 +1456,99 @@ def test_proxy_authority_refuses_unadmitted_or_malformed_targets(authority: str)
     provider = _provider()
     with pytest.raises(ValueError):
         _symbol(provider, "admit_connect_authority")(authority, set(_common().ADMITTED_BOOTSTRAP_HOSTS))
+
+
+@pytest.mark.parametrize("broken", [False, True])
+def test_proxy_forwards_exact_bytes_under_backpressure_and_records_failure(tmp_path, monkeypatch, broken):
+    provider = _provider()
+    payload = bytes(range(256)) * 512
+    received = bytearray()
+    errors = []
+    counters = {"partial": 0, "read_blocked": 0, "write_blocked": 0}
+    original_connect = socket.create_connection
+
+    class BackpressuredSocket:
+        def __init__(self, sock):
+            self.sock = sock
+        def __getattr__(self, name):
+            return getattr(self.sock, name)
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            self.sock.close()
+        def recv(self, size):
+            if not counters["read_blocked"]:
+                counters["read_blocked"] += 1
+                raise BlockingIOError("temporary read unavailability")
+            return self.sock.recv(size)
+        def send(self, data):
+            if broken:
+                raise OSError("injected forwarding failure")
+            if counters["partial"] and not counters["write_blocked"]:
+                counters["write_blocked"] += 1
+                raise BlockingIOError("temporary write unavailability")
+            counters["partial"] += 1
+            return self.sock.send(data[:257])
+        def sendall(self, _):
+            raise OSError("nonblocking sendall loses partial progress")
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(10)
+        def receive():
+            try:
+                conn, _ = listener.accept()
+                with conn:
+                    conn.settimeout(10)
+                    while data := conn.recv(1024):
+                        received.extend(data)
+                        time.sleep(0.001)
+                    if not broken:
+                        conn.sendall(payload[::-1])
+            except BaseException as exc:
+                errors.append(exc)
+        peer = threading.Thread(target=receive)
+        peer.start()
+        def connect(address, *args, **kwargs):
+            if address == ("pypi.org", 443):
+                return BackpressuredSocket(original_connect(listener.getsockname(), timeout=10))
+            return original_connect(address, *args, **kwargs)
+        monkeypatch.setattr(socket, "create_connection", connect)
+        journal = provider.BoundedJsonlJournal(tmp_path / "proxy.jsonl", max_records=16, max_bytes=8192)
+        proxy = provider.ConnectProxyServer("http://127.0.0.1:0", {"pypi.org"}, journal)
+        reply = bytearray()
+        try:
+            with proxy:
+                with socket.create_connection(("127.0.0.1", proxy.port), timeout=10) as client:
+                    client.sendall(b"CONNECT pypi.org:443 HTTP/1.1\r\n\r\n")
+                    header = bytearray()
+                    while not header.endswith(b"\r\n\r\n"):
+                        header.extend(client.recv(1))
+                    assert header.startswith(b"HTTP/1.1 200")
+                    client.sendall(payload)
+                    client.shutdown(socket.SHUT_WR)
+                    while data := client.recv(1024):
+                        reply.extend(data)
+                        time.sleep(0.001)
+                stopped_at = time.monotonic()
+            assert time.monotonic() - stopped_at < 6
+        finally:
+            peer.join(timeout=11)
+            assert not peer.is_alive()
+        rows = [json.loads(line) for line in journal.path.read_bytes().splitlines()]
+        if broken:
+            assert any(row["event"] == "proxy_forward_failed" for row in rows)
+            with pytest.raises(_common().QualificationRefused, match="proxy"):
+                _precontact().verify_proxy_observations(rows, {"pypi.org"})
+        else:
+            assert not errors
+            assert bytes(received) == payload
+            assert bytes(reply) == payload[::-1]
+            assert all(count > 0 for count in counters.values())
+            _precontact().verify_proxy_observations(rows, {"pypi.org"})
+        assert rows[-1]["event"] == "proxy_stopped"
+        assert proxy._server is None and proxy._thread is None
 
 
 def test_deny_proxy_records_and_refuses_unadmitted_connect(tmp_path: Path) -> None:
@@ -1858,6 +2037,24 @@ class _FakeTripwire:
     contact_count = 0
 
 
+@pytest.mark.asyncio
+async def test_harness_owned_launch_uses_production_sdk_cwd(tmp_path):
+    from rook.agent.chat.acp_storage import OpenClaim
+    cwd = tmp_path / "association-cwd"
+    cwd.mkdir()
+    output = tmp_path / "observed-cwd.txt"
+    argv = (sys.executable, "-I", "-c",
+            f"from pathlib import Path; Path({str(output)!r}).write_text(str(Path.cwd()), encoding='utf-8')")
+    claim = OpenClaim.acquire(tmp_path / "claims", str(tmp_path / "session.jsonl"))
+    owned = await _precontact()._start_owned_process(argv, {}, claim, 1, cwd)
+    try:
+        await asyncio.wait_for(owned.process.wait(), timeout=5)
+        assert output.read_text(encoding="utf-8") == str(cwd.resolve())
+    finally:
+        result = await owned.retire(send_close=False)
+        assert result.child_exit_observed and not claim.path.exists()
+
+
 class _FakeAcpProcess:
     def __init__(
         self,
@@ -1898,7 +2095,7 @@ class _FakeAcpProcess:
             self.session_path.write_bytes(
                 _canonical(
                     {
-                        "cwd": self.protocol["environment"]["roots"]["projectResume"],
+                        "cwd": str(self.cwd),
                         "id": "durable-prime-header-identity",
                         "type": "session",
                         "version": 3,
@@ -1979,7 +2176,7 @@ class _FakeAcpProcess:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("damage", [None, "provider-duplicate", "provider-missing", "provider-order", "provider-unexpected",
+@pytest.mark.parametrize("damage", [None, "startup-cwd", "provider-duplicate", "provider-missing", "provider-order", "provider-unexpected",
     *[f"mcp-{launch}-{change}" for launch in (0, 1) for change in ("start", "list", "extra", "order", "missing")]])
 async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_fresh_mcp(tmp_path: Path, damage) -> None:
     precontact = _precontact()
@@ -2011,6 +2208,9 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
     async def start(argv, environment, claim, generation, cwd):
         assert environment == prepared.environment
         assert Path(argv[2]) == admitted_path == prepared.session_path
+        assert cwd == Path(workspace.provisional_association.working_directory)
+        if damage == "startup-cwd":
+            cwd = Path(protocol["environment"]["roots"]["projectLaunch"])
         calls.append((generation, "start", argv, cwd))
         return _FakeAcpProcess(
             generation,
@@ -2083,6 +2283,13 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
         process_starter=start,
         services_factory=service_factory,
     )
+    if damage == "startup-cwd":
+        from rook.agent.chat.acp_storage import SessionUnavailable
+        with pytest.raises(SessionUnavailable, match="working directory"):
+            await operation
+        assert not list(workspace.claims_root.glob("*.open.claim"))
+        assert [call[:2] for call in calls][-1] == (1, "retire")
+        return
     if damage:
         with pytest.raises(common.QualificationRefused, match="journal"):
             await operation
@@ -2115,6 +2322,7 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
     ]
     assert calls[0][2] == prepared.initial_argv
     assert calls[7][2] == prepared.reopen_argv
+    assert calls[0][3] == calls[7][3] == Path(association.working_directory)
     assert calls[2][2] == Path(protocol["environment"]["roots"]["projectResume"])
     assert calls[9][2] == Path(protocol["environment"]["roots"]["projectResume"])
     assert all(not path.exists() for path in workspace.claims_root.glob("*.open.claim"))

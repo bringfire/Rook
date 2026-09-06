@@ -226,7 +226,7 @@ class DirectAcpProcessFactory:
         )
         environment = build_prime_child_env(self._base_environment, contract)
         return PreparedDirectAcpLaunch(
-            PrimeLaunch(argv=argv, environment=environment)
+            PrimeLaunch(argv=argv, environment=environment, cwd=Path(association.working_directory))
         )
 
 

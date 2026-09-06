@@ -486,18 +486,12 @@ async def _start_owned_process(
     generation: int,
     cwd: Path,
 ) -> Any:
-    from acp.stdio import spawn_agent_process
-    from rook.agent.chat.acp_process import OwnedAcpProcess, PrimeLaunch
+    from rook.agent.chat.acp_conversation import PreparedDirectAcpLaunch
+    from rook.agent.chat.acp_process import PrimeLaunch
 
-    def spawn_in_cwd(client: Any, command: str, *args: str, **kwargs: Any) -> Any:
-        return spawn_agent_process(client, command, *args, cwd=cwd, **kwargs)
-
-    return await OwnedAcpProcess.start(
-        PrimeLaunch(argv=argv, environment=environment),
-        claim,
-        launch_generation=generation,
-        spawn_context_factory=spawn_in_cwd,
-    )
+    return await PreparedDirectAcpLaunch(
+        PrimeLaunch(argv=argv, environment=environment, cwd=cwd),
+    ).start(claim, launch_generation=generation)
 
 
 @contextmanager
@@ -535,6 +529,7 @@ def _start_slice_b_services(
                 protocol["network"]["providerUrl"],
                 workspace.assigned_file,
                 provider_journal,
+                goal_skill_path=Path(protocol["runtime"]["manifestPath"]).parent / "skills/goal/SKILL.md",
             )
         )
         stack.enter_context(
@@ -711,7 +706,7 @@ async def run_installed_slice_b(
             prepared.environment,
             first_claim,
             1,
-            Path(protocol["environment"]["roots"]["projectLaunch"]),
+            Path(workspace.provisional_association.working_directory),
         )
         try:
             initialized = await first.initialize()
@@ -795,7 +790,7 @@ async def run_installed_slice_b(
             prepared.environment,
             reopen_claim,
             2,
-            Path(protocol["environment"]["roots"]["projectLaunch"]),
+            Path(reopened_association.working_directory),
         )
         try:
             initialized = await reopened.initialize()
@@ -1027,7 +1022,7 @@ def verify_slice_b_mcp_journals(journals: list[list[dict[str, Any]]]) -> None:
 
 
 def verify_proxy_observations(rows: list[dict[str, Any]], allowed: set[str]) -> None:
-    if any(row.get("event") in {"proxy_refused", "proxy_connect_failed"} for row in rows):
+    if any(row.get("event") in {"proxy_refused", "proxy_connect_failed", "proxy_forward_failed"} for row in rows):
         raise QualificationRefused("Slice B proxy recorded a refusal or connection failure")
     admissions = [row for row in rows if row.get("event") == "proxy_admitted"]
     if not admissions or any(row.get("host") not in allowed or type(row.get("port")) is not int

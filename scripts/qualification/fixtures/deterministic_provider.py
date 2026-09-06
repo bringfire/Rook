@@ -13,6 +13,7 @@ import socket
 import socketserver
 import threading
 import time
+import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from multiprocessing.connection import Client, Listener
 from pathlib import Path
@@ -69,10 +70,20 @@ def _message_text(message: object) -> str:
     return ""
 
 
-def project_context_markers(body_text: str) -> dict[str, bool]:
+def project_context_markers(body_text: str, goal_skill_path: Path | None = None) -> dict[str, bool]:
+    goals = []
+    try:
+        for block in re.findall(r"<available_skills>.*?</available_skills>", body_text, re.DOTALL):
+            goals.extend(skill for skill in ET.fromstring(block).findall("skill")
+                         if skill.findtext("name") == "goal")
+    except ET.ParseError:
+        goals = []
+    goal_present = (goal_skill_path is not None and len(goals) == 1
+                    and goals[0].findtext("type") == "markdown"
+                    and goals[0].findtext("location") == str(goal_skill_path))
     return {
         "globalSystemPresent": "ROOK_QUALIFICATION_GLOBAL_SYSTEM" in body_text,
-        "goalSkillPresent": "completion_budget_report" in body_text,
+        "goalSkillPresent": goal_present,
         "hostileMarkerPresent": "ROOK_QUALIFICATION_HOSTILE_PROJECT_RESOURCE" in body_text,
         "rookContractPresent": "# RookChat Operating Contract" in body_text,
     }
@@ -124,6 +135,17 @@ def _text(value: str) -> list[dict[str, Any]]:
     ]
 
 
+def _successful_echo(results: list[dict[str, Any]], call_id: str, value: str) -> bool:
+    if len(results) != 1 or results[0].get("tool_call_id") != call_id or results[0].get("isError"):
+        return False
+    try:
+        result = json.loads(_message_text(results[0]))
+    except (ValueError, TypeError):
+        return False
+    return (type(result) is dict and result.get("success") is True
+            and result == {"success": True, "data": {"echo": value}})
+
+
 def plan_openai_response(request: dict[str, Any], assigned_file: Path) -> list[dict[str, Any]]:
     messages = request.get("messages")
     if type(messages) is not list:
@@ -134,27 +156,31 @@ def plan_openai_response(request: dict[str, Any], assigned_file: Path) -> list[d
     last_user = user_indexes[-1]
     prompt = _message_text(messages[last_user])
     subsequent = messages[last_user + 1 :]
+    tool_results = [item for item in subsequent if type(item) is dict and item.get("role") == "tool"]
 
     if "CANCEL_ME" in prompt:
         code = 'await mcp.call_tool("rook", "qualification_wait", {"value":"cancel"})'
         return _tool_call(code, "qualification-wait-1")
     if "PROVE_CONTEXT" in prompt:
-        tool_result = any(type(item) is dict and item.get("role") == "tool" for item in subsequent)
-        if not tool_result:
-            code = 'await mcp.call_tool("rook", "qualification_echo", {"value":"reopen"})'
+        if not tool_results:
+            code = ('import json\n'
+                    'rook_result = await mcp.call_tool("rook", "qualification_echo", {"value":"reopen"})\n'
+                    'print(json.dumps(rook_result, sort_keys=True))')
             return _tool_call(code, "qualification-reopen-1")
+        if not _successful_echo(tool_results, "qualification-reopen-1", "reopen"):
+            return _text("TOOL_FAILED: expected successful qualification_echo reopen result")
         prior = "\n".join(_message_text(item) for item in messages[:last_user])
         return _text("REOPEN_OK:FIRST_OK:alpha" if "FIRST_OK:alpha" in prior else "CONTEXT_MISSING")
     if "CREATE_AND_CALL_ROOK" in prompt:
-        tool_result = any(type(item) is dict and item.get("role") == "tool" for item in subsequent)
-        if tool_result:
-            return _text("FIRST_OK:alpha")
+        if tool_results:
+            return _text("FIRST_OK:alpha" if _successful_echo(tool_results, "qualification-call-1", "alpha")
+                         else "TOOL_FAILED: expected successful qualification_echo alpha result")
         quoted = repr(str(assigned_file))
         code = (
-            "from pathlib import Path\n"
-            f"Path({quoted}).write_text('qualified\\n', encoding='utf-8')\n"
+            "from pathlib import Path\nimport json\n"
+            f"Path({quoted}).write_bytes(b'qualified\\n')\n"
             'rook_result = await mcp.call_tool("rook", "qualification_echo", {"value":"alpha"})\n'
-            "print(rook_result)"
+            "print(json.dumps(rook_result, sort_keys=True))"
         )
         return _tool_call(code, "qualification-call-1")
     return _text("UNEXPECTED_PROMPT")
@@ -223,7 +249,8 @@ class _ProviderHandler(BaseHTTPRequestHandler):
                         item.get("role") for item in request.get("messages", []) if type(item) is dict
                     ],
                     "path": self.path,
-                    **project_context_markers(body_text),
+                    **project_context_markers("\n".join(_message_text(item) for item in request.get("messages", [])
+                        if type(item) is dict and item.get("role") in {"system", "developer"}), owner.goal_skill_path),
                 }
             )
         except (UnicodeError, ValueError, json.JSONDecodeError, RuntimeError):
@@ -275,6 +302,8 @@ class DeterministicProviderServer:
         url: str,
         assigned_file: Path,
         journal: BoundedJsonlJournal,
+        *,
+        goal_skill_path: Path | None = None,
     ) -> None:
         parsed = urlparse(url)
         if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.port is None or parsed.path != "/v1":
@@ -282,6 +311,7 @@ class DeterministicProviderServer:
         self.host = parsed.hostname
         self.port = parsed.port
         self.assigned_file = assigned_file
+        self.goal_skill_path = goal_skill_path
         self.journal = journal
         self._server: _ProviderServer | None = None
         self._thread: threading.Thread | None = None
@@ -326,6 +356,59 @@ class DeterministicProviderServer:
         self.close()
 
 
+def _forward_tunnel(left: socket.socket, right: socket.socket, stopping: threading.Event) -> None:
+    # At most 64 KiB pending per destination; pause its peer's reads under backpressure.
+    limit = 64 * 1024
+    peers = {left: right, right: left}
+    pending = {left: bytearray(), right: bytearray()}
+    eof: set[socket.socket] = set()
+    write_closed: set[socket.socket] = set()
+    for sock in peers:
+        sock.setblocking(False)
+    with selectors.DefaultSelector() as selector:
+        while not stopping.is_set():
+            for source in eof:
+                destination = peers[source]
+                if not pending[destination] and destination not in write_closed:
+                    destination.shutdown(socket.SHUT_WR)
+                    write_closed.add(destination)
+            if len(eof) == 2 and not any(pending.values()):
+                return
+            for sock, peer in peers.items():
+                events = selectors.EVENT_READ if sock not in eof and len(pending[peer]) < limit else 0
+                if pending[sock]:
+                    events |= selectors.EVENT_WRITE
+                if sock in selector.get_map():
+                    if events:
+                        selector.modify(sock, events)
+                    else:
+                        selector.unregister(sock)
+                elif events:
+                    selector.register(sock, events)
+            for key, events in selector.select(timeout=0.25):
+                sock = key.fileobj
+                if events & selectors.EVENT_WRITE:
+                    try:
+                        sent = sock.send(pending[sock])
+                    except (BlockingIOError, InterruptedError):
+                        pass
+                    else:
+                        if sent <= 0:
+                            raise OSError("proxy write made no progress")
+                        del pending[sock][:sent]
+                if events & selectors.EVENT_READ:
+                    try:
+                        data = sock.recv(limit - len(pending[peers[sock]]))
+                    except (BlockingIOError, InterruptedError):
+                        continue
+                    if data:
+                        pending[peers[sock]].extend(data)
+                    else:
+                        eof.add(sock)
+        if any(pending.values()):
+            raise OSError("proxy stopped with unsent bytes")
+
+
 class _ProxyHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         owner: ConnectProxyServer = self.server.owner  # type: ignore[attr-defined]
@@ -367,26 +450,12 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
             self.wfile.flush()
             return
         with upstream:
-            self.connection.setblocking(False)
-            upstream.setblocking(False)
-            self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-            self.wfile.flush()
-            selector = selectors.DefaultSelector()
-            selector.register(self.connection, selectors.EVENT_READ, upstream)
-            selector.register(upstream, selectors.EVENT_READ, self.connection)
             try:
-                while not owner.stopping.is_set():
-                    events = selector.select(timeout=0.25)
-                    for key, _ in events:
-                        try:
-                            data = key.fileobj.recv(64 * 1024)
-                        except (BlockingIOError, ConnectionResetError, OSError):
-                            return
-                        if not data:
-                            return
-                        key.data.sendall(data)
-            finally:
-                selector.close()
+                self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                self.wfile.flush()
+                _forward_tunnel(self.connection, upstream, owner.stopping)
+            except OSError as exc:
+                owner.journal.append({"authority": authority, "detail": str(exc)[:512], "event": "proxy_forward_failed"})
 
 
 class _ThreadingProxyServer(_OwnedRequestThreads, socketserver.TCPServer):
