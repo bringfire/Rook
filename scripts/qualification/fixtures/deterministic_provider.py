@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import hashlib
 import json
 import re
@@ -11,7 +12,8 @@ import selectors
 import socket
 import socketserver
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from multiprocessing.connection import Client, Listener
 from pathlib import Path
 from typing import Any, Sequence
@@ -235,6 +237,35 @@ class _ProviderHandler(BaseHTTPRequestHandler):
         return
 
 
+class _OwnedRequestThreads(socketserver.ThreadingMixIn):
+    daemon_threads = True
+    block_on_close = False
+
+    def process_request(self, request, client_address):
+        self.request_threads = [(thread, sock) for thread, sock in getattr(self, "request_threads", [])
+                                if thread.is_alive()]
+        if len(self.request_threads) >= self.owner.journal.max_records:
+            self.shutdown_request(request)
+            raise RuntimeError("qualification request-thread limit exceeded")
+        thread = threading.Thread(target=self.process_request_thread, args=(request, client_address), daemon=True)
+        self.request_threads.append((thread, request))
+        thread.start()
+
+    def server_close(self):
+        super().server_close()
+        deadline = time.monotonic() + 5
+        for thread, request in getattr(self, "request_threads", []):
+            with contextlib.suppress(OSError):
+                request.shutdown(socket.SHUT_RDWR)
+            thread.join(timeout=max(0, deadline - time.monotonic()))
+        if any(thread.is_alive() for thread, _ in getattr(self, "request_threads", [])):
+            raise RuntimeError("request thread shutdown remains unobserved")
+
+
+class _ProviderServer(_OwnedRequestThreads, HTTPServer):
+    pass
+
+
 class DeterministicProviderServer:
     def __init__(
         self,
@@ -249,13 +280,13 @@ class DeterministicProviderServer:
         self.port = parsed.port
         self.assigned_file = assigned_file
         self.journal = journal
-        self._server: ThreadingHTTPServer | None = None
+        self._server: _ProviderServer | None = None
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         if self._server is not None:
             raise RuntimeError("deterministic provider is already started")
-        server = ThreadingHTTPServer((self.host, self.port), _ProviderHandler)
+        server = _ProviderServer((self.host, self.port), _ProviderHandler)
         server.owner = self  # type: ignore[attr-defined]
         thread = threading.Thread(target=server.serve_forever, name="rook-qualification-provider", daemon=True)
         thread.start()
@@ -270,6 +301,8 @@ class DeterministicProviderServer:
         self._server.server_close()
         if self._thread is not None:
             self._thread.join(timeout=5)
+            if self._thread.is_alive():
+                raise RuntimeError("provider thread shutdown remains unobserved")
         self.journal.append({"event": "provider_stopped"})
         self._server = None
         self._thread = None
@@ -345,7 +378,7 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
                 selector.close()
 
 
-class _ThreadingProxyServer(socketserver.ThreadingTCPServer):
+class _ThreadingProxyServer(_OwnedRequestThreads, socketserver.TCPServer):
     allow_reuse_address = False
     daemon_threads = True
 
@@ -383,6 +416,8 @@ class ConnectProxyServer:
         self._server.server_close()
         if self._thread is not None:
             self._thread.join(timeout=5)
+            if self._thread.is_alive():
+                raise RuntimeError("proxy thread shutdown remains unobserved")
         self.journal.append({"event": "proxy_stopped"})
         self._server = None
         self._thread = None

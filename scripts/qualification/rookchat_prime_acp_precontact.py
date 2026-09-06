@@ -47,6 +47,7 @@ MAX_BOOTSTRAP_VERSION_BYTES = 64 * 1024
 
 
 class PrecontactOperations(Protocol):
+    def prepare_admission(self, protocol: dict[str, Any], repo_root: Path) -> None: ...
     async def run_slice_a(self, protocol: dict[str, Any], repo_root: Path, evidence: EvidenceRoot) -> dict[str, Any]: ...
 
     async def run_slice_b(self, protocol: dict[str, Any], repo_root: Path, evidence: EvidenceRoot) -> dict[str, Any]: ...
@@ -58,23 +59,28 @@ async def execute_precontact(
     *,
     operations: PrecontactOperations | None = None,
     verify_git: bool = True,
+    expected_qualification_commit: str | None = None,
 ) -> dict[str, str]:
-    protocol = admit_precontact_protocol(protocol_path, repo_root, verify_git=verify_git)
+    protocol = await admit_precontact_protocol(protocol_path, repo_root, verify_git=verify_git,
+                                        expected_qualification_commit=expected_qualification_commit)
+    runner = operations or ProductPrecontactOperations()
+    runner.prepare_admission(protocol, repo_root)
     root = EvidenceRoot.create(
         Path(protocol["evidenceRoot"]),
         max_file_bytes=protocol["limits"]["maxEvidenceFileBytes"],
+        max_total_bytes=protocol["limits"]["maxEvidenceTotalBytes"],
+        max_files=protocol["limits"]["maxEvidenceFiles"],
     )
-    root.write_json(
-        "admission.json",
-        {
+    active_slice = "A"
+    failure: BaseException | None = None
+    try:
+        root.write_json("admission.json", {
+            "qualificationCommit": expected_qualification_commit,
             "implementationCommit": protocol["implementationCommit"],
             "protocolSha256": sha256_file(protocol_path),
             "runtimeId": protocol["runtime"]["runtimeId"],
-        },
-    )
-    runner = operations or ProductPrecontactOperations()
-    active_slice = "A"
-    try:
+        })
+        Path(protocol["executionRoot"]).mkdir(parents=True, exist_ok=False)
         async with asyncio.timeout(protocol["limits"]["wallClockSeconds"]):
             slice_a = await runner.run_slice_a(protocol, repo_root, root)
             root.write_json("slice-a.json", slice_a)
@@ -86,23 +92,23 @@ async def execute_precontact(
             if slice_b.get("outcome") != "passed":
                 raise QualificationRefused("Slice B did not pass")
         result = {"outcome": "passed", "sliceA": "passed", "sliceB": "passed"}
-        root.write_json("result.json", result)
-        root.seal()
-        return result
     except BaseException as exc:
+        failure = exc
+        result = {"error": str(exc)[:4096], "errorType": type(exc).__name__,
+                  "failedSlice": active_slice, "outcome": "failed"}
+    # Retain the workspace on every outcome; uncertain owners must never lose it.
+    for label, finalize in (("result", lambda: root.write_json("result.json", result)), ("seal", root.seal)):
         try:
-            root.write_json(
-                "result.json",
-                {
-                    "error": str(exc)[:4096],
-                    "errorType": type(exc).__name__,
-                    "failedSlice": active_slice,
-                    "outcome": "failed",
-                },
-            )
-        finally:
-            root.seal()
-        raise
+            finalize()
+        except BaseException as exc:
+            print(f"qualification_{label}_failed: {str(exc)[:2048]}", file=sys.stderr)
+            if failure is None:
+                failure = exc
+            else:
+                failure.add_note(f"{label} finalization failed: {type(exc).__name__}")
+    if failure is not None:
+        raise failure
+    return result
 
 
 ProcessRunner = Callable[[ProcessSpec], Awaitable[ProcessResult]]
@@ -195,6 +201,16 @@ def _contains_subsequence(values: tuple[str, ...], expected: list[str]) -> bool:
     return cursor == len(expected)
 
 
+def qualification_data_paths(protocol: dict[str, Any]):
+    from rook.runtime_paths import AcpDataPaths
+
+    roots = protocol["environment"]["roots"]
+    root = Path(roots["rookDataDir"]) / "rookchat/acp/v1"
+    return AcpDataPaths(root=root, conversations_root=root / "conversations",
+                        sessions_root=Path(roots["sessions"]), presentation_root=root / "presentation",
+                        claims_root=root / "claims", workspaces_root=root / "workspaces")
+
+
 def prepare_slice_b(
     protocol: dict[str, Any],
     repo_root: Path,
@@ -219,10 +235,14 @@ def prepare_slice_b(
         or Path(contract.executable_path) != runtime_root / "pi.exe"
         or contract.rook_skill_manifest_sha256 != runtime["rookSkillManifestSha256"]
         or Path(contract.prime_agent_runtime_path) != Path(protocol["kernel"]["runtimeSourcePath"])
+        or contract.prime_agent_runtime_manifest_sha256 != protocol["kernel"]["runtimeSourceManifestSha256"]
     ):
         raise QualificationRefused("verified runtime contract differs from the frozen protocol")
 
-    session_path = session_path or Path(protocol["environment"]["roots"]["sessions"]) / "qualification-session.jsonl"
+    admitted_path = qualification_data_paths(protocol).session_path(protocol["qualificationConversationId"]).resolve(strict=False)
+    if session_path is not None and session_path != admitted_path:
+        raise QualificationRefused("qualification session path differs")
+    session_path = admitted_path
     launch = protocol["launch"]
     product_initial = argv_builder(contract, session_path, launch["model"], launch["reasoning"], False)
     product_reopen = argv_builder(contract, session_path, None, None, True)
@@ -271,13 +291,13 @@ def prepare_slice_b_workspace(
 ) -> SliceBWorkspace:
     del repo_root
     roots = {name: Path(value) for name, value in protocol["environment"]["roots"].items()}
-    evidence_root = evidence.root.resolve(strict=True)
+    execution_root = Path(protocol["executionRoot"]).resolve(strict=False)
     for name, path in roots.items():
         if path.exists() or path.is_symlink():
             raise QualificationRefused(f"Slice B isolated root is not fresh: {name}")
         parent = path.parent.resolve(strict=False)
-        if evidence_root not in (parent, *parent.parents):
-            raise QualificationRefused(f"Slice B isolated root escapes evidence: {name}")
+        if execution_root not in (parent, *parent.parents):
+            raise QualificationRefused(f"Slice B isolated root escapes workspace: {name}")
 
     cold_paths = (
         Path(protocol["kernel"]["venvPath"]),
@@ -291,20 +311,14 @@ def prepare_slice_b_workspace(
     for path in roots.values():
         path.mkdir(parents=True, exist_ok=False)
 
-    from rook.agent.chat.acp_storage import AssociationStore, RookBinding
-    from rook.runtime_paths import AcpDataPaths
+    from rook.agent.chat.acp_storage import AssociationStore, ProvisionalAssociation, RookBinding
 
-    data_paths = AcpDataPaths(
-        root=evidence_root / "live/acp",
-        conversations_root=evidence_root / "live/conversations",
-        sessions_root=roots["sessions"],
-        presentation_root=evidence_root / "live/presentation",
-        claims_root=roots["rookDataDir"] / "rookchat/acp/v1/claims",
-        workspaces_root=evidence_root / "live/workspaces",
-    )
+    data_paths = qualification_data_paths(protocol)
     association_store = AssociationStore(data_paths)
     target = protocol["target"]
-    provisional = association_store.reserve_provisional(
+    provisional = ProvisionalAssociation(
+        conversation_id=protocol["qualificationConversationId"],
+        session_path=str(data_paths.session_path(protocol["qualificationConversationId"]).resolve(strict=False)),
         binding=RookBinding(
             profile=target["profile"],
             host_generation_id=target["hostGenerationId"],
@@ -312,9 +326,9 @@ def prepare_slice_b_workspace(
             route_process_id=target["routeProcessId"],
         ),
         runtime_id=protocol["runtime"]["runtimeId"],
-        working_directory=roots["projectResume"],
-        requested_model=protocol["launch"]["model"],
-        requested_reasoning=protocol["launch"]["reasoning"],
+        working_directory=str(roots["projectResume"].resolve(strict=True)),
+        requested_initial_model=protocol["launch"]["model"],
+        requested_initial_reasoning=protocol["launch"]["reasoning"],
     )
 
     models_path = roots["primeAgentDir"] / "models.json"
@@ -365,7 +379,7 @@ def prepare_slice_b_workspace(
         "CLAUDE.md": hostile_marker + "\n",
     }
     hostile_hashes: dict[str, str] = {}
-    live_root = evidence_root / "live"
+    live_root = execution_root
     for project_name in ("projectLaunch", "projectResume"):
         project = roots[project_name]
         for relative, text in hostile_files.items():
@@ -489,12 +503,12 @@ def _start_slice_b_services(
 
     limits = protocol["limits"]
     provider_journal = BoundedJsonlJournal(
-        evidence.root / "live/provider.jsonl",
+        Path(protocol["executionRoot"]) / "provider.jsonl",
         max_records=limits["maxProxyLedgerRecords"],
         max_bytes=limits["maxProxyLedgerBytes"],
     )
     proxy_journal = BoundedJsonlJournal(
-        evidence.root / "live/proxy.jsonl",
+        Path(protocol["executionRoot"]) / "proxy.jsonl",
         max_records=limits["maxProxyLedgerRecords"],
         max_bytes=limits["maxProxyLedgerBytes"],
     )
@@ -641,7 +655,7 @@ def _kernel_result(protocol: dict[str, Any], runtime_source: Path) -> dict[str, 
 
 
 def _verify_hostile_fixtures(evidence: EvidenceRoot, workspace: SliceBWorkspace) -> None:
-    live = evidence.root / "live"
+    live = workspace.assigned_file.parent
     for relative, expected in workspace.hostile_hashes.items():
         path = live / Path(relative)
         if not path.is_file() or path.is_symlink() or sha256_file(path) != expected:
@@ -668,6 +682,7 @@ async def run_installed_slice_b(
     ]
     if any(path.exists() or path.is_symlink() for path in cold_paths):
         raise QualificationRefused("Slice B kernel was not cold before ACP establishment")
+    verify_no_managed_helpers(protocol, prepared.environment)
     if prepared.session_path.exists() or workspace.assigned_file.exists():
         raise QualificationRefused("Slice B output existed before ACP establishment")
 
@@ -820,11 +835,8 @@ async def run_installed_slice_b(
         max_records=limits["maxProxyLedgerRecords"],
         max_bytes=limits["maxProxyLedgerBytes"],
     )
-    if any(row.get("event") in {"proxy_refused", "proxy_connect_failed"} for row in proxy_rows):
-        raise QualificationRefused("Slice B network proxy recorded a refusal")
-    allowed = set(protocol["environment"]["proxy"]["admittedHosts"])
-    if any(row.get("host") not in allowed for row in proxy_rows if row.get("event") == "proxy_admitted"):
-        raise QualificationRefused("Slice B proxy admitted an unknown host")
+    verify_proxy_observations(proxy_rows, set(protocol["environment"]["proxy"]["admittedHosts"]))
+    verify_no_managed_helpers(protocol, prepared.environment)
 
     mcp_rows = [
         _read_bounded_jsonl(
@@ -843,6 +855,14 @@ async def run_installed_slice_b(
         raise QualificationRefused("Slice B did not establish a fresh Rook MCP server per launch")
 
     kernel = _kernel_result(protocol, Path(prepared.contract.prime_agent_runtime_path))
+    for name, path in (("provider", services.provider_journal.path), ("proxy", services.proxy_journal.path),
+                       ("mcp-first", workspace.mcp_journal_paths[0]), ("mcp-reopen", workspace.mcp_journal_paths[1])):
+        evidence.copy_file(f"slice-b/{name}.jsonl", path)
+    with prepared.session_path.open("rb") as stream:
+        header_bytes = stream.readline(65537)
+    if len(header_bytes) > 65536:
+        raise QualificationRefused("session header evidence exceeds limit")
+    evidence.write_bytes("slice-b/session-header.json", header_bytes)
     return {
         "assignedFileSha256": sha256_file(workspace.assigned_file),
         "associationSha256": sha256_file(
@@ -880,6 +900,27 @@ def _required_executable(name: str) -> str:
     return str(Path(path).resolve(strict=True))
 
 
+def verify_proxy_observations(rows: list[dict[str, Any]], allowed: set[str]) -> None:
+    if any(row.get("event") in {"proxy_refused", "proxy_connect_failed"} for row in rows):
+        raise QualificationRefused("Slice B proxy recorded a refusal or connection failure")
+    admissions = [row for row in rows if row.get("event") == "proxy_admitted"]
+    if not admissions or any(row.get("host") not in allowed or type(row.get("port")) is not int
+                             or row["port"] != 443 for row in admissions):
+        raise QualificationRefused("Slice B proxy has no valid cold-bootstrap admission")
+
+
+def verify_no_managed_helpers(protocol: dict[str, Any], environment: dict[str, str]) -> None:
+    roots = protocol["environment"]["roots"]
+    for path in (Path(roots["primeAgentDir"]) / "bin", Path(roots["userProfile"]) / ".prime/agent/bin"):
+        if path.exists() or path.is_symlink():
+            raise QualificationRefused("managed helper download directory was created")
+    for directory in environment["PATH"].split(os.pathsep):
+        for name in ("fd", "fd.exe", "rg", "rg.exe"):
+            path = Path(directory) / name
+            if path.exists() or path.is_symlink():
+                raise QualificationRefused("managed helper executable is present")
+
+
 class ProductPrecontactOperations:
     def __init__(
         self,
@@ -891,12 +932,31 @@ class ProductPrecontactOperations:
         self._process_runner = process_runner
         self._slice_b_preparer = slice_b_preparer
         self._slice_b_runner = slice_b_runner
+        self._prepared: PreparedSliceB | None = None
+        self._commands: list[tuple[str, ProcessSpec]] | None = None
+
+    def prepare_admission(self, protocol: dict[str, Any], repo_root: Path) -> None:
+        self._prepared = self._slice_b_preparer(protocol, repo_root,
+            session_path=qualification_data_paths(protocol).session_path(protocol["qualificationConversationId"]).resolve(strict=False))
+        self._commands = self._slice_a_commands(protocol, repo_root)
 
     @staticmethod
     def _slice_a_commands(protocol: dict[str, Any], repo_root: Path) -> list[tuple[str, ProcessSpec]]:
         limits = protocol["limits"]
-        environment = dict(os.environ)
         python = str(Path(sys.executable).resolve(strict=True))
+        tools = {name: _required_executable(name) for name in ("dotnet", "node", "pwsh")}
+        test_root = Path(protocol["executionRoot"]) / "slice-a"
+        roots = {key: str(test_root / key) for key in ("home", "userProfile", "appData", "localAppData", "temp")}
+        windows = Path(protocol["environment"]["expectedFinal"].get("SYSTEMROOT", "C:/Windows"))
+        environment = {
+            "SYSTEMROOT": str(windows), "WINDIR": str(windows),
+            "COMSPEC": str(windows / "System32/cmd.exe"), "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+            "PATH": os.pathsep.join(dict.fromkeys([str(Path(python).parent),
+                      *(str(Path(path).parent) for path in tools.values()), str(windows / "System32")])),
+            "HOME": roots["home"], "USERPROFILE": roots["userProfile"],
+            "APPDATA": roots["appData"], "LOCALAPPDATA": roots["localAppData"],
+            "TEMP": roots["temp"], "TMP": roots["temp"], "CI": "1", "PYTHONDONTWRITEBYTECODE": "1",
+        }
         tests = tuple(protocol["inputs"]["sliceATestFiles"])
         common = {
             "environment": environment,
@@ -917,7 +977,7 @@ class ProductPrecontactOperations:
                 "managed-chat-panel",
                 ProcessSpec(
                     argv=(
-                        _required_executable("dotnet"),
+                        tools["dotnet"],
                         "test",
                         "src/Rook.Tests/Rook.Tests.csproj",
                         "--no-restore",
@@ -932,7 +992,7 @@ class ProductPrecontactOperations:
                 "browser-image-composer",
                 ProcessSpec(
                     argv=(
-                        _required_executable("node"),
+                        tools["node"],
                         "--test",
                         "src/Rook.Tests/UI/Chat/composer-images.test.cjs",
                     ),
@@ -952,7 +1012,7 @@ class ProductPrecontactOperations:
                 "installer-source-guard",
                 ProcessSpec(
                     argv=(
-                        _required_executable("pwsh"),
+                        tools["pwsh"],
                         "-NoProfile",
                         "-File",
                         str(repo_root / "scripts/tests/release-installer-guards.tests.ps1"),
@@ -966,7 +1026,10 @@ class ProductPrecontactOperations:
 
     async def run_slice_a(self, protocol: dict[str, Any], repo_root: Path, evidence: EvidenceRoot) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
-        for index, (label, spec) in enumerate(self._slice_a_commands(protocol, repo_root), start=1):
+        commands = self._commands if self._commands is not None else self._slice_a_commands(protocol, repo_root)
+        for index, (label, spec) in enumerate(commands, start=1):
+            for key in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
+                Path(spec.environment[key]).mkdir(parents=True, exist_ok=True)
             result = await self._process_runner(spec)
             prefix = f"slice-a/{index:02d}-{label}"
             evidence.write_bytes(prefix + ".stdout", result.stdout)
@@ -994,26 +1057,27 @@ class ProductPrecontactOperations:
         return {"commands": rows, "outcome": "passed"}
 
     async def run_slice_b(self, protocol: dict[str, Any], repo_root: Path, evidence: EvidenceRoot) -> dict[str, Any]:
+        if self._prepared is None:
+            raise QualificationRefused("Slice B has no admitted preparation")
         workspace = prepare_slice_b_workspace(protocol, repo_root, evidence)
-        prepared = self._slice_b_preparer(
-            protocol,
-            repo_root,
-            session_path=Path(workspace.provisional_association.session_path),
-        )
-        return await self._slice_b_runner(protocol, repo_root, evidence, prepared, workspace)
+        if Path(workspace.provisional_association.session_path) != self._prepared.session_path:
+            raise QualificationRefused("Slice B workspace changed the admitted session path")
+        return await self._slice_b_runner(protocol, repo_root, evidence, self._prepared, workspace)
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--protocol", required=True, type=Path)
     parser.add_argument("--repo-root", required=True, type=Path)
+    parser.add_argument("--expected-qualification-commit", required=True)
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
-        asyncio.run(execute_precontact(args.protocol, args.repo_root))
+        asyncio.run(execute_precontact(args.protocol, args.repo_root,
+                                      expected_qualification_commit=args.expected_qualification_commit))
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"precontact_refused: {exc}")
         return 1

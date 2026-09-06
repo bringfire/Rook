@@ -7,9 +7,12 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import os
 import re
+import shutil
 import stat
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -44,6 +47,12 @@ PRODUCT_SOURCE_PATHS = (
     "src/Rook",
     "src/RookNative",
 )
+QUALIFICATION_PROTOCOL = "scripts/qualification/protocols/rookchat-prime-acp-precontact-v1.json"
+QUALIFICATION_MODULES = {
+    "scripts.qualification.rookchat_prime_acp_common": "scripts/qualification/rookchat_prime_acp_common.py",
+    "scripts.qualification.rookchat_prime_acp_precontact": "scripts/qualification/rookchat_prime_acp_precontact.py",
+    "scripts.qualification.fixtures.deterministic_provider": "scripts/qualification/fixtures/deterministic_provider.py",
+}
 
 
 class QualificationRefused(RuntimeError):
@@ -141,6 +150,8 @@ def validate_precontact_protocol(protocol: object) -> dict[str, Any]:
             "environment",
             "evaluator",
             "evidenceRoot",
+            "executionRoot",
+            "qualificationConversationId",
             "executionVersion",
             "implementationCommit",
             "inputs",
@@ -162,6 +173,13 @@ def validate_precontact_protocol(protocol: object) -> dict[str, Any]:
     if type(value["implementationCommit"]) is not str or COMMIT_PATTERN.fullmatch(value["implementationCommit"]) is None:
         raise QualificationRefused("implementation commit is invalid")
     _absolute_path(value["evidenceRoot"], "evidence root")
+    execution_root = _absolute_path(value["executionRoot"], "execution root").resolve(strict=False)
+    evidence_root = Path(value["evidenceRoot"]).resolve(strict=False)
+    if execution_root.is_relative_to(evidence_root) or evidence_root.is_relative_to(execution_root):
+        raise QualificationRefused("execution and evidence roots overlap")
+    conversation_id = value["qualificationConversationId"]
+    if type(conversation_id) is not str or re.fullmatch(r"[a-f0-9]{32}", conversation_id) is None:
+        raise QualificationRefused("qualification conversation ID is invalid")
     if value["evaluator"] is not None:
         raise QualificationRefused("pre-contact evaluator must be null")
 
@@ -169,6 +187,8 @@ def validate_precontact_protocol(protocol: object) -> dict[str, Any]:
         value["limits"],
         {
             "maxEvidenceFileBytes",
+            "maxEvidenceTotalBytes",
+            "maxEvidenceFiles",
             "maxProcessOutputBytes",
             "maxProxyLedgerBytes",
             "maxProxyLedgerRecords",
@@ -230,7 +250,7 @@ def validate_precontact_protocol(protocol: object) -> dict[str, Any]:
         raise QualificationRefused("qualification model selection differs")
     if launch["productionRequiredArguments"] != ["--mode", "acp", "--no-daemon", "--no-approve"]:
         raise QualificationRefused("required production arguments differ")
-    if launch["productionForbiddenArguments"] != ["--offline", "--no-managed-tool-downloads"]:
+    if launch["productionForbiddenArguments"] != ["--offline"]:
         raise QualificationRefused("forbidden production arguments differ")
 
     inputs = _closed(
@@ -285,10 +305,9 @@ def validate_precontact_protocol(protocol: object) -> dict[str, Any]:
     )
     for key, item in roots.items():
         _absolute_path(item, key)
-    evidence_root = Path(value["evidenceRoot"])
-    expected_live_root = evidence_root / "live"
-    if any(expected_live_root not in (Path(item), *Path(item).parents) for item in roots.values()):
-        raise QualificationRefused("environment root escapes the evidence generation")
+    if any(not Path(item).resolve(strict=False).is_relative_to(execution_root)
+           or Path(item).resolve(strict=False) == execution_root for item in roots.values()):
+        raise QualificationRefused("environment root escapes the execution generation")
     uv = environment["productOwnedUv"]
     if type(uv) is not dict or set(uv) != PRODUCT_UV_KEYS or not all(type(k) is str and type(v) is str for k, v in uv.items()):
         raise QualificationRefused("product-owned uv map differs")
@@ -406,34 +425,66 @@ def _resolved_child(root: Path, relative: str) -> Path:
     return candidate
 
 
-def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+async def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    executable = shutil.which("git")
+    if executable is None:
+        raise QualificationRefused("source Git custody executable is unavailable")
+    argv = (str(Path(executable).resolve(strict=True)), "-C", str(repo), *args)
+    environment = {key: os.environ[key] for key in ("SYSTEMROOT", "WINDIR") if key in os.environ}
+    environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+                       GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0")
     try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), *args],
-            shell=False,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
+        captured = await run_bounded_process(ProcessSpec(argv, repo, environment, 10, 30, 1_048_576))
+        if captured.timed_out or captured.output_overflow or not captured.direct_child_exit_observed:
+            raise QualificationRefused("source Git custody process did not complete")
+        result = subprocess.CompletedProcess(argv, captured.exit_code,
+            captured.stdout.decode("utf-8", "strict"), captured.stderr.decode("utf-8", "strict"))
+    except (OSError, UnicodeError) as exc:
         raise QualificationRefused("source Git custody failed") from exc
     if check and result.returncode != 0:
         raise QualificationRefused("source Git custody failed")
     return result
 
 
-def verify_source_custody(repo_root: Path, implementation_commit: str) -> None:
+async def verify_source_custody(repo_root: Path, implementation_commit: str) -> None:
     root = repo_root.resolve(strict=True)
     if COMMIT_PATTERN.fullmatch(implementation_commit) is None:
         raise QualificationRefused("implementation commit is invalid")
-    if _git(root, "status", "--porcelain").stdout:
+    if (await _git(root, "status", "--porcelain")).stdout:
         raise QualificationRefused("source worktree is not clean")
-    if _git(root, "merge-base", "--is-ancestor", implementation_commit, "HEAD", check=False).returncode != 0:
+    if (await _git(root, "merge-base", "--is-ancestor", implementation_commit, "HEAD", check=False)).returncode != 0:
         raise QualificationRefused("implementation commit is not an ancestor")
-    changed = _git(root, "diff", "--name-only", implementation_commit, "HEAD", "--", *PRODUCT_SOURCE_PATHS).stdout
+    changed = (await _git(root, "diff", "--name-only", implementation_commit, "HEAD", "--", *PRODUCT_SOURCE_PATHS)).stdout
     if changed.strip():
         raise QualificationRefused("product source differs from implementation commit")
+
+
+async def verify_qualification_custody(repo_root: Path, protocol_path: Path, expected_commit: str | None) -> None:
+    if type(expected_commit) is not str or COMMIT_PATTERN.fullmatch(expected_commit) is None:
+        raise QualificationRefused("expected qualification commit is required")
+    root = repo_root.resolve(strict=True)
+    if protocol_path.resolve(strict=True) != root / QUALIFICATION_PROTOCOL:
+        raise QualificationRefused("qualification protocol path differs")
+    if (await _git(root, "rev-parse", "HEAD")).stdout.strip() != expected_commit:
+        raise QualificationRefused("qualification HEAD differs")
+    if (await _git(root, "status", "--porcelain")).stdout:
+        raise QualificationRefused("qualification worktree is not clean")
+    for relative in (QUALIFICATION_PROTOCOL, *QUALIFICATION_MODULES.values()):
+        path = root / relative
+        if not path.is_file() or path.is_symlink() or path.resolve(strict=True) != path:
+            raise QualificationRefused("qualification input origin differs")
+        # Git hashes raw bytes here, with no checkout/eol filters.
+        actual = (await _git(root, "hash-object", "--no-filters", str(path))).stdout.strip()
+        expected = (await _git(root, "rev-parse", f"{expected_commit}:{relative}")).stdout.strip()
+        if actual != expected:
+            raise QualificationRefused("qualification blob bytes differ")
+    from scripts.qualification.fixtures import deterministic_provider  # noqa: F401
+    for name, relative in QUALIFICATION_MODULES.items():
+        module = sys.modules.get(name)
+        if module is None and name.endswith("rookchat_prime_acp_precontact"):
+            module = sys.modules.get("__main__")
+        if module is None or Path(module.__file__).resolve(strict=True) != root / relative:
+            raise QualificationRefused("loaded qualification module origin differs")
 
 
 def assert_no_product_qualification_imports(repo_root: Path) -> None:
@@ -456,14 +507,24 @@ def assert_no_product_qualification_imports(repo_root: Path) -> None:
                 raise QualificationRefused(f"product import reaches qualification code: {path}")
 
 
-def admit_precontact_protocol(path: Path, repo_root: Path, *, verify_git: bool = True) -> dict[str, Any]:
+async def admit_precontact_protocol(path: Path, repo_root: Path, *, verify_git: bool = True,
+                              expected_qualification_commit: str | None = None) -> dict[str, Any]:
+    if verify_git:
+        await verify_qualification_custody(repo_root, path, expected_qualification_commit)
     protocol = load_precontact_protocol(path)
     root = repo_root.resolve(strict=True)
     evidence = Path(protocol["evidenceRoot"])
     if evidence.exists() or evidence.is_symlink():
         raise QualificationRefused("evidence root already exists")
+    execution = Path(protocol["executionRoot"])
+    if execution.exists() or execution.is_symlink():
+        raise QualificationRefused("execution root already exists")
+    for candidate in (execution.resolve(strict=False), evidence.resolve(strict=False)):
+        for protected in (root, Path(protocol["runtime"]["installRoot"]).resolve(strict=True)):
+            if candidate.is_relative_to(protected) or protected.is_relative_to(candidate):
+                raise QualificationRefused("qualification root overlaps source or runtime")
     if verify_git:
-        verify_source_custody(root, protocol["implementationCommit"])
+        await verify_source_custody(root, protocol["implementationCommit"])
     assert_no_product_qualification_imports(root)
     for row in protocol["sourceInputs"]:
         source = _resolved_child(root, row["path"])
@@ -496,21 +557,27 @@ def admit_precontact_protocol(path: Path, repo_root: Path, *, verify_git: bool =
 
 
 class EvidenceRoot:
-    def __init__(self, root: Path, max_file_bytes: int) -> None:
+    def __init__(self, root: Path, max_file_bytes: int, max_total_bytes: int, max_files: int) -> None:
         self.root = root
         self.max_file_bytes = max_file_bytes
+        self.max_total_bytes = max_total_bytes
+        self.max_files = max_files
+        self._files: dict[str, dict[str, Any]] = {}
+        self._reserved = {"result.json": min(max_file_bytes, 65536),
+                          "evidence-index.json": min(max_file_bytes, 65536), "SEALED": 7}
         self._sealed = False
 
     @classmethod
-    def create(cls, root: Path, *, max_file_bytes: int) -> "EvidenceRoot":
-        if not root.is_absolute() or max_file_bytes <= 0:
+    def create(cls, root: Path, *, max_file_bytes: int, max_total_bytes: int = 67108864,
+               max_files: int = 64) -> "EvidenceRoot":
+        if not root.is_absolute() or max_file_bytes < 7 or max_total_bytes <= 0 or max_files < 3:
             raise QualificationRefused("evidence root arguments are invalid")
         root.parent.mkdir(parents=True, exist_ok=True)
         try:
             root.mkdir(exist_ok=False)
         except FileExistsError as exc:
             raise QualificationRefused("evidence root already exists") from exc
-        return cls(root, max_file_bytes)
+        return cls(root, max_file_bytes, max_total_bytes, max_files)
 
     def _target(self, relative: str) -> Path:
         if self._sealed:
@@ -524,15 +591,29 @@ class EvidenceRoot:
         return target
 
     def write_bytes(self, relative: str, data: bytes) -> Path:
-        if type(data) is not bytes or len(data) > self.max_file_bytes:
+        if type(data) is not bytes or len(data) > self._reserved.get(relative, self.max_file_bytes):
             raise QualificationRefused("evidence byte limit exceeded")
+        if relative in self._files:
+            raise QualificationRefused("evidence file already exists")
+        remaining = {key: size for key, size in self._reserved.items() if key not in self._files and key != relative}
+        if (len(self._files) + 1 + len(remaining) > self.max_files
+                or sum(row["bytes"] for row in self._files.values()) + len(data) + sum(remaining.values()) > self.max_total_bytes):
+            raise QualificationRefused("evidence count or total byte limit exceeded")
         target = self._target(relative)
         try:
             with target.open("xb") as stream:
                 stream.write(data)
         except FileExistsError as exc:
             raise QualificationRefused("evidence file already exists") from exc
+        self._files[relative] = {"bytes": len(data), "path": relative, "sha256": sha256_bytes(data)}
         return target
+
+    def copy_file(self, relative: str, source: Path) -> Path:
+        if source.is_symlink() or getattr(source.stat(), "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+            raise QualificationRefused("evidence source is a link")
+        with source.open("rb") as stream:
+            data = stream.read(self.max_file_bytes + 1)
+        return self.write_bytes(relative, data)
 
     def write_json(self, relative: str, value: object) -> Path:
         return self.write_bytes(relative, canonical_json_bytes(value))
@@ -540,14 +621,25 @@ class EvidenceRoot:
     def seal(self) -> Path:
         if self._sealed:
             raise QualificationRefused("evidence root is sealed")
-        rows = []
-        for path in sorted(item for item in self.root.rglob("*") if item.is_file()):
+        directories = {parent.as_posix() for name in self._files for parent in PurePosixPath(name).parents}
+        for path in self.root.rglob("*"):
             relative = path.relative_to(self.root).as_posix()
-            rows.append({"bytes": path.stat().st_size, "path": relative, "sha256": sha256_file(path)})
+            if path.is_symlink() or getattr(path.lstat(), "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+                raise QualificationRefused("unknown evidence link")
+            if path.is_dir() and relative in directories:
+                continue
+            if relative not in self._files or not path.is_file():
+                raise QualificationRefused("unknown evidence file or directory")
+        rows = [self._files[name] for name in sorted(self._files)]
+        for row in rows:
+            with (self.root / row["path"]).open("rb") as stream:
+                data = stream.read(self.max_file_bytes + 1)
+            if len(data) != row["bytes"] or sha256_bytes(data) != row["sha256"]:
+                raise QualificationRefused("retained evidence changed")
         index = self.write_json("evidence-index.json", {"files": rows})
         self.write_bytes("SEALED", b"sealed\n")
         self._sealed = True
-        for path in sorted(self.root.rglob("*"), reverse=True):
+        for path in [self.root / name for name in self._files]:
             mode = stat.S_IREAD | (stat.S_IEXEC if path.is_dir() else 0)
             with contextlib.suppress(OSError):
                 path.chmod(mode)
@@ -577,6 +669,7 @@ class ProcessResult:
 
 
 async def _stop_direct_process(process: asyncio.subprocess.Process, close_seconds: float) -> bool:
+    deadline = asyncio.get_running_loop().time() + close_seconds
     if process.returncode is not None:
         await process.wait()
         return True
@@ -585,7 +678,7 @@ async def _stop_direct_process(process: asyncio.subprocess.Process, close_second
     except ProcessLookupError:
         pass
     try:
-        await asyncio.wait_for(process.wait(), timeout=close_seconds)
+        await asyncio.wait_for(process.wait(), timeout=close_seconds / 2)
         return True
     except asyncio.TimeoutError:
         try:
@@ -593,7 +686,7 @@ async def _stop_direct_process(process: asyncio.subprocess.Process, close_second
         except ProcessLookupError:
             pass
         try:
-            await asyncio.wait_for(process.wait(), timeout=close_seconds)
+            await asyncio.wait_for(process.wait(), timeout=max(0, deadline - asyncio.get_running_loop().time()))
             return True
         except asyncio.TimeoutError:
             return False
@@ -640,23 +733,56 @@ async def run_bounded_process(spec: ProcessSpec) -> ProcessResult:
     wait_task = asyncio.create_task(process.wait())
     overflow_task = asyncio.create_task(overflow.wait())
     timed_out = False
+    exit_observed = False
+
+    async def cleanup() -> None:
+        nonlocal exit_observed
+        deadline = asyncio.get_running_loop().time() + spec.close_seconds
+        exit_observed = await _stop_direct_process(process, spec.close_seconds * .8)
+        overflow_task.cancel()
+        if not exit_observed:
+            for reader in readers:
+                reader.cancel()
+        tasks = {*readers, wait_task, overflow_task}
+        _, pending = await asyncio.wait(tasks, timeout=max(0, deadline - asyncio.get_running_loop().time()))
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.sleep(0)
+        for task in tasks:
+            if task.done() and not task.cancelled():
+                task.exception()
+        if any(not task.done() for task in tasks):
+            raise QualificationRefused("qualification pipe cleanup remains uncertain")
+
+    async def shield_cleanup() -> None:
+        owned = asyncio.create_task(cleanup())
+        interrupted = None
+        while not owned.done():
+            try:
+                await asyncio.shield(owned)
+            except asyncio.CancelledError as exc:
+                interrupted = exc
+                continue
+        owned.result()
+        if interrupted is not None:
+            raise interrupted
+
     try:
         done, _ = await asyncio.wait(
             {wait_task, overflow_task}, timeout=spec.timeout_seconds, return_when=asyncio.FIRST_COMPLETED
         )
         if not done:
             timed_out = True
-        if timed_out or overflow.is_set():
-            exit_observed = await _stop_direct_process(process, spec.close_seconds)
-        else:
-            await wait_task
-            exit_observed = True
-    finally:
-        overflow_task.cancel()
-        await asyncio.gather(*readers, return_exceptions=True)
-        if not wait_task.done():
-            wait_task.cancel()
-        await asyncio.gather(wait_task, overflow_task, return_exceptions=True)
+    except BaseException as exc:
+        try:
+            await shield_cleanup()
+            if not exit_observed:
+                exc.add_note("qualification child exit remains unobserved; retain workspace")
+        except BaseException as cleanup_error:
+            exc.add_note(f"qualification cleanup failed: {type(cleanup_error).__name__}")
+        raise
+    await shield_cleanup()
     return ProcessResult(
         exit_code=process.returncode,
         stdout=bytes(stdout),
