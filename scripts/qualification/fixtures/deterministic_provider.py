@@ -240,23 +240,23 @@ class _ProviderHandler(BaseHTTPRequestHandler):
             response = encode_sse(plan_openai_response(request, owner.assigned_file))
             last_user = next((item for item in reversed(request.get("messages", []))
                               if type(item) is dict and item.get("role") == "user"), None)
-            owner.journal.append(
-                {
-                    "bodyBytes": len(body),
-                    "bodySha256": hashlib.sha256(body).hexdigest().upper(),
-                    "event": "provider_request",
-                    "lastUserSha256": hashlib.sha256(_message_text(last_user).encode("utf-8")).hexdigest().upper(),
-                    "messageRoles": [
-                        item.get("role") for item in request.get("messages", []) if type(item) is dict
-                    ],
-                    "path": self.path,
-                    **project_context_markers("\n".join(_message_text(item) for item in request.get("messages", [])
-                        if type(item) is dict and item.get("role") in {"system", "developer"}), owner.goal_skill_path),
-                }
-            )
         except (UnicodeError, ValueError, json.JSONDecodeError, RuntimeError):
             self.send_error(400)
             return
+        owner.journal.append(
+            {
+                "bodyBytes": len(body),
+                "bodySha256": hashlib.sha256(body).hexdigest().upper(),
+                "event": "provider_request",
+                "lastUserSha256": hashlib.sha256(_message_text(last_user).encode("utf-8")).hexdigest().upper(),
+                "messageRoles": [
+                    item.get("role") for item in request.get("messages", []) if type(item) is dict
+                ],
+                "path": self.path,
+                **project_context_markers("\n".join(_message_text(item) for item in request.get("messages", [])
+                    if type(item) is dict and item.get("role") in {"system", "developer"}), owner.goal_skill_path),
+            }
+        )
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Content-Length", str(len(response)))
@@ -271,6 +271,24 @@ class _ProviderHandler(BaseHTTPRequestHandler):
 class _OwnedRequestThreads(socketserver.ThreadingMixIn):
     daemon_threads = True
     block_on_close = False
+
+    def handle_error(self, request, client_address):
+        # socketserver normally only prints request/dispatch failures. Journal writes
+        # can themselves fail, so reporting to the owner must not depend on them.
+        self.owner._failed.set()
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        except BaseException:
+            # Includes request cleanup and non-Exception thread failures.
+            self.owner._failed.set()
+
+    def serve_forever(self, poll_interval=0.5):
+        try:
+            super().serve_forever(poll_interval)
+        except BaseException:
+            self.owner._failed.set()
 
     def process_request(self, request, client_address):
         self.request_threads = [(thread, sock) for thread, sock in getattr(self, "request_threads", [])
@@ -288,7 +306,8 @@ class _OwnedRequestThreads(socketserver.ThreadingMixIn):
         for thread, request in getattr(self, "request_threads", []):
             with contextlib.suppress(OSError):
                 request.shutdown(socket.SHUT_RDWR)
-            thread.join(timeout=max(0, deadline - time.monotonic()))
+            if thread.ident is not None:
+                thread.join(timeout=max(0, deadline - time.monotonic()))
         if any(thread.is_alive() for thread, _ in getattr(self, "request_threads", [])):
             raise RuntimeError("request thread shutdown remains unobserved")
 
@@ -316,6 +335,7 @@ class DeterministicProviderServer:
         self.journal = journal
         self._server: _ProviderServer | None = None
         self._thread: threading.Thread | None = None
+        self._failed = threading.Event()
 
     def start(self) -> None:
         if self._server is not None:
@@ -328,6 +348,7 @@ class DeterministicProviderServer:
             self._thread.start()
             self.journal.append({"event": "provider_started", "host": self.host, "port": self.port})
         except BaseException as exc:
+            self._failed.set()
             try:
                 self.close()
             except BaseException as cleanup_error:
@@ -336,6 +357,8 @@ class DeterministicProviderServer:
 
     def close(self) -> None:
         if self._server is None:
+            if self._failed.is_set():
+                raise RuntimeError("qualification service failed")
             return
         started = self._thread is not None and self._thread.ident is not None
         if started:
@@ -347,7 +370,13 @@ class DeterministicProviderServer:
                 raise RuntimeError("provider thread shutdown remains unobserved")
         self._server = None
         self._thread = None
-        self.journal.append({"event": "provider_stopped"})
+        try:
+            self.journal.append({"event": "provider_stopped"})
+        except BaseException:
+            self._failed.set()
+            raise
+        if self._failed.is_set():
+            raise RuntimeError("qualification service failed")
 
     def __enter__(self) -> "DeterministicProviderServer":
         self.start()
@@ -529,6 +558,7 @@ class ConnectProxyServer:
         self.stopping = threading.Event()
         self._server: _ThreadingProxyServer | None = None
         self._thread: threading.Thread | None = None
+        self._failed = threading.Event()
 
     def start(self) -> None:
         if self._server is not None:
@@ -542,6 +572,7 @@ class ConnectProxyServer:
             self._thread.start()
             self.journal.append({"event": "proxy_started", "host": self.host, "port": self.port})
         except BaseException as exc:
+            self._failed.set()
             try:
                 self.close()
             except BaseException as cleanup_error:
@@ -550,6 +581,8 @@ class ConnectProxyServer:
 
     def close(self) -> None:
         if self._server is None:
+            if self._failed.is_set():
+                raise RuntimeError("qualification service failed")
             return
         self.stopping.set()
         started = self._thread is not None and self._thread.ident is not None
@@ -562,7 +595,13 @@ class ConnectProxyServer:
                 raise RuntimeError("proxy thread shutdown remains unobserved")
         self._server = None
         self._thread = None
-        self.journal.append({"event": "proxy_stopped"})
+        try:
+            self.journal.append({"event": "proxy_stopped"})
+        except BaseException:
+            self._failed.set()
+            raise
+        if self._failed.is_set():
+            raise RuntimeError("qualification service failed")
 
     def __enter__(self) -> "ConnectProxyServer":
         self.start()

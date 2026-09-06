@@ -1768,6 +1768,99 @@ def test_proxy_application_result_is_independent_of_connection_termination(tmp_p
         }, sort_keys=True))
 
 
+@contextlib.contextmanager
+def _proxy_with_completed_exchange_and_request_fault(tmp_path, monkeypatch, fault):
+    provider = _provider()
+    completed, release = threading.Event(), threading.Event()
+    errors, injected = [], []
+    body = b"complete local application result"
+    original_connect = socket.create_connection
+    original_select = provider.selectors.DefaultSelector.select
+
+    def select(selector, *args, **kwargs):
+        # The server selector owns a TCPServer; only the tunnel owns sockets.
+        if completed.is_set() and any(isinstance(key.fileobj, socket.socket)
+                                      for key in selector.get_map().values()):
+            injected.append(fault)
+            if fault == "selector":
+                raise ValueError("injected tunnel selector failure")
+            raise OSError("injected internal forwarding failure")
+        return original_select(selector, *args, **kwargs)
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(5)
+
+        def serve():
+            try:
+                conn, _ = listener.accept()
+                with conn:
+                    conn.settimeout(5)
+                    conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+                    assert release.wait(5)
+            except BaseException as exc:
+                errors.append(exc)
+
+        def connect(address, *args, **kwargs):
+            return original_connect(listener.getsockname() if address == ("pypi.org", 443) else address,
+                                    *args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(socket, "create_connection", connect)
+            patch.setattr(provider.selectors.DefaultSelector, "select", select)
+            # The three lifecycle/admission rows fit, but the forwarding error does not.
+            journal = provider.BoundedJsonlJournal(tmp_path / "request-fault.jsonl", max_records=16,
+                                                  max_bytes=256 if fault == "journal" else 8192)
+            proxy = provider.ConnectProxyServer("http://127.0.0.1:0", {"pypi.org"}, journal)
+            peer = threading.Thread(target=serve)
+            peer.start()
+            requests = []
+            server_thread = None
+            try:
+                with proxy:
+                    server_thread = proxy._thread
+                    with socket.create_connection(("127.0.0.1", proxy.port), timeout=5) as client:
+                        client.sendall(b"CONNECT pypi.org:443 HTTP/1.1\r\n\r\n")
+                        header = bytearray()
+                        while not header.endswith(b"\r\n\r\n"):
+                            part = client.recv(1)
+                            assert part and len(header) < 4096
+                            header.extend(part)
+                        assert header == b"HTTP/1.1 200 Connection Established\r\n\r\n"
+                        with http.client.HTTPResponse(client) as response:
+                            response.begin()
+                            assert response.status == 200 and response.read() == body
+                        completed.set()
+                        assert client.recv(1) == b""
+                    requests = list(proxy._server.request_threads)
+                    for thread, _ in requests:
+                        thread.join(timeout=2)
+                        assert not thread.is_alive()
+                    assert injected == [fault]
+                    yield proxy
+            finally:
+                release.set()
+                peer.join(timeout=6)
+                assert not peer.is_alive() and not errors
+                assert server_thread is not None and not server_thread.is_alive()
+                assert all(not thread.is_alive() for thread, _ in requests)
+                assert proxy._server is None and proxy._thread is None
+
+
+@pytest.mark.parametrize("fault", ["selector", "journal"])
+def test_real_proxy_request_failure_survives_missing_fatal_journal(tmp_path, monkeypatch, fault):
+    with pytest.raises(RuntimeError, match="qualification service failed"):
+        with _proxy_with_completed_exchange_and_request_fault(tmp_path, monkeypatch, fault) as proxy:
+            pass
+    rows = [json.loads(line) for line in proxy.journal.path.read_bytes().splitlines()]
+    assert [row["event"] for row in rows] == ["proxy_started", "proxy_admitted", "proxy_stopped"]
+    assert _precontact().verify_proxy_observations(rows, {"pypi.org"}) == 0
+    # Successful cleanup and a second close cannot erase the independent failure.
+    with pytest.raises(RuntimeError, match="qualification service failed"):
+        proxy.close()
+
+
 @pytest.mark.parametrize("fault", ["send", "recv", "shutdown_write", "selector", "stopping", "stopped_empty", "no_progress"])
 def test_transport_abort_classification_belongs_to_exact_socket_operation(monkeypatch, fault):
     provider = _provider()
@@ -2508,6 +2601,7 @@ class _FakeAcpProcess:
 @pytest.mark.parametrize("with_abort", [False, True])
 @pytest.mark.parametrize("damage", [None, "startup-cwd", "provider-duplicate", "provider-missing", "provider-order", "provider-unexpected",
     "assigned-truncated", "kernel-missing", "kernel-source", "first-unexecuted", "first-failed", "cleanup-uncertain",
+    "proxy-selector", "proxy-journal",
     *[f"mcp-{launch}-{change}" for launch in (0, 1) for change in ("start", "list", "extra", "order", "missing")]])
 async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_fresh_mcp(tmp_path: Path, monkeypatch, damage, with_abort) -> None:
     precontact = _precontact()
@@ -2609,7 +2703,12 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
 
     @contextlib.contextmanager
     def service_factory(*_args):
-        yield services
+        if damage in {"proxy-selector", "proxy-journal"}:
+            with _proxy_with_completed_exchange_and_request_fault(tmp_path, monkeypatch, damage.split("-")[1]) as proxy:
+                services.proxy_journal = proxy.journal
+                yield services
+        else:
+            yield services
         if damage == "assigned-truncated":
             workspace.assigned_file.write_bytes(b"qual")
         elif damage == "kernel-missing":
@@ -2650,6 +2749,20 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
             await operation
         assert not list(workspace.claims_root.glob("*.open.claim"))
         assert [call[:2] for call in calls][-1] == (1, "retire")
+        return
+    if damage in {"proxy-selector", "proxy-journal"}:
+        with pytest.raises(RuntimeError, match="qualification service failed"):
+            await operation
+        # The normal application validators would all pass; service failure still vetoes success.
+        precontact.verify_slice_b_provider_journal(
+            protocol, [json.loads(line) for line in services.provider_journal.path.read_bytes().splitlines()])
+        precontact.verify_slice_b_mcp_journals([
+            [json.loads(line) for line in path.read_bytes().splitlines()] for path in workspace.mcp_journal_paths])
+        precontact._kernel_result(protocol, prepared.contract.prime_agent_runtime_path)
+        assert workspace.assigned_file.read_bytes() == b"qualified\n"
+        assert [call[:2] for call in calls if call[1] == "retire"] == [(1, "retire"), (2, "retire")]
+        assert not list(workspace.claims_root.glob("*.open.claim"))
+        assert not (evidence_root / "slice-b/session-header.json").exists()
         return
     if damage:
         with pytest.raises(common.QualificationRefused):
@@ -2801,6 +2914,80 @@ async def test_correction_real_runtime_loader_refuses_before_any_slice(tmp_path,
     assert calls == []
     assert not evidence.exists()
     assert not Path(protocol["executionRoot"]).exists()
+
+
+@pytest.mark.parametrize("kind", ["provider", "proxy"])
+@pytest.mark.parametrize("fault", ["handler", "server-loop", "request-start", "stop-journal"])
+def test_service_owner_failure_is_sticky_after_exact_cleanup(tmp_path, monkeypatch, kind, fault):
+    import socketserver
+
+    provider = _provider()
+    reached = threading.Event()
+    journal = provider.BoundedJsonlJournal(tmp_path / "journal", max_records=20, max_bytes=4096)
+    service = (provider.DeterministicProviderServer("http://127.0.0.1:0/v1", tmp_path / "assigned", journal)
+               if kind == "provider" else provider.ConnectProxyServer("http://127.0.0.1:0", {"pypi.org"}, journal))
+    handler = provider._ProviderHandler if kind == "provider" else provider._ProxyHandler
+
+    def fail(*_args, **_kwargs):
+        reached.set()
+        raise ValueError("injected service failure")
+
+    monkeypatch.setattr(handler, "handle", fail if fault == "handler" else lambda _self: reached.set())
+    service.start()
+    server, server_thread = service._server, service._thread
+    if fault == "server-loop":
+        monkeypatch.setattr(server, "service_actions", fail)
+    elif fault == "request-start":
+        monkeypatch.setattr(provider.threading.Thread, "start", fail)
+    elif fault == "stop-journal":
+        journal.max_bytes = journal._bytes  # Fail the actual bounded append at close.
+    try:
+        with socket.create_connection(server.server_address, timeout=3) as client:
+            assert reached.wait(3)
+            if fault != "server-loop":
+                assert client.recv(1) == b""
+        with pytest.raises((RuntimeError, ValueError)):
+            service.close()
+        assert not server_thread.is_alive()
+        assert all(not thread.is_alive() for thread, _ in getattr(server, "request_threads", []))
+        assert server.socket.fileno() == -1
+        assert service._server is None and service._thread is None
+        with pytest.raises(RuntimeError, match="qualification service failed"):
+            service.close()
+    finally:
+        # Reclaim exact handles during RED even if the old close fails on an unstarted thread.
+        server.shutdown()
+        socketserver.TCPServer.server_close(server)
+        server_thread.join(timeout=3)
+        for thread, _ in getattr(server, "request_threads", []):
+            if thread.ident is not None:
+                thread.join(timeout=3)
+
+
+def test_real_provider_journal_failure_is_not_only_an_http_error(tmp_path):
+    provider = _provider()
+    journal = provider.BoundedJsonlJournal(tmp_path / "provider.jsonl", max_records=16, max_bytes=256)
+    service = provider.DeterministicProviderServer("http://127.0.0.1:0/v1", tmp_path / "assigned", journal)
+    with pytest.raises(RuntimeError, match="qualification service failed"):
+        with service:
+            server, thread = service._server, service._thread
+            connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+            try:
+                connection.request("POST", "/v1/chat/completions", body=_canonical({
+                    "messages": [{"role": "user", "content": "CREATE_AND_CALL_ROOK"}]}))
+                try:
+                    response = connection.getresponse()
+                except http.client.RemoteDisconnected:
+                    pass
+                else:
+                    assert response.status == 400
+                    response.read()
+            finally:
+                connection.close()
+    assert not thread.is_alive() and server.socket.fileno() == -1
+    assert all(not request.is_alive() for request, _ in server.request_threads)
+    assert [json.loads(line)["event"] for line in journal.path.read_bytes().splitlines()] == [
+        "provider_started", "provider_stopped"]
 
 
 @pytest.mark.parametrize("kind", ["provider", "proxy"])
