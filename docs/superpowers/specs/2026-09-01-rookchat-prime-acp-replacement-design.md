@@ -1744,9 +1744,23 @@ allowlist is exactly
 `github.com`, `api.github.com`, `objects.githubusercontent.com`,
 `release-assets.githubusercontent.com`, `releases.astral.sh`, `pypi.org`, and
 `files.pythonhosted.org`, on port 443. Cold bootstrap must produce at least one
-`proxy_admitted` event, every observed admitted destination must be allowlisted,
-and zero proxy refusals or connection failures are allowed. An empty or
-start/stop-only ledger fails. The bounded ledger describes observed configured
+`proxy_admitted` event and every observed admitted destination must be allowlisted.
+Destination refusals, connection-establishment failures, internal forwarding
+faults, exceeded bounds, malformed evidence, qualification-initiated interruption
+and unobserved cleanup remain hard failures. Only a Python `ConnectionError`
+raised directly by socket `send`, `recv`, or `shutdown(SHUT_WR)` during forwarding,
+without a qualification stop request, may be recorded as `proxy_transport_aborted`.
+Its bounded record must retain the admitted authority, operation, socket side,
+direction, exception class/error codes, pending bytes, EOF/write-shutdown and stop
+state. Classification is not inferred from error numbers, byte counts or text.
+A valid abort record only permits the remaining validators to run: every existing
+cold-kernel, runtime/source-identity, provider, MCP, filesystem, persistence,
+cancellation and cleanup check must execute and pass. Encrypted connection closure
+does not substitute for any check. Successful evidence retains the full bounded
+abort journal and count, described as "observed transport aborts, cause undetermined".
+No retry or replay is added. Historical `proxy_forward_failed` records, including
+failed V4, are not relabeled or waived. An empty or start/stop-only ledger fails.
+The bounded ledger describes observed configured
 destinations only: CONNECT cannot inspect encrypted URL paths, and proxy
 environment variables do not prevent direct network access. No firewall, TLS
 interception, process polling, or product network machinery is added.

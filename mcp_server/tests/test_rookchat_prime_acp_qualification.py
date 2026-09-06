@@ -1648,7 +1648,7 @@ def test_real_proxy_termination_diagnostics(tmp_path, monkeypatch, termination):
         assert not errors
         assert proxy._thread is None and proxy._server is None
         rows = [json.loads(line) for line in journal.path.read_bytes().splitlines()]
-        failures = [row for row in rows if row["event"] == "proxy_forward_failed"]
+        failures = [row for row in rows if row["event"] == "proxy_transport_aborted"]
         if termination == "abrupt_abort":
             assert len(failures) == 1
             failure = failures[0]
@@ -1661,8 +1661,8 @@ def test_real_proxy_termination_diagnostics(tmp_path, monkeypatch, termination):
             assert failure["eof"] == {"client": False, "upstream": False}
             assert failure["writeClosed"] == {"client": False, "upstream": False}
             assert failure["stopping"] is False
-            with pytest.raises(_common().QualificationRefused, match="proxy"):
-                _precontact().verify_proxy_observations(rows, {"pypi.org"})
+            assert failure["exceptionType"] == "ConnectionResetError"
+            assert _precontact().verify_proxy_observations(rows, {"pypi.org"}) == 1
         else:
             assert failures == []
             assert bytes(reply) == response
@@ -1751,15 +1751,14 @@ def test_proxy_application_result_is_independent_of_connection_termination(tmp_p
         assert not peer.is_alive() and not errors
         assert proxy._thread is None and proxy._server is None
         rows = [json.loads(line) for line in journal.path.read_bytes().splitlines()]
-        failures = [row for row in rows if row["event"] == "proxy_forward_failed"]
+        failures = [row for row in rows if row["event"] == "proxy_transport_aborted"]
         assert application_passed is (exchange != "interrupted_abort")
         if exchange.endswith("abort"):
             assert len(failures) == 1
             assert failures[0]["operation"] == "recv"
             assert failures[0]["direction"] == "upstream_to_client"
-            # Current qualification acceptance is deliberately NOT changed by this control.
-            with pytest.raises(_common().QualificationRefused, match="proxy"):
-                _precontact().verify_proxy_observations(rows, {"pypi.org"})
+            # Transport admission alone cannot satisfy the HTTP application checks above.
+            assert _precontact().verify_proxy_observations(rows, {"pypi.org"}) == 1
         else:
             assert failures == []
             _precontact().verify_proxy_observations(rows, {"pypi.org"})
@@ -1767,6 +1766,118 @@ def test_proxy_application_result_is_independent_of_connection_termination(tmp_p
             "exchange": exchange, "applicationPassed": application_passed,
             "proxyFailures": failures, "cleanupObserved": True,
         }, sort_keys=True))
+
+
+@pytest.mark.parametrize("fault", ["send", "recv", "shutdown_write", "selector", "stopping", "stopped_empty", "no_progress"])
+def test_transport_abort_classification_belongs_to_exact_socket_operation(monkeypatch, fault):
+    provider = _provider()
+    stopping = threading.Event()
+    details = {}
+
+    class FaultSocket:
+        def __init__(self, sock):
+            self.sock = sock
+        def __getattr__(self, name):
+            return getattr(self.sock, name)
+        def recv(self, size):
+            if fault == "recv":
+                raise ConnectionResetError(10054, "local socket fault")
+            return self.sock.recv(size)
+        def send(self, data):
+            if fault == "stopping":
+                stopping.set()
+            if fault in {"send", "stopping"}:
+                raise ConnectionAbortedError(10053, "local socket fault")
+            if fault == "no_progress":
+                return 0
+            return self.sock.send(data)
+        def shutdown(self, how):
+            if fault == "shutdown_write":
+                raise BrokenPipeError(32, "local socket fault")
+            return self.sock.shutdown(how)
+
+    if fault == "selector":
+        def fail_select(*_args, **_kwargs):
+            raise ConnectionResetError(10054, "internal selector fault, not a socket operation")
+        monkeypatch.setattr(provider.selectors.DefaultSelector, "select", fail_select)
+    client, left = socket.socketpair()
+    right, upstream = socket.socketpair()
+    timer = threading.Timer(2, stopping.set)
+    timer.start()
+    try:
+        with client, left, right, upstream:
+            if fault == "stopped_empty":
+                stopping.set()
+            elif fault == "recv":
+                upstream.sendall(b"response")
+            elif fault == "shutdown_write":
+                client.shutdown(socket.SHUT_WR)
+            else:
+                client.sendall(b"request")
+            with pytest.raises(OSError):
+                provider._forward_tunnel(left, FaultSocket(right), stopping, details)
+    finally:
+        timer.cancel()
+        timer.join(timeout=3)
+    assert not timer.is_alive()
+    expected = "proxy_transport_aborted" if fault in {"send", "recv", "shutdown_write"} else "proxy_forward_failed"
+    assert details["event"] == expected
+    if expected == "proxy_transport_aborted":
+        assert details["operation"] == fault
+        assert details["stopping"] is False
+
+
+def _transport_abort_row():
+    return {"event": "proxy_transport_aborted", "authority": "pypi.org:443",
+            "operation": "send", "socketSide": "client", "direction": "upstream_to_client",
+            "detail": "local test abort", "exceptionType": "ConnectionAbortedError",
+            "errno": 10053, "winerror": 10053, "pendingBytes": {"toClient": 24, "toUpstream": 0},
+            "eof": {"client": True, "upstream": False},
+            "writeClosed": {"client": False, "upstream": True}, "stopping": False}
+
+
+@pytest.mark.parametrize("damage", [None, "missing", "extra", "internal", "stop", "direction", "bounds",
+    "boolean_bytes", "eof", "error_type", "exception_type", "long_detail", "unadmitted", "before_admission", "unknown",
+    "event_type", "host_type"])
+def test_proxy_transport_diagnostic_is_closed_and_never_authorizes_other_failures(damage):
+    row = _transport_abort_row()
+    if damage == "missing":
+        del row["pendingBytes"]
+    elif damage == "extra":
+        row["unreviewed"] = True
+    elif damage == "internal":
+        row["event"] = "proxy_forward_failed"
+    elif damage == "stop":
+        row["stopping"] = True
+    elif damage == "direction":
+        row["direction"] = "client_to_upstream"
+    elif damage == "bounds":
+        row["pendingBytes"]["toClient"] = 65537
+    elif damage == "boolean_bytes":
+        row["pendingBytes"]["toClient"] = True
+    elif damage == "eof":
+        row["eof"]["client"] = 1
+    elif damage == "error_type":
+        row["errno"] = "10053"
+    elif damage == "exception_type":
+        row["exceptionType"] = "OSError"
+    elif damage == "long_detail":
+        row["detail"] = "x" * 513
+    elif damage == "unadmitted":
+        row["authority"] = "unadmitted.invalid:443"
+    elif damage == "unknown":
+        row["event"] = "unknown"
+    elif damage == "event_type":
+        row["event"] = []
+    admission = {"event": "proxy_admitted", "host": "pypi.org", "port": 443}
+    if damage == "host_type":
+        admission["host"] = []
+    rows = [row, admission] if damage == "before_admission" else [admission, row]
+    if damage is None:
+        assert _precontact().verify_proxy_observations(rows, {"pypi.org"}) == 1
+    else:
+        with pytest.raises(_common().QualificationRefused, match="proxy"):
+            _precontact().verify_proxy_observations(rows, {"pypi.org"})
 
 
 def test_deny_proxy_records_and_refuses_unadmitted_connect(tmp_path: Path) -> None:
@@ -2394,9 +2505,11 @@ class _FakeAcpProcess:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("with_abort", [False, True])
 @pytest.mark.parametrize("damage", [None, "startup-cwd", "provider-duplicate", "provider-missing", "provider-order", "provider-unexpected",
+    "assigned-truncated", "kernel-missing", "kernel-source", "first-unexecuted", "first-failed", "cleanup-uncertain",
     *[f"mcp-{launch}-{change}" for launch in (0, 1) for change in ("start", "list", "extra", "order", "missing")]])
-async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_fresh_mcp(tmp_path: Path, damage) -> None:
+async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_fresh_mcp(tmp_path: Path, monkeypatch, damage, with_abort) -> None:
     precontact = _precontact()
     common = _common()
     protocol, source, evidence_root = _valid_protocol(tmp_path)
@@ -2422,6 +2535,13 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
     prepared.contract.uv_executable_path.parent.mkdir(parents=True)
     prepared.contract.uv_executable_path.write_bytes(b"uv")
     calls: list[tuple] = []
+    validations = []
+    for name in ("verify_slice_b_provider_journal", "verify_proxy_observations", "verify_slice_b_mcp_journals", "_kernel_result"):
+        original = getattr(precontact, name)
+        def observe(*args, _name=name, _original=original, **kwargs):
+            validations.append(_name)
+            return _original(*args, **kwargs)
+        monkeypatch.setattr(precontact, name, observe)
 
     async def start(argv, environment, claim, generation, cwd):
         assert environment == prepared.environment
@@ -2430,7 +2550,7 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
         if damage == "startup-cwd":
             cwd = Path(protocol["environment"]["roots"]["projectLaunch"])
         calls.append((generation, "start", argv, cwd))
-        return _FakeAcpProcess(
+        process = _FakeAcpProcess(
             generation,
             claim,
             calls,
@@ -2440,6 +2560,17 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
             workspace.assigned_file,
             prepared.session_path,
         )
+        if generation == 1 and damage in {"first-unexecuted", "first-failed"}:
+            async def failed_prompt(_blocks, *, generation, projection):
+                if damage == "first-failed":
+                    projection.accumulate_assistant_text("TOOL_FAILED")
+                return SimpleNamespace(stop_reason="end_turn")
+            process.prompt = failed_prompt
+        if damage == "cleanup-uncertain":
+            async def uncertain_retire(**_kwargs):
+                return SimpleNamespace(clean=False, child_exit_observed=False, stderr_failure_code=None)
+            process.retire = uncertain_retire
+        return process
 
     from urllib.parse import urlparse
     provider_url = urlparse(protocol["network"]["providerUrl"])
@@ -2470,12 +2601,24 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
     services = SimpleNamespace(
         daemon_tripwire=_FakeTripwire(),
         provider_journal=_FakeJournal(Path(protocol["executionRoot"]) / "provider.jsonl", provider_rows),
-        proxy_journal=_FakeJournal(Path(protocol["executionRoot"]) / "proxy.jsonl", [{"event": "proxy_admitted", "host": "pypi.org", "port": 443}]),
+        proxy_journal=_FakeJournal(Path(protocol["executionRoot"]) / "proxy.jsonl", [
+            {"event": "proxy_admitted", "host": "pypi.org", "port": 443},
+            *([_transport_abort_row()] if with_abort else []),
+        ]),
     )
 
     @contextlib.contextmanager
     def service_factory(*_args):
         yield services
+        if damage == "assigned-truncated":
+            workspace.assigned_file.write_bytes(b"qual")
+        elif damage == "kernel-missing":
+            (Path(protocol["kernel"]["venvPath"]) / ".bootstrap-version").unlink()
+        elif damage == "kernel-source":
+            bootstrap = Path(protocol["kernel"]["venvPath"]) / ".bootstrap-version"
+            value = json.loads(bootstrap.read_bytes())
+            value["runtime"] = "wrong-runtime-source"
+            bootstrap.write_bytes(_canonical(value))
         if damage and damage.startswith("mcp-"):
             _, launch, change = damage.split("-")
             path = workspace.mcp_journal_paths[int(launch)]
@@ -2509,12 +2652,16 @@ async def test_installed_slice_b_lifecycle_uses_exact_handles_and_reopens_with_f
         assert [call[:2] for call in calls][-1] == (1, "retire")
         return
     if damage:
-        with pytest.raises(common.QualificationRefused, match="journal"):
+        with pytest.raises(common.QualificationRefused):
             await operation
         assert not (evidence_root / "slice-b/session-header.json").exists()
         return
     result = await operation
     assert result["outcome"] == "passed"
+    assert result["observedTransportAbortCount"] == int(with_abort)
+    assert result["transportAbortAssessment"] == ("observed transport aborts, cause undetermined" if with_abort else None)
+    assert (evidence_root / "slice-b/proxy.jsonl").read_bytes() == services.proxy_journal.path.read_bytes()
+    assert validations == ["verify_slice_b_provider_journal", "verify_proxy_observations", "verify_slice_b_mcp_journals", "_kernel_result"]
     assert result["firstAssistantText"] == "FIRST_OK:alpha"
     assert result["reopenAssistantText"] == "REOPEN_OK:FIRST_OK:alpha"
     assert result["cancelStopReason"] == "cancelled"

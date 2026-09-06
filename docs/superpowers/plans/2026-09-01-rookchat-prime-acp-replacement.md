@@ -3169,8 +3169,23 @@ proxy for bootstrap clients; it admits only `github.com`, `api.github.com`,
 `releases.astral.sh`, `pypi.org`, and `files.pythonhosted.org`, and the evidence
 retains a bounded host/port ledger. Require at least one `proxy_admitted`
 event for cold bootstrap, every observed admission on an allowlisted host at
-port 443, and zero proxy refusals or connection failures. Empty and
-start/stop-only ledgers fail. The configured loopback bypass serves the local
+port 443. Admission/connect failures, internal forwarding faults, exceeded
+bounds, malformed evidence, qualification-initiated interruption and unobserved
+cleanup remain fatal. Catch `ConnectionError` only directly around socket
+`send`, `recv`, or `shutdown(SHUT_WR)`; preserve the exact caught exception's
+identity so selector/cleanup errors cannot inherit that classification. With
+no stop request, retain it as `proxy_transport_aborted` with the admitted
+authority and bounded operation, direction, exception/error, pending-byte,
+EOF/write-shutdown and stop metadata. Validate that complete diagnostic before
+counting it; do not classify by error number, byte count or presumed TLS contents.
+It only allows subsequent checks to run. Every existing kernel/source-identity,
+provider, MCP, filesystem, persistence, cancellation and cleanup validator must
+execute and pass before success. Keep the full abort ledger in successful evidence
+and report its count as "observed transport aborts, cause undetermined". No retry
+or replay is introduced; historical failures (including V4) remain unchanged.
+Require local real-proxy complete/truncated response controls and composed
+acceptance tests with missing/failed application evidence and internal faults.
+Empty and start/stop-only ledgers fail. The configured loopback bypass serves the local
 provider/MCP double; it is not an enforced loopback or outbound firewall.
 CONNECT cannot inspect encrypted URL paths, and proxy environment variables
 do not prohibit direct traffic. Evidence supports only the destinations

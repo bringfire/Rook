@@ -834,7 +834,7 @@ async def run_installed_slice_b(
         max_records=limits["maxProxyLedgerRecords"],
         max_bytes=limits["maxProxyLedgerBytes"],
     )
-    verify_proxy_observations(proxy_rows, set(protocol["environment"]["proxy"]["admittedHosts"]))
+    transport_abort_count = verify_proxy_observations(proxy_rows, set(protocol["environment"]["proxy"]["admittedHosts"]))
     verify_no_managed_helpers(protocol, prepared.environment)
 
     mcp_rows = [
@@ -872,6 +872,8 @@ async def run_installed_slice_b(
         "outcome": "passed",
         "providerJournalSha256": sha256_file(services.provider_journal.path),
         "proxyJournalSha256": sha256_file(services.proxy_journal.path),
+        "observedTransportAbortCount": transport_abort_count,
+        "transportAbortAssessment": "observed transport aborts, cause undetermined" if transport_abort_count else None,
         "reopenAssistantText": reopen_text,
         "retirements": retirements,
         "runtimeId": protocol["runtime"]["runtimeId"],
@@ -1021,13 +1023,51 @@ def verify_slice_b_mcp_journals(journals: list[list[dict[str, Any]]]) -> None:
         raise QualificationRefused("Slice B MCP journal sequence differs")
 
 
-def verify_proxy_observations(rows: list[dict[str, Any]], allowed: set[str]) -> None:
-    if any(row.get("event") in {"proxy_refused", "proxy_connect_failed", "proxy_forward_failed"} for row in rows):
+def verify_proxy_observations(rows: list[dict[str, Any]], allowed: set[str]) -> int:
+    if any(type(row) is not dict or type(row.get("event")) is not str or row["event"] not in {
+        "proxy_started", "proxy_stopped", "proxy_admitted", "proxy_transport_aborted",
+    } for row in rows):
         raise QualificationRefused("Slice B proxy recorded a refusal or connection failure")
     admissions = [row for row in rows if row.get("event") == "proxy_admitted"]
-    if not admissions or any(row.get("host") not in allowed or type(row.get("port")) is not int
+    if not admissions or any(type(row.get("host")) is not str or row["host"] not in allowed or type(row.get("port")) is not int
                              or row["port"] != 443 for row in admissions):
         raise QualificationRefused("Slice B proxy has no valid cold-bootstrap admission")
+    admitted = set()
+    abort_count = 0
+    for row in rows:
+        if row["event"] == "proxy_admitted":
+            authority = f"{row['host']}:443"
+            if row.get("authority", authority) != authority:
+                raise QualificationRefused("Slice B proxy admission authority differs")
+            admitted.add(authority)
+        elif row["event"] == "proxy_transport_aborted":
+            keys = {"event", "authority", "detail", "operation", "socketSide", "direction",
+                    "exceptionType", "errno", "winerror", "pendingBytes", "eof", "writeClosed", "stopping"}
+            if (set(row) != keys or type(row["authority"]) is not str or row["authority"] not in admitted
+                    or row["operation"] not in ("send", "recv", "shutdown_write")
+                    or row["socketSide"] not in ("client", "upstream")
+                    or row["exceptionType"] not in ("ConnectionError", "ConnectionAbortedError", "ConnectionResetError",
+                                                     "ConnectionRefusedError", "BrokenPipeError")
+                    or row["stopping"] is not False
+                    or type(row["detail"]) is not str or len(row["detail"]) > 512
+                    or any(row[key] is not None and type(row[key]) is not int for key in ("errno", "winerror"))):
+                raise QualificationRefused("Slice B proxy transport diagnostic is invalid")
+            side = row["socketSide"]
+            peer = "upstream" if side == "client" else "client"
+            direction = f"{side}_to_{peer}" if row["operation"] == "recv" else f"{peer}_to_{side}"
+            if row["direction"] != direction:
+                raise QualificationRefused("Slice B proxy transport direction differs")
+            pending = row["pendingBytes"]
+            if (type(pending) is not dict or set(pending) != {"toClient", "toUpstream"}
+                    or any(type(value) is not int or not 0 <= value <= 65536 for value in pending.values())):
+                raise QualificationRefused("Slice B proxy pending-byte evidence is invalid")
+            for key in ("eof", "writeClosed"):
+                states = row[key]
+                if (type(states) is not dict or set(states) != {"client", "upstream"}
+                        or any(type(value) is not bool for value in states.values())):
+                    raise QualificationRefused("Slice B proxy socket-state evidence is invalid")
+            abort_count += 1
+    return abort_count
 
 
 def verify_no_managed_helpers(protocol: dict[str, Any], environment: dict[str, str]) -> None:

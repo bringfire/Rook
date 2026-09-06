@@ -368,6 +368,7 @@ def _forward_tunnel(
     write_closed: set[socket.socket] = set()
     sides = {left: "client", right: "upstream"}
     operation, side, direction = "set_nonblocking", "client", "none"
+    socket_abort: ConnectionError | None = None
     try:
         for sock in peers:
             side = sides[sock]
@@ -379,7 +380,11 @@ def _forward_tunnel(
                     if not pending[destination] and destination not in write_closed:
                         operation, side = "shutdown_write", sides[destination]
                         direction = f"{sides[source]}_to_{side}"
-                        destination.shutdown(socket.SHUT_WR)
+                        try:
+                            destination.shutdown(socket.SHUT_WR)
+                        except ConnectionError as exc:
+                            socket_abort = exc
+                            raise
                         write_closed.add(destination)
                 if len(eof) == 2 and not any(pending.values()):
                     return
@@ -402,6 +407,9 @@ def _forward_tunnel(
                         direction = f"{sides[peers[sock]]}_to_{side}"
                         try:
                             sent = sock.send(pending[sock])
+                        except ConnectionError as exc:
+                            socket_abort = exc
+                            raise
                         except (BlockingIOError, InterruptedError):
                             pass
                         else:
@@ -413,6 +421,9 @@ def _forward_tunnel(
                         direction = f"{side}_to_{sides[peers[sock]]}"
                         try:
                             data = sock.recv(limit - len(pending[peers[sock]]))
+                        except ConnectionError as exc:
+                            socket_abort = exc
+                            raise
                         except (BlockingIOError, InterruptedError):
                             continue
                         if data:
@@ -422,9 +433,12 @@ def _forward_tunnel(
             operation, side, direction = "stop", "both", "both"
             if any(pending.values()):
                 raise OSError("proxy stopped with unsent bytes")
-    except OSError:
+            raise OSError("proxy stopped before tunnel EOF")
+    except OSError as exc:
         # Bounded transport facts only: an abort does not establish application success.
         failure_details.update(
+            event="proxy_transport_aborted" if exc is socket_abort and not stopping.is_set() else "proxy_forward_failed",
+            exceptionType=type(exc).__name__,
             operation=operation, socketSide=side, direction=direction,
             pendingBytes={"toClient": len(pending[left]), "toUpstream": len(pending[right])},
             eof={sides[sock]: sock in eof for sock in peers},
@@ -487,6 +501,8 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
                 self.wfile.flush()
                 _forward_tunnel(self.connection, upstream, owner.stopping, failure_details)
             except OSError as exc:
+                if owner.stopping.is_set():
+                    failure_details.update(event="proxy_forward_failed", stopping=True)
                 owner.journal.append({
                     "authority": authority, "detail": str(exc)[:512], "event": "proxy_forward_failed",
                     "stopping": owner.stopping.is_set(), **failure_details,
