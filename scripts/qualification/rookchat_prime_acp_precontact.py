@@ -982,7 +982,7 @@ class ProductPrecontactOperations:
     def _slice_a_commands(protocol: dict[str, Any], repo_root: Path) -> list[tuple[str, ProcessSpec]]:
         limits = protocol["limits"]
         python = str(Path(sys.executable).resolve(strict=True))
-        tools = {name: _required_executable(name) for name in ("dotnet", "node", "pwsh")}
+        tools = {name: _required_executable(name) for name in ("dotnet", "node", "pwsh", "git")}
         test_root = Path(protocol["executionRoot"]) / "slice-a"
         roots = {key: str(test_root / key) for key in ("home", "userProfile", "appData", "localAppData", "temp")}
         windows = Path(protocol["environment"]["expectedFinal"].get("SYSTEMROOT", "C:/Windows"))

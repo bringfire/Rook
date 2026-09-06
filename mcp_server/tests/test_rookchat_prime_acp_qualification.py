@@ -324,6 +324,29 @@ def test_correction_slice_a_environment_is_explicit(tmp_path, monkeypatch):
         assert spec.environment["HOME"] != os.environ.get("HOME")
 
 
+@pytest.mark.asyncio
+async def test_slice_a_python_child_resolves_selected_git_not_ambient_tools(tmp_path, monkeypatch):
+    import shutil
+    from dataclasses import replace
+    protocol, source, _ = _valid_protocol(tmp_path)
+    ambient = tmp_path / "ambient"
+    ambient.mkdir()
+    (ambient / "unrelated-ambient.exe").write_bytes(b"not executable")
+    monkeypatch.setenv("PATH", str(ambient) + os.pathsep + os.environ["PATH"])
+    selected_git = Path(_precontact()._required_executable("git"))
+    assert shutil.which("unrelated-ambient") is not None
+    _, generated = _precontact().ProductPrecontactOperations._slice_a_commands(protocol, source)[0]
+    generated.cwd.mkdir(parents=True, exist_ok=True)
+    probe = "import json,shutil; print(json.dumps([shutil.which('git'),shutil.which('unrelated-ambient')]))"
+    result = await _common().run_bounded_process(replace(generated, argv=(generated.argv[0], "-I", "-c", probe)))
+    assert result.exit_code == 0 and result.direct_child_exit_observed
+    git, unrelated = json.loads(result.stdout)
+    assert git is not None, "Slice A child cannot resolve its required Git executable"
+    assert Path(git).resolve() == selected_git
+    assert unrelated is None
+    assert str(ambient) not in generated.environment["PATH"].split(os.pathsep)
+
+
 def test_correction_evidence_reserves_terminal_budget(tmp_path):
     common = _common()
     evidence = common.EvidenceRoot.create(tmp_path / "evidence", max_file_bytes=1024,
