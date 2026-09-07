@@ -1824,15 +1824,40 @@ Use one frozen tiny image task with a known vision-capable subscription model.
 Freeze the requested fully qualified model and reasoning arguments, image bytes
 and hash, prompt, runtime manifest, and all finite limits.
 
+Slice C has two explicitly separate proofs. Deterministic tests cover the
+production panel -> authenticated local HTTP -> Python image validation ->
+exact ACP content-block handoff. The separately authorized live test uses the
+existing production ACP launch/transport components with an explicit empty MCP
+declaration to exercise packaged Prime authentication and image handling.
+
+The live test does not exercise the panel, HTTP routes, or conversation manager.
+The unchanged production conversation manager supplies Rook MCP; do not strip
+that declaration, rely on the model avoiding tools, add a production test mode,
+or recreate the manager for qualification. This split does not prove a live
+panel-to-model image round trip. Full product-path qualification with Rook
+enabled remains in the later integration gates.
+
 The claim is `exact requested model and reasoning arguments` unless
-authoritative returned metadata proves the effective model. OAuth is claimed
-only if the external qualification reads nonsecret Prime-owned credential
-metadata proving OAuth. Otherwise the result is described as a Prime-managed
-authenticated subscription call. Product code never reads `auth.json`.
+authoritative returned metadata proves the effective model. The reported OAuth
+save confirmation and clean CLI exit establish developer login, not model
+access. Bind `PRIME_AGENT_CODING_AGENT_DIR` explicitly to the approved private
+directory in the Prime child environment. Qualification must not inspect or
+copy credentials, include them in evidence/logs/fixtures, or target their
+directory for cleanup. Prime alone may perform its normal token refresh.
+Describe the live result as a Prime-managed authenticated subscription call
+unless nonsecret authoritative evidence establishes a more specific claim.
+Product code never reads `auth.json`.
+
+The pinned Codex provider does not transmit an output-token cap. Wall-clock,
+retained-output, answer-length, cancellation, and close limits are not provider
+token or subscription-usage ceilings. Record returned usage when available;
+otherwise report it unavailable. Cancellation does not establish immediate
+cessation of server-side processing. Do not patch Prime to manufacture a cap.
 
 The deterministic answer must depend on visible image content. This one live
-version executes once, with no Rook server, Rhino contact, retry, or prompt
-repair.
+version executes once after independent authorization, with no Rook MCP server,
+Rhino or Grasshopper contact, retry, or prompt repair. Approval of this narrowed
+qualification claim must precede runner implementation and execution review.
 
 ### 15.3 Slice D: Readonly Rook
 

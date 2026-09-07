@@ -3267,9 +3267,18 @@ Run the exact independently reviewed command only. Repeat full admission before 
 
 - [ ] **Step 8: Prepare and review Slice C without executing it**
 
-Freeze one tiny image whose answer depends on visible content, its SHA-256, prompt, a known vision-capable fully qualified subscription model, reasoning value, exact installed runtime, time/token/close limits, and fresh evidence root. The product does not inspect `auth.json`; external evidence may claim OAuth only if separate nonsecret Prime-owned metadata proves it. Otherwise report a Prime-managed authenticated subscription call.
+Propose the narrowed Slice C claim for approval before implementation. Keep two proofs separate:
 
-STOP for explicit Slice C authorization. After one authorized execution, seal evidence and stop for review. No Rook/Rhino/GH server participates.
+1. Deterministic tests exercise the production panel -> authenticated local HTTP -> Python image validation -> exact ACP content-block handoff without live model or Rook/Rhino/GH contact.
+2. One separately authorized live image test uses the existing `DirectAcpProcessFactory` / `PreparedDirectAcpLaunch` and `OwnedAcpProcess` official-SDK transport to reach the verified packaged Prime. Its `new_session()` call explicitly declares `mcp_servers=[]`. It does not invoke the panel, HTTP routes, or `AcpConversationManager`, and must not recreate their implementation.
+
+The production manager's Rook MCP declaration remains unchanged. Do not strip it in a wrapper, depend on model restraint, or add a product test mode. Neither proof nor their combination establishes a live panel-to-model image round trip. Full product-path qualification with Rook enabled remains in later integration gates.
+
+Retain the prepared image/prompt bytes and hashes (visible answer `blue`), proposed `openai-codex/gpt-5.4-mini` with reasoning `low`, and exact approved assembly-attempt-v1 runtime. This is the staged packaged runtime, not yet an installed release. Catalog presence and the reported successful developer login do not establish account/model access. Explicitly bind the future Prime child to `PRIME_AGENT_CODING_AGENT_DIR=C:/Users/bring/.prime-rook-slice-c-dev-auth-20260906-01`; never inspect/copy credentials or include their directory in evidence, logs, copied fixtures, or cleanup targets. Prime alone may perform normal token refresh.
+
+Freeze fresh execution/evidence roots and time, retained-output, answer-length, cancellation, and close limits. The pinned Codex provider transmits no output-token cap; these limits are not token or subscription-usage ceilings. Record returned usage if available, otherwise unavailable. Do not assume cancellation immediately stops server-side processing or patch Prime to add a cap.
+
+The proposed live operator command boundary is the qualification runner -> existing production ACP launch/transport -> packaged Prime with an empty MCP declaration, not a panel/service launch. Present its exact executable command only after bounded runner implementation and admission are reviewed; no command or protocol is currently authorized by this wording amendment. STOP first for approval of this narrowed claim. Later, stop for explicit one-execution Slice C authorization; after that authorized execution, seal evidence and stop for review. No preliminary model probe, repeated login, Rook MCP, Rhino, or Grasshopper contact is admitted. Accepted A+B evidence remains unchanged.
 
 - [ ] **Step 9: Promote one exact reviewed implementation into the installed product and stop**
 
