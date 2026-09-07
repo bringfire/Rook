@@ -216,6 +216,39 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public async Task Slice_C_panel_prompt_owner_preserves_frozen_authenticated_image_wire()
+        {
+            var root = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (root != null && !System.IO.File.Exists(System.IO.Path.Combine(root.FullName,
+                "scripts", "qualification", "fixtures", "slice-c-http-request.json"))) root = root.Parent;
+            Assert.NotNull(root);
+            using var fixture = JsonDocument.Parse(System.IO.File.ReadAllBytes(System.IO.Path.Combine(root!.FullName,
+                "scripts", "qualification", "fixtures", "slice-c-http-request.json")));
+            var input = fixture.RootElement;
+            var image = input.GetProperty("images")[0];
+            var handler = RecordingHandler.Ndjson(
+                "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}\n");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+            client.SetSessionNonce("slice-c-fixture-nonce");
+            await AgentChatTab.RunOwnedPromptAsync(client, BaseUri, "cccccccccccc4ccc8ccccccccccccccc",
+                input.GetProperty("text").GetString()!,
+                new[] { new ChatImageInput(image.GetProperty("fileName").GetString()!,
+                    image.GetProperty("mimeType").GetString()!, image.GetProperty("base64Data").GetString()!) },
+                _ => { }, CancellationToken.None);
+            Assert.Equal("slice-c-fixture-nonce", handler.LastNonce);
+            Assert.Equal("/agent/chat/conversations/cccccccccccc4ccc8ccccccccccccccc/prompt", handler.LastPath);
+            Assert.Single(handler.Requests);
+            using var actual = JsonDocument.Parse(handler.LastBody!);
+            Assert.Equal(2, CountProperties(actual.RootElement));
+            Assert.Equal(input.GetProperty("text").GetString(), actual.RootElement.GetProperty("text").GetString());
+            Assert.Equal(1, actual.RootElement.GetProperty("images").GetArrayLength());
+            var sent = actual.RootElement.GetProperty("images")[0];
+            Assert.Equal(3, CountProperties(sent));
+            foreach (var key in new[] { "fileName", "mimeType", "base64Data" })
+                Assert.Equal(image.GetProperty(key).GetString(), sent.GetProperty(key).GetString());
+        }
+
+        [Fact]
         public async Task Error_body_is_bounded_and_classified()
         {
             var body = "{\"error\":{\"code\":\"target_unavailable\",\"message\":\"" +
@@ -581,6 +614,7 @@ namespace Rook.Tests.UI.Chat
             public HttpMethod? LastMethod { get; private set; }
             public string? LastPath { get; private set; }
             public string? LastBody { get; private set; }
+            public string? LastNonce { get; private set; }
             public List<string> Requests { get; } = new();
 
             public static RecordingHandler Json(string body, HttpStatusCode status = HttpStatusCode.OK)
@@ -616,6 +650,8 @@ namespace Rook.Tests.UI.Chat
                 LastMethod = request.Method;
                 LastPath = request.RequestUri!.AbsolutePath;
                 LastBody = request.Content == null ? null : await request.Content.ReadAsStringAsync();
+                LastNonce = request.Headers.TryGetValues("X-Rook-Session", out var nonces)
+                    ? string.Join("", nonces) : null;
                 Requests.Add($"{request.Method.Method} {LastPath} {LastBody}");
                 return _responses.Dequeue();
             }
