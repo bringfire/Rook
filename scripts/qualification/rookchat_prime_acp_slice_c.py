@@ -241,11 +241,15 @@ def returned_usage(response: Any) -> dict | None:
 async def run_image(protocol: dict, prepared: PreparedImage) -> dict:
     limits = protocol["limits"]
     result = {"outcome": "failed", "failure": None, "usage": None, "answerAccepted": False,
-              "cleanup": {"clean": False, "child_exit_observed": False}, "cancelAttempted": False}
+              "cleanup": {"clean": False, "child_exit_observed": False}, "cancelAttempted": False,
+              "assistantAnswer": None, "assistantAnswerBytes": 0, "assistantAnswerOmitted": False,
+              "stopReason": None}
     process = None
     pending = None
     projection = None
     claim = None
+    settled = False
+    protocol_failed = False
     try:
         async with asyncio.timeout(limits["operationSeconds"]):
             prepared.paths.create_roots()
@@ -264,6 +268,8 @@ async def run_image(protocol: dict, prepared: PreparedImage) -> dict:
                                                  user_text=prepared.blocks[0].text)
             pending = asyncio.create_task(process.prompt(prepared.blocks, generation=generation, projection=projection))
             response = await asyncio.wait_for(asyncio.shield(pending), limits["promptSeconds"])
+            result["stopReason"] = response.stop_reason
+            settled = True
             result["usage"] = returned_usage(response)
             projection.close_producer()
             turn = projection.finalize(response.stop_reason)
@@ -279,24 +285,32 @@ async def run_image(protocol: dict, prepared: PreparedImage) -> dict:
         result["failure"] = "application_refused"
     except BaseException:
         # Exception text and raw protocol/provider output may contain credentials.
+        protocol_failed = True
         result["failure"] = "execution_failed"
     finally:
         if process is not None:
-            if pending is not None and not pending.done():
-                result["cancelAttempted"] = True
+            if pending is not None and not settled and not protocol_failed and not process.transport_failure.is_set():
                 try:
                     async with asyncio.timeout(limits["cancelSeconds"]):
-                        await process.cancel()
-                        await asyncio.shield(pending)
+                        if not pending.done():
+                            result["cancelAttempted"] = True
+                            await process.cancel()
+                        response = await asyncio.shield(pending)
+                        result["stopReason"] = response.stop_reason
+                        settled = True
+                        result["usage"] = returned_usage(response)
                 except BaseException:
                     result["failure"] = "cancellation_uncertain"
+            # Only a confirmed prompt response permits another ACP request.
+            # Observing child exit later cannot establish prompt settlement.
+            send_close = settled and not protocol_failed and not process.transport_failure.is_set()
             try:
-                retired = await asyncio.wait_for(process.retire(), limits["cleanupSeconds"])
+                retired = await asyncio.wait_for(process.retire(send_close=send_close), limits["cleanupSeconds"])
                 result["cleanup"] = asdict(retired)
                 if not retired.clean or not retired.child_exit_observed or retired.stderr_failure_code:
-                    result["failure"] = "cleanup_uncertain"
+                    result["failure"] = result["failure"] or "cleanup_uncertain"
             except BaseException:
-                result["failure"] = "cleanup_uncertain"
+                result["failure"] = result["failure"] or "cleanup_uncertain"
         elif claim is not None and claim.path.exists():
             result["failure"] = "startup_cleanup_uncertain"
         if pending is not None:
@@ -306,6 +320,13 @@ async def run_image(protocol: dict, prepared: PreparedImage) -> dict:
                 await asyncio.wait_for(pending, 1)
         if projection is not None:
             projection.close_producer()
+            # Snapshot partial assistant text too, without inventing a stop reason
+            # when no response arrived. Thoughts and raw exceptions are excluded.
+            turn = projection.finalize(result["stopReason"] or "")
+            result["assistantAnswerBytes"] = turn.assistant_original_bytes
+            result["assistantAnswerOmitted"] = turn.assistant_original_bytes > limits["answerBytes"]
+            if not result["assistantAnswerOmitted"]:
+                result["assistantAnswer"] = turn.assistant_text
     if result["failure"] is None and result["answerAccepted"] and result["cleanup"]["clean"]:
         result["outcome"] = "passed"
     # Keep the workspace even on success; never delete private state or an uncertain owner.

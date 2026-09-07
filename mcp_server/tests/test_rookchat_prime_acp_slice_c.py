@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
-from acp.schema import AgentMessageChunk, PromptResponse, TextContentBlock
+from acp.schema import AgentMessageChunk, AgentThoughtChunk, PromptResponse, TextContentBlock
 
 from rook.agent.chat.acp_client import RookChatAcpClient
 from rook.agent.chat.acp_conversation import PreparedDirectAcpLaunch
@@ -203,7 +203,6 @@ async def test_failed_application_or_cleanup_cannot_pass(inputs, monkeypatch, op
     result, process = await run_fake(inputs, monkeypatch, **options)
     assert result["outcome"] == "failed"
     assert process.calls[-1] == "retire"
-    assert "red" not in json.dumps(result)
     if options.get("image") is False:
         assert "prompt" not in process.calls
     if options.get("clean") is False:
@@ -318,11 +317,11 @@ async def test_execution_seals_failure_without_raw_errors_or_credentials(inputs,
     assert Path(protocol["authDir"]).is_dir()
 
 
-@pytest.mark.asyncio
-async def test_real_factory_and_owned_transport_receive_exact_empty_mcp(inputs, monkeypatch):
+def install_fake_sdk(monkeypatch, *, scenario="settled", answer="blue", reason="end_turn"):
     from rook.agent.chat import acp_process
     from acp import PROTOCOL_VERSION
-    observed = {}
+    observed = {"calls": []}
+    waiting = asyncio.get_running_loop().create_future()
     class Child:
         returncode = None
         stderr = asyncio.StreamReader()
@@ -339,15 +338,39 @@ async def test_real_factory_and_owned_transport_receive_exact_empty_mcp(inputs, 
             return SimpleNamespace(session_id="ephemeral-real-transport")
         async def prompt(self, session_id, blocks):
             observed["blocks"] = blocks
+            observed["calls"].append("prompt")
+            await observed["client"].session_update(session_id, AgentThoughtChunk(
+                session_update="agent_thought_chunk", content=TextContentBlock(type="text", text="PRIVATE_THOUGHT")))
             await observed["client"].session_update(session_id, AgentMessageChunk(
-                session_update="agent_message_chunk", content=TextContentBlock(type="text", text="blue")))
-            return PromptResponse(stop_reason="end_turn")
+                session_update="agent_message_chunk", content=TextContentBlock(type="text", text=answer)))
+            if scenario == "transport_failure":
+                raise ConnectionError("PRIVATE_PROVIDER_ERROR")
+            if scenario == "protocol_failure":
+                raise ValueError("PRIVATE_PROTOCOL_ERROR")
+            if scenario.startswith("cancel_"):
+                await waiting
+                return PromptResponse(stop_reason="cancelled")
+            if scenario.startswith("transport_signal"):
+                observed["owner"].transport_failure.set()
+                if scenario == "transport_signal_pending":
+                    await waiting
+            return PromptResponse(stop_reason=reason)
+        async def cancel(self, session_id):
+            observed["calls"].append("cancel")
+            if scenario == "cancel_failure":
+                raise ConnectionError("PRIVATE_CANCEL_ERROR")
+            if scenario == "cancel_settled":
+                waiting.set_result(None)
         async def close_session(self, session_id):
+            observed["calls"].append("close_session")
             observed["closed"] = session_id
     class Context:
         async def __aenter__(self):
             return Connection(), child
         async def __aexit__(self, *args):
+            observed["calls"].append("context_exit")
+            if not waiting.done():
+                waiting.cancel()
             child.returncode = 0
     def spawn(client, *argv, **kwargs):
         observed.update(client=client, argv=argv, **kwargs)
@@ -355,8 +378,16 @@ async def test_real_factory_and_owned_transport_receive_exact_empty_mcp(inputs, 
     # Replace only the external SDK spawn boundary, retaining real product owners.
     original = acp_process.OwnedAcpProcess.start.__func__
     async def start(cls, *args, **kwargs):
-        return await original(cls, *args, spawn_context_factory=spawn, **kwargs)
+        owner = await original(cls, *args, spawn_context_factory=spawn, **kwargs)
+        observed["owner"] = owner
+        return owner
     monkeypatch.setattr(acp_process.OwnedAcpProcess, "start", classmethod(start))
+    return observed
+
+
+@pytest.mark.asyncio
+async def test_real_factory_and_owned_transport_receive_exact_empty_mcp(inputs, monkeypatch):
+    observed = install_fake_sdk(monkeypatch)
     protocol, repo, contract = inputs
     prepared = slice_c.prepare(protocol, repo, contract)
     Path(protocol["executionRoot"]).mkdir()
@@ -368,6 +399,66 @@ async def test_real_factory_and_owned_transport_receive_exact_empty_mcp(inputs, 
     assert observed["env"]["PRIME_AGENT_CODING_AGENT_DIR"] == protocol["authDir"]
     assert observed["blocks"][1].data == base64.b64encode(IMAGE.read_bytes()).decode()
     assert observed["closed"] == "ephemeral-real-transport"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario,answer,expected_calls", [
+    ("cancel_failure", "", ["prompt", "cancel", "context_exit"]),
+    ("cancel_timeout", "", ["prompt", "cancel", "context_exit"]),
+    ("transport_failure", "partial", ["prompt", "context_exit"]),
+    ("protocol_failure", "partial", ["prompt", "context_exit"]),
+    ("transport_signal_pending", "partial", ["prompt", "context_exit"]),
+    ("transport_signal_settled", "blue", ["prompt", "context_exit"]),
+    ("settled", "blue", ["prompt", "close_session", "context_exit"]),
+    ("settled", "red", ["prompt", "close_session", "context_exit"]),
+    ("cancel_settled", "", ["prompt", "cancel", "close_session", "context_exit"]),
+])
+async def test_real_owner_close_requires_confirmed_settlement(inputs, monkeypatch, scenario, answer, expected_calls):
+    protocol, repo, contract = inputs
+    protocol["limits"].update(promptSeconds=.02, cancelSeconds=.02)
+    observed = install_fake_sdk(monkeypatch, scenario=scenario, answer=answer)
+    prepared = slice_c.prepare(protocol, repo, contract)
+    prepared.execution_root.mkdir()
+    result = await slice_c.run_image(protocol, prepared)
+    assert observed["calls"] == expected_calls
+    assert result["cleanup"]["child_exit_observed"] is True
+    assert not observed["owner"].claim.path.exists()
+    assert result["outcome"] == ("passed" if scenario == "settled" and answer == "blue" else "failed")
+    expected_stop = "end_turn" if scenario in ("settled", "transport_signal_settled") else (
+        "cancelled" if scenario == "cancel_settled" else None)
+    assert result["stopReason"] == expected_stop
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer,reason,scenario", [
+    (" blue\n", "end_turn", "settled"),
+    ("red", "end_turn", "settled"),
+    ("blue", "max_tokens", "settled"),
+    ("", "refusal", "settled"),
+    ("\u00e9" * 32, "end_turn", "settled"),
+    ("\u00e9" * 32 + "x", "end_turn", "settled"),
+    ("partial", None, "transport_failure"),
+])
+async def test_sealed_result_retains_bounded_observed_answer_and_stop_reason(inputs, monkeypatch, answer, reason, scenario):
+    protocol, repo, contract = inputs
+    install_fake_sdk(monkeypatch, scenario=scenario, answer=answer, reason=reason)
+    prepared = slice_c.prepare(protocol, repo, contract)
+    async def admission(*args):
+        return protocol, prepared
+    monkeypatch.setattr(slice_c, "admit", admission)
+    await slice_c.execute(Path("unused"), repo, "a" * 40, "B" * 64)
+    root = Path(protocol["evidenceRoot"])
+    assert (root / "SEALED").is_file()
+    raw = (root / "result.json").read_bytes()
+    result = json.loads(raw)
+    length = len(answer.encode("utf-8"))
+    assert result["assistantAnswer"] == (answer if length <= 64 else None)
+    assert result["assistantAnswerBytes"] == length
+    assert result["assistantAnswerOmitted"] is (length > 64)
+    assert result["stopReason"] == reason
+    assert result["outcome"] == ("passed" if answer.strip() == "blue" and reason == "end_turn" else "failed")
+    assert len(raw) <= protocol["limits"]["evidenceFileBytes"]
+    assert b"PRIVATE_" not in raw
 
 
 @pytest.mark.asyncio
