@@ -14,6 +14,7 @@ param(
     [string]$RevitInstallDir = '',
 
     [switch]$NativeOnly,
+    [switch]$ManagedOnly,
     [switch]$PayloadOnly,
     [switch]$AllowRunning,
     [switch]$SkipBuild,
@@ -104,11 +105,17 @@ function Assert-NoRunningRhino {
     $rhino = Get-RunningRhinoProcesses
     if ($rhino) {
         $rhino | Select-Object ProcessName, Id, Path | Format-Table | Out-String | Write-Host
-        throw "Refusing native plugin deploy while Rhino is running. Close Rhino first."
+        throw "Refusing plugin deploy while Rhino is running. Close Rhino first."
     }
 }
 
 function Assert-DeployMode {
+    if ($ManagedOnly -and ($NativeOnly -or $PayloadOnly -or $AllowRunning -or $LiveSmoke -or
+        $UseRepoVenv -or $ManifestSmokeOnly -or $SkipChirpInstall -or $DevPythonRuntime -or
+        $PrimeRuntimePayload -or $PythonBuildRoot -or $RevitInstallDir)) {
+        throw "-ManagedOnly accepts only -Configuration and -SkipBuild; it does not deploy other payloads or run live checks."
+    }
+
     if ($NativeOnly -and $PayloadOnly) {
         throw "-NativeOnly cannot be combined with -PayloadOnly."
     }
@@ -369,10 +376,15 @@ echo EXIT_CODE=%ERRORLEVEL%
 }
 
 function Invoke-ManagedBuild {
-    & dotnet build (Join-Path $RepoRoot 'src\Rook\Rook.csproj') -c $Configuration
+    param([switch]$CompanionOnly)
+
+    # Release's existing MSBuild target must not deploy before our admission checks.
+    $buildOptions = if ($CompanionOnly) { @('--no-restore', '-p:RhinoPluginDir=') } else { @() }
+    & dotnet build (Join-Path $RepoRoot 'src\Rook\Rook.csproj') -c $Configuration @buildOptions
     if ($LASTEXITCODE -ne 0) {
         throw "Managed build failed."
     }
+    if ($CompanionOnly) { return }
 
     $rookBimRevitInstallDir = Assert-RookBimBuildPrerequisites
     & dotnet build (Join-Path $RepoRoot 'src\RookBim\RookBim.csproj') -c $Configuration "/p:RevitInstallDir=$rookBimRevitInstallDir"
@@ -692,6 +704,60 @@ assert spec is not None and spec.origin and pathlib.Path(spec.origin).resolve().
     if ($LASTEXITCODE -ne 0) { throw 'Sealed-wheel verifier origin refused.' }
     & $verificationPython -I -m rook.agent.chat.prime_runtime_artifact verify --runtime-root $PrimeRuntimePayload --expected-runtime-id $payload.Name
     if ($LASTEXITCODE -ne 0) { throw 'Prime runtime payload verification refused.' }
+}
+
+function Deploy-ManagedOnlyPayload {
+    # This is a code/resource update, not a dependency or first-install path.
+    # Admit all three runtime outputs before replacing any installed bytes.
+    $copies = @()
+    foreach ($runtime in $ManagedCompanionRuntimes) {
+        $sourceDir = Join-Path $RepoRoot "src\Rook\bin\$Configuration\$runtime"
+        $targetDir = Join-Path $PluginDir $runtime
+        foreach ($path in @((Join-Path $sourceDir 'Rook.rhp'), (Join-Path $targetDir 'Rook.rhp'))) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                throw "Managed-only requires existing build and installed companions: $path"
+            }
+        }
+        $dependencies = @(Get-ChildItem -LiteralPath $sourceDir -File -Filter '*.dll' |
+            Where-Object { $_.Name -ne 'RookBim.dll' })
+        foreach ($name in @('Rook.deps.json', 'Rook.runtimeconfig.json')) {
+            $path = Join-Path $sourceDir $name
+            if ($runtime -ne 'net48' -or (Test-Path -LiteralPath $path)) {
+                $dependencies += Get-Item -LiteralPath $path
+            }
+        }
+        $assets = Join-Path $sourceDir 'runtimes'
+        if (Test-Path -LiteralPath $assets) {
+            $dependencies += Get-ChildItem -LiteralPath $assets -Recurse -File
+        }
+        foreach ($dependency in $dependencies) {
+            $relative = $dependency.FullName.Substring($sourceDir.Length + 1)
+            $installed = Join-Path $targetDir $relative
+            if (-not (Test-Path -LiteralPath $installed -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $dependency.FullName -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash) {
+                throw "Managed-only dependency differs: $relative ($runtime). Use the full deployment workflow for dependency changes."
+            }
+        }
+        foreach ($name in @('Rook.rhp', 'Rook.pdb')) {
+            $source = Join-Path $sourceDir $name
+            if (Test-Path -LiteralPath $source -PathType Leaf) {
+                $copies += [pscustomobject]@{
+                    Source = $source
+                    Destination = Join-Path $targetDir $name
+                    Hash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+                }
+            }
+        }
+    }
+    Assert-NoRunningRhino
+    foreach ($copy in $copies) {
+        Copy-RequiredFile $copy.Source $copy.Destination
+        if ((Get-FileHash -LiteralPath $copy.Destination -Algorithm SHA256).Hash -ne $copy.Hash) {
+            throw "Managed-only installed byte verification failed: $($copy.Destination)"
+        }
+        Write-Host "Verified SHA256 $($copy.Hash) $($copy.Destination)"
+    }
 }
 
 function Stage-PrimeRuntimePayload {
@@ -1330,6 +1396,18 @@ asyncio.run(main())
 
 Set-Location $RepoRoot
 Assert-DeployMode
+if ($ManagedOnly) {
+    Assert-NoRunningRhino
+    if (-not $SkipBuild) {
+        Write-Step "Build managed companion only (no restore or automatic deploy)"
+        Invoke-ManagedBuild -CompanionOnly
+    }
+    Deploy-ManagedOnlyPayload
+    Write-Host "Managed-only deploy complete. Only Rook.rhp and available Rook.pdb files were replaced."
+    Write-Host "Native, BIM, Python, Prime, Chirp, manifests and registration remain unchanged."
+    Write-Host "This local mixed-version installation is not a full release qualification. Restart Rhino to test."
+    exit 0
+}
 $RuntimeContract = Resolve-DeployRuntimeContract
 
 if ($ManifestSmokeOnly) {

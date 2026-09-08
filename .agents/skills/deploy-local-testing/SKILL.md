@@ -23,6 +23,10 @@ requires Revit API assemblies. If Revit is not installed under the default
 Useful variants:
 
 ```powershell
+# C#/embedded UI iteration on an existing installation; Rhino must be closed.
+# Builds Rook only, without restore, then verifies/copies the companion bytes.
+pwsh -NoProfile -File scripts\deploy-local-testing.ps1 -ManagedOnly
+
 # Full deploy with a non-default Revit API location for RookBIM.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -RevitInstallDir "C:\Program Files\Autodesk\Revit 2025"
 
@@ -53,6 +57,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 
 ## Rules
 
+- `-ManagedOnly` builds only Rook (all three target frameworks), suppresses automatic MSBuild deployment, and replaces only `Rook.rhp` plus available `Rook.pdb` files. `-SkipBuild` uses existing outputs. It checks Rhino before building and again before copying; it does not check or terminate MCP processes.
+- Managed-only requires a prior complete installation and byte-identical supporting DLLs, runtime assets and dependency metadata. Dependency changes require the full workflow; there is no fallback. Native, BIM, Python, Prime, Chirp, client configuration, chat manifests and registration remain untouched. Use it only for C#/embedded-resource changes compatible with the installed Python/native contracts.
+- Managed-only reports built-to-installed SHA-256 comparisons, not a new whole-product identity or release qualification. It cannot be combined with other deployment/runtime/live-smoke modes. Obtain deployment approval and close Rhino normally before execution.
 - Default deploy must fail if Rhino or `python -m rook` is running.
 - Default deploy intentionally requires Revit API assemblies for the RookBIM build; Rhino-only native iteration should use `-NativeOnly`, and payload-only sync after a previous build should use `-PayloadOnly -AllowRunning`.
 - `-NativeOnly` must fail if Rhino is running, but must not inspect, kill, block on, sync, or reconfigure running `python -m rook` MCP processes.
