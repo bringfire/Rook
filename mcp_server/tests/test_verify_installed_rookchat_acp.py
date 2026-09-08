@@ -45,6 +45,7 @@ def fixture(tmp_path, monkeypatch):
             path.write_bytes(data)
     (source / "mcp_server/pyproject.toml").write_text('[project]\nversion="1.2.3"\n')
     subprocess.run(["git", "init", "-q", str(source)], check=True)
+    subprocess.run(["git", "-C", str(source), "config", "core.autocrlf", "false"], check=True)
     subprocess.run(["git", "-C", str(source), "add", "."], check=True)
     subprocess.run(["git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], check=True)
     commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
@@ -72,7 +73,7 @@ def fixture(tmp_path, monkeypatch):
     def run(argv, **kwargs):
         if str(argv[0]).lower().endswith("python.exe"):
             assert Path(argv[0]) == python
-            assert argv[1:3] == ["-I", "-c"]
+            assert argv[1:4] == ["-I", "-B", "-c"]
             assert kwargs["shell"] is False and kwargs["timeout"] > 0
             assert Path(kwargs["cwd"]) == installed / "mcp_server"
             assert not any(key.upper() in {"PYTHONPATH", "PYTHONHOME"} for key in kwargs["env"])
@@ -132,3 +133,105 @@ def test_failed_comparison_never_publishes_report(tmp_path, monkeypatch, damage)
     else: Path(origins["serviceOrigin"]).write_bytes(b"stale installed code")
     assert module.main(argv) != 0
     assert not report.exists()
+
+
+def large_manifest(installed):
+    path = installed / "python-runtime-manifest.json"
+    value = json.loads(path.read_bytes())
+    value["wheelhouse"] = [{"path": f"package-{index}.whl", "bytes": 123456,
+                           "sha256": "A" * 64} for index in range(2300)]
+    path.write_bytes(json.dumps(value).encode("utf-8"))
+    assert 280_000 < path.stat().st_size < 340_000
+    return path
+
+
+@pytest.mark.parametrize("damage", [None, "identity", "content"])
+def test_large_python_manifest_reaches_remaining_checks(tmp_path, monkeypatch, capsys, damage):
+    module, argv, source, installed, chat, report, origins, calls, runtime_id = fixture(tmp_path, monkeypatch)
+    path = large_manifest(installed)
+    if damage == "identity":
+        value = json.loads(path.read_bytes())
+        value["rook_git_sha"] = "a" * 40
+        path.write_text(json.dumps(value))
+    elif damage == "content":
+        Path(origins["serviceOrigin"]).write_bytes(b"incorrect installed source")
+    assert module.main(argv) == (0 if damage is None else 1)
+    if damage is None:
+        assert json.loads(report.read_bytes())["runtimeId"] == runtime_id
+        assert calls == ["installed-python-origin-probe"]
+    else:
+        assert not report.exists()
+        expected = "wheel source identity differs" if damage == "identity" else "Rook package differs"
+        assert expected in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("kind", ["python", "chat", "origin", "report"])
+def test_metadata_limits_remain_specific(tmp_path, monkeypatch, capsys, kind):
+    module, argv, source, installed, chat, report, origins, calls, runtime_id = fixture(tmp_path, monkeypatch)
+    if kind == "python":
+        (installed / "python-runtime-manifest.json").write_bytes(b" " * (16 * 1024 * 1024 + 1))
+    elif kind == "chat":
+        chat.write_bytes(b" " * (64 * 1024 + 1))
+    elif kind == "origin":
+        origins["serviceOrigin"] = "x" * (64 * 1024)
+    else:
+        canonical = module.artifact.canonical_json_bytes
+        monkeypatch.setattr(module.artifact, "canonical_json_bytes",
+                            lambda value: b"x" * (64 * 1024 + 1) if "sourceCommit" in value else canonical(value))
+    assert module.main(argv) == 1
+    assert not report.exists()
+    assert ("origin probe failed" if kind == "origin" else "byte limit") in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("raw", [b'{"x":1,"x":2}', b'{}\xff', b'[]'])
+def test_python_manifest_strict_json_admission(tmp_path, monkeypatch, raw):
+    module, argv, source, installed, chat, report, *_ = fixture(tmp_path, monkeypatch)
+    (installed / "python-runtime-manifest.json").write_bytes(raw)
+    assert module.main(argv) == 1
+    assert not report.exists()
+
+
+@pytest.mark.parametrize("limit", [64 * 1024, 16 * 1024 * 1024])
+def test_json_byte_ceiling_is_inclusive(tmp_path, limit):
+    module = load_verifier()
+    path = tmp_path / "metadata.json"
+    raw = b'{"value":"' + b"x" * (limit - 12) + b'"}'
+    assert len(raw) == limit
+    path.write_bytes(raw)
+    assert module.read_json(path, limit)["value"] == "x" * (limit - 12)
+    path.write_bytes(raw + b" ")
+    with pytest.raises(artifact.RuntimeUnavailable, match="byte limit"):
+        module.read_json(path, limit)
+
+
+@pytest.mark.parametrize("damage", [None, "verifier_commit", "verifier_bytes", "product_bytes", "product_manifest"])
+def test_separate_reviewed_verifier_and_product_commits(tmp_path, monkeypatch, damage):
+    module, argv, source, installed, chat, report, origins, calls, runtime_id = fixture(tmp_path, monkeypatch)
+    product_commit = argv[3]
+    # A newer checkout must not redefine the previously installed product bytes.
+    (source / "mcp_server/src/rook/agent/chat/service_main.py").write_text("# later product, not installed\n")
+    subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                    "commit", "-qm", "reviewed verifier generation"], check=True)
+    verifier_commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    argv += ["--expected-verifier-commit", verifier_commit]
+    if damage == "verifier_commit":
+        argv[-1] = product_commit
+    elif damage == "verifier_bytes":
+        fake = tmp_path / "substituted-verifier.py"
+        fake.write_bytes(b"# not the reviewed verifier")
+        monkeypatch.setattr(module, "__file__", str(fake))
+    elif damage == "product_bytes":
+        Path(origins["serviceOrigin"]).write_text("# later product, not installed\n")
+    elif damage == "product_manifest":
+        path = installed / "python-runtime-manifest.json"
+        value = json.loads(path.read_bytes())
+        value["rook_git_sha"] = verifier_commit
+        path.write_text(json.dumps(value))
+    assert module.main(argv) == (0 if damage is None else 1)
+    if damage is None:
+        value = json.loads(report.read_bytes())
+        assert value["sourceCommit"] == product_commit
+        assert value["verifierCommit"] == verifier_commit != product_commit
+    else:
+        assert not report.exists()

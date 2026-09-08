@@ -16,6 +16,7 @@ from rook.agent.chat import prime_runtime_artifact as artifact
 
 
 MAX_JSON_BYTES = 64 * 1024
+MAX_PYTHON_MANIFEST_BYTES = 16 * 1024 * 1024
 ORIGIN_PROBE = """
 import importlib.util, json, pathlib, sys
 def origin(name):
@@ -29,11 +30,11 @@ print(json.dumps({'pythonExecutable':str(pathlib.Path(sys.executable).resolve())
 """
 
 
-def read_json(path: Path) -> dict:
+def read_json(path: Path, max_bytes: int = MAX_JSON_BYTES) -> dict:
     artifact.require_direct_path(path)
     with path.open("rb") as stream:
-        data = stream.read(MAX_JSON_BYTES + 1)
-    if len(data) > MAX_JSON_BYTES:
+        data = stream.read(max_bytes + 1)
+    if len(data) > max_bytes:
         raise artifact.RuntimeUnavailable("installed metadata exceeds byte limit")
 
     def unique(pairs):
@@ -57,25 +58,34 @@ def git(source: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def matches_blob(source: Path, commit: str, relative: str, actual: Path) -> bool:
+    artifact.require_direct_path(actual)
+    return git(source, "hash-object", "--no-filters", str(actual)) == git(source, "rev-parse", f"{commit}:{relative}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     for key in ("rook-worktree", "install-root", "chat-service-manifest", "output"):
         parser.add_argument("--" + key, required=True, type=Path)
     parser.add_argument("--expected-rook-commit", required=True)
+    parser.add_argument("--expected-verifier-commit", help="Reviewed verifier checkout; defaults to the product commit")
     args = parser.parse_args(argv)
     try:
         source = artifact.require_direct_path(args.rook_worktree, directory=True)
         installed = artifact.require_direct_path(args.install_root, directory=True)
         expected = args.expected_rook_commit
-        if not re.fullmatch("[a-f0-9]{40}", expected) or git(source, "rev-parse", "HEAD") != expected or git(source, "status", "--porcelain"):
+        verifier_commit = args.expected_verifier_commit or expected
+        if (not re.fullmatch("[a-f0-9]{40}", expected) or not re.fullmatch("[a-f0-9]{40}", verifier_commit)
+                or git(source, "rev-parse", "HEAD") != verifier_commit or git(source, "status", "--porcelain")
+                or git(source, "rev-parse", f"{expected}^{{commit}}") != expected):
             raise artifact.RuntimeUnavailable("reviewed source identity or cleanliness differs")
         if args.output.exists() or args.output.is_symlink():
             raise artifact.RuntimeUnavailable("identity report already exists")
         # Verify the Rook verifier itself against the admitted checkout before
         # using its result to attest to an incoming/installed Prime payload.
-        for actual, relative in ((Path(__file__), "scripts/verify-installed-rookchat-acp.py"),
-                                 (Path(artifact.__file__), "mcp_server/src/rook/agent/chat/prime_runtime_artifact.py")):
-            if artifact.file_row(actual, "file") != artifact.file_row(source / relative, "file"):
+        for actual, relative, commit in ((Path(__file__), "scripts/verify-installed-rookchat-acp.py", verifier_commit),
+                (Path(artifact.__file__), "mcp_server/src/rook/agent/chat/prime_runtime_artifact.py", expected)):
+            if not matches_blob(source, commit, relative, actual):
                 raise artifact.RuntimeUnavailable("verifier implementation differs from reviewed source")
         chat = read_json(args.chat_service_manifest)
         if set(chat) != {"pythonPath", "workingDirectory", "module", "owner", "pythonPathEntries", "environment"}:
@@ -93,14 +103,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or Path(environment.get("ROOK_DATA_DIR", "")) != installed.parent / "data"
                 or any(v for k, v in environment.items() if k.upper() in {"PYTHONPATH", "PYTHONHOME"})):
             raise artifact.RuntimeUnavailable("chat runtime paths or Python overrides differ")
-        wheel = read_json(installed / "python-runtime-manifest.json")
-        with (source / "mcp_server/pyproject.toml").open("rb") as stream:
-            release_version = tomllib.load(stream)["project"]["version"]
+        wheel = read_json(installed / "python-runtime-manifest.json", MAX_PYTHON_MANIFEST_BYTES)
+        release_version = tomllib.loads(git(source, "show", f"{expected}:mcp_server/pyproject.toml"))["project"]["version"]
         if wheel.get("rook_git_sha") != expected or wheel.get("release_version") != release_version:
             raise artifact.RuntimeUnavailable("installed wheel source identity differs")
         probe_env = {k: v for k, v in os.environ.items() if k.upper() not in {"PYTHONHOME", "PYTHONPATH"}}
         probe_env.update({k: v for k, v in environment.items() if k.upper() not in {"PYTHONHOME", "PYTHONPATH"}})
-        probe = subprocess.run([str(python), "-I", "-c", ORIGIN_PROBE], shell=False, cwd=cwd,
+        probe = subprocess.run([str(python), "-I", "-B", "-c", ORIGIN_PROBE], shell=False, cwd=cwd,
                                env=probe_env, capture_output=True, text=True, timeout=10)
         if probe.returncode != 0 or len(probe.stdout.encode("utf-8")) > MAX_JSON_BYTES:
             raise artifact.RuntimeUnavailable("installed import-origin probe failed")
@@ -116,22 +125,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         for key, path in expected_origins.items():
             if type(origins[key]) is not str or Path(origins[key]) != artifact.require_direct_path(path):
                 raise artifact.RuntimeUnavailable("installed module origin differs")
-        source_files = git(source, "ls-files", "-z", "--", "mcp_server/src/rook").split("\0")
+        source_files = git(source, "ls-tree", "-r", "--name-only", "-z", expected, "--", "mcp_server/src/rook").split("\0")
         for relative in filter(None, source_files):
             target = site / Path(relative).relative_to("mcp_server/src")
-            if artifact.file_row(source / relative, "file") != artifact.file_row(target, "file"):
+            if not matches_blob(source, expected, relative, target):
                 raise artifact.RuntimeUnavailable("installed Rook package differs from source")
         prime = installed / "prime"
         runtime_id = artifact.read_current_runtime_id(prime)
         verified = artifact.verify_runtime_payload(prime / "runtimes" / runtime_id, runtime_id)
-        skill_rows = artifact.payload_rows(source / "installer/agent-assets/prime-skills/rook-full")
+        skill_prefix = "installer/agent-assets/prime-skills/rook-full/"
+        skill_files = list(filter(None, git(source, "ls-tree", "-r", "--name-only", "-z", expected, "--", skill_prefix).split("\0")))
         installed_skill = artifact.payload_rows(verified.root / "skills/rook-full")
-        if skill_rows != installed_skill:
+        if ({row["path"] for row in installed_skill} != {name.removeprefix(skill_prefix) for name in skill_files}
+                or any(not matches_blob(source, expected, name, verified.root / "skills/rook-full" / name.removeprefix(skill_prefix))
+                       for name in skill_files)):
             raise artifact.RuntimeUnavailable("installed Rook skill differs from reviewed source")
-        if artifact.read_current_runtime_id(prime) != runtime_id or git(source, "rev-parse", "HEAD") != expected or git(source, "status", "--porcelain"):
+        if artifact.read_current_runtime_id(prime) != runtime_id or git(source, "rev-parse", "HEAD") != verifier_commit or git(source, "status", "--porcelain"):
             raise artifact.RuntimeUnavailable("identity changed during installed verification")
         report = {
-            "sourceCommit": expected, "pointer": {"runtimeId": runtime_id}, "runtimeId": runtime_id,
+            "sourceCommit": expected, "verifierCommit": verifier_commit,
+            "pointer": {"runtimeId": runtime_id}, "runtimeId": runtime_id,
             "manifestSha256": runtime_id, "paths": {
                 "chatServiceManifest": str(args.chat_service_manifest.absolute()), "pythonExecutable": str(python),
                 "rookOrigin": origins["rookOrigin"], "serviceOrigin": origins["serviceOrigin"],
