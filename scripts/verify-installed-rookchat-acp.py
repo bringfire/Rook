@@ -81,12 +81,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise artifact.RuntimeUnavailable("reviewed source identity or cleanliness differs")
         if args.output.exists() or args.output.is_symlink():
             raise artifact.RuntimeUnavailable("identity report already exists")
+        for relative in ("mcp_server/src/rook", "installer/agent-assets/prime-skills/rook-full"):
+            if git(source, "rev-parse", f"{expected}:{relative}") != git(source, "rev-parse", f"{verifier_commit}:{relative}"):
+                raise artifact.RuntimeUnavailable("product or skill tree differs between reviewed commits")
         # Verify the Rook verifier itself against the admitted checkout before
         # using its result to attest to an incoming/installed Prime payload.
-        for actual, relative, commit in ((Path(__file__), "scripts/verify-installed-rookchat-acp.py", verifier_commit),
-                (Path(artifact.__file__), "mcp_server/src/rook/agent/chat/prime_runtime_artifact.py", expected)):
-            if not matches_blob(source, commit, relative, actual):
-                raise artifact.RuntimeUnavailable("verifier implementation differs from reviewed source")
+        if not matches_blob(source, verifier_commit, "scripts/verify-installed-rookchat-acp.py", Path(__file__)):
+            raise artifact.RuntimeUnavailable("verifier implementation differs from reviewed source")
+        if artifact.file_row(Path(artifact.__file__), "file") != artifact.file_row(source / "mcp_server/src/rook/agent/chat/prime_runtime_artifact.py", "file"):
+            raise artifact.RuntimeUnavailable("verifier implementation differs from reviewed source")
         chat = read_json(args.chat_service_manifest)
         if set(chat) != {"pythonPath", "workingDirectory", "module", "owner", "pythonPathEntries", "environment"}:
             raise artifact.RuntimeUnavailable("chat-service manifest keys differ")
@@ -128,17 +131,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_files = git(source, "ls-tree", "-r", "--name-only", "-z", expected, "--", "mcp_server/src/rook").split("\0")
         for relative in filter(None, source_files):
             target = site / Path(relative).relative_to("mcp_server/src")
-            if not matches_blob(source, expected, relative, target):
+            if artifact.file_row(source / relative, "file") != artifact.file_row(target, "file"):
                 raise artifact.RuntimeUnavailable("installed Rook package differs from source")
         prime = installed / "prime"
         runtime_id = artifact.read_current_runtime_id(prime)
         verified = artifact.verify_runtime_payload(prime / "runtimes" / runtime_id, runtime_id)
-        skill_prefix = "installer/agent-assets/prime-skills/rook-full/"
-        skill_files = list(filter(None, git(source, "ls-tree", "-r", "--name-only", "-z", expected, "--", skill_prefix).split("\0")))
+        skill_rows = artifact.payload_rows(source / "installer/agent-assets/prime-skills/rook-full")
         installed_skill = artifact.payload_rows(verified.root / "skills/rook-full")
-        if ({row["path"] for row in installed_skill} != {name.removeprefix(skill_prefix) for name in skill_files}
-                or any(not matches_blob(source, expected, name, verified.root / "skills/rook-full" / name.removeprefix(skill_prefix))
-                       for name in skill_files)):
+        if skill_rows != installed_skill:
             raise artifact.RuntimeUnavailable("installed Rook skill differs from reviewed source")
         if artifact.read_current_runtime_id(prime) != runtime_id or git(source, "rev-parse", "HEAD") != verifier_commit or git(source, "status", "--porcelain"):
             raise artifact.RuntimeUnavailable("identity changed during installed verification")

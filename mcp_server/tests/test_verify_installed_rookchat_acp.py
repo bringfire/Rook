@@ -22,7 +22,7 @@ def load_verifier():
     return module
 
 
-def fixture(tmp_path, monkeypatch):
+def fixture(tmp_path, monkeypatch, *, windows_checkout=False):
     module = load_verifier()
     source = tmp_path / "source"
     installed = tmp_path / "Rook/app"
@@ -32,7 +32,7 @@ def fixture(tmp_path, monkeypatch):
     python.write_bytes(b"fake process boundary, never executed")
     package = source / "mcp_server/src/rook"
     (package / "agent/chat").mkdir(parents=True)
-    for relative in ("__init__.py", "agent/__init__.py", "agent/chat/__init__.py", "agent/chat/service_main.py", "agent/chat/prime_runtime_artifact.py"):
+    for relative in ("__init__.py", "__main__.py", "agent/__init__.py", "agent/chat/__init__.py", "agent/chat/service_main.py", "agent/chat/prime_runtime_artifact.py"):
         original = REPO / "mcp_server/src/rook" / relative
         (package / relative).write_bytes(original.read_bytes())
     (source / "scripts").mkdir()
@@ -45,10 +45,13 @@ def fixture(tmp_path, monkeypatch):
             path.write_bytes(data)
     (source / "mcp_server/pyproject.toml").write_text('[project]\nversion="1.2.3"\n')
     subprocess.run(["git", "init", "-q", str(source)], check=True)
-    subprocess.run(["git", "-C", str(source), "config", "core.autocrlf", "false"], check=True)
+    subprocess.run(["git", "-C", str(source), "config", "core.autocrlf", "true" if windows_checkout else "false"], check=True)
     subprocess.run(["git", "-C", str(source), "add", "."], check=True)
     subprocess.run(["git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], check=True)
     commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    if windows_checkout:
+        (package / "__main__.py").unlink()
+        subprocess.run(["git", "-C", str(source), "checkout-index", "--", "mcp_server/src/rook/__main__.py"], check=True)
     (installed / "mcp_server").mkdir(parents=True)
     shutil.copytree(package, site / "rook")
     incoming, runtime_id = materialize(installed / "prime/.incoming/fixture")
@@ -204,12 +207,16 @@ def test_json_byte_ceiling_is_inclusive(tmp_path, limit):
         module.read_json(path, limit)
 
 
-@pytest.mark.parametrize("damage", [None, "verifier_commit", "verifier_bytes", "product_bytes", "product_manifest"])
+@pytest.mark.parametrize("damage", [None, "verifier_commit", "verifier_bytes", "product_bytes", "product_manifest", "product_tree", "skill_tree"])
 def test_separate_reviewed_verifier_and_product_commits(tmp_path, monkeypatch, damage):
     module, argv, source, installed, chat, report, origins, calls, runtime_id = fixture(tmp_path, monkeypatch)
     product_commit = argv[3]
-    # A newer checkout must not redefine the previously installed product bytes.
-    (source / "mcp_server/src/rook/agent/chat/service_main.py").write_text("# later product, not installed\n")
+    # Verifier-only generations may not change either product tree.
+    (source / "review.txt").write_text("verifier review generation\n")
+    if damage == "product_tree":
+        (source / "mcp_server/src/rook/agent/chat/service_main.py").write_text("# later product, not installed\n")
+    elif damage == "skill_tree":
+        (source / "installer/agent-assets/prime-skills/rook-full/SKILL.md").write_text("changed skill\n")
     subprocess.run(["git", "-C", str(source), "add", "."], check=True)
     subprocess.run(["git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                     "commit", "-qm", "reviewed verifier generation"], check=True)
@@ -235,3 +242,23 @@ def test_separate_reviewed_verifier_and_product_commits(tmp_path, monkeypatch, d
         assert value["verifierCommit"] == verifier_commit != product_commit
     else:
         assert not report.exists()
+        if damage in {"product_tree", "skill_tree"}:
+            assert calls == []
+
+
+@pytest.mark.parametrize("damage", [False, True])
+def test_clean_crlf_checkout_compares_exact_installed_bytes(tmp_path, monkeypatch, damage):
+    module, argv, source, installed, chat, report, origins, calls, runtime_id = fixture(
+        tmp_path, monkeypatch, windows_checkout=True)
+    relative = "mcp_server/src/rook/__main__.py"
+    committed = subprocess.check_output(["git", "-C", str(source), "show", f"{argv[3]}:{relative}"])
+    checkout = (source / relative).read_bytes()
+    assert b"\r\n" not in committed and b"\n" in committed
+    assert b"\r\n" in checkout and checkout != committed
+    assert subprocess.check_output(["git", "-C", str(source), "status", "--porcelain"]) == b""
+    actual = Path(origins["rookOrigin"]).parent / "__main__.py"
+    assert actual.read_bytes() == checkout
+    if damage:
+        actual.write_bytes(checkout + b"# changed installed bytes\r\n")
+    assert module.main(argv) == (1 if damage else 0)
+    assert report.exists() is not damage
