@@ -21,6 +21,7 @@ param(
     [switch]$UseRepoVenv,
     [string]$DevPythonRuntime = '',
     [string]$PrimeRuntimePayload = '',
+    [string]$PythonBuildRoot = '',
     [switch]$LiveSmoke,
     [switch]$ManifestSmokeOnly
 )
@@ -652,9 +653,19 @@ function Assert-PrimeRuntimePayload {
     $siblings = @(Get-ChildItem -LiteralPath $payload.Parent.FullName -Directory | Where-Object { $_.Name -cmatch '^[A-F0-9]{64}$' })
     if ($siblings.Count -ne 1) { throw 'Select an assembly attempt containing exactly one runtime.' }
     $script:PrimeRuntimePayload = $payload.FullName
-    $verificationPython = Join-Path $RepoRoot 'artifacts/python-wheelhouse/verify-rook-venv/Scripts/python.exe'
-    foreach ($path in @($verificationPython, (Join-Path $RepoRoot 'artifacts/python-wheelhouse/verification-rook.json'))) {
+    if ([string]::IsNullOrWhiteSpace($PythonBuildRoot) -or -not [IO.Path]::IsPathRooted($PythonBuildRoot)) {
+        throw 'Release payload admission requires an explicit absolute -PythonBuildRoot.'
+    }
+    $buildDirectory = Get-Item -LiteralPath $PythonBuildRoot -ErrorAction Stop
+    if (-not $buildDirectory.PSIsContainer -or ($buildDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Python build generation must be a direct directory.'
+    }
+    $verificationVenv = Join-Path $buildDirectory.FullName 'verify-rook-venv'
+    $verificationRecord = Join-Path $buildDirectory.FullName 'verification-rook.json'
+    $verificationPython = Join-Path $verificationVenv 'Scripts/python.exe'
+    foreach ($path in @($verificationPython, $verificationRecord)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Sealed wheel verification input missing: $path" }
+        if ((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Sealed wheel verification input is a link: $path" }
     }
     if (Test-Path Env:PYTHONPATH) { throw 'PYTHONPATH must be absent for release payload admission.' }
     $wheelManifest = Get-Content -LiteralPath (Join-Path $RepoRoot 'installer/runtime/python-runtime-manifest.json') -Raw | ConvertFrom-Json
@@ -668,6 +679,8 @@ import importlib.util, json, pathlib, sys
 site = pathlib.Path(sys.argv[1]).resolve() / 'Lib' / 'site-packages'
 record = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
 assert pathlib.Path(record["audit_site_packages"]).resolve() == site
+manifest = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding='utf-8'))
+assert {key: value for key, value in record.items() if key != "audit_site_packages"} == manifest["verification"]["rook"], 'selected verification record differs from wheel manifest'
 assert record["pip_install_no_index"] is True and record["pip_install_looked_in_links"] is True
 assert record["pip_install_looked_in_indexes"] is False
 assert record["pip_check"] == "No broken requirements found."
@@ -675,7 +688,7 @@ assert record["import_record"]["module"] == "rook" and record["import_record"]["
 spec = importlib.util.find_spec('rook.agent.chat.prime_runtime_artifact')
 assert spec is not None and spec.origin and pathlib.Path(spec.origin).resolve().is_relative_to(site), 'verifier is not from sealed-wheel site-packages'
 '@
-    & $verificationPython -I -c $originProbe (Join-Path $RepoRoot 'artifacts/python-wheelhouse/verify-rook-venv') (Join-Path $RepoRoot 'artifacts/python-wheelhouse/verification-rook.json')
+    & $verificationPython -I -c $originProbe $verificationVenv $verificationRecord (Join-Path $RepoRoot 'installer/runtime/python-runtime-manifest.json')
     if ($LASTEXITCODE -ne 0) { throw 'Sealed-wheel verifier origin refused.' }
     & $verificationPython -I -m rook.agent.chat.prime_runtime_artifact verify --runtime-root $PrimeRuntimePayload --expected-runtime-id $payload.Name
     if ($LASTEXITCODE -ne 0) { throw 'Prime runtime payload verification refused.' }
