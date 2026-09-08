@@ -1604,7 +1604,7 @@ namespace Rook.UI.Web
             }
         }
 
-        private async void OnWebMessageReceived(
+        private void OnWebMessageReceived(
             object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             if (_disposed) return;
@@ -1617,19 +1617,42 @@ namespace Rook.UI.Web
                 return;
             }
 
+            var eventCore = sender as CoreWebView2;
+            if (eventCore == null || !ReferenceEquals(_coreWebView2, eventCore)) return;
             TraceFocusProbeMessage(incomingJson);
+            QueueBridgeMessage(incomingJson,
+                action => Application.Instance.AsyncInvoke(action),
+                () => ReferenceEquals(_coreWebView2, eventCore),
+                response => eventCore.PostWebMessageAsJson(response));
+        }
 
-            var responseJson = await _dispatcher.DispatchAsync(incomingJson);
-            if (responseJson is null || _disposed) return;
+        internal void QueueBridgeMessage(string? incomingJson, Action<Action> postToUi,
+            Func<bool> isCurrentView, Action<string> postResponse)
+        {
+            // Eto's synchronous script execution pumps messages. Leave the native
+            // WebView callback before any handler can render back into that view.
+            try { postToUi(Dispatch); }
+            catch (Exception ex) { Log($"Rook: bridge dispatch post failed: {ex.Message}"); }
 
-            Application.Instance.Invoke(() =>
+            async void Dispatch()
             {
-                try { _coreWebView2?.PostWebMessageAsJson(responseJson); }
-                catch (Exception ex)
+                try
                 {
-                    RhinoApp.WriteLine($"Rook: bridge response post failed: {ex.Message}");
+                    if (_disposed || !isCurrentView()) return;
+                    var response = await _dispatcher.DispatchAsync(incomingJson);
+                    if (response == null || _disposed || !isCurrentView()) return;
+                    postToUi(() =>
+                    {
+                        try
+                        {
+                            if (_disposed || !isCurrentView()) return;
+                            postResponse(response);
+                        }
+                        catch (Exception ex) { Log($"Rook: bridge response post failed: {ex.Message}"); }
+                    });
                 }
-            });
+                catch (Exception ex) { Log($"Rook: deferred bridge dispatch failed: {ex.Message}"); }
+            }
         }
 
         private void TraceFocusProbeMessage(string? incomingJson)

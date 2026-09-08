@@ -57,6 +57,19 @@ namespace Rook.Tests.UI.Web
         // ─── CSP virtual property ────────────────────────────────────
 
         [Fact]
+        public void WebMessageCallback_DefersDispatchAndBindsTheOriginatingView()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+            var callback = ExtractMethod(source, "private void OnWebMessageReceived(");
+            Assert.NotEmpty(callback);
+            Assert.DoesNotContain("_dispatcher.DispatchAsync", callback);
+            Assert.Contains("QueueBridgeMessage(", callback);
+            Assert.Contains("Application.Instance.AsyncInvoke", callback);
+            Assert.Contains("ReferenceEquals(_coreWebView2, eventCore)", callback);
+            Assert.Contains("eventCore.PostWebMessageAsJson", callback);
+        }
+
+        [Fact]
         public void ContentSecurityPolicy_Default_KeepsBackwardsCompatForPatternB()
         {
             var s = new DefaultSurface();
