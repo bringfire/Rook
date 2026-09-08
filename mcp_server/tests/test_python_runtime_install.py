@@ -126,6 +126,7 @@ function Invoke-CheckedProcess {
 $OutputRoot=$env:TEST_OUTPUT
 $wheelhouse=Join-Path $OutputRoot 'python-wheelhouse'
 $pythonExe=Join-Path $OutputRoot 'private-python.exe'
+$buildPythonExe=Join-Path $OutputRoot 'build-python.exe'
 $rookWheel=@{FullName='fixture-rook.whl'}; $chirpWheel=@{FullName='fixture-chirp.whl'}
 $text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.StartOffset-$start[0].Extent.StartOffset)
 . ([scriptblock]::Create($text))
@@ -139,7 +140,7 @@ $calls | ConvertTo-Json -Depth 4 -Compress
     calls = json.loads(observed.stdout)
     assert len(calls) == 2
     assert calls[0]["argv"][-2:] == ["pip==26.2.1", "setuptools==83.0.0"]
-    assert all(call["file"] == str(layout.app_dir / "private-python.exe") for call in calls)
+    assert all(call["file"] == str(layout.app_dir / "build-python.exe") for call in calls)
     lock_text = layout.bootstrap_lock.read_text(encoding="utf-8-sig")
     assert f"pip==26.2.1 --hash=sha256:{hashlib.sha256(pip_bytes).hexdigest()}" in lock_text
     assert "26.1.2" not in lock_text
