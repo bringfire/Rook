@@ -446,6 +446,8 @@ namespace Rook.UI.Chat
                 }
                 else
                 {
+                    // renderToolCard finalizes the current bubble; subsequent text starts a new segment.
+                    lock (_promptGate) _assistantBuffer?.Clear();
                     ExecuteScript($"window.chatAPI.renderToolCard('{name}', {payload}, '{id}')");
                 }
             });
