@@ -45,6 +45,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 # Dev chat/runtime iteration: use the repo MCP venv and write dev manifests.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -UseRepoVenv
 
+# Enable checkout-backed Python iteration without building any plugins.
+# Close Rhino/Rook MCP normally first; no AllowRunning or live-smoke bypass.
+pwsh -NoProfile -File scripts\deploy-local-testing.ps1 -PayloadOnly -UseRepoVenv
+
 # Dev chat/runtime iteration with an explicit venv path.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -DevPythonRuntime "C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe"
 
@@ -65,6 +69,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 - `-NativeOnly` must fail if Rhino is running, but must not inspect, kill, block on, sync, or reconfigure running `python -m rook` MCP processes.
 - `-NativeOnly` is for native route/plugin iteration only: it copies/registers the native payload and preserves existing companion/MCP paths from a prior full deploy.
 - `-UseRepoVenv` and `-DevPythonRuntime` are explicit dev-runtime modes; they must never be inferred from a missing release private runtime.
+- For Python-only iteration, use `-PayloadOnly -UseRepoVenv` once to point the panel at this checkout's existing Python environment and `mcp_server/src`. Working directory and project root stay in the checkout; `ROOK_INSTALL_ROOT`, Prime's `current.json`/runtimes, persistent ACP data and installed Chirp remain at their installed locations. No Prime copy or rebuild is needed.
+- That dev setup still runs the existing AppData/Chirp source sync and writes chat manifests, but skips plugin builds/copies, sealed wheelhouse admission, release Python recreation and release client-config refresh. It does not install missing Python dependencies. Thereafter Python-only edits need a new chat-service process (close/reopen Rhino normally), not another deployment. Dependency changes still need explicit environment maintenance.
+- Dev mode is local testing, not qualification of the installed release Python bytes. External MCP client configurations are not switched to the dev interpreter by this command. Keep the installed runtime and preserved qualification evidence unchanged; do not claim that checkout-backed testing requalifies the release.
 - Release deploy without a dev-runtime flag still runs `post_install.py` and must fail loudly when the bundled release Python runtime is missing.
 - Default deploy syncs sibling `..\Chirp` into `%LOCALAPPDATA%\Rook\app\chirp` and refreshes the Chirp editable install.
 - Never overwrite `%LOCALAPPDATA%\Rook\data`, logs, `.env`, venvs, caches, or local generated artifacts.

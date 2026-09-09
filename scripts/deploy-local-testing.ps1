@@ -310,7 +310,9 @@ function Resolve-DeployRuntimeContract {
 
         $devWorkingDirectory = (Resolve-Path $devMcpServerDir).Path
         $devPythonPathEntries = @((Resolve-Path $devSrcDir).Path)
-        $devInstallRoot = (Resolve-Path $RepoRoot).Path
+        # Source imports come from the checkout; Prime and bundled resources
+        # remain under the existing installed app, not a second repo payload.
+        $devInstallRoot = $InstallRoot
         $devProjectRoot = (Resolve-Path $RepoRoot).Path
 
         return [pscustomobject]@{
