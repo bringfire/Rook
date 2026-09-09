@@ -335,6 +335,80 @@ async def test_prompt_stream_maps_projected_and_terminal_outcomes_separately(tmp
 
 
 @pytest.mark.asyncio
+async def test_repeated_responses_do_not_present_prime_completion_metadata_as_tools(tmp_path: Path):
+    from acp.schema import AgentMessageChunk, SessionInfoUpdate
+    from rook.agent.chat.acp_client import RookChatAcpClient
+    from rook.agent.chat.acp_presentation import BoundedPromptProjection, PresentationQueue
+
+    class MetadataManager(FakeManager):
+        async def start_prompt(self, conversation_id, prompt, sink):
+            async def complete():
+                generation = PromptGeneration(1, "acp-session", "prompt")
+                projection = BoundedPromptProjection(
+                    generation=generation, queue=PresentationQueue(), user_text=prompt.text,
+                )
+                callback = RookChatAcpClient()
+                callback.activate_prompt(generation, projection, asyncio.Event())
+                await callback.session_update("acp-session", AgentMessageChunk.model_validate({
+                    "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hello"},
+                }))
+                for metadata in (
+                    {"terminalQuiescenceExpected": True},
+                    {"quiescence": {"outstandingSubagents": 0}},
+                    {"quiescence": {"outstandingSubagents": 0}},
+                ):
+                    await callback.session_update("acp-session", SessionInfoUpdate.model_validate({
+                        "sessionUpdate": "session_info_update",
+                        "_meta": {"ai.primeintellect.prime-agent": metadata},
+                    }))
+                # Metadata still reaches the real callback and ordered projection.
+                events = projection.queue.snapshot()
+                assert [event.source_ordinal for event in events] == [0, 1, 2, 3]
+                assert callback.prime_meta.unknown.records
+                assert projection.finalize("end_turn").tool_cards == ()
+                for event in events:
+                    await sink.write(event)
+                return PromptResult("settled", "end_turn", "delivered", True)
+            return _CompletedSupervisor(complete())
+
+    async with _client(MetadataManager(tmp_path)) as client:
+        for _ in range(2):
+            response = await client.post(
+                f"/agent/chat/conversations/{VALID_CONVERSATION_ID}/prompt", json=_prompt_body()
+            )
+            rows = [json.loads(line) for line in (await response.text()).splitlines()]
+            assert response.status == 200
+            assert rows == [
+                {"type": "text_delta", "sourceOrdinal": 0, "messageId": None, "text": "hello"},
+                {"type": "terminal", "outcome": "settled", "stopReason": "end_turn",
+                 "presentationOutcome": "delivered", "cachePublished": True},
+            ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["tool_call", "tool_call_update", "available_commands_update",
+                                  "current_mode_update", "config_option_update", "future_update"])
+async def test_http_tool_cards_require_actual_tool_event_kinds(kind):
+    class Response:
+        def __init__(self):
+            self.rows = []
+
+        async def write(self, data):
+            self.rows.append(json.loads(data))
+
+    response = Response()
+    sink = chat_server._HttpPresentationSink(response)
+    sink.mark_prepared()
+    payload = {"toolCallId": "tool-1", "status": "completed"}
+    await sink.write(ProjectedEvent(7, kind, "tool-1", "Inspect", payload))
+    assert response.rows == ([{
+        "type": "tool_update", "sourceOrdinal": 7, "kind": kind,
+        "messageId": "tool-1", "text": "Inspect", "payload": payload,
+    }] if kind in {"tool_call", "tool_call_update"} else [])
+    assert await sink.drain(1.0)
+
+
+@pytest.mark.asyncio
 async def test_stream_and_early_refusal_send_fixed_cors_headers_on_the_wire(tmp_path: Path):
     origin = {"Origin": chat_server.ALLOWED_ORIGIN}
     async with _client(FakeManager(tmp_path), nonce="secret") as client:

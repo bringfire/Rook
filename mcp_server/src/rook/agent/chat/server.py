@@ -328,7 +328,7 @@ class _HttpPresentationSink:
                 "messageId": event.message_id,
                 "text": event.text,
             }
-        else:
+        elif event.kind in {"tool_call", "tool_call_update"}:
             payload = {
                 "type": "tool_update",
                 "sourceOrdinal": event.source_ordinal,
@@ -337,6 +337,10 @@ class _HttpPresentationSink:
                 "text": event.text,
                 "payload": event.payload,
             }
+        else:
+            # Session/configuration metadata is not an in-progress tool. The
+            # ACP callback has already observed it; omit it from panel cards.
+            return
         try:
             await self._response.write(_ndjson(payload))
         except (ConnectionResetError, ConnectionError):
