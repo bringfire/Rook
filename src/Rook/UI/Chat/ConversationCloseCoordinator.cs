@@ -67,7 +67,7 @@ namespace Rook.UI.Chat
             if (snapshot.Length == 0) return true;
             var all = Task.WhenAll(snapshot);
             var timeout = Task.Delay(deadline);
-            return ReferenceEquals(await Task.WhenAny(all, timeout), all);
+            return ReferenceEquals(await Task.WhenAny(all, timeout).ConfigureAwait(false), all);
         }
 
         private async Task DeliverAsync(ConversationCloseRequest request)
