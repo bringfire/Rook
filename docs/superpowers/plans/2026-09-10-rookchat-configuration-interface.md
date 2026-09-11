@@ -82,6 +82,8 @@ Paths in Prime tasks are relative to `$PrimeRoot`; Rook tasks to `$RookRoot`. Ex
 
 **Modify (Prime):** `packages/coding-agent/src/cli/args.ts`, `src/main.ts`, `src/core/auth-storage.ts`, `src/core/model-registry.ts`, `src/core/resolve-config-value.ts`, `src/core/sdk.ts` (the latter paths are within the coding-agent package).
 
+**Approved Task 1 scope extension:** also modify `packages/ai/src/types.ts`, `packages/ai/src/providers/simple-options.ts`, `packages/ai/src/providers/openai-completions.ts`, and `packages/ai/src/providers/openai-responses.ts`. Carry an explicit request-level dedicated policy from the coding-agent owner through the production SDK and `buildBaseOptions()` to client construction; the AI package must not import coding-agent. Under that policy, skip ambient Prime-team lookup (including its external-config fallback), and pass constructor-level null for OpenAI organization/project defaults while preserving deliberate headers, credentials and team selection. Keep absent-policy behavior unchanged. Retain the existing offline RED evidence and add real Responses, standard-policy and production SDK-to-adapter propagation coverage. This finite amendment does not authorize Task 2, environment stripping, dependency changes, deployment or live contact.
+
 **Create (Prime):** `packages/coding-agent/src/core/configuration-policy.ts`; `packages/coding-agent/test/configuration-policy.test.ts`.
 
 **Neighbor tests:** `args.test.ts`, `auth-storage.test.ts`, `resolve-config-value.test.ts`, `model-registry.test.ts`, `no-approve-startup-composition.test.ts` in the same test directory; select implicated hermetic cases, not unrelated suites.
