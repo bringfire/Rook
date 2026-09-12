@@ -202,10 +202,14 @@ async def test_replacement_route_contract_and_health_are_acp_only(tmp_path: Path
         payload = await _json(health)
         assert payload["service"]["status"] == "ok"
         assert payload["runtime"]["available"] is True
+        assert payload["configurationAvailable"] is False
         assert payload["authentication"] == {"owner": "Prime", "disclosure": "Prime-managed"}
         assert "provider_keys" not in json.dumps(payload)
 
         allowed = (
+            ("post", "/agent/chat/configuration"),
+            ("post", "/agent/chat/configuration/reply"),
+            ("post", "/agent/chat/configuration/cancel"),
             ("get", "/agent/chat/conversations"),
             ("post", "/agent/chat/conversations"),
             ("post", "/agent/chat/conversations/{conversation_id}/reopen"),
@@ -237,6 +241,10 @@ async def test_nonce_middleware_still_protects_every_non_health_route(tmp_path: 
     async with _client(FakeManager(tmp_path), nonce="secret") as client:
         assert (await client.get("/agent/chat/health")).status == 200
         assert (await client.get("/agent/chat/conversations")).status == 403
+        for path in ("configuration", "configuration/reply", "configuration/cancel"):
+            refused = await client.post(f"/agent/chat/{path}", json={})
+            assert refused.status == 403
+            assert refused.headers["Cache-Control"] == "no-store"
         response = await client.get(
             "/agent/chat/conversations", headers={chat_server.SESSION_HEADER: "secret"}
         )

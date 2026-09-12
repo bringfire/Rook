@@ -128,6 +128,42 @@ def _pair(argv: tuple[str, ...], option: str) -> str:
     return argv[index + 1]
 
 
+def test_configuration_requires_explicit_adoption_and_exact_argv(verified_runtime, monkeypatch):
+    from rook.agent.chat import prime_runtime
+    contract, root = verified_runtime
+    with pytest.raises(PrimeLaunchError, match="configuration_unavailable"):
+        prime_runtime.build_configuration_argv(contract)
+    monkeypatch.setattr(prime_runtime, "SUPPORTED_CONFIGURATION_COMMITS", frozenset({contract.compatibility_patch_commit}))
+    assert prime_runtime.build_configuration_argv(contract) == (
+        str(root / "pi.exe"), "configuration", "--stdio", "--configuration-policy", "rookchat",
+    )
+    with pytest.raises(PrimeLaunchError):
+        prime_runtime.build_configuration_argv(replace(contract, executable_path=Path("x" * 31000)))
+
+
+def test_configuration_environment_binds_dedicated_directory_without_mutating_base(verified_runtime, tmp_path):
+    from rook.agent.chat.prime_runtime import build_configuration_env
+    contract, _ = verified_runtime
+    environment = {"ROOK_DATA_DIR": "wrong", "rook_data_dir": "also-wrong",
+                   "PRIME_AGENT_CODING_AGENT_DIR": "old", "prime_agent_coding_agent_dir": "other",
+                   "SYSTEMROOT": "C:/Windows", "PATH": "C:/Windows/System32", "pi_offline": "1",
+                   "HTTP_PROXY": "http://127.0.0.1:1", "HTTPS_PROXY": "http://127.0.0.1:2",
+                   "NO_PROXY": "localhost", "NODE_EXTRA_CA_CERTS": "C:/synthetic/ca.pem"}
+    original = dict(environment)
+    child = build_configuration_env(environment, contract, tmp_path)
+    assert environment == original
+    assert child["PRIME_AGENT_CODING_AGENT_DIR"] == str(tmp_path / "prime-config")
+    assert child["ROOK_DATA_DIR"] == str(tmp_path)
+    assert sum(key.upper() == "PRIME_AGENT_CODING_AGENT_DIR" for key in child) == 1
+    assert sum(key.upper() == "ROOK_DATA_DIR" for key in child) == 1
+    assert not any(key.upper() == "PI_OFFLINE" for key in child)
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "SYSTEMROOT"):
+        assert child[key] == original[key]
+    assert not (tmp_path / "prime-config").exists()
+    with pytest.raises(PrimeLaunchError):
+        build_configuration_env(environment, contract, Path("relative"))
+
+
 def _pairs(argv: tuple[str, ...], option: str) -> list[str]:
     return [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == option]
 

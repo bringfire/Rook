@@ -22,6 +22,8 @@ from .prime_runtime_artifact import ID_PATTERN, MAX_ROOT_SKILL_UTF8_BYTES, Runti
 MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS = 30_000
 RUNTIME_SCHEMA_VERSION = 1
 SUPPORTED_REASONING = frozenset({"off", "minimal", "low", "medium", "high", "xhigh", "max"})
+# Adoption is a separate reviewed change. Never probe an older executable for support.
+SUPPORTED_CONFIGURATION_COMMITS: frozenset[str] = frozenset()
 class PrimeLaunchError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
@@ -184,6 +186,25 @@ def build_prime_child_env(
         "UV_PYTHON_INSTALL_REGISTRY": "0", "UV_NO_CONFIG": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
     })
+    return environment
+
+
+def build_configuration_argv(contract: PrimeRuntimeContract) -> tuple[str, ...]:
+    if contract.compatibility_patch_commit not in SUPPORTED_CONFIGURATION_COMMITS:
+        raise PrimeLaunchError("configuration_unavailable")
+    argv = (str(contract.executable_path), "configuration", "--stdio", "--configuration-policy", "rookchat")
+    validate_windows_launch_argv(argv)
+    return argv
+
+
+def build_configuration_env(base_environment: Mapping[str, str], contract: PrimeRuntimeContract, data_root: Path) -> dict[str, str]:
+    if not data_root.is_absolute():
+        raise PrimeLaunchError("invalid_child_environment")
+    environment = {key: value for key, value in base_environment.items()
+                   if key.upper() not in {"ROOK_DATA_DIR", "PRIME_AGENT_CODING_AGENT_DIR"}}
+    environment["ROOK_DATA_DIR"] = str(data_root)
+    environment = build_prime_child_env(environment, contract)
+    environment["PRIME_AGENT_CODING_AGENT_DIR"] = str(data_root / "prime-config")
     return environment
 
 
