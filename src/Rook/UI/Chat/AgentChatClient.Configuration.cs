@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -20,7 +21,7 @@ namespace Rook.UI.Chat
         {
             Operation = operation;
             OperationId = operationId ?? Guid.NewGuid().ToString("N");
-            using var document = JsonDocument.Parse(JsonSerializer.Serialize(input));
+            using var document = JsonDocument.Parse(ConfigurationJson.Serialize(input));
             Input = document.RootElement.Clone();
         }
         internal object Wire() => new { v = 1, type = "begin", operationId = OperationId, operation = Operation, input = Input };
@@ -61,6 +62,29 @@ namespace Rook.UI.Chat
         internal const int InputLimit = 256 * 1024, EventLimit = 2 * 1024 * 1024, TotalLimit = 4 * 1024 * 1024;
         internal static readonly string[] Operations = { "status", "models", "oauth.connect", "oauth.disconnect", "apiKey.set", "apiKey.remove", "endpoint.read", "endpoint.save", "defaults.save" };
         private static readonly UTF8Encoding Utf8 = new(false, true);
+        private static readonly JsonSerializerOptions WriteOptions = new() { Converters = { new StrictStringConverter() } };
+        // Validate the CLR string before System.Text.Json can replace an unpaired surrogate.
+        private sealed class StrictStringConverter : JsonConverter<string>
+        {
+            private static void Validate(string value)
+            {
+                try { _ = Utf8.GetByteCount(value); }
+                catch (EncoderFallbackException) { throw new InvalidDataException("Invalid configuration input."); }
+            }
+            public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+                => throw new NotSupportedException();
+            public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+            {
+                Validate(value);
+                writer.WriteStringValue(value);
+            }
+            public override void WriteAsPropertyName(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+            {
+                Validate(value);
+                writer.WritePropertyName(value);
+            }
+        }
+        internal static string Serialize(object value) => JsonSerializer.Serialize(value, WriteOptions);
         internal static void Need(bool condition) { if (!condition) throw new InvalidDataException("Invalid configuration response."); }
         internal static bool ReadOnly(string op) => op == "status" || op == "models" || op == "endpoint.read";
         internal static string Text(JsonElement v, int max = 256, bool empty = false)
@@ -100,7 +124,7 @@ namespace Rook.UI.Chat
         }
         internal static byte[] Encode(object value, int limit)
         {
-            var bytes = Utf8.GetBytes(JsonSerializer.Serialize(value));
+            var bytes = Utf8.GetBytes(Serialize(value));
             _ = Parse(bytes, limit);
             return bytes;
         }
@@ -233,6 +257,7 @@ namespace Rook.UI.Chat
 
     public sealed partial class AgentChatClient
     {
+        internal Func<CancellationToken, Task<ChatServiceHealth>>? ConfigurationHealthQueryForTests { get; set; }
         private readonly object _configurationLock = new();
         private string? _configurationId;
         private Uri? _configurationUri;
@@ -271,13 +296,21 @@ namespace Rook.UI.Chat
                 ct.ThrowIfCancellationRequested();
                 lock (_configurationLock) { ConfigurationJson.Need(_configurationId == null); _configurationId = begin.OperationId; _configurationCancelled = false; _configurationTerminal = false; owns = true; }
                 registration = ct.Register(CancelOwned);
-                var health = await GetHealthAsync(true, lifetime.Token).ConfigureAwait(false);
+                var health = await (ConfigurationHealthQueryForTests?.Invoke(lifetime.Token) ?? GetHealthAsync(true, lifetime.Token)).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
                 if (!health.ConfigurationAvailable) { result.FailureCode = "configuration_unavailable"; return result; }
                 var uri = health.BaseUri ?? await GetBaseUriAsync(false, lifetime.Token).ConfigureAwait(false);
-                lock (_configurationLock) _configurationUri = uri;
                 using var request = new HttpRequestMessage(HttpMethod.Post, Route(uri, "/agent/chat/configuration")) { Content = new ByteArrayContent(raw) };
                 request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-                using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, lifetime.Token).ConfigureAwait(false);
+                Task<HttpResponseMessage> sending;
+                lock (_configurationLock)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    lifetime.Token.ThrowIfCancellationRequested();
+                    _configurationUri = uri;
+                    sending = _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, lifetime.Token);
+                }
+                using var response = await sending.ConfigureAwait(false);
                 request.Content.Dispose();
                 if (!response.IsSuccessStatusCode) { result.FailureCode = response.StatusCode == System.Net.HttpStatusCode.Conflict ? "configuration_busy" : response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ? "configuration_unavailable" : "configuration_refused"; return result; }
                 lock (_configurationLock)

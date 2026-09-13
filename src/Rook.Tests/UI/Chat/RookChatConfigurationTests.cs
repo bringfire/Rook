@@ -242,6 +242,137 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Theory]
+        [InlineData(true, true)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        [InlineData(false, false)]
+        public async Task Preparation_cancellation_prevents_dispatch(bool cancel, bool healthContainsUri)
+        {
+            using var handler = new Handler(); using var client = Client(handler); using var ct = new CancellationTokenSource();
+            var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource<ChatServiceHealth>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var health = new ChatServiceHealth { ConfigurationAvailable = true, ServiceAvailable = true, BaseUri = healthContainsUri ? BaseUri : null };
+            // Replace only the health query; the real command awaits it and resolves/dispatches normally.
+            client.ConfigurationHealthQueryForTests = _ => { entered.TrySetResult(true); return release.Task; };
+            var operation = client.RunConfigurationAsync(Begin(), _ => Task.CompletedTask, ct.Token);
+            try
+            {
+                await Bounded(entered.Task);
+                Assert.Empty(handler.Requests);
+                if (cancel) ct.Cancel();
+                release.SetResult(health);
+                await Bounded(operation);
+                var result = await operation;
+                if (cancel)
+                {
+                    Assert.Empty(handler.Requests); // Neither a begin write nor a cancellation for an unstarted operation.
+                    Assert.False(result.Successful); Assert.Null(result.Result); Assert.Equal("cancelled", result.DeliveryFailure);
+                }
+                else { Assert.Single(handler.Requests); Assert.True(result.Successful); }
+            }
+            finally { release.TrySetResult(health); await Bounded(operation); }
+        }
+
+        public static IEnumerable<object[]> OutboundUnicodeCases()
+        {
+            foreach (var field in new[] { "apiKey", "provider", "headerName", "headerValue", "endpointUrl", "api", "modelId", "modelName", "defaultModel", "defaultReasoning" })
+                foreach (var form in new[] { "high", "low", "valid", "replacement" })
+                    foreach (var boundary in new[] { "begin", "encode" }) yield return new object[] { field, form, boundary };
+        }
+
+        [Theory]
+        [MemberData(nameof(OutboundUnicodeCases))]
+        public async Task Original_outbound_Unicode_is_rejected_or_preserved_before_serialization(string field, string form, string boundary)
+        {
+            var text = form == "high" ? "synthetic-\ud800-end" : form == "low" ? "synthetic-\udc00-end" :
+                form == "valid" ? "synthetic-e\u0301-\u00e9-\U0001f511" : "synthetic-\ufffd-end";
+            var invalid = form == "high" || form == "low";
+            var input = new Dictionary<string, object?> { ["provider"] = "provider" };
+            var operationName = "endpoint.save";
+            if (field == "apiKey") { operationName = "apiKey.set"; input["key"] = text; }
+            else if (field == "defaultModel" || field == "defaultReasoning")
+            {
+                operationName = "defaults.save"; input["model"] = field == "defaultModel" ? text : "model"; input["reasoning"] = field == "defaultReasoning" ? text : "low";
+            }
+            else
+            {
+                if (field == "provider") input["provider"] = text;
+                input["baseUrl"] = field == "endpointUrl" ? text : "http://localhost:11434/v1";
+                input["api"] = field == "api" ? text : "openai-completions";
+                input["authHeader"] = true;
+                input["headers"] = new { action = "replace", values = new Dictionary<string, string> { [field == "headerName" ? text : "X-Local"] = field == "headerValue" ? text : "literal" } };
+                input["models"] = new[] { new { id = field == "modelId" ? text : "model", name = field == "modelName" ? text : "Model", reasoning = true, input = new[] { "text" }, contextWindow = 1000, maxTokens = 100 } };
+            }
+            using var handler = new Handler(); using var client = Client(handler);
+            InvalidDataException? refusal = null;
+            ConfigurationSettlement? result = null;
+            try
+            {
+                // Endpoint editing also uses Encode before constructing a begin record.
+                object original = boundary == "encode" ? ConfigurationJson.Parse(ConfigurationJson.Encode(input, ConfigurationJson.InputLimit), ConfigurationJson.InputLimit) : (object)input;
+                var begin = new ConfigurationBegin(operationName, original);
+                result = await client.RunConfigurationAsync(begin, _ => Task.CompletedTask, CancellationToken.None);
+            }
+            catch (InvalidDataException ex) { refusal = ex; }
+            if (invalid)
+            {
+                Assert.Empty(handler.Requests);
+                Assert.NotNull(refusal);
+                Assert.DoesNotContain("synthetic", refusal!.Message);
+                Assert.Null(refusal.InnerException);
+            }
+            else
+            {
+                Assert.Null(refusal); Assert.True(result!.Successful);
+                var sent = Assert.Single(handler.Requests).GetProperty("input");
+                var observed = field switch
+                {
+                    "apiKey" => sent.GetProperty("key").GetString(),
+                    "provider" => sent.GetProperty("provider").GetString(),
+                    "defaultModel" => sent.GetProperty("model").GetString(),
+                    "defaultReasoning" => sent.GetProperty("reasoning").GetString(),
+                    "endpointUrl" => sent.GetProperty("baseUrl").GetString(),
+                    "api" => sent.GetProperty("api").GetString(),
+                    "headerName" => sent.GetProperty("headers").GetProperty("values").EnumerateObject().Single().Name,
+                    "headerValue" => sent.GetProperty("headers").GetProperty("values").GetProperty("X-Local").GetString(),
+                    "modelId" => sent.GetProperty("models")[0].GetProperty("id").GetString(),
+                    _ => sent.GetProperty("models")[0].GetProperty("name").GetString(),
+                };
+                Assert.Equal(text, observed); // Includes decomposed text and a legitimate U+FFFD; no normalization.
+            }
+        }
+
+        [Fact]
+        public async Task Cancellation_after_dispatch_waits_for_admission_and_uses_fresh_control()
+        {
+            using var stream = new ControlledStream(); using var ct = new CancellationTokenSource();
+            var sent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var headers = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            JsonElement begin = default;
+            using var handler = new Handler(b => { begin = b; sent.TrySetResult(true); return StreamResponse(stream); }) { BeforeBeginResponse = headers.Task };
+            handler.Control = c =>
+            {
+                Assert.Equal("cancel", c.GetProperty("type").GetString());
+                Assert.False(handler.LastControlTokenCancelled);
+                stream.Push(Line(Result(begin)) + Line(Settled(Result(begin)))); stream.Finish();
+            };
+            using var client = Client(handler);
+            var operation = client.RunConfigurationAsync(Begin(), _ => Task.CompletedTask, ct.Token);
+            try
+            {
+                await Bounded(sent.Task); ct.Cancel();
+                Assert.Single(handler.Requests); // The service has not confirmed admission yet.
+                headers.SetResult(true);
+                await Bounded(operation);
+                var result = await operation;
+                Assert.Equal("saved", result.Result!.Persistence); Assert.Equal("exited", result.Cleanup);
+                Assert.Single(handler.Requests, r => r.GetProperty("type").GetString() == "begin");
+                Assert.Single(handler.Requests, r => r.GetProperty("type").GetString() == "cancel");
+            }
+            finally { headers.TrySetResult(true); stream.Finish(); await Bounded(operation); }
+        }
+
+        [Theory]
         [InlineData("unknown", "failed", "storage_failed")]
         [InlineData("unchanged", "cancelled", "cancelled")]
         public async Task Dialog_keeps_unknown_and_cancelled_outcomes_distinct(string persistence, string outcome, string code)
@@ -508,6 +639,7 @@ namespace Rook.Tests.UI.Chat
         {
             internal Func<JsonElement, HttpResponseMessage> Begin;
             internal Action<JsonElement>? Control;
+            internal Task BeforeBeginResponse = Task.CompletedTask;
             internal bool LastControlTokenCancelled;
             private readonly ConcurrentQueue<JsonElement> _requests = new();
             internal List<JsonElement> Requests => _requests.ToList();
@@ -519,7 +651,12 @@ namespace Rook.Tests.UI.Chat
                 Assert.Equal("synthetic-nonce", request.Headers.GetValues("X-Rook-Session").Single());
                 using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
                 var body = document.RootElement.Clone(); _requests.Enqueue(body);
-                if (request.RequestUri.AbsolutePath == "/agent/chat/configuration") return Begin(body);
+                if (request.RequestUri.AbsolutePath == "/agent/chat/configuration")
+                {
+                    var response = Begin(body);
+                    await BeforeBeginResponse;
+                    return response;
+                }
                 Assert.Contains(request.RequestUri.AbsolutePath, new[] { "/agent/chat/configuration/reply", "/agent/chat/configuration/cancel" });
                 LastControlTokenCancelled = cancellationToken.IsCancellationRequested;
                 Control?.Invoke(body); return new HttpResponseMessage(HttpStatusCode.NoContent);
