@@ -253,7 +253,7 @@ namespace Rook.UI.Chat
     /// Authenticated HTTP client for the ACP-backed RookChat product service.
     /// This type maps product JSON only; it does not implement ACP.
     /// </summary>
-    public sealed class AgentChatClient : IDisposable
+    public sealed partial class AgentChatClient : IDisposable
     {
         internal const int MaxErrorMessageUtf8Bytes = 8 * 1024;
         internal const int MaxErrorBodyUtf8Bytes = 64 * 1024;

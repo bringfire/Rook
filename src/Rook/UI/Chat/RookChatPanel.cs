@@ -22,6 +22,7 @@ namespace Rook.UI.Chat
     {
         private uint _documentSerialNumber;
         private readonly Panel _tabHost;
+        private bool _configurationOpen, _panelDisposed;
         private readonly Dictionary<uint, TabControl> _tabControlsByDocument = new();
         private readonly HostedPanelLifecycleAdapter _lifecycle =
             new(typeof(RookChatPanel));
@@ -51,11 +52,13 @@ namespace Rook.UI.Chat
             // ── Toolbar ───────────────────────────────────────────────────
             var addButton = new Button { Text = "+", Width = 36, Height = 28 };
             addButton.Click += OnAddTabClicked;
+            var settingsButton = new Button { Text = "Settings", Height = 28 };
+            settingsButton.Click += OnConfigurationClicked;
             var toolbar = new TableLayout
             {
                 Padding = new Padding(4, 2),
                 Spacing = new Size(4, 0),
-                Rows = { new TableRow(addButton, null) }
+                Rows = { new TableRow(addButton, null, settingsButton) }
             };
 
             // ── Main layout ───────────────────────────────────────────────
@@ -424,6 +427,33 @@ namespace Rook.UI.Chat
 
         // ─── "+" button handler ─────────────────────────────────────────
 
+        private async void OnConfigurationClicked(object? sender, EventArgs e)
+        {
+            if (_configurationOpen || _panelDisposed) return;
+            _configurationOpen = true;
+            try
+            {
+                using var client = new AgentChatClient();
+                var health = await client.GetHealthAsync(startIfNeeded: true);
+                if (_panelDisposed) return;
+                if (!health.ServiceAvailable)
+                {
+                    MessageBox.Show(this, "Chat configuration service is unavailable.", "RookChat Settings");
+                    return;
+                }
+                client.SetSessionNonce(ChatServiceManager.Instance.SessionNonce);
+                using var dialog = new RookChatConfigurationDialog(client);
+                dialog.Shown += async (_, _) => await dialog.InitializeAsync();
+                dialog.ShowModal(this);
+                await dialog.PendingOperation;
+            }
+            catch
+            {
+                if (!_panelDisposed) MessageBox.Show(this, "Configuration could not complete. A saved change is not rolled back by a communication failure.", "RookChat Settings");
+            }
+            finally { _configurationOpen = false; }
+        }
+
         private async void OnAddTabClicked(object? sender, EventArgs e)
         {
             try
@@ -521,6 +551,7 @@ namespace Rook.UI.Chat
         {
             if (disposing)
             {
+                _panelDisposed = true;
                 _cleanup.DrainAll();
                 foreach (var tabControl in _tabControlsByDocument.Values)
                 {

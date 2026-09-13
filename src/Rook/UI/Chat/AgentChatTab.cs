@@ -576,10 +576,10 @@ namespace Rook.UI.Chat
 
         private void ShowRequestedSettings(string? model, string? reasoning)
         {
-            if (string.IsNullOrEmpty(model) && string.IsNullOrEmpty(reasoning)) return;
             var parts = new List<string>();
             if (!string.IsNullOrEmpty(model)) parts.Add("Requested model: " + model);
             if (!string.IsNullOrEmpty(reasoning)) parts.Add("reasoning: " + reasoning);
+            parts.Add("Effective settings: unknown");
             SetAuxiliaryRow(new Label { Text = string.Join("; ", parts), TextColor = Colors.Gray });
         }
 
