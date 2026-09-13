@@ -16,7 +16,28 @@ def send(event_type, **fields):
     sys.stdout.buffer.flush()
 
 
-if case == "invalid":
+if case.startswith("delivery-"):
+    _, event_type, outcome = case.split("-")
+    if event_type == "authorize":
+        send("authorize", url="https://example.invalid/authorize?state=SYNTHETIC_PRIVATE_URL",
+             instructionCode="open_browser", instructions="SYNTHETIC_DEVICE_CODE")
+        # This request can already be in flight when authorization delivery fails.
+        send("input", requestId=1, kind="code", label="Synthetic input", secret=True)
+    else:
+        send("progress", stage="saving")
+    assert json.loads(sys.stdin.buffer.readline()) == {"v": 1, "type": "cancel", "operationId": begin["operationId"]}
+    if outcome == "malformed":
+        sys.stdout.buffer.write(b'{"v":1,"v":1}\n')
+        sys.stdout.buffer.flush()
+    elif outcome == "overflow":
+        sys.stdout.buffer.write(b"x" * (2 * 1024 * 1024 + 1))
+        sys.stdout.buffer.flush()
+    else:
+        send("progress", stage="reading_back")
+        send("result", outcome="completed" if outcome == "saved" else "cancelled",
+             persistence=outcome, code="ok" if outcome == "saved" else "cancelled")
+        sys.exit(0 if outcome == "saved" else 1)
+elif case == "invalid":
     sys.stdout.buffer.write(b'{"v":1,"v":1}\n')
     sys.stdout.buffer.flush()
 elif case == "partial":

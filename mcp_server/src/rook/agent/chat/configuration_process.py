@@ -60,7 +60,8 @@ class PrimeConfigurationOperation:
         return self._cleanup_end
 
     def _stop(self, code: str | None, *, trusted: bool = True) -> None:
-        if code and (self.failure_code is None or self.failure_code == "cancelled"):
+        if code and (self.failure_code is None or self.failure_code == "cancelled" or
+                     (self.failure_code == "output_failed" and code in {"protocol_error", "bounds_exceeded"})):
             self.failure_code = code
         self._trusted &= trusted
         self._pending = None
@@ -116,6 +117,7 @@ class PrimeConfigurationOperation:
 
     async def _stdout(self, emit) -> None:
         pending = bytearray()
+        delivery_failed = False
         try:
             while chunk := await self.process.stdout.read(16384):
                 self._stdout_bytes += len(chunk)
@@ -129,7 +131,8 @@ class PrimeConfigurationOperation:
                     wire.require(self._begun and self.result is None)
                     record = wire.validate_event(wire.parse_record(raw, wire.OUTPUT_RECORD), self.begin)
                     if record["type"] == "input":
-                        wire.require(not self._cancelled and self._pending is None and record["requestId"] > self._request_id)
+                        wire.require((not self._cancelled or delivery_failed) and
+                                     self._pending is None and record["requestId"] > self._request_id)
                         self._request_count += 1
                         wire.require(self._request_count <= 16, "bounds_exceeded")
                         self._request_id = record["requestId"]
@@ -138,7 +141,15 @@ class PrimeConfigurationOperation:
                         self.result = wire.ConfigurationResult(record["operationId"], record["outcome"], record["persistence"],
                                                                record["code"], record.get("data"))
                         self._stop(None)
-                    await emit(record)
+                    if not delivery_failed:
+                        try:
+                            await emit(record)
+                        except Exception:
+                            # A lost HTTP sink is not a broken Prime protocol. Keep draining
+                            # in-flight events and the terminal result within existing cleanup.
+                            delivery_failed = True
+                            self._stop("output_failed")
+                            self.cancel(self.begin.operation_id)
                 wire.require(len(pending) < wire.OUTPUT_RECORD, "bounds_exceeded")
             wire.require(not pending)
             if self.result is None:

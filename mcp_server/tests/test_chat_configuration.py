@@ -568,6 +568,47 @@ async def test_output_delivery_failure_preserves_saved_result(configured, caplog
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("event_type", ["authorize", "progress"])
+@pytest.mark.parametrize("persistence", ["unchanged", "saved"])
+@pytest.mark.parametrize("error_type", [ConnectionError, ValueError])
+async def test_pre_result_delivery_failure_cancels_and_drains(configured, caplog, event_type, persistence, error_type):
+    from rook.agent.chat.configuration_protocol import validate_begin
+    dependency, _, children, _ = configured
+    dependency.base_environment["ROOK_CONFIGURATION_TEST_CASE"] = f"delivery-{event_type}-{persistence}"
+    attempted = []
+    async def failed_emit(record):
+        attempted.append(record["type"])
+        raise error_type("SYNTHETIC_PRIVATE")
+    owner = dependency.start(validate_begin(begin("oauth.connect", provider="synthetic")), failed_emit)
+    settlement = await asyncio.wait_for(asyncio.shield(dependency.task), 3)
+    assert attempted == [event_type]  # Never try the retired sink again.
+    assert owner._stdin_count == 2  # The child additionally asserts the exact cancellation frame.
+    assert settlement.result is not None
+    assert settlement.result.persistence == persistence
+    assert settlement.result.outcome == ("completed" if persistence == "saved" else "cancelled")
+    assert settlement.failure_code == "output_failed"  # Saved + exit 0 is still not overall success.
+    assert settlement.cleanup == "exited"
+    assert settlement.exit_code == children[0].returncode == (0 if persistence == "saved" else 1)
+    assert owner._trusted and not owner.begin.input
+    assert "SYNTHETIC_PRIVATE" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome,code", [("malformed", "protocol_error"), ("overflow", "bounds_exceeded")])
+async def test_retired_sink_does_not_waive_protocol_validation(configured, outcome, code):
+    from rook.agent.chat.configuration_protocol import validate_begin
+    dependency, _, children, _ = configured
+    dependency.base_environment["ROOK_CONFIGURATION_TEST_CASE"] = f"delivery-progress-{outcome}"
+    async def failed_emit(record):
+        raise ConnectionError("SYNTHETIC_PRIVATE")
+    owner = dependency.start(validate_begin(begin("oauth.connect", provider="synthetic")), failed_emit)
+    settlement = await asyncio.wait_for(asyncio.shield(dependency.task), 3)
+    assert owner._stdin_count == 2 and not owner._trusted
+    assert settlement.result is None and settlement.failure_code == code
+    assert settlement.cleanup == "exited" and children[0].returncode is not None
+
+
+@pytest.mark.asyncio
 async def test_caller_cancellation_retains_exact_child_cleanup(configured, tmp_path):
     dependency, _, children, _ = configured
     dependency.base_environment["ROOK_CONFIGURATION_TEST_CASE"] = "oauth"
