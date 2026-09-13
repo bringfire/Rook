@@ -53,6 +53,10 @@ class PrimeRuntimeContract:
     claim_key_version: int
 
 
+def supports_configuration(contract: PrimeRuntimeContract) -> bool:
+    return contract.compatibility_patch_commit in SUPPORTED_CONFIGURATION_COMMITS
+
+
 class RuntimeCatalog(Protocol):
     def latest(self) -> PrimeRuntimeContract: ...
 
@@ -135,6 +139,8 @@ def build_prime_argv(
         "--resume",
         str(session_path),
     ]
+    if supports_configuration(contract):
+        values.extend(("--configuration-policy", "rookchat"))
     if requested_model is not None:
         values.extend(("--model", requested_model))
     if requested_reasoning is not None:
@@ -190,7 +196,7 @@ def build_prime_child_env(
 
 
 def build_configuration_argv(contract: PrimeRuntimeContract) -> tuple[str, ...]:
-    if contract.compatibility_patch_commit not in SUPPORTED_CONFIGURATION_COMMITS:
+    if not supports_configuration(contract):
         raise PrimeLaunchError("configuration_unavailable")
     argv = (str(contract.executable_path), "configuration", "--stdio", "--configuration-policy", "rookchat")
     validate_windows_launch_argv(argv)

@@ -21,6 +21,25 @@ from rook.agent.chat import service_main
 FAKE_AGENT = Path(__file__).parent / "fixtures" / "fake_acp_agent.py"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("update_first", [False, True])
+async def test_task7_session_response_cannot_overwrite_newer_update(tmp_path, update_first):
+    from acp.schema import NewSessionResponse
+    from .test_chat_acp_client import _settings_update
+    client = RookChatAcpClient()
+    initial = {"provider": "actual", "model": "initial", "reasoning": "low"}
+    latest = {**initial, "model": "latest"}
+    async def new_session(**kwargs):
+        if update_first:
+            await client.session_update("acp-session", _settings_update(latest, 1))
+        return NewSessionResponse.model_validate({"sessionId": "acp-session", "_meta": {
+            "ai.primeintellect.prime-agent": {"effectiveSettings": initial}}})
+    owner = OwnedAcpProcess(PrimeLaunch(("synthetic",), {}, tmp_path), None, 3, client,
+                            None, SimpleNamespace(new_session=new_session), None)
+    await owner.new_session(cwd=tmp_path, mcp_servers=[])
+    assert getattr(client, "effective_settings", None) == (latest if update_first else initial)
+
+
 def _read_journal(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 

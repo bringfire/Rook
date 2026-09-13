@@ -128,6 +128,37 @@ def _pair(argv: tuple[str, ...], option: str) -> str:
     return argv[index + 1]
 
 
+@pytest.mark.parametrize("supported", [False, True])
+@pytest.mark.parametrize("reopen", [False, True])
+def test_task7_configuration_and_acp_share_authority(verified_runtime, tmp_path, monkeypatch, supported, reopen):
+    from types import SimpleNamespace
+    from rook.agent.chat import prime_runtime
+    from rook.agent.chat.acp_conversation import DirectAcpProcessFactory
+    contract, _ = verified_runtime
+    base = {"ROOK_DATA_DIR": str(tmp_path / "data"), "PATH": "fixture-path",
+            "prime_agent_coding_agent_dir": str(tmp_path / "ambient"),
+            "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "localhost"}
+    association = SimpleNamespace(session_path=str(tmp_path / "sessions/a.jsonl"),
+        working_directory=str(tmp_path / "document"), requested_initial_model="p/requested",
+        requested_initial_reasoning="high")
+    legacy = prime_runtime.build_prime_child_env(base, contract)
+    monkeypatch.setattr(prime_runtime, "SUPPORTED_CONFIGURATION_COMMITS",
+                        frozenset({contract.compatibility_patch_commit}) if supported else frozenset())
+    prepared = DirectAcpProcessFactory(base).prepare(contract, association, reopen).launch
+    assert prepared.cwd == Path(association.working_directory)
+    assert _pair(prepared.argv, "--resume") == association.session_path
+    assert ("--model" in prepared.argv) == (not reopen)
+    if supported:
+        assert _pair(prepared.argv, "--configuration-policy") == "rookchat"
+        assert prepared.environment == prime_runtime.build_configuration_env(base, contract, tmp_path / "data")
+        assert [k for k in prepared.environment if k.upper() == "PRIME_AGENT_CODING_AGENT_DIR"] == ["PRIME_AGENT_CODING_AGENT_DIR"]
+        assert prepared.environment["PRIME_AGENT_CODING_AGENT_DIR"] == str(tmp_path / "data/prime-config")
+    else:
+        assert "--configuration-policy" not in prepared.argv
+        assert prepared.environment == legacy
+    assert base["prime_agent_coding_agent_dir"] == str(tmp_path / "ambient")
+
+
 def test_configuration_requires_explicit_adoption_and_exact_argv(verified_runtime, monkeypatch):
     from rook.agent.chat import prime_runtime
     contract, root = verified_runtime

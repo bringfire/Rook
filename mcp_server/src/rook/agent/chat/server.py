@@ -216,6 +216,7 @@ def _conversation_id(request: web.Request) -> str:
 
 def _view_payload(view: ConversationView) -> dict[str, object]:
     return {
+        **({"effectiveSettings": view.effective_settings} if view.effective_settings is not None else {}),
         "conversationId": view.conversation_id,
         "durable": view.durable,
         "targetAvailable": view.target_available,
@@ -349,9 +350,12 @@ class _HttpPresentationSink:
         else:
             # Session/configuration metadata is not an in-progress tool. The
             # ACP callback has already observed it; omit it from panel cards.
-            return
+            payload = None
         try:
-            await self._response.write(_ndjson(payload))
+            if event.effective_settings is not None:
+                await self._response.write(_ndjson({"type": "session_status", "effectiveSettings": event.effective_settings}))
+            if payload is not None:
+                await self._response.write(_ndjson(payload))
         except (ConnectionResetError, ConnectionError):
             self._failed = True
             if self._supervisor is not None:

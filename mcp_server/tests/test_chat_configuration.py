@@ -20,6 +20,189 @@ NONCE = "synthetic-nonce"
 HEADERS = {server.SESSION_HEADER: NONCE, "Origin": server.ALLOWED_ORIGIN}
 
 
+# Executed only in a test-local child. All configuration/session owners and ACP
+# serialization are pinned Prime code; network, subprocesses and inference are forbidden.
+_TASK7_PRODUCER = r'''
+import cp from 'node:child_process';
+import net from 'node:net';
+import tls from 'node:tls';
+import {syncBuiltinESMExports, createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import {join} from 'node:path';
+import {writeFileSync, realpathSync} from 'node:fs';
+import {PassThrough, Writable, Readable} from 'node:stream';
+import assert from 'node:assert/strict';
+const root = process.env.TASK7_PRIME_ROOT;
+const require = createRequire(join(root, 'package.json'));
+const originalWrite = process.stdout.write.bind(process.stdout);
+const failed = error => { writeFileSync(process.env.TASK7_REPORT, JSON.stringify({fixtureError:String(error?.stack ?? error).slice(0,4096)})); process.exitCode = 1; };
+process.on('uncaughtException', failed);
+process.on('unhandledRejection', failed);
+let contacts = 0;
+const block = () => { contacts++; throw Error('forbidden external boundary'); };
+for (const name of ['spawn','spawnSync','exec','execSync','execFile','execFileSync','fork']) cp[name] = block;
+net.Socket.prototype.connect = block; tls.connect = block; globalThis.fetch = block;
+syncBuiltinESMExports();
+for (const name of ['tsx','@agentclientprotocol/sdk','@earendil-works/pi-ai','@earendil-works/pi-agent-core','@earendil-works/pi-tui'])
+  assert.ok(realpathSync(require.resolve(name)).toLowerCase().startsWith(root.toLowerCase()));
+const load = path => import(pathToFileURL(join(root, path)).href);
+const {runConfigurationCommand} = await load('packages/coding-agent/src/cli/configuration-command.ts');
+const {SettingsManager} = await load('packages/coding-agent/src/core/settings-manager.ts');
+const {getModels} = await load('packages/ai/src/index.ts');
+const {createHarness} = await load('packages/coding-agent/test/suite/harness.ts');
+const {InProcessAgentConnection} = await load('packages/coding-agent/src/modes/agent-connection/in-process-agent-connection.ts');
+const {runAcpModeWithConnection} = await load('packages/coding-agent/src/modes/acp/acp-mode.ts');
+const acp = await import(pathToFileURL(require.resolve('@agentclientprotocol/sdk')).href);
+const directory = process.env.PRIME_AGENT_CODING_AGENT_DIR;
+const models = getModels('openai').filter(m => !m.reasoning).slice(0, 2);
+assert.equal(models.length, 2);
+const results = [];
+async function save(model) {
+  const input = new PassThrough();
+  const rows = [];
+  const output = new Writable({write(chunk, _, done) { rows.push(JSON.parse(chunk)); done(); }});
+  const running = runConfigurationCommand(input, output);
+  input.end(JSON.stringify({v:1,type:'begin',operationId:'a'.repeat(32),operation:'defaults.save',
+    input:{provider:model.provider,model:model.id,reasoning:'off'}})+'\n');
+  assert.equal(await running, 0);
+  assert.equal(rows.at(-1).persistence, 'saved');
+  const loaded = SettingsManager.create(directory, directory, {allowProjectResources:false});
+  assert.equal(loaded.getDefaultModel(), model.id);
+  results.push({model:loaded.getDefaultModel(),provider:loaded.getDefaultProvider(),reasoning:loaded.getDefaultThinkingLevel()});
+}
+await save(models[0]);
+const harness = await createHarness({provider:'task7-synthetic',models:[{id:'actual-c',reasoning:false},{id:'actual-d',reasoning:true}]});
+harness.session.setThinkingLevel('high');
+assert.equal(harness.session.thinkingLevel, 'off');
+const connection = new InProcessAgentConnection({session:harness.session,setRebindSession(){},setBeforeSessionInvalidate(){},async dispose(){}});
+// Replace only external MCP acquisition. Rook's real declaration must still reach Prime.
+let mcpDeclarations = 0;
+connection.supportsAcpMcpServers = () => true;
+connection.replaceAcpMcpServers = async servers => { assert.deepEqual(servers.map(s => s.name), ['rook']); mcpDeclarations++; };
+connection.releaseAcpMcpServers = async () => {};
+let followup;
+let seen = false;
+const out = new Writable({write(chunk, _, done) { originalWrite(chunk, done); }});
+const raw = acp.ndJsonStream(Writable.toWeb(out), Readable.toWeb(process.stdin));
+const stream = {readable:raw.readable,writable:new WritableStream({async write(message) {
+  const writer = raw.writable.getWriter();
+  try { await writer.write(message); } finally { writer.releaseLock(); }
+  if (message.result?.sessionId && !seen) {
+    seen = true;
+    followup = (async () => {
+      const before = await connection.getState();
+      await save(models[1]);
+      const afterSave = await connection.getState();
+      assert.equal(afterSave.model.id, before.model.id);
+      assert.equal(afterSave.thinkingLevel, before.thinkingLevel);
+      await harness.session.setModel(harness.models[1]);
+      harness.session.setThinkingLevel('high');
+      writeFileSync(process.env.TASK7_REPORT, JSON.stringify({defaults:results,
+        initial:message.result,afterSave:{model:afterSave.model.id,reasoning:afterSave.thinkingLevel},contacts,mcpDeclarations}));
+    })();
+    followup.catch(() => { process.exitCode = 1; });
+  }
+}})};
+try {
+  await runAcpModeWithConnection(connection, {stream});
+  await followup;
+  assert.equal(contacts, 0);
+} finally {
+  await connection.dispose();
+  harness.cleanup();
+}
+'''
+
+
+@pytest.mark.asyncio
+async def test_task7_real_prime_writer_sdk_http_and_panel_fixture(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from rook.agent.chat.acp_process import OwnedAcpProcess, PrimeLaunch
+    from .test_chat_acp_conversation import _manager, DirectAcpProcessFactory
+    from .test_chat_server import _create_body
+    prime = Path("D:/prime-agent/.worktrees/rookchat-configuration")
+    node = Path("C:/Program Files/nodejs/node.exe")
+    loader = prime / "node_modules/tsx/dist/loader.mjs"
+    assert node.is_file() and loader.is_file(), "approved existing Node/loader required"
+    script = tmp_path / "producer.mts"
+    script.write_text(_TASK7_PRODUCER, encoding="utf-8")
+    report = tmp_path / "producer.json"
+    manager, _, catalog, _, _ = _manager(tmp_path)
+    monkeypatch.setattr(prime_runtime, "SUPPORTED_CONFIGURATION_COMMITS", frozenset({catalog.contract.compatibility_patch_commit}))
+    base = {"ROOK_DATA_DIR": str(tmp_path / "data"), "SystemRoot": os.environ["SystemRoot"],
+            "PATH": "", "HOME": str(tmp_path), "USERPROFILE": str(tmp_path), "TEMP": str(tmp_path), "TMP": str(tmp_path),
+            "TASK7_PRIME_ROOT": str(prime), "TASK7_REPORT": str(report),
+            "TSX_TSCONFIG_PATH": str(prime / "tsconfig.json"), "TSX_DISABLE_CACHE": "1",
+            "ESBUILD_BINARY_PATH": str(prime / "node_modules/@esbuild/win32-x64/esbuild.exe"), "DO_NOT_TRACK": "1"}
+    direct = DirectAcpProcessFactory(base)
+    owners = []
+    diagnostics = bytearray()
+    failures = []
+    exception_response = server._exception_response
+    def retain_synthetic_error(error):
+        failures.append(repr(error)[:2048])
+        return exception_response(error)
+    monkeypatch.setattr(server, "_exception_response", retain_synthetic_error)
+    drain = OwnedAcpProcess._drain_stderr
+    async def retain_synthetic_stderr(owner, reader):
+        class Tee:
+            async def read(self, size):
+                data = await reader.read(size)
+                diagnostics.extend(data[:max(0, 4096 - len(diagnostics))])
+                return data
+        await drain(owner, Tee())
+    monkeypatch.setattr(OwnedAcpProcess, "_drain_stderr", retain_synthetic_stderr)
+    class Factory:
+        def prepare(self, contract, association, reopen):
+            prepared = direct.prepare(contract, association, reopen)
+            assert prepared.launch.environment["PRIME_AGENT_CODING_AGENT_DIR"] == str(tmp_path / "data/prime-config")
+            assert "--configuration-policy" in prepared.launch.argv
+            launch = replace(prepared.launch, argv=(str(node), "--import", loader.as_uri(), str(script)))
+            class Prepared:
+                async def start(self, claim, *, launch_generation):
+                    owner = await OwnedAcpProcess.start(launch, claim, launch_generation=launch_generation)
+                    owners.append(owner)
+                    return owner
+            return Prepared()
+    manager._process_factory = Factory()
+    try:
+        async with TestClient(TestServer(server.create_chat_app(manager, expected_nonce=NONCE))) as client:
+            response = await client.post("/agent/chat/conversations", headers=HEADERS,
+                json=_create_body(savedDocumentDirectory=None, model="requested/b", reasoning="high"))
+            view = await response.json()
+            assert response.status == 201, (view, failures, len(owners), diagnostics.decode("utf-8", errors="replace"), report.read_text(encoding="utf-8") if report.exists() else "no fixture report")
+            assert view["effectiveSettings"] == {"provider": "task7-synthetic", "model": "actual-c", "reasoning": "off"}
+            async with asyncio.timeout(5):
+                while not report.exists() or owners[0].client.effective_settings["reasoning"] != "high":
+                    await asyncio.sleep(.01)
+            assert report.stat().st_size < 16 * 1024
+            proof = json.loads(report.read_text(encoding="utf-8"))
+            assert proof["contacts"] == 0
+            assert proof["mcpDeclarations"] == 1
+            assert proof["defaults"][0] != proof["defaults"][1]
+            assert proof["afterSave"] == {"model": "actual-c", "reasoning": "off"}
+            assert owners[0].client.effective_settings == {"provider": "task7-synthetic", "model": "actual-d", "reasoning": "high"}
+            # Retain the real HTTP/producer values for the separately hosted managed parser test.
+            output = os.environ.get("ROOK_TASK7_HTTP_FIXTURE")
+            if output:
+                from rook.agent.chat.acp_presentation import ProjectedEvent
+                class Capture:
+                    def __init__(self): self.rows = []
+                    async def write(self, data): self.rows.append(json.loads(data))
+                capture = Capture()
+                sink = server._HttpPresentationSink(capture)
+                sink.mark_prepared()
+                await sink.write(ProjectedEvent(-1, "session_status", None, None, None,
+                                                dict(owners[0].client.effective_settings)))
+                Path(output).write_text(json.dumps({"view": view, "status": capture.rows[0], "producer": proof}), encoding="utf-8")
+            closed = await manager.close(view["conversationId"])
+            assert closed.outcome == "clean" and closed.child_exit_observed
+    finally:
+        await manager.shutdown()
+        assert all(owner.child_exit_observed for owner in owners)
+        assert all(owner.process.returncode == 0 for owner in owners)
+
+
 def begin(operation="status", **inputs):
     return {"v": 1, "type": "begin", "operationId": "a" * 32, "operation": operation, "input": inputs}
 

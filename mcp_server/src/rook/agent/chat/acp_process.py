@@ -184,15 +184,13 @@ class OwnedAcpProcess:
     ) -> str:
         if self.session_id is not None:
             raise RuntimeError("ACP session already exists")
+        self.client.begin_session(self.launch_generation)
         response = await asyncio.wait_for(
             self.connection.new_session(cwd=str(cwd), mcp_servers=list(mcp_servers)),
             timeout=ACP_CONTROL_TIMEOUT_SECONDS,
         )
         self.session_id = response.session_id
-        self.client.reset_for_session(
-            launch_generation=self.launch_generation,
-            acp_session_id=self.session_id,
-        )
+        self.client.complete_session(self.session_id, response.field_meta)
         return self.session_id
 
     async def prompt(
@@ -282,6 +280,7 @@ class OwnedAcpProcess:
         release_claim: bool = True,
     ) -> asyncio.Task[RetirementResult]:
         if self._retirement_task is None:
+            self.client.retire_session_settings()
             self._retirement_task = asyncio.create_task(
                 self._retire_once(send_close=send_close, release_claim=release_claim)
             )

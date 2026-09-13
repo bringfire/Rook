@@ -18,6 +18,29 @@ from rook.agent.chat.acp_presentation import (
 )
 
 
+@pytest.mark.asyncio
+async def test_task7_settings_status_preserves_text_and_tool_order():
+    from rook.agent.chat.acp_client import RookChatAcpClient
+    from .test_chat_acp_client import _settings_update
+    from acp import update_agent_message_text
+    from acp.schema import ToolCallStart
+    generation = PromptGeneration(1, "acp-session", "prompt")
+    queue = PresentationQueue()
+    projection = BoundedPromptProjection(generation=generation, queue=queue, user_text="question")
+    client = RookChatAcpClient()
+    client.activate_prompt(generation, projection, asyncio.Event())
+    await client.session_update("acp-session", update_agent_message_text("before"))
+    value = {"provider": "p", "model": "c", "reasoning": "off"}
+    await client.session_update("acp-session", _settings_update(value))
+    await client.session_update("acp-session", ToolCallStart(session_update="tool_call", tool_call_id="t", title="Tool", status="pending"))
+    await client.session_update("acp-session", update_agent_message_text("after"))
+    rows = queue.snapshot()
+    assert rows[1].effective_settings == value
+    assert [row.source_ordinal for row in rows] == [0, 1, 2, 3]
+    turn = projection.finalize("end_turn")
+    assert turn.assistant_text == "beforeafter"
+    assert len(turn.tool_cards) == 1
+
 def _event(
     ordinal: int,
     kind: str,

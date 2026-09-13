@@ -19,6 +19,7 @@ from .acp_presentation import (
     PresentationCache,
     PresentationQueue,
     PresentationSink,
+    ProjectedEvent,
     PromptGeneration,
     map_stop_reason,
 )
@@ -38,6 +39,8 @@ from .prime_runtime import (
     RuntimeCatalog,
     build_prime_argv,
     build_prime_child_env,
+    build_configuration_env,
+    supports_configuration,
     build_rook_mcp_server,
 )
 
@@ -103,6 +106,7 @@ class ConversationView:
     conversation_id: str
     durable: bool
     target_available: bool
+    effective_settings: dict[str, str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -224,7 +228,11 @@ class DirectAcpProcessFactory:
             None if reopen else association.requested_initial_reasoning,
             reopen,
         )
-        environment = build_prime_child_env(self._base_environment, contract)
+        # The service injects this canonical root; neither cwd nor session paths own configuration.
+        environment = (build_configuration_env(self._base_environment, contract,
+                       Path(self._base_environment["ROOK_DATA_DIR"]))
+                       if supports_configuration(contract)
+                       else build_prime_child_env(self._base_environment, contract))
         return PreparedDirectAcpLaunch(
             PrimeLaunch(argv=argv, environment=environment, cwd=Path(association.working_directory))
         )
@@ -423,6 +431,8 @@ class AcpConversationManager:
         )
         presentation_failed = asyncio.Event()
         consumer = asyncio.create_task(self._consume_projection(queue, sink, presentation_failed))
+        await queue.admit(ProjectedEvent(-1, "session_status", None, None, None,
+                                        dict(resident.process.client.effective_settings)))
         blocks: list[TextContentBlock | ImageContentBlock] = [TextContentBlock(type="text", text=prompt.text)]
         blocks.extend(image.acp_block for image in prompt.images)
         prompt_task = asyncio.create_task(
@@ -723,6 +733,7 @@ class AcpConversationManager:
             conversation_id=resident.association.conversation_id,
             durable=resident.durable,
             target_available=self._binding_available(resident.association.binding),
+            effective_settings=dict(resident.process.client.effective_settings),
         )
 
     def _binding_available(self, binding: RookBinding) -> bool:

@@ -58,10 +58,12 @@ class ProjectedEvent:
     message_id: str | None
     text: str | None
     payload: dict[str, Any] | None
+    effective_settings: dict[str, str | None] | None = None
 
     def panel_bytes(self) -> bytes:
         return json.dumps(
             {
+                **({"effectiveSettings": self.effective_settings} if self.effective_settings is not None else {}),
                 "sourceOrdinal": self.source_ordinal,
                 "kind": self.kind,
                 "messageId": self.message_id,
@@ -117,6 +119,8 @@ class PresentationQueue:
         if not self._rows or event.kind not in {"agent_message_chunk", "agent_thought_chunk"}:
             return None
         previous = self._rows[-1]
+        if previous.effective_settings is not None or event.effective_settings is not None:
+            return None
         if (
             not event.message_id
             or previous.kind != event.kind
@@ -244,6 +248,7 @@ class BoundedPromptProjection:
         update: ProjectedEvent | Any,
         *,
         generation: PromptGeneration | None = None,
+        effective_settings: dict[str, str | None] | None = None,
     ) -> bool:
         if self._closed or self._overflowed or (generation is not None and generation != self.generation):
             return False
@@ -256,6 +261,8 @@ class BoundedPromptProjection:
                     if self._closed or self._overflowed or (generation is not None and generation != self.generation):
                         return False
                     event = _project_event(source_ordinal, update)
+                    if effective_settings is not None:
+                        event = replace(event, effective_settings=effective_settings)
                     admitted = await self.queue.admit(event)
                     if not admitted:
                         self._set_overflow()

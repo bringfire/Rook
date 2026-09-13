@@ -306,6 +306,34 @@ def _manager(tmp_path: Path, *, factory: FakeProcessFactory | None = None):
 
 
 @pytest.mark.asyncio
+async def test_task7_idle_snapshot_reaches_next_prompt_without_durable_settings(tmp_path):
+    from .test_chat_acp_client import _settings_update
+    manager, store, _, factory, paths = _manager(tmp_path)
+    try:
+        view = await manager.create(CreateConversationRequest(_binding(), None, "requested/b", "high"))
+        assert getattr(view, "effective_settings", None) == {"provider": None, "model": None, "reasoning": None}
+        process = factory.processes[0]
+        latest = {"provider": "actual", "model": "c", "reasoning": "off"}
+        await process.client.session_update(process.session_id, _settings_update(latest))
+        sink = NullSink()
+        supervisor = await manager.start_prompt(view.conversation_id, PromptInput("hello", ()), sink)
+        result = await supervisor.result_task
+        assert result.outcome == "settled"
+        assert sink.events[0].kind == "session_status"
+        assert sink.events[0].effective_settings == latest
+        record = store.get(view.conversation_id)
+        assert record.requested_initial_model == "requested/b"
+        assert not hasattr(record, "effective_settings")
+        history = PresentationCache(paths.presentation_path(view.conversation_id)).load()
+        assert "effectiveSettings" not in json.dumps(history.turns)
+        await manager.close(view.conversation_id)
+        reopened = await manager.reopen(view.conversation_id)
+        assert reopened.effective_settings == dict.fromkeys(latest)
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_first_prompt_is_the_only_provisional_turn(tmp_path: Path):
     factory = FakeProcessFactory(block_prompt=True)
     manager, store, catalog, _, paths = _manager(tmp_path, factory=factory)

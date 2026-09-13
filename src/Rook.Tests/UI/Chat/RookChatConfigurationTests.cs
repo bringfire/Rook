@@ -24,6 +24,105 @@ namespace Rook.Tests.UI.Chat
         public RookChatConfigurationTests(AgentChatProgressTests.PanelThread ui) => _ui = ui;
         private const string Id = "0123456789abcdef0123456789abcdef";
         private static readonly Uri BaseUri = new("http://127.0.0.1:1");
+
+        [Fact]
+        public void Task7_actual_stream_updates_label_without_resetting_text()
+        {
+            _ui.Run(() =>
+            {
+                var scripts = new List<string>();
+                var helper = typeof(AgentChatProgressTests);
+                var flags = BindingFlags.Static | BindingFlags.NonPublic;
+                using var handler = new SettingsHandler(
+                    "{\"type\":\"text_delta\",\"text\":\"before\"}\n" +
+                    "{\"type\":\"session_status\",\"effectiveSettings\":{\"provider\":\"actual\",\"model\":\"c\",\"reasoning\":\"off\"}}\n" +
+                    "{\"type\":\"text_delta\",\"text\":\"after\"}\n" +
+                    "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}\n");
+                using var client = AgentChatClient.ForTests(handler, BaseUri);
+                using var tab = (AgentChatTab)helper.GetMethod("CreateTab", flags)!.Invoke(null, new object[] { client, scripts });
+                typeof(ChatTab).GetField("_statusStack", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(tab, new StackLayout());
+                typeof(AgentChatTab).GetMethod("ShowRequestedSettings", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(tab, new object[] { "requested/b", "high" });
+                helper.GetMethod("Prompt", flags)!.Invoke(null, new object[] { tab });
+                Assert.Equal(1, handler.Count);
+                Assert.Contains("window.chatAPI.updateStreamingMessage('beforeafter')", scripts);
+                var label = typeof(AgentChatTab).GetField("_effectiveSettingsLabel", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(tab) as Label;
+                Assert.NotNull(label);
+                Assert.Contains("Requested model: requested/b", label!.Text);
+                Assert.Contains("Last reported effective settings: actual/c", label.Text);
+                Assert.Contains("reasoning: off", label.Text);
+                typeof(AgentChatTab).GetField("_uiAttached", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(tab, false);
+                using var doc = JsonDocument.Parse("{\"type\":\"session_status\",\"effectiveSettings\":{\"provider\":\"stale\",\"model\":\"x\",\"reasoning\":null}}");
+                var evt = doc.RootElement.Deserialize<ChatEvent>();
+                typeof(AgentChatTab).GetMethod("HandleChatEvent", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(tab, new object[] { evt! });
+                Assert.DoesNotContain("stale", label.Text);
+            });
+        }
+
+        private sealed class SettingsHandler : HttpMessageHandler
+        {
+            private readonly string _body;
+            internal int Count;
+            internal SettingsHandler(string body) => _body = body;
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            {
+                Count++;
+                return Task.FromResult(Response(_body));
+            }
+        }
+
+        [Theory]
+        [InlineData("null")]
+        [InlineData("{}")]
+        [InlineData("{\"provider\":5}")]
+        [InlineData("{\"model\":\"\\ud800\"}")]
+        [InlineData("{\"\\ud800\":\"synthetic\"}")]
+        [InlineData("{\"model\":\"a\",\"model\":\"b\"}")]
+        [InlineData("{\"secret\":\"synthetic-secret\"}")]
+        public async Task Task7_malformed_optional_settings_remain_unknown(string value)
+        {
+            using var handler = new SettingsHandler("{\"conversationId\":\"c\",\"effectiveSettings\":" + value + "}");
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+            var view = await client.CreateAsync(new CreateConversationRequest());
+            Assert.Null(view.EffectiveSettings?.Provider);
+            Assert.Null(view.EffectiveSettings?.Model);
+            Assert.Null(view.EffectiveSettings?.Reasoning);
+            Assert.Equal(1, handler.Count);
+        }
+
+        [Fact]
+        public async Task Task7_original_producer_values_survive_managed_http_parser()
+        {
+            var path = Environment.GetEnvironmentVariable("ROOK_TASK7_HTTP_FIXTURE");
+            Assert.False(string.IsNullOrEmpty(path), "Stage B requires the real producer fixture from its Python gate.");
+            Assert.InRange(new FileInfo(path!).Length, 1, 16 * 1024);
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(path!));
+            var root = doc.RootElement;
+            using var handler = new SettingsHandler(root.GetProperty("view").GetRawText());
+            using var client = AgentChatClient.ForTests(handler, BaseUri);
+            var view = await client.CreateAsync(new CreateConversationRequest { Model = "requested/b", Reasoning = "high" });
+            Assert.Equal("actual-c", view.EffectiveSettings?.Model);
+            Assert.Equal("off", view.EffectiveSettings?.Reasoning);
+            Assert.NotEqual(root.GetProperty("producer").GetProperty("defaults")[0].GetProperty("model").GetString(), view.EffectiveSettings?.Model);
+            var terminal = "{\"type\":\"terminal\",\"outcome\":\"settled\",\"stopReason\":\"end_turn\",\"presentationOutcome\":\"delivered\",\"cachePublished\":true}\n";
+            using var streamHandler = new SettingsHandler(root.GetProperty("status").GetRawText() + "\n" + terminal);
+            using var streamClient = AgentChatClient.ForTests(streamHandler, BaseUri);
+            var events = new List<ChatEvent>();
+            await streamClient.PromptAsync(BaseUri, "c", "fixture", Array.Empty<ChatImageInput>(), events.Add, CancellationToken.None);
+            Assert.Equal("actual-d", events[0].EffectiveSettings?.Model);
+            Assert.Equal("high", events[0].EffectiveSettings?.Reasoning);
+            _ui.Run(() =>
+            {
+                var flags = BindingFlags.NonPublic | BindingFlags.Instance;
+                using var tab = new AgentChatTab(new CreateConversationRequest(), client, null, initializePresentation:false);
+                typeof(ChatTab).GetField("_statusStack", flags)!.SetValue(tab, new StackLayout());
+                typeof(AgentChatTab).GetMethod("ShowRequestedSettings", flags)!.Invoke(tab, new object[] { "requested/b", "high" });
+                typeof(AgentChatTab).GetMethod("HandleChatEvent", flags)!.Invoke(tab, new object[] { events[0] });
+                var label = (Label)typeof(AgentChatTab).GetField("_effectiveSettingsLabel", flags)!.GetValue(tab);
+                Assert.Contains("Last reported effective settings: task7-synthetic/actual-d", label.Text);
+                Assert.Contains("Requested model: requested/b", label.Text);
+            });
+        }
         [Fact]
         public void Configuration_client_exposes_finite_operation_entrypoint()
             => Assert.NotNull(typeof(AgentChatClient).GetMethod("RunConfigurationAsync"));
@@ -582,7 +681,7 @@ namespace Rook.Tests.UI.Chat
             var root = FindRoot();
             Assert.Contains("ConfigurationAvailable = payload.ConfigurationAvailable", File.ReadAllText(Path.Combine(root, "src/Rook/UI/Chat/ChatServiceManager.cs")));
             Assert.Contains("OnConfigurationClicked", File.ReadAllText(Path.Combine(root, "src/Rook/UI/Chat/RookChatPanel.cs")));
-            Assert.Contains("Effective settings: unknown", File.ReadAllText(Path.Combine(root, "src/Rook/UI/Chat/AgentChatTab.cs")));
+            Assert.Contains("Last reported effective settings: ", File.ReadAllText(Path.Combine(root, "src/Rook/UI/Chat/AgentChatTab.cs")));
         }
 
         [Theory]
