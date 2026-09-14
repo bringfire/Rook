@@ -285,7 +285,8 @@ class BoundedPromptProjection:
         if event.kind == "agent_message_chunk" and event.text:
             self._assistant.append(event.text)
         if event.kind.startswith("tool_"):
-            raw = event.panel_bytes()
+            # Session settings are live telemetry, not durable tool history.
+            raw = replace(event, effective_settings=None).panel_bytes()
             original = len(raw)
             text = _bounded_utf8_with_marker(raw, MAX_TOOL_CONTENT_BYTES_PER_CARD, original)
             retained_bytes = len(text.encode("utf-8"))
@@ -332,6 +333,13 @@ def _project_event(source_ordinal: int, update: ProjectedEvent | Any) -> Project
     else:
         kind = str(getattr(update, "session_update", "unknown"))
     payload = None if text is not None else update.model_dump(by_alias=True, exclude_none=True)
+    if payload is not None:
+        metadata = payload.get("_meta")
+        prime_meta = metadata.get("ai.primeintellect.prime-agent") if isinstance(metadata, dict) else None
+        if isinstance(prime_meta, dict):
+            # Settings reach presentation only through the client's validated summary.
+            # model_dump owns this copy; leave the SDK update and other metadata intact.
+            prime_meta.pop("effectiveSettings", None)
     return ProjectedEvent(source_ordinal, kind, message_id, text, payload)
 
 

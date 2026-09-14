@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from acp import update_agent_message_text
-from acp.schema import PermissionOption, ToolCallStart
+from acp.schema import PermissionOption, SessionNotification, ToolCallStart
 
 from rook.agent.chat.acp_client import RookChatAcpClient
 from rook.agent.chat.acp_presentation import (
     BoundedPromptProjection,
+    PresentationCache,
     PresentationQueue,
     PromptGeneration,
 )
@@ -205,3 +207,98 @@ async def test_task7_unknown_update_clears_report_without_resetting_prompt():
     await client.session_update("acp-session", _settings_update(None, 2))
     assert client.effective_settings == {"provider": None, "model": None, "reasoning": None}
     assert [row.source_ordinal for row in projection.queue.snapshot()] == [0, 1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["session_info_update", "tool_call"])
+@pytest.mark.parametrize("value", [
+    pytest.param({"model": "\ud800"}, id="surrogate-value"),
+    pytest.param({"\ud800": "invalid"}, id="surrogate-key"),
+    pytest.param({"model": "x" * 257}, id="oversized"),
+    pytest.param({"model": 42}, id="wrong-type"),
+    pytest.param(None, id="unavailable"),
+    pytest.param({"provider": "p", "model": "valid-\U0001f600", "reasoning": "off"}, id="valid"),
+])
+async def test_task7_active_settings_cannot_corrupt_delivery_or_history(tmp_path, kind, value):
+    namespace = "ai.primeintellect.prime-agent"
+    client = RookChatAcpClient()
+    generation = _generation()
+    projection = _projection(generation, callback_deadline=0.2)
+    cancellation = asyncio.Event()
+    client.activate_prompt(generation, projection, cancellation)
+    metadata = {namespace: {"effectiveSettings": value, "eventSequence": 1, "promptTurnId": 0,
+                            "quiescence": {"outstandingSubagents": 0}},
+                "other.namespace": {"marker": "keep"}}
+    update = {"sessionUpdate": kind, "_meta": metadata}
+    if kind == "tool_call":
+        update.update(toolCallId="metadata-tool", title="Metadata tool", status="completed")
+    notification = SessionNotification.model_validate({"sessionId": "acp-session", "update": update})
+    expected = value if isinstance(value, dict) and value.get("provider") == "p" else {
+        "provider": None, "model": None, "reasoning": None}
+    try:
+        async with asyncio.timeout(2):
+            await client.session_update(notification.session_id, notification.update)
+            await client.session_update("acp-session", update_agent_message_text("healthy before"))
+            await client.session_update("acp-session", ToolCallStart(
+                session_update="tool_call", tool_call_id="healthy-tool", title="Healthy tool", status="completed"))
+            await client.session_update("acp-session", update_agent_message_text(" healthy after"))
+            projection.close_producer()
+            delivered = []
+            while (event := await projection.queue.get()) is not None:
+                delivered.append(json.loads(event.panel_bytes()))
+        assert client.effective_settings == expected
+        assert delivered[0]["effectiveSettings"] == expected
+        assert [event["sourceOrdinal"] for event in delivered] == [0, 1, 2, 3]
+        assert [event["kind"] for event in delivered] == [kind, "agent_message_chunk", "tool_call", "agent_message_chunk"]
+        retained_meta = delivered[0]["payload"]["_meta"]
+        assert retained_meta == {**metadata, namespace: {
+            key: item for key, item in metadata[namespace].items() if key != "effectiveSettings"}}
+        assert notification.update.field_meta == metadata  # The SDK-owned source was not mutated.
+        assert not projection.overflowed
+        assert not projection.overflow_signal.is_set()
+        assert not cancellation.is_set()
+        turn = projection.finalize("end_turn")
+        assert turn.stop_reason == "end_turn"
+        assert turn.assistant_text == "healthy before healthy after"
+        assert len(turn.tool_cards) == (2 if kind == "tool_call" else 1)
+        cache = PresentationCache(tmp_path / "history")
+        cache.publish(turn)
+        history = cache.load()
+        assert history.available
+        assert history.turns[0]["assistantText"] == turn.assistant_text
+        live_tools = [event for event in delivered if event["kind"].startswith("tool_")]
+        for card, live in zip(history.turns[0]["toolCards"], live_tools, strict=True):
+            stored = json.loads(card["content"])
+            assert "effectiveSettings" not in stored
+            assert stored == {key: item for key, item in live.items() if key != "effectiveSettings"}
+            assert card["originalBytes"] == len(card["content"].encode("utf-8"))
+            raw_meta = stored["payload"].get("_meta", {})
+            assert "effectiveSettings" not in raw_meta.get(namespace, {})
+        assert projection._tool_bytes == sum(card["originalBytes"] for card in turn.tool_cards)
+    finally:
+        client.clear_prompt(generation)
+        projection.close_producer()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("location", ["content", "unrelated-metadata"])
+async def test_task7_settings_filter_does_not_swallow_unrelated_serialization_errors(location):
+    client = RookChatAcpClient()
+    generation = _generation()
+    projection = _projection(generation)
+    client.activate_prompt(generation, projection, asyncio.Event())
+    update = {"sessionUpdate": "tool_call", "toolCallId": "t", "title": "Tool", "status": "completed"}
+    if location == "content":
+        update["title"] = "\ud800"
+    else:
+        update["_meta"] = {"unrelated": "\ud800"}
+    notification = SessionNotification.model_validate({"sessionId": "acp-session", "update": update})
+    try:
+        with pytest.raises(UnicodeEncodeError):
+            await client.session_update(notification.session_id, notification.update)
+        assert projection.queue.snapshot() == ()
+        assert projection._next_source_ordinal == 0
+        assert projection.finalize("error").tool_cards == ()
+    finally:
+        client.clear_prompt(generation)
+        projection.close_producer()
