@@ -87,12 +87,12 @@ def test_manifest_roundtrip_public_cli_and_closed_payload(tmp_path):
         "acpProtocolVersion", "pythonAcpSdkVersion", "executable", "goalSkill", "rookSkill",
         "rookSkillManifestSha256", "claimKeyVersion", "uv", "pythonRuntime", "files",
     }
-    assert verified.manifest["compatibilityPatchCommit"] == "b71badc503f650cd7c10c4acd1206a8406aa0a0b"
+    assert verified.manifest["compatibilityPatchCommit"] == "c2055d6aff5891b918a24accf584a76852676445"
     assert verified.manifest["platform"] == "windows"
     assert verified.manifest["architecture"] == "amd64"
     assert verified.manifest["pythonRuntime"] == {
         "root": "dist/prime-agent-runtime",
-        "sourceCommit": "b71badc503f650cd7c10c4acd1206a8406aa0a0b",
+        "sourceCommit": "c2055d6aff5891b918a24accf584a76852676445",
         "manifestSha256": subtree_id(PAYLOAD, "dist/prime-agent-runtime/"),
     }
     assert verified.manifest["files"] == [
@@ -327,7 +327,9 @@ def test_directory_junction_cannot_supply_payload(tmp_path):
     with pytest.raises(artifact.RuntimeUnavailable):
         artifact.verify_runtime_payload(root, runtime_id)
 
-def test_complete_manifest_matches_hand_frozen_oracle(tmp_path):
+def test_complete_manifest_matches_hand_frozen_oracle(tmp_path, monkeypatch):
+    # Preserve this historical byte/hash vector independently of the new-build pin.
+    monkeypatch.setattr(artifact, "PRIME_COMMIT", "b71badc503f650cd7c10c4acd1206a8406aa0a0b")
     # All fourteen files contain the single byte x. This vector is independent
     # of the production serializer, file walker, and subtree implementation.
     names = ["CHANGELOG.md","README.md","assets/a","dist/prime-agent-runtime/p.py","docs/a","examples/a","notices/prime-agent/LICENSE","package.json","pi.exe","skills/goal/SKILL.md","skills/rook-full/SKILL.md","tools/uv/LICENSE-APACHE","tools/uv/LICENSE-MIT","tools/uv/uv.exe"]

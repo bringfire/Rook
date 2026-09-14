@@ -430,9 +430,11 @@ async def test_configuration_is_unavailable_without_adopted_runtime(tmp_path: Pa
         assert manager.created is None and not manager.prompted
 
 
-def test_configuration_launch_contract_exists_but_support_set_is_empty():
+def test_configuration_launch_contract_supports_only_reviewed_adoption_commit():
     assert callable(getattr(prime_runtime, "build_configuration_argv", None))
-    assert prime_runtime.SUPPORTED_CONFIGURATION_COMMITS == frozenset()
+    assert prime_runtime.SUPPORTED_CONFIGURATION_COMMITS == frozenset({
+        "c2055d6aff5891b918a24accf584a76852676445",
+    })
 
 
 @pytest.mark.asyncio

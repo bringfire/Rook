@@ -23,7 +23,9 @@ MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS = 30_000
 RUNTIME_SCHEMA_VERSION = 1
 SUPPORTED_REASONING = frozenset({"off", "minimal", "low", "medium", "high", "xhigh", "max"})
 # Adoption is a separate reviewed change. Never probe an older executable for support.
-SUPPORTED_CONFIGURATION_COMMITS: frozenset[str] = frozenset()
+SUPPORTED_CONFIGURATION_COMMITS: frozenset[str] = frozenset({
+    "c2055d6aff5891b918a24accf584a76852676445",
+})
 class PrimeLaunchError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code

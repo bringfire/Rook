@@ -539,7 +539,9 @@ def test_relocated_payload_reaches_real_argv_consumer(tmp_path):
 def test_new_release_provenance_does_not_reject_recorded_historical_runtime(tmp_path, monkeypatch, next_patch):
     prime = tmp_path / "prime"
     old = write_payload(prime / ".incoming/old")
-    old_id = artifact.create_runtime_manifest(old, metadata())
+    with monkeypatch.context() as historical:
+        historical.setattr(artifact, "PRIME_COMMIT", "b71badc503f650cd7c10c4acd1206a8406aa0a0b")
+        old_id = artifact.create_runtime_manifest(old, metadata())
     old_manifest = (old / "runtime-manifest.json").read_bytes()
     assert artifact.promote_incoming_runtime(old, prime) == old_id
 
@@ -579,3 +581,62 @@ def test_new_release_provenance_does_not_reject_recorded_historical_runtime(tmp_
     with pytest.raises(RuntimeUnavailable, match="manifest file set"):
         load_and_verify_runtime(prime, old_id)
     assert artifact.read_current_runtime_id(prime) == new_id
+
+
+@pytest.mark.parametrize("reopen", [False, True])
+def test_adoption_keeps_historical_selection_and_configuration_binding(tmp_path, reopen):
+    from types import SimpleNamespace
+    from rook.agent.chat import prime_runtime
+    from rook.agent.chat.acp_conversation import DirectAcpProcessFactory
+    from rook.agent.chat.service_main import InstalledRuntimeCatalog
+
+    reviewed = "c2055d6aff5891b918a24accf584a76852676445"
+    prime = tmp_path / "prime"
+    old_id, old_root = _write_runtime(prime)
+    old_bytes = {path.relative_to(old_root): path.read_bytes() for path in old_root.rglob("*") if path.is_file()}
+    incoming = write_payload(prime / ".incoming/new")
+    new_id = artifact.create_runtime_manifest(incoming, metadata())
+    assert artifact.promote_incoming_runtime(incoming, prime) == new_id
+    catalog = InstalledRuntimeCatalog(prime)
+    current, historical = catalog.latest(), catalog.get(old_id)
+    assert current.compatibility_patch_commit == reviewed
+    assert artifact.PRIME_COMMIT == reviewed
+    assert prime_runtime.SUPPORTED_CONFIGURATION_COMMITS == frozenset({reviewed})
+    assert current.runtime_id == new_id != old_id
+    assert historical.compatibility_patch_commit == "b71badc503f650cd7c10c4acd1206a8406aa0a0b"
+    assert prime_runtime.build_configuration_argv(current) == (
+        str(current.executable_path), "configuration", "--stdio", "--configuration-policy", "rookchat")
+    for unsupported in (historical, replace(current, compatibility_patch_commit="f" * 40)):
+        with pytest.raises(PrimeLaunchError, match="configuration_unavailable"):
+            prime_runtime.build_configuration_argv(unsupported)
+
+    old_config = str(tmp_path / "historical-private-config")
+    base = {"ROOK_DATA_DIR": str(tmp_path / "data"), "PRIME_AGENT_CODING_AGENT_DIR": old_config,
+            "PATH": "fixture-path", "HTTPS_PROXY": "http://127.0.0.1:9"}
+    original_base = dict(base)
+    association = SimpleNamespace(session_path=str(tmp_path / "sessions/recorded.jsonl"),
+        working_directory=str(tmp_path / "document"), requested_initial_model="p/requested",
+        requested_initial_reasoning="high")
+    factory = DirectAcpProcessFactory(base)
+    old_launch = factory.prepare(historical, association, reopen).launch
+    new_launch = factory.prepare(current, association, reopen).launch
+    assert old_launch.environment == prime_runtime.build_prime_child_env(base, historical)
+    assert old_launch.environment["PRIME_AGENT_CODING_AGENT_DIR"] == old_config
+    assert "--configuration-policy" not in old_launch.argv
+    assert new_launch.environment == prime_runtime.build_configuration_env(base, current, tmp_path / "data")
+    assert new_launch.environment["PRIME_AGENT_CODING_AGENT_DIR"] == str(tmp_path / "data/prime-config")
+    assert _pair(new_launch.argv, "--configuration-policy") == "rookchat"
+    for contract, launch in ((historical, old_launch), (current, new_launch)):
+        assert launch.argv[0] == str(contract.executable_path)
+        assert _pair(launch.argv, "--resume") == association.session_path
+        assert launch.cwd == Path(association.working_directory)
+        assert ("--model" in launch.argv) == (not reopen)
+        assert ("--thinking" in launch.argv) == (not reopen)
+    assert base == original_base
+    assert not Path(old_config).exists()
+    assert not (tmp_path / "data/prime-config").exists()
+    assert {path.relative_to(old_root): path.read_bytes() for path in old_root.rglob("*") if path.is_file()} == old_bytes
+    (old_root / "pi.exe").unlink()
+    with pytest.raises(RuntimeUnavailable):
+        catalog.get(old_id)
+    assert catalog.latest().runtime_id == new_id
