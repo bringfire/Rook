@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export TZ=UTC0
 
 readonly EXPECTED_BUN_VERSION=1.3.14 MINIMUM_NODE_VERSION=22.8.0
 readonly BUILD_TIMEOUT_SECONDS=1800 BUILD_KILL_AFTER_SECONDS=30

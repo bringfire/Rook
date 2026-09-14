@@ -120,6 +120,22 @@ success_case() {
     assert test "${home_value#"$repo"}" = "$home_value"
 }
 invalid_args() { invoke --extra nope; refused_before_build; }
+utc_record_case() {
+    extra_env=(TZ=EST5)
+    assert test "$(TZ=EST5 date +%z)" = -0500
+    local before after key stamp epoch
+    before=$(date +%s)
+    invoke
+    after=$(date +%s)
+    assert test "$result" -eq 0
+    for key in started finished; do
+        stamp=$(sed -n "s/^$key=//p" "$record")
+        assert test "${stamp: -1}" = Z
+        epoch=$(date -u -d "$stamp" +%s)
+        assert test "$epoch" -ge "$before"
+        assert test "$epoch" -le "$after"
+    done
+}
 missing_args() {
     result=0
     env -i PATH="$bin" /bin/bash "$entry" --prime-worktree "$repo" > "$case_root/output" 2>&1 || result=$?
@@ -192,6 +208,7 @@ changed_tool_path() {
 }
 
 run_case complete_public_handoff success_case
+run_case non_utc_caller_records_actual_utc utc_record_case
 run_case extra_argument_refusal invalid_args
 run_case missing_argument_refusal missing_args
 run_case malformed_commit_refusal bad_commit
