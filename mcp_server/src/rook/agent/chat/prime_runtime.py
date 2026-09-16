@@ -25,6 +25,7 @@ SUPPORTED_REASONING = frozenset({"off", "minimal", "low", "medium", "high", "xhi
 # Adoption is a separate reviewed change. Never probe an older executable for support.
 SUPPORTED_CONFIGURATION_COMMITS: frozenset[str] = frozenset({
     "c2055d6aff5891b918a24accf584a76852676445",
+    "dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b",
 })
 class PrimeLaunchError(RuntimeError):
     def __init__(self, code: str) -> None:

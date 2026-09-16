@@ -430,10 +430,11 @@ async def test_configuration_is_unavailable_without_adopted_runtime(tmp_path: Pa
         assert manager.created is None and not manager.prompted
 
 
-def test_configuration_launch_contract_supports_only_reviewed_adoption_commit():
+def test_configuration_launch_contract_supports_only_reviewed_adoption_commits():
     assert callable(getattr(prime_runtime, "build_configuration_argv", None))
     assert prime_runtime.SUPPORTED_CONFIGURATION_COMMITS == frozenset({
         "c2055d6aff5891b918a24accf584a76852676445",
+        "dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b",
     })
 
 
