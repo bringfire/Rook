@@ -62,6 +62,10 @@ namespace Rook.UI.Chat
         internal ConfigurationResult? KnownResult { get; private set; }
         internal ConfigurationSettlement? LastSettlement { get; private set; }
         internal Task PendingOperation { get; private set; } = Task.CompletedTask;
+        private bool _cleanupConfirmed = true;
+        private bool _canAttemptConfiguration = true;
+        internal bool CanAttemptConfiguration => !Busy && _canAttemptConfiguration;
+        internal bool CanRefreshGuidance => !Busy && _cleanupConfirmed;
 
         internal RookChatConfigurationDialog(AgentChatClient client, Action<Action>? post = null, Action<string>? openBrowser = null)
         {
@@ -159,7 +163,7 @@ namespace Rook.UI.Chat
         internal Task InitializeAsync() => RunActionAsync("status");
         internal Task RunActionAsync(string operation)
         {
-            if (_disposed || Busy) return Task.CompletedTask;
+            if (_disposed || !CanAttemptConfiguration) return Task.CompletedTask;
             try
             {
                 if (operation != "status" && (!_available || !Supports(operation)))
@@ -168,6 +172,8 @@ namespace Rook.UI.Chat
                     ClearSensitive(); return Task.CompletedTask;
                 }
                 var begin = BuildOperation(operation);
+                _cleanupConfirmed = false;
+                _canAttemptConfiguration = false;
                 Busy = true; _cancelRequested = false; _begin = begin;
                 _operationCancellation = new CancellationTokenSource();
                 LastSettlement = null;
@@ -193,6 +199,8 @@ namespace Rook.UI.Chat
                     return PresentAsync(() => HandleEvent(evt));
                 }, token).ConfigureAwait(false);
                 LastSettlement = settlement;
+                _cleanupConfirmed = settlement.Cleanup == "exited";
+                _canAttemptConfiguration = _cleanupConfirmed || settlement.ConfirmedNotAdmitted;
                 if (settlement.Result != null) KnownResult = settlement.Result;
                 await PresentAsync(() =>
                 {
@@ -207,6 +215,13 @@ namespace Rook.UI.Chat
                     {
                         Status.Text = "Configuration storage protection could not be verified. Existing storage preserved.";
                         Persistence.Text = "Operation not started; no configuration change was attempted.";
+                        Cleanup.Text = "Configuration process: not started.";
+                    }
+                    else if (settlement.ConfirmedNotAdmitted)
+                    {
+                        if (settlement.FailureCode != "configuration_unavailable")
+                            Status.Text = "Configuration did not start. You can try again.";
+                        Persistence.Text = "No configuration change was attempted by this operation.";
                         Cleanup.Text = "Configuration process: not started.";
                     }
                     ClearSensitive();
@@ -368,10 +383,10 @@ namespace Rook.UI.Chat
         private void UpdateEnabled()
         {
             if (_disposed) return;
-            if (_editor != null) _editor.Enabled = _available && !Busy;
+            if (_editor != null) _editor.Enabled = _available && CanAttemptConfiguration;
             foreach (var pair in _actions)
             {
-                pair.Value.Enabled = !Busy && (pair.Key == "status" || _available && Supports(pair.Key));
+                pair.Value.Enabled = CanAttemptConfiguration && (pair.Key == "status" || _available && Supports(pair.Key));
             }
             _cancel.Enabled = Busy && !_cancelRequested;
         }

@@ -25,6 +25,52 @@ namespace Rook.Tests.UI.Chat
         private const string Id = "0123456789abcdef0123456789abcdef";
         private static readonly Uri BaseUri = new("http://127.0.0.1:1");
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task Refused_dialog_operation_can_be_explicitly_retried_in_the_same_dialog(bool preDispatch)
+        {
+            using var fixture = new DialogFixture(this);
+            bool refuse = true;
+            fixture.Client.ConfigurationHealthQueryForTests = _ => Task.FromResult(new ChatServiceHealth
+            {
+                BaseUri = BaseUri, ServiceAvailable = true, RuntimeAvailable = true,
+                ConfigurationAvailable = !(refuse && preDispatch),
+            });
+            fixture.Handler.Begin = b => refuse
+                ? new HttpResponseMessage(HttpStatusCode.Conflict) { Content = new StringContent("{\"error\":{\"code\":\"configuration_busy\",\"message\":\"configuration_busy\"}}", Encoding.UTF8, "application/json") }
+                : Response(Line(Result(b)) + Line(Settled(Result(b))));
+            await fixture.Run(d => d.InitializeAsync());
+            Assert.Equal(preDispatch ? 0 : 1, fixture.Handler.Requests.Count);
+            fixture.Ui(d =>
+            {
+                Assert.True(d.LastSettlement!.ConfirmedNotAdmitted);
+                Assert.False(d.LastSettlement.Successful);
+                Assert.Equal("unconfirmed", d.LastSettlement.Cleanup);
+                Assert.Null(d.LastSettlement.ExitCode);
+                Assert.Null(d.LastSettlement.Result);
+                Assert.Contains("not started", d.Cleanup.Text);
+            });
+            refuse = false;
+            await fixture.Run(d => d.InitializeAsync());
+            Assert.Equal(preDispatch ? 1 : 2, fixture.Handler.Requests.Count);
+            fixture.Ui(d => Assert.True(d.LastSettlement!.Successful));
+        }
+
+        [Fact]
+        public async Task Unconfirmed_cleanup_prevents_another_dialog_operation_without_erasing_saved_result()
+        {
+            using var fixture = new DialogFixture(this);
+            await fixture.Run(d => d.InitializeAsync());
+            fixture.Handler.Begin = b => Response(Line(Result(b)) + Line(Settled(Result(b), "cleanup_failed", "unconfirmed", null)));
+            fixture.Ui(d => d.ApiKey.Text = "synthetic-secret");
+            await fixture.Run(d => d.RunActionAsync("apiKey.set"));
+            var count = fixture.Handler.Requests.Count;
+            await fixture.Run(d => d.InitializeAsync());
+            Assert.Equal(count, fixture.Handler.Requests.Count);
+            fixture.Ui(d => Assert.Equal("saved", d.KnownResult!.Persistence));
+        }
+
         [Fact]
         public async Task Privacy_refusal_is_not_unknown_persistence_or_a_child_exit()
         {

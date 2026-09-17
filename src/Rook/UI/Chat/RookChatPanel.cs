@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Eto.Forms;
 using Eto.Drawing;
@@ -23,6 +24,12 @@ namespace Rook.UI.Chat
         private uint _documentSerialNumber;
         private readonly Panel _tabHost;
         private bool _configurationOpen, _panelDisposed;
+        private bool _setupRefreshStarted, _configurationCanAttempt = true;
+        private readonly CancellationTokenSource _guidanceLifetime = new();
+        private readonly Label _setupGuidance = new() { Wrap = WrapMode.Word, Visible = false };
+        private readonly Button _settingsButton = new() { Text = "Settings", Height = 28 };
+        private ConfigurationResult? _setupStatus;
+        private string _setupFallback = "";
         private readonly Dictionary<uint, TabControl> _tabControlsByDocument = new();
         private readonly HostedPanelLifecycleAdapter _lifecycle =
             new(typeof(RookChatPanel));
@@ -52,13 +59,12 @@ namespace Rook.UI.Chat
             // ── Toolbar ───────────────────────────────────────────────────
             var addButton = new Button { Text = "+", Width = 36, Height = 28 };
             addButton.Click += OnAddTabClicked;
-            var settingsButton = new Button { Text = "Settings", Height = 28 };
-            settingsButton.Click += OnConfigurationClicked;
+            _settingsButton.Click += OnConfigurationClicked;
             var toolbar = new TableLayout
             {
                 Padding = new Padding(4, 2),
                 Spacing = new Size(4, 0),
-                Rows = { new TableRow(addButton, null, settingsButton) }
+                Rows = { new TableRow(addButton, null, _settingsButton) }
             };
 
             // ── Main layout ───────────────────────────────────────────────
@@ -68,6 +74,7 @@ namespace Rook.UI.Chat
                 Rows =
                 {
                     new TableRow(toolbar),
+                    new TableRow(_setupGuidance),
                     new TableRow(_tabHost) { ScaleHeight = true }
                 }
             };
@@ -120,7 +127,12 @@ namespace Rook.UI.Chat
             {
                 var documentSerialNumber = _documentSerialNumber;
                 var tabControl = GetOrCreateTabControl(documentSerialNumber);
-                var page = CreateTabPage(tab.TabLabel, tab, tab.OnTabClosed, tabControl);
+                tab.GuidanceContextChanged += RenderSetupGuidance;
+                var page = CreateTabPage(tab.TabLabel, tab, () =>
+                {
+                    tab.GuidanceContextChanged -= RenderSetupGuidance;
+                    tab.OnTabClosed();
+                }, tabControl);
                 tabControl.Pages.Add(page);
                 tabControl.SelectedPage = page;
 
@@ -429,29 +441,147 @@ namespace Rook.UI.Chat
 
         private async void OnConfigurationClicked(object? sender, EventArgs e)
         {
-            if (_configurationOpen || _panelDisposed) return;
+            using var client = new AgentChatClient();
+            await ShowConfigurationAsync(client, dialog =>
+            {
+                client.SetSessionNonce(ChatServiceManager.Instance.SessionNonce);
+                dialog.Shown += async (_, _) => await dialog.InitializeAsync();
+                dialog.ShowModal(this);
+                return dialog.PendingOperation;
+            });
+        }
+
+        private bool TryBeginConfiguration()
+        {
+            if (_configurationOpen || _panelDisposed || !_configurationCanAttempt) return false;
             _configurationOpen = true;
+            _settingsButton.Enabled = false;
+            return true;
+        }
+
+        private void EndConfiguration(bool canAttempt)
+        {
+            _configurationCanAttempt = canAttempt;
+            _configurationOpen = false;
+            if (!_panelDisposed) _settingsButton.Enabled = canAttempt;
+        }
+
+        internal async Task ShowConfigurationAsync(AgentChatClient client, Func<RookChatConfigurationDialog, Task> showDialog)
+        {
+            if (!TryBeginConfiguration()) return;
+            bool confirmed = true;
+            bool refresh = false;
+            RookChatConfigurationDialog? dialog = null;
             try
             {
-                using var client = new AgentChatClient();
-                var health = await client.GetHealthAsync(startIfNeeded: true);
+                var health = await client.GetHealthAsync(startIfNeeded: true, _guidanceLifetime.Token);
                 if (_panelDisposed) return;
                 if (!health.ServiceAvailable)
                 {
                     MessageBox.Show(this, "Chat configuration service is unavailable.", "RookChat Settings");
                     return;
                 }
-                client.SetSessionNonce(ChatServiceManager.Instance.SessionNonce);
-                using var dialog = new RookChatConfigurationDialog(client);
-                dialog.Shown += async (_, _) => await dialog.InitializeAsync();
-                dialog.ShowModal(this);
+                dialog = new RookChatConfigurationDialog(client);
+                await showDialog(dialog);
                 await dialog.PendingOperation;
             }
             catch
             {
                 if (!_panelDisposed) MessageBox.Show(this, "Configuration could not complete. A saved change is not rolled back by a communication failure.", "RookChat Settings");
             }
-            finally { _configurationOpen = false; }
+            finally
+            {
+                if (dialog != null)
+                {
+                    confirmed = dialog.CanAttemptConfiguration;
+                    refresh = dialog.CanRefreshGuidance;
+                    if (!confirmed && !_panelDisposed)
+                    {
+                        _setupStatus = null;
+                        _setupFallback = dialog.KnownResult?.Persistence == "saved"
+                            ? "Configuration saved; configuration cleanup is not confirmed."
+                            : "Configuration cleanup is not confirmed. Setup status unavailable.";
+                    }
+                    else if (dialog.LastSettlement?.ConfirmedNotAdmitted == true && !_panelDisposed)
+                    {
+                        _setupStatus = null;
+                        _setupFallback = "Configuration did not start. You can try Settings again.";
+                    }
+                    dialog.Dispose();
+                }
+                EndConfiguration(confirmed);
+                RenderSetupGuidance();
+            }
+            if (refresh && !_panelDisposed) await RefreshSetupGuidanceAsync(client);
+        }
+
+        internal async Task RefreshSetupGuidanceAsync(AgentChatClient client, Action? authenticate = null)
+        {
+            if (!TryBeginConfiguration()) return;
+            bool confirmed = true;
+            try
+            {
+                var health = await client.GetHealthAsync(startIfNeeded: true, _guidanceLifetime.Token);
+                if (_panelDisposed) return;
+                _setupStatus = null;
+                if (!health.ServiceAvailable || !health.RuntimeAvailable)
+                {
+                    _setupFallback = "Setup status unavailable.";
+                    return;
+                }
+                if (!health.ConfigurationAvailable)
+                {
+                    _setupFallback = "Settings unavailable for the selected runtime.";
+                    return;
+                }
+                authenticate?.Invoke();
+                confirmed = false;
+                var settlement = await client.RunConfigurationAsync(new ConfigurationBegin("status", new { }),
+                    _ => Task.CompletedTask, _guidanceLifetime.Token);
+                confirmed = settlement.Cleanup == "exited" || settlement.ConfirmedNotAdmitted;
+                if (_panelDisposed) return;
+                _setupStatus = settlement.Successful ? settlement.Result : null;
+                _setupFallback = settlement.ConfirmedNotAdmitted ? "Configuration did not start. You can try Settings again."
+                    : confirmed ? "Setup status unavailable." : "Configuration cleanup is not confirmed. Setup status unavailable.";
+            }
+            catch
+            {
+                if (!_panelDisposed) { _setupStatus = null; _setupFallback = "Setup status unavailable."; }
+            }
+            finally
+            {
+                EndConfiguration(confirmed);
+                RenderSetupGuidance();
+            }
+        }
+
+        private async Task RefreshSetupGuidanceOnOpenAsync()
+        {
+            using var client = new AgentChatClient();
+            await RefreshSetupGuidanceAsync(client, () => client.SetSessionNonce(ChatServiceManager.Instance.SessionNonce));
+        }
+
+        private void RenderSetupGuidance()
+        {
+            if (_panelDisposed) return;
+            var tab = (_tabHost.Content as TabControl)?.SelectedPage?.Content as AgentChatTab;
+            var text = _setupFallback;
+            // Status belongs to the selected runtime, not a reopened session's historical store.
+            if (_configurationCanAttempt && tab?.IsReopenedConversation == true)
+                text = "Saved model defaults apply to new conversations. Account and connection changes may affect conversations using the same configuration.";
+            else if (_setupStatus?.Data is JsonElement data)
+            {
+                var configured = data.GetProperty("providers").EnumerateArray().Any(p =>
+                    p.GetProperty("configured").GetBoolean() || p.GetProperty("route").GetString() == "local_no_account");
+                var defaults = data.GetProperty("defaults");
+                text = !configured
+                    ? "New conversations: open Settings to connect a provider or configure a local model."
+                    : tab?.HasEstablishedSettings != true && defaults.GetProperty("model").ValueKind == JsonValueKind.Null
+                        ? "No default model saved. You can choose one in Settings."
+                        : "";
+            }
+            _setupGuidance.Text = text;
+            _setupGuidance.Visible = !string.IsNullOrEmpty(text);
         }
 
         private async void OnAddTabClicked(object? sender, EventArgs e)
@@ -490,6 +620,7 @@ namespace Rook.UI.Chat
             if (sender is TabControl tabControl)
             {
                 ReconcileHostedWebSurfaces(tabControl, "TabSelectionChanged");
+                RenderSetupGuidance();
             }
         }
 
@@ -507,7 +638,12 @@ namespace Rook.UI.Chat
 
             var tabControl = GetCurrentTabControl();
             ReconcileHostedWebSurfaces(tabControl, "PanelShown:" + reason);
-
+            RenderSetupGuidance();
+            if (!_setupRefreshStarted)
+            {
+                _setupRefreshStarted = true;
+                _ = RefreshSetupGuidanceOnOpenAsync();
+            }
         }
 
         /// <summary>
@@ -552,6 +688,8 @@ namespace Rook.UI.Chat
             if (disposing)
             {
                 _panelDisposed = true;
+                _guidanceLifetime.Cancel();
+                _guidanceLifetime.Dispose();
                 _cleanup.DrainAll();
                 foreach (var tabControl in _tabControlsByDocument.Values)
                 {

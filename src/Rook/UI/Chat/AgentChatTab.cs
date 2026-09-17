@@ -208,6 +208,10 @@ namespace Rook.UI.Chat
         private Label? _effectiveSettingsLabel;
         private string? _requestedModel;
         private string? _requestedReasoning;
+        private bool _hasReportedModel, _hasCompletedTurn;
+        internal bool IsReopenedConversation => _reopenAssociation != null;
+        internal bool HasEstablishedSettings => _hasReportedModel || _hasCompletedTurn;
+        internal event Action? GuidanceContextChanged;
 
         public AgentChatTab(
             CreateConversationRequest createRequest,
@@ -298,8 +302,8 @@ namespace Rook.UI.Chat
                 if (!_initializationCustody.IsAttached) return;
                 ApplyConversationStatus(view);
                 AddMessageToChat("system", _reopenAssociation == null
-                    ? "Prime is ready. This conversation becomes durable after its first completed turn."
-                    : "Prime conversation reopened.");
+                    ? "Conversation connected. This conversation becomes durable after its first completed turn."
+                    : "Conversation reopened.");
             }
             catch (Exception ex)
             {
@@ -471,11 +475,25 @@ namespace Rook.UI.Chat
                 "cancelled" => "Cancelled",
                 "incomplete" => "Prime turn incomplete",
                 "refused" => "Prime refused the request",
-                _ => "Prime turn failed",
+                _ => evt.PresentationOutcome == "stream_failed"
+                    ? "Request failed; live presentation failed."
+                    : evt.ErrorCode switch
+                    {
+                        "conversation_busy" => "Another request is active. Wait for it to finish.",
+                        "conversation_not_open" => "Conversation is not open. Open or reopen a conversation from the conversation list.",
+                        "target_unavailable" => "Rhino document unavailable. Check the bound document.",
+                        "runtime_unavailable" => "The conversation runtime is unavailable.",
+                        _ => "Request failed; the cause was not reported.",
+                    },
             };
-            if (evt.PresentationOutcome == "stream_failed")
+            if (evt.PresentationOutcome == "stream_failed" && !status.Contains("live presentation failed"))
                 status += " (live presentation failed)";
             SetStatus(status, evt.Outcome == "settled" ? Colors.Green : Colors.Orange);
+            if (evt.Outcome == "settled")
+            {
+                _hasCompletedTurn = true;
+                GuidanceContextChanged?.Invoke();
+            }
         }
 
         protected override void OnStopRequested()
@@ -578,7 +596,7 @@ namespace Rook.UI.Chat
             if (!_uiAttached || view.ConversationId != ConversationId) return;
             ApplyReportedSettings(view.EffectiveSettings);
             SetStatus(
-                view.TargetAvailable ? "Prime ready" : "Prime ready; Rook target unavailable",
+                view.TargetAvailable ? "Conversation connected" : "Conversation connected; Rhino document unavailable",
                 view.TargetAvailable ? Colors.Green : Colors.Orange);
         }
 
@@ -592,6 +610,7 @@ namespace Rook.UI.Chat
         private void ApplyReportedSettings(ReportedEffectiveSettings? settings)
         {
             if (!_uiAttached) return;
+            _hasReportedModel = !string.IsNullOrEmpty(settings?.Model);
             var parts = new List<string>();
             if (!string.IsNullOrEmpty(_requestedModel)) parts.Add("Requested model: " + _requestedModel);
             if (!string.IsNullOrEmpty(_requestedReasoning)) parts.Add("requested reasoning: " + _requestedReasoning);
@@ -605,6 +624,7 @@ namespace Rook.UI.Chat
                 SetAuxiliaryRow(_effectiveSettingsLabel);
             }
             _effectiveSettingsLabel.Text = string.Join("; ", parts);
+            GuidanceContextChanged?.Invoke();
         }
 
         private static string? ReadPayloadString(JsonElement? payload, string propertyName)
