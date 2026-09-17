@@ -75,6 +75,7 @@ namespace Rook.Tests.UI.Chat
         [InlineData("cancelled")]
         [InlineData("error")]
         [InlineData("settled")]
+        [InlineData("unconfirmed")]
         public async Task Delayed_refresh_does_not_overwrite_turn_status_or_session_settings(string state)
         {
             using var f = new GuidanceFixture(_ui);
@@ -97,6 +98,15 @@ namespace Rook.Tests.UI.Chat
                         typeof(ChatTab).GetMethod("SetProcessing", Private)!.Invoke(f.Tab, new object[] { true });
                         typeof(ChatTab).GetMethod("SetStatus", Private)!.Invoke(f.Tab, new object[] { "Sending...", Eto.Drawing.Colors.Blue });
                     }
+                    else if (state == "unconfirmed")
+                    {
+                        typeof(AgentChatTab).GetField("_promptOutcomeUnconfirmed", Private)!.SetValue(f.Tab, true);
+                        Invoke(f.Tab!, "ApplyConversationStatus", new ConversationView
+                        {
+                            ConversationId = "offline-fixture", TargetAvailable = true,
+                            EffectiveSettings = new ReportedEffectiveSettings("actual", "model", "high"),
+                        });
+                    }
                     else Invoke(f.Tab!, "HandleChatEvent", new ChatEvent { Type = "terminal", Outcome = state, PresentationOutcome = "delivered" });
                     before = Status(f.Tab!);
                 });
@@ -108,6 +118,11 @@ namespace Rook.Tests.UI.Chat
                     Assert.Equal(state == "sending", typeof(ChatTab).GetProperty("IsProcessing", Private)!.GetValue(f.Tab));
                     Assert.Equal("", f.Text);
                     Assert.Equal("offline-fixture", f.Tab!.ConversationId);
+                    if (state == "unconfirmed")
+                    {
+                        Assert.True((bool)typeof(AgentChatTab).GetField("_promptOutcomeUnconfirmed", Private)!.GetValue(f.Tab));
+                        Assert.StartsWith("Request outcome is unconfirmed.", Status(f.Tab));
+                    }
                     var effective = (Label)typeof(AgentChatTab).GetField("_effectiveSettingsLabel", Private)!.GetValue(f.Tab);
                     Assert.Contains("actual/model", effective.Text);
                     Assert.Contains("high", effective.Text);

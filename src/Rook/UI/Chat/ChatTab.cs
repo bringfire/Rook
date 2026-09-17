@@ -78,6 +78,9 @@ namespace Rook.UI.Chat
         /// </summary>
         protected virtual bool WaitForStopSettlement => false;
 
+        // A stopped spinner does not necessarily mean another submission is safe.
+        protected virtual string? SubmissionBlockReason => null;
+
         /// <summary>
         /// Called when the tab is removed from the tab strip. Override to
         /// release resources. Safe to call multiple times.
@@ -142,6 +145,7 @@ namespace Rook.UI.Chat
             _statusLabel = new Label
             {
                 Text = "Ready",
+                Wrap = WrapMode.Word,
                 TextColor = Colors.Gray
             };
 
@@ -217,7 +221,7 @@ namespace Rook.UI.Chat
         protected void EnableWebComposer()
         {
             _useWebComposer = true;
-            ExecuteScript("window.chatAPI.setComposerEnabled(true, true)");
+            UpdateComposerState();
         }
 
         /// <summary>
@@ -392,7 +396,7 @@ namespace Rook.UI.Chat
             {
                 Text = label,
                 Width = 80,
-                Enabled = MessageActionsEnabled(_isProcessing),
+                Enabled = MessageActionsEnabled(_isProcessing) && SubmissionBlockReason == null,
             };
             _secondaryActionButton.Click += OnSecondaryActionClicked;
             _actionButtonLayout.Rows.Clear();
@@ -406,8 +410,6 @@ namespace Rook.UI.Chat
             Application.Instance.Invoke(() =>
             {
                 UpdateUIState();
-                if (_useWebComposer)
-                    ExecuteScript($"window.chatAPI.setComposerEnabled(true, {(processing ? "false" : "true")})");
             });
         }
 
@@ -445,7 +447,7 @@ namespace Rook.UI.Chat
         private async Task SubmitInputAsync(Func<string, Task> action)
         {
             var message = NormalizeSubmittedMessage(_inputArea.Text);
-            if (!CanSubmitMessage(message, _isProcessing))
+            if (SubmissionBlockReason != null || !CanSubmitMessage(message, _isProcessing))
                 return;
             var acceptedIntent = message!;
 
@@ -471,7 +473,7 @@ namespace Rook.UI.Chat
                     AddMessageToChat("error", ex.Message);
                     _isProcessing = false;
                     UpdateUIState();
-                    SetStatus("Error", Colors.Red);
+                    SetStatus(SubmissionBlockReason ?? "Error", Colors.Red);
                 });
             }
         }
@@ -504,18 +506,25 @@ namespace Rook.UI.Chat
 
             OnClearRequested();
 
-            SetStatus("Chat cleared", Colors.Gray);
+            SetStatus(SubmissionBlockReason ?? "Chat cleared", SubmissionBlockReason == null ? Colors.Gray : Colors.Orange);
         }
 
         private void UpdateUIState()
         {
-            var messageActionsEnabled = MessageActionsEnabled(_isProcessing);
+            var messageActionsEnabled = MessageActionsEnabled(_isProcessing) && SubmissionBlockReason == null;
             _sendButton.Enabled = messageActionsEnabled;
             if (_secondaryActionButton != null)
                 _secondaryActionButton.Enabled = messageActionsEnabled;
             _stopButton.Enabled = _isProcessing;
             _inputArea.Enabled = !_isProcessing;
+            UpdateComposerState();
             OnUIStateUpdated();
+        }
+
+        private void UpdateComposerState()
+        {
+            if (_useWebComposer)
+                ExecuteScript($"window.chatAPI.setComposerEnabled(true, {(!_isProcessing && SubmissionBlockReason == null ? "true" : "false")})");
         }
 
         /// <summary>
@@ -554,7 +563,7 @@ namespace Rook.UI.Chat
 
                 var text = ChatTab.NormalizeSubmittedMessage(textValue.GetValue<string>());
                 if (string.IsNullOrEmpty(text) && imageArray.Count == 0)
-                    return null;
+                    return new JsonObject { ["accepted"] = false };
                 if (imageArray.Count > AgentChatClient.MaxImagesPerTurn)
                     throw new InvalidOperationException("Too many images were attached.");
 
@@ -571,8 +580,8 @@ namespace Rook.UI.Chat
                     images.Add(new ChatImageInput(fileName!, mimeType!, base64Data));
                 }
 
-                await _owner.SubmitWebInputAsync(text ?? string.Empty, images);
-                return null;
+                var accepted = await _owner.SubmitWebInputAsync(text ?? string.Empty, images);
+                return new JsonObject { ["accepted"] = accepted };
             }
 
             protected override string ResourceRoot => "Rook.UI.Chat.Resources";
@@ -753,21 +762,21 @@ namespace Rook.UI.Chat
             {
                 Application.Instance.Invoke(() =>
                 {
-                    _owner.SetStatus("Ready", Colors.Green);
+                    _owner.SetStatus(_owner.SubmissionBlockReason ?? "Ready", _owner.SubmissionBlockReason == null ? Colors.Green : Colors.Orange);
                     if (_owner._useWebComposer)
                     {
                         _owner._inputArea.Visible = false;
                         _owner._sendButton.Visible = false;
                         _owner._actionButtonLayout.Visible = true;
-                        _owner.ExecuteScript("window.chatAPI.setComposerEnabled(true, true)");
+                        _owner.UpdateComposerState();
                     }
                 });
             }
         }
 
-        private async Task SubmitWebInputAsync(string text, IReadOnlyList<ChatImageInput> images)
+        private async Task<bool> SubmitWebInputAsync(string text, IReadOnlyList<ChatImageInput> images)
         {
-            if (_isProcessing) return;
+            if (_isProcessing || SubmissionBlockReason != null) return false;
             _isProcessing = true;
             UpdateUIState();
             if (!string.IsNullOrEmpty(text)) AddMessageToChat("user", text);
@@ -785,9 +794,11 @@ namespace Rook.UI.Chat
                     AddMessageToChat("error", ex.Message);
                     _isProcessing = false;
                     UpdateUIState();
-                    SetStatus("Error", Colors.Red);
+                    SetStatus(SubmissionBlockReason ?? "Error", Colors.Red);
                 });
             }
+            // Acceptance describes handling of this draft, not the model/settlement outcome.
+            return true;
         }
     }
 }

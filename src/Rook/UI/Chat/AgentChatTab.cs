@@ -204,6 +204,7 @@ namespace Rook.UI.Chat
         private volatile bool _uiAttached = true;
         private bool _deleted;
         private bool _terminalSeen;
+        private bool _promptOutcomeUnconfirmed;
         private StringBuilder? _assistantBuffer;
         private Label? _effectiveSettingsLabel;
         private string? _requestedModel;
@@ -266,6 +267,9 @@ namespace Rook.UI.Chat
         public string? ConversationId => _conversationId ?? _reopenAssociation?.ConversationId;
 
         protected override bool WaitForStopSettlement => true;
+        protected override string? SubmissionBlockReason => _promptOutcomeUnconfirmed
+            ? "Request outcome is unconfirmed. Another request is blocked because the previous one may still be running."
+            : null;
 
         public async Task InitializeAsync()
         {
@@ -358,14 +362,29 @@ namespace Rook.UI.Chat
                 _terminalSeen = false;
             }
 
-            await RunOwnedPromptAsync(
-                _client,
-                baseUri,
-                conversationId,
-                text,
-                images,
-                HandleChatEvent,
-                CancellationToken.None);
+            var dispatched = false;
+            try
+            {
+                await RunOwnedPromptAsync(
+                    _client,
+                    baseUri,
+                    conversationId,
+                    text,
+                    images,
+                    HandleChatEvent,
+                    CancellationToken.None,
+                    onDispatch: () => dispatched = true);
+            }
+            catch (Exception ex)
+            {
+                lock (_promptGate)
+                {
+                    if (dispatched && !_terminalSeen &&
+                        !(ex is AgentChatHttpException http && http.PromptNotAdmitted))
+                        _promptOutcomeUnconfirmed = true;
+                }
+                throw;
+            }
 
             lock (_promptGate)
             {
@@ -381,11 +400,12 @@ namespace Rook.UI.Chat
             string text,
             IReadOnlyList<ChatImageInput> images,
             Action<ChatEvent> onEvent,
-            CancellationToken ct)
+            CancellationToken ct,
+            Action? onDispatch = null)
         {
             try
             {
-                await client.PromptAsync(baseUri, conversationId, text, images, onEvent, ct);
+                await client.PromptAsync(baseUri, conversationId, text, images, onEvent, ct, onDispatch);
             }
             catch (AgentChatHttpException ex) when (ex.Code == "invalid_stream")
             {
@@ -596,8 +616,8 @@ namespace Rook.UI.Chat
             if (!_uiAttached || view.ConversationId != ConversationId) return;
             ApplyReportedSettings(view.EffectiveSettings);
             SetStatus(
-                view.TargetAvailable ? "Conversation connected" : "Conversation connected; Rhino document unavailable",
-                view.TargetAvailable ? Colors.Green : Colors.Orange);
+                SubmissionBlockReason ?? (view.TargetAvailable ? "Conversation connected" : "Conversation connected; Rhino document unavailable"),
+                SubmissionBlockReason == null && view.TargetAvailable ? Colors.Green : Colors.Orange);
         }
 
         private void ShowRequestedSettings(string? model, string? reasoning)

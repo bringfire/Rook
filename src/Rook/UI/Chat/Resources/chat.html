@@ -82,6 +82,10 @@
         var _composerImageLoading = false;
         var _composerVisible = true;
         var _composerEnabled = true;
+        var _composerAckPending = false;
+        var _composerAckUnconfirmed = false;
+        var _composerTextRevision = 0;
+        var _composerImageRevision = 0;
         var _composerImageController = window.RookComposerImages.createSelectionController({
             maxImages: 8,
             publish: function(images) {
@@ -118,10 +122,11 @@
             var send = document.getElementById('composer-send');
             var files = document.getElementById('composer-files');
             if (!composer || !text || !send) return;
+            var enabled = _composerEnabled && !_composerAckPending && !_composerAckUnconfirmed;
             composer.classList.toggle('hidden', !_composerVisible);
-            text.disabled = !_composerEnabled;
-            send.disabled = !_composerEnabled || _composerImageLoading;
-            if (files) files.disabled = !_composerEnabled || _composerImageLoading;
+            text.disabled = !enabled;
+            send.disabled = !enabled || _composerImageLoading;
+            if (files) files.disabled = !enabled || _composerImageLoading;
         }
 
         function renderAttachments() {
@@ -141,12 +146,15 @@
         }
 
         function readComposerFiles(files) {
+            _composerImageRevision += 1;
             return _composerImageController.replace(files);
         }
 
         function submitComposer() {
+            if (!_composerEnabled || _composerAckPending || _composerAckUnconfirmed) return;
             var textArea = document.getElementById('composer-text');
-            var text = textArea ? textArea.value.trim() : '';
+            var submittedText = textArea ? textArea.value : '';
+            var text = submittedText.trim();
             if (!window.RookComposerImages.canSubmit(text, _composerImages, _composerImageLoading)) return;
             var submission = {
                 type: 'submit',
@@ -160,16 +168,42 @@
                 })
             };
             if (!window.rookBridge || typeof window.rookBridge.invoke !== 'function') return;
-            setComposerEnabled(true, false);
-            var result = window.rookBridge.invoke('submit', submission);
-            if (result && typeof result.then === 'function') {
-                result.then(function() {
-                    if (textArea) textArea.value = '';
-                    _composerImageController.clear();
-                }).catch(function() { setComposerEnabled(true, true); });
+            var textRevision = _composerTextRevision;
+            var imageRevision = _composerImageRevision;
+            _composerAckPending = true;
+            applyComposerState();
+            function unconfirmedAcknowledgement() {
+                _composerAckPending = false;
+                _composerAckUnconfirmed = true;
+                applyComposerState();
+                addMessage('error', 'Submission acknowledgement is unconfirmed. Another request is blocked because the previous one may still be running.');
             }
+            try {
+                var result = window.rookBridge.invoke('submit', submission);
+                if (!result || typeof result.then !== 'function') {
+                    unconfirmedAcknowledgement();
+                    return;
+                }
+                Promise.resolve(result).then(function(reply) {
+                    if (!reply || typeof reply.accepted !== 'boolean' || Object.keys(reply).length !== 1) {
+                        unconfirmedAcknowledgement();
+                        return;
+                    }
+                    _composerAckPending = false;
+                    // Acceptance is not model success. Clear only the submitted draft parts.
+                    if (reply.accepted) {
+                        if (textArea && _composerTextRevision === textRevision && textArea.value === submittedText)
+                            textArea.value = '';
+                        if (_composerImageRevision === imageRevision) _composerImageController.clear();
+                    }
+                    applyComposerState();
+                }).catch(unconfirmedAcknowledgement);
+            } catch (e) { unconfirmedAcknowledgement(); }
         }
 
+        document.getElementById('composer-text').addEventListener('input', function() {
+            _composerTextRevision += 1;
+        });
         document.getElementById('composer-files').addEventListener('change', function(event) {
             readComposerFiles(event.target.files);
             event.target.value = '';
