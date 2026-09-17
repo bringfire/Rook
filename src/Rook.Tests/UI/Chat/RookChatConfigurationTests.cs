@@ -25,6 +25,325 @@ namespace Rook.Tests.UI.Chat
         private const string Id = "0123456789abcdef0123456789abcdef";
         private static readonly Uri BaseUri = new("http://127.0.0.1:1");
 
+        [Fact]
+        public async Task Usability_restores_saved_choices_without_selecting_first_or_saving()
+        {
+            using var f = new DialogFixture(this);
+            f.Handler.Begin = b => UsabilityResponse(b);
+            await f.Run(d => d.InitializeAsync());
+            f.Ui(d => { Assert.Equal("provider", Field<DropDown>(d, "_provider").SelectedKey); Assert.Equal("model", d.Model.SelectedKey); Assert.Equal("high", d.Reasoning.SelectedKey); });
+            await f.Run(d => d.RunActionAsync("models"));
+            f.Ui(d => { Assert.Equal("model", d.Model.SelectedKey); Assert.Equal("high", d.Reasoning.SelectedKey); });
+            Assert.Equal(new[] { "status", "models" }, f.Handler.Requests.Select(r => r.GetProperty("operation").GetString()));
+            await f.Run(d => d.RunActionAsync("defaults.save"));
+            Assert.Equal("model", f.Handler.Requests.Last().GetProperty("input").GetProperty("model").GetString());
+            Assert.Equal("high", f.Handler.Requests.Last().GetProperty("input").GetProperty("reasoning").GetString());
+        }
+
+        [Fact]
+        public async Task Usability_refresh_preserves_same_provider_drafts()
+        {
+            using var f = new DialogFixture(this);
+            f.Handler.Begin = b => UsabilityResponse(b);
+            await f.Run(d => d.InitializeAsync());
+            await f.Run(d => d.RunActionAsync("models"));
+            f.Ui(d => { d.Model.SelectedKey = "other"; d.Reasoning.SelectedKey = "low"; d.EndpointUrl.Text = "http://localhost:1234/v1"; d.Api.SelectedKey = "openai-completions"; d.EndpointModelId.Text = "draft"; d.EndpointModelName.Text = "Draft"; d.AddEndpointModel(); d.AuthHeader.Checked = false; });
+            await f.Run(d => d.InitializeAsync());
+            await f.Run(d => d.RunActionAsync("models"));
+            f.Ui(d => { Assert.Equal("other", d.Model.SelectedKey); Assert.Equal("low", d.Reasoning.SelectedKey); Assert.Equal("http://localhost:1234/v1", d.EndpointUrl.Text); Assert.Equal("draft", d.EndpointModelId.Text); Assert.Contains("provider/model", d.SavedDefaults.Text); });
+            f.Ui(d => { var input = d.BuildOperation("endpoint.save").Input; Assert.Equal("draft", input.GetProperty("models")[0].GetProperty("id").GetString()); Assert.False(input.GetProperty("authHeader").GetBoolean()); });
+            Assert.DoesNotContain(f.Handler.Requests, r => r.GetProperty("operation").GetString()!.EndsWith("save"));
+        }
+
+        [Theory]
+        [InlineData("model", "missing")]
+        [InlineData("missing", "high")]
+        public async Task Usability_unavailable_saved_choice_is_not_substituted_or_saved(string model, string reasoning)
+        {
+            using var f = new DialogFixture(this);
+            f.Handler.Begin = b => UsabilityResponse(b, model, reasoning);
+            await f.Run(d => d.InitializeAsync());
+            await f.Run(d => d.RunActionAsync("models"));
+            f.Ui(d => { Assert.Equal(model, d.Model.SelectedKey); Assert.Equal(reasoning, d.Reasoning.SelectedKey); Assert.Contains("unavailable", (model == "missing" ? d.Model : d.Reasoning).Items.Single(i => i.Key == (model == "missing" ? model : reasoning)).Text.ToLowerInvariant()); });
+            await f.Run(d => d.RunActionAsync("defaults.save"));
+            Assert.Equal(2, f.Handler.Requests.Count);
+        }
+
+        private static T Field<T>(RookChatConfigurationDialog d, string name) => (T)typeof(RookChatConfigurationDialog).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(d);
+        [Fact]
+        public async Task Usability_loading_failure_and_empty_catalog_are_distinct_and_retain_values()
+        {
+            using var f = new DialogFixture(this);
+            f.Handler.Begin = b => UsabilityResponse(b);
+            await f.Run(d => d.InitializeAsync());
+            f.Ui(d => Assert.Contains("not loaded", Field<Label>(d, "_catalogStatus").Text));
+            using var stream = new ControlledStream();
+            JsonElement begin = default;
+            f.Handler.Begin = b => { begin = b; return StreamResponse(stream); };
+            var pending = f.Start(d => d.RunActionAsync("models"));
+            try
+            {
+                await f.Until(d => d.Busy && begin.ValueKind != JsonValueKind.Undefined);
+                f.Ui(d => { Assert.Contains("Loading", Field<Label>(d, "_catalogStatus").Text); Assert.Equal("model", d.Model.SelectedKey); });
+                var failed = new { v = 1, type = "result", operationId = begin.GetProperty("operationId").GetString(), outcome = "failed", code = "internal_error", persistence = "not_applicable" };
+                stream.Push(Line(failed) + Line(Settled(failed))); stream.Finish(); await f.Pump(pending);
+                f.Ui(d => { Assert.Contains("Could not load", Field<Label>(d, "_catalogStatus").Text); Assert.Equal("model", d.Model.SelectedKey); });
+            }
+            finally { stream.Finish(); await f.Pump(pending); }
+            f.Handler.Begin = b => UsabilityResponse(b, empty: true);
+            await f.Run(d => d.RunActionAsync("models"));
+            f.Ui(d => { Assert.Contains("No models reported", Field<Label>(d, "_catalogStatus").Text); Assert.Equal("model", d.Model.SelectedKey); Assert.Contains("unavailable", d.Model.Items.Single().Text); });
+        }
+
+        [Fact]
+        public async Task Usability_unknown_saved_provider_and_unset_defaults_never_choose_catalog_first()
+        {
+            using var f = new DialogFixture(this);
+            f.Handler.Begin = b =>
+            {
+                // The real parser still receives a complete finite result, only its saved provider differs.
+                var r = (Dictionary<string, object?>)Result(b);
+                r["data"] = new { providers = new object[0], defaults = new { provider = "retired", model = "old", reasoning = "high" }, apis = new[] { "openai-completions" } };
+                return Response(Line(r) + Line(Settled(r)));
+            };
+            await f.Run(d => d.InitializeAsync());
+            f.Ui(d => { Assert.Equal("retired", Field<DropDown>(d, "_provider").SelectedKey); Assert.Contains("unavailable", Field<DropDown>(d, "_provider").Items.Single().Text); });
+            using var fresh = new DialogFixture(this);
+            fresh.Handler.Begin = b => UsabilityResponse(b, null, null);
+            await fresh.Run(d => d.InitializeAsync()); await fresh.Run(d => d.RunActionAsync("models"));
+            fresh.Ui(d => { Assert.Null(d.Model.SelectedKey); Assert.Null(d.Reasoning.SelectedKey); });
+        }
+
+        [Theory]
+        [InlineData("saved", "unconfirmed", false)]
+        [InlineData("saved", "exited", false)]
+        [InlineData("unknown", "exited", false)]
+        [InlineData("saved", "unconfirmed", true)]
+        [InlineData("saved", "exited", true)]
+        [InlineData("unknown", "exited", true)]
+        public async Task Usability_saved_snapshot_and_dirty_state_follow_persistence_not_cleanup(string persistence, string cleanup, bool wrapperOnly)
+        {
+            using var f = new DialogFixture(this);
+            f.Handler.Begin = b => UsabilityResponse(b);
+            await f.Run(d => d.InitializeAsync()); await f.Run(d => d.RunActionAsync("models"));
+            f.Ui(d => { d.Model.SelectedKey = "other"; d.Reasoning.SelectedKey = "low"; });
+            f.Handler.Begin = b => Response((wrapperOnly ? "" : Line(Result(b, persistence))) + Line(Settled(Result(b, persistence), cleanup == "unconfirmed" ? "cleanup_failed" : null, cleanup, cleanup == "unconfirmed" ? null : (int?)0)));
+            await f.Run(d => d.RunActionAsync("defaults.save"));
+            f.Ui(d =>
+            {
+                Assert.Equal(persistence != "saved", Field<bool>(d, "_defaultsDirty"));
+                Assert.Contains(persistence == "saved" ? "provider/other" : "provider/model", d.SavedDefaults.Text);
+                Assert.Equal(cleanup == "exited", d.CanAttemptConfiguration);
+                Assert.DoesNotContain("presentation interrupted", d.Status.Text);
+            });
+            Assert.Equal(new[] { "status", "models", "defaults.save" }, f.Handler.Requests.Select(r => r.GetProperty("operation").GetString()));
+        }
+
+        [Fact]
+        public async Task Usability_accepted_discard_clears_secrets_and_endpoint_draft_requires_decision()
+        {
+            using var f = new DialogFixture(this);
+            await f.Run(d => d.InitializeAsync());
+            f.Ui(d => { d.ApiKey.Text = "synthetic"; d.ReplaceHeaders.Checked = true; d.HeaderValue.Text = "synthetic-header"; });
+            await f.Run(d => d.RunActionAsync("models"));
+            f.Ui(d => { Assert.Equal("", d.ApiKey.Text); Assert.Equal("", d.HeaderValue.Text); Assert.False(d.ReplaceHeaders.Checked); d.EndpointUrl.Text = "http://localhost:5555/v1"; });
+            f.Discard = false;
+            await f.Run(d => d.RunActionAsync("endpoint.read"));
+            Assert.Equal(2, f.Handler.Requests.Count);
+            f.Ui(d => Assert.Equal("http://localhost:5555/v1", d.EndpointUrl.Text));
+            f.Discard = true;
+            await f.Run(d => d.RunActionAsync("endpoint.read"));
+            f.Ui(d => Assert.Equal("http://localhost:11434/v1", d.EndpointUrl.Text));
+        }
+        [Theory]
+        [InlineData("status")]
+        [InlineData("models")]
+        [InlineData("oauth.connect")]
+        [InlineData("oauth.disconnect")]
+        [InlineData("apiKey.remove")]
+        [InlineData("defaults.save")]
+        [InlineData("endpoint.read")]
+        [InlineData("endpoint.save")]
+        public async Task Usability_declined_secret_discard_dispatches_nothing(string operation)
+        {
+            using var f = new DialogFixture(this);
+            await f.Run(d => d.InitializeAsync());
+            await f.Run(d => d.RunActionAsync("models"));
+            f.Discard = false;
+            f.Ui(d => d.ApiKey.Text = "synthetic-pending-key");
+            var count = f.Handler.Requests.Count;
+            await f.Run(d => d.RunActionAsync(operation));
+            Assert.Equal(count, f.Handler.Requests.Count);
+            f.Ui(d => Assert.Equal("synthetic-pending-key", d.ApiKey.Text));
+        }
+
+        [Theory]
+        [InlineData("status")]
+        [InlineData("models")]
+        [InlineData("apiKey.set")]
+        public async Task Usability_pending_header_replacement_requires_discard_except_its_own_save(string operation)
+        {
+            using var f = new DialogFixture(this);
+            await f.Run(d => d.InitializeAsync());
+            f.Discard = false;
+            f.Ui(d => { d.ReplaceHeaders.Checked = true; d.HeaderName.Text = "X-Synthetic"; d.HeaderValue.Text = "pending"; d.AddHeader(); d.ApiKey.Text = "synthetic-key"; });
+            var count = f.Handler.Requests.Count;
+            await f.Run(d => d.RunActionAsync(operation));
+            Assert.Equal(count, f.Handler.Requests.Count);
+            f.Ui(d => Assert.True(d.ReplaceHeaders.Checked));
+        }
+
+        [Fact]
+        public async Task Usability_typing_provider_without_drafts_does_not_prompt_per_character()
+        {
+            using var f = new DialogFixture(this);
+            await f.Run(d => d.InitializeAsync());
+            f.Discard = false;
+            f.Ui(d =>
+            {
+                d.ProviderId.Text = "n"; d.ProviderId.Text = "ne"; d.ProviderId.Text = "new";
+                Assert.Equal("new", d.ProviderId.Text);
+                Assert.Equal("new", Field<DropDown>(d, "_provider").SelectedKey);
+                Assert.DoesNotContain(Field<DropDown>(d, "_provider").Items, i => i.Key == "n" || i.Key == "ne");
+            });
+            Assert.Single(f.Handler.Requests);
+        }
+
+        [Fact]
+        public async Task Usability_provider_switch_cancel_preserves_and_discard_clears_drafts()
+        {
+            using var f = new DialogFixture(this);
+            f.Handler.Begin = b => UsabilityResponse(b);
+            await f.Run(d => d.InitializeAsync());
+            await f.Run(d => d.RunActionAsync("models"));
+            f.Discard = false;
+            f.Ui(d =>
+            {
+                d.Model.SelectedKey = "other"; d.EndpointUrl.Text = "http://localhost:1234/v1";
+                Field<DropDown>(d, "_provider").SelectedKey = "other-provider";
+                Assert.Equal("provider", d.ProviderId.Text); Assert.Equal("provider", Field<DropDown>(d, "_provider").SelectedKey);
+                Assert.Equal("other", d.Model.SelectedKey); Assert.Equal("http://localhost:1234/v1", d.EndpointUrl.Text);
+            });
+            f.Discard = true;
+            f.Ui(d =>
+            {
+                d.ProviderId.Text = "other-provider";
+                Assert.Null(d.Model.SelectedKey); Assert.Null(d.Reasoning.SelectedKey);
+                Assert.Equal("", d.EndpointUrl.Text); Assert.Null(d.Api.SelectedKey);
+            });
+            await f.Run(d => d.RunActionAsync("defaults.save"));
+            Assert.Equal(2, f.Handler.Requests.Count);
+            f.Ui(d => { d.Api.SelectedKey = "openai-completions"; d.EndpointUrl.Text = "http://localhost:5678/v1"; d.EndpointModelId.Text = "new-provider-model"; d.EndpointModelName.Text = "New model"; d.AddEndpointModel(); });
+            await f.Run(d => d.RunActionAsync("endpoint.save"));
+            var sent = f.Handler.Requests.Last().GetProperty("input");
+            Assert.Equal("other-provider", sent.GetProperty("provider").GetString());
+            Assert.Equal("http://localhost:5678/v1", sent.GetProperty("baseUrl").GetString());
+            Assert.Equal("new-provider-model", sent.GetProperty("models")[0].GetProperty("id").GetString());
+            Assert.Single(sent.GetProperty("models").EnumerateArray());
+        }
+
+        [Theory]
+        [InlineData(480, 420, 0)]
+        [InlineData(480, 420, 1)]
+        [InlineData(480, 420, 2)]
+        [InlineData(650, 720, 0)]
+        [InlineData(650, 720, 1)]
+        [InlineData(650, 720, 2)]
+        public async Task Usability_rendered_bounds_keep_footer_and_buttons_usable(int width, int height, int page)
+        {
+            using var f = new DialogFixture(this);
+            await f.Run(d => d.InitializeAsync());
+            f.Ui(d =>
+            {
+                d.ClientSize = new Eto.Drawing.Size(width, height);
+                ((TabControl)Field<Panel>(d, "_editor").Content).SelectedIndex = page;
+                d.AccountRoute.Text = "Synthetic account route with a long descriptive provider name and no claim of account access.";
+                d.Model.Items.Add(new ListItem { Key = "long", Text = "A long synthetic model display name for the narrow window layout check" }); d.Model.SelectedKey = "long";
+                d.Instructions.Text = "Synthetic authorization instructions with a long device-code explanation. No external operation.";
+                d.Instructions.Visible = true; Field<Button>(d, "_browser").Visible = true;
+                Field<TextArea>(d, "_inputLabel").Visible = true;
+                Field<TextArea>(d, "_inputLabel").Text = "Synthetic authentication input label that must wrap inside the window.";
+                d.SecretReply.Visible = page == 0; d.TextReply.Visible = page == 1; d.ChoiceReply.Visible = page == 2;
+                d.ChoiceReply.Items.Add(new ListItem { Key = "choice", Text = "Synthetic authentication choice" }); Field<Button>(d, "_reply").Visible = true;
+                // Real WPF layout in an offscreen, non-activating test window. No modal loop.
+                dynamic window = d.ControlObject;
+                foreach (var lifecycle in new[] { "TriggerPreLoad", "TriggerLoad", "TriggerLoadComplete" })
+                    typeof(Control).GetMethod(lifecycle, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(d, new object[] { EventArgs.Empty });
+                window.ShowInTaskbar = false; window.ShowActivated = false; window.Left = -20000d; window.Top = -20000d;
+                window.Show();
+                try
+                {
+                dynamic root = d.Content.ControlObject;
+                var sizeType = WpfType("System.Windows.Size");
+                var rectType = WpfType("System.Windows.Rect");
+                root.InvalidateMeasure();
+                root.Measure((dynamic)Activator.CreateInstance(sizeType, (double)width - 24, (double)height - 24)!);
+                root.Arrange((dynamic)Activator.CreateInstance(rectType, 0d, 0d, (double)width - 24, (double)height - 24)!);
+                root.UpdateLayout();
+                var buttons = Visuals((object)root).Where(v => WpfType("System.Windows.Controls.Button").IsInstanceOfType(v)).ToArray();
+                var closeButtons = buttons.Where(v => Visuals(v).Any(c => (c.GetType().GetProperty("Text")?.GetValue(c) as string) == "Close")).ToArray();
+                Assert.True(closeButtons.Length == 1, "Rendered buttons: " + string.Join(";", buttons.Select(v => v.GetType().GetProperty("Content")?.GetValue(v)?.ToString())));
+                dynamic close = closeButtons.Single();
+                var pointType = WpfType("System.Windows.Point");
+                dynamic location = close.TranslatePoint((dynamic)Activator.CreateInstance(pointType, 0d, 0d)!, root);
+                Assert.True(close.ActualWidth >= 50, "Close has usable rendered width");
+                Assert.True(location.X >= 0 && location.X + close.ActualWidth <= width - 24 + 1, $"Close stays inside horizontal bounds: {location.X} + {close.ActualWidth}, root {root.ActualWidth}, requested {width - 24}");
+                Assert.True(location.Y >= 0 && location.Y + close.ActualHeight <= height - 24 + 1, $"Close stays inside vertical bounds: {location.Y} + {close.ActualHeight}, root {root.ActualHeight}, requested {height - 24}");
+                foreach (dynamic button in buttons)
+                    if (button.ActualHeight > 0) Assert.InRange((double)button.ActualHeight, 18, 48);
+                foreach (dynamic scroll in Visuals((object)root).Where(v => WpfType("System.Windows.Controls.ScrollViewer").IsInstanceOfType(v)))
+                    Assert.True(scroll.ScrollableWidth <= 1, $"Form requires horizontal scrolling: {scroll.ScrollableWidth}");
+                root.Background = (dynamic)WpfType("System.Windows.SystemColors").GetProperty("ControlBrush")!.GetValue(null)!;
+                SaveSettingsRender((object)root, width - 24, height - 24, page, "top");
+                dynamic outerScroll = Visuals((object)root).First(v => WpfType("System.Windows.Controls.ScrollViewer").IsInstanceOfType(v));
+                outerScroll.ScrollToBottom(); root.UpdateLayout();
+                dynamic reply = Field<Button>(d, "_reply").ControlObject;
+                dynamic replyPoint = reply.TranslatePoint((dynamic)Activator.CreateInstance(pointType, 0d, 0d)!, root);
+                Assert.True(replyPoint.Y >= 0 && replyPoint.Y + reply.ActualHeight <= location.Y, "Authentication action is reachable above the fixed footer");
+                SaveSettingsRender((object)root, width - 24, height - 24, page, "auth");
+                }
+                finally { window.Hide(); }
+            });
+        }
+        private static IEnumerable<object> Visuals(object root)
+        {
+            yield return root;
+            var helper = WpfType("System.Windows.Media.VisualTreeHelper");
+            var count = (int)helper.GetMethod("GetChildrenCount")!.Invoke(null, new[] { root });
+            for (int i = 0; i < count; i++)
+                foreach (var item in Visuals(helper.GetMethod("GetChild")!.Invoke(null, new object[] { root, i })!)) yield return item;
+        }
+        private static Type WpfType(string name) => AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(name)).First(t => t != null)!;
+        private static void SaveSettingsRender(object visual, int width, int height, int page, string position)
+        {
+            var format = WpfType("System.Windows.Media.PixelFormats").GetProperty("Pbgra32")!.GetValue(null);
+            dynamic bitmap = Activator.CreateInstance(WpfType("System.Windows.Media.Imaging.RenderTargetBitmap"), width, height, 96d, 96d, format)!;
+            bitmap.Render((dynamic)visual);
+            var pixels = new byte[width * height * 4]; bitmap.CopyPixels(pixels, width * 4, 0);
+            Assert.True(pixels.Distinct().Take(8).Count() >= 8, "Rendered dialog must not be blank");
+            var directory = Environment.GetEnvironmentVariable("ROOK_SETTINGS_RENDER_DIR");
+            if (string.IsNullOrEmpty(directory)) return;
+            Directory.CreateDirectory(directory);
+            dynamic encoder = Activator.CreateInstance(WpfType("System.Windows.Media.Imaging.PngBitmapEncoder"))!;
+            var create = WpfType("System.Windows.Media.Imaging.BitmapFrame").GetMethods().Single(m => m.Name == "Create" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType.Name == "BitmapSource");
+            encoder.Frames.Add((dynamic)create.Invoke(null, new object[] { bitmap })!);
+            using var file = File.Create(Path.Combine(directory, $"settings-{width + 24}x{height + 24}-tab{page}-{position}.png"));
+            encoder.Save(file);
+        }
+        private static HttpResponseMessage UsabilityResponse(JsonElement b, string? model = "model", string? reasoning = "high", bool empty = false)
+        {
+            var result = (Dictionary<string, object?>)Result(b);
+            var op = b.GetProperty("operation").GetString();
+            if (op == "status") result["data"] = new { providers = new[] {
+                new { id = "other-provider", name = "Other provider", methods = ConfigurationJson.Operations, credentialType = "none", configured = false, route = "none", headerNames = new string[0] },
+                new { id = "provider", name = "Saved provider", methods = ConfigurationJson.Operations, credentialType = "oauth", configured = true, route = "dedicated", headerNames = new string[0] } },
+                defaults = new { provider = "provider", model, reasoning }, apis = new[] { "openai-completions" } };
+            if (op == "models") result["data"] = new { provider = b.GetProperty("input").GetProperty("provider").GetString(), access = "unverified", models = empty ? new object[0] : new object[] {
+                new { id = "other", name = "Other model", input = new[] { "text" }, reasoningLevels = new[] { "low", "high" } },
+                new { id = "model", name = "Saved model", input = new[] { "text" }, reasoningLevels = new[] { "low", "high" } } } };
+            return Response(Line(result) + Line(Settled(result)));
+        }
+
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
@@ -664,6 +983,7 @@ namespace Rook.Tests.UI.Chat
                 d.ApiKey.Text = "literal-synthetic-key";
                 if (operation == "endpoint.save")
                 {
+                    d.Api.SelectedKey = "openai-completions";
                     d.EndpointUrl.Text = "http://localhost:11434/v1";
                     d.EndpointModelId.Text = "local-model"; d.EndpointModelName.Text = "Local model"; d.AddEndpointModel();
                     d.DeveloperRole.Checked = false; d.ReasoningEffort.Checked = false;
@@ -891,10 +1211,11 @@ namespace Rook.Tests.UI.Chat
             internal readonly AgentChatClient Client;
             internal RookChatConfigurationDialog Dialog = null!;
             internal readonly List<string> BrowserUrls = new();
+            internal bool Discard = true;
             internal DialogFixture(RookChatConfigurationTests owner, bool available = true)
             {
                 _owner = owner; Client = RookChatConfigurationTests.Client(Handler, available);
-                _owner._ui.Run(() => { if (Application.Instance == null) _ = new Application(Eto.Platforms.Wpf); SynchronizationContext.SetSynchronizationContext(null); Dialog = new RookChatConfigurationDialog(Client, _queue.Enqueue, BrowserUrls.Add); });
+                _owner._ui.Run(() => { if (Application.Instance == null) _ = new Application(Eto.Platforms.Wpf); SynchronizationContext.SetSynchronizationContext(null); Dialog = new RookChatConfigurationDialog(Client, _queue.Enqueue, BrowserUrls.Add, _ => Discard); });
             }
             internal void Ui(Action<RookChatConfigurationDialog> action) => _owner._ui.Run(() => action(Dialog));
             internal Task Start(Func<RookChatConfigurationDialog, Task> run) { Task task = null!; Ui(d => task = run(d)); return task; }
