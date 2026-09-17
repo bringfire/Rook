@@ -133,6 +133,10 @@ def test_reparse_directory_refuses_without_following_target(private_parent, tmp_
     with pytest.raises(s.ConfigurationStorageRefused):
         s.admit_configuration_storage(root)
     assert not list(target.iterdir())
+    result = repair(s, root)
+    assert result['outcome'] == 'refused'
+    assert not any(row['attempted'] for row in result['objects'])
+    assert not list(target.iterdir())
 
 
 def test_relative_path_refuses():
@@ -187,11 +191,242 @@ def test_root_must_protect_future_files(private_parent, policy):
         s.admit_configuration_storage(root)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize('runtime', ['node', 'bun'])
-async def test_real_prime_writes_refresh_and_replacement_preserve_acl(private_parent, tmp_path, runtime):
+def descriptor(path):
+    """Metadata-only fixture oracle, including protection and inherited ACE flags."""
+    w = storage()._Windows()
+    w.adv.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [
+        w.w.LPVOID, w.w.DWORD, w.w.DWORD, ctypes.POINTER(w.w.LPWSTR), w.w.LPVOID]
+    sd, owner, acl = w.w.LPVOID(), w.w.LPVOID(), w.w.LPVOID()
+    text = w.w.LPWSTR()
+    with w.open(path) as handle:
+        assert w.adv.GetSecurityInfo(handle, 1, 5, ctypes.byref(owner), None,
+                                    ctypes.byref(acl), None, ctypes.byref(sd)) == 0
+        try:
+            assert w.adv.ConvertSecurityDescriptorToStringSecurityDescriptorW(sd, 1, 5, ctypes.byref(text), None)
+            return text.value
+        finally:
+            w.kernel.LocalFree(ctypes.cast(text, w.w.LPVOID))
+            w.kernel.LocalFree(sd)
+
+
+@pytest.fixture
+def exposed_store(private_parent):
+    s, parent, acl = private_parent
+    root = parent / 'prime-config'
+    root.mkdir()
+    for name in ('auth.json', 'settings.json', 'models.json'):
+        (root / name).write_bytes(b'synthetic\x00unchanged\xff')
+    return s, root
+
+
+def repair(s, root):
+    assert hasattr(s, 'repair_configuration_storage'), 'explicit repair is not implemented'
+    return s.repair_configuration_storage(root)
+
+
+def test_repair_preserves_bytes_identity_and_surroundings(exposed_store, monkeypatch):
+    s, root = exposed_store
+    before = {p.name: (p.stat().st_ino, p.read_bytes()) for p in root.iterdir()}
+    identity, parent_acl = root.stat().st_ino, descriptor(root.parent)
+    sibling = root.parent / 'unrelated.txt'
+    sibling.write_bytes(b'not selected')
+    sibling_acl = descriptor(sibling)
+    # Any production content read/write or copying would fail this control.
+    with monkeypatch.context() as m:
+        m.setattr(Path, 'read_bytes', lambda *_: pytest.fail('production content read'))
+        m.setattr(Path, 'write_bytes', lambda *_: pytest.fail('production content write'))
+        result = repair(s, root)
+    assert result['outcome'] == 'repaired' and result['admission'] == 'passed'
+    assert result['cleanup'] == 'closed'
+    assert all(row['write_completed'] and row['verified'] for row in result['objects'])
+    assert root.stat().st_ino == identity
+    assert {p.name: (p.stat().st_ino, p.read_bytes()) for p in root.iterdir()} == before
+    assert descriptor(root.parent) == parent_acl and descriptor(sibling) == sibling_acl
+    s.admit_configuration_storage(root)
+    after_acl = {p: descriptor(p) for p in [root, *root.iterdir()]}
+    again = repair(s, root)
+    assert again['outcome'] == 'unchanged' and again['admission'] == 'passed'
+    assert not any(row['attempted'] for row in again['objects'])
+    assert {p: descriptor(p) for p in after_acl} == after_acl
+
+
+def test_repair_private_store_is_noop_and_missing_files_stay_absent(private_parent, monkeypatch):
     s, parent, _ = private_parent
     root = parent / 'prime-config'
+    s.admit_configuration_storage(root)
+    original = descriptor(root)
+    assert hasattr(s._Windows, 'protect'), 'repair setter is not implemented'
+    monkeypatch.setattr(s._Windows, 'protect', lambda *_args, **_kwargs: pytest.fail('unexpected ACL write'))
+    result = repair(s, root)
+    assert result['outcome'] == 'unchanged' and result['admission'] == 'passed'
+    assert not any(row['attempted'] for row in result['objects'])
+    assert [r['present'] for r in result['objects']] == [True, False, False, False]
+    assert descriptor(root) == original and not list(root.iterdir())
+
+
+@pytest.mark.parametrize('problem', ['unknown_file', 'directory', 'hardlink', 'owner', 'identity', 'elevated'])
+def test_repair_prewrite_refusals_preserve_storage(exposed_store, monkeypatch, problem):
+    s, root = exposed_store
+    assert hasattr(s._Windows, 'protect'), 'repair setter is not implemented'
+    if problem == 'unknown_file':
+        (root / 'unexpected.txt').write_bytes(b'unchanged')
+    elif problem == 'directory':
+        (root / 'auth.json').unlink()
+        (root / 'auth.json').mkdir()
+    elif problem == 'hardlink':
+        os.link(root / 'auth.json', root.parent / 'alias')
+    w = s._Windows()
+    before = {p: descriptor(p) for p in [root, *root.iterdir()]}
+    if problem == 'owner':
+        sid, calls = w.sid, []
+        def changed_owner(pointer):
+            calls.append(pointer)
+            return 'S-1-5-21-1-2-3-9999' if len(calls) == 4 else sid(pointer)
+        monkeypatch.setattr(w, 'sid', changed_owner)  # Last selected file, not just root.
+    elif problem == 'elevated':
+        monkeypatch.setattr(w, 'require_unelevated', lambda: w.check(False))
+    elif problem == 'identity':
+        original = w.inspect
+        seen = set()
+        def changed(handle, **kwargs):
+            value = original(handle, **kwargs)
+            if handle in seen:
+                return (value[0], value[1], value[2] + 1)
+            seen.add(handle)
+            return value
+        monkeypatch.setattr(w, 'inspect', changed)
+    monkeypatch.setattr(s, '_Windows', lambda: w)
+    monkeypatch.setattr(w, 'protect', lambda *_args, **_kwargs: pytest.fail('write before complete admission'))
+    result = repair(s, root)
+    assert result['outcome'] == 'refused' and result['cleanup'] == 'closed'
+    assert not any(row['attempted'] for row in result['objects'])
+    monkeypatch.undo()
+    assert {p: descriptor(p) for p in before} == before
+
+
+def test_repair_partial_failure_retains_actual_completion(exposed_store, monkeypatch):
+    s, root = exposed_store
+    assert hasattr(s._Windows, 'protect'), 'repair setter is not implemented'
+    original = s._Windows.protect
+    calls = []
+    def fail_second(w, handle, **kwargs):
+        calls.append(handle)
+        if len(calls) == 2:
+            raise RuntimeError('synthetic-private-value-must-not-escape')
+        return original(w, handle, **kwargs)
+    before = {p: (p.read_bytes(), descriptor(p)) for p in root.iterdir()}
+    monkeypatch.setattr(s._Windows, 'protect', fail_second)
+    result = repair(s, root)
+    assert result['outcome'] == 'partial' and result['cleanup'] == 'closed'
+    assert result['admission'] == 'not_run'
+    first, second, *rest = result['objects']
+    assert first['write_completed'] and first['verified']
+    assert second['attempted'] and not second['write_completed']
+    assert not any(row['attempted'] for row in rest)
+    assert {p: (p.read_bytes(), descriptor(p)) for p in before} == before
+    assert 'synthetic-private' not in json.dumps(result)
+    with pytest.raises(s.ConfigurationStorageRefused):
+        s.admit_configuration_storage(root)
+
+
+def test_repair_setter_does_not_propagate_to_unselected_child(exposed_store):
+    s, root = exposed_store
+    assert hasattr(s._Windows, 'protect'), 'repair setter is not implemented'
+    before = {p: descriptor(p) for p in root.iterdir()}
+    w = s._Windows()
+    with w.open(root, repair=True, directory=True) as handle:
+        w.inspect(handle, directory=True, permissions=False)
+        w.protect(handle, directory=True)
+        w.inspect(handle, directory=True)
+    assert {p: descriptor(p) for p in before} == before
+
+
+def test_repair_readback_failure_preserves_write_evidence(exposed_store, monkeypatch):
+    s, root = exposed_store
+    original, inspect = s._Windows.protect, s._Windows.inspect
+    written = set()
+    def protect(w, handle, **kwargs):
+        original(w, handle, **kwargs)
+        written.add(handle)
+    def refuse_readback(w, handle, **kwargs):
+        if handle in written and kwargs.get('permissions', True):
+            raise s.ConfigurationStorageRefused()
+        return inspect(w, handle, **kwargs)
+    monkeypatch.setattr(s._Windows, 'protect', protect)
+    monkeypatch.setattr(s._Windows, 'inspect', refuse_readback)
+    result = repair(s, root)
+    assert result['outcome'] == 'partial' and result['cleanup'] == 'closed'
+    assert result['objects'][0]['write_completed'] and not result['objects'][0]['verified']
+    assert not any(row['attempted'] for row in result['objects'][1:])
+
+
+def test_repair_cleanup_failure_does_not_erase_verified_writes(exposed_store, monkeypatch):
+    from contextlib import contextmanager
+    s, root = exposed_store
+    original = s._Windows.open
+    @contextmanager
+    def failing_close(w, path, **kwargs):
+        with original(w, path, **kwargs) as handle:
+            yield handle
+        if kwargs.get('repair'):
+            raise RuntimeError('synthetic-private-cleanup-error')
+    monkeypatch.setattr(s._Windows, 'open', failing_close)
+    result = repair(s, root)
+    assert result['outcome'] == 'failed' and result['cleanup'] == 'unconfirmed'
+    assert result['admission'] == 'passed'
+    assert all(row['write_completed'] and row['verified'] for row in result['objects'])
+    assert 'synthetic-private' not in json.dumps(result)
+
+
+def test_repair_missing_store_is_not_created(private_parent):
+    s, parent, _ = private_parent
+    root = parent / 'prime-config'
+    assert repair(s, root)['outcome'] == 'refused'
+    assert not root.exists()
+
+
+@pytest.mark.parametrize('case,expected', [('unconfirmed', 2), ('repair', 0), ('wrong_binding', 1), ('unsafe_shape', 1), ('bad_arguments', 2)])
+def test_repair_real_cli_requires_explicit_selection(exposed_store, case, expected):
+    s, root = exposed_store
+    env = dict(os.environ, ROOK_MODE='release', ROOK_INSTALL_ROOT=str(root.parent / 'app'),
+               ROOK_DATA_DIR=str(root.parent))
+    src = Path(__file__).parents[1] / 'src'
+    entry = f"import sys,runpy;sys.path.insert(0,{str(src)!r});runpy.run_module('rook.agent.chat.configuration_storage',run_name='__main__')"
+    target = root.parent / 'elsewhere' if case == 'wrong_binding' else root
+    argv = [sys.executable, '-I', '-B', '-c', entry, '--repair-permissions', '--expected-directory', str(target)]
+    if case != 'unconfirmed':
+        argv.append('--confirm-closed')
+    if case == 'bad_arguments':
+        argv.append('--unknown=synthetic-private-value')
+    if case == 'unsafe_shape':
+        (root / 'unexpected.txt').write_bytes(b'synthetic')
+    before = descriptor(root)
+    result = subprocess.run(argv, env=env, capture_output=True, timeout=15)
+    assert result.returncode == expected
+    assert len(result.stdout) + len(result.stderr) < 8192
+    assert b'synthetic' not in result.stdout + result.stderr
+    if case == 'repair':
+        value = json.loads(result.stdout)
+        assert value['outcome'] == 'repaired' and value['cleanup'] == 'closed'
+        assert not result.stderr
+        s.admit_configuration_storage(root)
+    else:
+        assert descriptor(root) == before
+        if expected == 1:
+            value = json.loads(result.stdout)
+            assert value['outcome'] == 'refused' and value['cleanup'] == 'closed'
+            assert not result.stderr
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('runtime', ['node', 'bun'])
+@pytest.mark.parametrize('initial_store', ['fresh', 'repaired'])
+async def test_real_prime_writes_refresh_and_replacement_preserve_acl(private_parent, tmp_path, runtime, initial_store):
+    s, parent, _ = private_parent
+    root = parent / 'prime-config'
+    if initial_store == 'repaired':
+        root.mkdir()  # Inherited exposure is corrected before any synthetic credential write.
+        assert repair(s, root)['outcome'] == 'repaired'
     s.admit_configuration_storage(root)
     prime = Path('D:/prime-agent/.worktrees/rookchat-configuration')
     fixture = Path(__file__).parent / 'fixtures/prime_configuration_storage.mjs'
