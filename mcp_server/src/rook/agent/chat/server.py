@@ -36,6 +36,7 @@ from .acp_process import AcpCapabilityError
 from .acp_storage import AcpStorageError, RookBinding
 from .prime_runtime import PrimeLaunchError, RuntimeUnavailable, SUPPORTED_REASONING
 from .configuration_http import CONFIGURATION_KEY, ConfigurationHttp, register_configuration_routes
+from .configuration_storage import ConfigurationStorageRefused
 
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,8 @@ def _classified_error(exc: Exception) -> tuple[str, int]:
     code = getattr(exc, "code", None)
     if isinstance(exc, _HttpContractError):
         return exc.code, exc.status
+    if isinstance(exc, ConfigurationStorageRefused):
+        return exc.code, 409
     if isinstance(exc, RuntimeUnavailable) or code == "runtime_unavailable":
         return "runtime_unavailable", 503
     if isinstance(exc, PrimeLaunchError):

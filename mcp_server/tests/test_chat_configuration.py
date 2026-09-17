@@ -290,6 +290,26 @@ async def test_http_to_verified_child_private_key_and_settlement(configured, tmp
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.name != 'nt', reason='Windows storage admission')
+async def test_privacy_refusal_precedes_http_child_and_clears_input(configured, tmp_path, caplog):
+    from .test_chat_configuration_storage import set_acl, storage
+    dependency, calls, children, _ = configured
+    root = tmp_path / 'prime-config'
+    root.mkdir()
+    sid = storage()._Windows().user_sid
+    set_acl(root, f'D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;;FR;;;WD)')
+    (root / 'auth.json').write_text('synthetic-only')
+    async with client_for(tmp_path, dependency) as client:
+        events = await rows(await client.post('/agent/chat/configuration', headers=HEADERS,
+                            json=begin('apiKey.set', provider='synthetic', key='SYNTHETIC_KEY_NAME')))
+    assert events == [{'type':'configuration_settled', 'result':None, 'exit_code':None,
+                      'cleanup':'exited', 'failure_code':'configuration_storage_refused'}]
+    assert not calls and not children
+    assert (root / 'auth.json').read_text() == 'synthetic-only'
+    assert 'SYNTHETIC_KEY_NAME' not in json.dumps(events) + caplog.text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("case,code", [("saved-nonzero", "child_exit_failed"), ("saved-hang", "cleanup_failed"),
                                        ("saved-invalid", "protocol_error")])
 async def test_saved_result_survives_failed_cleanup_or_late_protocol(configured, tmp_path, case, code):

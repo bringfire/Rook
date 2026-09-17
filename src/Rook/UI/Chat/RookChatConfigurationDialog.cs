@@ -203,6 +203,12 @@ namespace Rook.UI.Chat
                     Status.Text = settlement.Successful ? "Configuration operation completed." :
                         settlement.FailureCode == "configuration_unavailable" ? "Configuration unavailable for this runtime. Existing conversations remain available." :
                         "Configuration incomplete: " + (settlement.DeliveryFailure ?? settlement.FailureCode ?? settlement.Result?.Code ?? "unknown");
+                    if (settlement.FailureCode == "configuration_storage_refused")
+                    {
+                        Status.Text = "Configuration storage protection could not be verified. Existing storage preserved.";
+                        Persistence.Text = "Operation not started; no configuration change was attempted.";
+                        Cleanup.Text = "Configuration process: not started.";
+                    }
                     ClearSensitive();
                 }).ConfigureAwait(false);
             }

@@ -26,6 +26,44 @@ namespace Rook.Tests.UI.Chat
         private static readonly Uri BaseUri = new("http://127.0.0.1:1");
 
         [Fact]
+        public async Task Privacy_refusal_is_not_unknown_persistence_or_a_child_exit()
+        {
+            using var fixture = new DialogFixture(this);
+            await fixture.Run(d => d.InitializeAsync());
+            fixture.Handler.Begin = b => Response(Line(new { type = "configuration_settled", result = (object?)null,
+                exit_code = (int?)null, cleanup = "exited", failure_code = "configuration_storage_refused" }));
+            fixture.Ui(d => d.ApiKey.Text = "synthetic-secret");
+            await fixture.Run(d => d.RunActionAsync("apiKey.set"));
+            fixture.Ui(d => {
+                Assert.Equal("configuration_storage_refused", d.LastSettlement!.FailureCode);
+                Assert.Null(d.LastSettlement.Result); Assert.Null(d.LastSettlement.ExitCode);
+                Assert.False(d.LastSettlement.Successful);
+                Assert.Contains("storage protection", d.Status.Text);
+                Assert.Contains("not started", d.Persistence.Text);
+                Assert.Contains("not started", d.Cleanup.Text);
+                Assert.DoesNotContain("unknown", d.Persistence.Text);
+                Assert.Equal("", d.ApiKey.Text);
+            });
+        }
+
+        [Theory]
+        [InlineData("saved")]
+        [InlineData("exit")]
+        [InlineData("cleanup")]
+        public async Task Privacy_refusal_cannot_contradict_result_or_child_evidence(string fault)
+        {
+            using var handler = new Handler(b => Response(
+                (fault == "saved" ? Line(Result(b)) : "") +
+                Line(Settled(fault == "saved" ? Result(b) : null, "configuration_storage_refused",
+                    fault == "cleanup" ? "unconfirmed" : "exited", fault == "exit" ? 0 : (int?)null))));
+            using var client = Client(handler);
+            var result = await client.RunConfigurationAsync(Begin(), _ => Task.CompletedTask, CancellationToken.None);
+            Assert.False(result.Successful);
+            Assert.Equal("configuration_stream_failed", result.DeliveryFailure);
+            if (fault == "saved") Assert.Equal("saved", result.Result!.Persistence);
+        }
+
+        [Fact]
         public void Task7_actual_stream_updates_label_without_resetting_text()
         {
             _ui.Run(() =>

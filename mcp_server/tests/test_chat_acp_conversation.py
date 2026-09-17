@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import platform
 import sys
 import uuid
@@ -31,6 +32,36 @@ from rook.agent.chat.acp_process import InitializedAcp, RetirementResult
 from rook.agent.chat.acp_storage import AssociationStore, OpenClaim, RookBinding, SessionRecoveryRequired
 from rook.agent.chat.prime_runtime import PrimeLaunchError, PrimeRuntimeContract
 from rook.runtime_paths import AcpDataPaths, RuntimePaths
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != 'nt', reason='Windows storage admission')
+@pytest.mark.parametrize('reopen', [False, True])
+@pytest.mark.parametrize('commit', ['c2055d6aff5891b918a24accf584a76852676445', 'dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b'])
+async def test_privacy_refusal_releases_prechild_claim(tmp_path, monkeypatch, reopen, commit):
+    from .test_chat_configuration_storage import storage, set_acl
+    s = storage()
+    contract = replace(_contract(tmp_path), compatibility_patch_commit=commit)
+    paths = _paths(tmp_path)
+    data = tmp_path / 'data'
+    provisional = AssociationStore(paths).reserve_provisional(binding=_binding(), runtime_id=contract.runtime_id,
+        working_directory=tmp_path, requested_model=None, requested_reasoning=None)
+    prepared = DirectAcpProcessFactory({'ROOK_DATA_DIR':str(data)}).prepare(contract, provisional, reopen)
+    root = data / 'prime-config'
+    assert not root.exists()  # launch preparation is pure
+    root.mkdir()
+    sid = s._Windows().user_sid
+    set_acl(root, f'D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;;FR;;;WD)')
+    called = []
+    async def forbidden(*args, **kwargs):
+        called.append(True)
+        raise AssertionError('privacy refusal must precede SDK acquisition')
+    monkeypatch.setattr('rook.agent.chat.acp_conversation.OwnedAcpProcess.start', forbidden)
+    claim = OpenClaim.acquire(paths.claims_root, provisional.session_path)
+    with pytest.raises(s.ConfigurationStorageRefused):
+        await prepared.start(claim, launch_generation=1)
+    assert not called and not claim.path.exists()
+    assert root.exists()
 
 
 def _paths(tmp_path: Path) -> AcpDataPaths:

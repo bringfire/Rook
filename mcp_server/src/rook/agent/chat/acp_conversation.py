@@ -24,6 +24,7 @@ from .acp_presentation import (
     map_stop_reason,
 )
 from .acp_process import OwnedAcpProcess, PrimeLaunch
+from .configuration_storage import ConfigurationStorageRefused, admit_configuration_storage
 from .acp_storage import (
     AssociationStore,
     ConversationAssociation,
@@ -197,6 +198,7 @@ class AcpProcessFactory(Protocol):
 @dataclass(frozen=True)
 class PreparedDirectAcpLaunch:
     launch: PrimeLaunch
+    configuration_directory: Path | None = None
 
     async def start(
         self,
@@ -204,6 +206,12 @@ class PreparedDirectAcpLaunch:
         *,
         launch_generation: int,
     ) -> OwnedAcpProcess:
+        if self.configuration_directory is not None:
+            try:
+                admit_configuration_storage(self.configuration_directory)
+            except ConfigurationStorageRefused:
+                claim.release_no_child_created()
+                raise
         return await OwnedAcpProcess.start(
             self.launch,
             claim,
@@ -234,7 +242,8 @@ class DirectAcpProcessFactory:
                        if supports_configuration(contract)
                        else build_prime_child_env(self._base_environment, contract))
         return PreparedDirectAcpLaunch(
-            PrimeLaunch(argv=argv, environment=environment, cwd=Path(association.working_directory))
+            PrimeLaunch(argv=argv, environment=environment, cwd=Path(association.working_directory)),
+            Path(environment["PRIME_AGENT_CODING_AGENT_DIR"]) if supports_configuration(contract) else None,
         )
 
 

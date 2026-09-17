@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import configuration_protocol as wire
+from .configuration_storage import ConfigurationStorageRefused, admit_configuration_storage
 from .prime_runtime import PrimeRuntimeContract, build_configuration_argv, build_configuration_env
 
 OPERATION_SECONDS = {operation: (20.0 if operation in wire.READ_OPERATIONS else 600.0 if operation == "oauth.connect" else 30.0)
@@ -187,6 +188,7 @@ class PrimeConfigurationOperation:
         try:
             if self._cancelled:
                 raise wire.ConfigurationError("cancelled")
+            admit_configuration_storage(Path(self.environment["PRIME_AGENT_CODING_AGENT_DIR"]))
             flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
             self._spawn = asyncio.create_task(asyncio.create_subprocess_exec(
                 *self.argv, cwd=self.cwd, env=self.environment, stdin=asyncio.subprocess.PIPE,
@@ -220,6 +222,8 @@ class PrimeConfigurationOperation:
             self._stop("cancelled")
         except wire.ConfigurationError as exc:
             self._stop(exc.code, trusted=False)
+        except ConfigurationStorageRefused:
+            self._stop("configuration_storage_refused", trusted=False)
         except Exception:
             self._stop("spawn_failed" if self.process is None else "process_failed", trusted=False)
         finally:

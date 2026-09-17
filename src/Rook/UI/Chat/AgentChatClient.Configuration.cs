@@ -250,7 +250,8 @@ namespace Rook.UI.Chat
             var cleanup = Text(v.GetProperty("cleanup")); Need(cleanup == "exited" || cleanup == "unconfirmed");
             var code = v.GetProperty("exit_code"); int? exit = code.ValueKind == JsonValueKind.Null ? null : code.GetInt32();
             var failure = v.GetProperty("failure_code"); string? fail = failure.ValueKind == JsonValueKind.Null ? null : Text(failure);
-            Need(fail == null || new[] { "cancelled", "deadline_exceeded", "bounds_exceeded", "protocol_error", "output_failed", "stderr_failed", "spawn_failed", "process_failed", "stdin_failed", "cleanup_failed", "cleanup_unconfirmed", "child_exit_failed", "missing_result", "invalid_request" }.Contains(fail));
+            Need(fail == null || new[] { "cancelled", "deadline_exceeded", "bounds_exceeded", "protocol_error", "output_failed", "stderr_failed", "spawn_failed", "process_failed", "stdin_failed", "cleanup_failed", "cleanup_unconfirmed", "child_exit_failed", "missing_result", "invalid_request", "configuration_storage_refused" }.Contains(fail));
+            if (fail == "configuration_storage_refused") Need(nested == null && earlier == null && exit == null && cleanup == "exited");
             return new ConfigurationSettlement { Result = earlier ?? nested, Cleanup = cleanup, ExitCode = exit, FailureCode = fail };
         }
     }
