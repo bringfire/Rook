@@ -311,6 +311,7 @@ nlohmann::json SerializeLayer(const LayerSnapshot& layer)
 nlohmann::json SerializeDocument(const DocumentSnapshot& doc)
 {
     return {
+        {"documentSerialNumber", doc.documentSerialNumber},
         {"name", doc.name},
         {"path", doc.path},
         {"units", doc.units},
