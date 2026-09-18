@@ -378,7 +378,8 @@ namespace Rook.UI.Chat
         private bool Supports(string operation)
             => _providers.TryGetValue(ProviderId.Text ?? "", out var p)
                 ? p.GetProperty("methods").EnumerateArray().Any(m => m.GetString() == operation)
-                : operation == "endpoint.read" || operation == "endpoint.save";
+                : operation == "endpoint.read" || operation == "endpoint.save" ||
+                    operation == "apiKey.set" && !string.IsNullOrWhiteSpace(ProviderId.Text) && ProviderId.Text != "ollama";
         internal void AddEndpointModel()
         {
             var id = EndpointModelId.Text ?? "";
