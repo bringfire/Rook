@@ -10,6 +10,20 @@ namespace Rook.Tests.UI.Chat
 {
     public sealed class RookChatPanelTests
     {
+        [Theory]
+        [InlineData("anthropic/claude", true)]
+        [InlineData("openrouter/anthropic/claude-sonnet-4.5", true)]
+        [InlineData("provider/vendor/family/model", true)]
+        [InlineData("provider", false)]
+        [InlineData("/model", false)]
+        [InlineData("provider/", false)]
+        [InlineData("provider/  ", false)]
+        [InlineData(" /model", false)]
+        public void Requested_model_splits_only_the_provider_separator(string model, bool valid)
+        {
+            Assert.Equal(valid, RookChatPanel.IsQualifiedRequestedModel(model));
+        }
+
         [Fact]
         public void RookChatPanel_UsesHostedPanelLifecycleAdapter()
         {

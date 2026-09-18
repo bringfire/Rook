@@ -533,6 +533,9 @@ namespace Rook.UI.Chat
             base.Dispose(disposing);
         }
 
+        internal static bool IsQualifiedRequestedModel(string model)
+            => model.IndexOf('/') >= 0 && !model.Split(new[] { '/' }, 2).Any(string.IsNullOrWhiteSpace);
+
         private sealed class PrimeConversationDialogResult
         {
             public string? ReopenConversationId { get; set; }
@@ -607,8 +610,7 @@ namespace Rook.UI.Chat
                 if (!string.IsNullOrEmpty(reopen))
                     return new PrimeConversationDialogResult { ReopenConversationId = reopen };
                 var model = _model.Text?.Trim();
-                if (!string.IsNullOrEmpty(model) &&
-                    (model.Count(ch => ch == '/') != 1 || model.Split('/').Any(string.IsNullOrWhiteSpace)))
+                if (!string.IsNullOrEmpty(model) && !IsQualifiedRequestedModel(model))
                 {
                     MessageBox.Show(this, "Use a fully qualified provider/model name.", "Prime Conversation");
                     return null;
