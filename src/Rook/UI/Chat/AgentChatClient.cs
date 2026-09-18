@@ -11,6 +11,59 @@ using System.Threading.Tasks;
 
 namespace Rook.UI.Chat
 {
+    [JsonConverter(typeof(ReportedSettingsConverter))]
+    public sealed class ReportedEffectiveSettings
+    {
+        public string? Provider { get; }
+        public string? Model { get; }
+        public string? Reasoning { get; }
+        public ReportedEffectiveSettings(string? provider = null, string? model = null, string? reasoning = null)
+        { Provider = provider; Model = model; Reasoning = reasoning; }
+    }
+
+    internal sealed class ReportedSettingsConverter : JsonConverter<ReportedEffectiveSettings>
+    {
+        public override ReportedEffectiveSettings Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            using var document = JsonDocument.ParseValue(ref reader);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return new();
+            var fields = new Dictionary<string, string?>();
+            foreach (var field in root.EnumerateObject())
+            {
+                string name;
+                try { name = field.Name; }
+                catch (InvalidOperationException) { return new(); }
+                if (name is not ("provider" or "model" or "reasoning") || fields.ContainsKey(name)) return new();
+                string? value = null;
+                if (field.Value.ValueKind != JsonValueKind.Null)
+                {
+                    if (field.Value.ValueKind != JsonValueKind.String) return new();
+                    try
+                    {
+                        value = field.Value.GetString();
+                        if (string.IsNullOrEmpty(value) || value!.IndexOf('\0') >= 0 || new UTF8Encoding(false, true).GetByteCount(value) > 256) return new();
+                    }
+                    catch (EncoderFallbackException) { return new(); }
+                    catch (InvalidOperationException) { return new(); }
+                }
+                fields.Add(name, value);
+            }
+            fields.TryGetValue("provider", out var provider);
+            fields.TryGetValue("model", out var model);
+            fields.TryGetValue("reasoning", out var reasoning);
+            return new(provider, model, reasoning);
+        }
+        public override void Write(Utf8JsonWriter writer, ReportedEffectiveSettings value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("provider", value.Provider);
+            writer.WriteString("model", value.Model);
+            writer.WriteString("reasoning", value.Reasoning);
+            writer.WriteEndObject();
+        }
+    }
+
     public sealed class CreateConversationRequest
     {
         public string HostGenerationId { get; set; } = "";
@@ -23,6 +76,8 @@ namespace Rook.UI.Chat
 
     public sealed class ConversationView
     {
+        [JsonPropertyName("effectiveSettings")]
+        public ReportedEffectiveSettings? EffectiveSettings { get; set; }
         [JsonPropertyName("conversationId")]
         public string ConversationId { get; set; } = "";
 
@@ -159,6 +214,8 @@ namespace Rook.UI.Chat
 
     public sealed class ChatEvent
     {
+        [JsonPropertyName("effectiveSettings")]
+        public ReportedEffectiveSettings? EffectiveSettings { get; set; }
         [JsonPropertyName("type")]
         public string Type { get; set; } = "";
 
@@ -253,7 +310,7 @@ namespace Rook.UI.Chat
     /// Authenticated HTTP client for the ACP-backed RookChat product service.
     /// This type maps product JSON only; it does not implement ACP.
     /// </summary>
-    public sealed class AgentChatClient : IDisposable
+    public sealed partial class AgentChatClient : IDisposable
     {
         internal const int MaxErrorMessageUtf8Bytes = 8 * 1024;
         internal const int MaxErrorBodyUtf8Bytes = 64 * 1024;
@@ -430,6 +487,15 @@ namespace Rook.UI.Chat
                         ?? throw InvalidStream("Chat service returned an empty stream row.");
                     if (value.Type == "terminal")
                         ValidateTerminal(document.RootElement, value);
+                    if (value.Type == "session_status")
+                    {
+                        var keys = new HashSet<string>();
+                        foreach (var field in document.RootElement.EnumerateObject())
+                            if (field.Name is not ("type" or "effectiveSettings") || !keys.Add(field.Name))
+                                throw InvalidStream("Chat service returned invalid settings status.");
+                        if (!keys.Contains("effectiveSettings"))
+                            throw InvalidStream("Chat service returned incomplete settings status.");
+                    }
                 }
                 catch (JsonException exc)
                 {
@@ -440,7 +506,7 @@ namespace Rook.UI.Chat
                     terminal = value;
                     continue;
                 }
-                if (value.Type is not ("text_delta" or "thought_delta" or "tool_update"))
+                if (value.Type is not ("text_delta" or "thought_delta" or "tool_update" or "session_status"))
                     throw InvalidStream("Chat service returned an unknown stream row type.");
                 onEvent(value);
             }

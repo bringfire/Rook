@@ -20,6 +20,7 @@ from rook.targeting import PanelTargetLock, resolve_panel_target_instance
 from .acp_conversation import AcpConversationManager, DirectAcpProcessFactory
 from .acp_presentation import PresentationCache
 from .acp_storage import AssociationStore, RookBinding
+from .configuration_http import ConfigurationHttp
 from .prime_runtime import RuntimeUnavailable, load_and_verify_runtime
 from .prime_runtime_artifact import read_current_runtime_id
 from .server import start_chat_server, stop_chat_server, wait_for_chat_server
@@ -36,6 +37,11 @@ class InstalledRuntimeCatalog:
 
     def get(self, runtime_id: str):
         return load_and_verify_runtime(self._prime_root, runtime_id)
+
+
+def build_configuration_service(prime_base_environment: Mapping[str, str]) -> ConfigurationHttp:
+    paths = resolve_runtime_paths()
+    return ConfigurationHttp(InstalledRuntimeCatalog(paths.install_root / "prime"), prime_base_environment, paths.data_root)
 
 
 async def _target_available(binding: RookBinding) -> bool:

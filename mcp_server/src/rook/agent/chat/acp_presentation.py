@@ -58,10 +58,12 @@ class ProjectedEvent:
     message_id: str | None
     text: str | None
     payload: dict[str, Any] | None
+    effective_settings: dict[str, str | None] | None = None
 
     def panel_bytes(self) -> bytes:
         return json.dumps(
             {
+                **({"effectiveSettings": self.effective_settings} if self.effective_settings is not None else {}),
                 "sourceOrdinal": self.source_ordinal,
                 "kind": self.kind,
                 "messageId": self.message_id,
@@ -117,6 +119,8 @@ class PresentationQueue:
         if not self._rows or event.kind not in {"agent_message_chunk", "agent_thought_chunk"}:
             return None
         previous = self._rows[-1]
+        if previous.effective_settings is not None or event.effective_settings is not None:
+            return None
         if (
             not event.message_id
             or previous.kind != event.kind
@@ -244,6 +248,7 @@ class BoundedPromptProjection:
         update: ProjectedEvent | Any,
         *,
         generation: PromptGeneration | None = None,
+        effective_settings: dict[str, str | None] | None = None,
     ) -> bool:
         if self._closed or self._overflowed or (generation is not None and generation != self.generation):
             return False
@@ -256,6 +261,8 @@ class BoundedPromptProjection:
                     if self._closed or self._overflowed or (generation is not None and generation != self.generation):
                         return False
                     event = _project_event(source_ordinal, update)
+                    if effective_settings is not None:
+                        event = replace(event, effective_settings=effective_settings)
                     admitted = await self.queue.admit(event)
                     if not admitted:
                         self._set_overflow()
@@ -278,7 +285,8 @@ class BoundedPromptProjection:
         if event.kind == "agent_message_chunk" and event.text:
             self._assistant.append(event.text)
         if event.kind.startswith("tool_"):
-            raw = event.panel_bytes()
+            # Session settings are live telemetry, not durable tool history.
+            raw = replace(event, effective_settings=None).panel_bytes()
             original = len(raw)
             text = _bounded_utf8_with_marker(raw, MAX_TOOL_CONTENT_BYTES_PER_CARD, original)
             retained_bytes = len(text.encode("utf-8"))
@@ -325,6 +333,13 @@ def _project_event(source_ordinal: int, update: ProjectedEvent | Any) -> Project
     else:
         kind = str(getattr(update, "session_update", "unknown"))
     payload = None if text is not None else update.model_dump(by_alias=True, exclude_none=True)
+    if payload is not None:
+        metadata = payload.get("_meta")
+        prime_meta = metadata.get("ai.primeintellect.prime-agent") if isinstance(metadata, dict) else None
+        if isinstance(prime_meta, dict):
+            # Settings reach presentation only through the client's validated summary.
+            # model_dump owns this copy; leave the SDK update and other metadata intact.
+            prime_meta.pop("effectiveSettings", None)
     return ProjectedEvent(source_ordinal, kind, message_id, text, payload)
 
 

@@ -205,6 +205,9 @@ namespace Rook.UI.Chat
         private bool _deleted;
         private bool _terminalSeen;
         private StringBuilder? _assistantBuffer;
+        private Label? _effectiveSettingsLabel;
+        private string? _requestedModel;
+        private string? _requestedReasoning;
 
         public AgentChatTab(
             CreateConversationRequest createRequest,
@@ -401,6 +404,9 @@ namespace Rook.UI.Chat
             if (!_uiAttached) return;
             switch (evt.Type)
             {
+                case "session_status":
+                    Application.Instance.Invoke(() => ApplyReportedSettings(evt.EffectiveSettings));
+                    break;
                 case "text_delta":
                     lock (_promptGate) _assistantBuffer?.Append(evt.Text);
                     Application.Instance.Invoke(() =>
@@ -569,6 +575,8 @@ namespace Rook.UI.Chat
 
         private void ApplyConversationStatus(ConversationView view)
         {
+            if (!_uiAttached || view.ConversationId != ConversationId) return;
+            ApplyReportedSettings(view.EffectiveSettings);
             SetStatus(
                 view.TargetAvailable ? "Prime ready" : "Prime ready; Rook target unavailable",
                 view.TargetAvailable ? Colors.Green : Colors.Orange);
@@ -576,11 +584,27 @@ namespace Rook.UI.Chat
 
         private void ShowRequestedSettings(string? model, string? reasoning)
         {
-            if (string.IsNullOrEmpty(model) && string.IsNullOrEmpty(reasoning)) return;
+            _requestedModel = model;
+            _requestedReasoning = reasoning;
+            ApplyReportedSettings(null);
+        }
+
+        private void ApplyReportedSettings(ReportedEffectiveSettings? settings)
+        {
+            if (!_uiAttached) return;
             var parts = new List<string>();
-            if (!string.IsNullOrEmpty(model)) parts.Add("Requested model: " + model);
-            if (!string.IsNullOrEmpty(reasoning)) parts.Add("reasoning: " + reasoning);
-            SetAuxiliaryRow(new Label { Text = string.Join("; ", parts), TextColor = Colors.Gray });
+            if (!string.IsNullOrEmpty(_requestedModel)) parts.Add("Requested model: " + _requestedModel);
+            if (!string.IsNullOrEmpty(_requestedReasoning)) parts.Add("requested reasoning: " + _requestedReasoning);
+            parts.Add("Last reported effective settings: " +
+                (settings?.Provider == null && settings?.Model == null ? "unknown" :
+                 (settings?.Provider ?? "unknown") + "/" + (settings?.Model ?? "unknown")));
+            parts.Add("reasoning: " + (settings?.Reasoning ?? "unknown"));
+            if (_effectiveSettingsLabel == null)
+            {
+                _effectiveSettingsLabel = new Label { TextColor = Colors.Gray, Wrap = WrapMode.Word };
+                SetAuxiliaryRow(_effectiveSettingsLabel);
+            }
+            _effectiveSettingsLabel.Text = string.Join("; ", parts);
         }
 
         private static string? ReadPayloadString(JsonElement? payload, string propertyName)

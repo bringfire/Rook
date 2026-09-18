@@ -68,6 +68,7 @@ namespace Rook.UI.Chat
         public string ServiceMessage { get; set; } = "";
         public Uri? BaseUri { get; set; }
         public bool RuntimeAvailable { get; set; }
+        public bool ConfigurationAvailable { get; set; }
         public bool RhinoConnected { get; set; }
         public bool PromptAvailable { get; set; }
         public bool PromptActive { get; set; }
@@ -99,6 +100,8 @@ namespace Rook.UI.Chat
 
     internal class ChatServiceHealthEnvelope
     {
+        [JsonPropertyName("configurationAvailable")]
+        public bool ConfigurationAvailable { get; set; }
         [JsonPropertyName("service")]
         public ChatServiceHealthService? Service { get; set; }
 
@@ -1277,6 +1280,7 @@ namespace Rook.UI.Chat
                     ServiceMessage = serviceOk ? "Chat service available" : "Chat service unavailable",
                     BaseUri = baseUri,
                     RuntimeAvailable = payload.Runtime?.Available ?? false,
+                    ConfigurationAvailable = payload.ConfigurationAvailable,
                     RhinoConnected = payload.Runtime?.Rhino?.Connected ?? false,
                     PromptAvailable = payload.Runtime?.Prompt?.Available ?? false,
                     PromptActive = payload.Runtime?.Prompt?.IsActive ?? false,

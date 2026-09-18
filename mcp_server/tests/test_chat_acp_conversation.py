@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import platform
 import sys
 import uuid
@@ -31,6 +32,36 @@ from rook.agent.chat.acp_process import InitializedAcp, RetirementResult
 from rook.agent.chat.acp_storage import AssociationStore, OpenClaim, RookBinding, SessionRecoveryRequired
 from rook.agent.chat.prime_runtime import PrimeLaunchError, PrimeRuntimeContract
 from rook.runtime_paths import AcpDataPaths, RuntimePaths
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != 'nt', reason='Windows storage admission')
+@pytest.mark.parametrize('reopen', [False, True])
+@pytest.mark.parametrize('commit', ['c2055d6aff5891b918a24accf584a76852676445', 'dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b'])
+async def test_privacy_refusal_releases_prechild_claim(tmp_path, monkeypatch, reopen, commit):
+    from .test_chat_configuration_storage import storage, set_acl
+    s = storage()
+    contract = replace(_contract(tmp_path), compatibility_patch_commit=commit)
+    paths = _paths(tmp_path)
+    data = tmp_path / 'data'
+    provisional = AssociationStore(paths).reserve_provisional(binding=_binding(), runtime_id=contract.runtime_id,
+        working_directory=tmp_path, requested_model=None, requested_reasoning=None)
+    prepared = DirectAcpProcessFactory({'ROOK_DATA_DIR':str(data)}).prepare(contract, provisional, reopen)
+    root = data / 'prime-config'
+    assert not root.exists()  # launch preparation is pure
+    root.mkdir()
+    sid = s._Windows().user_sid
+    set_acl(root, f'D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;;FR;;;WD)')
+    called = []
+    async def forbidden(*args, **kwargs):
+        called.append(True)
+        raise AssertionError('privacy refusal must precede SDK acquisition')
+    monkeypatch.setattr('rook.agent.chat.acp_conversation.OwnedAcpProcess.start', forbidden)
+    claim = OpenClaim.acquire(paths.claims_root, provisional.session_path)
+    with pytest.raises(s.ConfigurationStorageRefused):
+        await prepared.start(claim, launch_generation=1)
+    assert not called and not claim.path.exists()
+    assert root.exists()
 
 
 def _paths(tmp_path: Path) -> AcpDataPaths:
@@ -303,6 +334,34 @@ def _manager(tmp_path: Path, *, factory: FakeProcessFactory | None = None):
         PresentationCache(paths.presentation_root),
     )
     return manager, store, catalog, process_factory, paths
+
+
+@pytest.mark.asyncio
+async def test_task7_idle_snapshot_reaches_next_prompt_without_durable_settings(tmp_path):
+    from .test_chat_acp_client import _settings_update
+    manager, store, _, factory, paths = _manager(tmp_path)
+    try:
+        view = await manager.create(CreateConversationRequest(_binding(), None, "requested/b", "high"))
+        assert getattr(view, "effective_settings", None) == {"provider": None, "model": None, "reasoning": None}
+        process = factory.processes[0]
+        latest = {"provider": "actual", "model": "c", "reasoning": "off"}
+        await process.client.session_update(process.session_id, _settings_update(latest))
+        sink = NullSink()
+        supervisor = await manager.start_prompt(view.conversation_id, PromptInput("hello", ()), sink)
+        result = await supervisor.result_task
+        assert result.outcome == "settled"
+        assert sink.events[0].kind == "session_status"
+        assert sink.events[0].effective_settings == latest
+        record = store.get(view.conversation_id)
+        assert record.requested_initial_model == "requested/b"
+        assert not hasattr(record, "effective_settings")
+        history = PresentationCache(paths.presentation_path(view.conversation_id)).load()
+        assert "effectiveSettings" not in json.dumps(history.turns)
+        await manager.close(view.conversation_id)
+        reopened = await manager.reopen(view.conversation_id)
+        assert reopened.effective_settings == dict.fromkeys(latest)
+    finally:
+        await manager.shutdown()
 
 
 @pytest.mark.asyncio

@@ -35,6 +35,8 @@ from .acp_presentation import MAX_USER_TEXT_BYTES, PresentationCache, ProjectedE
 from .acp_process import AcpCapabilityError
 from .acp_storage import AcpStorageError, RookBinding
 from .prime_runtime import PrimeLaunchError, RuntimeUnavailable, SUPPORTED_REASONING
+from .configuration_http import CONFIGURATION_KEY, ConfigurationHttp, register_configuration_routes
+from .configuration_storage import ConfigurationStorageRefused
 
 
 logger = logging.getLogger(__name__)
@@ -105,6 +107,8 @@ def _classified_error(exc: Exception) -> tuple[str, int]:
     code = getattr(exc, "code", None)
     if isinstance(exc, _HttpContractError):
         return exc.code, exc.status
+    if isinstance(exc, ConfigurationStorageRefused):
+        return exc.code, 409
     if isinstance(exc, RuntimeUnavailable) or code == "runtime_unavailable":
         return "runtime_unavailable", 503
     if isinstance(exc, PrimeLaunchError):
@@ -149,22 +153,30 @@ def _with_cors(response: web.StreamResponse) -> web.StreamResponse:
 
 @web.middleware
 async def cors_and_session_middleware(request: web.Request, handler):
+    configuration = request.path.startswith("/agent/chat/configuration")
+    def finish(response):
+        if configuration:
+            response.headers["Cache-Control"] = "no-store"
+        return _with_cors(response)
+
     if request.method == "OPTIONS":
-        return _with_cors(web.Response(status=204))
+        return finish(web.Response(status=204))
 
     origin = request.headers.get("Origin")
     if origin is not None and origin != ALLOWED_ORIGIN:
-        return _with_cors(_error_response("origin_refused", "Origin is not allowed", 403))
+        return finish(_error_response("origin_refused", "Origin is not allowed", 403))
 
     expected_nonce = request.app.get(_SESSION_NONCE_KEY, "")
+    if configuration and not expected_nonce:
+        return finish(_error_response("invalid_session_token", "Missing or invalid session token", 403))
     if expected_nonce and request.path != "/agent/chat/health":
         if request.headers.get(SESSION_HEADER, "") != expected_nonce:
-            return _with_cors(
+            return finish(
                 _error_response("invalid_session_token", "Missing or invalid session token", 403)
             )
 
     response = await handler(request)
-    return _with_cors(response)
+    return finish(response)
 
 
 async def _read_json_object(
@@ -207,6 +219,7 @@ def _conversation_id(request: web.Request) -> str:
 
 def _view_payload(view: ConversationView) -> dict[str, object]:
     return {
+        **({"effectiveSettings": view.effective_settings} if view.effective_settings is not None else {}),
         "conversationId": view.conversation_id,
         "durable": view.durable,
         "targetAvailable": view.target_available,
@@ -340,9 +353,12 @@ class _HttpPresentationSink:
         else:
             # Session/configuration metadata is not an in-progress tool. The
             # ACP callback has already observed it; omit it from panel cards.
-            return
+            payload = None
         try:
-            await self._response.write(_ndjson(payload))
+            if event.effective_settings is not None:
+                await self._response.write(_ndjson({"type": "session_status", "effectiveSettings": event.effective_settings}))
+            if payload is not None:
+                await self._response.write(_ndjson(payload))
         except (ConnectionResetError, ConnectionError):
             self._failed = True
             if self._supervisor is not None:
@@ -371,6 +387,7 @@ async def handle_health(request: web.Request) -> web.Response:
                 "rhinoProcessId": request.app[_RHINO_PROCESS_ID_KEY],
             },
             "runtime": {"available": request.app[_RUNTIME_AVAILABLE_KEY]},
+            "configurationAvailable": bool(request.app[CONFIGURATION_KEY] and request.app[CONFIGURATION_KEY].available()),
             "authentication": {"owner": "Prime", "disclosure": "Prime-managed"},
         }
     )
@@ -602,6 +619,7 @@ def create_chat_app(
     owner: str = "external",
     rhino_process_id: int = 0,
     runtime_available: bool = True,
+    configuration: ConfigurationHttp | None = None,
 ) -> web.Application:
     app = web.Application(
         middlewares=[cors_and_session_middleware], client_max_size=MAX_HTTP_BODY_BYTES
@@ -615,6 +633,7 @@ def create_chat_app(
     if nonce:
         app[_SESSION_NONCE_KEY] = nonce
     register_chat_routes(app)
+    register_configuration_routes(app, configuration)
     register_knowledge_routes(app)
     app.on_cleanup.append(_shutdown_manager)
     return app
@@ -694,11 +713,13 @@ async def start_chat_server(
         return
 
     if manager is None:
-        from .service_main import build_acp_manager
+        from .service_main import build_acp_manager, build_configuration_service
 
         manager, runtime_available = build_acp_manager(prime_base_environment or {})
+        configuration = build_configuration_service(prime_base_environment or {})
     else:
         runtime_available = True
+        configuration = None
 
     async def run() -> None:
         global _app_runner, _discovery_path, _startup_future
@@ -709,6 +730,7 @@ async def start_chat_server(
             owner=owner,
             rhino_process_id=rhino_process_id,
             runtime_available=runtime_available,
+            configuration=configuration,
         )
         runner = web.AppRunner(app, handler_cancellation=True)
         _app_runner = runner

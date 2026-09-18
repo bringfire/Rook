@@ -22,6 +22,11 @@ from .prime_runtime_artifact import ID_PATTERN, MAX_ROOT_SKILL_UTF8_BYTES, Runti
 MAX_WINDOWS_COMMAND_LINE_UTF16_UNITS = 30_000
 RUNTIME_SCHEMA_VERSION = 1
 SUPPORTED_REASONING = frozenset({"off", "minimal", "low", "medium", "high", "xhigh", "max"})
+# Adoption is a separate reviewed change. Never probe an older executable for support.
+SUPPORTED_CONFIGURATION_COMMITS: frozenset[str] = frozenset({
+    "c2055d6aff5891b918a24accf584a76852676445",
+    "dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b",
+})
 class PrimeLaunchError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
@@ -49,6 +54,10 @@ class PrimeRuntimeContract:
     prime_agent_runtime_path: Path
     prime_agent_runtime_manifest_sha256: str
     claim_key_version: int
+
+
+def supports_configuration(contract: PrimeRuntimeContract) -> bool:
+    return contract.compatibility_patch_commit in SUPPORTED_CONFIGURATION_COMMITS
 
 
 class RuntimeCatalog(Protocol):
@@ -133,6 +142,8 @@ def build_prime_argv(
         "--resume",
         str(session_path),
     ]
+    if supports_configuration(contract):
+        values.extend(("--configuration-policy", "rookchat"))
     if requested_model is not None:
         values.extend(("--model", requested_model))
     if requested_reasoning is not None:
@@ -184,6 +195,25 @@ def build_prime_child_env(
         "UV_PYTHON_INSTALL_REGISTRY": "0", "UV_NO_CONFIG": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
     })
+    return environment
+
+
+def build_configuration_argv(contract: PrimeRuntimeContract) -> tuple[str, ...]:
+    if not supports_configuration(contract):
+        raise PrimeLaunchError("configuration_unavailable")
+    argv = (str(contract.executable_path), "configuration", "--stdio", "--configuration-policy", "rookchat")
+    validate_windows_launch_argv(argv)
+    return argv
+
+
+def build_configuration_env(base_environment: Mapping[str, str], contract: PrimeRuntimeContract, data_root: Path) -> dict[str, str]:
+    if not data_root.is_absolute():
+        raise PrimeLaunchError("invalid_child_environment")
+    environment = {key: value for key, value in base_environment.items()
+                   if key.upper() not in {"ROOK_DATA_DIR", "PRIME_AGENT_CODING_AGENT_DIR"}}
+    environment["ROOK_DATA_DIR"] = str(data_root)
+    environment = build_prime_child_env(environment, contract)
+    environment["PRIME_AGENT_CODING_AGENT_DIR"] = str(data_root / "prime-config")
     return environment
 
 

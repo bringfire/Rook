@@ -37,6 +37,7 @@ def fixture(tmp_path, monkeypatch, *, windows_checkout=False):
         (package / relative).write_bytes(original.read_bytes())
     (source / "scripts").mkdir()
     shutil.copyfile(REPO / "scripts/verify-installed-rookchat-acp.py", source / "scripts/verify-installed-rookchat-acp.py")
+    shutil.copyfile(REPO / ".gitattributes", source / ".gitattributes")
     skill = source / "installer/agent-assets/prime-skills/rook-full"
     for name, data in PAYLOAD.items():
         if name.startswith("skills/rook-full/"):
@@ -49,6 +50,8 @@ def fixture(tmp_path, monkeypatch, *, windows_checkout=False):
     subprocess.run(["git", "-C", str(source), "add", "."], check=True)
     subprocess.run(["git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], check=True)
     commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    (source / "scripts/verify-installed-rookchat-acp.py").unlink()
+    subprocess.run(["git", "-C", str(source), "checkout-index", "--", "scripts/verify-installed-rookchat-acp.py"], check=True)
     if windows_checkout:
         (package / "__main__.py").unlink()
         subprocess.run(["git", "-C", str(source), "checkout-index", "--", "mcp_server/src/rook/__main__.py"], check=True)
@@ -208,7 +211,7 @@ def test_json_byte_ceiling_is_inclusive(tmp_path, limit):
 
 
 @pytest.mark.parametrize("damage", [None, "verifier_commit", "verifier_bytes", "product_bytes", "product_manifest", "product_tree", "skill_tree"])
-def test_separate_reviewed_verifier_and_product_commits(tmp_path, monkeypatch, damage):
+def test_separate_reviewed_verifier_and_product_commits(tmp_path, monkeypatch, capsys, damage):
     module, argv, source, installed, chat, report, origins, calls, runtime_id = fixture(tmp_path, monkeypatch)
     product_commit = argv[3]
     # Verifier-only generations may not change either product tree.
@@ -244,10 +247,13 @@ def test_separate_reviewed_verifier_and_product_commits(tmp_path, monkeypatch, d
         assert not report.exists()
         if damage in {"product_tree", "skill_tree"}:
             assert calls == []
+        if damage == "verifier_bytes":
+            assert calls == []
+            assert "verifier implementation differs from reviewed source" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("damage", [False, True])
-def test_clean_crlf_checkout_compares_exact_installed_bytes(tmp_path, monkeypatch, damage):
+def test_clean_crlf_checkout_compares_exact_installed_bytes(tmp_path, monkeypatch, capsys, damage):
     module, argv, source, installed, chat, report, origins, calls, runtime_id = fixture(
         tmp_path, monkeypatch, windows_checkout=True)
     relative = "mcp_server/src/rook/__main__.py"
@@ -258,7 +264,17 @@ def test_clean_crlf_checkout_compares_exact_installed_bytes(tmp_path, monkeypatc
     assert subprocess.check_output(["git", "-C", str(source), "status", "--porcelain"]) == b""
     actual = Path(origins["rookOrigin"]).parent / "__main__.py"
     assert actual.read_bytes() == checkout
+    verifier_relative = "scripts/verify-installed-rookchat-acp.py"
+    verifier_blob = subprocess.check_output(["git", "-C", str(source), "show", f"{argv[3]}:{verifier_relative}"])
+    verifier_checkout = (source / verifier_relative).read_bytes()
+    assert b"\r\n" not in verifier_checkout
+    assert verifier_checkout == verifier_blob == Path(module.__file__).read_bytes()
     if damage:
         actual.write_bytes(checkout + b"# changed installed bytes\r\n")
     assert module.main(argv) == (1 if damage else 0)
+    assert calls == ["installed-python-origin-probe"]
     assert report.exists() is not damage
+    if damage:
+        assert "installed Rook package differs from source" in capsys.readouterr().err
+    else:
+        assert json.loads(report.read_bytes())["runtimeId"] == runtime_id
