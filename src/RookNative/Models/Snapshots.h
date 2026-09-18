@@ -212,6 +212,7 @@ struct LayerSnapshot {
 // --- Document metadata (for GET /document) ---
 
 struct DocumentSnapshot {
+    unsigned int documentSerialNumber = 0;
     std::string name;
     std::string path;
     std::string units;         // "Millimeters", "Meters", etc.

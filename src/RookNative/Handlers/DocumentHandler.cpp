@@ -41,6 +41,7 @@ void HandleDocument(const httplib::Request& req, httplib::Response& res)
             throw std::runtime_error("No active document");
 
         DocumentSnapshot snap;
+        snap.documentSerialNumber = pDoc->RuntimeSerialNumber();
 
         // Name — use the title, fall back to "Untitled"
         ON_wString title = pDoc->GetTitle();

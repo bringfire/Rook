@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import itertools
 import shutil
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol
@@ -255,7 +256,7 @@ class AcpConversationManager:
         process_factory: AcpProcessFactory,
         cache: PresentationCache,
         *,
-        target_available: Callable[[RookBinding], bool] | None = None,
+        target_available: Callable[[RookBinding], bool | Awaitable[bool]] | None = None,
     ) -> None:
         self.store = store
         self._runtime_catalog = runtime_catalog
@@ -267,7 +268,8 @@ class AcpConversationManager:
         self._admission_lock = asyncio.Lock()
 
     async def create(self, request: CreateConversationRequest) -> ConversationView:
-        if not self._binding_available(request.binding):
+        available = await self._binding_available(request.binding)
+        if not available:
             raise TargetUnavailable()
         contract = self._runtime_catalog.latest()
         working_directory = self._saved_working_directory(request.saved_document_directory)
@@ -296,7 +298,7 @@ class AcpConversationManager:
         process = await self._launch_process(prepared, contract, provisional, claim, generation)
         resident = ResidentConversation(provisional, contract, claim, process, generation)
         await self._publish_resident(resident)
-        return self._view(resident)
+        return self._view(resident, available)
 
     async def reopen(self, conversation_id: str) -> ConversationView:
         session_path = self.store.locate_session(conversation_id)
@@ -312,14 +314,15 @@ class AcpConversationManager:
                 sessions_root=self.store.paths.sessions_root,
             )
             prepared = self._process_factory.prepare(contract, association, True)
-        except Exception:
+            available = await self._binding_available(association.binding)
+        except BaseException:
             claim.release_no_child_created()
             raise
         generation = next(self._launch_generation)
         process = await self._launch_process(prepared, contract, association, claim, generation)
         resident = ResidentConversation(association, contract, claim, process, generation)
         await self._publish_resident(resident)
-        return self._view(resident)
+        return self._view(resident, available)
 
     async def _publish_resident(self, resident: ResidentConversation) -> None:
         try:
@@ -737,17 +740,18 @@ class AcpConversationManager:
     def _cache_for(self, conversation_id: str) -> PresentationCache:
         return PresentationCache(self._cache_root / conversation_id)
 
-    def _view(self, resident: ResidentConversation) -> ConversationView:
+    def _view(self, resident: ResidentConversation, target_available: bool) -> ConversationView:
         return ConversationView(
             conversation_id=resident.association.conversation_id,
             durable=resident.durable,
-            target_available=self._binding_available(resident.association.binding),
+            target_available=target_available,
             effective_settings=dict(resident.process.client.effective_settings),
         )
 
-    def _binding_available(self, binding: RookBinding) -> bool:
+    async def _binding_available(self, binding: RookBinding) -> bool:
         try:
-            return bool(self._target_available(binding))
+            available = self._target_available(binding)
+            return bool(await available if inspect.isawaitable(available) else available)
         except Exception:
             return False
 
