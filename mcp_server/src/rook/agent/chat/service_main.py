@@ -11,11 +11,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 
+from rook.bridge import discover_instances
 from rook.runtime_paths import get_acp_data_paths, resolve_runtime_paths
+from rook.targeting import PanelTargetLock, resolve_panel_target_instance
 
 from .acp_conversation import AcpConversationManager, DirectAcpProcessFactory
 from .acp_presentation import PresentationCache
-from .acp_storage import AssociationStore
+from .acp_storage import AssociationStore, RookBinding
 from .configuration_http import ConfigurationHttp
 from .prime_runtime import RuntimeUnavailable, load_and_verify_runtime
 from .prime_runtime_artifact import read_current_runtime_id
@@ -40,6 +42,16 @@ def build_configuration_service(prime_base_environment: Mapping[str, str]) -> Co
     return ConfigurationHttp(InstalledRuntimeCatalog(paths.install_root / "prime"), prime_base_environment, paths.data_root)
 
 
+def _target_available(binding: RookBinding) -> bool:
+    lock = PanelTargetLock(
+        mode="panel_locked",
+        host_generation_id=binding.host_generation_id,
+        process_id=binding.route_process_id,
+        document_serial_number=binding.rhino_document_serial,
+    )
+    return resolve_panel_target_instance(discover_instances(), lock) is not None
+
+
 def build_acp_manager(
     prime_base_environment: Mapping[str, str],
 ) -> tuple[AcpConversationManager, bool]:
@@ -57,6 +69,7 @@ def build_acp_manager(
         catalog,
         DirectAcpProcessFactory({**prime_base_environment, "ROOK_DATA_DIR": str(runtime_paths.data_root)}),
         PresentationCache(data_paths.presentation_root),
+        target_available=_target_available,
     )
     return manager, runtime_available
 

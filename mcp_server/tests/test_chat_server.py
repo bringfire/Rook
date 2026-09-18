@@ -293,6 +293,17 @@ async def test_create_maps_closed_body_to_manager_request(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_create_preserves_slashes_within_model_id(tmp_path: Path):
+    manager = FakeManager(tmp_path)
+    body = _create_body()
+    body["model"] = "openrouter/anthropic/claude-sonnet-4.5"
+    async with _client(manager) as client:
+        response = await client.post("/agent/chat/conversations", json=body)
+        assert response.status == 201
+    assert manager.created.requested_initial_model == body["model"]
+
+
+@pytest.mark.asyncio
 async def test_list_reopen_history_cancel_close_and_delete_project_manager_outcomes(tmp_path: Path):
     manager = FakeManager(tmp_path)
     cache = PresentationCache(manager.store.paths.presentation_path(VALID_CONVERSATION_ID))

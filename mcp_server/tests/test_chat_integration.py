@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from aiohttp import ClientSession
 from aiohttp.test_utils import TestClient, TestServer
 
 from rook.agent.chat import server as chat_server
@@ -24,6 +25,98 @@ from rook.runtime_paths import RuntimePaths
 
 from .test_chat_server import FakeManager, VALID_CONVERSATION_ID, _prompt_body
 from .test_chat_acp_conversation import FakeProcessFactory, _binding, _manager
+
+
+@pytest.mark.asyncio
+async def test_silent_http_disconnect_cancels_the_owned_prompt(tmp_path, monkeypatch):
+    factory = FakeProcessFactory(block_prompt=True)
+    manager, _, _, _, _ = _manager(tmp_path, factory=factory)
+    view = await manager.create(CreateConversationRequest(_binding(), None, None, None))
+    monkeypatch.setattr(chat_server, "_write_discovery_file", lambda *_args: None)
+    response = None
+    try:
+        await chat_server.start_chat_server(port=0, manager=manager, expected_nonce="fixture")
+        port = await chat_server._startup_future
+        async with ClientSession() as client:
+            response = await client.post(
+                f"http://127.0.0.1:{port}/agent/chat/conversations/{view.conversation_id}/prompt",
+                json=_prompt_body(), headers={chat_server.SESSION_HEADER: "fixture"},
+            )
+            assert response.status == 200
+            process = factory.processes[0]
+            await asyncio.wait_for(process.prompt_started.wait(), 1)
+            supervisor = manager._resident[view.conversation_id].active_prompt
+            assert supervisor is not None
+            assert not process.cancelled.is_set()
+            # No events have been produced; cancellation cannot rely on a failed write.
+            response.close()
+            await asyncio.wait_for(process.cancelled.wait(), 1)
+            result = await asyncio.wait_for(supervisor.result_task, 1)
+            assert process.cancel_count == 1
+            assert result.outcome == "cancelled"
+    finally:
+        if response is not None:
+            response.close()
+        await manager.close(view.conversation_id)
+        await chat_server.stop_chat_server()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("replacement", ["same", "absent", "generation", "process", "roadcreator", "ambiguous"])
+async def test_production_manager_reopen_checks_original_target(tmp_path, monkeypatch, replacement):
+    from rook import bridge
+    from .test_chat_acp_conversation import FakeRuntimeCatalog, NullSink, _contract, _paths
+
+    paths = _paths(tmp_path)
+    factory = FakeProcessFactory()
+    catalog = FakeRuntimeCatalog(_contract(tmp_path))
+    monkeypatch.setattr(service_main, "get_acp_data_paths", lambda _paths: paths)
+    monkeypatch.setattr(service_main, "InstalledRuntimeCatalog", lambda _root: catalog)
+    monkeypatch.setattr(service_main, "DirectAcpProcessFactory", lambda _env: factory)
+    monkeypatch.setattr(service_main, "resolve_runtime_paths", lambda: RuntimePaths(
+        mode="dev", install_root=tmp_path / "app", data_root=tmp_path / "data",
+        logs_root=tmp_path / "logs", runtime_root=tmp_path,
+        mcp_server_dir=tmp_path / "app/mcp_server", repo_root=tmp_path / "app"))
+    binding = _binding()
+    discovery = tmp_path / "discovery"
+    discovery.mkdir()
+    record = discovery / "instance-fixture-native.json"
+    original = {"pluginType": "native", "processId": binding.route_process_id,
+                "hostGenerationId": binding.host_generation_id, "port": 19876}
+    record.write_text(json.dumps(original), encoding="utf-8")
+    monkeypatch.setattr(bridge, "_effective_discovery_folders", lambda: [discovery])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda _pid: True)
+    manager, available = service_main.build_acp_manager({})
+    assert available
+    view = await manager.create(CreateConversationRequest(binding, None, None, None))
+    try:
+        assert view.target_available
+        prompt = await manager.start_prompt(view.conversation_id, PromptInput("fixture", ()), NullSink())
+        await prompt.result_task
+        await manager.close(view.conversation_id)
+        if replacement == "absent":
+            record.unlink()
+        else:
+            changed = dict(original)
+            if replacement == "generation":
+                changed["hostGenerationId"] = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            elif replacement == "process":
+                changed["processId"] += 1
+            elif replacement == "roadcreator":
+                changed["pluginType"] = "roadcreator"
+            elif replacement == "ambiguous":
+                changed["port"] += 1
+                (discovery / "instance-second-native.json").write_text(json.dumps(changed), encoding="utf-8")
+                changed = original
+            record.write_text(json.dumps(changed), encoding="utf-8")
+        reopened = await manager.reopen(view.conversation_id)
+        assert reopened.conversation_id == view.conversation_id
+        assert reopened.durable
+        assert reopened.target_available is (replacement == "same")
+        assert manager.store.get(view.conversation_id).binding == binding
+    finally:
+        if view.conversation_id in manager._resident:
+            await manager.close(view.conversation_id)
 
 
 class HangingSupervisor:

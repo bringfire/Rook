@@ -199,6 +199,13 @@ def _pairs(argv: tuple[str, ...], option: str) -> list[str]:
     return [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == option]
 
 
+def test_requested_model_preserves_slashes_in_model_id(verified_runtime, tmp_path):
+    contract, _ = verified_runtime
+    model = "openrouter/anthropic/claude-sonnet-4.5"
+    argv = build_prime_argv(contract, tmp_path / "session.jsonl", model, "high", reopen=False)
+    assert _pair(argv, "--model") == model
+
+
 def test_new_launch_uses_exact_flags_and_reopen_has_no_model_override(verified_runtime, tmp_path: Path):
     contract, _ = verified_runtime
     session_path = tmp_path / "session.jsonl"

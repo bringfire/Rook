@@ -391,6 +391,96 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public async Task Custom_provider_bootstraps_key_before_saving_its_first_endpoint()
+        {
+            using var fixture = new DialogFixture(this);
+            var credentialSaved = false;
+            fixture.Handler.Begin = begin =>
+            {
+                var operation = begin.GetProperty("operation").GetString();
+                if (operation == "apiKey.set")
+                {
+                    Assert.Equal("custom-fixture", begin.GetProperty("input").GetProperty("provider").GetString());
+                    Assert.Equal("synthetic-key", begin.GetProperty("input").GetProperty("key").GetString());
+                    credentialSaved = true;
+                }
+                if (operation == "endpoint.save")
+                {
+                    Assert.True(credentialSaved);
+                    Assert.Equal("custom-fixture", begin.GetProperty("input").GetProperty("provider").GetString());
+                    Assert.Equal("http://localhost:1234/v1", begin.GetProperty("input").GetProperty("baseUrl").GetString());
+                }
+                return Response(Line(Result(begin)) + Line(Settled(Result(begin))));
+            };
+            await fixture.Run(d => d.InitializeAsync());
+            fixture.Ui(d =>
+            {
+                d.ProviderId.Text = "custom-fixture";
+                Assert.True(ConfigurationActions(d)["apiKey.set"].Enabled);
+                Assert.False(ConfigurationActions(d)["oauth.connect"].Enabled);
+                Assert.False(ConfigurationActions(d)["apiKey.remove"].Enabled);
+                d.ApiKey.Text = "synthetic-key";
+            });
+            await fixture.Run(d => d.RunActionAsync("apiKey.set"));
+            fixture.Ui(d =>
+            {
+                Assert.True(d.LastSettlement!.Successful);
+                Assert.Equal("saved", d.KnownResult!.Persistence);
+                Assert.Equal("", d.ApiKey.Text);
+                d.EndpointUrl.Text = "http://localhost:1234/v1";
+                d.Api.SelectedKey = "openai-completions";
+                d.EndpointModelId.Text = "fixture-model";
+                d.EndpointModelName.Text = "Fixture model";
+                d.AddEndpointModel();
+            });
+            await fixture.Run(d => d.RunActionAsync("endpoint.save"));
+            fixture.Ui(d => Assert.True(d.LastSettlement!.Successful));
+            Assert.Equal(new[] { "status", "apiKey.set", "endpoint.save" },
+                fixture.Handler.Requests.Select(r => r.GetProperty("operation").GetString()));
+            Assert.Empty(fixture.BrowserUrls);
+        }
+
+        [Theory]
+        [InlineData("unsupported", true)]
+        [InlineData("ollama", true)]
+        [InlineData("ollama", false)]
+        [InlineData("", false)]
+        [InlineData(" ", false)]
+        public async Task Custom_bootstrap_preserves_reported_restrictions_and_local_no_account(string provider, bool listed)
+        {
+            using var fixture = new DialogFixture(this);
+            fixture.Handler.Begin = begin =>
+            {
+                var result = (Dictionary<string, object?>)Result(begin);
+                result["data"] = new
+                {
+                    providers = listed ? new[] { new { id = provider, name = provider,
+                        methods = new[] { "endpoint.read", "endpoint.save" }, credentialType = "none",
+                        configured = provider == "ollama", route = provider == "ollama" ? "local_no_account" : "none",
+                        headerNames = new string[0] } } : new object[0],
+                    defaults = new { provider = (string?)null, model = (string?)null, reasoning = (string?)null },
+                    apis = new[] { "openai-completions" },
+                };
+                return Response(Line(result) + Line(Settled(result)));
+            };
+            await fixture.Run(d => d.InitializeAsync());
+            fixture.Ui(d =>
+            {
+                d.ProviderId.Text = provider;
+                Assert.False(ConfigurationActions(d)["apiKey.set"].Enabled);
+                Assert.False(ConfigurationActions(d)["oauth.connect"].Enabled);
+                Assert.True(ConfigurationActions(d)["endpoint.save"].Enabled);
+                d.ApiKey.Text = "synthetic-key";
+            });
+            await fixture.Run(d => d.RunActionAsync("apiKey.set"));
+            Assert.Single(fixture.Handler.Requests);
+        }
+
+        private static Dictionary<string, Button> ConfigurationActions(RookChatConfigurationDialog dialog)
+            => (Dictionary<string, Button>)typeof(RookChatConfigurationDialog)
+                .GetField("_actions", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(dialog);
+
+        [Fact]
         public async Task Privacy_refusal_is_not_unknown_persistence_or_a_child_exit()
         {
             using var fixture = new DialogFixture(this);
