@@ -53,6 +53,8 @@ namespace Rook.UI.Chat
         public string Cleanup { get; internal set; } = "unconfirmed";
         public string? FailureCode { get; internal set; }
         public string? DeliveryFailure { get; internal set; }
+        // Local control-flow/HTTP admission evidence, not a Prime cleanup or success claim.
+        public bool ConfirmedNotAdmitted { get; internal set; }
         public bool Successful => Result?.Outcome == "completed" && Result.Code == "ok" && Cleanup == "exited" && ExitCode == 0 && FailureCode == null && DeliveryFailure == null;
     }
 
@@ -275,7 +277,7 @@ namespace Rook.UI.Chat
             var clock = Stopwatch.StartNew();
             Task? cancellation = null;
             CancellationTokenRegistration registration = default;
-            bool owns = false, terminal = false, admitted = false, deliver = true;
+            bool owns = false, terminal = false, admitted = false, deliver = true, dispatched = false;
             double end = seconds + 15;
             void ShortenForCleanup()
             {
@@ -309,11 +311,29 @@ namespace Rook.UI.Chat
                     ct.ThrowIfCancellationRequested();
                     lifetime.Token.ThrowIfCancellationRequested();
                     _configurationUri = uri;
+                    dispatched = true;
                     sending = _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, lifetime.Token);
                 }
                 using var response = await sending.ConfigureAwait(false);
                 request.Content.Dispose();
-                if (!response.IsSuccessStatusCode) { result.FailureCode = response.StatusCode == System.Net.HttpStatusCode.Conflict ? "configuration_busy" : response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ? "configuration_unavailable" : "configuration_refused"; return result; }
+                if (!response.IsSuccessStatusCode)
+                {
+                    result.FailureCode = response.StatusCode == System.Net.HttpStatusCode.Conflict ? "configuration_busy"
+                        : response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ? "configuration_unavailable" : "configuration_refused";
+                    if (response.StatusCode == System.Net.HttpStatusCode.Conflict || response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
+                    {
+                        // configuration_http refuses these exact status/code pairs before reserving an owner.
+                        // An HTTP status alone (or an interrupted/malformed body) proves no such boundary.
+                        var rawError = await ReadBoundedUtf8Async(response.Content, 1025, lifetime.Token).ConfigureAwait(false);
+                        var error = ConfigurationJson.Parse(Encoding.UTF8.GetBytes(rawError), 1024);
+                        ConfigurationJson.Shape(error, "error");
+                        var detail = error.GetProperty("error");
+                        ConfigurationJson.Shape(detail, "code message");
+                        result.ConfirmedNotAdmitted = ConfigurationJson.Text(detail.GetProperty("code")) == result.FailureCode &&
+                            ConfigurationJson.Text(detail.GetProperty("message")) == result.FailureCode;
+                    }
+                    return result;
+                }
                 lock (_configurationLock)
                 {
                     admitted = true;
@@ -379,6 +399,7 @@ namespace Rook.UI.Chat
             }
             finally
             {
+                if (!dispatched) result.ConfirmedNotAdmitted = true;
                 registration.Dispose();
                 if (cancellation != null)
                 {

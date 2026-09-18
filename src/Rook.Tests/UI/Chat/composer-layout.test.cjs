@@ -12,6 +12,144 @@ let browser;
 before(async () => { browser = await chromium.launch({ channel: 'msedge', headless: true }); });
 after(async () => { await browser?.close(); });
 
+async function withComposer(check) {
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    const errors = [];
+    try {
+        await context.route('**/*', async route => {
+            const url = new URL(route.request().url());
+            const relative = url.pathname.slice(1);
+            if (url.origin !== origin || !files.has(relative)) {
+                errors.push(`Unexpected request: ${url.origin}${url.pathname}`);
+                return route.abort();
+            }
+            return route.fulfill({ body: await fs.readFile(path.join(resources, relative)),
+                contentType: relative.endsWith('.css') ? 'text/css' : relative.endsWith('.js') ? 'application/javascript' : 'text/html' });
+        });
+        const page = await context.newPage();
+        page.on('pageerror', error => errors.push(error.message));
+        await page.goto(origin + '/chat.html');
+        await page.evaluate(async () => {
+            window.calls = [];
+            window.rookBridge = { invoke: (name, value) => {
+                window.calls.push({ name, value });
+                return new Promise((resolve, reject) => { window.ack = resolve; window.failAck = reject; });
+            } };
+            window.chatAPI.setComposerEnabled(true, true);
+            document.getElementById('composer-text').value = 'submitted text';
+            await readComposerFiles([new File(['synthetic old'], 'old.png', { type: 'image/png' })]);
+        });
+        await check(page);
+        assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+}
+
+async function draft(page) {
+    return page.evaluate(() => ({
+        text: document.getElementById('composer-text').value,
+        attachments: [...document.querySelectorAll('.attachment-chip')].map(e => e.textContent),
+        disabled: document.getElementById('composer-send').disabled,
+        calls: window.calls.length
+    }));
+}
+
+for (const accepted of [false, true]) {
+    test(`composer clears a submitted draft only on accepted=${accepted}`, { timeout: 30000 }, async () => {
+        await withComposer(async page => {
+            await page.evaluate(accepted => {
+                submitComposer();
+                window.chatAPI.setComposerEnabled(true, false);
+                window.ack({ accepted });
+            }, accepted);
+            assert.deepEqual(await draft(page), {
+                text: accepted ? '' : 'submitted text', attachments: accepted ? [] : ['old.png'], disabled: true, calls: 1
+            });
+            await page.evaluate(() => { submitComposer(); submitComposer(); });
+            assert.equal((await draft(page)).calls, 1);
+        });
+    });
+}
+
+for (const edit of ['text', 'text-reverted', 'attachments', 'same-attachments', 'pending-attachments']) {
+    test(`accepted acknowledgement preserves newer ${edit}`, { timeout: 30000 }, async () => {
+        await withComposer(async page => {
+            await page.evaluate(async edit => {
+                submitComposer();
+                const input = document.getElementById('composer-text');
+                if (edit.startsWith('text')) {
+                    input.value = 'new draft';
+                    input.dispatchEvent(new Event('input'));
+                    if (edit === 'text-reverted') {
+                        input.value = 'submitted text';
+                        input.dispatchEvent(new Event('input'));
+                    }
+                } else if (edit === 'pending-attachments') {
+                    window.RealFileReader = window.FileReader;
+                    window.FileReader = class {
+                        readAsDataURL() { window.finishImage = () => { this.result = 'data:image/png;base64,bmV3'; this.onload(); }; }
+                    };
+                    window.pendingImage = readComposerFiles([new File(['new'], 'new.png', { type: 'image/png' })]);
+                } else {
+                    await readComposerFiles([new File(['new'], edit === 'same-attachments' ? 'old.png' : 'new.png', { type: 'image/png' })]);
+                }
+                window.chatAPI.setComposerEnabled(true, true);
+                window.ack({ accepted: true });
+            }, edit);
+            if (edit === 'pending-attachments') await page.evaluate(async () => {
+                window.finishImage();
+                await window.pendingImage;
+                window.FileReader = window.RealFileReader;
+            });
+            const state = await draft(page);
+            assert.equal(state.text, edit === 'text' ? 'new draft' : edit === 'text-reverted' ? 'submitted text' : '');
+            assert.deepEqual(state.attachments, edit.startsWith('text') ? [] : [edit === 'same-attachments' ? 'old.png' : 'new.png']);
+            assert.equal(state.calls, 1);
+        });
+    });
+}
+
+test('pending acknowledgement blocks repeated submission even after a host enable', { timeout: 30000 }, async () => {
+    await withComposer(async page => {
+        await page.evaluate(() => {
+            submitComposer();
+            window.chatAPI.setComposerEnabled(true, true);
+            submitComposer();
+            submitComposer();
+        });
+        assert.deepEqual(await draft(page), { text: 'submitted text', attachments: ['old.png'], disabled: true, calls: 1 });
+        await page.evaluate(() => window.ack({ accepted: false }));
+        assert.equal((await draft(page)).calls, 1);
+        assert.equal((await draft(page)).disabled, false);
+        await page.evaluate(() => submitComposer());
+        assert.equal((await draft(page)).calls, 2);
+        await page.evaluate(() => window.ack({ accepted: true }));
+    });
+});
+
+for (const kind of ['missing', 'malformed', 'rejected', 'thrown', 'nonpromise']) {
+    test(`${kind} acknowledgement retains the draft and never enables replay`, { timeout: 30000 }, async () => {
+        await withComposer(async page => {
+            await page.evaluate(kind => {
+                if (kind === 'thrown' || kind === 'nonpromise') window.rookBridge.invoke = () => {
+                    window.calls.push({});
+                    if (kind === 'thrown') throw new Error('synthetic acknowledgement failure');
+                };
+                submitComposer();
+                if (kind === 'missing') window.ack(null);
+                if (kind === 'malformed') window.ack({ accepted: 'false' });
+                if (kind === 'rejected') window.failAck(new Error('synthetic acknowledgement failure'));
+            }, kind);
+            await page.evaluate(() => {
+                window.chatAPI.setComposerEnabled(true, true);
+                submitComposer();
+                submitComposer();
+            });
+            assert.deepEqual(await draft(page), { text: 'submitted text', attachments: ['old.png'], disabled: true, calls: 1 });
+            assert.match(await page.locator('#messages').textContent(), /acknowledgement is unconfirmed/i);
+        });
+    });
+}
+
 for (const [width, height] of [[697, 502], [320, 240], [360, 480], [480, 320], [1000, 800]]) {
     test(`visible composer and independently scrolling transcript at ${width}x${height}`, { timeout: 30000 }, async t => {
         const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block' });

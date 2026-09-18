@@ -15,6 +15,7 @@ namespace Rook.UI.Chat
         private readonly AgentChatClient _client;
         private readonly Action<Action> _post;
         private readonly Action<string> _openBrowser;
+        private readonly Func<string, bool> _confirmDiscard;
         private readonly Dictionary<string, JsonElement> _providers = new();
         private readonly Dictionary<string, JsonElement> _models = new();
         private readonly List<JsonElement> _endpointModels = new();
@@ -56,43 +57,63 @@ namespace Rook.UI.Chat
         private ConfigurationBegin? _begin;
         private ConfigurationEvent? _input;
         private string? _authorizationUrl;
-        private string? _requestedDefaults;
+        private (string? Provider, string? Model, string? Reasoning)? _requestedDefaults;
+        private bool _presenting, _hasSnapshot, _defaultsDirty, _endpointDirty;
+        private string _currentProvider = "";
+        private string? _savedProvider, _savedModel, _savedReasoning;
+        private string _catalogState = "not loaded";
+        private readonly Label _catalogStatus = new() { Text = "Models not loaded.", Wrap = WrapMode.Character };
         private bool _disposed, _cancelRequested, _available;
         internal bool Busy { get; private set; }
         internal ConfigurationResult? KnownResult { get; private set; }
         internal ConfigurationSettlement? LastSettlement { get; private set; }
         internal Task PendingOperation { get; private set; } = Task.CompletedTask;
+        private bool _cleanupConfirmed = true;
+        private bool _canAttemptConfiguration = true;
+        internal bool CanAttemptConfiguration => !Busy && _canAttemptConfiguration;
+        internal bool CanRefreshGuidance => !Busy && _cleanupConfirmed;
 
-        internal RookChatConfigurationDialog(AgentChatClient client, Action<Action>? post = null, Action<string>? openBrowser = null)
+        internal RookChatConfigurationDialog(AgentChatClient client, Action<Action>? post = null, Action<string>? openBrowser = null, Func<string, bool>? confirmDiscard = null)
         {
             _client = client;
             _post = post ?? (action => Application.Instance.AsyncInvoke(action));
             _openBrowser = openBrowser ?? (url => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }));
+            _confirmDiscard = confirmDiscard ?? (message => MessageBox.Show(this, message, "Discard unsaved edits?", MessageBoxButtons.YesNo, MessageBoxType.Question, MessageBoxDefaultButton.No) == DialogResult.Yes);
             Title = "RookChat Settings";
             ClientSize = new Size(650, 720);
             MinimumSize = new Size(480, 420);
             Padding = new Padding(12);
-            _provider.SelectedValueChanged += (_, _) => { if (_provider.SelectedKey != null) ProviderId.Text = _provider.SelectedKey; };
-            ProviderId.TextChanged += (_, _) => ResetProviderPresentation();
-            Model.SelectedValueChanged += (_, _) => UpdateReasoning();
+            _provider.SelectedValueChanged += (_, _) => { if (!_presenting && _provider.SelectedKey != null) ProviderId.Text = _provider.SelectedKey; };
+            ProviderId.TextChanged += (_, _) => { if (!_presenting) ChangeProvider(); };
+            Model.SelectedValueChanged += (_, _) => { if (!_presenting) { _defaultsDirty = true; UpdateReasoning(); UpdateEnabled(); } };
+            Reasoning.SelectedValueChanged += (_, _) => { if (!_presenting) { _defaultsDirty = true; UpdateEnabled(); } };
             _modelList.SelectedValueChanged += (_, _) => LoadEndpointModel();
             ReplaceHeaders.CheckedChanged += (_, _) => { if (ReplaceHeaders.Checked != true) { _headers.Clear(); HeaderValue.Text = ""; _headerNames.Items.Clear(); } };
+            foreach (var field in new[] { EndpointUrl, EndpointModelId, EndpointModelName, HeaderName })
+                field.TextChanged += (_, _) => { if (!_presenting) _endpointDirty = true; };
+            Api.SelectedValueChanged += (_, _) => { if (!_presenting) _endpointDirty = true; };
+            foreach (var field in new[] { AuthHeader, DeveloperRole, ReasoningEffort, ModelReasoning, ImageInput, ReplaceHeaders })
+                field.CheckedChanged += (_, _) => { if (!_presenting) _endpointDirty = true; };
+            ContextWindow.ValueChanged += (_, _) => { if (!_presenting) _endpointDirty = true; };
+            MaxTokens.ValueChanged += (_, _) => { if (!_presenting) _endpointDirty = true; };
             var account = Rows(
                 new TableRow("Provider", _provider), new TableRow("Provider ID", ProviderId),
                 new TableRow(AccountRoute),
-                new TableRow(new Label { Text = "Account and endpoint changes can affect open conversations.\nOther processes may still hold earlier values." }),
+                new TableRow(new Label { Text = "Account and endpoint changes can affect open conversations.\nOther processes may still hold earlier values.", Wrap = WrapMode.Word }),
                 new TableRow(ActionButton("Connect account", "oauth.connect"), ActionButton("Disconnect account", "oauth.disconnect")),
                 new TableRow("API key", ApiKey),
                 new TableRow(ActionButton("Save API key", "apiKey.set"), ActionButton("Remove API key", "apiKey.remove")));
             var defaults = Rows(new TableRow(SavedDefaults),
                 new TableRow(ActionButton("Load models", "models")),
+                new TableRow(_catalogStatus),
                 new TableRow("Model", Model), new TableRow("Reasoning", Reasoning),
                 new TableRow(ActionButton("Save defaults for new conversations", "defaults.save")),
-                new TableRow(new Label { Text = "Requested initial choices are set when opening a conversation.\nEffective conversation settings: unknown." }));
+                new TableRow(new Label { Text = "Requested initial choices are set when opening a conversation.\nEffective conversation settings: unknown.", Wrap = WrapMode.Word }));
             var addModel = LocalButton("Add / update model", AddEndpointModel);
             var removeModel = LocalButton("Remove model", () =>
             {
                 if (_modelList.SelectedIndex >= 0) _endpointModels.RemoveAt(_modelList.SelectedIndex);
+                _endpointDirty = true;
                 RefreshEndpointModels();
             });
             var endpoint = Rows(new TableRow(ActionButton("Read saved endpoint", "endpoint.read")),
@@ -107,23 +128,43 @@ namespace Rook.UI.Chat
                     if (_headerNames.SelectedKey != null) _headers.Remove(_headerNames.SelectedKey);
                     RefreshHeaderNames();
                 })), new TableRow(ActionButton("Save endpoint", "endpoint.save")));
-            _editor = new Panel { Content = new TabControl { Pages =
+            _editor = new Panel
             {
-                new TabPage { Text = "Account", Content = new Scrollable { Content = account } },
-                new TabPage { Text = "Defaults", Content = new Scrollable { Content = defaults } },
-                new TabPage { Text = "Local / custom endpoint", Content = new Scrollable { Content = endpoint } },
-            } } };
+                Height = 330,
+                Content = new TabControl
+                {
+                    Pages =
+            {
+                new TabPage { Text = "Account", Content = VerticalScroll(account) },
+                new TabPage { Text = "Defaults", Content = VerticalScroll(defaults) },
+                new TabPage { Text = "Local / custom endpoint", Content = VerticalScroll(endpoint) },
+            }
+                }
+            };
             _browser.Click += (_, _) => OpenAuthorization();
             _reply.Click += async (_, _) => await SubmitReplyAsync();
             _cancel.Click += (_, _) => CancelCurrent();
             var close = new Button { Text = "Close" };
             close.Click += (_, _) => Close();
             Closing += (_, args) => { if (Busy) { args.Cancel = true; CancelCurrent(); } else ClearSensitive(); };
-            Content = Rows(new TableRow(ActionButton("Refresh status", "status")),
-                new TableRow(_editor) { ScaleHeight = true },
+            var body = Rows(new TableRow(_editor),
                 new TableRow(Status), new TableRow(Persistence), new TableRow(Cleanup),
                 new TableRow(Instructions), new TableRow(_browser), new TableRow(_inputLabel),
-                new TableRow(SecretReply, TextReply, ChoiceReply, _reply), new TableRow(_cancel, null, close));
+                new TableRow(SecretReply), new TableRow(TextReply), new TableRow(ChoiceReply), new TableRow(_reply));
+            var footer = new TableLayout
+            {
+                Spacing = new Size(6, 0),
+                Rows = {
+                new TableRow(new TableCell(_cancel, false), new TableCell(null, true), new TableCell(close, false)) }
+            };
+            Content = new TableLayout
+            {
+                Spacing = new Size(0, 6),
+                Rows = {
+                new TableRow(ActionButton("Refresh status", "status")),
+                new TableRow(VerticalScroll(body)) { ScaleHeight = true },
+                new TableRow(footer) }
+            };
             ClearInteraction();
             UpdateEnabled();
         }
@@ -131,8 +172,31 @@ namespace Rook.UI.Chat
         private static TableLayout Rows(params TableRow[] rows)
         {
             var layout = new TableLayout { Spacing = new Size(6, 6), Padding = new Padding(4) };
-            foreach (var row in rows) layout.Rows.Add(row);
+            foreach (var row in rows)
+            {
+                // Each form row owns its columns; footer/auth controls cannot widen other rows.
+                if (row.Cells.Count > 1 && row.Cells[0].Control is Label label)
+                {
+                    label.Width = 110; label.Wrap = WrapMode.Word;
+                    row.Cells[0].ScaleWidth = false; row.Cells[1].ScaleWidth = true;
+                    layout.Rows.Add(new TableRow(new TableLayout { Spacing = new Size(6, 0), Rows = { row } }));
+                }
+                else foreach (var cell in row.Cells)
+                {
+                    if (cell.Control is Button button)
+                        layout.Rows.Add(new TableRow(new TableLayout { Rows = { new TableRow(new TableCell(button, false), new TableCell(null, true)) } }));
+                    else layout.Rows.Add(new TableRow(cell.Control));
+                }
+            }
+            layout.Rows.Add(new TableRow { ScaleHeight = true });
             return layout;
+        }
+        private static Scrollable VerticalScroll(Control content)
+        {
+            var scroll = new Scrollable { Content = content, ExpandContentWidth = true };
+            // Reserve scrollbar space so wrapped labels and long selections never widen the form.
+            scroll.SizeChanged += (_, _) => content.Width = Math.Max(1, scroll.ClientSize.Width - 20);
+            return scroll;
         }
         private Button ActionButton(string title, string operation)
         {
@@ -159,19 +223,24 @@ namespace Rook.UI.Chat
         internal Task InitializeAsync() => RunActionAsync("status");
         internal Task RunActionAsync(string operation)
         {
-            if (_disposed || Busy) return Task.CompletedTask;
+            if (_disposed || !CanAttemptConfiguration) return Task.CompletedTask;
             try
             {
+                if ((WouldDiscardSecrets(operation) || operation == "endpoint.read" && _endpointDirty) &&
+                    !_confirmDiscard("This action discards pending edits that it does not save. Discard them and continue?")) return Task.CompletedTask;
                 if (operation != "status" && (!_available || !Supports(operation)))
                 {
                     Status.Text = "This configuration action is unavailable. Refresh status after adding an endpoint.";
                     ClearSensitive(); return Task.CompletedTask;
                 }
                 var begin = BuildOperation(operation);
+                _cleanupConfirmed = false;
+                _canAttemptConfiguration = false;
                 Busy = true; _cancelRequested = false; _begin = begin;
                 _operationCancellation = new CancellationTokenSource();
                 LastSettlement = null;
-                _requestedDefaults = operation == "defaults.save" ? "Saved defaults: " + ProviderId.Text + "/" + Model.SelectedKey + "; reasoning: " + Reasoning.SelectedKey : null;
+                _requestedDefaults = operation == "defaults.save" ? (ProviderId.Text, Model.SelectedKey, Reasoning.SelectedKey) : ((string?, string?, string?)?)null;
+                if (operation == "models") { _catalogState = "loading"; _catalogStatus.Text = "Loading models..."; }
                 ClearSensitive();
                 Status.Text = "Preparing configuration...";
                 Persistence.Text = "Awaiting result; no rollback is implied by cancellation.";
@@ -193,6 +262,8 @@ namespace Rook.UI.Chat
                     return PresentAsync(() => HandleEvent(evt));
                 }, token).ConfigureAwait(false);
                 LastSettlement = settlement;
+                _cleanupConfirmed = settlement.Cleanup == "exited";
+                _canAttemptConfiguration = _cleanupConfirmed || settlement.ConfirmedNotAdmitted;
                 if (settlement.Result != null) KnownResult = settlement.Result;
                 await PresentAsync(() =>
                 {
@@ -203,10 +274,19 @@ namespace Rook.UI.Chat
                     Status.Text = settlement.Successful ? "Configuration operation completed." :
                         settlement.FailureCode == "configuration_unavailable" ? "Configuration unavailable for this runtime. Existing conversations remain available." :
                         "Configuration incomplete: " + (settlement.DeliveryFailure ?? settlement.FailureCode ?? settlement.Result?.Code ?? "unknown");
+                    if (begin.Operation == "models" && _catalogState == "loading")
+                    { _catalogState = "failed"; _catalogStatus.Text = "Could not load models. Previous choices retained."; }
                     if (settlement.FailureCode == "configuration_storage_refused")
                     {
                         Status.Text = "Configuration storage protection could not be verified. Existing storage preserved.";
                         Persistence.Text = "Operation not started; no configuration change was attempted.";
+                        Cleanup.Text = "Configuration process: not started.";
+                    }
+                    else if (settlement.ConfirmedNotAdmitted)
+                    {
+                        if (settlement.FailureCode != "configuration_unavailable")
+                            Status.Text = "Configuration did not start. You can try again.";
+                        Persistence.Text = "No configuration change was attempted by this operation.";
                         Cleanup.Text = "Configuration process: not started.";
                     }
                     ClearSensitive();
@@ -243,14 +323,23 @@ namespace Rook.UI.Chat
             {
                 case "status": input = new { }; break;
                 case "apiKey.set": input = new { provider, key = ApiKey.Text }; break;
-                case "defaults.save": input = new { provider, model = Model.SelectedKey, reasoning = Reasoning.SelectedKey }; break;
+                case "defaults.save":
+                    ConfigurationJson.Need(ValidDefaults());
+                    input = new { provider, model = Model.SelectedKey, reasoning = Reasoning.SelectedKey }; break;
                 case "endpoint.save":
                     var compat = new Dictionary<string, bool>();
                     if (DeveloperRole.Checked.HasValue) compat["supportsDeveloperRole"] = DeveloperRole.Checked.Value;
                     if (ReasoningEffort.Checked.HasValue) compat["supportsReasoningEffort"] = ReasoningEffort.Checked.Value;
-                    input = new { provider, baseUrl = EndpointUrl.Text, api = Api.SelectedKey, authHeader = AuthHeader.Checked == true,
+                    input = new
+                    {
+                        provider,
+                        baseUrl = EndpointUrl.Text,
+                        api = Api.SelectedKey,
+                        authHeader = AuthHeader.Checked == true,
                         headers = ReplaceHeaders.Checked == true ? (object)new { action = "replace", values = new Dictionary<string, string>(_headers) } : new { action = "keep" },
-                        models = _endpointModels.ToArray(), compat };
+                        models = _endpointModels.ToArray(),
+                        compat
+                    };
                     break;
                 default: input = new { provider }; break;
             }
@@ -269,7 +358,8 @@ namespace Rook.UI.Chat
             {
                 _authorizationUrl = evt.Record.GetProperty("url").GetString();
                 Instructions.Text = evt.Record.TryGetProperty("instructions", out var text) ? text.GetString() : "";
-                _browser.Enabled = true;
+                Instructions.Visible = !string.IsNullOrEmpty(Instructions.Text);
+                _browser.Visible = true; _browser.Enabled = true;
             }
             else if (evt.Type == "input")
             {
@@ -282,7 +372,7 @@ namespace Rook.UI.Chat
                 SecretReply.Visible = !select && record.GetProperty("secret").GetBoolean();
                 TextReply.Visible = !select && !SecretReply.Visible;
                 if (select) { foreach (var item in record.GetProperty("choices").EnumerateArray()) ChoiceReply.Items.Add(new ListItem { Key = item.GetProperty("id").GetString(), Text = item.GetProperty("label").GetString() }); ChoiceReply.SelectedIndex = 0; }
-                _reply.Enabled = true;
+                _reply.Visible = true; _reply.Enabled = true;
             }
         }
 
@@ -314,64 +404,146 @@ namespace Rook.UI.Chat
             Persistence.Text = result.Persistence == "saved" ? "Configuration saved." : result.Persistence == "unknown" ?
                 "Persistence unknown. Status cannot prove an indistinguishable replacement." : "Persistence: " + result.Persistence;
             Cleanup.Text = "Awaiting configuration-process cleanup.";
-            if (operation == "defaults.save" && result.Persistence == "saved" && _requestedDefaults != null) SavedDefaults.Text = _requestedDefaults;
+            if (operation == "defaults.save" && result.Persistence == "saved" && _requestedDefaults.HasValue)
+            {
+                _savedProvider = _requestedDefaults.Value.Provider;
+                _savedModel = _requestedDefaults.Value.Model;
+                _savedReasoning = _requestedDefaults.Value.Reasoning;
+                SavedDefaults.Text = "Saved defaults: " + _savedProvider + "/" + _savedModel + "; reasoning: " + _savedReasoning;
+                _defaultsDirty = false;
+            }
+            if (operation == "endpoint.save" && result.Persistence == "saved") _endpointDirty = false;
             if (result.Outcome != "completed" || !result.Data.HasValue) return;
             var data = result.Data.Value;
             if (operation == "status")
             {
-                _available = true; _providers.Clear(); _provider.Items.Clear();
-                foreach (var p in data.GetProperty("providers").EnumerateArray()) { var id = p.GetProperty("id").GetString()!; _providers[id] = p.Clone(); _provider.Items.Add(new ListItem { Key = id, Text = p.GetProperty("name").GetString() }); }
-                Api.Items.Clear(); foreach (var api in data.GetProperty("apis").EnumerateArray()) Api.Items.Add(new ListItem { Key = api.GetString(), Text = api.GetString() });
-                if (Api.Items.Count > 0) Api.SelectedIndex = 0;
-                var d = data.GetProperty("defaults");
-                SavedDefaults.Text = "Saved defaults: " + (d.GetProperty("provider").GetString() ?? "unset") + "/" + (d.GetProperty("model").GetString() ?? "unset") + "; reasoning: " + (d.GetProperty("reasoning").GetString() ?? "unset");
-                if (string.IsNullOrEmpty(ProviderId.Text)) ProviderId.Text = d.GetProperty("provider").GetString() ?? "";
-                ResetProviderPresentation();
+                _presenting = true;
+                try
+                {
+                    _available = true; _providers.Clear(); _provider.Items.Clear();
+                    foreach (var p in data.GetProperty("providers").EnumerateArray()) { var id = p.GetProperty("id").GetString()!; _providers[id] = p.Clone(); _provider.Items.Add(new ListItem { Key = id, Text = p.GetProperty("name").GetString() }); }
+                    var selectedApi = Api.SelectedKey;
+                    Api.Items.Clear(); foreach (var api in data.GetProperty("apis").EnumerateArray()) Api.Items.Add(new ListItem { Key = api.GetString(), Text = api.GetString() });
+                    SelectExact(Api, selectedApi, "unavailable");
+                    var d = data.GetProperty("defaults");
+                    _savedProvider = d.GetProperty("provider").GetString(); _savedModel = d.GetProperty("model").GetString(); _savedReasoning = d.GetProperty("reasoning").GetString();
+                    SavedDefaults.Text = "Saved defaults: " + (d.GetProperty("provider").GetString() ?? "unset") + "/" + (d.GetProperty("model").GetString() ?? "unset") + "; reasoning: " + (d.GetProperty("reasoning").GetString() ?? "unset");
+                    if (!_hasSnapshot)
+                    {
+                        _currentProvider = _savedProvider ?? ""; ProviderId.Text = _currentProvider;
+                        Model.Items.Clear(); Reasoning.Items.Clear();
+                        SelectExact(Model, _savedModel, "not yet checked"); SelectExact(Reasoning, _savedReasoning, "not yet checked");
+                        _hasSnapshot = true;
+                    }
+                    SelectExact(_provider, _currentProvider, "unavailable");
+                    UpdateAccountRoute();
+                }
+                finally { _presenting = false; }
             }
             else if (operation == "models")
             {
-                _models.Clear(); Model.Items.Clear();
-                foreach (var m in data.GetProperty("models").EnumerateArray()) { var id = m.GetProperty("id").GetString()!; _models[id] = m.Clone(); Model.Items.Add(new ListItem { Key = id, Text = m.GetProperty("name").GetString() }); }
-                if (Model.Items.Count > 0) Model.SelectedIndex = 0;
-                UpdateReasoning();
+                var selectedModel = Model.SelectedKey; var selectedReasoning = Reasoning.SelectedKey;
+                _presenting = true;
+                try
+                {
+                    _models.Clear(); Model.Items.Clear();
+                    foreach (var m in data.GetProperty("models").EnumerateArray()) { var id = m.GetProperty("id").GetString()!; _models[id] = m.Clone(); Model.Items.Add(new ListItem { Key = id, Text = m.GetProperty("name").GetString() }); }
+                    _catalogState = "loaded";
+                    _catalogStatus.Text = _models.Count == 0 ? "No models reported for this provider." : "Models loaded; access unverified.";
+                    SelectExact(Model, selectedModel, "unavailable");
+                    PopulateReasoning(selectedReasoning);
+                }
+                finally { _presenting = false; }
             }
             else if (operation == "endpoint.read")
             {
-                ClearEndpoint();
-                var entry = data.GetProperty("entry");
-                if (entry.ValueKind == JsonValueKind.Null) return;
-                EndpointUrl.Text = entry.GetProperty("baseUrl").GetString(); Api.SelectedKey = entry.GetProperty("api").GetString(); AuthHeader.Checked = entry.GetProperty("authHeader").GetBoolean();
-                foreach (var m in entry.GetProperty("models").EnumerateArray()) _endpointModels.Add(m.Clone());
-                foreach (var name in entry.GetProperty("headerNames").EnumerateArray()) _headerNames.Items.Add(new ListItem { Key = name.GetString(), Text = name.GetString() });
-                var c = entry.GetProperty("compat");
-                DeveloperRole.Checked = c.TryGetProperty("supportsDeveloperRole", out var dr) ? dr.GetBoolean() : (bool?)null;
-                ReasoningEffort.Checked = c.TryGetProperty("supportsReasoningEffort", out var re) ? re.GetBoolean() : (bool?)null;
-                RefreshEndpointModels();
+                _presenting = true;
+                try
+                {
+                    ClearEndpoint();
+                    var entry = data.GetProperty("entry");
+                    if (entry.ValueKind == JsonValueKind.Null) return;
+                    EndpointUrl.Text = entry.GetProperty("baseUrl").GetString(); Api.SelectedKey = entry.GetProperty("api").GetString(); AuthHeader.Checked = entry.GetProperty("authHeader").GetBoolean();
+                    foreach (var m in entry.GetProperty("models").EnumerateArray()) _endpointModels.Add(m.Clone());
+                    foreach (var name in entry.GetProperty("headerNames").EnumerateArray()) _headerNames.Items.Add(new ListItem { Key = name.GetString(), Text = name.GetString() });
+                    var c = entry.GetProperty("compat");
+                    DeveloperRole.Checked = c.TryGetProperty("supportsDeveloperRole", out var dr) ? dr.GetBoolean() : (bool?)null;
+                    ReasoningEffort.Checked = c.TryGetProperty("supportsReasoningEffort", out var re) ? re.GetBoolean() : (bool?)null;
+                    RefreshEndpointModels();
+                }
+                finally { _endpointDirty = false; _presenting = false; }
             }
         }
-        private void ResetProviderPresentation()
+        private void ChangeProvider()
         {
-            ClearSensitive();
-            _models.Clear(); Model.Items.Clear(); Reasoning.Items.Clear(); ClearEndpoint();
+            if (ProviderId.Text == _currentProvider) return;
+            _presenting = true;
+            try
+            {
+                if (Busy || ((_defaultsDirty || _endpointDirty || WouldDiscardSecrets(null)) &&
+                    !_confirmDiscard("Changing provider discards unsaved model and connection edits. Discard them and continue?")))
+                {
+                    ProviderId.Text = _currentProvider; SelectExact(_provider, _currentProvider, "unavailable"); return;
+                }
+                if (!_providers.ContainsKey(_currentProvider))
+                {
+                    var previous = _provider.Items.FirstOrDefault(i => i.Key == _currentProvider);
+                    if (previous != null) _provider.Items.Remove(previous);
+                }
+                _currentProvider = ProviderId.Text ?? "";
+                SelectExact(_provider, _currentProvider, "not in catalog");
+                ClearSensitive();
+                _models.Clear(); Model.Items.Clear(); Reasoning.Items.Clear(); ClearEndpoint();
+                _catalogState = "not loaded"; _catalogStatus.Text = "Models not loaded.";
+                _defaultsDirty = false; _endpointDirty = false;
+                if (_currentProvider == _savedProvider)
+                { SelectExact(Model, _savedModel, "not yet checked"); SelectExact(Reasoning, _savedReasoning, "not yet checked"); _defaultsDirty = false; }
+                UpdateAccountRoute();
+            }
+            finally { _presenting = false; }
+            UpdateEnabled();
+        }
+        private void UpdateAccountRoute()
+        {
             AccountRoute.Text = _providers.TryGetValue(ProviderId.Text ?? "", out var p)
                 ? "Account route: " + p.GetProperty("route").GetString() + "; credential: " + p.GetProperty("credentialType").GetString() + "; access unverified"
                 : "Custom provider; access unverified. Ollama requires no cloud account.";
-            UpdateEnabled();
         }
         private void UpdateReasoning()
+        {
+            var previous = Reasoning.SelectedKey;
+            _presenting = true;
+            try { PopulateReasoning(previous); }
+            finally { _presenting = false; }
+        }
+        private void PopulateReasoning(string? previous)
         {
             Reasoning.Items.Clear();
             if (Model.SelectedKey != null && _models.TryGetValue(Model.SelectedKey, out var m))
                 foreach (var value in m.GetProperty("reasoningLevels").EnumerateArray()) Reasoning.Items.Add(new ListItem { Key = value.GetString(), Text = value.GetString() });
-            if (Reasoning.Items.Count > 0) Reasoning.SelectedIndex = 0;
+            SelectExact(Reasoning, previous, "unavailable");
         }
+        private static void SelectExact(DropDown control, string? key, string missing)
+        {
+            if (!string.IsNullOrEmpty(key) && !control.Items.Any(i => i.Key == key))
+                control.Items.Add(new ListItem { Key = key, Text = key + " (" + missing + ")" });
+            control.SelectedIndex = -1;
+            if (!string.IsNullOrEmpty(key)) control.SelectedKey = key;
+        }
+        private bool ValidDefaults() => _catalogState == "loaded" && Model.SelectedKey != null &&
+            _models.TryGetValue(Model.SelectedKey, out var m) && m.GetProperty("reasoningLevels").EnumerateArray().Any(v => v.GetString() == Reasoning.SelectedKey);
+        private bool WouldDiscardSecrets(string? operation) =>
+            (operation != "apiKey.set" && !string.IsNullOrEmpty(ApiKey.Text)) ||
+            !string.IsNullOrEmpty(HeaderValue.Text) ||
+            (operation != "endpoint.save" && (ReplaceHeaders.Checked == true || _headers.Count > 0));
         private void UpdateEnabled()
         {
             if (_disposed) return;
-            if (_editor != null) _editor.Enabled = _available && !Busy;
+            if (_editor != null) _editor.Enabled = _available && CanAttemptConfiguration;
             foreach (var pair in _actions)
             {
-                pair.Value.Enabled = !Busy && (pair.Key == "status" || _available && Supports(pair.Key));
+                pair.Value.Enabled = CanAttemptConfiguration && (pair.Key == "status" || _available && Supports(pair.Key));
+                if (pair.Key == "defaults.save") pair.Value.Enabled &= ValidDefaults();
             }
             _cancel.Enabled = Busy && !_cancelRequested;
         }
@@ -383,11 +555,19 @@ namespace Rook.UI.Chat
         internal void AddEndpointModel()
         {
             var id = EndpointModelId.Text ?? "";
-            var raw = ConfigurationJson.Encode(new { id, name = EndpointModelName.Text, reasoning = ModelReasoning.Checked == true,
-                input = ImageInput.Checked == true ? new[] { "text", "image" } : new[] { "text" }, contextWindow = (long)ContextWindow.Value, maxTokens = (long)MaxTokens.Value }, ConfigurationJson.InputLimit);
+            var raw = ConfigurationJson.Encode(new
+            {
+                id,
+                name = EndpointModelName.Text,
+                reasoning = ModelReasoning.Checked == true,
+                input = ImageInput.Checked == true ? new[] { "text", "image" } : new[] { "text" },
+                contextWindow = (long)ContextWindow.Value,
+                maxTokens = (long)MaxTokens.Value
+            }, ConfigurationJson.InputLimit);
             var model = ConfigurationJson.Parse(raw, ConfigurationJson.InputLimit);
             var index = _endpointModels.FindIndex(m => m.GetProperty("id").GetString() == id);
             if (index < 0) { ConfigurationJson.Need(_endpointModels.Count < 64); _endpointModels.Add(model); } else _endpointModels[index] = model;
+            _endpointDirty = true;
             RefreshEndpointModels();
         }
         private void RefreshEndpointModels()
@@ -411,14 +591,16 @@ namespace Rook.UI.Chat
         private void ClearEndpoint()
         {
             EndpointUrl.Text = ""; _endpointModels.Clear(); _modelList.Items.Clear(); EndpointModelId.Text = ""; EndpointModelName.Text = "";
+            Api.SelectedIndex = -1; AuthHeader.Checked = true; ModelReasoning.Checked = false; ImageInput.Checked = false;
+            ContextWindow.Value = 32768; MaxTokens.Value = 4096; HeaderName.Text = "";
             DeveloperRole.Checked = null; ReasoningEffort.Checked = null; ReplaceHeaders.Checked = false; _headers.Clear(); _headerNames.Items.Clear(); HeaderValue.Text = "";
         }
         private void ClearReply()
         {
             _input = null; _inputLabel.Text = ""; _inputLabel.Visible = false; SecretReply.Text = ""; TextReply.Text = ""; ChoiceReply.Items.Clear();
-            SecretReply.Visible = TextReply.Visible = ChoiceReply.Visible = false; _reply.Enabled = false;
+            SecretReply.Visible = TextReply.Visible = ChoiceReply.Visible = false; _reply.Visible = false; _reply.Enabled = false;
         }
-        private void ClearInteraction() { ClearReply(); Instructions.Text = ""; _authorizationUrl = null; _browser.Enabled = false; }
+        private void ClearInteraction() { ClearReply(); Instructions.Text = ""; Instructions.Visible = false; _authorizationUrl = null; _browser.Visible = false; _browser.Enabled = false; }
         private void ClearSensitive()
         {
             ApiKey.Text = ""; HeaderValue.Text = ""; _headers.Clear();

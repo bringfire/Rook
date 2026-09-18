@@ -288,6 +288,7 @@ namespace Rook.UI.Chat
 
         public HttpStatusCode StatusCodeValue { get; }
         public string Code { get; }
+        internal bool PromptNotAdmitted { get; set; }
     }
 
     internal sealed class ReopenIdentityMismatchException : AgentChatHttpException
@@ -443,7 +444,8 @@ namespace Rook.UI.Chat
             string text,
             IReadOnlyList<ChatImageInput> images,
             Action<ChatEvent> onEvent,
-            CancellationToken ct)
+            CancellationToken ct,
+            Action? onDispatch = null)
         {
             if (onEvent == null) throw new ArgumentNullException(nameof(onEvent));
             var body = JsonSerializer.SerializeToUtf8Bytes(new { text, images }, JsonOptions);
@@ -456,8 +458,10 @@ namespace Rook.UI.Chat
                 Content = new ByteArrayContent(body),
             };
             request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            ct.ThrowIfCancellationRequested();
+            onDispatch?.Invoke();
             using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-            await EnsureSuccessAsync(response, ct);
+            await EnsureSuccessAsync(response, ct, promptAdmission: true);
             using var stream = await response.Content.ReadAsStreamAsync();
             using var reader = new StreamReader(stream, new UTF8Encoding(false, true));
             ChatEvent? terminal = null;
@@ -656,15 +660,17 @@ namespace Rook.UI.Chat
             }
         }
 
-        private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken ct)
+        private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken ct, bool promptAdmission = false)
         {
             if (response.IsSuccessStatusCode) return;
             var raw = await ReadBoundedUtf8Async(response.Content, MaxErrorBodyUtf8Bytes, ct);
             var code = "chat_request_failed";
             var message = $"Chat service request failed with HTTP {(int)response.StatusCode}.";
+            var notAdmitted = false;
             try
             {
                 using var document = JsonDocument.Parse(raw);
+                notAdmitted = promptAdmission && IsPromptAdmissionRefusal(document.RootElement, response.StatusCode);
                 if (document.RootElement.ValueKind == JsonValueKind.Object &&
                     document.RootElement.TryGetProperty("error", out var errorValue) &&
                     errorValue.ValueKind == JsonValueKind.Object)
@@ -679,7 +685,32 @@ namespace Rook.UI.Chat
             {
                 // Keep the closed generic classification for malformed error bodies.
             }
-            throw new AgentChatHttpException(response.StatusCode, code, message);
+            throw new AgentChatHttpException(response.StatusCode, code, message) { PromptNotAdmitted = notAdmitted };
+        }
+
+        private static bool IsPromptAdmissionRefusal(JsonElement root, HttpStatusCode status)
+        {
+            // These closed envelopes originate before start_prompt acquires a supervisor.
+            // HTTP status alone (especially 500 or a broken response) proves no such thing.
+            if (root.ValueKind != JsonValueKind.Object) return false;
+            var rootFields = 0;
+            foreach (var field in root.EnumerateObject())
+                if (field.Name != "error" || ++rootFields != 1) return false;
+            if (!root.TryGetProperty("error", out var error) || error.ValueKind != JsonValueKind.Object) return false;
+            var fields = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var field in error.EnumerateObject())
+                if (field.Name is not ("code" or "message") || !fields.Add(field.Name) || field.Value.ValueKind != JsonValueKind.String)
+                    return false;
+            if (fields.Count != 2) return false;
+            var code = error.GetProperty("code").GetString();
+            return status switch
+            {
+                HttpStatusCode.BadRequest => code is "invalid_request" or "invalid_conversation_id" or "invalid_prompt" or "invalid_image",
+                HttpStatusCode.Forbidden => code is "origin_refused" or "invalid_session_token",
+                HttpStatusCode.Conflict => code is "conversation_not_open" or "conversation_busy" or "image_unsupported",
+                HttpStatusCode.RequestEntityTooLarge => code == "request_too_large",
+                _ => false,
+            };
         }
 
         private static AgentChatHttpException InvalidStream(string message)

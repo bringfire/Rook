@@ -87,12 +87,12 @@ def test_manifest_roundtrip_public_cli_and_closed_payload(tmp_path):
         "acpProtocolVersion", "pythonAcpSdkVersion", "executable", "goalSkill", "rookSkill",
         "rookSkillManifestSha256", "claimKeyVersion", "uv", "pythonRuntime", "files",
     }
-    assert verified.manifest["compatibilityPatchCommit"] == "dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b"
+    assert verified.manifest["compatibilityPatchCommit"] == "08c2610b4822af1b37350c8f03f3281a19311b59"
     assert verified.manifest["platform"] == "windows"
     assert verified.manifest["architecture"] == "amd64"
     assert verified.manifest["pythonRuntime"] == {
         "root": "dist/prime-agent-runtime",
-        "sourceCommit": "dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b",
+        "sourceCommit": "08c2610b4822af1b37350c8f03f3281a19311b59",
         "manifestSha256": subtree_id(PAYLOAD, "dist/prime-agent-runtime/"),
     }
     assert verified.manifest["files"] == [
