@@ -8,6 +8,7 @@ param(
     [string]$OutputRoot = '',
     [string]$BuildRoot = '',
     [string]$PipBootstrapWheel = '',
+    [string]$DependencyWheelhouse = '',
     [int]$CommandTimeoutSeconds = 1800
 )
 
@@ -119,6 +120,56 @@ function Invoke-CheckedProcess {
     }
 }
 
+function Get-LockedDependencyArguments {
+    param([string]$RequirementsLock, [string]$Wheelhouse, [string]$DependencyWheelhouse = '')
+    if (-not (Test-Path -LiteralPath $RequirementsLock -PathType Leaf)) {
+        Fail "Approved dependency input lock missing: $RequirementsLock"
+    }
+    # This input deliberately accepts only the generated one-pin/one-hash format.
+    $names = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($line in (Get-Content -LiteralPath $RequirementsLock -Encoding UTF8)) {
+        $row = $line.Trim()
+        if (-not $row -or $row.StartsWith('#')) { continue }
+        if ($row -notmatch '^([A-Za-z0-9][A-Za-z0-9._-]*)==[A-Za-z0-9.!+_-]+ --hash=sha256:[a-fA-F0-9]{64}$') {
+            Fail 'Dependency input must contain exactly pinned versions with SHA256 hashes.'
+        }
+        $name = $Matches[1] -replace '[-_.]+', '-'
+        if (-not $names.Add($name)) { Fail 'Duplicate dependency input pin.' }
+    }
+    if ($names.Count -eq 0) { Fail 'Dependency input lock is empty.' }
+    $arguments = @('-I', '-m', 'pip', '--isolated', '--disable-pip-version-check', '--no-cache-dir',
+        'download', '--dest', $Wheelhouse, '--only-binary=:all:', '--no-deps', '--require-hashes',
+        '--implementation', 'cp', '--python-version', '3.11', '--abi', 'cp311', '--platform', 'win_amd64',
+        '-r', $RequirementsLock)
+    if (-not [string]::IsNullOrWhiteSpace($DependencyWheelhouse)) {
+        if (-not (Test-Path -LiteralPath $DependencyWheelhouse -PathType Container)) {
+            Fail "Accepted dependency wheelhouse missing: $DependencyWheelhouse"
+        }
+        $arguments += @('--no-index', '--find-links', $DependencyWheelhouse)
+    }
+    return $arguments
+}
+
+function Stage-LockedDependencies {
+    param([string]$PythonExe, [string]$RequirementsLock, [string]$Wheelhouse, [string]$DependencyWheelhouse = '')
+    $arguments = Get-LockedDependencyArguments -RequirementsLock $RequirementsLock -Wheelhouse $Wheelhouse -DependencyWheelhouse $DependencyWheelhouse
+    Invoke-CheckedProcess -FilePath $PythonExe -Arguments $arguments -Label 'hash-locked dependency wheel acquisition'
+}
+
+function Assert-DependencyCacheLocation {
+    param([string]$DependencyWheelhouse, [string[]]$OutputPaths)
+    if ([string]::IsNullOrWhiteSpace($DependencyWheelhouse)) { return }
+    $cache = (Resolve-Path -LiteralPath $DependencyWheelhouse).Path.TrimEnd('\')
+    foreach ($path in $OutputPaths) {
+        $output = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path).TrimEnd('\')
+        if ($cache.Equals($output, [StringComparison]::OrdinalIgnoreCase) -or
+            $cache.StartsWith($output + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            $output.StartsWith($cache + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            Fail 'Accepted dependency wheelhouse must be separate from disposable build/output paths.'
+        }
+    }
+}
+
 function New-SourceArchive {
     param([string]$Root, [string]$GitSha, [string]$OutPath)
     $parent = Split-Path -Parent $OutPath
@@ -183,11 +234,21 @@ $rookGitSha = Require-CleanGitSource -Root $RepoRoot -Label 'Rook' -ExcludedPath
 )
 $chirpGitSha = Require-CleanGitRepo -Root $ChirpRoot -Label 'Chirp'
 
+$dependencyInputLock = Join-Path $RepoRoot 'installer\python-runtime\requirements-third-party-lock.txt'
+$wheelhouse = Join-Path $OutputRoot 'python-wheelhouse'
+# Admit the immutable inputs before removing any previous disposable output.
+$null = Get-LockedDependencyArguments -RequirementsLock $dependencyInputLock -Wheelhouse $wheelhouse -DependencyWheelhouse $DependencyWheelhouse
+Assert-DependencyCacheLocation -DependencyWheelhouse $DependencyWheelhouse -OutputPaths @($BuildRoot, $wheelhouse)
+$dependencyInputHash = Get-Sha256 -Path $dependencyInputLock
+
 if (Test-Path -LiteralPath $BuildRoot) { Remove-Item -LiteralPath $BuildRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
-$wheelhouse = Join-Path $OutputRoot 'python-wheelhouse'
 if (Test-Path -LiteralPath $wheelhouse) { Remove-Item -LiteralPath $wheelhouse -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $wheelhouse | Out-Null
+
+$admittedDependencyLock = Join-Path $BuildRoot 'requirements-third-party-inputs.txt'
+Copy-Item -LiteralPath $dependencyInputLock -Destination $admittedDependencyLock
+if ((Get-Sha256 -Path $admittedDependencyLock) -cne $dependencyInputHash) { Fail 'Dependency input lock changed during admission.' }
 
 # Only this disposable build environment is upgraded; customer Python stays intact.
 $admittedPipWheel = Join-Path $BuildRoot 'pip-26.2.1-py3-none-any.whl'
@@ -198,6 +259,8 @@ $buildPythonExe = Join-Path $buildVenv 'Scripts\python.exe'
 Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments @('-I', '-m', 'pip', '--isolated', 'install', '--no-index', '--no-deps', $admittedPipWheel) -Label 'build pip offline bootstrap'
 $pipVersionCheck = @('-I', '-c', "import pip; assert pip.__version__ == '26.2.1', 'Build pip version differs'; print('Build pip: ' + pip.__version__ + ' at ' + pip.__file__)")
 Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments $pipVersionCheck -Label 'build pip version check'
+
+Stage-LockedDependencies -PythonExe $buildPythonExe -RequirementsLock $admittedDependencyLock -Wheelhouse $wheelhouse -DependencyWheelhouse $DependencyWheelhouse
 
 $rookWheelDir = Join-Path $BuildRoot 'rook-wheel'
 $chirpWheelDir = Join-Path $BuildRoot 'chirp-wheel'
@@ -215,9 +278,6 @@ Copy-Item -LiteralPath $rookWheel.FullName -Destination $wheelhouse
 Copy-Item -LiteralPath $chirpWheel.FullName -Destination $wheelhouse
 
 $bootstrapToolPackages = @('pip==26.2.1', 'setuptools==83.0.0')
-Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments (@('-I', '-m', 'pip', '--isolated', 'download', '--dest', $wheelhouse, '--only-binary=:all:') + $bootstrapToolPackages) -Label 'bootstrap tool wheel download'
-
-Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments @('-I', '-m', 'pip', '--isolated', 'download', '--dest', $wheelhouse, '--only-binary=:all:', '--implementation', 'cp', '--python-version', '3.11', '--abi', 'cp311', '--platform', 'win_amd64', $rookWheel.FullName, $chirpWheel.FullName) -Label 'dependency wheel download'
 
 $sdists = @(Get-ChildItem -Path $wheelhouse -Include *.tar.gz,*.zip -File -Recurse)
 if ($sdists.Count -gt 0) {
@@ -732,6 +792,10 @@ $manifest = [ordered]@{
     rook_source_archive_sha256 = $rookSourceSha
     chirp_git_sha = $chirpGitSha
     chirp_source_archive_sha256 = $chirpSourceSha
+    dependency_inputs = [ordered]@{
+        path = Get-RepoRelativePath -Root $RepoRoot -Path $dependencyInputLock
+        sha256 = $dependencyInputHash
+    }
     python = [ordered]@{
         version = '3.11.9'
         executable = Get-RepoRelativePath -Root $RepoRoot -Path $pythonExe
