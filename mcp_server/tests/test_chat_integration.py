@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from aiohttp import ClientSession
+from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestClient, TestServer
 
 from rook.agent.chat import server as chat_server
@@ -62,7 +62,11 @@ async def test_silent_http_disconnect_cancels_the_owned_prompt(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("replacement", ["same", "absent", "generation", "process", "roadcreator", "ambiguous"])
+@pytest.mark.parametrize("replacement", [
+    "same", "absent", "generation", "process", "roadcreator", "ambiguous",
+    "document_closed", "document_replaced", "document_inactive", "document_unreported",
+    "document_malformed", "live_generation", "document_timeout",
+])
 async def test_production_manager_reopen_checks_original_target(tmp_path, monkeypatch, replacement):
     from rook import bridge
     from .test_chat_acp_conversation import FakeRuntimeCatalog, NullSink, _contract, _paths
@@ -78,22 +82,58 @@ async def test_production_manager_reopen_checks_original_target(tmp_path, monkey
         logs_root=tmp_path / "logs", runtime_root=tmp_path,
         mcp_server_dir=tmp_path / "app/mcp_server", repo_root=tmp_path / "app"))
     binding = _binding()
+    state = {"replacement": "same"}
+    calls = []
+    release = asyncio.Event()
+
+    async def capabilities(request):
+        calls.append(request.path)
+        return web.json_response({"domains": [], "hostGenerationId":
+            "different" if state["replacement"] == "live_generation" else binding.host_generation_id})
+
+    async def document(request):
+        calls.append(request.path)
+        assert request.query["documentSerialNumber"] == str(binding.rhino_document_serial)
+        kind = state["replacement"]
+        if kind == "document_timeout":
+            await release.wait()
+        if kind == "document_closed":
+            return web.json_response({"success": False, "error": "No active document"})
+        # Mirror native lookup followed by active-document fallback, including an inactive original.
+        original_serial = binding.rhino_document_serial
+        active_serial = original_serial + 1 if kind in {"document_replaced", "document_inactive"} else original_serial
+        open_documents = {active_serial}
+        if kind == "document_inactive":
+            open_documents.add(original_serial)
+        serial = original_serial if original_serial in open_documents else active_serial
+        data = {} if kind == "document_unreported" else {"documentSerialNumber":
+            str(serial) if kind == "document_malformed" else serial}
+        return web.json_response({"success": True, "data": data})
+
+    app = web.Application()
+    app.router.add_get("/capabilities", capabilities)
+    app.router.add_get("/document", document)
+    host = TestServer(app)
+    await host.start_server()
     discovery = tmp_path / "discovery"
     discovery.mkdir()
     record = discovery / "instance-fixture-native.json"
     original = {"pluginType": "native", "processId": binding.route_process_id,
-                "hostGenerationId": binding.host_generation_id, "port": 19876}
+                "hostGenerationId": binding.host_generation_id, "port": host.port}
     record.write_text(json.dumps(original), encoding="utf-8")
     monkeypatch.setattr(bridge, "_effective_discovery_folders", lambda: [discovery])
     monkeypatch.setattr(bridge, "_is_pid_alive", lambda _pid: True)
     manager, available = service_main.build_acp_manager({})
     assert available
-    view = await manager.create(CreateConversationRequest(binding, None, None, None))
+    view = None
     try:
+        view = await manager.create(CreateConversationRequest(binding, None, None, None))
         assert view.target_available
         prompt = await manager.start_prompt(view.conversation_id, PromptInput("fixture", ()), NullSink())
         await prompt.result_task
         await manager.close(view.conversation_id)
+        state["replacement"] = replacement
+        calls.clear()
         if replacement == "absent":
             record.unlink()
         else:
@@ -109,14 +149,59 @@ async def test_production_manager_reopen_checks_original_target(tmp_path, monkey
                 (discovery / "instance-second-native.json").write_text(json.dumps(changed), encoding="utf-8")
                 changed = original
             record.write_text(json.dumps(changed), encoding="utf-8")
-        reopened = await manager.reopen(view.conversation_id)
+        reopened = await asyncio.wait_for(manager.reopen(view.conversation_id), 5)
         assert reopened.conversation_id == view.conversation_id
         assert reopened.durable
-        assert reopened.target_available is (replacement == "same")
+        assert reopened.target_available is (replacement in {"same", "document_inactive"})
         assert manager.store.get(view.conversation_id).binding == binding
+        if replacement in {"same", "document_inactive"} or replacement.startswith("document_"):
+            assert calls == ["/capabilities", "/document"]
+        elif replacement == "live_generation":
+            assert calls == ["/capabilities"]
+        else:
+            assert calls == []
     finally:
-        if view.conversation_id in manager._resident:
+        release.set()
+        if view is not None and view.conversation_id in manager._resident:
             await manager.close(view.conversation_id)
+        await host.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reopen", [False, True])
+async def test_cancelled_availability_probe_launches_no_child_and_releases_claim(tmp_path, reopen):
+    from .test_chat_acp_conversation import NullSink
+
+    manager, store, _, factory, _ = _manager(tmp_path)
+    view = await manager.create(CreateConversationRequest(_binding(), None, None, None))
+    prompt = await manager.start_prompt(view.conversation_id, PromptInput("fixture", ()), NullSink())
+    await prompt.result_task
+    await manager.close(view.conversation_id)
+    original = store.get(view.conversation_id)
+    entered = asyncio.Event()
+
+    async def held_probe(_binding):
+        entered.set()
+        await asyncio.Event().wait()
+        return True
+
+    manager._target_available = held_probe
+    operation = asyncio.create_task(manager.reopen(view.conversation_id) if reopen else
+        manager.create(CreateConversationRequest(_binding(), None, None, None)))
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        assert bool(list(store.paths.claims_root.glob("*.claim"))) is reopen
+        operation.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(operation, 1)
+        assert factory.launch_count == 1
+        assert not manager._resident
+        assert not list(store.paths.claims_root.glob("*.claim"))
+        assert store.get(view.conversation_id) == original
+    finally:
+        operation.cancel()
+        await asyncio.gather(operation, return_exceptions=True)
+        await manager.shutdown()
 
 
 class HangingSupervisor:

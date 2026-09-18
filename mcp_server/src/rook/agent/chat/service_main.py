@@ -11,7 +11,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 
-from rook.bridge import discover_instances
+import httpx
+
+from rook.bridge import _fetch_verified_panel_capabilities, discover_instances
 from rook.runtime_paths import get_acp_data_paths, resolve_runtime_paths
 from rook.targeting import PanelTargetLock, resolve_panel_target_instance
 
@@ -42,14 +44,31 @@ def build_configuration_service(prime_base_environment: Mapping[str, str]) -> Co
     return ConfigurationHttp(InstalledRuntimeCatalog(paths.install_root / "prime"), prime_base_environment, paths.data_root)
 
 
-def _target_available(binding: RookBinding) -> bool:
+async def _target_available(binding: RookBinding) -> bool:
     lock = PanelTargetLock(
         mode="panel_locked",
         host_generation_id=binding.host_generation_id,
         process_id=binding.route_process_id,
         document_serial_number=binding.rhino_document_serial,
     )
-    return resolve_panel_target_instance(discover_instances(), lock) is not None
+    instance = resolve_panel_target_instance(discover_instances(), lock)
+    if instance is None:
+        return False
+    # Availability is a bounded snapshot, never a fallback to another document.
+    async with asyncio.timeout(2), httpx.AsyncClient(timeout=2, trust_env=False) as client:
+        await _fetch_verified_panel_capabilities(client, instance, lock)
+        host = instance.get("host") or "127.0.0.1"
+        response = await client.get(
+            f"http://{host}:{instance['port']}/document",
+            params={"documentSerialNumber": binding.rhino_document_serial},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("success") is not True:
+            return False
+        data = payload.get("data")
+        serial = data.get("documentSerialNumber") if isinstance(data, dict) else None
+        return type(serial) is int and serial == binding.rhino_document_serial
 
 
 def build_acp_manager(
