@@ -66,6 +66,43 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void FencedSnapshot_ProjectsReceiptDocumentAndRejectsChangedCapturedDocumentBeforeRead()
+        {
+            var intended = new FakeDocument();
+            var registry = new GhSolveReceiptRegistry();
+            var receipt = ReadyReceipt(registry, intended, intended.DocumentID.ToString("D"));
+            var intendedHandler = CreateHandler(intended, registry);
+
+            var accepted = GrasshopperDispatchContext.Execute(
+                new FixedDispatchSource(new FakeCanvas(intended), intended),
+                GhManagedDispatchScope.Observation,
+                null,
+                () => intendedHandler.TakeSnapshot(FencedBody(receipt.ReceiptId, 3)));
+
+            Assert.True(accepted.Success);
+            var acceptedData = Element(accepted.Data);
+            Assert.Equal(
+                intended.DocumentID.ToString("D"),
+                acceptedData.GetProperty("ghDocumentId").GetString());
+            Assert.Equal(
+                intended.DocumentID.ToString("D"),
+                acceptedData.GetProperty("readiness_fence").GetProperty("gh_document_id").GetString());
+
+            var decoy = new FakeDocument();
+            decoy.OnObjectsRead = () => throw new InvalidOperationException("snapshot data read");
+            var decoyHandler = CreateHandler(decoy, registry);
+            var refused = GrasshopperDispatchContext.Execute(
+                new FixedDispatchSource(new FakeCanvas(decoy), decoy),
+                GhManagedDispatchScope.Observation,
+                null,
+                () => decoyHandler.TakeSnapshot(FencedBody(receipt.ReceiptId, 3)));
+
+            Assert.False(refused.Success);
+            Assert.Equal("gh_target_changed", Element(refused.Data).GetProperty("error").GetString());
+            Assert.Equal(0, decoy.ObjectsReadCount);
+        }
+
+        [Fact]
         public void FencedSnapshot_RefusedReceiptsReadNoSnapshotData()
         {
             AssertRefused((registry, document) => "missing", "readiness_receipt_not_found_or_evicted_or_process_restarted");
@@ -288,9 +325,12 @@ namespace Rook.Tests.Handlers
             Assert.Equal(1, outputParam.VolatileDataReadCount);
         }
 
-        private static GhSolveReadinessReceipt ReadyReceipt(GhSolveReceiptRegistry registry, object document)
+        private static GhSolveReadinessReceipt ReadyReceipt(
+            GhSolveReceiptRegistry registry,
+            object document,
+            string? ghDocumentId = null)
         {
-            var receipt = registry.IssueMutation(document).Receipt!;
+            var receipt = registry.IssueMutation(document, ghDocumentId).Receipt!;
             registry.MarkScheduleAccepted(receipt.ReceiptId);
             registry.OnSolutionStart(document);
             registry.OnSolutionEnd(document);
@@ -364,6 +404,7 @@ namespace Rook.Tests.Handlers
         {
             private readonly List<object> _objects;
             public FakeDocument(params object[] objects) => _objects = objects.ToList();
+            public Guid DocumentID { get; } = Guid.NewGuid();
             public Action? OnObjectsRead { get; set; }
             public int ObjectsReadCount { get; private set; }
             public bool Enabled { get; set; } = true;
@@ -376,6 +417,24 @@ namespace Rook.Tests.Handlers
                     return _objects;
                 }
             }
+        }
+
+        private sealed class FixedDispatchSource : IGrasshopperDispatchSource
+        {
+            private readonly object _canvas;
+            private readonly object _document;
+
+            internal FixedDispatchSource(object canvas, object document)
+            {
+                _canvas = canvas;
+                _document = document;
+            }
+
+            public GrasshopperDispatchCapture Capture() =>
+                GrasshopperDispatchCapture.Available(
+                    typeof(FixedDispatchSource).Assembly,
+                    _canvas,
+                    _document);
         }
 
         public sealed class FakePointComponent

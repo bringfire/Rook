@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -62,8 +63,9 @@ class RhinoToolPolicy:
 @dataclass(frozen=True)
 class PanelTargetLock:
     mode: Literal["panel_locked"]
+    host_generation_id: str
     process_id: int
-    document_serial_number: int | None
+    document_serial_number: int
     reason: str = "rook_chat_panel"
 
 
@@ -99,11 +101,22 @@ def _parse_positive_int(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
+def _parse_canonical_uuid(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = uuid.UUID(value)
+    except (ValueError, AttributeError):
+        return None
+    canonical = str(parsed)
+    return canonical if value == canonical else None
+
+
 def _set_panel_config_error(message: str, *, mode: str | None = None) -> None:
     global _PANEL_TARGET_CONFIG_ERROR, _PANEL_TARGET_LOCK
     _PANEL_TARGET_LOCK = None
     _PANEL_TARGET_CONFIG_ERROR = {
-        "error": "panel_target_config_error",
+        "error": "target_unavailable",
         "message": message,
         "locked": True,
         "lockMode": mode or "panel_locked",
@@ -128,6 +141,14 @@ def initialize_from_environment(env: dict[str, str] | None = None) -> None:
             mode=mode,
         )
         return
+    host_generation_id = _parse_canonical_uuid(
+        source.get("ROOK_MCP_TARGET_HOST_GENERATION_ID")
+    )
+    if host_generation_id is None:
+        _set_panel_config_error(
+            "This Rook MCP server was started in panel-locked mode without a valid host generation id."
+        )
+        return
     process_id = _parse_positive_int(source.get("ROOK_MCP_TARGET_PROCESS_ID"))
     if process_id is None:
         _set_panel_config_error(
@@ -137,8 +158,14 @@ def initialize_from_environment(env: dict[str, str] | None = None) -> None:
     document_serial = _parse_positive_int(
         source.get("ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER")
     )
+    if document_serial is None:
+        _set_panel_config_error(
+            "This Rook MCP server was started in panel-locked mode without a valid Rhino document serial number."
+        )
+        return
     _PANEL_TARGET_LOCK = PanelTargetLock(
         mode="panel_locked",
+        host_generation_id=host_generation_id,
         process_id=process_id,
         document_serial_number=document_serial,
     )
@@ -848,6 +875,7 @@ def _lock_payload(lock: PanelTargetLock | None = None) -> dict[str, Any]:
     }
     if current is not None:
         payload["target"] = {
+            "hostGenerationId": current.host_generation_id,
             "processId": current.process_id,
             "documentSerialNumber": current.document_serial_number,
         }
@@ -881,22 +909,71 @@ def panel_target_locked_result(message: str | None = None) -> dict[str, Any]:
     )
 
 
-def _locked_process_instances(instances: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def panel_target_unavailable_result(
+    message: str | None = None,
+    *,
+    instances: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return _panel_error(
+        "target_unavailable",
+        message or "The Rook host generation bound to this conversation is unavailable.",
+        instances=instances,
+    )
+
+
+def instance_matches_panel_target_lock(
+    instance: dict[str, Any],
+    lock: PanelTargetLock | None = None,
+) -> bool:
+    current = lock or _PANEL_TARGET_LOCK
+    return bool(
+        current is not None
+        and instance.get("processId") == current.process_id
+        and instance.get("hostGenerationId") == current.host_generation_id
+    )
+
+
+def live_capabilities_match_panel_target_lock(
+    capabilities: Any,
+    lock: PanelTargetLock | None = None,
+) -> bool:
+    current = lock or _PANEL_TARGET_LOCK
+    return bool(
+        current is not None
+        and isinstance(capabilities, dict)
+        and capabilities.get("hostGenerationId") == current.host_generation_id
+    )
+
+
+def panel_session_matches_target_lock(session_id: Any) -> bool:
     lock = _PANEL_TARGET_LOCK
-    if lock is None:
-        return []
-    return [
+    return bool(
+        lock is not None
+        and _process_id_from_session_id(session_id) == lock.process_id
+    )
+
+
+def resolve_panel_target_instance(
+    instances: list[dict[str, Any]],
+    lock: PanelTargetLock | None = None,
+) -> dict[str, Any] | None:
+    current = lock or _PANEL_TARGET_LOCK
+    if current is None:
+        return None
+    matches = [
         instance
         for instance in instances
-        if instance.get("processId") == lock.process_id
+        if instance.get("pluginType") == "native"
+        and instance_matches_panel_target_lock(instance, current)
     ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _resolve_locked_target(instances: list[dict[str, Any]]) -> tuple[InstanceRef, dict[str, Any]] | None:
-    locked = _locked_process_instances(instances)
-    if not locked:
+    locked = resolve_panel_target_instance(instances)
+    if locked is None:
         return None
-    targets = _process_targets(locked)
+    targets = _process_targets([locked])
     return targets[0] if targets else None
 
 
@@ -989,7 +1066,7 @@ def resolve_tool_route(
         if locked_target is None:
             return ToolRoute(
                 success=False,
-                error="panel_target_stale",
+                error="target_unavailable",
                 instances=instances,
             )
         ref, canonical = locked_target
@@ -1371,6 +1448,8 @@ def attach_route_metadata(result: dict[str, Any], route: ToolRoute) -> dict[str,
 def route_error_result(route: ToolRoute) -> dict[str, Any]:
     if route.error == "panel_target_config_error":
         return {"success": False, "data": get_panel_target_config_error()}
+    if route.error == "target_unavailable":
+        return panel_target_unavailable_result(instances=route.instances or [])
     if route.error == "panel_target_stale":
         return _panel_error(
             "panel_target_stale",

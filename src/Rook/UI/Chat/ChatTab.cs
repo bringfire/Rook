@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -40,6 +41,7 @@ namespace Rook.UI.Chat
         // ─── State ────────────────────────────────────────────────────
         private bool _isProcessing;
         private bool _tabClosed;
+        private bool _useWebComposer;
         private Func<string, Task>? _secondaryAction;
 
         // ─── Public properties ────────────────────────────────────────
@@ -50,7 +52,7 @@ namespace Rook.UI.Chat
         public string TabLabel { get; }
 
         /// <summary>
-        /// Persona color for this tab (used in tab strip rendering).
+        /// Accent color for this tab (used in tab strip rendering).
         /// </summary>
         public Color TabColor { get; }
 
@@ -71,6 +73,12 @@ namespace Rook.UI.Chat
         protected abstract void OnStopRequested();
 
         /// <summary>
+        /// True when Stop requests cancellation but the active transport remains
+        /// authoritative until it publishes its terminal outcome.
+        /// </summary>
+        protected virtual bool WaitForStopSettlement => false;
+
+        /// <summary>
         /// Called when the tab is removed from the tab strip. Override to
         /// release resources. Safe to call multiple times.
         /// </summary>
@@ -89,15 +97,12 @@ namespace Rook.UI.Chat
         }
 
         /// <summary>
-        /// Called when the WebView's UI block submits a value (Apply click,
-        /// button choice, text input, confirmation). Default is no-op so
-        /// non-agent ChatTab subclasses don't need to handle it. AgentChatTab
-        /// overrides to run a streaming agent turn. Returns a Task so the
-        /// bridge handler can await completion (or fire-and-forget with
-        /// observed exceptions); avoids the brittle `async void` pattern.
+        /// Receives the closed WebView composer envelope. AgentChat overrides this
+        /// for image-capable ACP prompts; other tabs retain the Eto text composer.
         /// </summary>
-        protected virtual Task OnUIBlockSubmitAsync(string blockId, JsonNode? value)
-            => Task.CompletedTask;
+        protected virtual Task OnWebSubmitAsync(string text, IReadOnlyList<ChatImageInput> images)
+            => images.Count == 0 ? OnSendMessage(text) : Task.FromException(
+                new InvalidOperationException("This chat does not accept images."));
 
         // ─── Constructor ──────────────────────────────────────────────
 
@@ -105,9 +110,18 @@ namespace Rook.UI.Chat
         /// Create a new ChatTab.
         /// </summary>
         /// <param name="tabLabel">Display name for the tab header.</param>
-        /// <param name="tabColor">Persona color for the tab.</param>
+        /// <param name="tabColor">Accent color for the tab.</param>
         /// <param name="hostedSurfaceType">Stable type prefix for panel lifecycle reconciliation.</param>
         protected ChatTab(string tabLabel, Color tabColor, string hostedSurfaceType)
+            : this(tabLabel, tabColor, hostedSurfaceType, initializePresentation: true)
+        {
+        }
+
+        protected ChatTab(
+            string tabLabel,
+            Color tabColor,
+            string hostedSurfaceType,
+            bool initializePresentation)
         {
             TabLabel = tabLabel;
             TabColor = tabColor;
@@ -115,6 +129,7 @@ namespace Rook.UI.Chat
                 hostedSurfaceType + ":" +
                 Interlocked.Increment(ref s_nextHostedSurfaceId).ToString();
             _webSurface = new ChatWebSurface(this);
+            if (!initializePresentation) return;
             InitializeComponents();
             LayoutControls();
             AttachEvents();
@@ -154,8 +169,8 @@ namespace Rook.UI.Chat
             // Status cell is a vertical stack: the status label, plus an optional
             // auxiliary row that subclasses fill via SetAuxiliaryRow. With a single
             // item, StackLayout applies no inter-item spacing, so tabs that never
-            // set an auxiliary row (e.g. ClaudeCodeTab) render identically to the
-            // original single-label status row.
+            // set an auxiliary row render identically to the original single-label
+            // status row.
             _statusStack = new StackLayout
             {
                 Orientation = Orientation.Vertical,
@@ -197,6 +212,12 @@ namespace Rook.UI.Chat
         protected void ExecuteScript(string script)
         {
             _webSurface.ExecuteScript(script);
+        }
+
+        protected void EnableWebComposer()
+        {
+            _useWebComposer = true;
+            ExecuteScript("window.chatAPI.setComposerEnabled(true, true)");
         }
 
         /// <summary>
@@ -385,6 +406,8 @@ namespace Rook.UI.Chat
             Application.Instance.Invoke(() =>
             {
                 UpdateUIState();
+                if (_useWebComposer)
+                    ExecuteScript($"window.chatAPI.setComposerEnabled(true, {(processing ? "false" : "true")})");
             });
         }
 
@@ -456,6 +479,11 @@ namespace Rook.UI.Chat
         private void OnStopClicked(object? sender, EventArgs e)
         {
             OnStopRequested();
+            if (WaitForStopSettlement)
+            {
+                SetStatus("Stopping...", Colors.Orange);
+                return;
+            }
             ShowTypingIndicator(false);
             FinalizeStreaming();
             _isProcessing = false;
@@ -513,25 +541,37 @@ namespace Rook.UI.Chat
             public ChatWebSurface(ChatTab owner)
             {
                 _owner = owner;
-                RegisterBridgeHandler("ui_block_submit", HandleUIBlockSubmit);
+                RegisterBridgeHandler("submit", HandleSubmit);
             }
 
-            private async Task<JsonNode?> HandleUIBlockSubmit(JsonNode? args)
+            private async Task<JsonNode?> HandleSubmit(JsonNode? args)
             {
-                // Bridge invokes are RPC-shaped, but UI block submission triggers
-                // a long-running streaming agent turn. We await OnUIBlockSubmitAsync
-                // so exceptions surface to the dispatcher's logger; the streaming
-                // events themselves flow back to the WebView via ExecuteScript
-                // inside HandleChatEvent — not through this return value.
-                if (args is JsonObject obj)
+                if (args is not JsonObject obj || obj.Count != 3 ||
+                    obj["type"]?.GetValue<string>() != "submit" ||
+                    obj["text"] is not JsonValue textValue ||
+                    obj["images"] is not JsonArray imageArray)
+                    throw new InvalidOperationException("Chat submission is invalid.");
+
+                var text = ChatTab.NormalizeSubmittedMessage(textValue.GetValue<string>());
+                if (string.IsNullOrEmpty(text) && imageArray.Count == 0)
+                    return null;
+                if (imageArray.Count > AgentChatClient.MaxImagesPerTurn)
+                    throw new InvalidOperationException("Too many images were attached.");
+
+                var images = new List<ChatImageInput>(imageArray.Count);
+                foreach (var node in imageArray)
                 {
-                    var blockId = obj["blockId"]?.GetValue<string>();
-                    var value = obj["value"];
-                    if (!string.IsNullOrEmpty(blockId))
-                    {
-                        await _owner.OnUIBlockSubmitAsync(blockId!, value);
-                    }
+                    if (node is not JsonObject image || image.Count != 3)
+                        throw new InvalidOperationException("Image submission is invalid.");
+                    var fileName = image["fileName"]?.GetValue<string>();
+                    var mimeType = image["mimeType"]?.GetValue<string>();
+                    var base64Data = image["base64Data"]?.GetValue<string>();
+                    if (string.IsNullOrEmpty(fileName) || string.IsNullOrEmpty(mimeType) || base64Data == null)
+                        throw new InvalidOperationException("Image submission is invalid.");
+                    images.Add(new ChatImageInput(fileName!, mimeType!, base64Data));
                 }
+
+                await _owner.SubmitWebInputAsync(text ?? string.Empty, images);
                 return null;
             }
 
@@ -592,14 +632,14 @@ namespace Rook.UI.Chat
             font-size: 13px;
         }
         .agent-message {
-            border-left: 3px solid var(--persona-color, #1d9bf0);
+            border-left: 3px solid var(--accent-color, #1d9bf0);
         }
         .agent-message .agent-avatar {
             display: inline-block;
             width: 20px;
             height: 20px;
             border-radius: 50%;
-            background-color: var(--persona-color, #1d9bf0);
+            background-color: var(--accent-color, #1d9bf0);
             text-align: center;
             line-height: 20px;
             font-size: 11px;
@@ -654,21 +694,16 @@ namespace Rook.UI.Chat
     </div>
     <script>
         var streamingDiv = null;
-        var personaColor = '#1d9bf0';
-        var personaInitial = 'A';
+        var agentColor = '#1d9bf0';
+        var agentInitial = 'P';
 
         window.chatAPI = {
-            setPersona: function(color, initial) {
-                personaColor = color || '#1d9bf0';
-                personaInitial = initial || 'A';
-                document.documentElement.style.setProperty('--persona-color', personaColor);
-            },
             addMessage: function(role, content) {
                 var div = document.createElement('div');
                 if (role === 'agent') {
                     div.className = 'message assistant-message agent-message';
-                    div.style.setProperty('--persona-color', personaColor);
-                    div.innerHTML = '<span class=\'agent-avatar\' style=\'background-color:' + personaColor + '\'>' + personaInitial + '</span>' + content.replace(/\\n/g, '<br>');
+                    div.style.setProperty('--accent-color', agentColor);
+                    div.innerHTML = '<span class=\'agent-avatar\' style=\'background-color:' + agentColor + '\'>' + agentInitial + '</span>' + content.replace(/\\n/g, '<br>');
                 } else {
                     div.className = 'message ' + role + '-message';
                     div.innerHTML = content.replace(/\\n/g, '<br>');
@@ -719,6 +754,38 @@ namespace Rook.UI.Chat
                 Application.Instance.Invoke(() =>
                 {
                     _owner.SetStatus("Ready", Colors.Green);
+                    if (_owner._useWebComposer)
+                    {
+                        _owner._inputArea.Visible = false;
+                        _owner._sendButton.Visible = false;
+                        _owner._actionButtonLayout.Visible = true;
+                        _owner.ExecuteScript("window.chatAPI.setComposerEnabled(true, true)");
+                    }
+                });
+            }
+        }
+
+        private async Task SubmitWebInputAsync(string text, IReadOnlyList<ChatImageInput> images)
+        {
+            if (_isProcessing) return;
+            _isProcessing = true;
+            UpdateUIState();
+            if (!string.IsNullOrEmpty(text)) AddMessageToChat("user", text);
+            ShowTypingIndicator(true);
+            SetStatus("Sending...", Colors.Blue);
+            try
+            {
+                await OnWebSubmitAsync(text, images);
+            }
+            catch (Exception ex)
+            {
+                Application.Instance.Invoke(() =>
+                {
+                    ShowTypingIndicator(false);
+                    AddMessageToChat("error", ex.Message);
+                    _isProcessing = false;
+                    UpdateUIState();
+                    SetStatus("Error", Colors.Red);
                 });
             }
         }

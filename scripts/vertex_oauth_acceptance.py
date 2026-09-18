@@ -37,7 +37,6 @@ _SENTINEL = {"schema_version": 1, "owner": "rook-vertex-acceptance"}
 _MODEL_PATTERN = re.compile(r"^vertex_ai/gemini-[A-Za-z0-9._-]+$")
 _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _MAX_WATCHDOG_SECONDS = 900.0
-_CHAT_TIMEOUT_SECONDS = 180.0
 _DSPY_TIMEOUT_SECONDS = 180.0
 _CHIRP_TIMEOUT_SECONDS = 360.0
 _RHINO_CLEANUP_TIMEOUT_SECONDS = 30.0
@@ -69,7 +68,6 @@ class AcceptanceOperations:
         provenance: Callable[[], dict[str, Any]],
         connect: Callable[[dict[str, str], str, str], Any],
         readiness: Callable[[str], Any],
-        chat: Callable[[str, str], Any],
         dspy: Callable[[str, str], Any],
         chirp: Callable[[str, str, Path], Any],
         disconnect: Callable[[], Any],
@@ -77,7 +75,6 @@ class AcceptanceOperations:
         self.provenance = provenance
         self.connect = connect
         self.readiness = readiness
-        self.chat = chat
         self.dspy = dspy
         self.chirp = chirp
         self.disconnect = disconnect
@@ -313,24 +310,6 @@ def _require_operation_success(result: Any) -> None:
         )
 
 
-def validate_chat_events(events: list[Any], marker: str) -> None:
-    event_types = [getattr(event, "type", None) for event in events]
-    text = "".join(
-        getattr(event, "content", "") or ""
-        for event in events
-        if getattr(event, "type", None) == "text_delta"
-    )
-    if (
-        "text_delta" not in event_types
-        or not event_types
-        or event_types[-1] != "done"
-        or "error" in event_types
-        or "tool_start" in event_types
-        or marker not in text
-    ):
-        raise AcceptanceFailure("vertex_chat_acceptance_failed")
-
-
 def validate_dspy_result(result: Any, marker: str) -> None:
     value = getattr(result, "echoed_marker", None)
     if not isinstance(value, str) or not value or marker not in value:
@@ -413,36 +392,6 @@ def _read_installed_chirp_version(boundary: AcceptanceBoundary) -> str:
     if completed.returncode != 0 or not isinstance(version, str) or not version:
         raise AcceptanceFailure("vertex_acceptance_provenance_invalid")
     return version
-
-
-async def _run_chat(model: str, marker: str) -> None:
-    from rook.agent.chat.chat_runner import ChatRunner
-    from rook.agent.chat.conversation_store import Conversation
-
-    async def no_op_tool_executor(_name: str, _params: dict[str, Any]) -> dict[str, Any]:
-        return {"success": False, "error": "tools are disabled for acceptance"}
-
-    runner = ChatRunner(tool_executor=no_op_tool_executor)
-    conversation = Conversation(
-        id="vertex-acceptance-" + marker[-8:],
-        persona="acceptance",
-        model=model,
-        model_source="vertex_acceptance",
-    )
-    prompt = f"Return the marker {marker} in a short sentence. Do not call tools."
-
-    async def collect() -> list[Any]:
-        return [
-            event
-            async for event in runner.run_turn(
-                conversation,
-                prompt,
-                "Follow the user instruction exactly and do not call tools.",
-            )
-        ]
-
-    events = await asyncio.wait_for(collect(), timeout=_CHAT_TIMEOUT_SECONDS)
-    validate_chat_events(events, marker)
 
 
 async def _run_dspy(model: str, marker: str) -> None:
@@ -602,7 +551,6 @@ def _default_operations(boundary: AcceptanceBoundary) -> AcceptanceOperations:
         provenance=lambda: _verify_installed_provenance(boundary),
         connect=connect,
         readiness=probe_vertex_readiness,
-        chat=_run_chat,
         dspy=_run_dspy,
         chirp=chirp,
         disconnect=disconnect_vertex,
@@ -642,8 +590,6 @@ async def _execute(
     stages["readiness"] = "passed"
 
     marker = "rook-vertex-marker-" + secrets.token_hex(8)
-    await _maybe_await(operations.chat(arguments.model, marker))
-    stages["chat"] = "passed"
     await _maybe_await(operations.dspy(arguments.model, marker))
     stages["dspy"] = "passed"
     chirp_stages = await _maybe_await(

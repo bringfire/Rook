@@ -515,14 +515,14 @@ namespace Rook.InternalBridge
             IntPtr responseJsonLength,
             IntPtr httpStatusCode)
         {
-            return ExecuteReadOnlyCallback(
+            return ExecuteApiResponseCallback(
                 requestJsonUtf8,
                 requestJsonLength,
                 responseJsonUtf8,
                 responseJsonCapacity,
                 responseJsonLength,
                 httpStatusCode,
-                () => Core.GetStatus());
+                _ => Handler.GetStatus());
         }
 
         private static int HandleDocument(
@@ -1333,7 +1333,7 @@ namespace Rook.InternalBridge
             try
             {
                 var requestJson = ReadUtf8(requestJsonUtf8, requestJsonLength);
-                var result = operation(requestJson);
+                var result = ExecuteDirectGrasshopperDispatch(requestJson, operation);
                 var responseJson = JsonSerializer.Serialize(new
                 {
                     success = result.Success,
@@ -1362,6 +1362,76 @@ namespace Rook.InternalBridge
                     }, JsonOptions),
                     500);
             }
+        }
+
+        private static ApiResponse ExecuteDirectGrasshopperDispatch(
+            string requestJson,
+            Func<string, ApiResponse> operation)
+        {
+            var args = ParseRequestArgs(requestJson);
+            var rawScope = GetStringArg(args, "_rookGhDispatchScope");
+            if (rawScope is null)
+            {
+                return operation(requestJson);
+            }
+
+            if (!string.Equals(rawScope, "observation", StringComparison.Ordinal))
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = new
+                    {
+                        error = "invalid_arguments",
+                        message = "Readiness endpoints require an observation dispatch scope.",
+                    },
+                };
+            }
+
+            GrasshopperDispatchCapture? capture = null;
+            Exception? captureFailure = null;
+            using var waitHandle = new ManualResetEventSlim(false);
+            RhinoApp.InvokeOnUiThread(new Action(() =>
+            {
+                try
+                {
+                    capture = GrasshopperDispatchContext.ProductionSource.Capture();
+                }
+                catch (Exception ex)
+                {
+                    captureFailure = ex;
+                }
+                finally
+                {
+                    waitHandle.Set();
+                }
+            }));
+
+            if (!waitHandle.Wait(TimeSpan.FromSeconds(30)))
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = new { error = "gh_target_unavailable", message = "Grasshopper target capture timed out." },
+                };
+            }
+
+            if (captureFailure is not null || capture is null)
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = new
+                    {
+                        error = "gh_target_unavailable",
+                        message = captureFailure?.Message ?? "Grasshopper target capture failed.",
+                    },
+                };
+            }
+
+            return GrasshopperDispatchContext.ExecuteCaptured(
+                capture,
+                () => operation(requestJson));
         }
 
         internal static ApiResponse ExecuteReadinessStatusForTests(Func<ApiResponse> operation)
@@ -2802,7 +2872,12 @@ namespace Rook.InternalBridge
                     try
                     {
                         var targetDoc = ParseDocumentSerialNumber(requestJson);
-                        var result = DocumentContext.WithDocument(targetDoc, () => operation(requestJson));
+                        var result = DocumentContext.WithDocument(
+                            targetDoc,
+                            () => ExecuteGrasshopperDispatch(
+                                requestJson,
+                                GrasshopperDispatchContext.ProductionSource,
+                                () => operation(requestJson)));
                         responseJson = JsonSerializer.Serialize(new
                         {
                             success = result.Success,
@@ -2860,6 +2935,52 @@ namespace Rook.InternalBridge
                     }, JsonOptions),
                     500);
             }
+        }
+
+        internal static ApiResponse ExecuteGrasshopperDispatchForTests(
+            string requestJson,
+            IGrasshopperDispatchSource source,
+            Func<ApiResponse> operation) =>
+            ExecuteGrasshopperDispatch(requestJson, source, operation);
+
+        private static ApiResponse ExecuteGrasshopperDispatch(
+            string? requestJson,
+            IGrasshopperDispatchSource source,
+            Func<ApiResponse> operation)
+        {
+            var args = ParseRequestArgs(requestJson);
+            var rawScope = GetStringArg(args, "_rookGhDispatchScope");
+            if (rawScope is null)
+            {
+                return operation();
+            }
+
+            var scope = rawScope switch
+            {
+                "document_independent" => GhManagedDispatchScope.DocumentIndependent,
+                "observation" => GhManagedDispatchScope.Observation,
+                "mutation" => GhManagedDispatchScope.Mutation,
+                "transition" => GhManagedDispatchScope.Transition,
+                _ => (GhManagedDispatchScope?)null,
+            };
+            if (!scope.HasValue)
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = new
+                    {
+                        error = "invalid_arguments",
+                        message = "The internal Grasshopper dispatch scope is invalid.",
+                    },
+                };
+            }
+
+            return GrasshopperDispatchContext.Execute(
+                source,
+                scope.Value,
+                GetStringArg(args, "_rookExpectedGhDocumentId"),
+                operation);
         }
 
         private static uint? ParseDocumentSerialNumber(string? requestJson)

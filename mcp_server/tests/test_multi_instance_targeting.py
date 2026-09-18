@@ -8,6 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from rook import targeting
 
+HOST_GENERATION_ID = "11111111-1111-1111-1111-111111111111"
+
 
 @pytest.fixture(autouse=True)
 def reset_targeting_state():
@@ -22,6 +24,7 @@ def _inst(port: int, pid: int, name: str) -> dict:
         "port": port,
         "processId": pid,
         "pluginType": "native",
+        "hostGenerationId": HOST_GENERATION_ID,
         "documentName": name,
     }
 
@@ -91,6 +94,7 @@ def test_solve_readiness_tools_are_explicit_rhino_reads():
 def test_panel_lock_initializes_from_valid_env(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")
+    monkeypatch.setenv("ROOK_MCP_TARGET_HOST_GENERATION_ID", HOST_GENERATION_ID)
     monkeypatch.setenv("ROOK_MCP_TARGET_PROCESS_ID", "7101")
     monkeypatch.setenv("ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER", "42")
 
@@ -99,6 +103,7 @@ def test_panel_lock_initializes_from_valid_env(monkeypatch):
     lock = targeting.get_panel_target_lock()
     assert lock is not None
     assert lock.mode == "panel_locked"
+    assert lock.host_generation_id == HOST_GENERATION_ID
     assert lock.process_id == 7101
     assert lock.document_serial_number == 42
     assert lock.reason == "rook_chat_panel"
@@ -108,6 +113,7 @@ def test_panel_lock_initializes_from_valid_env(monkeypatch):
 def test_panel_lock_missing_process_id_fails_closed(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     monkeypatch.setenv("ROOK_MCP_TARGET_MODE", "panel_locked")
+    monkeypatch.setenv("ROOK_MCP_TARGET_HOST_GENERATION_ID", HOST_GENERATION_ID)
     monkeypatch.delenv("ROOK_MCP_TARGET_PROCESS_ID", raising=False)
 
     targeting.initialize_from_environment()
@@ -115,7 +121,7 @@ def test_panel_lock_missing_process_id_fails_closed(monkeypatch):
     assert targeting.get_panel_target_lock() is None
     error = targeting.get_panel_target_config_error()
     assert error is not None
-    assert error["error"] == "panel_target_config_error"
+    assert error["error"] == "target_unavailable"
 
 
 def test_unknown_target_mode_fails_closed(monkeypatch):
@@ -128,12 +134,13 @@ def test_unknown_target_mode_fails_closed(monkeypatch):
     assert targeting.get_panel_target_lock() is None
     error = targeting.get_panel_target_config_error()
     assert error is not None
-    assert error["error"] == "panel_target_config_error"
+    assert error["error"] == "target_unavailable"
 
 
 def test_no_target_mode_preserves_external_behavior(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     monkeypatch.delenv("ROOK_MCP_TARGET_MODE", raising=False)
+    monkeypatch.delenv("ROOK_MCP_TARGET_HOST_GENERATION_ID", raising=False)
     monkeypatch.delenv("ROOK_MCP_TARGET_PROCESS_ID", raising=False)
     monkeypatch.delenv("ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER", raising=False)
 
@@ -193,6 +200,7 @@ def test_panel_lock_routes_read_tool_to_locked_process_without_auto_pick(monkeyp
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7102",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -214,6 +222,7 @@ def test_panel_lock_rejects_explicit_different_process_port(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7102",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -233,6 +242,7 @@ def test_panel_lock_stale_owner_wins_over_conflicting_explicit_port(monkeypatch)
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7109",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -243,7 +253,7 @@ def test_panel_lock_stale_owner_wins_over_conflicting_explicit_port(monkeypatch)
     route = targeting.resolve_tool_route("rhino_execute", explicit_port=9950)
 
     assert route.success is False
-    assert route.error == "panel_target_stale"
+    assert route.error == "target_unavailable"
     assert route.instances == [_inst(9950, 7101, "A.3dm")]
 
 
@@ -251,6 +261,7 @@ def test_panel_lock_allows_same_process_roadcreator_peer(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7101",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -394,6 +405,7 @@ async def test_panel_lock_bind_match_prefers_same_process_match(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7102",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -414,6 +426,7 @@ async def test_panel_lock_bind_match_other_process_only_fails_locked(monkeypatch
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7102",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -433,6 +446,7 @@ def test_panel_lock_clear_active_instance_fails():
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7102",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -450,6 +464,7 @@ async def test_panel_lock_instances_result_reports_lock(monkeypatch):
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7102",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -469,6 +484,7 @@ def test_panel_document_allows_missing_or_matching_serial():
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7101",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -482,6 +498,7 @@ def test_panel_document_rejects_conflicting_positive_serial():
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7101",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
@@ -820,6 +837,7 @@ async def test_get_active_instance_stale_error_reports_canonical_native_instance
 async def test_panel_lock_get_active_instance_reports_lock_when_active_binding_stale(monkeypatch):
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": "7102",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })

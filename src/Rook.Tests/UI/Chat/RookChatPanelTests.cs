@@ -1,349 +1,260 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
+using System.Text;
+using System.Text.Json;
 using Rook.UI.Chat;
 using Xunit;
 
 namespace Rook.Tests.UI.Chat
 {
-    public class RookChatPanelTests
+    public sealed class RookChatPanelTests
     {
+        [Theory]
+        [InlineData("anthropic/claude", true)]
+        [InlineData("openrouter/anthropic/claude-sonnet-4.5", true)]
+        [InlineData("provider/vendor/family/model", true)]
+        [InlineData("provider", false)]
+        [InlineData("/model", false)]
+        [InlineData("provider/", false)]
+        [InlineData("provider/  ", false)]
+        [InlineData(" /model", false)]
+        public void Requested_model_splits_only_the_provider_separator(string model, bool valid)
+        {
+            Assert.Equal(valid, RookChatPanel.IsQualifiedRequestedModel(model));
+        }
+
         [Fact]
         public void RookChatPanel_UsesHostedPanelLifecycleAdapter()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
-
             Assert.Contains("HostedPanelLifecycleAdapter", source);
             Assert.Contains("typeof(RookChatPanel)", source);
-            Assert.DoesNotContain("ReconcileHostedWebSurfaces(tabControl, false, \"PanelHidden:\" + reason)", source);
-        }
-
-        [Fact]
-        public void RookChatPanel_TabSelectionChanged_ReconcilesThroughLifecycleAdapter()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
-
             Assert.Contains("SelectedIndexChanged += OnTabSelectedIndexChanged", source);
-            Assert.Contains("SelectedIndexChanged -= OnTabSelectedIndexChanged", source);
-            Assert.Contains("ReconcileHostedWebSurfaces(tabControl, \"TabSelectionChanged\")", source);
-            Assert.DoesNotContain("_panelHostVisible", source);
-        }
-
-        [Fact]
-        public void RookChatPanel_ReconcilesClosingPerHostedSurface()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
-
             Assert.Contains("_lifecycle.PanelClosing(documentSerialNumber, onCloseDocument)", source);
-            Assert.Contains("ReconcileHostedWebSurfaces", source);
-            Assert.Contains("HostedSurfaceAction.Close", source);
         }
 
         [Fact]
         public void ChatTabs_ExposeStableHostedSurfaceIds()
         {
-            var chatTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
-            var agentTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
-            var claudeTabSource = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeTab.cs");
-            var visionTabSource = ReadSourceFile("src", "Rook", "UI", "Vision", "VisionTab.cs");
-
-            Assert.Contains("HostedSurfaceId", chatTabSource);
-            Assert.Contains("Interlocked.Increment", chatTabSource);
-            Assert.Contains("\"agent-chat\"", agentTabSource);
-            Assert.Contains("\"claude-code\"", claudeTabSource);
-            Assert.Contains("HostedSurfaceId", visionTabSource);
-            Assert.Contains("Interlocked.Increment", visionTabSource);
-            Assert.Contains("vision-tab", visionTabSource);
+            var chat = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
+            var agent = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+            Assert.Contains("HostedSurfaceId", chat);
+            Assert.Contains("Interlocked.Increment", chat);
+            Assert.Contains("\"agent-chat\"", agent);
         }
 
         [Fact]
-        public void RookChatPanel_PanelShown_DoesNotBypassSelectedTabVisibilityForLegacyVision()
+        public void Panel_contains_no_persona_backend_or_ChatRunner_creation_path()
         {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
+            var panel = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
+            var client = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatClient.cs");
+            var tab = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+            var chat = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
+            var html = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.html");
+            var css = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.css");
 
-            Assert.DoesNotContain("RecoverVisionSurfaceAfterPanelShown", source);
-            Assert.DoesNotContain("RecoverAfterHostActivation", source);
-            Assert.DoesNotContain("PanelShowReasonRecovery", source);
+            Assert.DoesNotContain("PersonaPicker", panel);
+            Assert.DoesNotContain("AddClaudeCodeTab", panel);
+            Assert.DoesNotContain("persona", client, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("persona", chat, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("persona", html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("persona", css, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("/agent/chat/start", client);
+            Assert.DoesNotContain("/agent/chat/message", client);
+            Assert.DoesNotContain("/agent/chat/models", client);
+            Assert.DoesNotContain("SendWorkerFirstCSharp", tab);
+            Assert.DoesNotContain("SendUIResponse", tab);
         }
 
         [Fact]
-        public void ChatTab_ExposesPresentationDesiredVisibilityToOwningPanel()
+        public void Creation_dialog_owns_optional_model_and_closed_reasoning_selection()
         {
-            // Reconciler cutover (spec 2026-06-10): Chat's TabControl is
-            // authoritative for hosted tabs — selected maps to durable
-            // desired-visible true (+ reconcile), unselected to false.
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
             var panel = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
 
-            Assert.Contains(
-                "internal void SetPresentationDesiredVisible(bool visible, string reason)",
-                source);
-            Assert.Contains(
-                "internal void RequestPresentationReconcile(string reason)",
-                source);
-            Assert.Contains("_webSurface.SetPresentationDesiredVisible", source);
-            Assert.Contains("_webSurface.RequestPresentationReconcile", source);
-
-            Assert.Contains(
-                "tab.SetPresentationDesiredVisible(true, sourceReason + \":\" + decision.Reason)",
-                panel);
-            Assert.Contains(
-                "tab.RequestPresentationReconcile(sourceReason + \":\" + decision.Reason)",
-                panel);
-            Assert.Contains(
-                "tab.SetPresentationDesiredVisible(false, sourceReason + \":\" + decision.Reason)",
-                panel);
+            Assert.Contains("PrimeConversationDialog", panel);
+            Assert.Contains("RequestedModel", panel);
+            Assert.Contains("RequestedReasoning", panel);
+            foreach (var value in new[] { "off", "minimal", "low", "medium", "high", "xhigh", "max" })
+                Assert.Contains("\"" + value + "\"", panel);
+            Assert.Contains("ListAsync", panel);
+            Assert.Contains("Reopen", panel);
         }
 
         [Fact]
-        public void ClaudeCodeWrapper_UsesStrictPanelMcpConfig()
+        public void Saved_document_workspace_is_derived_only_from_the_bound_Rhino_document()
         {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeWrapper.cs");
+            var panel = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
 
-            Assert.Contains("ClaudePanelMcpConfigBuilder.WriteTempConfig", source);
-            Assert.Contains("--strict-mcp-config", source);
-            Assert.DoesNotContain("--mcp-config \\\"{userMcpConfig}\\\"", source);
+            Assert.Contains("RhinoDoc.FromRuntimeSerialNumber", panel);
+            Assert.Contains("Path.GetDirectoryName", panel);
+            Assert.Contains("SavedDocumentDirectory", panel);
+            Assert.DoesNotContain("Environment.CurrentDirectory", panel);
+            Assert.DoesNotContain("Directory.GetCurrentDirectory", panel);
         }
 
         [Fact]
-        public void ClaudeCodeWrapper_PromptExplainsPanelLockedRookOnlyMode()
+        public void Stop_close_and_delete_have_distinct_owners()
         {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeWrapper.cs");
+            var tab = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+            var chat = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
+            var panel = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
 
-            Assert.Contains("inside the Rook Rhino panel", source);
-            Assert.Contains("panel-locked Rook MCP server", source);
-            Assert.Contains("Do not claim access to Engram", source);
-            Assert.Contains("Blueprints", source);
+            Assert.Contains("_client.CancelAsync", tab);
+            Assert.Contains("WaitForStopSettlement => true", tab);
+            Assert.Contains("SetStatus(\"Stopping...\"", chat);
+            Assert.Contains("_sendButton.Visible = false", chat);
+            Assert.Contains("_actionButtonLayout.Visible = true", chat);
+            Assert.Contains("ConversationCloseCoordinator", tab);
+            Assert.Contains(".Enqueue(", tab);
+            Assert.Contains("MessageBox.Show", panel);
+            Assert.Contains("DeleteConversationAsync", panel);
+            Assert.Contains("DialogResult.Yes", panel);
         }
 
         [Fact]
-        public void ClaudeCodeWrapper_DisposeCleansTemporaryPanelConfigBestEffort()
+        public void Web_composer_posts_the_closed_text_and_image_shape()
         {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ClaudeCodeWrapper.cs");
+            var chatTab = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
+            var html = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.html");
 
-            Assert.Contains("_panelMcpConfigPath", source);
-            Assert.Contains("DeletePanelMcpConfig", source);
-            Assert.Contains("File.Delete", source);
+            Assert.Contains("RegisterBridgeHandler(\"submit\"", chatTab);
+            Assert.Contains("OnWebSubmitAsync", chatTab);
+            Assert.Contains("rookBridge.invoke('submit'", html);
+            Assert.DoesNotContain("localStorage", html);
         }
 
         [Fact]
-        public void AgentChatClient_ChatEvent_ExposesToolStatusSeparatelyFromVerification()
+        public void Tool_cards_remain_presentation_and_never_certify_Rook_mutation()
         {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatClient.cs");
+            var tab = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+            var html = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.html");
 
-            Assert.Contains("public string? ToolStatus { get; set; }", source);
-            Assert.Contains("[JsonPropertyName(\"tool_status\")]", source);
-            Assert.Contains("public bool? Verified { get; set; }", source);
+            Assert.Contains("HandleToolUpdate", tab);
+            Assert.Contains("CertifiesMutation", tab);
+            Assert.Contains("renderToolCard", html);
+            Assert.Contains("finalizeToolCard", html);
+        }
+
+        [Theory]
+        [InlineData("{\"pluginType\":1,\"processId\":42,\"hostGenerationId\":\"11111111-1111-1111-1111-111111111111\"}")]
+        [InlineData("{\"pluginType\":\"native\",\"processId\":\"42\",\"hostGenerationId\":\"11111111-1111-1111-1111-111111111111\"}")]
+        [InlineData("{\"pluginType\":\"native\",\"processId\":42,\"hostGenerationId\":false}")]
+        public void Discovery_parser_ignores_well_formed_unrelated_records(string json)
+        {
+            using var document = JsonDocument.Parse(json);
+            Assert.Null(RookChatPanel.ReadNativeHostGenerationId(document.RootElement, 42));
         }
 
         [Fact]
-        public void AgentChatTab_ToolResult_PassesToolStatusToWebView()
+        public void Discovery_parser_accepts_only_the_canonical_matching_native_identity()
         {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
+            const string expected = "11111111-1111-1111-1111-111111111111";
+            using var document = JsonDocument.Parse(
+                "{\"pluginType\":\"native\",\"processId\":42,\"hostGenerationId\":\"" + expected + "\"}");
 
-            Assert.Contains("evt.ToolStatus", source);
-            Assert.Contains("finalizeToolCard(", source);
-            Assert.Contains("BuildToolSummary(evt)", source);
-            Assert.DoesNotContain("success.GetBoolean() ? \"Success\" : \"Failed\"", source);
+            Assert.Equal(expected, RookChatPanel.ReadNativeHostGenerationId(document.RootElement, 42));
+            Assert.Null(RookChatPanel.ReadNativeHostGenerationId(document.RootElement, 43));
         }
 
         [Fact]
-        public void AgentChatTab_ToolSummary_PrefersSuccessfulMessageBeforeGenericSuccess()
+        public void Presentation_history_projects_bounded_tool_meaning_and_non_normal_terminal_status()
         {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
-
-            var messageIndex = source.IndexOf(
-                "TryReadToolSummaryString(root, \"message\", out var successMessage)",
-                StringComparison.Ordinal);
-            var statusIndex = source.IndexOf(
-                "TryReadToolSummaryString(root, \"status\", out var successStatus)",
-                StringComparison.Ordinal);
-            var fallbackIndex = source.IndexOf("return \"Success\";", StringComparison.Ordinal);
-
-            Assert.True(messageIndex >= 0, "Successful tool summaries should surface root message.");
-            Assert.True(statusIndex >= 0, "Successful tool summaries should surface root status.");
-            Assert.True(messageIndex < fallbackIndex, "Message should be checked before generic Success.");
-            Assert.True(statusIndex < fallbackIndex, "Status should be checked before generic Success.");
-        }
-
-        [Fact]
-        public void AgentChatTab_ToolSummary_FailedToolNeverShowsDone()
-        {
-            var summary = InvokeBuildToolSummary(new ChatEvent
+            using var tool = JsonDocument.Parse(
+                "{\"kind\":\"tool_call_update\",\"content\":\"{\\\"kind\\\":\\\"tool_call_update\\\",\\\"text\\\":\\\"Inspect definition\\\",\\\"payload\\\":{\\\"status\\\":\\\"completed\\\"}}\",\"originalBytes\":128}");
+            var history = new PresentationHistory
             {
-                Type = "tool_result",
-                ToolStatus = "failed"
-            });
+                Available = true,
+                Turns = new List<PresentationTurn>
+                {
+                    new()
+                    {
+                        Sequence = 1,
+                        UserText = "inspect",
+                        AssistantText = "partial answer",
+                        StopReason = "max_tokens",
+                        ToolCards = new List<JsonElement> { tool.RootElement.Clone() },
+                    },
+                },
+            };
 
-            Assert.Equal("Failed", summary);
+            var messages = PresentationHistoryFormatter.Format(history);
+
+            Assert.Contains(messages, item => item.Role == "system" && item.Text == "Tool: Inspect definition (completed)");
+            Assert.Contains(messages, item => item.Role == "system" && item.Text == "Turn ended: max_tokens");
+        }
+
+        [Fact]
+        public void Presentation_history_tool_summary_is_bounded_in_utf8()
+        {
+            var label = new string('\u00e9', 600);
+            using var tool = JsonDocument.Parse(
+                "{\"kind\":\"tool_call_update\",\"content\":" +
+                JsonSerializer.Serialize("{\"text\":" + JsonSerializer.Serialize(label) + "}") + "}");
+            var history = new PresentationHistory
+            {
+                Available = true,
+                Turns = new List<PresentationTurn>
+                {
+                    new() { StopReason = "end_turn", ToolCards = new List<JsonElement> { tool.RootElement.Clone() } },
+                },
+            };
+
+            var messages = PresentationHistoryFormatter.Format(history);
+
+            Assert.True(Encoding.UTF8.GetByteCount(Assert.Single(messages).Text) <= 512);
+        }
+
+        [Fact]
+        public void Presentation_history_renders_image_metadata_without_claiming_a_reopened_preview()
+        {
+            var history = new PresentationHistory
+            {
+                Available = true,
+                Turns = new List<PresentationTurn>
+                {
+                    new()
+                    {
+                        StopReason = "end_turn",
+                        Images = new List<PresentationImage>
+                        {
+                            new()
+                            {
+                                FileName = "paste.png",
+                                MimeType = "image/png",
+                                BinaryByteCount = 68,
+                                Width = 1,
+                                Height = 1,
+                                Sha256 = new string('a', 64),
+                            },
+                        },
+                    },
+                },
+            };
+
+            var message = Assert.Single(PresentationHistoryFormatter.Format(history));
+
+            Assert.Equal("system", message.Role);
+            Assert.Equal(
+                "Image preview unavailable after reopen: paste.png (image/png, 68 bytes).",
+                message.Text);
         }
 
         [Theory]
         [InlineData("  build  this\r\n", "build  this")]
         [InlineData("\talpha\tbeta\t", "alpha\tbeta")]
-        public void ChatTab_SubmissionNormalization_TrimsOnlyEdges(
-            string input,
-            string expected)
-        {
-            Assert.Equal(expected, ChatTab.NormalizeSubmittedMessage(input));
-        }
+        public void ChatTab_SubmissionNormalization_TrimsOnlyEdges(string input, string expected)
+            => Assert.Equal(expected, ChatTab.NormalizeSubmittedMessage(input));
 
         [Fact]
-        public void ChatTab_NormalizesOnlyAtTheInputBoundary()
+        public void ChatTab_ExposesPresentationDesiredVisibilityToOwningPanel()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
-            Assert.Equal(2, CountOccurrences(source, "NormalizeSubmittedMessage("));
-        }
-
-        [Theory]
-        [InlineData(null, false)]
-        [InlineData("", false)]
-        [InlineData("   ", false)]
-        [InlineData("intent", true)]
-        public void ChatTab_SubmissionGuard_RejectsBlankOrConcurrentWork(
-            string? input,
-            bool isProcessing)
-        {
-            var acceptedIntent = ChatTab.NormalizeSubmittedMessage(input);
-            Assert.False(ChatTab.CanSubmitMessage(acceptedIntent, isProcessing));
-        }
-
-        [Theory]
-        [InlineData(false, true)]
-        [InlineData(true, false)]
-        public void ChatTab_MessageActionsShareProcessingAvailability(
-            bool isProcessing,
-            bool expectedEnabled)
-        {
-            Assert.Equal(expectedEnabled, ChatTab.MessageActionsEnabled(isProcessing));
-        }
-
-        [Fact]
-        public void AgentChatTab_BuildAction_IsHiddenWhileInternalPathRemains()
-        {
-            var chatTab = ReadSourceFile("src", "Rook", "UI", "Chat", "ChatTab.cs");
-            var agentTab = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
-
-            Assert.DoesNotContain("ConfigureSecondaryAction(\"Build C#\", OnBuildCSharpMessage)", agentTab);
-            Assert.Contains("private Task OnBuildCSharpMessage", agentTab);
-            Assert.Contains("_client.SendWorkerFirstCSharpStreamingAsync", agentTab);
-            Assert.Contains("_client.SendMessageStreamingAsync", agentTab);
-            Assert.Contains("SubmitInputAsync(OnSendMessage)", chatTab);
-            Assert.Contains("SubmitInputAsync(action)", chatTab);
-            Assert.Contains("OnSendClicked(s, e)", chatTab);
-            Assert.DoesNotContain("executionMode", agentTab);
-        }
-
-        [Theory]
-        [InlineData(
-            "{\"status\":\"success\",\"terminal_stage\":\"terminal\",\"terminal_reason\":\"terminal_node_selected:done\",\"compile_status\":\"passed\",\"error_count\":0,\"warning_count\":0,\"component_created\":true}",
-            "Compiled cleanly (0 errors, 0 warnings)")]
-        [InlineData(
-            "{\"status\":\"failed\",\"terminal_stage\":\"verify_create\",\"terminal_reason\":\"selector_halt:none_ready\",\"compile_status\":\"failed\",\"error_count\":2,\"warning_count\":1,\"component_created\":true}",
-            "Compile failed (2 errors, 1 warning)")]
-        [InlineData(
-            "{\"status\":\"failed\",\"terminal_stage\":\"create\",\"terminal_reason\":\"dispatch_failed\",\"compile_status\":\"unavailable\",\"error_count\":null,\"warning_count\":null,\"component_created\":null}",
-            "Worker-first C# stopped before compile")]
-        [InlineData(
-            "{malformed sensitive-model-content",
-            "Worker-first C# stopped before compile")]
-        public void AgentChatTab_WorkerFirstSummary_ShowsOnlyBoundedCompileFacts(
-            string result,
-            string expected)
-        {
-            var summary = InvokeBuildToolSummary(new ChatEvent
-            {
-                Type = "tool_result",
-                Name = "worker_first_csharp_v1",
-                Result = result,
-                ToolStatus = expected.StartsWith("Compiled cleanly") ? "success" : "failed",
-            });
-
-            Assert.Equal(expected, summary);
-            Assert.DoesNotContain("sensitive-model-content", summary);
-            Assert.DoesNotContain("dispatch_failed", summary);
-            Assert.DoesNotContain("selector_halt", summary);
-        }
-
-        [Fact]
-        public void AgentChatTab_WorkerFirstSummary_ReportsPassedCompileWarnings()
-        {
-            var summary = InvokeBuildToolSummary(new ChatEvent
-            {
-                Type = "tool_result",
-                Name = "worker_first_csharp_v1",
-                Result = "{\"status\":\"failed\",\"terminal_stage\":\"verify_create\",\"terminal_reason\":\"selector_halt:none_ready\",\"compile_status\":\"passed\",\"error_count\":0,\"warning_count\":1,\"component_created\":true}",
-                ToolStatus = "failed",
-            });
-
-            Assert.Equal("Compile completed with warnings (0 errors, 1 warning)", summary);
-        }
-
-        [Fact]
-        public void AgentChatTab_WorkerFirstSummary_FailedToolCannotClaimCleanCompile()
-        {
-            var summary = InvokeBuildToolSummary(new ChatEvent
-            {
-                Type = "tool_result",
-                Name = "worker_first_csharp_v1",
-                Result = "{\"status\":\"failed\",\"terminal_stage\":\"terminal\",\"terminal_reason\":\"terminal_node_selected:done\",\"compile_status\":\"passed\",\"error_count\":0,\"warning_count\":0,\"component_created\":true}",
-                ToolStatus = "failed",
-            });
-
-            Assert.Equal("Compile passed, but build did not complete", summary);
-        }
-
-        [Fact]
-        public void AgentChatTab_OtherToolSummary_RemainsGeneric()
-        {
-            var summary = InvokeBuildToolSummary(new ChatEvent
-            {
-                Type = "tool_result",
-                Name = "existing_tool",
-                Result = "{\"success\":true,\"message\":\"Existing summary\"}",
-                ToolStatus = "success",
-            });
-
-            Assert.Equal("Existing summary", summary);
-        }
-
-        [Fact]
-        public void AgentChatTab_TerminalEventsHideTypingIndicator()
-        {
-            var source = ReadSourceFile("src", "Rook", "UI", "Chat", "AgentChatTab.cs");
-
-            var doneIndex = source.IndexOf("case \"done\":", StringComparison.Ordinal);
-            var errorIndex = source.IndexOf("case \"error\":", StringComparison.Ordinal);
-            var doneHideIndex = source.IndexOf("ShowTypingIndicator(false);", doneIndex, StringComparison.Ordinal);
-            var errorHideIndex = source.IndexOf("ShowTypingIndicator(false);", errorIndex, StringComparison.Ordinal);
-            var doneSetProcessingIndex = source.IndexOf("SetProcessing(false);", doneIndex, StringComparison.Ordinal);
-            var errorSetProcessingIndex = source.IndexOf("SetProcessing(false);", errorIndex, StringComparison.Ordinal);
-
-            Assert.True(doneIndex >= 0, "The done event branch should exist.");
-            Assert.True(errorIndex >= 0, "The error event branch should exist.");
-            Assert.True(doneHideIndex >= 0, "Done events should clear the typing indicator.");
-            Assert.True(errorHideIndex >= 0, "Error events should clear the typing indicator.");
-            Assert.True(doneHideIndex < doneSetProcessingIndex, "Done should clear typing before returning to idle.");
-            Assert.True(errorHideIndex < errorSetProcessingIndex, "Error should clear typing before returning to idle.");
-        }
-
-        [Fact]
-        public void ChatWebView_ToolCards_RenderStructuredParamsAndToolStatus()
-        {
-            var html = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.html");
-            var css = ReadSourceFile("src", "Rook", "UI", "Chat", "Resources", "chat.css");
-
-            Assert.Contains("formatToolValue", html);
-            Assert.Contains("JSON.stringify", html);
-            Assert.Contains("toolStatus", html);
-            Assert.Contains("data-state=\"failed\"", html);
-            Assert.Contains("done-success", html);
-            Assert.Contains("badgeClass = 'success'", html);
-            Assert.Contains(".verification-badge.success", css);
-            Assert.DoesNotContain("parts.push(keys[i] + ': ' + val);", html);
-            Assert.DoesNotContain(
-                "toolStatus === 'success') {\r\n                state = 'done-verified'",
-                html);
+            var panel = ReadSourceFile("src", "Rook", "UI", "Chat", "RookChatPanel.cs");
+            Assert.Contains("internal void SetPresentationDesiredVisible", source);
+            Assert.Contains("internal void RequestPresentationReconcile", source);
+            Assert.Contains("tab.SetPresentationDesiredVisible", panel);
+            Assert.Contains("tab.RequestPresentationReconcile", panel);
         }
 
         private static string ReadSourceFile(params string[] pathParts)
@@ -352,35 +263,10 @@ namespace Rook.Tests.UI.Chat
             while (dir != null)
             {
                 var candidate = Path.Combine(dir.FullName, Path.Combine(pathParts));
-                if (File.Exists(candidate))
-                    return File.ReadAllText(candidate);
+                if (File.Exists(candidate)) return File.ReadAllText(candidate);
                 dir = dir.Parent;
             }
-
-            throw new FileNotFoundException(
-                "Could not locate source file " + string.Join("/", pathParts));
-        }
-
-        private static int CountOccurrences(string source, string value)
-        {
-            var count = 0;
-            var index = 0;
-            while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
-            {
-                count++;
-                index += value.Length;
-            }
-            return count;
-        }
-
-        private static string InvokeBuildToolSummary(ChatEvent evt)
-        {
-            var method = typeof(AgentChatTab).GetMethod(
-                "BuildToolSummary",
-                BindingFlags.NonPublic | BindingFlags.Static);
-
-            Assert.NotNull(method);
-            return Assert.IsType<string>(method!.Invoke(null, new object[] { evt }));
+            throw new FileNotFoundException("Could not locate source file " + string.Join("/", pathParts));
         }
     }
 }

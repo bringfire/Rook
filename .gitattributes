@@ -28,3 +28,6 @@ mcp_server/src/rook/agent/__init__.py text eol=lf
 mcp_server/src/rook/runtime_paths.py text eol=lf
 mcp_server/src/rook/gh_csharp_preflight.py text eol=lf
 mcp_server/src/rook/validation_kernel/*.py text eol=lf
+scripts/build-prime-acp-runtime.sh text eol=lf
+scripts/tests/prime-wsl-build.tests.sh text eol=lf
+third_party/prime-agent/LICENSE text eol=lf

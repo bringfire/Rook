@@ -1,5 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Eto.Forms;
 using Eto.Drawing;
@@ -11,11 +15,7 @@ using Rook.UI.Vision;
 namespace Rook.UI.Chat
 {
     /// <summary>
-    /// Eto panel hosting a tabbed collection of chat sessions. Each tab is either a
-    /// <see cref="ClaudeCodeTab"/> (persistent CLI subprocess) or an
-    /// <see cref="AgentChatTab"/> (agent persona via the Python chat server).
-    /// A toolbar with a "+" button opens a <see cref="PersonaPicker"/> dialog to
-    /// create new tabs.
+    /// Eto panel hosting Prime ACP conversations through the Python product service.
     /// </summary>
     [System.Runtime.InteropServices.Guid("A1B2C3D4-E5F6-7890-ABCD-EF1234567890")]
     public class RookChatPanel : Panel, IPanel
@@ -51,14 +51,11 @@ namespace Rook.UI.Chat
             // ── Toolbar ───────────────────────────────────────────────────
             var addButton = new Button { Text = "+", Width = 36, Height = 28 };
             addButton.Click += OnAddTabClicked;
-            var restartButton = new Button { Text = "Restart Chat", Height = 28 };
-            restartButton.Click += OnRestartChatClicked;
-
             var toolbar = new TableLayout
             {
                 Padding = new Padding(4, 2),
                 Spacing = new Size(4, 0),
-                Rows = { new TableRow(addButton, restartButton, null) }
+                Rows = { new TableRow(addButton, null) }
             };
 
             // ── Main layout ───────────────────────────────────────────────
@@ -114,17 +111,12 @@ namespace Rook.UI.Chat
             }
         }
 
-        /// <summary>
-        /// Create and add a <see cref="ClaudeCodeTab"/>, passing through the
-        /// document serial number for Rhino tool context.
-        /// </summary>
-        private async void AddClaudeCodeTab()
+        private async Task AddAgentTabAsync(AgentChatTab tab)
         {
             try
             {
                 var documentSerialNumber = _documentSerialNumber;
                 var tabControl = GetOrCreateTabControl(documentSerialNumber);
-                var tab = new ClaudeCodeTab(documentSerialNumber);
                 var page = CreateTabPage(tab.TabLabel, tab, tab.OnTabClosed, tabControl);
                 tabControl.Pages.Add(page);
                 tabControl.SelectedPage = page;
@@ -133,34 +125,74 @@ namespace Rook.UI.Chat
             }
             catch (Exception ex)
             {
-                RhinoApp.WriteLine($"[RookChatPanel] Failed to add Claude Code tab: {ex.Message}");
+                RhinoApp.WriteLine($"[RookChatPanel] Failed to add Prime tab: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// Create and add an <see cref="AgentChatTab"/> for the given persona.
-        /// </summary>
-        private async void AddAgentTab(string persona, string label, Color color)
+        private CreateConversationRequest BuildCreateRequest(string? model, string? reasoning)
         {
-            try
+            var document = RhinoDoc.FromRuntimeSerialNumber(_documentSerialNumber)
+                ?? throw new InvalidOperationException("The bound Rhino document is no longer available.");
+            var processId = Process.GetCurrentProcess().Id;
+            var hostGenerationId = ResolveHostGenerationId(processId)
+                ?? throw new InvalidOperationException("Rook host identity is unavailable. Wait for the native plugin to finish starting.");
+            string? savedDirectory = null;
+            if (!string.IsNullOrWhiteSpace(document.Path))
             {
-                var documentSerialNumber = _documentSerialNumber;
-                var tabControl = GetOrCreateTabControl(documentSerialNumber);
-                var tab = new AgentChatTab(
-                    persona,
-                    label,
-                    color,
-                    documentSerialNumber: documentSerialNumber);
-                var page = CreateTabPage(tab.TabLabel, tab, tab.OnTabClosed, tabControl);
-                tabControl.Pages.Add(page);
-                tabControl.SelectedPage = page;
+                var parent = Path.GetDirectoryName(document.Path);
+                if (!string.IsNullOrWhiteSpace(parent)) savedDirectory = Path.GetFullPath(parent!);
+            }
+            return new CreateConversationRequest
+            {
+                HostGenerationId = hostGenerationId,
+                DocumentSerialNumber = document.RuntimeSerialNumber,
+                RouteProcessId = processId,
+                SavedDocumentDirectory = savedDirectory,
+                Model = model,
+                Reasoning = reasoning,
+            };
+        }
 
-                await tab.InitializeAsync();
-            }
-            catch (Exception ex)
+        internal static string? ResolveHostGenerationId(int processId)
+        {
+            var values = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var folder in new[] { RookPaths.SharedDiscoveryFolder, RookPaths.DiscoveryFolder })
             {
-                RhinoApp.WriteLine($"[RookChatPanel] Failed to add agent tab: {ex.Message}");
+                if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) continue;
+                foreach (var path in Directory.EnumerateFiles(folder, "*.json"))
+                {
+                    try
+                    {
+                        using var document = JsonDocument.Parse(File.ReadAllText(path));
+                        var value = ReadNativeHostGenerationId(document.RootElement, processId);
+                        if (value != null) values.Add(value);
+                    }
+                    catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+                    {
+                    }
+                }
             }
+            return values.Count == 1 ? values.Single() : null;
+        }
+
+        internal static string? ReadNativeHostGenerationId(JsonElement root, int processId)
+        {
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("pluginType", out var pluginType) ||
+                pluginType.ValueKind != JsonValueKind.String ||
+                pluginType.GetString() != "native" ||
+                !root.TryGetProperty("processId", out var pid) ||
+                pid.ValueKind != JsonValueKind.Number ||
+                !pid.TryGetInt32(out var actualProcessId) ||
+                actualProcessId != processId ||
+                !root.TryGetProperty("hostGenerationId", out var generation) ||
+                generation.ValueKind != JsonValueKind.String)
+                return null;
+            var raw = generation.GetString();
+            return raw != null && Guid.TryParseExact(raw, "D", out var parsed) &&
+                   string.Equals(raw, parsed.ToString("D"), StringComparison.Ordinal)
+                ? raw
+                : null;
         }
 
         /// <summary>
@@ -329,6 +361,37 @@ namespace Rook.UI.Chat
             var closeItem = new ButtonMenuItem { Text = "Close Tab" };
             closeItem.Click += (s, e) => RemoveTab(owner, page);
             menu.Items.Add(closeItem);
+            if (content is AgentChatTab agentTab)
+            {
+                var deleteItem = new ButtonMenuItem { Text = "Delete Conversation" };
+                deleteItem.Click += async (s, e) =>
+                {
+                    var confirmation = MessageBox.Show(
+                        this,
+                        "Permanently delete this Prime conversation and its product-owned artifacts?",
+                        "Delete Conversation",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxType.Warning);
+                    if (confirmation != DialogResult.Yes) return;
+                    try
+                    {
+                        var result = await agentTab.DeleteConversationAsync();
+                        RemoveTab(owner, page);
+                        if (!result.ArtifactsRemoved)
+                        {
+                            MessageBox.Show(
+                                this,
+                                "The conversation was deleted, but some product-owned artifacts could not be removed.",
+                                "Delete Conversation");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(this, ex.Message, "Delete Conversation");
+                    }
+                };
+                menu.Items.Add(deleteItem);
+            }
 
             // Attach context menu to the page content so right-click works
             // anywhere inside the tab (Eto does not expose a per-tab-header
@@ -361,43 +424,34 @@ namespace Rook.UI.Chat
 
         // ─── "+" button handler ─────────────────────────────────────────
 
-        private void OnAddTabClicked(object? sender, EventArgs e)
-        {
-            var picker = new PersonaPicker();
-            var result = picker.ShowModal(this);
-
-            if (result == null) return;
-
-            if (result.IsClaudeCode)
-            {
-                AddClaudeCodeTab();
-            }
-            else
-            {
-                AddAgentTab(result.Persona, result.Label, result.Color);
-            }
-        }
-
-        private async void OnRestartChatClicked(object? sender, EventArgs e)
+        private async void OnAddTabClicked(object? sender, EventArgs e)
         {
             try
             {
-                await ChatServiceManager.Instance.RestartAsync();
-
-                foreach (var tabControl in _tabControlsByDocument.Values)
+                using var client = new AgentChatClient();
+                var health = await client.GetHealthAsync(startIfNeeded: true);
+                if (!health.ServiceAvailable)
+                    throw new InvalidOperationException(health.ServiceMessage);
+                client.SetSessionNonce(ChatServiceManager.Instance.SessionNonce);
+                var conversations = await client.ListAsync();
+                var dialog = new PrimeConversationDialog(conversations);
+                var selection = dialog.ShowModal(this);
+                if (selection == null) return;
+                if (!string.IsNullOrEmpty(selection.ReopenConversationId))
                 {
-                    foreach (var page in tabControl.Pages)
-                    {
-                        if (page.Content is AgentChatTab agentTab)
-                        {
-                            await agentTab.ReconnectToServiceAsync();
-                        }
-                    }
+                    var association = conversations.First(
+                        item => item.ConversationId == selection.ReopenConversationId);
+                    await AddAgentTabAsync(new AgentChatTab(association));
+                }
+                else
+                {
+                    await AddAgentTabAsync(new AgentChatTab(
+                        BuildCreateRequest(selection.RequestedModel, selection.RequestedReasoning)));
                 }
             }
             catch (Exception ex)
             {
-                RhinoApp.WriteLine($"[RookChatPanel] Failed to restart chat service: {ex.Message}");
+                MessageBox.Show(this, ex.Message, "Prime Conversation");
             }
         }
 
@@ -421,14 +475,7 @@ namespace Rook.UI.Chat
             _lifecycle.PanelShown(documentSerialNumber, reason);
             ShowDocumentTabs(documentSerialNumber);
 
-            // Auto-open Agent Chat on first show so the tab captures the active
-            // Rhino document at display time, not constructor time.
             var tabControl = GetCurrentTabControl();
-            if (tabControl.Pages.Count == 0)
-            {
-                AddAgentTab("architect", "Architect", Color.FromArgb(0xc0, 0x84, 0xfc));
-            }
-
             ReconcileHostedWebSurfaces(tabControl, "PanelShown:" + reason);
 
         }
@@ -484,6 +531,96 @@ namespace Rook.UI.Chat
             }
 
             base.Dispose(disposing);
+        }
+
+        internal static bool IsQualifiedRequestedModel(string model)
+            => model.IndexOf('/') >= 0 && !model.Split(new[] { '/' }, 2).Any(string.IsNullOrWhiteSpace);
+
+        private sealed class PrimeConversationDialogResult
+        {
+            public string? ReopenConversationId { get; set; }
+            public string? RequestedModel { get; set; }
+            public string? RequestedReasoning { get; set; }
+        }
+
+        private sealed class PrimeConversationDialog : Dialog<PrimeConversationDialogResult?>
+        {
+            private static readonly string[] ReasoningValues =
+                { "", "off", "minimal", "low", "medium", "high", "xhigh", "max" };
+
+            private readonly DropDown _conversation = new();
+            private readonly TextBox _model = new();
+            private readonly DropDown _reasoning = new();
+
+            public PrimeConversationDialog(IReadOnlyList<ConversationSummary> conversations)
+            {
+                Title = "Prime Conversation";
+                MinimumSize = new Size(440, 230);
+                Padding = new Padding(12);
+                _conversation.Items.Add(new ListItem { Text = "New conversation", Key = "" });
+                foreach (var item in conversations)
+                {
+                    var disclosure = string.IsNullOrEmpty(item.RequestedInitialModel)
+                        ? "Prime default"
+                        : item.RequestedInitialModel;
+                    _conversation.Items.Add(new ListItem
+                    {
+                        Text = $"{item.ConversationId.Substring(0, Math.Min(8, item.ConversationId.Length))}  {disclosure}",
+                        Key = item.ConversationId,
+                    });
+                }
+                _conversation.SelectedIndex = 0;
+                foreach (var value in ReasoningValues)
+                    _reasoning.Items.Add(new ListItem { Text = value.Length == 0 ? "Prime default" : value, Key = value });
+                _reasoning.SelectedIndex = 0;
+                _conversation.SelectedValueChanged += (s, e) => UpdateCreationControls();
+
+                var open = new Button { Text = "Open" };
+                open.Click += (s, e) =>
+                {
+                    var result = BuildResult();
+                    if (result != null) Close(result);
+                };
+                var cancel = new Button { Text = "Cancel" };
+                cancel.Click += (s, e) => Close(null);
+                Content = new TableLayout
+                {
+                    Spacing = new Size(6, 6),
+                    Rows =
+                    {
+                        new TableRow(new Label { Text = "Conversation" }, _conversation),
+                        new TableRow(new Label { Text = "Requested model" }, _model),
+                        new TableRow(new Label { Text = "Reasoning" }, _reasoning),
+                        new TableRow(null, open, cancel),
+                    },
+                };
+                UpdateCreationControls();
+            }
+
+            private void UpdateCreationControls()
+            {
+                var creating = string.IsNullOrEmpty(_conversation.SelectedKey);
+                _model.Enabled = creating;
+                _reasoning.Enabled = creating;
+            }
+
+            private PrimeConversationDialogResult? BuildResult()
+            {
+                var reopen = _conversation.SelectedKey;
+                if (!string.IsNullOrEmpty(reopen))
+                    return new PrimeConversationDialogResult { ReopenConversationId = reopen };
+                var model = _model.Text?.Trim();
+                if (!string.IsNullOrEmpty(model) && !IsQualifiedRequestedModel(model))
+                {
+                    MessageBox.Show(this, "Use a fully qualified provider/model name.", "Prime Conversation");
+                    return null;
+                }
+                return new PrimeConversationDialogResult
+                {
+                    RequestedModel = string.IsNullOrEmpty(model) ? null : model,
+                    RequestedReasoning = string.IsNullOrEmpty(_reasoning.SelectedKey) ? null : _reasoning.SelectedKey,
+                };
+            }
         }
     }
 }

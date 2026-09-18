@@ -5,7 +5,7 @@ import pytest
 
 import rook.agent.tool_registry as tool_registry_module
 from rook.agent.capability_inventory import (
-    INTERCEPTED_META_TOOLS,
+    INTERNAL_AGENT_META_TOOLS,
     build_inventory,
     capability_findings_from_audit,
     collect_live_sources,
@@ -46,7 +46,7 @@ def _static_sources() -> SurfaceSources:
         bridge_names=frozenset(
             {"gh_edit", "gh_move", "gh_snapshot", "rhino_objects", "rhino_create"}
         ),
-        intercepted_names=INTERCEPTED_META_TOOLS,
+        intercepted_names=INTERNAL_AGENT_META_TOOLS,
         zero_argument_names=frozenset({"gh_snapshot"}),
         strict_no_argument_names=frozenset({"gh_snapshot"}),
         creation_tools=frozenset({"gh_edit"}),
@@ -91,8 +91,7 @@ def test_build_inventory_records_cover_full_universe_sorted():
 
     assert names == sorted(names)
     assert set(names) == {
-        "request_tools", "search_tools", "ui_block", "list_chat_models",
-        "set_chat_model", "gh_snapshot", "gh_move", "rhino_objects",
+        "request_tools", "search_tools", "gh_snapshot", "gh_move", "rhino_objects",
         "rhino_create", "gh_edit", "gh_knowledge_query", "dual_tool",
         "rook_tools_ls", "rook_tools_search", "rook_tools_read",
         "rook_tools_call",
@@ -103,10 +102,10 @@ def test_intercepted_meta_tools_are_not_dispatch_unknown():
     inv = build_inventory(_static_sources(), _static_catalog())
     by_name = {r.name: r for r in inv.records}
 
-    for meta in INTERCEPTED_META_TOOLS:
-        assert by_name[meta].dispatch_path == "chatrunner_intercepted"
+    for meta in INTERNAL_AGENT_META_TOOLS:
+        assert by_name[meta].dispatch_path == "internal_agent_intercepted"
     assert not any(
-        f.code == "dispatch_unknown" and f.tool in INTERCEPTED_META_TOOLS
+        f.code == "dispatch_unknown" and f.tool in INTERNAL_AGENT_META_TOOLS
         for f in inv.findings
     )
 
@@ -154,7 +153,7 @@ def test_format_report_is_pure_and_stable():
     first = format_report(inv)
     second = format_report(inv)
     assert first == second
-    assert first.startswith("Capability inventory: 16 records, 4 findings")
+    assert first.startswith("Capability inventory: 13 records, 4 findings")
 
 
 def test_build_inventory_does_not_read_live_catalog_cache(monkeypatch):
@@ -174,7 +173,7 @@ def _reconcile_sources(gh_canvas_members: tuple[str, ...]) -> SurfaceSources:
         groups={"gh_canvas": gh_canvas_members},
         mcp_only_groups=frozenset(),
         bridge_names=frozenset({"gh_snapshot", "gh_edit", "gh_move"}),
-        intercepted_names=INTERCEPTED_META_TOOLS,
+        intercepted_names=INTERNAL_AGENT_META_TOOLS,
     )
 
 
@@ -218,7 +217,7 @@ def test_reconcile_audit_runs_over_active_schemas_only():
     # ghost_tool is catalog-only and never active -> produces no finding.
     sources = SurfaceSources(
         agent_tier0=frozenset({"mystery_tool"}),
-        intercepted_names=INTERCEPTED_META_TOOLS,
+        intercepted_names=INTERNAL_AGENT_META_TOOLS,
     )
     catalog = {"mystery_tool": _schema("mystery_tool"), "ghost_tool": _schema("ghost_tool")}
     findings = reconcile_active_schemas(sources, catalog, group=None)
@@ -248,7 +247,7 @@ def test_collect_live_sources_reads_constants_only(monkeypatch):
 
     sources = collect_live_sources()
     assert isinstance(sources, SurfaceSources)
-    assert sources.intercepted_names == INTERCEPTED_META_TOOLS
+    assert sources.intercepted_names == INTERNAL_AGENT_META_TOOLS
     assert sources.local_tool_names == frozenset()
     assert "gh_snapshot" in sources.bridge_names or "gh_snapshot" in sources.agent_tier0
 
@@ -275,7 +274,7 @@ def test_reconcile_flags_active_member_not_in_intended_membership():
         agent_tier0=frozenset({"request_tools", "search_tools"}),
         groups={"gh_canvas": ("gh_edit",)},  # intentionally omits gh_status
         bridge_names=frozenset({"gh_edit", "gh_status"}),
-        intercepted_names=INTERCEPTED_META_TOOLS,
+        intercepted_names=INTERNAL_AGENT_META_TOOLS,
     )
     catalog = {name: _schema(name) for name in ("gh_edit", "gh_status")}
 

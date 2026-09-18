@@ -122,6 +122,9 @@ on current `main` and record:
    - Installs the locked MCP server wheels into that venv from the bundled wheelhouse
    - Writes MCP configuration for Claude Code, Claude Desktop, and Codex CLI
    - Copies knowledge stores and Codex skills
+   - Installs and promotes the manifest-verified Prime runtime used by RookChat
+
+   No separate Prime, Node, Bun, `uv`, or system Python installation is required.
 
 3. After install, the user must **restart Rhino**.
 
@@ -230,6 +233,20 @@ C# Companion (Rook.rhp)          Grasshopper bridge + chat panel
     |
     v
 Rhino 3D / Grasshopper
+
+Embedded RookChat panel (C#)
+    |
+    | HTTP/NDJSON
+    v
+Python chat service              durable association, ACP ownership, bounded projection
+    |
+    | ACP stdio
+    v
+Bundled Prime runtime            reasoning, transcript, goals, model context
+    |
+    | service-owned MCP declaration named `rook`
+    v
+Python MCP Server (rook-mcp)
 ```
 
 Key points:
@@ -237,6 +254,47 @@ Key points:
 - The Python MCP server discovers the port by reading JSON files in `%TEMP%/rook/`.
 - All geometry operations serialize through Rhino's UI thread. One operation at a time.
 - Grasshopper operations go through the C# companion via P/Invoke — there is no direct GH API in C++.
+
+### RookChat ownership and operation
+
+RookChat has one ACP-backed implementation; ChatRunner is not a backend or fallback.
+The Python service directly owns one Prime process and ACP connection per open
+conversation. It owns prompt correlation, sending `session/cancel`, cleanup,
+runtime identity, durable association, and bounded presentation. Prime owns its
+transcript, reasoning, goals, compaction, model context, and semantic completion.
+
+Prime exclusively owns authentication. RookChat neither reads nor forwards the
+legacy Rook `.env` credentials. If authentication is missing, instruct the user to
+open Prime interactively and run `/login`; do not present `/login` as usable inside
+RookChat ACP.
+
+Creation may request a fully qualified model and one supported reasoning value.
+After creation those controls are read-only. Reopen supplies no model or reasoning
+override and verifies the conversation's recorded Prime runtime before launch.
+
+The conversation binds one Rook host generation and Rhino document serial.
+Document-scoped Grasshopper observations return `ghDocumentId`; ordinary mutations
+must send that value as `expectedGhDocumentId`. Explicit document transitions are
+allowed and return the resulting active ID. RookChat target custody does not claim
+to sandbox arbitrary code authored into Rhino or Grasshopper.
+
+Durable data is outside replaceable application payloads:
+
+- `%LOCALAPPDATA%\Rook\data\rookchat\acp\v1\conversations`
+- `%LOCALAPPDATA%\Rook\data\rookchat\acp\v1\sessions`
+- `%LOCALAPPDATA%\Rook\data\rookchat\acp\v1\presentation`
+- `%LOCALAPPDATA%\Rook\data\rookchat\acp\v1\claims`
+- `%LOCALAPPDATA%\Rook\data\rookchat\acp\v1\workspaces`
+- `%LOCALAPPDATA%\Rook\app\prime\runtimes\<runtime-id>`
+
+Install, upgrade, repair, and release rollback preserve these roots. A retained-data
+uninstall preserves the ACP data roots, but a normal uninstall may remove the
+application payload and its Prime runtimes. After reinstall, a conversation whose
+recorded runtime is absent returns `runtime_unavailable`; RookChat does not scan for
+or substitute another runtime. A crash can leave a non-expiring `open.claim`;
+reopen and delete then return `session_recovery_required` pending a separately
+designed recovery action. Never infer that a failed ACP prompt rolled back Prime's
+session, and never replay an uncertain Rook mutation.
 
 ## Python Dependencies
 
@@ -280,6 +338,10 @@ Set these in `mcp_server/.env` or as system environment variables.
 | pip install fails | Python <3.10 or missing dependencies | Verify `python --version` is 3.10+ |
 | Tools timeout | Rhino showing a modal dialog | Dismiss any dialog in Rhino, then retry |
 | GH component not found | Wrong component name/GUID | Search `gh_library` or `gh_knowledge_query`, then pass the exact name/GUID to `gh_edit` |
+| RookChat authentication missing | Prime has no usable authentication | Open Prime interactively and run `/login`; RookChat has no credential editor |
+| `session_recovery_required` | A prior service did not observe its directly owned Prime process exit | Leave the claim intact; automatic recovery is intentionally unavailable |
+| `target_unavailable` | The conversation's immutable Rook/Rhino target is unavailable | Restore that target or create a new conversation for a different Rhino document |
+| Image preview unavailable after reopen | Original image bytes are live-only | Use the retained metadata or attach the image again in a new prompt |
 
 ## After Setup
 

@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 SCHEMA_VERSION = 1
-BOOTSTRAP_TOOL_REQUIREMENTS = ("pip==26.1.2", "setuptools==83.0.0")
+BOOTSTRAP_TOOL_REQUIREMENTS = ("pip==26.2.1", "setuptools==83.0.0")
 
 
 @dataclass(frozen=True)

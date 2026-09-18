@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -75,13 +78,130 @@ def test_bootstrap_pip_command_is_offline_and_hash_locked(tmp_path: Path) -> Non
     assert "--require-hashes" in command
 
 
-def test_bootstrap_tool_requirements_pin_patched_setuptools() -> None:
+def test_bootstrap_tool_requirements_pin_patched_pip_and_setuptools() -> None:
     runtime = load_runtime_install()
 
     assert runtime.BOOTSTRAP_TOOL_REQUIREMENTS == (
-        "pip==26.1.2",
+        "pip==26.2.1",
         "setuptools==83.0.0",
     )
+
+
+@pytest.mark.parametrize("module", ["rook", "chirp"])
+def test_bootstrap_wheel_lock_reaches_temp_and_customer_installs(
+    tmp_path: Path, monkeypatch, module: str,
+) -> None:
+    runtime = load_runtime_install()
+    post_install = load_post_install()
+    repo = Path(__file__).resolve().parents[2]
+    builder = repo / "scripts/python-runtime/build-rook-python-wheelhouse.ps1"
+    layout = runtime.RuntimeLayout.from_rook_root(tmp_path / "Rook", "3.11.9")
+    layout.wheelhouse.mkdir(parents=True)
+    pip_bytes = b"fixture-only reviewed pip wheel"
+    (layout.wheelhouse / "pip-26.2.1-py3-none-any.whl").write_bytes(pip_bytes)
+    (layout.wheelhouse / "pip-26.1.2-py3-none-any.whl").write_bytes(b"obsolete wheel")
+    (layout.wheelhouse / "setuptools-83.0.0-py3-none-any.whl").write_bytes(b"setuptools")
+
+    # Run the real selection/lock statements, replacing only the two download calls.
+    # No wheel, venv, network, audit or product process is executed by this fixture.
+    ps = r"""
+$ErrorActionPreference = 'Stop'
+$tokens=$null; $errors=$null
+$ast=[System.Management.Automation.Language.Parser]::ParseFile($env:TEST_BUILDER,[ref]$tokens,[ref]$errors)
+if ($errors.Count) { throw 'Builder syntax failure' }
+$statements=@($ast.EndBlock.Statements)
+$start=@($statements | Where-Object { $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$bootstrapToolPackages' })
+$end=@($statements | Where-Object { $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$lockScript' })
+if ($start.Count -ne 1 -or $end.Count -ne 1) { throw 'Bootstrap boundary differs' }
+$hashFn=@($ast.FindAll({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Get-Sha256'},$true))
+if ($hashFn.Count -ne 1) { throw 'Hash function differs' }
+. ([scriptblock]::Create($hashFn[0].Extent.Text))
+function Fail { param($Message) throw $Message }
+$calls=[System.Collections.Generic.List[object]]::new()
+function Invoke-CheckedProcess {
+    param($FilePath, $Arguments, $Label)
+    if ($Label -notin @('bootstrap tool wheel download','dependency wheel download')) { throw 'Unexpected process' }
+    $calls.Add(@{file=$FilePath; argv=@($Arguments); label=$Label})
+}
+$OutputRoot=$env:TEST_OUTPUT
+$wheelhouse=Join-Path $OutputRoot 'python-wheelhouse'
+$pythonExe=Join-Path $OutputRoot 'private-python.exe'
+$buildPythonExe=Join-Path $OutputRoot 'build-python.exe'
+$rookWheel=@{FullName='fixture-rook.whl'}; $chirpWheel=@{FullName='fixture-chirp.whl'}
+$text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.StartOffset-$start[0].Extent.StartOffset)
+. ([scriptblock]::Create($text))
+$calls | ConvertTo-Json -Depth 4 -Compress
+"""
+    env = os.environ | {"TEST_BUILDER": str(builder), "TEST_OUTPUT": str(layout.app_dir)}
+    observed = subprocess.run(
+        ["C:/Program Files/PowerShell/7/pwsh.exe", "-NoProfile", "-Command", ps],
+        env=env, text=True, capture_output=True, timeout=30, check=True,
+    )
+    calls = json.loads(observed.stdout)
+    assert len(calls) == 2
+    assert calls[0]["argv"][-2:] == ["pip==26.2.1", "setuptools==83.0.0"]
+    assert all(call["file"] == str(layout.app_dir / "build-python.exe") for call in calls)
+    lock_text = layout.bootstrap_lock.read_text(encoding="utf-8-sig")
+    assert f"pip==26.2.1 --hash=sha256:{hashlib.sha256(pip_bytes).hexdigest()}" in lock_text
+    assert "26.1.2" not in lock_text
+
+    # Execute the actual generated verification entrypoint with subprocess.run faked.
+    source = builder.read_text(encoding="utf-8-sig")
+    scripts = [body for body, name in re.findall(
+        r"(?ms)^@'\n(.*?)\n'@ \| Set-Content -LiteralPath \$(\w+)", source,
+    ) if name == "verificationScript"]
+    assert len(scripts) == 1
+    ns = {"__name__": "bootstrap_verification_fixture"}
+    exec(compile(scripts[0], str(builder) + ":verificationScript", "exec"), ns)
+    venv = tmp_path / "verification"
+    site = venv / "Lib/site-packages"
+    package_lock = layout.rook_lock if module == "rook" else layout.chirp_lock
+    package_lock.write_text(f"{module}==0.0.0 --hash=sha256:fixture\n", encoding="utf-8")
+    selected = []
+
+    def fake_run(command, **kwargs):
+        if command[1:3] == ["-m", "venv"]:
+            Path(command[3]).mkdir()
+            output = ""
+        elif "-r" in command:
+            assert {"--isolated", "--no-index", "--require-hashes"} <= set(command)
+            path = Path(command[command.index("-r") + 1])
+            selected.append((path, path.read_bytes()))
+            output = "Looking in links: fixture-wheelhouse"
+        elif command[1:4] == ["-m", "pip", "check"]:
+            output = "No broken requirements found."
+        elif command[1] == "-c":
+            code = command[2]
+            if "sysconfig" in code:
+                output = str(site)
+            elif "configure_secure_dspy_cache" in code:
+                output = json.dumps({"restrict_pickle": True, "disk_cache_dir": str(venv / "cache")})
+            elif ".__file__" in code:
+                output = json.dumps({f"{module}.__file__": str(site / module / "__init__.py")})
+            elif code == "import rook.server":
+                output = ""
+            else:
+                pytest.fail(f"Unexpected Python command: {command}")
+        else:
+            pytest.fail(f"Unexpected subprocess: {command}")
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["verify", "--base-python", "fixture-python", "--wheelhouse", str(layout.wheelhouse),
+        "--bootstrap-lock", str(layout.bootstrap_lock), "--lockfile", str(package_lock),
+        "--venv-dir", str(venv), "--module", module, "--output", str(tmp_path / "verification.json")])
+    assert ns["main"]() == 0
+    assert selected == [(layout.bootstrap_lock, layout.bootstrap_lock.read_bytes()), (package_lock, package_lock.read_bytes())]
+
+    selected.clear()
+    installed_venv = layout.rook_venv if module == "rook" else layout.chirp_venv
+    installed_python = installed_venv / "Scripts/python.exe"
+    monkeypatch.setattr(post_install, "_create_venv", lambda *_: installed_python)
+    monkeypatch.setattr(post_install, "_run_install_command", fake_run)
+    assert post_install._install_from_wheelhouse_once(
+        module, layout, installed_venv, package_lock, module, "fixture-python", "fixture-lock",
+    ) == (installed_python, None)
+    assert selected == [(layout.bootstrap_lock, layout.bootstrap_lock.read_bytes()), (package_lock, package_lock.read_bytes())]
 
 
 def test_sanitized_install_env_removes_python_and_pip_index_state(monkeypatch) -> None:
@@ -407,7 +527,7 @@ def test_post_install_recreates_stale_venv_and_writes_install_state(
     layout.private_python.write_text("private python", encoding="utf-8")
     layout.wheelhouse.mkdir(parents=True)
     layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
     layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
     layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
 
@@ -486,7 +606,7 @@ def test_post_install_fails_closed_when_stale_venv_cannot_be_deleted(
     layout.private_python.write_text("private python", encoding="utf-8")
     layout.wheelhouse.mkdir(parents=True)
     layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
     layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
     layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
 
@@ -535,7 +655,7 @@ def test_post_install_requires_runtime_manifest_input(tmp_path: Path) -> None:
     layout.private_python.write_text("private python", encoding="utf-8")
     layout.wheelhouse.mkdir(parents=True)
     layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
     layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
 
     assert post_install._install_from_wheelhouse(
@@ -930,7 +1050,7 @@ def test_install_from_wheelhouse_uses_guard_and_retries_full_rebuild(
     layout.private_python.write_text("private python", encoding="utf-8")
     layout.wheelhouse.mkdir(parents=True)
     layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
     layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
     layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
     summary = layout.rook_root / "logs" / "post_install_summary.json"
@@ -1028,7 +1148,7 @@ def test_install_from_wheelhouse_records_guard_health_signals(
     layout.private_python.write_text("private python", encoding="utf-8")
     layout.wheelhouse.mkdir(parents=True)
     layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
     layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
     layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
     summary = layout.rook_root / "logs" / "post_install_summary.json"
@@ -1118,7 +1238,7 @@ def test_install_from_wheelhouse_logs_pip_check_failure_without_retry(
     layout.private_python.write_text("private python", encoding="utf-8")
     layout.wheelhouse.mkdir(parents=True)
     layout.bootstrap_lock.parent.mkdir(parents=True, exist_ok=True)
-    layout.bootstrap_lock.write_text("pip==26.1.2 --hash=sha256:abc\n", encoding="utf-8")
+    layout.bootstrap_lock.write_text("pip==26.2.1 --hash=sha256:abc\n", encoding="utf-8")
     layout.rook_lock.write_text("rook-mcp==1.5.10 --hash=sha256:def\n", encoding="utf-8")
     layout.runtime_manifest.write_text('{"schema_version":1}', encoding="utf-8")
 

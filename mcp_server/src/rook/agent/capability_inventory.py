@@ -29,12 +29,9 @@ from rook.agent.tool_registry import ToolRegistry
 from rook.mcp_capability_gateway_contract import MCP_CAPABILITY_GATEWAY_NAMES
 from rook.tool_lifecycle import resolve_contained_tool
 
-INTERCEPTED_META_TOOLS: frozenset[str] = frozenset({
+INTERNAL_AGENT_META_TOOLS: frozenset[str] = frozenset({
     "request_tools",
     "search_tools",
-    "ui_block",
-    "list_chat_models",
-    "set_chat_model",
 }) | MCP_CAPABILITY_GATEWAY_NAMES
 
 _DISPATCH_UNKNOWN_SEVERITY = {
@@ -308,7 +305,7 @@ def collect_live_sources() -> SurfaceSources:
         planner_allowed_groups=frozenset(_planner.PLANNER_ALLOWED_GROUPS),
         bridge_names=frozenset(td.BRIDGE_ROUTES.keys()),
         transform_names=frozenset(td.TRANSFORM_FUNCTIONS.keys()),
-        intercepted_names=INTERCEPTED_META_TOOLS,
+        intercepted_names=INTERNAL_AGENT_META_TOOLS,
         excluded_names=frozenset(tg.LOCAL_TIER_0_DISPATCH_EXCLUSIONS),
         local_tool_names=frozenset(),
         zero_argument_names=frozenset(ZERO_ARGUMENT_TOOLS),

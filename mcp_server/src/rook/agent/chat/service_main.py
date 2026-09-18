@@ -7,9 +7,84 @@ import asyncio
 import logging
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 
+import httpx
+
+from rook.bridge import _fetch_verified_panel_capabilities, discover_instances
+from rook.runtime_paths import get_acp_data_paths, resolve_runtime_paths
+from rook.targeting import PanelTargetLock, resolve_panel_target_instance
+
+from .acp_conversation import AcpConversationManager, DirectAcpProcessFactory
+from .acp_presentation import PresentationCache
+from .acp_storage import AssociationStore, RookBinding
+from .prime_runtime import RuntimeUnavailable, load_and_verify_runtime
+from .prime_runtime_artifact import read_current_runtime_id
 from .server import start_chat_server, stop_chat_server, wait_for_chat_server
+
+
+class InstalledRuntimeCatalog:
+    """Resolve only the product-qualified immutable Prime runtime."""
+
+    def __init__(self, prime_root: Path) -> None:
+        self._prime_root = prime_root.absolute()
+
+    def latest(self):
+        return self.get(read_current_runtime_id(self._prime_root))
+
+    def get(self, runtime_id: str):
+        return load_and_verify_runtime(self._prime_root, runtime_id)
+
+
+async def _target_available(binding: RookBinding) -> bool:
+    lock = PanelTargetLock(
+        mode="panel_locked",
+        host_generation_id=binding.host_generation_id,
+        process_id=binding.route_process_id,
+        document_serial_number=binding.rhino_document_serial,
+    )
+    instance = resolve_panel_target_instance(discover_instances(), lock)
+    if instance is None:
+        return False
+    # Availability is a bounded snapshot, never a fallback to another document.
+    async with asyncio.timeout(2), httpx.AsyncClient(timeout=2, trust_env=False) as client:
+        await _fetch_verified_panel_capabilities(client, instance, lock)
+        host = instance.get("host") or "127.0.0.1"
+        response = await client.get(
+            f"http://{host}:{instance['port']}/document",
+            params={"documentSerialNumber": binding.rhino_document_serial},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("success") is not True:
+            return False
+        data = payload.get("data")
+        serial = data.get("documentSerialNumber") if isinstance(data, dict) else None
+        return type(serial) is int and serial == binding.rhino_document_serial
+
+
+def build_acp_manager(
+    prime_base_environment: Mapping[str, str],
+) -> tuple[AcpConversationManager, bool]:
+    runtime_paths = resolve_runtime_paths()
+    data_paths = get_acp_data_paths(runtime_paths)
+    data_paths.create_roots()
+    catalog = InstalledRuntimeCatalog(runtime_paths.install_root / "prime")
+    runtime_available = True
+    try:
+        catalog.latest()
+    except RuntimeUnavailable:
+        runtime_available = False
+    manager = AcpConversationManager(
+        AssociationStore(data_paths),
+        catalog,
+        DirectAcpProcessFactory({**prime_base_environment, "ROOK_DATA_DIR": str(runtime_paths.data_root)}),
+        PresentationCache(data_paths.presentation_root),
+        target_available=_target_available,
+    )
+    return manager, runtime_available
 
 
 def _load_env() -> str | None:
@@ -59,7 +134,27 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+async def _run_service(
+    args: argparse.Namespace,
+    loaded_env: str | None,
+    prime_base_environment: Mapping[str, str],
+) -> None:
+    del loaded_env
+    await start_chat_server(
+        port=args.port,
+        include_gh_health=args.include_gh_health,
+        owner=args.owner,
+        rhino_process_id=args.rhino_process_id,
+        prime_base_environment=prime_base_environment,
+    )
+    try:
+        await wait_for_chat_server()
+    finally:
+        await stop_chat_server()
+
+
 def main() -> None:
+    prime_base_environment = MappingProxyType(dict(os.environ))
     log_file = os.environ.get("ROOK_LOG_FILE")
     log_handlers: list[logging.Handler] = []
     if log_file:
@@ -73,21 +168,8 @@ def main() -> None:
     )
     args = _parse_args()
     sys.dont_write_bytecode = True
-    _load_env()
-
-    async def _run() -> None:
-        await start_chat_server(
-            port=args.port,
-            include_gh_health=args.include_gh_health,
-            owner=args.owner,
-            rhino_process_id=args.rhino_process_id,
-        )
-        try:
-            await wait_for_chat_server()
-        finally:
-            await stop_chat_server()
-
-    asyncio.run(_run())
+    loaded_env = _load_env()
+    asyncio.run(_run_service(args, loaded_env, prime_base_environment))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
     <LangVersion>latest</LangVersion>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <RhinoSystemDir Condition="'$(RhinoSystemDir)' == ''">$(ProgramFiles)\Rhino 8\System</RhinoSystemDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -40,6 +41,12 @@
           DestinationFolder="$(OutputPath)"
           SkipUnchangedFiles="true"
           Condition="Exists('$(PkgRhinoCommon)\lib\net48\RhinoCommon.dll')" />
+  </Target>
+
+  <Target Name="UseInstalledEtoForManagedUiTests" AfterTargets="CopyRhinoCommonToTestOutput">
+    <Copy SourceFiles="$(RhinoSystemDir)\Eto.dll;$(RhinoSystemDir)\Eto.Wpf.dll;$(RhinoSystemDir)\Microsoft.WindowsAPICodePack.dll;$(RhinoSystemDir)\Microsoft.WindowsAPICodePack.Shell.dll;$(RhinoSystemDir)\Xceed.Wpf.Toolkit.dll"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

@@ -178,6 +178,37 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void CommonCallback_EntersGrasshopperDispatchInsideTheUiBoundary()
+        {
+            var method = ExtractMethod(
+                ReadRegistrarSource(),
+                "private static int ExecuteApiResponseCallback");
+
+            AssertOrder(
+                method,
+                "RhinoApp.InvokeOnUiThread",
+                "DocumentContext.WithDocument(",
+                "ExecuteGrasshopperDispatch(",
+                "operation(requestJson)");
+        }
+
+        [Fact]
+        public void ReadinessCallback_CapturesOnUiThenRunsTheWaitUnderThatCaptureOffUi()
+        {
+            var source = ReadRegistrarSource();
+            var direct = ExtractMethod(source, "private static int ExecuteDirectReadinessCallback");
+            var custody = ExtractMethod(source, "private static ApiResponse ExecuteDirectGrasshopperDispatch");
+
+            Assert.Contains("ExecuteDirectGrasshopperDispatch(requestJson, operation)", direct);
+            AssertOrder(
+                custody,
+                "RhinoApp.InvokeOnUiThread",
+                "waitHandle.Wait",
+                "GrasshopperDispatchContext.ExecuteCaptured(",
+                "operation(requestJson)");
+        }
+
+        [Fact]
         public void InspectOutputCallback_ForwardsOptionalReadinessReceipt()
         {
             var method = ExtractMethod(
@@ -513,6 +544,17 @@ namespace Rook.Tests.InternalBridge
             Assert.True(statements.Length >= 2, "Expected at least two fields in the registration structure.");
             Assert.Equal(penultimateField, statements[statements.Length - 2]);
             Assert.Equal(finalField, statements[statements.Length - 1]);
+        }
+
+        private static void AssertOrder(string source, params string[] markers)
+        {
+            var prior = -1;
+            foreach (var marker in markers)
+            {
+                var index = source.IndexOf(marker, prior + 1, StringComparison.Ordinal);
+                Assert.True(index > prior, $"Expected '{marker}' after index {prior}.");
+                prior = index;
+            }
         }
 
         private static void AssertReadinessCodeStaysDirect(string source)

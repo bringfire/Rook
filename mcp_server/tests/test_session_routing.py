@@ -9,6 +9,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from rook import targeting
 
 
+HOST_GENERATION_ID = "11111111-1111-1111-1111-111111111111"
+
+
 @pytest.fixture(autouse=True)
 def reset_targeting_state():
     targeting.reset_targeting_state_for_tests()
@@ -23,6 +26,7 @@ def _inst(port: int, pid: int, name: str = "Doc.3dm", plugin_type: str = "native
         "processId": pid,
         "pluginType": plugin_type,
         "documentName": name,
+        "hostGenerationId": HOST_GENERATION_ID,
     }
 
 
@@ -227,7 +231,9 @@ def test_selector_conflict_envelope(monkeypatch):
 def _lock_to(pid: int):
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": HOST_GENERATION_ID,
         "ROOK_MCP_TARGET_PROCESS_ID": str(pid),
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "55",
     })
 
 

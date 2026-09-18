@@ -30,16 +30,24 @@ namespace Rook
         public static RhinoDoc? GetDocument()
         {
             var serial = _targetDocumentSerialNumber.Value;
-            if (serial.HasValue && serial.Value != 0)
+            return ResolveDocument(
+                serial,
+                RhinoDoc.FromRuntimeSerialNumber,
+                () => RhinoDoc.ActiveDoc);
+        }
+
+        internal static T? ResolveDocument<T>(
+            uint? documentSerialNumber,
+            Func<uint, T?> resolveBySerial,
+            Func<T?> resolveActive)
+            where T : class
+        {
+            if (documentSerialNumber.HasValue && documentSerialNumber.Value != 0)
             {
-                var doc = RhinoDoc.FromRuntimeSerialNumber(serial.Value);
-                if (doc != null)
-                {
-                    return doc;
-                }
-                // Fall back to ActiveDoc if the pinned document no longer exists
+                return resolveBySerial(documentSerialNumber.Value);
             }
-            return RhinoDoc.ActiveDoc;
+
+            return resolveActive();
         }
 
         /// <summary>

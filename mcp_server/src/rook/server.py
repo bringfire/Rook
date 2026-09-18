@@ -81,7 +81,30 @@ if logger.isEnabledFor(logging.DEBUG):
         LOADED_ENV_PATH or "<none>",
     )
 
-from .bridge import call_rhino, get_rhino_host, discover_instances, TIMEOUT, DISCOVERY_FOLDER, rhino_request_context, list_sessions_result, get_session_capabilities
+from .bridge import (
+    DISCOVERY_FOLDER,
+    TIMEOUT,
+    call_rhino as _bridge_call_rhino,
+    discover_instances,
+    get_rhino_host,
+    get_session_capabilities,
+    list_sessions_result,
+    rhino_request_context,
+)
+from .gh_document_custody import (
+    GhDispatchContext,
+    GhDocumentCustodyError,
+    GhToolClassification,
+    apply_gh_dispatch_to_http_data,
+    augment_gh_input_schema,
+    clear_observed_gh_document_id,
+    current_gh_dispatch_context,
+    gh_dispatch_scope,
+    observe_gh_document_id,
+    prepare_public_gh_dispatch,
+    project_current_gh_document_id,
+    validate_public_gh_dispatch,
+)
 from .mcp_tool_profiles import (
     InvalidProfileError,
     Profile,
@@ -121,6 +144,37 @@ from .learning.canvas_align import (
 from .learning.phase_tracker import get_phase_tracker
 from .learning.knowledge_injector import should_inject, inject_knowledge, record_injection_success
 from .learning.unified_store import get_unified_store
+
+
+async def call_rhino(
+    endpoint: str,
+    method: str = "GET",
+    data: dict | None = None,
+    port: int | None = None,
+    process_id: int | None = None,
+    timeout: httpx.Timeout | float | None = None,
+) -> dict[str, Any]:
+    """Project service-owned GH custody into bridge requests."""
+    context = current_gh_dispatch_context()
+    result = await _bridge_call_rhino(
+        endpoint,
+        method,
+        (
+            apply_gh_dispatch_to_http_data(endpoint, data)
+            if context is not None
+            else data
+        ),
+        port=port,
+        process_id=process_id,
+        timeout=timeout,
+    )
+    if context is not None and endpoint.startswith("/gh/"):
+        result = observe_gh_document_id(result)
+    return result
+
+
+def _panel_gh_custody_active() -> bool:
+    return targeting.get_panel_target_lock() is not None
 
 # Configure DSPy at startup — resolves model from profiles (supports local models)
 def _configure_dspy_if_available() -> bool:
@@ -843,7 +897,7 @@ def _mcp_contents_to_agent_result(result: Any) -> Any:
 
 
 def _effective_mcp_gateway_profile(tool_access: str, active: Profile) -> Profile:
-    """Intersect a fixed ChatRunner ceiling with the active MCP profile."""
+    """Intersect a fixed internal-agent ceiling with the active MCP profile."""
     if tool_access not in {"full", "readonly"}:
         raise ValueError("tool_access must be 'full' or 'readonly'")
     if tool_access == "readonly" or active is Profile.READONLY:
@@ -13255,7 +13309,19 @@ async def _all_live_tools() -> list[Tool]:
             for tool in all_tools
             if tool.name not in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
         ]
-    return [tool for tool in all_tools if resolve_contained_tool(tool.name) is None]
+    admitted = [tool for tool in all_tools if resolve_contained_tool(tool.name) is None]
+    return [
+        tool.model_copy(
+            update={
+                "inputSchema": augment_gh_input_schema(
+                    tool.name,
+                    tool.inputSchema,
+                    panel_locked=_panel_gh_custody_active(),
+                )
+            }
+        )
+        for tool in admitted
+    ]
 
 
 @mcp.list_tools()
@@ -14045,6 +14111,19 @@ async def _execute_chirp_create(
             deterministic_only,
         )
 
+    context = current_gh_dispatch_context()
+    if (
+        context is not None
+        and context.classification is GhToolClassification.MUTATION
+    ):
+        target_preflight = project_current_gh_document_id(
+            await call_rhino("/gh/status", "GET", port=port),
+            context,
+        )
+        if target_preflight.get("success") is not True:
+            return target_preflight, terminal_chirp_failure, deterministic_only
+        clear_observed_gh_document_id()
+
     from rook.chirp_manager import ensure_chirp_running
 
     chirp_status = await ensure_chirp_running(chirp_model)
@@ -14182,6 +14261,17 @@ async def _execute_chirp_create(
             terminal_chirp_failure,
             deterministic_only,
         )
+
+
+async def _call_tool_dispatch_with_gh_context(
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    context: GhDispatchContext | None,
+) -> dict[str, Any]:
+    with gh_dispatch_scope(context):
+        result = await _call_tool_dispatch(name, arguments)
+        return project_current_gh_document_id(result, context)
 
 
 async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -16209,6 +16299,13 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                             "total_files_found": len(gh_files),
                         }
                     }
+                    if current_gh_dispatch_context() is not None:
+                        clear_observed_gh_document_id()
+                        final_status = await call_rhino(
+                            "/gh/status", "GET", port=port
+                        )
+                        if not final_status.get("success"):
+                            result = final_status
 
         case "gh_move":
             result = await call_rhino("/gh/move", "POST", arguments, port=port)
@@ -21199,6 +21296,24 @@ async def _handle_meta_tool(name, arguments, profile, *, _public_mcp=False):
                                                                   "name": target,
                                                                   "fields": ["arguments: must be an object"]}},
                                     public_mcp=_public_mcp)
+    try:
+        validate_public_gh_dispatch(
+            target,
+            targs,
+            panel_locked=_panel_gh_custody_active(),
+        )
+    except GhDocumentCustodyError as exc:
+        return _project_tool_result(
+            {
+                "success": False,
+                "data": {
+                    "error": exc.code,
+                    "name": target,
+                    "fields": [exc.message],
+                },
+            },
+            public_mcp=_public_mcp,
+        )
     verrs = validate_arguments(rec["input_schema"], targs)
     if verrs:
         return _project_tool_result({"success": False, "data": {"error": "invalid_arguments",
@@ -21252,10 +21367,27 @@ async def call_tool(
         return await _handle_meta_tool(name, arguments, _active_profile,
                                        _public_mcp=_public_mcp)
 
-    # Model-facing authoring admission owns the caller's original arguments.
-    # Apply it after containment/profile/meta enforcement but before Rhino
-    # routing or panel document-context enrichment. The dispatcher repeats the
-    # guard as defense in depth for internal callers that bypass call_tool().
+    try:
+        arguments, gh_context = prepare_public_gh_dispatch(
+            name,
+            arguments,
+            panel_locked=_panel_gh_custody_active(),
+        )
+    except GhDocumentCustodyError as exc:
+        return _project_tool_result(
+            {
+                "success": False,
+                "data": {
+                    "error": exc.code,
+                    "name": name,
+                    "fields": [exc.message],
+                },
+            },
+            public_mcp=_public_mcp,
+        )
+
+    # Authoring preprocessing receives only ordinary tool arguments after the
+    # service-owned GH concurrency field has been validated and removed.
     handoff = model_facing_script_handoff(name, arguments)
     if handoff is not None:
         handoff.pop("_is_handoff", None)
@@ -21264,7 +21396,6 @@ async def call_tool(
         admission = admit_gh_edit_request(arguments)
         if admission is not None:
             return _project_tool_result(admission, public_mcp=_public_mcp)
-
     if (
         name in _DEPRECATED_INTERACTIVE_COMMAND_TOOLS
         and not _interactive_command_learning_enabled()
@@ -21283,12 +21414,23 @@ async def call_tool(
     explicit_session = arguments.get("session")
 
     if targeting.get_panel_target_config_error() is not None and (
-        policy.requires_rhino or name == "rhino_launch"
+        policy.requires_rhino
+        or name in {"rhino_launch", "rhino_session_capabilities"}
     ):
         raw_result = {"success": False, "data": targeting.get_panel_target_config_error()}
         if name == "rhino_launch":
             raw_result = _with_rhino_launch_canonical_tool(raw_result)
         return _project_tool_result(raw_result, public_mcp=_public_mcp)
+
+    if (
+        name == "rhino_session_capabilities"
+        and targeting.get_panel_target_lock() is not None
+        and not targeting.panel_session_matches_target_lock(explicit_session)
+    ):
+        return _project_tool_result(
+            targeting.panel_target_locked_result(),
+            public_mcp=_public_mcp,
+        )
 
     if targeting.get_panel_target_lock() is not None and name in {"spawn_agent", "plan_and_execute"}:
         return _project_tool_result(
@@ -21311,7 +21453,11 @@ async def call_tool(
         if has_explicit_session and not targeting.allows_non_routed_session_argument(name):
             return _project_tool_result(targeting.session_not_targetable_result(name),
                                         public_mcp=_public_mcp)
-        raw_result = await _call_tool_dispatch(name, arguments)
+        raw_result = await _call_tool_dispatch_with_gh_context(
+            name,
+            arguments,
+            context=gh_context,
+        )
         return _project_tool_result(raw_result, public_mcp=_public_mcp)
 
     route = targeting.resolve_tool_route(
@@ -21348,7 +21494,11 @@ async def call_tool(
         process_id=route.target.process_id,
         document_serial_number=route.document_serial_number,
     ):
-        raw_result = await _call_tool_dispatch(name, dispatch_arguments)
+        raw_result = await _call_tool_dispatch_with_gh_context(
+            name,
+            dispatch_arguments,
+            context=gh_context,
+        )
     raw_result = targeting.attach_route_metadata(raw_result, route)
     return _project_tool_result(raw_result, public_mcp=_public_mcp)
 
@@ -21359,19 +21509,35 @@ async def _mcp_call_tool(name: str, arguments: dict[str, Any]):
 
 
 def _install_mcp_call_tool_containment_wrapper() -> None:
-    """Route exact stale tombstones before the MCP SDK validates tool schemas."""
+    """Project closed refusals that must precede MCP schema validation."""
     retained_handler = mcp.request_handlers[mcp_types.CallToolRequest]
     if getattr(retained_handler, "_rook_containment_wrapper", False):
         return
 
     async def containment_handler(request):
         raw_name = request.params.name
+        raw_arguments = request.params.arguments
         if resolve_contained_tool(raw_name) is not None:
             result = await call_tool(raw_name, None, _public_mcp=True)
             return mcp_types.ServerResult(result)
 
+        if isinstance(raw_arguments, Mapping):
+            try:
+                validate_public_gh_dispatch(
+                    raw_name,
+                    raw_arguments,
+                    panel_locked=_panel_gh_custody_active(),
+                )
+            except GhDocumentCustodyError:
+                result = await call_tool(
+                    raw_name,
+                    dict(raw_arguments),
+                    _public_mcp=True,
+                )
+                return mcp_types.ServerResult(result)
+
         if raw_name == "rook_tools_call":
-            outer = request.params.arguments
+            outer = raw_arguments
             target = outer.get("name") if isinstance(outer, Mapping) else None
             if resolve_contained_tool(target) is not None:
                 result = await call_tool(raw_name, outer, _public_mcp=True)

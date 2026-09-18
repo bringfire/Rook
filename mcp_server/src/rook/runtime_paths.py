@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +20,76 @@ class RuntimePaths:
     runtime_root: Path
     mcp_server_dir: Path
     repo_root: Path
+
+
+_SAFE_ACP_FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+@dataclass(frozen=True)
+class AcpDataPaths:
+    """Product-owned durable roots for ACP-backed RookChat conversations."""
+
+    root: Path
+    conversations_root: Path
+    sessions_root: Path
+    presentation_root: Path
+    claims_root: Path
+    workspaces_root: Path
+
+    @classmethod
+    def from_runtime_paths(cls, runtime_paths: RuntimePaths) -> "AcpDataPaths":
+        root = runtime_paths.data_root.resolve(strict=False) / "rookchat" / "acp" / "v1"
+        return cls(
+            root=root,
+            conversations_root=root / "conversations",
+            sessions_root=root / "sessions",
+            presentation_root=root / "presentation",
+            claims_root=root / "claims",
+            workspaces_root=root / "workspaces",
+        )
+
+    def create_roots(self) -> None:
+        for path in (
+            self.conversations_root,
+            self.sessions_root,
+            self.presentation_root,
+            self.claims_root,
+            self.workspaces_root,
+        ):
+            path.mkdir(parents=True, exist_ok=True)
+
+    def conversation_path(self, conversation_id: str) -> Path:
+        return self.conversations_root / f"{_validated_conversation_id(conversation_id)}.json"
+
+    def session_path(self, conversation_id: str) -> Path:
+        return self.sessions_root / f"{_validated_conversation_id(conversation_id)}.jsonl"
+
+    def presentation_path(self, conversation_id: str) -> Path:
+        return self.presentation_root / _validated_conversation_id(conversation_id)
+
+    def workspace_path(self, conversation_id: str) -> Path:
+        return self.workspaces_root / _validated_conversation_id(conversation_id)
+
+    def canonical_session(self, file_name: str) -> str:
+        if not _SAFE_ACP_FILE_NAME.fullmatch(file_name) or not file_name.endswith(".jsonl"):
+            raise ValueError("ACP session file name is invalid")
+        return str((self.sessions_root / file_name).resolve(strict=False))
+
+
+def _validated_conversation_id(value: str) -> str:
+    if not isinstance(value, str) or len(value) != 32:
+        raise ValueError("conversation ID must be a lowercase UUID hex value")
+    try:
+        parsed = uuid.UUID(hex=value)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError("conversation ID must be a lowercase UUID hex value") from exc
+    if parsed.hex != value:
+        raise ValueError("conversation ID must be a lowercase UUID hex value")
+    return value
+
+
+def get_acp_data_paths(runtime_paths: RuntimePaths | None = None) -> AcpDataPaths:
+    return AcpDataPaths.from_runtime_paths(runtime_paths or resolve_runtime_paths())
 
 
 _cached_runtime_paths: RuntimePaths | None = None

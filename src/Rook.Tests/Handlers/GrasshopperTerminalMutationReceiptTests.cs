@@ -147,6 +147,35 @@ namespace Rook.Tests.Handlers
             var data = Element(response.Data);
             Assert.True(data.GetProperty("solve_relevant_mutation_committed").GetBoolean());
             Assert.Equal("pending", data.GetProperty("solve_readiness_receipt").GetProperty("status").GetString());
+            Assert.False(data.GetProperty("solve_readiness_receipt").TryGetProperty("gh_document_id", out _));
+            Assert.False(data.TryGetProperty("ghDocumentId", out _));
+            Assert.Equal("print('ready')", component.Source);
+            Assert.Equal(1, document.ScheduleCount);
+        }
+
+        [Fact]
+        public void SetScript_PanelDispatchProjectsCapturedDocumentIdentity()
+        {
+            var component = new FakeScriptComponent(Guid.NewGuid());
+            var document = new FakeDocument(component);
+            var handler = CreateHandler(document);
+
+            var response = GrasshopperDispatchContext.Execute(
+                new FixedDispatchSource(new FakeCanvas(document), document),
+                GhManagedDispatchScope.Mutation,
+                document.DocumentID.ToString("D"),
+                () => handler.SetScript(JsonSerializer.Serialize(new
+                {
+                    guid = component.InstanceGuid,
+                    script = "print('ready')",
+                })));
+
+            Assert.True(response.Success);
+            var data = Element(response.Data);
+            Assert.Equal(
+                document.DocumentID.ToString("D"),
+                data.GetProperty("solve_readiness_receipt").GetProperty("gh_document_id").GetString());
+            Assert.Equal(document.DocumentID.ToString("D"), data.GetProperty("ghDocumentId").GetString());
             Assert.Equal("print('ready')", component.Source);
             Assert.Equal(1, document.ScheduleCount);
         }
@@ -1233,6 +1262,24 @@ namespace Rook.Tests.Handlers
             }
         }
 
+        private sealed class FixedDispatchSource : IGrasshopperDispatchSource
+        {
+            private readonly object _canvas;
+            private readonly object _document;
+
+            internal FixedDispatchSource(object canvas, object document)
+            {
+                _canvas = canvas;
+                _document = document;
+            }
+
+            public GrasshopperDispatchCapture Capture() =>
+                GrasshopperDispatchCapture.Available(
+                    typeof(FixedDispatchSource).Assembly,
+                    _canvas,
+                    _document);
+        }
+
         public sealed class FakeSolutionEventArgs : EventArgs
         {
             public FakeSolutionEventArgs(object document) => Document = document;
@@ -1246,6 +1293,7 @@ namespace Rook.Tests.Handlers
             public FakeDocument(params object[] objects) => _objects = objects.ToList();
 
             public static bool EnableSolutions { get; set; } = true;
+            public Guid DocumentID { get; } = Guid.NewGuid();
             public bool Enabled { get; set; } = true;
             public bool ThrowOnObjectsRead { get; set; }
             public int? ThrowOnObjectsReadAt { get; set; }

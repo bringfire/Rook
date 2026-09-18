@@ -7,6 +7,7 @@ param(
     [string]$RuntimeRoot = '',
     [string]$OutputRoot = '',
     [string]$BuildRoot = '',
+    [string]$PipBootstrapWheel = '',
     [int]$CommandTimeoutSeconds = 1800
 )
 
@@ -146,6 +147,23 @@ if ($CommandTimeoutSeconds -le 0) {
     Fail '-CommandTimeoutSeconds must be greater than zero'
 }
 
+# Acquire this wheel separately from the official PyPI file URL, never via old pip.
+# https://pypi.org/project/pip/26.2.1/#files
+if ([string]::IsNullOrWhiteSpace($PipBootstrapWheel)) {
+    $PipBootstrapWheel = Join-Path $RepoRoot 'artifacts\python-bootstrap\pip-26.2.1-py3-none-any.whl'
+}
+if (-not (Test-Path -LiteralPath $PipBootstrapWheel -PathType Leaf)) {
+    Fail "Verified pip bootstrap wheel is required before package-index access: $PipBootstrapWheel"
+}
+$reader = [System.IO.BinaryReader]::new([System.IO.File]::OpenRead($PipBootstrapWheel))
+try { $pipBootstrapBytes = $reader.ReadBytes(2097153) } finally { $reader.Dispose() }
+if ($pipBootstrapBytes.Length -gt 2097152) { Fail 'Pip bootstrap wheel exceeds 2 MiB' }
+$sha = [System.Security.Cryptography.SHA256]::Create()
+try { $pipBootstrapHash = [BitConverter]::ToString($sha.ComputeHash($pipBootstrapBytes)).Replace('-', '') } finally { $sha.Dispose() }
+if ($pipBootstrapHash -cne '71138ADF1F4CA900CDB7D289C21B7494329F2332B6D85F0E1C42108C0384ED3E') {
+    Fail 'Pip bootstrap wheel SHA256 does not match official pip 26.2.1'
+}
+
 $pythonExe = Join-Path $RuntimeRoot 'python.exe'
 if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
     Fail "Private Python runtime missing. Run scripts\python-runtime\stage-rook-python-runtime.ps1 first: $pythonExe"
@@ -171,12 +189,22 @@ $wheelhouse = Join-Path $OutputRoot 'python-wheelhouse'
 if (Test-Path -LiteralPath $wheelhouse) { Remove-Item -LiteralPath $wheelhouse -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $wheelhouse | Out-Null
 
+# Only this disposable build environment is upgraded; customer Python stays intact.
+$admittedPipWheel = Join-Path $BuildRoot 'pip-26.2.1-py3-none-any.whl'
+[System.IO.File]::WriteAllBytes($admittedPipWheel, $pipBootstrapBytes)
+$buildVenv = Join-Path $BuildRoot 'build-venv'
+Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-I', '-m', 'venv', $buildVenv) -Label 'build venv creation'
+$buildPythonExe = Join-Path $buildVenv 'Scripts\python.exe'
+Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments @('-I', '-m', 'pip', '--isolated', 'install', '--no-index', '--no-deps', $admittedPipWheel) -Label 'build pip offline bootstrap'
+$pipVersionCheck = @('-I', '-c', "import pip; assert pip.__version__ == '26.2.1', 'Build pip version differs'; print('Build pip: ' + pip.__version__ + ' at ' + pip.__file__)")
+Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments $pipVersionCheck -Label 'build pip version check'
+
 $rookWheelDir = Join-Path $BuildRoot 'rook-wheel'
 $chirpWheelDir = Join-Path $BuildRoot 'chirp-wheel'
 New-Item -ItemType Directory -Force -Path $rookWheelDir,$chirpWheelDir | Out-Null
 
-Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-m', 'pip', 'wheel', '--no-deps', '--wheel-dir', $rookWheelDir, (Join-Path $RepoRoot 'mcp_server')) -Label 'rook-mcp wheel build'
-Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-m', 'pip', 'wheel', '--no-deps', '--wheel-dir', $chirpWheelDir, $ChirpRoot) -Label 'chirp wheel build'
+Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments @('-I', '-m', 'pip', '--isolated', 'wheel', '--no-deps', '--wheel-dir', $rookWheelDir, (Join-Path $RepoRoot 'mcp_server')) -Label 'rook-mcp wheel build'
+Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments @('-I', '-m', 'pip', '--isolated', 'wheel', '--no-deps', '--wheel-dir', $chirpWheelDir, $ChirpRoot) -Label 'chirp wheel build'
 
 $rookWheel = Get-ChildItem -Path $rookWheelDir -Filter 'rook_mcp-*.whl' | Select-Object -First 1
 if (-not $rookWheel) { Fail 'rook-mcp wheel was not produced' }
@@ -186,10 +214,10 @@ if (-not $chirpWheel) { Fail 'chirp wheel was not produced' }
 Copy-Item -LiteralPath $rookWheel.FullName -Destination $wheelhouse
 Copy-Item -LiteralPath $chirpWheel.FullName -Destination $wheelhouse
 
-$bootstrapToolPackages = @('pip==26.1.2', 'setuptools==83.0.0')
-Invoke-CheckedProcess -FilePath $pythonExe -Arguments (@('-m', 'pip', 'download', '--dest', $wheelhouse, '--only-binary=:all:') + $bootstrapToolPackages) -Label 'bootstrap tool wheel download'
+$bootstrapToolPackages = @('pip==26.2.1', 'setuptools==83.0.0')
+Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments (@('-I', '-m', 'pip', '--isolated', 'download', '--dest', $wheelhouse, '--only-binary=:all:') + $bootstrapToolPackages) -Label 'bootstrap tool wheel download'
 
-Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-m', 'pip', 'download', '--dest', $wheelhouse, '--only-binary=:all:', '--implementation', 'cp', '--python-version', '3.11', '--abi', 'cp311', '--platform', 'win_amd64', $rookWheel.FullName, $chirpWheel.FullName) -Label 'dependency wheel download'
+Invoke-CheckedProcess -FilePath $buildPythonExe -Arguments @('-I', '-m', 'pip', '--isolated', 'download', '--dest', $wheelhouse, '--only-binary=:all:', '--implementation', 'cp', '--python-version', '3.11', '--abi', 'cp311', '--platform', 'win_amd64', $rookWheel.FullName, $chirpWheel.FullName) -Label 'dependency wheel download'
 
 $sdists = @(Get-ChildItem -Path $wheelhouse -Include *.tar.gz,*.zip -File -Recurse)
 if ($sdists.Count -gt 0) {
@@ -552,11 +580,11 @@ $chirpTempVenv = Join-Path $BuildRoot 'verify-chirp-venv'
 Invoke-CheckedProcess -FilePath $pythonExe -Arguments @($verificationScript, '--base-python', $pythonExe, '--wheelhouse', $wheelhouse, '--bootstrap-lock', $lockBootstrap, '--lockfile', $lockRook, '--venv-dir', $rookTempVenv, '--module', 'rook', '--vision-smoke', '--output', $rookVerification, '--command-timeout-seconds', "$CommandTimeoutSeconds") -Label 'Rook temp install verification'
 Invoke-CheckedProcess -FilePath $pythonExe -Arguments @($verificationScript, '--base-python', $pythonExe, '--wheelhouse', $wheelhouse, '--bootstrap-lock', $lockBootstrap, '--lockfile', $lockChirp, '--venv-dir', $chirpTempVenv, '--module', 'chirp', '--output', $chirpVerification, '--command-timeout-seconds', "$CommandTimeoutSeconds") -Label 'Chirp temp install verification'
 
-$auditVenv = Join-Path $BuildRoot 'pip-audit-venv'
+$auditVenv = $buildVenv
 $pipAuditPackage = 'pip-audit==2.10.0'
-Invoke-CheckedProcess -FilePath $pythonExe -Arguments @('-m', 'venv', $auditVenv) -Label 'pip-audit venv creation'
-$auditPython = Join-Path $auditVenv 'Scripts\python.exe'
-Invoke-CheckedProcess -FilePath $auditPython -Arguments @('-m', 'pip', '--isolated', '--disable-pip-version-check', 'install', $pipAuditPackage) -Label 'pip-audit install'
+$auditPython = $buildPythonExe
+Invoke-CheckedProcess -FilePath $auditPython -Arguments $pipVersionCheck -Label 'audit pip version check'
+Invoke-CheckedProcess -FilePath $auditPython -Arguments @('-I', '-m', 'pip', '--isolated', '--disable-pip-version-check', 'install', $pipAuditPackage) -Label 'pip-audit install'
 $pipAudit = Join-Path $auditVenv 'Scripts\pip-audit.exe'
 $rookVerificationObject = Get-Content -LiteralPath $rookVerification -Raw | ConvertFrom-Json
 $chirpVerificationObject = Get-Content -LiteralPath $chirpVerification -Raw | ConvertFrom-Json

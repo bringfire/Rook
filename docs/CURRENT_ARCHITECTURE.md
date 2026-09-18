@@ -1,6 +1,6 @@
 # Current Architecture
 
-Updated: 2026-08-10
+Updated: 2026-09-05
 
 This file is the short canonical description of the live runtime architecture.
 
@@ -14,10 +14,6 @@ MCP Client (Claude Code, Claude Desktop, Codex CLI, Cursor, etc.)
        │  MCP Protocol (stdio)
        ▼
 Rook MCP Server (Python)          ← lifecycle-admitted MCP tools, knowledge graph, agent system
-  │         │
-  │         │ HTTP (127.0.0.1, OS-assigned port via discovery file)
-  │         ▼
-  │    Chat Server (aiohttp) — auto-started inside MCP server
   │
   │ HTTP (127.0.0.1, OS-assigned port via bridge.py instance discovery)
   ▼
@@ -29,6 +25,16 @@ Rook Companion (C# plugin)       ← GH bridge + chat/panel UI + internal status
        │
        ▼
 Rhino 3D / Grasshopper
+
+Embedded RookChat panel (C#)
+       │ HTTP/NDJSON
+       ▼
+Python chat service              ← ACP process/connection, bounded presentation, durable association
+       │ ACP stdio
+       ▼
+Bundled Prime runtime            ← reasoning, transcript, goals, compaction, model context
+       │ service-owned MCP server declaration named "rook"
+       └────────────────────────► Rook MCP Server (Python)
 ```
 
 ## Public Surface
@@ -55,7 +61,7 @@ The companion is **internal** — not a separate public plugin surface.
 | Fact | Value |
 |------|-------|
 | HTTP server | **None** |
-| Role | GH callback bridge, chat/panel UI, managed capability evidence, and 4 Rhino commands |
+| Role | GH callback bridge, ACP-backed chat panel UI, managed capability evidence, and 4 Rhino commands |
 | Commands | AIGumball, ShowRookChat, RestartRookChatService, UVBoxMapping |
 | GH bridge | P/Invoke callbacks registered via `NativeGhBridgeRegistrar.cs` |
 | Load mode | WhenNeeded (loaded by RookNative on demand) |
@@ -135,7 +141,7 @@ Managed companion domain evidence is internal. The companion writes it to its ex
 | Other MCP profiles | Deprecated-interactive definitions are gated by default |
 | Entry point | `python -m rook` (stdio transport) |
 | HTTP bridge | `bridge.py` — discovers native plugin via `%LOCALAPPDATA%\Rook\discovery` by default and legacy `%TEMP%\rook` compatibility files |
-| Key subsystems | Intent runtime, Knowledge stores, Agent system, Chat service, DSPy consolidation, Chirp manager |
+| Key subsystems | Intent runtime, Knowledge stores, Agent system, ACP chat service, DSPy consolidation, Chirp manager |
 
 - Director is retired from MCP discovery, profiles, meta-tools, targeting, and internal-agent dispatch. Native `/director/*` routes and implementation modules remain temporarily preserved for disposition review; they are not a public or agent-callable capability.
 
@@ -147,7 +153,7 @@ Future scene preview, timeline, rendering, and finalized-video export belongs in
 
 ### Agent System (`agent/`)
 
-The agent package retains Planner, Worker, Guardian, and Conductor internals, but autonomous MCP creation entry points are lifecycle-contained. Ordinary RookChat remains the active general model-driven path and selects supported explicit tools. See `AGENT_ARCHITECTURE.md` for details.
+The agent package retains Planner, Worker, Guardian, and Conductor internals, but autonomous MCP creation entry points are lifecycle-contained. RookChat uses Prime over standard ACP and delivers the normal Rook MCP surface through a service-owned server declaration. See `AGENT_ARCHITECTURE.md` for retained internal-agent details.
 
 | Component | Purpose |
 |-----------|---------|
@@ -155,22 +161,54 @@ The agent package retains Planner, Worker, Guardian, and Conductor internals, bu
 | Planner | Opus-based task decomposition (read-only) → TaskSpec plan |
 | Guardian | Per-agent trajectory monitor (stuck/loop/drift/budget detection) |
 | Conductor | Fleet coordinator for parallel swarms (systemic issue detection) |
-| ChatRunner | Interactive chat service for Rook panel (aiohttp, execution policy) |
 | IntentOrchestrator | Layered intent pipeline: plan → route → execute → reflect |
 
-#### Internal Worker-first specimen
+**Key principle:** Retained internal-agent modules call RookNative HTTP endpoints
+directly via `bridge.py`; they do not re-enter MCP. RookChat is separate and gives
+Prime the public Rook MCP contract. Native ports are resolved through discovery
+files in the shared discovery root.
 
-An internal Worker-first C# path has proved one frontier Planner call, one local
-Worker call, one real Grasshopper create, and authentic clean-compile verification.
-Its semantic contract is intentionally fixed to no inputs and one `A:double` output.
-It is retained as regression evidence and an internal composition seam, not as a
-general intent harness. The shipped RookChat UI has no **Build C#** action.
+### RookChat (`agent/chat/` and `src/Rook/UI/Chat/`)
 
-The active direction is a compositional semantic design graph compiled into the
-existing execution and receipt machinery. See the
-[Compositional Agent Harness Roadmap](roadmaps/2026-08-02-compositional-agent-harness-roadmap.md).
+RookChat is a single ACP-backed implementation. ChatRunner is removed rather than
+retained as a backend or fallback. The C# panel owns UI attachment and projects the
+Python service's bounded NDJSON stream. The Python service owns the durable
+conversation association, directly owned Prime process and ACP connection, prompt
+correlation, cancellation request, bounded presentation cache, runtime identity,
+and immutable Rook/Rhino binding. Prime owns reasoning, its authoritative
+transcript, goals, compaction, model context, and semantic completion.
 
-**Key principle:** Agents call RookNative HTTP endpoints directly via `bridge.py` — they never go through MCP. Port is resolved via discovery files in the shared discovery root.
+Each conversation uses one exact, manifest-verified Prime runtime. New
+conversations read and validate `prime/current.json` once, then record that runtime
+ID; reopen uses the recorded runtime. RookChat supplies a service-owned ACP MCP
+declaration named exactly `rook`, injects the strictly decoded verified contents of
+`rook-full/SKILL.md`, and excludes ambient Prime project resources. Prime owns
+credentials. RookChat neither reads nor forwards Rook's legacy `.env` credentials;
+users authenticate by opening Prime interactively and running `/login` there.
+
+The conversation's Rook host-generation ID and Rhino document serial are immutable.
+Grasshopper document identity is dynamic: document-scoped observations return a
+canonical `ghDocumentId`, mutations require it as `expectedGhDocumentId`, and
+explicit open/new transitions return the resulting active ID. This is optimistic
+target concurrency, not a sandbox for authored code.
+
+Durable ACP data resides under
+`%LOCALAPPDATA%\Rook\data\rookchat\acp\v1`. Prime runtimes reside under
+`%LOCALAPPDATA%\Rook\app\prime\runtimes\<runtime-id>`. Install, upgrade, repair,
+and release rollback preserve conversation data and historical runtimes. A
+retained-data uninstall preserves ACP data, but a normal uninstall may remove the
+application payload and its Prime runtimes. After reinstall, a conversation whose
+recorded runtime is absent returns `runtime_unavailable`; RookChat does not scan for
+or substitute another runtime. An `open.claim` is created before Prime launch and
+removed only after the directly owned child is observed exited. A crash therefore
+fails closed with `session_recovery_required`; there is no automatic stale-claim
+recovery.
+
+The presentation cache is disposable and bounded: at most 4 MiB per projected turn,
+64 MiB per conversation, and 256 retained complete turns. Eviction removes only a
+contiguous oldest-turn prefix and displays an omitted-history marker. Thought
+content and original image bytes are live-only. Reopened image entries retain
+bounded metadata and explicitly report that the preview is unavailable.
 
 ### Intent Runtime (`learning/intent_*.py`)
 

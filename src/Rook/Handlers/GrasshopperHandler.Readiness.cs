@@ -42,7 +42,9 @@ namespace Rook.Handlers
             lock (_readinessSync)
             {
                 EnsureReadinessSessionLocked(document, canvas);
-                var issue = _solveReceiptRegistry.IssueMutation(document);
+                var issue = _solveReceiptRegistry.IssueMutation(
+                    document,
+                    GrasshopperDispatchContext.Current?.DocumentId.ToString("D"));
                 if (issue.Issued && issue.Receipt is not null)
                 {
                     var lifecycleFailure = CurrentLifecycleFailureLocked();
@@ -211,6 +213,12 @@ namespace Rook.Handlers
                 return ReadinessFailure(lookup.Error!);
             }
 
+            var custodyFailure = ValidateReceiptGhDocument(lookup.Receipt);
+            if (custodyFailure is not null)
+            {
+                return custodyFailure;
+            }
+
             return new ApiResponse
             {
                 Success = true,
@@ -226,6 +234,18 @@ namespace Rook.Handlers
             if (timeoutMs < 1 || timeoutMs > MaximumReadinessWaitMs)
             {
                 return ReadinessFailure("readiness_timeout_ms_out_of_range");
+            }
+
+            var lookup = _solveReceiptRegistry.Get(readinessReceiptId ?? string.Empty);
+            if (!lookup.Found || lookup.Receipt is null)
+            {
+                return ReadinessFailure(lookup.Error!);
+            }
+
+            var custodyFailure = ValidateReceiptGhDocument(lookup.Receipt);
+            if (custodyFailure is not null)
+            {
+                return custodyFailure;
             }
 
             var result = _solveReceiptRegistry.Wait(
@@ -347,20 +367,60 @@ namespace Rook.Handlers
             Data = new { error },
         };
 
-        private static object ReceiptSnapshot(GhSolveReadinessReceipt receipt) => new
+        private static ApiResponse? ValidateReceiptGhDocument(GhSolveReadinessReceipt receipt)
         {
-            schema = "rook.gh_solve_readiness_receipt:v1",
-            receipt_id = receipt.ReceiptId,
-            document_session_id = receipt.DocumentSessionId,
-            mutation_epoch = receipt.MutationEpoch,
-            solution_run_epoch = receipt.SolutionRunEpoch,
-            completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
-            status = ReceiptStatusName(receipt.Status),
-            reason = receipt.Reason,
-            completion_signal = receipt.CompletionSignal,
-            issued_at = receipt.IssuedAt,
-            completed_at = receipt.CompletedAt,
-        };
+            if (receipt.GhDocumentId is null)
+            {
+                return null;
+            }
+
+            var current = GrasshopperDispatchContext.Current?.DocumentId.ToString("D");
+            if (current is null)
+            {
+                return ReadinessFailure("gh_target_unavailable");
+            }
+
+            return string.Equals(receipt.GhDocumentId, current, StringComparison.Ordinal)
+                ? null
+                : ReadinessFailure("gh_target_changed");
+        }
+
+        private static object ReceiptSnapshot(GhSolveReadinessReceipt receipt)
+        {
+            if (receipt.GhDocumentId is null)
+            {
+                return new
+                {
+                    schema = "rook.gh_solve_readiness_receipt:v1",
+                    receipt_id = receipt.ReceiptId,
+                    document_session_id = receipt.DocumentSessionId,
+                    mutation_epoch = receipt.MutationEpoch,
+                    solution_run_epoch = receipt.SolutionRunEpoch,
+                    completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
+                    status = ReceiptStatusName(receipt.Status),
+                    reason = receipt.Reason,
+                    completion_signal = receipt.CompletionSignal,
+                    issued_at = receipt.IssuedAt,
+                    completed_at = receipt.CompletedAt,
+                };
+            }
+
+            return new
+            {
+                schema = "rook.gh_solve_readiness_receipt:v1",
+                receipt_id = receipt.ReceiptId,
+                document_session_id = receipt.DocumentSessionId,
+                mutation_epoch = receipt.MutationEpoch,
+                solution_run_epoch = receipt.SolutionRunEpoch,
+                completed_solution_run_epoch = receipt.CompletedSolutionRunEpoch,
+                status = ReceiptStatusName(receipt.Status),
+                reason = receipt.Reason,
+                completion_signal = receipt.CompletionSignal,
+                issued_at = receipt.IssuedAt,
+                completed_at = receipt.CompletedAt,
+                gh_document_id = receipt.GhDocumentId,
+            };
+        }
 
         private static string ReceiptStatusName(GhSolveReadinessStatus status) => status switch
         {

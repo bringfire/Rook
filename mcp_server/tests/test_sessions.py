@@ -121,6 +121,34 @@ def test_list_sessions_dedupes_roadcreator_sharing_rhino_pid(sessions_dir, monke
     assert sessions[0]["pluginType"] == "native"
 
 
+def test_list_sessions_dedupes_pid_without_hiding_discovery_routes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary = tmp_path / "primary"
+    legacy = tmp_path / "legacy"
+    primary.mkdir()
+    legacy.mkdir()
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", primary)
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDERS", [primary, legacy])
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: True)
+    _write_instance(primary, {
+        "host": "127.0.0.1", "port": 9950, "pluginType": "native", "processId": 7101,
+    })
+    _write_instance(legacy, {
+        "host": "127.0.0.1", "port": 9960, "pluginType": "native", "processId": 7101,
+    })
+
+    instances = bridge.discover_instances()
+    sessions = bridge.list_sessions()
+
+    assert sorted(instance["port"] for instance in instances) == [9950, 9960]
+    assert [(session["session"], session["port"]) for session in sessions] == [
+        ("rhino-7101", 9950)
+    ]
+
+
 def test_list_sessions_result_envelope(sessions_dir, monkeypatch):
     monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
     monkeypatch.setattr(bridge, "_is_port_listening", lambda host, port: True)

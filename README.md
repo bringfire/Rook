@@ -59,6 +59,13 @@ Rook Companion (C# internal)     ← GH bridge + chat panel, no HTTP server
        │
        ▼
 Rhino 3D / Grasshopper
+
+Embedded RookChat panel
+       │ HTTP/NDJSON
+       ▼
+Python chat service ── ACP stdio ──► Bundled Prime runtime
+       ▲                                  │
+       └──── service-owned `rook` MCP ────┘
 ```
 
 | Layer | Role |
@@ -141,10 +148,20 @@ Rook can both *see* and *generate* visual content:
 The repository retains planner, worker, guardian, and conductor implementation
 modules, but autonomous multi-worker coordination is suspended from the public
 tool surface. Current clients rediscover the admitted catalog and have the
-connected model call explicit tools directly. The embedded RookChat runtime uses
-the same lifecycle-filtered schemas and verifies tool results before continuing.
+connected model call explicit tools directly.
 
-**Model-agnostic:** Agents use [litellm](https://github.com/BerriAI/litellm) — supports Anthropic, OpenAI, Ollama, LM Studio, and 100+ other providers.
+Embedded RookChat is powered by the bundled Prime agent over standard ACP. There is
+one implementation and no ChatRunner backend or fallback. Prime owns reasoning,
+conversation history, goals, compaction, and model context. RookChat owns the
+directly launched ACP connection, durable association, immutable Rhino target,
+dynamic Grasshopper document checks, and bounded panel presentation. The full Rook
+authoring surface remains available through a service-owned MCP server named
+`rook`.
+
+**Model-agnostic internal workflows:** Retained non-chat agent and knowledge
+workflows use [litellm](https://github.com/BerriAI/litellm), which supports
+Anthropic, OpenAI, Ollama, LM Studio, and many other providers. RookChat model and
+authentication handling belongs to Prime.
 
 > **Security Notice (2026-03-24):** LiteLLM PyPI versions `1.82.7` and `1.82.8` were [compromised with a credential-stealing payload](https://github.com/BerriAI/litellm/issues/24512). Both versions have been yanked from PyPI. Rook's dependency pin explicitly excludes them (`!=1.82.7,!=1.82.8`). If you installed either version, rotate all credentials on the affected machine immediately. See the [LiteLLM team's response](https://github.com/BerriAI/litellm/issues/24518) for status updates.
 
@@ -189,7 +206,10 @@ Real-time spatial intelligence that gives AI agents a structured understanding o
 | **Rhino** | 8.x | Windows only (macOS planned) |
 | **An MCP client** | Latest | Claude Code, Claude Desktop, Codex CLI, Cursor, Windsurf, etc. |
 
-The Windows installer includes a sealed, bundled CPython 3.11.9 runtime for the MCP server. A system Python installation is not required for a release install.
+The Windows installer includes a sealed CPython 3.11.9 runtime for the MCP server
+and an exact manifest-verified Prime runtime with its pinned `uv` executable. A
+system Python, Prime, Node, Bun, or separate `uv` installation is not required for
+a release install.
 
 ### Install from Release
 
@@ -205,9 +225,26 @@ The installer automatically:
   - Codex CLI: `~/.codex/config.toml`
 - Copies curated Codex skills to `~/.codex/skills/`
 - Leaves Claude Code skills and hooks to the public marketplace plugin
+- Installs and promotes the bundled Prime runtime used by RookChat
 
 3. **Restart Rhino** and your MCP client
 4. In your MCP client, inspect its MCP server list — `rook` should be connected. The admitted catalog depends on the configured client profile.
+
+### Use RookChat
+
+Run `ShowRookChat` in Rhino. Prime owns RookChat authentication: if authentication
+is missing, open Prime interactively and run `/login` there. `/login` is not an ACP
+command inside RookChat, and RookChat does not store or forward credentials.
+
+For a new conversation, the panel can request a fully qualified Prime model and a
+supported reasoning level. Those controls become read-only after creation. Reopen
+passes no override, allowing Prime to restore the persisted conversation settings.
+The first tool-bearing turn may take longer and require internet access while Prime
+bootstraps its mutable kernel environment.
+
+Conversation state and bounded presentation history live outside replaceable
+application payloads. Release rollback does not switch backends; reinstalling the
+ACP-capable release restores access to preserved ACP conversations.
 
 ### Bootstrap from Source
 
@@ -260,6 +297,10 @@ The C++ native plugin (`src/RookNative/`) requires Visual Studio 2022 with the C
 | `rook` not found in MCP client | Re-run the installer or bootstrap script to regenerate the canonical config for your mode, then restart your MCP client |
 | "Connection refused" errors | Ensure Rhino 8 is running with the plugin loaded; verify with `rhino_ping` |
 | Plugin not loading in Rhino | Check `%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\` |
+| RookChat reports missing authentication | Open Prime interactively and run `/login`; do not enter credentials in RookChat |
+| RookChat reports `session_recovery_required` | A previous owner did not observe its Prime child exit. The conversation remains fail-closed pending an explicit recovery workflow; do not delete its claim manually. |
+| RookChat reports `target_unavailable` | The bound Rhino host/document is unavailable or no longer matches the conversation. Start a new conversation for a different Rhino document. |
+| Reopened image has no preview | Original image bytes are live-only; reopened history intentionally retains metadata rather than the image payload. |
 
 See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for more.
 

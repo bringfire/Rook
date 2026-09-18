@@ -255,6 +255,26 @@ async def _fetch_live_capabilities(
     return payload
 
 
+async def _fetch_verified_panel_capabilities(
+    client: httpx.AsyncClient,
+    instance: dict[str, Any],
+    lock: Any,
+) -> dict[str, Any]:
+    host = instance.get("host") or DEFAULT_HOST
+    port = instance.get("port")
+    if not port:
+        raise RuntimeError("panel target has no capability listener")
+
+    response = await client.get(f"http://{host}:{port}/capabilities")
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("domains"), list):
+        raise RuntimeError("live capabilities response is missing domains")
+    if not _targeting_module().live_capabilities_match_panel_target_lock(payload, lock):
+        raise RuntimeError("live capabilities response has the wrong host generation")
+    return payload
+
+
 async def resolve_capabilities(
     instance: dict[str, Any],
     timeout: httpx.Timeout | float | None = None,
@@ -384,13 +404,15 @@ def select_rhino_instance(
     endpoint: str | None = None,
     port: int | None = None,
     process_id: int | None = None,
+    *,
+    instances: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Select the best Rhino instance for an endpoint.
 
     If `port` is provided, it anchors selection to the same Rhino process when
     a companion native/managed server pair exists.
     """
-    instances = discover_instances()
+    instances = list(instances) if instances is not None else discover_instances()
     if not instances:
         return None
 
@@ -511,7 +533,7 @@ def _cleanup_stale_discovery_files() -> list[dict[str, Any]]:
         "chirp-service-*.json",
     ]
     seen: set[Path] = set()
-    seen_instances: set[tuple[str, object]] = set()
+    seen_instances: set[tuple[object, ...]] = set()
     for folder in _effective_discovery_folders():
         if not folder.exists():
             continue
@@ -533,7 +555,20 @@ def _cleanup_stale_discovery_files() -> list[dict[str, Any]]:
                     if file.name.startswith("instance-"):
                         process_id = data.get("processId")
                         if process_id:
-                            instance_key = (str(data.get("pluginType") or "native"), process_id)
+                            host = data.get("host")
+                            route_host = (
+                                host.strip().lower()
+                                if isinstance(host, str) and host.strip()
+                                else DEFAULT_HOST
+                            )
+                            instance_key = (
+                                "route",
+                                str(data.get("pluginType") or "native"),
+                                process_id,
+                                route_host,
+                                data.get("port"),
+                                data.get("hostGenerationId"),
+                            )
                         else:
                             instance_key = ("path", file.resolve())
                         if instance_key in seen_instances:
@@ -624,6 +659,7 @@ def list_sessions() -> list[dict[str, Any]]:
     skipped (no stable session id).
     """
     sessions: list[dict[str, Any]] = []
+    seen_process_ids: set[str] = set()
     for instance in discover_instances():
         # A session == a Rhino window, keyed by its native listener. The
         # roadcreator adapter shares the Rhino PID (bridge.py:379-381); including
@@ -633,6 +669,10 @@ def list_sessions() -> list[dict[str, Any]]:
         pid = instance.get("processId")
         if not pid:
             continue
+        process_id = str(pid)
+        if process_id in seen_process_ids:
+            continue
+        seen_process_ids.add(process_id)
         sessions.append({
             "session": session_id_for_instance(instance),
             "processId": pid,
@@ -669,14 +709,28 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
             },
         }
 
-    instance = next(
-        (
-            inst for inst in discover_instances()
-            if inst.get("processId") == process_id and inst.get("pluginType") == "native"
-        ),
-        None,
-    )
+    targeting = _targeting_module()
+    lock, config_error = _panel_lock_state()
+    if config_error is not None:
+        return {"success": False, "data": config_error}
+    if lock is not None and process_id != lock.process_id:
+        return targeting.panel_target_locked_result()
+
+    instances = discover_instances()
+    if lock is not None:
+        instance = targeting.resolve_panel_target_instance(instances, lock)
+    else:
+        instance = next(
+            (
+                inst for inst in instances
+                if inst.get("processId") == process_id
+                and inst.get("pluginType") == "native"
+            ),
+            None,
+        )
     if instance is None:
+        if lock is not None:
+            return targeting.panel_target_unavailable_result(instances=instances)
         # No native record. Probe the PID before claiming dead (P2): the record may
         # be gone while the process lives (listener unloaded/reloading).
         gone_target = {
@@ -694,6 +748,38 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
             {"state": "dead", "pidAlive": False, "portListening": False},
             reason="capability_query",
         )
+
+    if lock is not None:
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                live_capabilities = await _fetch_verified_panel_capabilities(
+                    client, instance, lock
+                )
+        except Exception:
+            return targeting.panel_target_unavailable_result(
+                "The live Rook host generation could not be verified.",
+                instances=instances,
+            )
+        return {
+            "success": True,
+            "data": {
+                "session": session_id,
+                "processId": process_id,
+                "liveness": {
+                    "state": "live",
+                    "pidAlive": None,
+                    "portListening": True,
+                    "code": None,
+                },
+                "capabilities": {
+                    "source": "live",
+                    "stale": False,
+                    "authoritative": True,
+                    "liveEndpoint": "/capabilities",
+                    "capabilities": live_capabilities,
+                },
+            },
+        }
 
     liveness = classify_session_liveness(instance)
     if liveness["state"] in ("dead", "unreachable"):
@@ -929,6 +1015,8 @@ def _apply_panel_lock_to_request(
     data: dict | None,
     port: int | None,
     process_id: int | None,
+    *,
+    instances: list[dict[str, Any]] | None = None,
 ) -> tuple[dict | None, int | None, int | None, dict[str, Any] | None]:
     targeting = _targeting_module()
     lock, config_error = _panel_lock_state()
@@ -937,19 +1025,11 @@ def _apply_panel_lock_to_request(
     if lock is None:
         return data, port, process_id, None
 
-    instances = discover_instances()
-    locked_instances = [
-        instance
-        for instance in instances
-        if instance.get("processId") == lock.process_id
-    ]
-    if not locked_instances:
-        return data, port, process_id, targeting.route_error_result(
-            targeting.ToolRoute(
-                success=False,
-                error="panel_target_stale",
-                instances=instances,
-            )
+    instances = list(instances) if instances is not None else discover_instances()
+    locked_instance = targeting.resolve_panel_target_instance(instances, lock)
+    if locked_instance is None:
+        return data, port, process_id, targeting.panel_target_unavailable_result(
+            instances=instances
         )
 
     if process_id is not None and process_id > 0 and process_id != lock.process_id:
@@ -968,7 +1048,7 @@ def _apply_panel_lock_to_request(
     if isinstance(applied, dict) and applied.get("success") is False:
         return data, port, process_id, applied
 
-    return applied, port, lock.process_id, None
+    return applied, locked_instance.get("port"), lock.process_id, None
 
 
 async def call_rhino(
@@ -997,11 +1077,13 @@ async def call_rhino(
         resolved_port = None
     if resolved_process_id is not None and resolved_process_id <= 0:
         resolved_process_id = None
+    instance_snapshot = discover_instances()
     data, resolved_port, resolved_process_id, panel_error = _apply_panel_lock_to_request(
         endpoint,
         data,
         resolved_port,
         resolved_process_id,
+        instances=instance_snapshot,
     )
     if panel_error is not None:
         return panel_error
@@ -1011,6 +1093,7 @@ async def call_rhino(
         endpoint=endpoint,
         port=resolved_port,
         process_id=resolved_process_id,
+        instances=instance_snapshot,
     )
     if normalized_endpoint and normalized_endpoint.startswith(RC_ROUTE_PREFIX) and selected_instance is None:
         return {
@@ -1026,7 +1109,7 @@ async def call_rhino(
         and normalized_endpoint.startswith(GH_ROUTE_PREFIX)
         and selected_instance is None
     ):
-        instances = discover_instances()
+        instances = instance_snapshot
         if instances:
             ports_info = ", ".join(
                 f"{inst['port']} ({inst.get('pluginType', 'unknown')})"
@@ -1050,7 +1133,18 @@ async def call_rhino(
         }
 
     if selected_instance is not None:
-        instances = discover_instances()
+        instances = instance_snapshot
+        lock, _ = _panel_lock_state()
+        if (
+            lock is not None
+            and selected_instance.get("pluginType") == "native"
+            and not _targeting_module().instance_matches_panel_target_lock(
+                selected_instance, lock
+            )
+        ):
+            return _targeting_module().panel_target_unavailable_result(
+                instances=instances
+            )
         if _has_native_host_port_collision(selected_instance, instances):
             host = selected_instance.get("host") or DEFAULT_HOST
             port_value = selected_instance.get("port")
@@ -1065,7 +1159,7 @@ async def call_rhino(
             }
 
     if resolved_process_id is not None and selected_instance is None:
-        instances = discover_instances()
+        instances = instance_snapshot
         if instances:
             processes_info = ", ".join(
                 f"PID {inst.get('processId')} @ {inst.get('port')}"
@@ -1114,6 +1208,32 @@ async def call_rhino(
 
     async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as client:
         try:
+            lock, _ = _panel_lock_state()
+            if lock is not None:
+                authority_instances = instance_snapshot
+                authority = _targeting_module().resolve_panel_target_instance(
+                    authority_instances, lock
+                )
+                if authority is None:
+                    return _targeting_module().panel_target_unavailable_result(
+                        instances=authority_instances
+                    )
+                try:
+                    live_capabilities = await _fetch_verified_panel_capabilities(
+                        client, authority, lock
+                    )
+                except Exception:
+                    return _targeting_module().panel_target_unavailable_result(
+                        "The live Rook host generation could not be verified.",
+                        instances=authority_instances,
+                    )
+                capability_url = (
+                    f"http://{authority.get('host') or DEFAULT_HOST}:"
+                    f"{authority.get('port')}/capabilities"
+                )
+                if method == "GET" and not data and url == capability_url:
+                    return live_capabilities
+
             if method == "GET":
                 if data:
                     # Pass GET data as query parameters, not body JSON.

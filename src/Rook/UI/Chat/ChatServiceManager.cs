@@ -67,6 +67,7 @@ namespace Rook.UI.Chat
         public bool ServiceAvailable { get; set; }
         public string ServiceMessage { get; set; } = "";
         public Uri? BaseUri { get; set; }
+        public bool RuntimeAvailable { get; set; }
         public bool RhinoConnected { get; set; }
         public bool PromptAvailable { get; set; }
         public bool PromptActive { get; set; }
@@ -107,6 +108,9 @@ namespace Rook.UI.Chat
 
     internal class ChatServiceHealthService
     {
+        [JsonPropertyName("status")]
+        public string Status { get; set; } = "";
+
         [JsonPropertyName("ok")]
         public bool Ok { get; set; }
 
@@ -125,6 +129,9 @@ namespace Rook.UI.Chat
 
     internal class ChatServiceHealthRuntime
     {
+        [JsonPropertyName("available")]
+        public bool Available { get; set; }
+
         [JsonPropertyName("rhino")]
         public ChatServiceRhinoState? Rhino { get; set; }
 
@@ -354,6 +361,10 @@ namespace Rook.UI.Chat
                 {
                     RhinoApp.WriteLine("Rook: chat service shutdown skipped semaphore wait after timeout; proceeding with best-effort cleanup.");
                 }
+                ConversationCloseCoordinator.Instance
+                    .DrainAsync(ShutdownGateTimeout)
+                    .GetAwaiter()
+                    .GetResult();
                 StopServicesBestEffort();
             }
             finally
@@ -1258,11 +1269,14 @@ namespace Rook.UI.Chat
                     return null;
                 }
 
+                var serviceOk = string.Equals(payload.Service.Status, "ok", StringComparison.OrdinalIgnoreCase)
+                    || payload.Service.Ok;
                 return new ChatServiceHealth
                 {
-                    ServiceAvailable = payload.Service.Ok,
-                    ServiceMessage = payload.Service.Ok ? "Chat service available" : "Chat service unavailable",
+                    ServiceAvailable = serviceOk,
+                    ServiceMessage = serviceOk ? "Chat service available" : "Chat service unavailable",
                     BaseUri = baseUri,
+                    RuntimeAvailable = payload.Runtime?.Available ?? false,
                     RhinoConnected = payload.Runtime?.Rhino?.Connected ?? false,
                     PromptAvailable = payload.Runtime?.Prompt?.Available ?? false,
                     PromptActive = payload.Runtime?.Prompt?.IsActive ?? false,

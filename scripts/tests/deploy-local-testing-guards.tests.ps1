@@ -631,6 +631,28 @@ function Test-DeployScriptReleaseSitePackagesCoherence {
     Assert-Contains -Text $content -Expected 'Chat service PYTHONPATH must be empty in release' -Message 'Chat manifest verify must require empty release PYTHONPATH.'
 }
 
+function Test-PrimePayloadConsumerHandoff {
+    $tokens = $null
+    $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($DeployScript, [ref]$tokens, [ref]$errors)
+    Assert-True ($errors.Count -eq 0) 'Deployment script must parse.'
+    Assert-True ($ast.ParamBlock.Parameters.Name.VariablePath.UserPath -contains 'PrimeRuntimePayload') 'Explicit Prime payload is required.'
+    $calls = @($ast.EndBlock.Statements | Where-Object { $_ -isnot [System.Management.Automation.Language.FunctionDefinitionAst] } | ForEach-Object { $_.Extent.Text }) -join "`n"
+    Assert-Before $calls 'Assert-PrimeRuntimePayload' 'Assert-NoRunningFullDeployBlockers' 'Prime admission must precede deployment side effects.'
+    Assert-Before $calls 'Stage-PrimeRuntimePayload' 'Invoke-PostInstallConfig' 'Staging must feed post-install.'
+    $post = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-PostInstallConfig' }, $true)
+    $literals = @($post.FindAll({ param($node) $node -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true).Value)
+    Assert-True ($literals -contains '--prime-incoming-dir') 'Post-install must consume the exact incoming root.'
+    Assert-Contains $post.Extent.Text '$PrimeIncomingDir' 'The staged generation must reach the post-install argv.'
+    $commands = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)
+    foreach ($command in $commands) {
+        if ($command.GetCommandName() -in @('Copy-Item', 'Move-Item', 'Remove-Item', 'Set-Content', 'Out-File')) {
+            Assert-True (-not ($command.Extent.Text -match '(?i)prime[\\/]runtimes|prime[\\/]current\.json')) 'Deployment cannot publish Prime authority independently.'
+        }
+    }
+}
+
+Test-PrimePayloadConsumerHandoff
 Test-DevDoctorScriptContract
 Test-RookMcpProcessHelperContract
 Test-DeployScriptSelectsExplicitMsvcToolset

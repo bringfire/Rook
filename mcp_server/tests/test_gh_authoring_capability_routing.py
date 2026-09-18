@@ -326,6 +326,7 @@ async def test_public_mcp_handoff_is_structured_error_without_private_marker(
 
     monkeypatch.setattr(server, "call_rhino", fail_if_contacted)
     request = _edit_with({"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]})
+    request["expectedGhDocumentId"] = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
     result = await _public_call("gh_edit", request)
 
@@ -345,17 +346,24 @@ async def test_panel_locked_canonical_and_direct_handoffs_preserve_caller_reques
     targeting.reset_targeting_state_for_tests()
     targeting.initialize_from_environment({
         "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": (
+            "11111111-1111-1111-1111-111111111111"
+        ),
         "ROOK_MCP_TARGET_PROCESS_ID": "7101",
         "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
     })
     request = _edit_with({"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]})
+    public_request = {
+        **request,
+        "expectedGhDocumentId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    }
 
     def fail_route_resolution(*_args, **_kwargs):
         raise AssertionError("handoff attempted target resolution")
 
     monkeypatch.setattr(targeting, "resolve_tool_route", fail_route_resolution)
     try:
-        canonical = await server.call_tool("gh_edit", request, _public_mcp=True)
+        canonical = await server.call_tool("gh_edit", public_request, _public_mcp=True)
         direct = await ToolDispatcher(port=9950).dispatch("gh_edit", request)
     finally:
         targeting.reset_targeting_state_for_tests()
@@ -381,7 +389,9 @@ async def test_canonical_handoff_precedes_target_availability(
 
     result = await server.call_tool(
         "gh_edit",
-        _edit_with({"name": GH_SCRIPT_LANGUAGE_CONFIGS["csharp"]["names"][0]}),
+        _edit_with(
+            {"name": GH_SCRIPT_LANGUAGE_CONFIGS["csharp"]["names"][0]}
+        ),
         _public_mcp=True,
     )
 
@@ -531,6 +541,57 @@ async def test_public_schema_validation_precedes_script_handoff(
 
     assert result.isError is True
     assert "validation error" in result.content[0].text.lower()
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        (
+            "gh_edit",
+            _edit_with({"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]}),
+        ),
+        (
+            "rook_tools_call",
+            {
+                "name": "gh_edit",
+                "arguments": _edit_with(
+                    {"guid": GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"]}
+                ),
+            },
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_gh_edit_custody_precedes_script_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    arguments: dict,
+) -> None:
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    calls = []
+
+    def fail_if_classified(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("script handoff ran before GH custody")
+
+    monkeypatch.setattr(server, "model_facing_script_handoff", fail_if_classified)
+    targeting.reset_targeting_state_for_tests()
+    targeting.initialize_from_environment({
+        "ROOK_MCP_TARGET_MODE": "panel_locked",
+        "ROOK_MCP_TARGET_HOST_GENERATION_ID": (
+            "11111111-1111-1111-1111-111111111111"
+        ),
+        "ROOK_MCP_TARGET_PROCESS_ID": "7101",
+        "ROOK_MCP_TARGET_DOCUMENT_SERIAL_NUMBER": "42",
+    })
+    try:
+        result = await server.call_tool(name, arguments, _public_mcp=True)
+    finally:
+        targeting.reset_targeting_state_for_tests()
+
+    assert result.structuredContent["success"] is False
+    assert result.structuredContent["data"]["error"] == "gh_target_required"
     assert calls == []
 
 

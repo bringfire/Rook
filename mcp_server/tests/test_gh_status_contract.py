@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rook import server
+from rook import server, targeting
 
 
 class _DummyPhaseTracker:
@@ -25,9 +25,24 @@ def _decode_response(response):
 
 @pytest.fixture
 def patched_server(monkeypatch):
+    route = targeting.ToolRoute(
+        success=True,
+        target=targeting.InstanceRef(port=59123, process_id=4242),
+        selection="session",
+    )
+    routed = []
+
+    def resolve_route(name, **_kwargs):
+        routed.append(name)
+        return route
+
+    monkeypatch.setattr(server.targeting, "resolve_tool_route", resolve_route)
     monkeypatch.setattr(server, "should_inject", lambda _name, _result: False)
     monkeypatch.setattr(server, "_record_observation", lambda *args, **kwargs: None)
     monkeypatch.setattr(server, "get_phase_tracker", lambda: _DummyPhaseTracker())
+    yield
+    assert len(routed) == 1
+    assert routed[0] in {"gh_status", "gh_snapshot", "gh_edit"}
 
 
 @pytest.mark.asyncio

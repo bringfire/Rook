@@ -40,8 +40,8 @@ TIER_0: Set[str] = {
 }
 
 # These tools are valid MCP/server tools but do not currently have an internal
-# RookChat ToolDispatcher path. Keep them out of local execution-profile Tier 0
-# until they are added as ChatRunner intercepts, local tools, transforms, or
+# internal-agent ToolDispatcher path. Keep them out of local execution-profile Tier 0
+# until they are added as internal-agent intercepts, local tools, transforms, or
 # bridge routes.
 LOCAL_TIER_0_DISPATCH_EXCLUSIONS: Set[str] = {
     "scene_graph",
@@ -61,7 +61,6 @@ AGENT_TIER_0: Set[str] = (
     "gh_update_script",
     "session_history",       # per-command success/failure for post-execution verification
     "rhino_command_interactive_prompt",  # Rhino prompt state — detect non-idle after execution
-    "ui_block",              # Adaptive UI pseudo-tool (intercepted by ChatRunner)
 }
 
 # Readonly Tier 0: tools safe for observation-only agents (explorer, etc.).

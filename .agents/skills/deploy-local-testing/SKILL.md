@@ -23,6 +23,10 @@ requires Revit API assemblies. If Revit is not installed under the default
 Useful variants:
 
 ```powershell
+# C#/embedded UI iteration on an existing installation; Rhino must be closed.
+# Builds Rook only, without restore, then verifies/copies the companion bytes.
+pwsh -NoProfile -File scripts\deploy-local-testing.ps1 -ManagedOnly
+
 # Full deploy with a non-default Revit API location for RookBIM.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -RevitInstallDir "C:\Program Files\Autodesk\Revit 2025"
 
@@ -41,6 +45,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 # Dev chat/runtime iteration: use the repo MCP venv and write dev manifests.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -UseRepoVenv
 
+# Enable checkout-backed Python iteration without building any plugins.
+# Close Rhino/Rook MCP normally first; no AllowRunning or live-smoke bypass.
+pwsh -NoProfile -File scripts\deploy-local-testing.ps1 -PayloadOnly -UseRepoVenv
+
 # Dev chat/runtime iteration with an explicit venv path.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 -DevPythonRuntime "C:\UDEV\Rook\mcp_server\.venv\Scripts\python.exe"
 
@@ -53,11 +61,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing
 
 ## Rules
 
+- `-ManagedOnly` builds only Rook (all three target frameworks), suppresses automatic MSBuild deployment, and replaces only `Rook.rhp` plus available `Rook.pdb` files. `-SkipBuild` uses existing outputs. It checks Rhino before building and again before copying; it does not check or terminate MCP processes.
+- Managed-only requires a prior complete installation and byte-identical supporting DLLs, runtime assets and dependency metadata. Dependency changes require the full workflow; there is no fallback. Native, BIM, Python, Prime, Chirp, client configuration, chat manifests and registration remain untouched. Use it only for C#/embedded-resource changes compatible with the installed Python/native contracts.
+- Managed-only reports built-to-installed SHA-256 comparisons, not a new whole-product identity or release qualification. It cannot be combined with other deployment/runtime/live-smoke modes. Obtain deployment approval and close Rhino normally before execution.
 - Default deploy must fail if Rhino or `python -m rook` is running.
 - Default deploy intentionally requires Revit API assemblies for the RookBIM build; Rhino-only native iteration should use `-NativeOnly`, and payload-only sync after a previous build should use `-PayloadOnly -AllowRunning`.
 - `-NativeOnly` must fail if Rhino is running, but must not inspect, kill, block on, sync, or reconfigure running `python -m rook` MCP processes.
 - `-NativeOnly` is for native route/plugin iteration only: it copies/registers the native payload and preserves existing companion/MCP paths from a prior full deploy.
 - `-UseRepoVenv` and `-DevPythonRuntime` are explicit dev-runtime modes; they must never be inferred from a missing release private runtime.
+- For Python-only iteration, use `-PayloadOnly -UseRepoVenv` once to point the panel at this checkout's existing Python environment and `mcp_server/src`. Working directory and project root stay in the checkout; `ROOK_INSTALL_ROOT`, Prime's `current.json`/runtimes, persistent ACP data and installed Chirp remain at their installed locations. No Prime copy or rebuild is needed.
+- That dev setup still runs the existing AppData/Chirp source sync and writes chat manifests, but skips plugin builds/copies, sealed wheelhouse admission, release Python recreation and release client-config refresh. It does not install missing Python dependencies. Thereafter Python-only edits need a new chat-service process (close/reopen Rhino normally), not another deployment. Dependency changes still need explicit environment maintenance.
+- Dev mode is local testing, not qualification of the installed release Python bytes. External MCP client configurations are not switched to the dev interpreter by this command. Keep the installed runtime and preserved qualification evidence unchanged; do not claim that checkout-backed testing requalifies the release.
 - Release deploy without a dev-runtime flag still runs `post_install.py` and must fail loudly when the bundled release Python runtime is missing.
 - Default deploy syncs sibling `..\Chirp` into `%LOCALAPPDATA%\Rook\app\chirp` and refreshes the Chirp editable install.
 - Never overwrite `%LOCALAPPDATA%\Rook\data`, logs, `.env`, venvs, caches, or local generated artifacts.

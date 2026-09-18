@@ -62,20 +62,20 @@ def test_zero_argument_tool_override_rejects_open_schema():
     assert "Takes no arguments" in normalized["function"]["description"]
 
 
-def test_explicit_dynamic_allowlist_preserves_open_map():
+def test_normalize_closes_dynamic_map_without_an_explicit_allowlist():
     from rook.agent.chat.tool_contracts import normalize_litellm_tool_schema
 
     schema = {
         "type": "function",
         "function": {
-            "name": "ui_block",
-            "description": "Present UI",
+            "name": "sample_dynamic_map",
+            "description": "Dynamic map sample",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "config": {
                         "type": "object",
-                        "description": "Shape varies by block_type",
+                        "description": "Shape varies by discriminator",
                         "additionalProperties": True,
                     }
                 },
@@ -88,7 +88,7 @@ def test_explicit_dynamic_allowlist_preserves_open_map():
 
     params = normalized["function"]["parameters"]
     assert params["additionalProperties"] is False
-    assert params["properties"]["config"]["additionalProperties"] is True
+    assert params["properties"]["config"]["additionalProperties"] is False
 
 
 def test_normalize_closes_unallowlisted_nested_objects_recursively():
@@ -375,37 +375,22 @@ def test_audit_reports_open_composition_object_schemas():
     ]
 
 
-def test_audit_allows_named_dynamic_nested_object_maps():
+def test_no_dynamic_schema_exception_remains():
+    from rook.agent.chat.tool_contracts import DYNAMIC_NESTED_OBJECT_ALLOWLIST
+
+    assert DYNAMIC_NESTED_OBJECT_ALLOWLIST == {}
+
+
+@pytest.mark.asyncio
+async def test_audit_accepts_public_mcp_script_creation_schema(monkeypatch):
+    from rook import server
     from rook.agent.chat.tool_contracts import audit_litellm_tool_schema
+    from rook.agent.tool_registry import mcp_tool_to_litellm
 
-    schema = {
-        "type": "function",
-        "function": {
-            "name": "ui_block",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "config": {
-                        "type": "object",
-                        "properties": {},
-                        "additionalProperties": True,
-                    }
-                },
-                "additionalProperties": False,
-            },
-        },
-    }
-
-    assert audit_litellm_tool_schema(schema) == []
-
-
-def test_audit_accepts_closed_script_creation_schema():
-    from rook.agent.chat.chat_runner import _build_local_tool_catalog
-    from rook.agent.chat.tool_contracts import audit_litellm_tool_schema
-
-    schema = _build_local_tool_catalog({"gh_create_csharp_script": object()})[
-        "gh_create_csharp_script"
-    ]
+    monkeypatch.setenv("ROOK_MCP_TOOL_PROFILE", "full")
+    schema = mcp_tool_to_litellm(
+        next(tool for tool in await server.list_tools() if tool.name == "gh_create_csharp_script")
+    )
 
     assert audit_litellm_tool_schema(schema) == []
 
