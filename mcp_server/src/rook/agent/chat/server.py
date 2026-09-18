@@ -274,7 +274,7 @@ def _parse_create(body: dict[str, Any]) -> CreateConversationRequest:
             label="Model",
             max_bytes=MAX_MODEL_UTF8_BYTES,
         )
-        if model.count("/") != 1 or any(not part.strip() for part in model.split("/")):
+        if "/" not in model or any(not part.strip() for part in model.split("/", 1)):
             raise _HttpContractError("invalid_model", "Model must be fully qualified")
     reasoning = body.get("reasoning")
     if reasoning is not None and (type(reasoning) is not str or reasoning not in SUPPORTED_REASONING):
@@ -732,7 +732,7 @@ async def start_chat_server(
             runtime_available=runtime_available,
             configuration=configuration,
         )
-        runner = web.AppRunner(app)
+        runner = web.AppRunner(app, handler_cancellation=True)
         _app_runner = runner
         await runner.setup()
         try:

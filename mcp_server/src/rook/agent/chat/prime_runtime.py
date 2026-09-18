@@ -115,7 +115,7 @@ def build_prime_argv(
     if reopen and (requested_model is not None or requested_reasoning is not None):
         raise PrimeLaunchError("reopen_override_refused")
     if requested_model is not None and (
-        requested_model.count("/") != 1 or any(not part.strip() for part in requested_model.split("/"))
+        "/" not in requested_model or any(not part.strip() for part in requested_model.split("/", 1))
     ):
         raise PrimeLaunchError("invalid_model")
     if requested_reasoning is not None and requested_reasoning not in SUPPORTED_REASONING:
