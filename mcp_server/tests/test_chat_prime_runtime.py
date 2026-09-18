@@ -584,14 +584,17 @@ def test_new_release_provenance_does_not_reject_recorded_historical_runtime(tmp_
 
 
 @pytest.mark.parametrize("reopen", [False, True])
-def test_adoption_keeps_historical_selection_and_configuration_binding(tmp_path, monkeypatch, reopen):
+@pytest.mark.parametrize("previous", [
+    "c2055d6aff5891b918a24accf584a76852676445",
+    "dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b",
+], ids=["original-configuration", "corrected-networking"])
+def test_adoption_keeps_historical_selection_and_configuration_binding(tmp_path, monkeypatch, reopen, previous):
     from types import SimpleNamespace
     from rook.agent.chat import prime_runtime
     from rook.agent.chat.acp_conversation import DirectAcpProcessFactory
     from rook.agent.chat.service_main import InstalledRuntimeCatalog
 
-    previous = "c2055d6aff5891b918a24accf584a76852676445"
-    reviewed = "dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b"
+    reviewed = "08c2610b4822af1b37350c8f03f3281a19311b59"
     prime = tmp_path / "prime"
     old_id, old_root = _write_runtime(prime)
     old_bytes = {path.relative_to(old_root): path.read_bytes() for path in old_root.rglob("*") if path.is_file()}
@@ -611,7 +614,11 @@ def test_adoption_keeps_historical_selection_and_configuration_binding(tmp_path,
     previous_contract = catalog.get(previous_id)
     assert current.compatibility_patch_commit == reviewed
     assert artifact.PRIME_COMMIT == reviewed
-    assert prime_runtime.SUPPORTED_CONFIGURATION_COMMITS == frozenset({previous, reviewed})
+    assert prime_runtime.SUPPORTED_CONFIGURATION_COMMITS == frozenset({
+        "c2055d6aff5891b918a24accf584a76852676445",
+        "dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b",
+        reviewed,
+    })
     assert len({new_id, previous_id, old_id}) == 3
     assert previous_contract.compatibility_patch_commit == previous
     assert current.runtime_id == new_id != old_id

@@ -455,6 +455,7 @@ def test_configuration_launch_contract_supports_only_reviewed_adoption_commits()
     assert prime_runtime.SUPPORTED_CONFIGURATION_COMMITS == frozenset({
         "c2055d6aff5891b918a24accf584a76852676445",
         "dacbeab26b705e7d07b55ae6f8cd3e95ceb5458b",
+        "08c2610b4822af1b37350c8f03f3281a19311b59",
     })
 
 
