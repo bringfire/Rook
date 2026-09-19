@@ -209,36 +209,20 @@ function Test-PublicInstallerDoesNotRequireUserPython {
     Assert-Contains -Text $content -Expected 'ExpandConstant(''{localappdata}\Rook\python\cpython-3.11.9\python.exe'')' -Message 'Post-install must run on bundled private Python.'
 }
 
-function Test-InstallerPreservesExistingChirpEnvironment {
+function Test-InstallerDoesNotCollectApiKey {
     $content = Get-Content -Path $InstallerScript -Raw
-    $helperMatch = [regex]::Match(
-        $content,
-        '(?ms)^procedure WriteChirpEnvFileIfMissing\(.*?^end;'
-    )
-    Assert-True -Condition $helperMatch.Success -Message 'Installer must define the bounded Chirp-specific .env helper.'
-    $helper = $helperMatch.Value
 
-    Assert-Contains -Text $helper -Expected "EnvPath := Dir + '\.env';" -Message 'Chirp helper must target only the exact .env file.'
-    Assert-Contains -Text $helper -Expected 'if FileExists(EnvPath) then' -Message 'Chirp helper must preserve an existing .env.'
-    Assert-Contains -Text $helper -Expected 'ANTHROPIC_API_KEY=' -Message 'A newly created Chirp .env must contain the supplied API key.'
-    Assert-Contains -Text $helper -Expected 'CHIRP_INFERENCE_TIMEOUT_SECONDS=300' -Message 'A newly created Chirp .env must seed the supported timeout default.'
-    Assert-Contains -Text $helper -Expected 'SaveStringToFile(EnvPath, Content, False);' -Message 'Chirp helper must write only the exact missing file.'
-    Assert-True -Condition ($helper.IndexOf('FileExists(EnvPath)') -lt $helper.IndexOf('SaveStringToFile(EnvPath')) -Message 'Existing-file admission must precede every Chirp .env write.'
-
-    $postInstallMatch = [regex]::Match(
-        $content,
-        "(?ms)ApiKey := ApiKeyPage\.Values\[0\];(?<body>.*?)(?=\s*RecordPrivatePythonPath\(\);)"
-    )
-    Assert-True -Condition $postInstallMatch.Success -Message 'Installer post-install API-key branch must be discoverable.'
-    $postInstallBody = $postInstallMatch.Groups['body'].Value
-    Assert-Contains -Text $postInstallBody -Expected "if ApiKey <> '' then" -Message 'Installer must create keyed env files only when a key was supplied.'
-    Assert-Contains -Text $postInstallBody -Expected "WriteEnvFile(ExpandConstant('{app}') + '\mcp_server', ApiKey);" -Message 'Existing MCP .env behavior must remain unchanged.'
-    Assert-Contains -Text $postInstallBody -Expected "WriteChirpEnvFileIfMissing(ExpandConstant('{app}') + '\chirp', ApiKey);" -Message 'Chirp must use its preservation-specific helper inside the keyed branch.'
-    Assert-NotContains -Text $postInstallBody -Unexpected "WriteEnvFile(ExpandConstant('{app}') + '\chirp', ApiKey);" -Message 'Generic overwrite behavior must not remain active for Chirp.'
+    Assert-NotContains -Text $content -Unexpected 'ApiKeyPage' -Message 'Installer must not define an API key wizard page.'
+    Assert-NotContains -Text $content -Unexpected 'CreateInputQueryPage' -Message 'Installer must not prompt for any text input.'
+    Assert-NotContains -Text $content -Unexpected 'WriteEnvFile' -Message 'Installer must not write a keyed MCP .env file.'
+    Assert-NotContains -Text $content -Unexpected 'WriteChirpEnvFileIfMissing' -Message 'Installer must not write a keyed Chirp .env file.'
+    Assert-NotContains -Text $content -Unexpected 'ANTHROPIC_API_KEY=' -Message 'Installer must not write an Anthropic API key anywhere.'
+    Assert-NotContains -Text $content -Unexpected "'\.env'" -Message 'Installer must not create .env files; users configure keys after install.'
 
     $postInstallSource = Get-Content -Path $PostInstallScript -Raw
     Assert-Contains -Text $postInstallSource -Expected 'CHIRP_INFERENCE_TIMEOUT_SECONDS=300' -Message 'New Chirp .env.example files must expose the timeout default.'
     Assert-Contains -Text $postInstallSource -Expected 'if not chirp_example.exists()' -Message 'Existing Chirp .env.example files must remain untouched.'
+    Assert-NotContains -Text $postInstallSource -Unexpected 'If you entered your API key during install' -Message '.env.example templates must not reference a removed installer prompt.'
 }
 
 function Test-InstallerFailsWhenPostInstallFails {
@@ -895,7 +879,7 @@ function Test-PrimeIncomingPromotionConsumers {
 Test-PrimeIncomingPromotionConsumers
 Test-InstallerPackagesBundledPythonRuntime
 Test-PublicInstallerDoesNotRequireUserPython
-Test-InstallerPreservesExistingChirpEnvironment
+Test-InstallerDoesNotCollectApiKey
 Test-InstallerFailsWhenPostInstallFails
 Test-InstallerExplainsOfflineWheelhouseProgress
 Test-UninstallUsesRecordedPrivatePython
