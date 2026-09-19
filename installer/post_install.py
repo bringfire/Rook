@@ -871,7 +871,6 @@ def create_env_examples(install_dir: Path, chirp_dir: Path | None = None) -> Non
         mcp_example.write_text(
             "# Rook MCP Server Configuration\n"
             "# Copy this file to .env and fill in your values.\n"
-            "# (If you entered your API key during install, .env already exists.)\n"
             "\n"
             "# Required for AI-powered features (chat, agents, consolidation)\n"
             "ANTHROPIC_API_KEY=your-key-here\n"
@@ -889,7 +888,6 @@ def create_env_examples(install_dir: Path, chirp_dir: Path | None = None) -> Non
             chirp_example.write_text(
                 "# Chirp Adapter Configuration\n"
                 "# Copy this file to .env and fill in your values.\n"
-                "# (If you entered your API key during install, .env already exists.)\n"
                 "\n"
                 "# Required - powers LLM calls in Chirp components\n"
                 "ANTHROPIC_API_KEY=your-key-here\n"
