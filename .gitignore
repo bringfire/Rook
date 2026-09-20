@@ -188,3 +188,6 @@ knowledge/dspy-cache/
 # LM5K+ model probe evidence runs (raw evidence stays local; curated
 # summaries are committed under docs/superpowers/probes/)
 probe_runs/
+
+# Barcelona talk prep: drafts, deck archive, renders, venv. Kept out of the repo on purpose.
+docs/talks/
