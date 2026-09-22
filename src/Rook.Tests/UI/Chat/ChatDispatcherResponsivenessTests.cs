@@ -90,7 +90,19 @@ namespace Rook.Tests.UI.Chat
                         frame.Continue = false;
                 };
 
+                // Establish the heartbeat baseline BEFORE submitting, so the interval that
+                // spans the submission itself is measured like every other one (review
+                // finding: an initial UI stall must not escape detection).
                 heartbeat.Start();
+                var warmup = new DispatcherFrame();
+                var warmupTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = TimeSpan.FromMilliseconds(10) };
+                warmupTimer.Tick += (_, __) => { if (intervals.Count >= 5) warmup.Continue = false; };
+                warmupTimer.Start();
+                Dispatcher.PushFrame(warmup);
+                warmupTimer.Stop();
+                intervals.Clear();
+                last = DateTime.UtcNow;
+
                 settle.Start();
                 submission = h.SubmitWithoutPumping();
                 Dispatcher.PushFrame(frame);
@@ -113,7 +125,8 @@ namespace Rook.Tests.UI.Chat
 
                 // Responsiveness: the dispatcher kept ticking; no interval above the budget.
                 Assert.True(intervals.Count > 5, $"heartbeat did not run (ticks={intervals.Count})");
-                var worst = intervals.Skip(1).Max();
+                // Every interval counts, including the one covering the submission call.
+                var worst = intervals.Max();
                 Assert.True(worst < 250, $"worst heartbeat interval {worst:F0} ms (budget 250 ms); intervals={intervals.Count}, scripts={snapshot.Count}");
                 Assert.True(surface.InFlightScripts <= RookWebSurface.MaxInFlightScripts);
                 }
