@@ -354,8 +354,17 @@ assert record["import_record"]["module"] == "rook" and record["import_record"]["
 spec = importlib.util.find_spec('rook.agent.chat.prime_runtime_artifact')
 assert spec is not None and spec.origin and pathlib.Path(spec.origin).resolve().is_relative_to(site), 'verifier must come from sealed-wheel site-packages, not mcp_server/src or an editable installation'
 '@
-& $verificationPython -I -c $originProbe $verificationRoot $verificationRecord
-if ($LASTEXITCODE -ne 0) { throw 'Sealed-wheel verifier origin refused.' }
+# Run the probe from a temp file: Windows PowerShell 5.1 re-quotes native arguments and
+# splits an inline script at its embedded double quotes.
+$originProbePath = Join-Path ([IO.Path]::GetTempPath()) ('rook-origin-probe-' + [Guid]::NewGuid().ToString('N') + '.py')
+[IO.File]::WriteAllText($originProbePath, $originProbe)
+try {
+    & $verificationPython -I $originProbePath $verificationRoot $verificationRecord
+    $originProbeExit = $LASTEXITCODE
+} finally {
+    if (Test-Path -LiteralPath $originProbePath) { [IO.File]::Delete($originProbePath) }
+}
+if ($originProbeExit -ne 0) { throw 'Sealed-wheel verifier origin refused.' }
 & $verificationPython -I -m rook.agent.chat.prime_runtime_artifact verify --runtime-root $PrimeRuntimePayload --expected-runtime-id $payload.Name
 if ($LASTEXITCODE -ne 0) { throw 'Prime runtime payload verification refused.' }
 ```
