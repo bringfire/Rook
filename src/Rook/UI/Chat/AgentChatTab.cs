@@ -203,10 +203,21 @@ namespace Rook.UI.Chat
         private Uri? _conversationBaseUri;
         private volatile bool _uiAttached = true;
         private bool _deleted;
-        private bool _terminalSeen;
         private bool _promptOutcomeUnconfirmed;
-        private int _promptRequestId;
+        private PromptState? _activePrompt;
         private StringBuilder? _assistantBuffer;
+
+        /// <summary>
+        /// Per-request outcome truth (Contract 1). One instance per RunPromptAsync so a
+        /// later request can never reset an earlier request's terminal flag while that
+        /// request's continuation is still pending.
+        /// </summary>
+        private sealed class PromptState
+        {
+            public PromptState(int requestId) => RequestId = requestId;
+            public int RequestId { get; }
+            public volatile bool TerminalSeen;
+        }
         internal const int MaxToolCardPayloadBytes = 8 * 1024;
         private Label? _effectiveSettingsLabel;
         private string? _requestedModel;
@@ -358,13 +369,12 @@ namespace Rook.UI.Chat
             if (baseUri == null || string.IsNullOrEmpty(conversationId))
                 throw new InvalidOperationException("Prime conversation is not open.");
 
-            // Request truth (Contract 1): reader-owned, synchronous, never queued.
-            var requestId = ActiveRequestId;
-            lock (_promptGate)
-            {
-                _promptRequestId = requestId;
-                _terminalSeen = false;
-            }
+            // Request truth (Contract 1): reader-owned, synchronous, never queued, and
+            // scoped to this request. Settlement of request N can re-enable the composer
+            // before this method resumes from its await; a request N+1 started in that
+            // window must not be able to reset N's outcome.
+            var state = new PromptState(ActiveRequestId);
+            lock (_promptGate) _activePrompt = state;
             // TurnStart: the assistant buffer is reset on the UI thread in queue order,
             // behind any pending presentation of the previous turn.
             EnqueueContent("turn:start", () => { lock (_promptGate) _assistantBuffer = new StringBuilder(); }, emitsScripts: false);
@@ -381,7 +391,7 @@ namespace Rook.UI.Chat
                     conversationId,
                     text,
                     images,
-                    HandleChatEvent,
+                    evt => HandlePromptEvent(state, evt),
                     CancellationToken.None,
                     onDispatch: () => dispatched = true));
             }
@@ -389,18 +399,15 @@ namespace Rook.UI.Chat
             {
                 lock (_promptGate)
                 {
-                    if (dispatched && !_terminalSeen &&
+                    if (dispatched && !state.TerminalSeen &&
                         !(ex is AgentChatHttpException http && http.PromptNotAdmitted))
                         _promptOutcomeUnconfirmed = true;
                 }
                 throw;
             }
 
-            lock (_promptGate)
-            {
-                if (!_terminalSeen)
-                    throw new InvalidOperationException("Prime prompt ended without a terminal outcome.");
-            }
+            if (!state.TerminalSeen)
+                throw new InvalidOperationException("Prime prompt ended without a terminal outcome.");
         }
 
         internal static async Task RunOwnedPromptAsync(
@@ -440,9 +447,16 @@ namespace Rook.UI.Chat
         /// </summary>
         private void HandleChatEvent(ChatEvent evt)
         {
+            // Diagnostic / test entry: attribute the event to the current request.
+            PromptState? state;
+            lock (_promptGate) state = _activePrompt;
+            HandlePromptEvent(state ?? new PromptState(ActiveRequestId), evt);
+        }
+
+        private void HandlePromptEvent(PromptState state, ChatEvent evt)
+        {
             if (!_uiAttached) return;
-            int requestId;
-            lock (_promptGate) requestId = _promptRequestId;
+            var requestId = state.RequestId;
             switch (evt.Type)
             {
                 case "session_status":
@@ -460,7 +474,7 @@ namespace Rook.UI.Chat
                     HandleToolUpdate(evt);
                     break;
                 case "terminal":
-                    lock (_promptGate) _terminalSeen = true;
+                    state.TerminalSeen = true;
                     // End marker (Contract 3): TranscriptFinalize (history) then
                     // ControlSettle (active request only). Neither invalidates anything.
                     ShowTypingIndicator(false);

@@ -347,6 +347,97 @@ namespace Rook.Tests.UI.Chat
         }
 
         [Fact]
+        public void Settled_request_continuation_that_resumes_after_the_next_request_started_does_not_fail_it()
+        {
+            // Review finding: request truth must be per request. Request N's terminal is
+            // read and its ControlSettle applied (composer re-enabled) while N's own
+            // async continuation is still parked. N+1 is admitted and is in flight when
+            // N's continuation finally resumes: it must see N's terminal (no error
+            // bubble, no failure settle) and leave N+1 untouched.
+            RunOnSta(() =>
+            {
+                using var handler = new GatedPromptHandler(
+                    Text("first") + Terminal("settled", "end_turn"),
+                    Text("second") + Terminal("settled", "end_turn"));
+                using var h = Harness.Create(handler);
+                Invoke(h.Tab, typeof(ChatTab), "EnableWebComposer");
+                h.Pump();
+
+                var context = new SubmitContext();
+                SynchronizationContext.SetSynchronizationContext(context);
+                Task<bool> first;
+                try { first = h.SubmitWithoutPumping(); }
+                finally { SynchronizationContext.SetSynchronizationContext(null); }
+                handler.Release(1);
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                while (h.IsProcessing && clock.Elapsed < TimeSpan.FromSeconds(10)) { h.Pump(); Thread.Sleep(1); }
+                Assert.False(h.IsProcessing);                       // N settled through the queue
+                Assert.False(first.IsCompleted);                    // N's continuation still parked
+                Assert.True(context.Actions.Count > 0);
+
+                var second = h.SubmitWithoutPumping();              // N+1 admitted, response gated
+                h.Pump();
+                Assert.True(h.IsProcessing);
+                clock.Restart();                                    // the send itself runs on the thread pool
+                while (handler.Prompts < 2 && clock.Elapsed < TimeSpan.FromSeconds(10)) Thread.Sleep(1);
+                Assert.Equal(2, handler.Prompts);
+
+                // Resume N's parked continuation now, while N+1 is in flight.
+                clock.Restart();
+                while (!first.IsCompleted && clock.Elapsed < TimeSpan.FromSeconds(10))
+                {
+                    if (context.Actions.TryDequeue(out var action)) action();
+                    else { h.Pump(); Thread.Sleep(1); }
+                }
+                Assert.True(first.IsCompleted && first.Result);
+                h.Pump();
+                Assert.DoesNotContain(h.Scripts, s => s.StartsWith("window.chatAPI.addMessage('error'"));
+                Assert.True(h.IsProcessing, "N's late continuation clobbered N+1's processing state");
+                Assert.Equal("window.chatAPI.setComposerEnabled(true, false)", h.Scripts.Last(s => s.Contains("setComposerEnabled")));
+
+                handler.Release(2);
+                h.WaitForCompletion(second);
+                h.Pump();
+                Assert.False(h.IsProcessing);
+                Assert.Equal(new[] { "first", "second" }, Segments(h.Scripts));
+                Assert.Equal("window.chatAPI.setComposerEnabled(true, true)", h.Scripts.Last(s => s.Contains("setComposerEnabled")));
+            });
+        }
+
+        [Fact]
+        public void Clear_between_a_shown_typing_indicator_and_the_terminal_drain_still_hides_it()
+        {
+            // Review finding: the typing indicator is a control, not content. Its
+            // "shown" script has executed, the terminal has been read (hide + settle
+            // queued, not drained), then Clear discards content. The hide must survive
+            // the discard and execute after clearMessages().
+            RunOnSta(() =>
+            {
+                using var handler = new GatedPromptHandler(Text("hello") + Terminal("settled", "end_turn"));
+                using var h = Harness.Create(handler);
+                Invoke(h.Tab, typeof(ChatTab), "EnableWebComposer");
+                h.Pump();
+                var task = h.SubmitWithoutPumping();
+                h.Pump();                                           // user bubble + typing(true) executed
+                Assert.Contains("window.chatAPI.showTypingIndicator(true)", h.Scripts);
+                Assert.DoesNotContain("window.chatAPI.showTypingIndicator(false)", h.Scripts);
+
+                handler.Release(1);
+                h.WaitForCompletion(task);                          // terminal read; hide + settle queued
+                Assert.True(h.IsProcessing);
+                Invoke(h.Tab, typeof(ChatTab), "OnClearClicked", new object(), EventArgs.Empty);
+                h.Pump();
+
+                var clear = h.Scripts.IndexOf("window.chatAPI.clearMessages()");
+                var hide = h.Scripts.LastIndexOf("window.chatAPI.showTypingIndicator(false)");
+                Assert.True(clear >= 0 && hide > clear, "typing indicator was not hidden after Clear: " + string.Join(" | ", h.Scripts));
+                Assert.Equal("window.chatAPI.showTypingIndicator(false)", h.Scripts.Last(s => s.Contains("showTypingIndicator")));
+                Assert.DoesNotContain(h.Scripts, s => s.StartsWith("window.chatAPI.appendStreaming("));
+                Assert.False(h.IsProcessing);
+            });
+        }
+
+        [Fact]
         public void Oversized_tool_payloads_are_summarized_before_becoming_a_script()
         {
             var big = "{\"status\":\"in_progress\",\"catalog\":\"" + new string('x', AgentChatTab.MaxToolCardPayloadBytes) + "\",\"z\":1}";
@@ -544,9 +635,15 @@ namespace Rook.Tests.UI.Chat
             public int BufferedScripts => (int)Surface.GetType().BaseType!
                 .GetProperty("BufferedScripts", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Surface);
 
+            /// <summary>Optional executor override (e.g. timer-completed tasks for the dispatcher test).</summary>
+            public Func<string, Task<string>>? Executor;
+
+            public PresentationQueue Presentation => (PresentationQueue)Get(Tab, typeof(ChatTab), "_presentation");
+
             public Task<string> Execute(string script)
             {
                 Scripts.Add(script);
+                if (Executor != null) return Executor(script);
                 if (!HoldScripts) return Task.FromResult(string.Empty);
                 var tcs = new TaskCompletionSource<string>();
                 _held.Add(tcs);
@@ -689,6 +786,30 @@ namespace Rook.Tests.UI.Chat
                 _actions.CompleteAdding();
                 Assert.True(_thread.Join(TimeSpan.FromSeconds(5)), "Offline UI thread did not exit.");
                 _actions.Dispose();
+            }
+        }
+
+        /// <summary>Prompt responses held until the test releases them by ordinal.</summary>
+        private sealed class GatedPromptHandler : HttpMessageHandler
+        {
+            private readonly string[] _responses;
+            private readonly List<TaskCompletionSource<bool>> _gates = new();
+            public int Prompts { get; private set; }
+            public GatedPromptHandler(params string[] responses)
+            {
+                _responses = responses;
+                foreach (var _ in responses) _gates.Add(new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
+            }
+            public void Release(int ordinal) => _gates[ordinal - 1].TrySetResult(true);
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            {
+                Assert.Equal("/agent/chat/conversations/offline-fixture/prompt", request.RequestUri!.AbsolutePath);
+                var ordinal = ++Prompts;
+                await _gates[ordinal - 1].Task.ConfigureAwait(false);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(_responses[ordinal - 1], Encoding.UTF8, "application/x-ndjson"),
+                };
             }
         }
 

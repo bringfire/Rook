@@ -396,13 +396,18 @@ namespace Rook.UI.Chat
         }
 
         /// <summary>
-        /// Show or hide the typing indicator dots.
+        /// Show or hide the typing indicator dots. Typing visibility is request-control
+        /// state, not transcript content: it lives outside the message list, so
+        /// clearMessages() does not touch it, and a queued hide must survive a Clear
+        /// (otherwise a Clear between terminal-read and drain leaves the dots running).
         /// </summary>
         protected void ShowTypingIndicator(bool show)
         {
-            EnqueueContent("typing", () =>
-                PostContentScript($"window.chatAPI.showTypingIndicator({(show ? "true" : "false")})"));
+            EnqueueControl(_activeRequestId, "typing", () => PostTypingIndicator(show));
         }
+
+        private void PostTypingIndicator(bool show)
+            => PostControlScript($"window.chatAPI.showTypingIndicator({(show ? "true" : "false")})");
 
         /// <summary>
         /// End the current streaming message (history finalization).
@@ -621,7 +626,14 @@ namespace Rook.UI.Chat
                 else
                     _fallbackChat.Text = "";
             });
-            EnqueueControl(_activeRequestId, "control:refresh", UpdateUIState);
+            EnqueueControl(_activeRequestId, "control:refresh", () =>
+            {
+                UpdateUIState();
+                // The indicator is outside the cleared message list; mirror processing state.
+               
+                PostTypingIndicator(_isProcessing);
+               
+            });
 
             OnClearRequested();
 
