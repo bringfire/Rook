@@ -50,26 +50,55 @@ TIER_TOKEN_ESTIMATES = {
     "raw": 500,  # Can be much higher depending on pattern count
 }
 
-# MABWiser integration - graceful fallback if not installed
-_mab_available = False
-try:
-    from mabwiser.mab import MAB, LearningPolicy
-    _mab_available = True
-except ImportError:
-    logger.warning("MABWiser not installed. Using static weights. Install with: pip install mabwiser")
+# MABWiser integration - graceful fallback if not installed.
+#
+# Both bandit stacks are imported on first use, not at module import: mabwiser
+# pulls in numpy, pandas and scikit-learn (several seconds on a cold disk), and
+# this module is imported by the MCP server before it can answer `initialize`.
+# The availability flags stay module globals (None = not probed yet) so tests can
+# still patch them to force a branch; the loaders bind the imported names into
+# module globals so every existing use site below keeps working unchanged.
+_mab_available: Optional[bool] = None
+_contextual_mab_available: Optional[bool] = None
 
-# Contextual MAB integration (Phase 4)
-_contextual_mab_available = False
-try:
-    from .context import encode_context
-    from .context_storage import ContextHistory, ScalerManager, CONTEXT_HISTORY_PATH, SCALER_PATH
-    from .contextual_mab import (
-        ContextualMAB, MABConfig, warm_start_mab,
-        is_mabwiser_available, CONTEXTUAL_MAB_PATH
-    )
-    _contextual_mab_available = is_mabwiser_available()
-except ImportError as e:
-    logger.warning(f"Contextual MAB not available: {e}")
+
+def _mab_ready() -> bool:
+    """Import the context-free bandit on first use and report availability."""
+    global _mab_available, MAB, LearningPolicy
+    if _mab_available is False:
+        return False
+    if _mab_available is None or "MAB" not in globals():
+        try:
+            from mabwiser.mab import MAB, LearningPolicy
+            _mab_available = True
+        except ImportError:
+            _mab_available = False
+            logger.warning("MABWiser not installed. Using static weights. Install with: pip install mabwiser")
+    return bool(_mab_available)
+
+
+def _contextual_ready() -> bool:
+    """Import the contextual bandit stack (Phase 4) on first use and report availability."""
+    global _contextual_mab_available
+    global encode_context, ContextHistory, ScalerManager, CONTEXT_HISTORY_PATH, SCALER_PATH
+    global ContextualMAB, MABConfig, warm_start_mab, CONTEXTUAL_MAB_PATH
+    if _contextual_mab_available is False:
+        return False
+    if _contextual_mab_available is None or "encode_context" not in globals():
+        try:
+            from .context import encode_context
+            from .context_storage import ContextHistory, ScalerManager, CONTEXT_HISTORY_PATH, SCALER_PATH
+            from .contextual_mab import (
+                ContextualMAB, MABConfig, warm_start_mab,
+                is_mabwiser_available, CONTEXTUAL_MAB_PATH
+            )
+            available = is_mabwiser_available()
+        except ImportError as e:
+            logger.warning(f"Contextual MAB not available: {e}")
+            available = False
+        if _contextual_mab_available is None:
+            _contextual_mab_available = available
+    return bool(_contextual_mab_available)
 
 # Global instances for contextual MAB (lazy initialized)
 _context_history: Optional["ContextHistory"] = None
@@ -114,7 +143,7 @@ def _get_command_knowledge_store():
     global _command_knowledge_store
     if _command_knowledge_store is None:
         try:
-            from .learning.command_learner import CommandKnowledgeStore
+            from .learning.command_knowledge_store import CommandKnowledgeStore
             _command_knowledge_store = CommandKnowledgeStore()
             logger.debug(f"Loaded command knowledge store with {len(_command_knowledge_store.patterns)} commands")
         except ImportError as e:
@@ -130,7 +159,7 @@ def _get_command_knowledge_store():
 def _get_context_history() -> Optional["ContextHistory"]:
     """Get or initialize context history manager."""
     global _context_history
-    if not _contextual_mab_available:
+    if not _contextual_ready():
         return None
     if _context_history is None:
         _context_history = ContextHistory()
@@ -140,7 +169,7 @@ def _get_context_history() -> Optional["ContextHistory"]:
 def _get_scaler() -> Optional["ScalerManager"]:
     """Get or initialize scaler manager."""
     global _scaler
-    if not _contextual_mab_available:
+    if not _contextual_ready():
         return None
     if _scaler is None:
         _scaler = ScalerManager()
@@ -151,7 +180,7 @@ def _get_scaler() -> Optional["ScalerManager"]:
 def _get_contextual_mab() -> Optional["ContextualMAB"]:
     """Get or initialize contextual MAB."""
     global _contextual_mab
-    if not _contextual_mab_available:
+    if not _contextual_ready():
         return None
     if _contextual_mab is None:
         _contextual_mab = ContextualMAB()
@@ -293,7 +322,7 @@ def save_graph(graph: dict[str, Any], path: Path) -> bool:
 
 def load_mab() -> "MAB | None":
     """Load the MAB model from disk, or return None if not available."""
-    if not _mab_available:
+    if not _mab_ready():
         return None
     if not MAB_PATH.exists():
         return None
@@ -528,7 +557,7 @@ def query_knowledge(
     context_vector = None
     contextual_mab_expectations = {}
 
-    if _contextual_mab_available and (intent or tool):
+    if (intent or tool) and _contextual_ready():
         try:
             # Encode context from intent, tool, and params
             context_vector = encode_context(intent or "", tool or "", params or {})
@@ -811,7 +840,7 @@ def record_knowledge(
                 })
 
         # Update MAB with success
-        if _mab_available:
+        if _mab_ready():
             mab = load_mab()
             if mab is None:
                 # Create new MAB with this pattern
@@ -883,7 +912,7 @@ def record_knowledge(
             })
 
         # Fix #6: Update MAB with failure and antipattern tracking
-        if _mab_available:
+        if _mab_ready():
             mab = load_mab()
             if mab is None:
                 # Create new MAB with the antipattern
@@ -909,7 +938,7 @@ def record_knowledge(
     context_recorded = False
     contextual_mab_updated = False
 
-    if _contextual_mab_available:
+    if _contextual_ready():
         try:
             # Encode context (use override if provided)
             if context_override is not None:
@@ -1014,10 +1043,10 @@ def get_pattern_statistics(pattern_id: str | None = None) -> dict[str, Any]:
     result = {
         "patterns": {},
         "total_observations": 0,
-        "contextual_mab_available": _contextual_mab_available
+        "contextual_mab_available": _contextual_ready()
     }
 
-    if not _contextual_mab_available:
+    if not _contextual_ready():
         return result
 
     history = _get_context_history()
@@ -1091,7 +1120,7 @@ def explain_recommendation(
         "reasoning": ""
     }
 
-    if not _contextual_mab_available:
+    if not _contextual_ready():
         result["reasoning"] = "Contextual MAB not available, using static weights"
         return result
 
@@ -1171,26 +1200,26 @@ def get_learning_summary() -> dict[str, Any]:
             "local_path": str(LOCAL_PATH)
         },
         "mab": {
-            "available": _mab_available,
+            "available": _mab_ready(),
             "model_path": str(MAB_PATH),
             "model_exists": MAB_PATH.exists()
         },
         "contextual_mab": {
-            "available": _contextual_mab_available,
-            "model_path": str(CONTEXTUAL_MAB_PATH) if _contextual_mab_available else None,
-            "model_exists": CONTEXTUAL_MAB_PATH.exists() if _contextual_mab_available else False,
+            "available": _contextual_ready(),
+            "model_path": str(CONTEXTUAL_MAB_PATH) if _contextual_ready() else None,
+            "model_exists": CONTEXTUAL_MAB_PATH.exists() if _contextual_ready() else False,
             "is_fitted": False,
             "num_arms": 0
         },
         "context_history": {
-            "available": _contextual_mab_available,
-            "path": str(CONTEXT_HISTORY_PATH) if _contextual_mab_available else None,
+            "available": _contextual_ready(),
+            "path": str(CONTEXT_HISTORY_PATH) if _contextual_ready() else None,
             "total_observations": 0
         }
     }
 
     # Add contextual MAB details
-    if _contextual_mab_available:
+    if _contextual_ready():
         cmab = _get_contextual_mab()
         if cmab is not None:
             result["contextual_mab"]["is_fitted"] = cmab.is_fitted

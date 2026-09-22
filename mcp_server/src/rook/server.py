@@ -123,11 +123,20 @@ from .knowledge import query_knowledge, query_knowledge_tiered, record_knowledge
 from .learning.command_observer import (
     CommandObserver, ObservationStore, DEFAULT_OBSERVATION_STORE_PATH
 )
-from .learning.command_learner import (
-    CommandLearner, CommandKnowledgeStore, get_learning_queue
-)
-from .learning.command_consolidator import CommandTieringSystem
-from .learning.dspy_config import configure_dspy, is_configured
+# DSPy, MABWiser (numpy/pandas/scikit-learn) and the command learner are imported
+# on first use, never at module import: a cold import of that stack takes tens of
+# seconds on a fresh machine and Prime's MCP client gives this server 20 s to answer
+# `initialize`. The names below stay module attributes so tests can patch them.
+
+
+def configure_dspy(*args, **kwargs):
+    from .learning.dspy_config import configure_dspy as _configure_dspy
+    return _configure_dspy(*args, **kwargs)
+
+
+def is_configured() -> bool:
+    from .learning.dspy_config import is_configured as _is_configured
+    return _is_configured()
 from .learning.sugiyama import SugiyamaLayout
 from .learning.canvas_layout import CanvasLayout, LayoutSettings
 from .learning.canvas_align import (
@@ -176,18 +185,23 @@ async def call_rhino(
 def _panel_gh_custody_active() -> bool:
     return targeting.get_panel_target_lock() is not None
 
-# Configure DSPy at startup — resolves model from profiles (supports local models)
-def _configure_dspy_if_available() -> bool:
-    """Configure DSPy from model profiles. Supports both cloud and local models."""
-    try:
-        configure_dspy()
-        logger.info("DSPy configured successfully")
-        return True
-    except Exception as e:
-        logger.warning(f"Failed to configure DSPy: {e}")
-        return False
+# DSPy is configured on first use — resolves model from profiles (supports local
+# models). Deferred from import time so it never delays the MCP handshake.
+_dspy_configured = None  # type: bool | None
 
-_dspy_configured = _configure_dspy_if_available()
+
+def _configure_dspy_if_available() -> bool:
+    """Configure DSPy from model profiles once. Supports both cloud and local models."""
+    global _dspy_configured
+    if _dspy_configured is None:
+        try:
+            configure_dspy()
+            logger.info("DSPy configured successfully")
+            _dspy_configured = True
+        except Exception as e:
+            logger.warning(f"Failed to configure DSPy: {e}")
+            _dspy_configured = False
+    return _dspy_configured
 
 # NOTE: TIMEOUT, DISCOVERY_FOLDER, call_rhino, get_rhino_host,
 # and discover_instances are imported from .bridge module above.
@@ -197,8 +211,49 @@ READINESS_TRANSPORT_GRACE_SECONDS = 5.0
 # Command observation store for learning
 observation_store = ObservationStore(DEFAULT_OBSERVATION_STORE_PATH)
 
-# Command learner with DSPy/MAB integration
-command_learner = CommandLearner(observation_store=observation_store)
+
+class _LazyCommandLearner:
+    """Stand-in for the CommandLearner, which is constructed on first use.
+
+    The learner's module and constructor import DSPy and MABWiser. Command
+    preflight and knowledge lookups only need the (cheap) knowledge store, which
+    this proxy serves without building the learner; learning operations build it
+    on demand with the same store instances so state stays consistent.
+    """
+
+    def __init__(self, observation_store):
+        self._observation_store = observation_store
+        self._knowledge_store = None
+        self._learner = None
+
+    @property
+    def observation_store(self):
+        return self._observation_store
+
+    @property
+    def knowledge_store(self):
+        if self._learner is not None:
+            return self._learner.knowledge_store
+        if self._knowledge_store is None:
+            from .learning.command_knowledge_store import CommandKnowledgeStore
+            self._knowledge_store = CommandKnowledgeStore()
+        return self._knowledge_store
+
+    def _real(self):
+        if self._learner is None:
+            from .learning.command_learner import CommandLearner
+            self._learner = CommandLearner(
+                observation_store=self._observation_store,
+                knowledge_store=self.knowledge_store,
+            )
+        return self._learner
+
+    def __getattr__(self, name):
+        return getattr(self._real(), name)
+
+
+# Command learner with DSPy/MAB integration (built on the first learning operation)
+command_learner = _LazyCommandLearner(observation_store)
 
 # Failure tracking for correction detection
 # Maps command -> {"inputs": [...], "error": "...", "timestamp": ...}
@@ -3454,6 +3509,8 @@ def _regenerate_tiered_knowledge(command: str | None = None) -> dict:
         # Only regenerate if knowledge file exists
         if not knowledge_path.exists():
             return {"regenerated": False, "reason": "No command_knowledge.json found"}
+
+        from .learning.command_consolidator import CommandTieringSystem
 
         tiering = CommandTieringSystem(
             knowledge_path=str(knowledge_path),
@@ -18439,7 +18496,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
             mode = arguments.get("mode", "full")
             orphan_mode = arguments.get("orphan_mode", "legacy-include")
 
-            if not _dspy_configured:
+            if not _configure_dspy_if_available():
                 result = {
                     "success": False,
                     "data": "DSPy not configured. Set ANTHROPIC_API_KEY in environment or .env file."

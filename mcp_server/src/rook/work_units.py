@@ -30,7 +30,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import networkx as nx
 
 from . import artifacts as _artifacts   # read-only P6 access (resolve + present check)
 
@@ -539,6 +538,7 @@ class PlannedContractInvalid(RuntimeError):
 def _contract_graph(pairs):
     """pairs: list of (contract_id, target_artifact_id, sources_list). Directed edge A->B iff
     target(A) appears in sources(B). Returns (graph, target_of, sources_of)."""
+    import networkx as nx  # deferred: not needed at server import
     target_of = {cid: t for cid, t, _ in pairs}
     sources_of = {cid: list(s) for cid, _, s in pairs}
     g = nx.DiGraph()
@@ -553,6 +553,7 @@ def _contract_graph(pairs):
 def _contract_cycle(pairs) -> "list[str] | None":
     """Return a cycle (list of contract_ids) if the contract graph has one, else None. SHARED by
     insert_contract's atomic pre-check and validate's whole-graph check."""
+    import networkx as nx  # deferred: not needed at server import
     g, _, _ = _contract_graph(pairs)
     try:
         cyc = nx.find_cycle(g)   # list of (u, v) edges (2-tuples; no orientation)
@@ -567,6 +568,7 @@ def _ordered_contract_ids(pairs, order_key):
     Returns (order, None) on success or (None, cycle) on a cyclic graph. Reused by
     _validate_graph (whole graph) and plan_linked_block_execution (whole-graph order, then
     filtered to a requested subset)."""
+    import networkx as nx  # deferred: not needed at server import
     g, _, _ = _contract_graph(pairs)
     try:
         return list(nx.lexicographical_topological_sort(g, key=lambda n: order_key[n])), None
@@ -742,6 +744,7 @@ def _observe_planned_contract(reg, row: "PlannedContractRow", p6_available: bool
 def _planned_graph_view(reg) -> "dict[str, Any]":
     """Whole-graph view over canonical keys: plannedContractOrder (incl. activated rows), edges, graphOk,
     graphProblems. Never stored."""
+    import networkx as nx  # deferred: not needed at server import
     contracts = reg.list_planned_contracts()
     pairs = _planned_graph_pairs(reg)
     g, target_of, sources_of = _contract_graph(pairs)
