@@ -68,3 +68,18 @@ def test_lazy_learner_proxy_serves_the_knowledge_store_without_building_the_lear
     store = proxy.knowledge_store
     assert store is proxy.knowledge_store
     assert proxy._learner is None, "knowledge_store access must not construct the learner"
+
+
+def test_lazy_learner_proxy_accepts_store_assignment_like_the_real_learner(monkeypatch):
+    # Tests (e.g. test_server_execute_safety) replace command_learner.knowledge_store
+    # via monkeypatch; the proxy must accept that, and undo cleanly, without
+    # building the learner.
+    import rook.server as server
+
+    proxy = server.command_learner
+    original = proxy.knowledge_store
+    monkeypatch.setattr(proxy, "knowledge_store", None)
+    assert proxy.knowledge_store is None
+    assert proxy._learner is None
+    monkeypatch.undo()
+    assert proxy.knowledge_store is original

@@ -223,21 +223,40 @@ class _LazyCommandLearner:
 
     def __init__(self, observation_store):
         self._observation_store = observation_store
-        self._knowledge_store = None
+        self._knowledge_store = _LazyCommandLearner._UNSET
         self._learner = None
+
+    _OWN_FIELDS = frozenset({"_observation_store", "_knowledge_store", "_learner"})
+    _UNSET = object()  # distinct from None, which tests assign deliberately
 
     @property
     def observation_store(self):
+        if self._learner is not None:
+            return self._learner.observation_store
         return self._observation_store
+
+    @observation_store.setter
+    def observation_store(self, value):
+        self._observation_store = value
+        if self._learner is not None:
+            self._learner.observation_store = value
 
     @property
     def knowledge_store(self):
         if self._learner is not None:
             return self._learner.knowledge_store
-        if self._knowledge_store is None:
+        if self._knowledge_store is _LazyCommandLearner._UNSET:
             from .learning.command_knowledge_store import CommandKnowledgeStore
             self._knowledge_store = CommandKnowledgeStore()
         return self._knowledge_store
+
+    @knowledge_store.setter
+    def knowledge_store(self, value):
+        # Tests replace the store (or set it to None); honour that without
+        # building the learner, and mirror it into the learner if it exists.
+        self._knowledge_store = value
+        if self._learner is not None:
+            self._learner.knowledge_store = value
 
     def _real(self):
         if self._learner is None:
@@ -250,6 +269,12 @@ class _LazyCommandLearner:
 
     def __getattr__(self, name):
         return getattr(self._real(), name)
+
+    def __setattr__(self, name, value):
+        if name in _LazyCommandLearner._OWN_FIELDS or name in ("observation_store", "knowledge_store"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._real(), name, value)
 
 
 # Command learner with DSPy/MAB integration (built on the first learning operation)
