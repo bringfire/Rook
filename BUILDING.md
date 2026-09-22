@@ -563,6 +563,11 @@ Release installers are produced by the `build-release` skill
 recipe. In outline it needs, beyond the prerequisites above:
 
 - the bundled FFmpeg built by the committed recipe (see *Bundled FFmpeg*);
+- the official pip 26.2.1 bootstrap wheel, downloaded once from PyPI to
+  `artifacts/python-bootstrap/pip-26.2.1-py3-none-any.whl`
+  (https://pypi.org/project/pip/26.2.1/#files, SHA-256
+  `71138ADF1F4CA900CDB7D289C21B7494329F2332B6D85F0E1C42108C0384ED3E`); the wheelhouse
+  builder verifies that hash and refuses to touch the package index without it;
 - the sealed CPython 3.11.9 runtime and wheelhouse from
   `scripts\python-runtime\stage-rook-python-runtime.ps1` and
   `scripts\python-runtime\build-rook-python-wheelhouse.ps1` (requires the Chirp sibling);
