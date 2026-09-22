@@ -1,7 +1,8 @@
 // TextureMappingHandler.cpp
 //
 // UV texture mapping: box, planar, cylinder, spherical.
-// Uses ON_TextureMapping + RunScript _-ApplyBoxMapping etc. as needed.
+// Box and planar mapping use renderer-independent Rhino mapping channels.
+// Cylinder/sphere still use legacy commands pending their own validation.
 
 #include "stdafx.h"
 #include "Handlers/TextureMappingHandler.h"
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <map>
 #include <vector>
+#include <limits>
 
 namespace Rook {
 namespace Handlers {
@@ -25,22 +27,25 @@ namespace Handlers {
 
 static double GetDefaultScale(ON::LengthUnitSystem units)
 {
-    switch (units)
-    {
-    case ON::LengthUnitSystem::Millimeters: return 1000.0;
-    case ON::LengthUnitSystem::Centimeters: return 100.0;
-    case ON::LengthUnitSystem::Meters:      return 1.0;
-    case ON::LengthUnitSystem::Inches:      return 39.37;
-    case ON::LengthUnitSystem::Feet:        return 3.28;
-    case ON::LengthUnitSystem::Yards:       return 0.328;
-    default:                                return 1000.0;
-    }
+    if (units == ON::LengthUnitSystem::None || units == ON::LengthUnitSystem::CustomUnits)
+        throw std::invalid_argument("An explicit scale is required for unitless/custom-unit documents");
+    const double scale = ON::UnitScale(ON::LengthUnitSystem::Meters, units);
+    if (!std::isfinite(scale) || scale <= 0.0)
+        throw std::invalid_argument("Cannot determine mapping scale from document units");
+    return scale;
 }
 
 static double GetScale(const nlohmann::json& body, CRhinoDoc* pDoc)
 {
-    if (body.contains("scale") && body["scale"].is_number())
-        return body["scale"].get<double>();
+    if (body.contains("scale"))
+    {
+        if (!body["scale"].is_number())
+            throw std::invalid_argument("scale must be a positive finite number");
+        const double scale = body["scale"].get<double>();
+        if (!std::isfinite(scale) || scale <= 0.0)
+            throw std::invalid_argument("scale must be a positive finite number");
+        return scale;
+    }
     ON::LengthUnitSystem units = pDoc->Properties().ModelUnitsAndTolerances().m_unit_system.UnitSystem();
     return GetDefaultScale(units);
 }
@@ -50,6 +55,14 @@ static std::pair<ON_3dVector, ON_3dVector> CalculateObjectOrientationXY(const ON
 {
     struct EdgeData { ON_3dVector vec; double length; double angle; };
     std::vector<EdgeData> edgeData;
+    auto addEdge = [&](const ON_3dPoint& start, const ON_3dPoint& end)
+    {
+        ON_3dVector v(end.x - start.x, end.y - start.y, 0.0);
+        const double length = v.Length();
+        if (length <= ON_ZERO_TOLERANCE || !v.Unitize()) return;
+        double angle = fmod(atan2(v.y, v.x) * 180.0 / ON_PI + 180.0, 180.0);
+        edgeData.push_back({ v, length, angle });
+    };
 
     const ON_Brep* brep = ON_Brep::Cast(geom);
     std::unique_ptr<ON_Brep> brepOwned;
@@ -74,17 +87,30 @@ static std::pair<ON_3dVector, ON_3dVector> CalculateObjectOrientationXY(const ON
             ON_3dPoint startPt = edge.PointAt(domain.Min());
             ON_3dPoint endPt = edge.PointAt(domain.Max());
 
-            ON_3dVector edgeVec = endPt - startPt;
-            ON_3dVector edgeVecXY(edgeVec.x, edgeVec.y, 0.0);
-            double lenXY = edgeVecXY.Length();
-
-            if (lenXY > 0.001)
-            {
-                edgeVecXY.Unitize();
-                double angleDeg = atan2(edgeVecXY.y, edgeVecXY.x) * 180.0 / ON_PI;
-                if (angleDeg < 0) angleDeg += 180.0;
-                edgeData.push_back({ edgeVecXY, lenXY, angleDeg });
-            }
+            // Closed/curved edges do not provide a reliable grain direction.
+            if (edge.IsLinear()) addEdge(startPt, endPt);
+        }
+    }
+    else if (const ON_Mesh* mesh = ON_Mesh::Cast(geom))
+    {
+        const auto& topology = mesh->Topology();
+        auto faceNormal = [&](int index)
+        {
+            const auto& face = mesh->m_F[index];
+            ON_3dVector n = ON_CrossProduct(mesh->Vertex(face.vi[1]) - mesh->Vertex(face.vi[0]),
+                                          mesh->Vertex(face.vi[2]) - mesh->Vertex(face.vi[0]));
+            n.Unitize();
+            return n;
+        };
+        for (int i = 0; i < topology.m_tope.Count(); ++i)
+        {
+            const auto& edge = topology.m_tope[i];
+            // Ignore triangulation/subdivision edges inside a flat face.
+            if (edge.m_topf_count == 2 &&
+                fabs(faceNormal(edge.m_topfi[0]) * faceNormal(edge.m_topfi[1])) > 1.0 - 1e-8)
+                continue;
+            const ON_Line line = topology.TopEdgeLine(i);
+            addEdge(line.from, line.to);
         }
     }
 
@@ -98,7 +124,8 @@ static std::pair<ON_3dVector, ON_3dVector> CalculateObjectOrientationXY(const ON
         bool foundGroup = false;
         for (auto& [groupAngle, totalLen] : angleGroupLengths)
         {
-            if (fabs(ed.angle - groupAngle) < 2.0)
+            const double difference = fabs(ed.angle - groupAngle);
+            if ((std::min)(difference, 180.0 - difference) < 2.0)
             {
                 totalLen += ed.length;
                 foundGroup = true;
@@ -134,40 +161,29 @@ struct OrientedBBox {
     double xSize, ySize, zSize;
 };
 
-static OrientedBBox GetObjectOrientedBoundingBox(const ON_Geometry* geom)
+static OrientedBBox GetObjectOrientedBoundingBox(const ON_Geometry* geom,
+    const ON_Plane* requestedFrame = nullptr)
 {
     ON_BoundingBox bbox = geom->BoundingBox();
-    auto [primary, secondary] = CalculateObjectOrientationXY(geom);
-    ON_3dPoint center = bbox.Center();
-    ON_Plane plane(center, primary, secondary);
-
-    // Project corners onto oriented axes
-    ON_3dPoint corners[8];
-    corners[0] = ON_3dPoint(bbox.Min().x, bbox.Min().y, bbox.Min().z);
-    corners[1] = ON_3dPoint(bbox.Max().x, bbox.Min().y, bbox.Min().z);
-    corners[2] = ON_3dPoint(bbox.Max().x, bbox.Max().y, bbox.Min().z);
-    corners[3] = ON_3dPoint(bbox.Min().x, bbox.Max().y, bbox.Min().z);
-    corners[4] = ON_3dPoint(bbox.Min().x, bbox.Min().y, bbox.Max().z);
-    corners[5] = ON_3dPoint(bbox.Max().x, bbox.Min().y, bbox.Max().z);
-    corners[6] = ON_3dPoint(bbox.Max().x, bbox.Max().y, bbox.Max().z);
-    corners[7] = ON_3dPoint(bbox.Min().x, bbox.Max().y, bbox.Max().z);
-
-    double xMin = 1e30, xMax = -1e30;
-    double yMin = 1e30, yMax = -1e30;
-    double zMin = 1e30, zMax = -1e30;
-
-    for (int i = 0; i < 8; ++i)
+    ON_Plane plane;
+    if (requestedFrame)
+        plane = *requestedFrame;
+    else
     {
-        ON_3dVector localVec = corners[i] - center;
-        double xp = localVec * primary;
-        double yp = localVec * secondary;
-        double zp = localVec * ON_3dVector::ZAxis;
-        xMin = (std::min)(xMin, xp); xMax = (std::max)(xMax, xp);
-        yMin = (std::min)(yMin, yp); yMax = (std::max)(yMax, yp);
-        zMin = (std::min)(zMin, zp); zMax = (std::max)(zMax, zp);
+        auto [primary, secondary] = CalculateObjectOrientationXY(geom);
+        plane = ON_Plane(bbox.Center(), primary, secondary);
     }
 
-    return { plane, xMax - xMin, yMax - yMin, zMax - zMin };
+    // Bound the geometry in the chosen frame, not the world bounding box.
+    ON_Xform toLocal;
+    ON_BoundingBox local;
+    if (!bbox.IsValid() || !toLocal.ChangeBasis(ON_Plane::World_xy, plane) ||
+        !geom->GetTightBoundingBox(local, false, &toLocal) || !local.IsValid())
+        throw std::invalid_argument("Cannot compute object mapping bounds");
+    const ON_3dPoint middle = local.Center();
+    plane.SetOrigin(plane.PointAt(middle.x, middle.y, middle.z));
+    return { plane, local.Max().x - local.Min().x,
+             local.Max().y - local.Min().y, local.Max().z - local.Min().z };
 }
 
 static std::pair<ON_Plane, std::string> GetMappingPlane(const ON_Geometry* geom, const std::string& mode)
@@ -201,18 +217,32 @@ static bool ApplyDirectTextureMapping(
         return false;
 
     const CRhinoTextureMapping& tableMapping = pDoc->m_texture_mapping_table[mappingIndex];
+    // SDK: this is the Rhino SYSTEM renderer ID, not the active renderer.
+    // It is the common mapping channel store used by RhinoCommon as well.
     const ON_UUID pluginId = RhinoApp().RhinoRenderPlugInUUID();
 
     ON_3dmObjectAttributes attrs = obj->Attributes();
     attrs.m_rendering_attributes.DeleteMappingChannel(pluginId, channel);
     if (!attrs.m_rendering_attributes.AddMappingChannel(pluginId, channel, tableMapping.Id()))
+    {
+        pDoc->m_texture_mapping_table.DeleteTextureMapping(mappingIndex);
         return false;
+    }
 
-    if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+    if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs, true))
+    {
+        pDoc->m_texture_mapping_table.DeleteTextureMapping(mappingIndex);
         return false;
+    }
 
-    const_cast<CRhinoObject*>(obj)->SetTextureCoordinates(mapping, nullptr, true);
-    return true;
+    // Reacquire after a document mutation. Do not overwrite mesh channel-1 UVs
+    // just to populate a cache for a different requested channel.
+    const CRhinoObject* updated = pDoc->LookupObject(attrs.m_uuid);
+    if (!updated) return false;
+    const auto* stored = updated->Attributes().m_rendering_attributes.MappingChannel(pluginId, channel);
+    ON_TextureMapping readback;
+    return stored && pDoc->m_texture_mapping_table.GetTextureMapping(stored, readback) &&
+        readback.Id() == tableMapping.Id();
 }
 
 static std::pair<ON_3dVector, std::string> GetCylinderAxis(
@@ -249,9 +279,7 @@ static ON_Plane CreatePlanePerpendicular(ON_3dPoint origin, ON_3dVector normal)
     return ON_Plane(origin, xDir, yDir);
 }
 
-// Apply texture mapping to an object using RunScript
-// This is the most reliable approach since CRhinoDoc::ModifyTextureMapping
-// may not be available or may have a different signature in C++ SDK.
+// Legacy command path, retained for cylinder/sphere until those routes migrate.
 static bool ApplyMappingViaCommand(CRhinoDoc* pDoc, const CRhinoObject* obj,
     const std::string& mappingType, double scale,
     const ON_Plane& plane, bool capped = true)
@@ -296,6 +324,18 @@ struct MappingResult {
 
 // ─── POST /material/uv-box ──────────────────────────────────────
 
+// Placement data is independent of a material or renderer. Future mapping
+// constructors can reuse this frame/repeat contract without command macros.
+static ON_3dVector ReadMappingTriple(const nlohmann::json& value, const char* label)
+{
+    if (!value.is_array() || value.size() != 3)
+        throw std::invalid_argument(std::string(label) + " must contain three finite numbers");
+    for (const auto& item : value)
+        if (!item.is_number() || !std::isfinite(item.get<double>()))
+            throw std::invalid_argument(std::string(label) + " must contain three finite numbers");
+    return ON_3dVector(value[0].get<double>(), value[1].get<double>(), value[2].get<double>());
+}
+
 void HandleUvBox(const httplib::Request& req, httplib::Response& res)
 {
     auto [docSn, body] = ParseBodyAndDocSn(req);
@@ -308,15 +348,50 @@ void HandleUvBox(const httplib::Request& req, httplib::Response& res)
         return;
     }
 
-    int channel = body.value("channel", 1);
-
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [docSn, body, ids, channel]() -> WriteResult
+        [docSn, body, ids]() -> WriteResult
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
-        double scale = GetScale(body, pDoc);
-        if (scale <= 0)
-            throw std::invalid_argument("scale must be positive");
+        if (body.contains("channel") &&
+            (!body["channel"].is_number_integer() || body["channel"].get<double>() < 1.0 ||
+             body["channel"].get<double>() > (std::numeric_limits<int>::max)()))
+            throw std::invalid_argument("channel must be an integer from 1 to 2147483647");
+        const int channel = body.value("channel", 1);
+        if (channel <= 0 || channel == ON_ObjectRenderingAttributes::OCSMappingChannelId())
+            throw std::invalid_argument("channel must be a positive non-reserved integer");
+        if (ids.empty()) throw std::invalid_argument("ids must not be empty");
+
+        const double scale = body.contains("repeat") && !body.contains("scale")
+            ? 1.0 : GetScale(body, pDoc);
+        ON_3dVector repeat(scale, scale, scale);
+        if (body.contains("repeat")) repeat = ReadMappingTriple(body["repeat"], "repeat");
+        if (repeat.x <= 0.0 || repeat.y <= 0.0 || repeat.z <= 0.0)
+            throw std::invalid_argument("repeat dimensions must be positive");
+
+        ON_Plane explicitFrame = ON_Plane::World_xy;
+        bool hasAxes = false, hasOrigin = false;
+        if (body.contains("frame"))
+        {
+            const auto& frame = body["frame"];
+            if (!frame.is_object()) throw std::invalid_argument("frame must be an object");
+            hasAxes = frame.contains("x_axis") || frame.contains("y_axis");
+            if (hasAxes)
+            {
+                if (!frame.contains("x_axis") || !frame.contains("y_axis"))
+                    throw std::invalid_argument("frame requires both x_axis and y_axis");
+                ON_3dVector x = ReadMappingTriple(frame["x_axis"], "x_axis");
+                ON_3dVector y = ReadMappingTriple(frame["y_axis"], "y_axis");
+                if (!x.Unitize() || !y.Unitize() || fabs(x * y) > 1e-8)
+                    throw std::invalid_argument("frame axes must be nonzero and perpendicular");
+                explicitFrame = ON_Plane(ON_3dPoint::Origin, x, y);
+            }
+            hasOrigin = frame.contains("origin");
+            if (hasOrigin)
+            {
+                const auto o = ReadMappingTriple(frame["origin"], "origin");
+                explicitFrame.SetOrigin(ON_3dPoint(o.x, o.y, o.z));
+            }
+        }
 
         UndoScope undo(pDoc, L"Apply box mapping");
 
@@ -336,33 +411,55 @@ void HandleUvBox(const httplib::Request& req, httplib::Response& res)
                 continue;
             }
 
-            auto obb = GetObjectOrientedBoundingBox(geom);
-            double orientAngle = atan2(obb.plane.xaxis.y, obb.plane.xaxis.x) * 180.0 / ON_PI;
-
-            ApplyMappingViaCommand(pDoc, obj, "box", scale, obb.plane);
-            mappedCount++;
-
             ON_wString nameW = obj->Attributes().m_name;
             std::string name = nameW.IsEmpty() ? idStr.substr(0, 8) : WideToUtf8(nameW);
+            OrientedBBox obb;
+            try { obb = GetObjectOrientedBoundingBox(geom, hasAxes ? &explicitFrame : nullptr); }
+            catch (const std::exception& ex)
+            {
+                objects.push_back({{"id", idStr}, {"error", ex.what()}});
+                continue;
+            }
+            ON_Plane plane = hasAxes ? explicitFrame : obb.plane;
+            plane.SetOrigin(hasOrigin ? explicitFrame.origin : obb.plane.origin);
+            const double orientAngle = atan2(plane.xaxis.y, plane.xaxis.x) * 180.0 / ON_PI;
+            ON_TextureMapping mapping;
+            if (!mapping.SetBoxMapping(plane,
+                ON_Interval(-repeat.x / 2.0, repeat.x / 2.0),
+                ON_Interval(-repeat.y / 2.0, repeat.y / 2.0),
+                ON_Interval(-repeat.z / 2.0, repeat.z / 2.0), true) ||
+                !ApplyDirectTextureMapping(pDoc, obj, mapping, channel))
+            {
+                objects.push_back({{"id", idStr}, {"error", "failed to create or verify box mapping"}});
+                continue;
+            }
+            mappedCount++;
 
             char bboxStr[64], uvStr[64];
             snprintf(bboxStr, sizeof(bboxStr), "%.1f x %.1f x %.1f", obb.xSize, obb.ySize, obb.zSize);
             snprintf(uvStr, sizeof(uvStr), "%.2f x %.2f x %.2f",
-                obb.xSize / scale, obb.ySize / scale, obb.zSize / scale);
+                obb.xSize / repeat.x, obb.ySize / repeat.y, obb.zSize / repeat.z);
 
             objects.push_back({
                 {"id", idStr}, {"name", name},
                 {"bbox_size", bboxStr}, {"uv_coverage", uvStr},
+                {"dimensions", {obb.xSize, obb.ySize, obb.zSize}},
+                {"mapping_origin", {plane.origin.x, plane.origin.y, plane.origin.z}},
+                {"mapping_x_axis", {plane.xaxis.x, plane.xaxis.y, plane.xaxis.z}},
+                {"mapping_y_axis", {plane.yaxis.x, plane.yaxis.y, plane.yaxis.z}},
+                {"orientation_source", hasAxes ? "explicit" : "auto_xy"},
                 {"orientation_angle", std::round(orientAngle * 10.0) / 10.0}
             });
         }
 
-        pDoc->Redraw();
+        if (mappedCount > 0) pDoc->Redraw();
 
         WriteResult wr;
         wr.success = true;
         wr.data["mapped_count"] = mappedCount;
-        wr.data["scale"] = scale;
+        wr.data["scale"] = repeat.x == repeat.y && repeat.x == repeat.z
+            ? nlohmann::json(repeat.x) : nlohmann::json(nullptr);
+        wr.data["repeat"] = {repeat.x, repeat.y, repeat.z};
         wr.data["channel"] = channel;
         wr.data["objects"] = objects;
         return wr;
@@ -434,6 +531,10 @@ void HandleUvPlanar(const httplib::Request& req, httplib::Response& res)
                 continue;
             }
 
+            // Attribute changes may replace the document object; capture output first.
+            ON_wString nameW = obj->Attributes().m_name;
+            std::string name = nameW.IsEmpty() ? idStr.substr(0, 8) : WideToUtf8(nameW);
+            ON_BoundingBox bbox = geom->BoundingBox();
             if (!ApplyDirectTextureMapping(pDoc, obj, mapping, channel))
             {
                 objects.push_back({{"id", idStr}, {"error", "failed to apply mapping"}});
@@ -441,9 +542,6 @@ void HandleUvPlanar(const httplib::Request& req, httplib::Response& res)
             }
 
             mappedCount++;
-            ON_wString nameW = obj->Attributes().m_name;
-            std::string name = nameW.IsEmpty() ? idStr.substr(0, 8) : WideToUtf8(nameW);
-            ON_BoundingBox bbox = geom->BoundingBox();
             ON_3dVector bboxSize = bbox.Max() - bbox.Min();
             char coverageStr[64];
             snprintf(coverageStr, sizeof(coverageStr), "%.2f x %.2f",

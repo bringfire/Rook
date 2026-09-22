@@ -11053,7 +11053,7 @@ Returns:
 
         Tool(
             name="rhino_apply_uv_box_mapping",
-            description="Apply object-oriented box UV mapping to Breps/Meshes. Auto-orients mapping box to geometry's dominant edge direction. Scale defaults to 1 UV unit = 1 meter (unit-aware).",
+            description="Apply renderer-independent box UV mapping directly to Breps, Extrusions and Meshes without prompts. Auto orientation uses dominant straight/crease edges in XY; use frame for tilted objects or explicit grain direction. Defaults to a one-meter repeat. Preserves other mapping channels and selection. Inspect returned per-object errors and mapped_count.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -11064,11 +11064,30 @@ Returns:
                     },
                     "scale": {
                         "type": "number",
+                        "exclusiveMinimum": 0,
                         "description": "Document units per UV unit (default: auto from doc units, e.g. 1000 for mm = 1 meter)"
+                    },
+                    "repeat": {
+                        "type": "array",
+                        "items": {"type": "number", "exclusiveMinimum": 0},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Optional positive X/Y/Z repeat dimensions in document units along the mapping frame axes. Overrides uniform scale."
+                    },
+                    "frame": {
+                        "type": "object",
+                        "description": "Optional mapping frame. Supply both perpendicular nonzero axes to override automatic XY direction. Origin alone changes the pattern anchor; omitted origin uses each object's oriented bounds centre. Use shared axes and origin for continuity across objects.",
+                        "properties": {
+                            "origin": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                            "x_axis": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                            "y_axis": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+                        }
                     },
                     "channel": {
                         "type": "integer",
-                        "description": "Texture mapping channel (default: 1)"
+                        "minimum": 1,
+                        "maximum": 2147483647,
+                        "description": "Positive non-reserved texture mapping channel (default: 1); replaces only this channel"
                     }
                 },
                 "required": ["ids"]
