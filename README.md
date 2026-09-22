@@ -156,7 +156,9 @@ conversation history, goals, compaction, and model context. RookChat owns the
 directly launched ACP connection, durable association, immutable Rhino target,
 dynamic Grasshopper document checks, and bounded panel presentation. The full Rook
 authoring surface remains available through a service-owned MCP server named
-`rook`.
+`rook`. The Prime runtime is a pinned, published artifact rather than repository
+source; source builds fetch it with `scripts/prime/fetch-prime-runtime.ps1`
+(see [BUILDING.md](BUILDING.md#prime-runtime-rookchat)).
 
 **Model-agnostic internal workflows:** Retained non-chat agent and knowledge
 workflows use [litellm](https://github.com/BerriAI/litellm), which supports

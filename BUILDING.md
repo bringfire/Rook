@@ -24,6 +24,9 @@
 | **.NET SDK** | 8.x | Managed companion build for `net8.0`, `net7.0`, and `net48` targets | `dotnet --list-sdks` |
 | **.NET Framework 4.8** | Targeting pack | C# companion plugin target | `ls "C:/Program Files (x86)/Reference Assemblies/Microsoft/Framework/.NETFramework/v4.8/"` |
 | **Python 3.10+** | 3.10, 3.11, 3.12, or 3.13 | MCP server runtime | `python --version` |
+| **Chirp sibling repo** | `main` | LLM-powered Grasshopper components; required by the wheelhouse/installer build | `ls ../Chirp/pyproject.toml` (see *Sibling Repository: Chirp*) |
+| **Prime ACP runtime** | pinned in `scripts/prime/rook-prime-runtime-source.json` | RookChat backend; downloaded, not built | `scripts\prime\fetch-prime-runtime.ps1` (see *Prime Runtime (RookChat)*) |
+| **Inno Setup 6** | 6.x | Installer compiler (release builds only) | `ls "C:/Program Files (x86)/Inno Setup 6/ISCC.exe"` |
 
 ### Bundled FFmpeg
 
@@ -378,14 +381,18 @@ After plugins are deployed, set up the Python MCP server:
 
 ```bash
 cd mcp_server
-pip install -e .
+pip install -e ".[test]"
 ```
 
 Or using uv (faster, auto-downloads Python if needed):
 ```bash
 uv venv mcp_server/.venv
-uv pip install -e mcp_server --python mcp_server/.venv/Scripts/python.exe
+uv pip install -e "mcp_server[test]" --python mcp_server/.venv/Scripts/python.exe
 ```
+
+The `[test]` extra installs `pytest` and its plugins into the same environment.
+Without it, a bare `pytest` on `PATH` may run under a different interpreter that
+cannot import `rook` (the symptom is `ModuleNotFoundError: No module named 'acp'`).
 
 The `install.ps1` script does this automatically.
 
@@ -481,6 +488,93 @@ route, and external close targets only the owned Rhino process.
 
 ---
 
+## Sibling Repository: Chirp
+
+Chirp (the LLM-powered Grasshopper components) lives in its own public repository
+and is consumed as a sibling checkout. The wheelhouse and installer build refuse to
+run without it, and require it to be clean:
+
+```powershell
+git clone https://github.com/bringfire/Chirp ..\Chirp
+```
+
+The expected location is `../Chirp` relative to this repo; pass `-ChirpRoot` to
+`scripts\python-runtime\build-rook-python-wheelhouse.ps1` to use another path.
+
+---
+
+## Prime Runtime (RookChat)
+
+Embedded RookChat is backed by the Prime agent over ACP. The runtime is a built
+artifact, not source, so it is **not in this repository**. It is pinned in
+`scripts/prime/rook-prime-runtime-source.json` (Prime commit, GitHub release tag,
+archive SHA-256, and the manifest-derived runtime id) and published on the public
+[bringfire/prime-agent](https://github.com/bringfire/prime-agent/releases) fork.
+
+Without it the MCP tools work normally, but the RookChat panel reports
+"The conversation runtime is unavailable." There is no fallback backend.
+
+### Download the pinned runtime (normal path)
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\prime\fetch-prime-runtime.ps1
+```
+
+This downloads the pinned archive, checks its size and SHA-256, extracts it under
+`installer\runtime\prime\staging\<release_tag>\runtimes\<runtime_id>\` (gitignored),
+checks that the manifest hash equals the runtime id, and runs Rook's own verifier
+(`python -I -m rook.agent.chat.prime_runtime_artifact verify`). It needs the MCP
+server environment from *Setup MCP Server* for that last step; pass `-Python` to
+use a different interpreter that has `rook` installed.
+
+The printed `runtimes\<runtime_id>` path is the **Prime runtime payload**. Use it for a
+developer install of the full plugin:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy-local-testing.ps1 `
+  -PrimeRuntimePayload installer\runtime\prime\staging\<release_tag>\runtimes\<runtime_id> `
+  -PythonBuildRoot <absolute path to a built wheelhouse generation>
+```
+
+or as `PrimeRuntimePayload` in the release build (see *Building the Installer*).
+
+### Rebuild it from source (only when bumping Prime)
+
+1. On Ubuntu 24.04 with Node 22.8+, Bun 1.3.14, git, zip and unzip on a native Linux
+   filesystem, clone `bringfire/prime-agent` at the pinned `prime_commit` and run
+   `scripts/build-prime-acp-runtime.sh` with `--expected-prime-commit` and
+   `--expected-prime-parent` from the pin. It produces `pi-windows-x64.zip` and a
+   build record containing the zip SHA-256.
+2. On Windows, run `scripts/package-prime-acp-runtime.py` (with the MCP server
+   Python) giving it that zip and SHA, the pinned `uv` Windows archive and its two
+   license files from the `uv` repository at the pinned version,
+   `third_party/prime-agent/LICENSE`, `installer/agent-assets/prime-skills/rook-full`,
+   and an empty `runtimes` output directory. Verify the result with the same
+   `prime_runtime_artifact verify` command, publish the archive as a release asset,
+   and update the pin. `mcp_server/tests/test_prime_runtime_source_pin.py` fails until
+   the pin and `prime_runtime_artifact.py` agree.
+
+---
+
+## Building the Installer
+
+Release installers are produced by the `build-release` skill
+(`.claude/skills/build-release/SKILL.md`), which is the canonical, step-by-step
+recipe. In outline it needs, beyond the prerequisites above:
+
+- the bundled FFmpeg built by the committed recipe (see *Bundled FFmpeg*);
+- the sealed CPython 3.11.9 runtime and wheelhouse from
+  `scripts\python-runtime\stage-rook-python-runtime.ps1` and
+  `scripts\python-runtime\build-rook-python-wheelhouse.ps1` (requires the Chirp sibling);
+- the verified Prime runtime payload from the section above;
+- Inno Setup 6, invoked as
+  `ISCC.exe /DPrimeRuntimePayload=<runtimes\<runtime_id>> installer\RookSetup.iss`.
+
+`installer\RookSetup.iss` refuses to compile without `PrimeRuntimePayload`, and the
+release validation scripts fail closed on a stale wheelhouse or unverified payload.
+
+---
+
 ## Rhino Must Be Closed During Build
 
 **Rhino locks plugin DLLs while running.** If Rhino is open, the build or deploy
@@ -521,3 +615,8 @@ Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
 | `scripts/build-native.bat` | Thin batch wrapper — delegates to `build_native.ps1` |
 | `install.ps1` | Full install script (step functions, summary contract, exit codes) |
 | `mcp_server/pyproject.toml` | Python MCP server package definition |
+| `scripts/prime/rook-prime-runtime-source.json` | Pin for the published Prime ACP runtime (commit, release tag, SHA-256, runtime id) |
+| `scripts/prime/fetch-prime-runtime.ps1` | Downloads, verifies, and extracts the pinned Prime runtime payload |
+| `scripts/build-prime-acp-runtime.sh` | Rebuilds the Prime Windows zip from source (Ubuntu 24.04) |
+| `scripts/package-prime-acp-runtime.py` | Assembles the verified runtime payload from the zip, `uv`, and notices |
+| `installer/RookSetup.iss` | Inno Setup script for the release installer |
