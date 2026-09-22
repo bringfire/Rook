@@ -32,3 +32,7 @@ scripts/build-prime-acp-runtime.sh text eol=lf
 scripts/tests/prime-wsl-build.tests.sh text eol=lf
 scripts/verify-installed-rookchat-acp.py text eol=lf
 third_party/prime-agent/LICENSE text eol=lf
+
+# Prime runtime payload skill: packaged and verified byte-for-byte as LF, so every
+# checkout must produce LF regardless of core.autocrlf.
+installer/agent-assets/prime-skills/** text eol=lf
