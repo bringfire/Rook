@@ -69,6 +69,25 @@ namespace Rook.Tests.Plugin
         }
 
         [Fact]
+        public void OnLoad_ConfiguresVertexTokenSourceBeforeDeferredImageAccess()
+        {
+            var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");
+            var onLoad = ExtractMethod(source, "protected override LoadReturnCode OnLoad(");
+
+            var configureIndex = onLoad.IndexOf(
+                "RookSubsystemRoot.Instance.ConfigureVertexAccessTokenSource(",
+                StringComparison.Ordinal);
+            var hooksIndex = onLoad.IndexOf("AttachStartupGateHooks();", StringComparison.Ordinal);
+
+            Assert.True(configureIndex >= 0, "OnLoad must configure the concrete Vertex token source.");
+            Assert.Contains("ChatServiceVertexAccessTokenSource.Instance", onLoad);
+            Assert.True(hooksIndex >= 0, "OnLoad must still attach deferred startup hooks.");
+            Assert.True(
+                configureIndex < hooksIndex,
+                "Vertex token composition must precede all deferred image access.");
+        }
+
+        [Fact]
         public void LegacyRuiToolbar_HasNoActiveManagedLoader()
         {
             var source = ReadSourceFile("src", "Rook", "RookPlugin.cs");

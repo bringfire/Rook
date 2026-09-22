@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Callable
 
 import httpx
 
 from .vertex_auth import (
-    VERTEX_SCOPE,
     VERTEX_SCHEMA_VERSION,
     VertexAuthError,
     VertexMode,
@@ -23,6 +23,10 @@ from .vertex_oauth import (
     DesktopOAuthClient,
     _OAuthDependencies,
     authorize_desktop,
+)
+from .vertex_token_lease import (
+    TOKEN_ISSUANCE_TIMEOUT_SECONDS,
+    refresh_access_token,
 )
 
 
@@ -167,49 +171,8 @@ def _select_recycler(
 
 
 def _default_token_loader(runtime: VertexRuntimeArguments) -> str:
-    try:
-        import google.auth
-        from google.auth.transport.requests import Request
-        from google.oauth2.credentials import Credentials as UserCredentials
-        from google.oauth2.service_account import Credentials as ServiceCredentials
-    except ImportError as exc:
-        raise VertexAuthError(
-            "vertex_auth_dependency_missing",
-            "The installed Google authorization dependency is unavailable.",
-        ) from exc
-
-    credentials = runtime.vertex_credentials
-    try:
-        if isinstance(credentials, dict):
-            resolved = UserCredentials.from_authorized_user_info(
-                credentials,
-                scopes=[VERTEX_SCOPE],
-            )
-            failure_code = "vertex_authorization_revoked"
-        elif credentials is None:
-            resolved, _ = google.auth.default(scopes=[VERTEX_SCOPE])
-            failure_code = "vertex_adc_unavailable"
-        else:
-            resolved = ServiceCredentials.from_service_account_file(
-                credentials,
-                scopes=[VERTEX_SCOPE],
-            )
-            failure_code = "vertex_service_account_unavailable"
-        resolved.refresh(Request())
-        if not isinstance(resolved.token, str) or not resolved.token:
-            raise RuntimeError("credential refresh returned no token")
-        return resolved.token
-    except Exception as exc:
-        raise VertexAuthError(
-            failure_code,
-            {
-                "vertex_authorization_revoked": "Google authorization must be renewed.",
-                "vertex_adc_unavailable": "Application Default Credentials are unavailable.",
-                "vertex_service_account_unavailable": (
-                    "The selected service account is unavailable."
-                ),
-            }[failure_code],
-        ) from exc
+    deadline = time.monotonic() + TOKEN_ISSUANCE_TIMEOUT_SECONDS
+    return refresh_access_token(runtime, deadline, time.monotonic).access_token
 
 
 def _post_json(

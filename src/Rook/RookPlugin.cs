@@ -68,6 +68,8 @@ namespace Rook
             TraceStartup("OnLoad minimal");
 
             _isRhinoInside = Rhino.Runtime.HostUtils.RunningAsRhinoInside;
+            RookSubsystemRoot.Instance.ConfigureVertexAccessTokenSource(
+                ChatServiceVertexAccessTokenSource.Instance);
             AttachStartupGateHooks();
             WriteCompanionRuntimeStatus();
 

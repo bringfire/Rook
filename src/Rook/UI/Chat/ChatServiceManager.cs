@@ -165,6 +165,10 @@ namespace Rook.UI.Chat
         public string? Message { get; set; }
     }
 
+    internal sealed record ChatServiceConnectionSnapshot(
+        Uri BaseUri,
+        string SessionNonce);
+
     /// <summary>
     /// Rhino-owned lifecycle manager for the local Agent Chat Python service.
     /// </summary>
@@ -215,76 +219,106 @@ namespace Rook.UI.Chat
             await _gate.WaitAsync(ct);
             try
             {
-                // Clean up stale discovery files from crashed sessions BEFORE
-                // attempting to resolve.  Without this, ResolveHealthyBaseUriAsync
-                // can latch onto a dead process's file and waste the full timeout.
-                CleanupStaleChatDiscoveryFiles();
-
-                var existing = await GetHealthInternalAsync(startIfNeeded: false, ct: ct);
-                var startDecision = ShouldStartChatService(
-                    trackedProcessExists: _ownedProcess != null,
-                    trackedProcessHasExited: _ownedProcess?.HasExited ?? true,
-                    existingServiceAvailable: existing.ServiceAvailable,
-                    sessionNoncePresent: !string.IsNullOrEmpty(SessionNonce));
-                if (startDecision == ChatServiceStartDecision.ReuseHealthyService)
-                {
-                    // Session nonce is still valid — reuse the running service.
-                    return existing;
-                }
-
-                if (startDecision == ChatServiceStartDecision.RestartBecauseNonceMissing)
-                {
-                    // Service is running but we lost the nonce (companion reload,
-                    // panel recreation, etc.).  The Python process still enforces
-                    // the old nonce, so every non-health request would 403.  Stop
-                    // it and let the normal start path generate a fresh nonce.
-                    RhinoApp.WriteLine("Rook: restarting chat service — session nonce lost after companion reload");
-                    StopOwnedProcess();
-                    StopDiscoveredOwnedService();
-                }
-
-                var manifest = LoadManifest();
-                if (manifest == null)
-                {
-                    return new ChatServiceHealth
-                    {
-                        ServiceAvailable = false,
-                        ServiceMessage =
-                            "Chat service manifest (RookChatService.json) not found and auto-generation failed. "
-                            + "Run: scripts\\register-rooknative-suite.ps1  or  "
-                            + "scripts\\write-chat-service-manifest.ps1 -PluginDir <plugin-dir> "
-                            + "-PythonPath <python.exe> -WorkingDirectory <mcp_server-dir>",
-                    };
-                }
-
-                var runtimeValidation = ValidateManifestRuntime(manifest);
-                if (!runtimeValidation.IsValid)
-                {
-                    return new ChatServiceHealth
-                    {
-                        ServiceAvailable = false,
-                        ServiceMessage = runtimeValidation.Message,
-                    };
-                }
-
-                StartProcess(manifest);
-
-                var started = await WaitForHealthyServiceAsync(ct);
-                if (started != null)
-                {
-                    return started;
-                }
-
-                return new ChatServiceHealth
-                {
-                    ServiceAvailable = false,
-                    ServiceMessage = $"Chat service failed to start within {StartupTimeout.TotalSeconds:0} seconds.",
-                };
+                return await EnsureStartedUnderGateAsync(ct);
             }
             finally
             {
                 _gate.Release();
             }
+        }
+
+        internal async Task<ChatServiceConnectionSnapshot?> AcquireOwnedConnectionAsync(
+            CancellationToken ct)
+        {
+            await _gate.WaitAsync(ct);
+            try
+            {
+                var health = await EnsureStartedUnderGateAsync(ct);
+                if (!health.ServiceAvailable
+                    || health.BaseUri is null
+                    || string.IsNullOrEmpty(SessionNonce))
+                {
+                    return null;
+                }
+
+                return new ChatServiceConnectionSnapshot(
+                    health.BaseUri,
+                    SessionNonce);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        private async Task<ChatServiceHealth> EnsureStartedUnderGateAsync(
+            CancellationToken ct)
+        {
+            // Clean up stale discovery files from crashed sessions BEFORE
+            // attempting to resolve.  Without this, ResolveHealthyBaseUriAsync
+            // can latch onto a dead process's file and waste the full timeout.
+            CleanupStaleChatDiscoveryFiles();
+
+            var existing = await GetHealthInternalAsync(startIfNeeded: false, ct: ct);
+            var startDecision = ShouldStartChatService(
+                trackedProcessExists: _ownedProcess != null,
+                trackedProcessHasExited: _ownedProcess?.HasExited ?? true,
+                existingServiceAvailable: existing.ServiceAvailable,
+                sessionNoncePresent: !string.IsNullOrEmpty(SessionNonce));
+            if (startDecision == ChatServiceStartDecision.ReuseHealthyService)
+            {
+                // Session nonce is still valid — reuse the running service.
+                return existing;
+            }
+
+            if (startDecision == ChatServiceStartDecision.RestartBecauseNonceMissing)
+            {
+                // Service is running but we lost the nonce (companion reload,
+                // panel recreation, etc.).  The Python process still enforces
+                // the old nonce, so every non-health request would 403.  Stop
+                // it and let the normal start path generate a fresh nonce.
+                RhinoApp.WriteLine("Rook: restarting chat service — session nonce lost after companion reload");
+                StopOwnedProcess();
+                StopDiscoveredOwnedService();
+            }
+
+            var manifest = LoadManifest();
+            if (manifest == null)
+            {
+                return new ChatServiceHealth
+                {
+                    ServiceAvailable = false,
+                    ServiceMessage =
+                        "Chat service manifest (RookChatService.json) not found and auto-generation failed. "
+                        + "Run: scripts\\register-rooknative-suite.ps1  or  "
+                        + "scripts\\write-chat-service-manifest.ps1 -PluginDir <plugin-dir> "
+                        + "-PythonPath <python.exe> -WorkingDirectory <mcp_server-dir>",
+                };
+            }
+
+            var runtimeValidation = ValidateManifestRuntime(manifest);
+            if (!runtimeValidation.IsValid)
+            {
+                return new ChatServiceHealth
+                {
+                    ServiceAvailable = false,
+                    ServiceMessage = runtimeValidation.Message,
+                };
+            }
+
+            StartProcess(manifest);
+
+            var started = await WaitForHealthyServiceAsync(ct);
+            if (started != null)
+            {
+                return started;
+            }
+
+            return new ChatServiceHealth
+            {
+                ServiceAvailable = false,
+                ServiceMessage = $"Chat service failed to start within {StartupTimeout.TotalSeconds:0} seconds.",
+            };
         }
 
         public async Task<ChatServiceHealth> GetHealthAsync(bool startIfNeeded, CancellationToken ct = default)

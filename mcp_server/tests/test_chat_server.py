@@ -1,6 +1,7 @@
 """Tests for the agent chat HTTP server."""
 import asyncio
 import copy
+import importlib
 import json
 import socket
 import threading
@@ -25,6 +26,7 @@ from rook.agent.minimal_intent_worker_integration import (
 )
 from rook.learning.plan_graph import NodeEvidence
 from rook import bridge
+from rook.providers.vertex_auth import VertexAuthError
 
 
 _WORKER_FIRST_INTENT = "Create one clean C# component"
@@ -1834,6 +1836,297 @@ class TestChatServerWithNonce(AioHTTPTestCase):
             headers={"X-Rook-Session": self.nonce},
         )
         assert resp.status == 200
+
+
+class _FakeVertexTokenService:
+    def __init__(self, *, lease=None, failure=None):
+        self.lease = lease
+        self.failure = failure
+        self.calls = []
+
+    async def acquire(self, model):
+        self.calls.append(model)
+        if self.failure is not None:
+            raise self.failure
+        return self.lease
+
+
+_VERTEX_INTERNAL_PATH = "/internal/providers/vertex/access-token"
+_VERTEX_IMAGE_MODEL = "vertex_ai/gemini-3.1-flash-image"
+_VERTEX_ROUTE_MESSAGES = {
+    "vertex_internal_access_denied": "The internal Vertex token route is unavailable to this caller.",
+    "vertex_internal_method_not_allowed": "The internal Vertex token route accepts POST requests only.",
+    "vertex_internal_request_invalid": "The internal Vertex token request is invalid.",
+    "vertex_image_model_unsupported": "The selected Vertex image model is unsupported.",
+    "vertex_model_region_unsupported": "Vertex AI Nano Banana 2 requires the global location.",
+    "vertex_signed_out": "Vertex AI is not configured for this Windows user.",
+    "vertex_authorization_revoked": "Google authorization must be renewed.",
+    "vertex_adc_unavailable": "Application Default Credentials are unavailable.",
+    "vertex_service_account_unavailable": "The selected service account is unavailable.",
+    "vertex_request_failed": "Vertex authorization is unavailable because its local configuration is invalid.",
+    "vertex_authorization_changed": "Vertex authorization changed during token issuance.",
+    "vertex_auth_dependency_missing": "The installed Google authorization dependency is unavailable.",
+    "vertex_token_issuance_timeout": "Vertex token issuance timed out.",
+    "vertex_token_issuance_failed": "Vertex token issuance failed.",
+}
+
+
+async def _vertex_route_client(service, *, nonce="vertex-route-nonce"):
+    from aiohttp.test_utils import TestClient, TestServer
+
+    app = create_chat_app(
+        store=ConversationStore(),
+        builder=PromptBuilder(),
+        runner=ChatRunner(),
+        session_nonce=nonce,
+        vertex_token_service=service,
+    )
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    return client
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("case", "status", "code"),
+    [
+        ("origin", 403, "vertex_internal_access_denied"),
+        ("nonce_absent", 403, "vertex_internal_access_denied"),
+        ("nonce_wrong", 403, "vertex_internal_access_denied"),
+        ("method", 405, "vertex_internal_method_not_allowed"),
+        ("malformed", 400, "vertex_internal_request_invalid"),
+        ("unknown_field", 400, "vertex_internal_request_invalid"),
+        ("wrong_model", 400, "vertex_image_model_unsupported"),
+        ("regional", 400, "vertex_model_region_unsupported"),
+        ("signed_out", 409, "vertex_signed_out"),
+        ("oauth_revoked", 409, "vertex_authorization_revoked"),
+        ("adc_unavailable", 409, "vertex_adc_unavailable"),
+        ("service_account_unavailable", 409, "vertex_service_account_unavailable"),
+        ("record_invalid", 409, "vertex_request_failed"),
+        ("generation_changed", 409, "vertex_authorization_changed"),
+        ("dependency", 503, "vertex_auth_dependency_missing"),
+        ("timeout", 504, "vertex_token_issuance_timeout"),
+        ("internal", 500, "vertex_token_issuance_failed"),
+    ],
+)
+async def test_vertex_internal_route_closed_failure_contract(case, status, code):
+    if case == "internal":
+        failure = RuntimeError("private-token-provider-detail")
+    elif case in {
+        "regional",
+        "signed_out",
+        "oauth_revoked",
+        "adc_unavailable",
+        "service_account_unavailable",
+        "record_invalid",
+        "generation_changed",
+        "dependency",
+        "timeout",
+    }:
+        failure = VertexAuthError(code, _VERTEX_ROUTE_MESSAGES[code])
+    else:
+        failure = None
+    service = _FakeVertexTokenService(failure=failure)
+    client = await _vertex_route_client(service)
+    headers = {"X-Rook-Session": "vertex-route-nonce"}
+    method = "POST"
+    kwargs = {"json": {"model": _VERTEX_IMAGE_MODEL}}
+    if case == "origin":
+        headers["Origin"] = "https://app.rook.invalid"
+    elif case == "nonce_absent":
+        headers = {}
+    elif case == "nonce_wrong":
+        headers["X-Rook-Session"] = "wrong"
+    elif case == "method":
+        method = "GET"
+        kwargs = {}
+    elif case == "malformed":
+        kwargs = {"data": "{", "headers": {"Content-Type": "application/json"}}
+    elif case == "unknown_field":
+        kwargs = {"json": {"model": _VERTEX_IMAGE_MODEL, "extra": True}}
+    elif case == "wrong_model":
+        kwargs = {"json": {"model": "vertex_ai/gemini-3-pro-image"}}
+
+    combined_headers = dict(headers)
+    combined_headers.update(kwargs.pop("headers", {}))
+    try:
+        response = await client.request(
+            method,
+            _VERTEX_INTERNAL_PATH,
+            headers=combined_headers,
+            **kwargs,
+        )
+        payload = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == status
+    assert payload == {
+        "success": False,
+        "error": {"code": code, "message": _VERTEX_ROUTE_MESSAGES[code]},
+    }
+    assert response.headers["Cache-Control"] == "no-store"
+    assert "Access-Control-Allow-Origin" not in response.headers
+    if case == "method":
+        assert response.headers["Allow"] == "POST"
+    expected_calls = 1 if failure is not None else 0
+    assert len(service.calls) == expected_calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["https://app.rook.invalid", "https://evil.example"])
+async def test_vertex_internal_route_rejects_every_origin_and_preflight(origin):
+    service = _FakeVertexTokenService()
+    client = await _vertex_route_client(service)
+    try:
+        for method in ("POST", "OPTIONS"):
+            response = await client.request(
+                method,
+                _VERTEX_INTERNAL_PATH,
+                headers={
+                    "Origin": origin,
+                    "X-Rook-Session": "vertex-route-nonce",
+                },
+                json={"model": _VERTEX_IMAGE_MODEL},
+            )
+            payload = await response.json()
+            assert response.status == 403
+            assert payload["error"]["code"] == "vertex_internal_access_denied"
+            assert response.headers["Cache-Control"] == "no-store"
+            assert "Access-Control-Allow-Origin" not in response.headers
+    finally:
+        await client.close()
+    assert service.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nonce", [None, "wrong"])
+async def test_vertex_internal_route_get_rejects_bad_nonce_before_method(nonce):
+    service = _FakeVertexTokenService()
+    client = await _vertex_route_client(service)
+    headers = {} if nonce is None else {"X-Rook-Session": nonce}
+    try:
+        response = await client.get(_VERTEX_INTERNAL_PATH, headers=headers)
+        payload = await response.json()
+    finally:
+        await client.close()
+    assert response.status == 403
+    assert payload["error"]["code"] == "vertex_internal_access_denied"
+    assert service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_vertex_internal_route_requires_an_expected_service_nonce(monkeypatch):
+    from aiohttp.test_utils import TestClient, TestServer
+
+    monkeypatch.delenv("ROOK_SESSION_NONCE", raising=False)
+    service = _FakeVertexTokenService()
+    app = create_chat_app(
+        store=ConversationStore(),
+        builder=PromptBuilder(),
+        runner=ChatRunner(),
+        session_nonce="",
+        vertex_token_service=service,
+    )
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        response = await client.post(
+            _VERTEX_INTERNAL_PATH,
+            headers={"X-Rook-Session": "caller-selected-value"},
+            json={"model": _VERTEX_IMAGE_MODEL},
+        )
+        payload = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 403
+    assert payload["error"]["code"] == "vertex_internal_access_denied"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_vertex_internal_route_shapes_oversized_body_as_invalid_request():
+    service = _FakeVertexTokenService()
+    client = await _vertex_route_client(service)
+    oversized = json.dumps(
+        {
+            "model": _VERTEX_IMAGE_MODEL,
+            "padding": "x" * 1_100_000,
+        }
+    )
+    try:
+        response = await client.post(
+            _VERTEX_INTERNAL_PATH,
+            headers={
+                "X-Rook-Session": "vertex-route-nonce",
+                "Content-Type": "application/json",
+            },
+            data=oversized,
+        )
+        payload = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 400
+    assert payload == {
+        "success": False,
+        "error": {
+            "code": "vertex_internal_request_invalid",
+            "message": "The internal Vertex token request is invalid.",
+        },
+    }
+    assert response.headers["Cache-Control"] == "no-store"
+    assert "Access-Control-Allow-Origin" not in response.headers
+    assert service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_vertex_internal_route_returns_exact_lease_shape():
+    lease_module = importlib.import_module("rook.providers.vertex_token_lease")
+    lease = lease_module.VertexTokenLease(
+        access_token="short-lived-access-token",
+        expires_at_unix_seconds=2_000_000_000,
+        project_id="company-ai-project",
+        location="global",
+        generation="0123456789abcdef0123456789abcdef",
+    )
+    service = _FakeVertexTokenService(lease=lease)
+    client = await _vertex_route_client(service)
+    try:
+        response = await client.post(
+            _VERTEX_INTERNAL_PATH,
+            headers={"X-Rook-Session": "vertex-route-nonce"},
+            json={"model": _VERTEX_IMAGE_MODEL},
+        )
+        payload = await response.json()
+    finally:
+        await client.close()
+
+    assert response.status == 200
+    assert payload == {
+        "success": True,
+        "data": {
+            "access_token": "short-lived-access-token",
+            "expires_at_unix_seconds": 2_000_000_000,
+            "project_id": "company-ai-project",
+            "location": "global",
+            "generation": "0123456789abcdef0123456789abcdef",
+        },
+    }
+    assert response.headers["Cache-Control"] == "no-store"
+    assert "Access-Control-Allow-Origin" not in response.headers
+    assert service.calls == [_VERTEX_IMAGE_MODEL]
+
+
+def test_vertex_internal_token_route_is_not_exposed_as_an_mcp_tool():
+    public_server = Path(chat_server.__file__).parents[2] / "server.py"
+    source = public_server.read_text(encoding="utf-8")
+    lowered = source.lower()
+    assert _VERTEX_INTERNAL_PATH not in source
+    assert "vertex_access_token" not in lowered
+    assert "vertex_token" not in lowered
 
 
 class TestKnowledgeGraphRoutes(AioHTTPTestCase):

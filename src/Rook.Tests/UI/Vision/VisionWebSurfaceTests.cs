@@ -490,6 +490,20 @@ namespace Rook.Tests.UI.Vision
             Assert.Same(RookSubsystemRoot.Instance.SharedGenerationSecretStore, actual);
         }
 
+        [Fact]
+        public void BuildSharedVisionHandler_UsesSharedImageProviderRegistry()
+        {
+            var handler = InvokeBuildSharedVisionHandler();
+            var fieldInfo = typeof(VisionHandler).GetField(
+                "_imageProviderRegistry",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(fieldInfo);
+
+            Assert.Same(
+                RookSubsystemRoot.Instance.ImageJobs.Registry,
+                fieldInfo!.GetValue(handler));
+        }
+
         private static VisionHandler InvokeBuildSharedVisionHandler()
         {
             var method = typeof(VisionWebSurface).GetMethod(

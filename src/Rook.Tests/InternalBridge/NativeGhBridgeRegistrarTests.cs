@@ -913,6 +913,24 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
+        public void Registrar_VisionHandler_UsesSharedImageProviderRegistry()
+        {
+            var visionField = typeof(NativeGhBridgeRegistrar).GetField(
+                "Vision",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(visionField);
+            var vision = (VisionHandler)visionField!.GetValue(null)!;
+            var registryField = typeof(VisionHandler).GetField(
+                "_imageProviderRegistry",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(registryField);
+
+            Assert.Same(
+                RookSubsystemRoot.Instance.ImageJobs.Registry,
+                registryField!.GetValue(vision));
+        }
+
+        [Fact]
         public void BuildUnknownOpMessage_ListsExpectedOpsInOrdinalOrder()
         {
             // The message orders the expected list ordinal-ascending so

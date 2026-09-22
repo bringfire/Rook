@@ -382,6 +382,33 @@ def test_vertex_readiness_does_not_expose_provider_or_exception_details():
     assert "access-token-and-provider-body-must-not-escape" not in result.message
 
 
+def test_default_token_loader_uses_shared_30_second_refresh_deadline(monkeypatch):
+    backend = _backend()
+    auth = _auth()
+    lease = importlib.import_module("rook.providers.vertex_token_lease")
+    observed = []
+    runtime = auth.VertexRuntimeArguments(
+        generation="0123456789abcdef0123456789abcdef",
+        project_id="company-ai-project",
+        region="global",
+        vertex_credentials=None,
+    )
+
+    monkeypatch.setattr(backend.time, "monotonic", lambda: 75.0)
+
+    def refresh(selected_runtime, deadline, monotonic):
+        observed.append((selected_runtime, deadline, monotonic()))
+        return lease.RefreshedVertexAccessToken(
+            access_token="readiness-token",
+            expires_at_unix_seconds=2_000_000_000,
+        )
+
+    monkeypatch.setattr(backend, "refresh_access_token", refresh)
+
+    assert backend._default_token_loader(runtime) == "readiness-token"
+    assert observed == [(runtime, 105.0, 75.0)]
+
+
 def test_connect_commits_protected_oauth_then_recycles_with_the_new_generation(tmp_path):
     backend = _backend()
     oauth = importlib.import_module("rook.providers.vertex_oauth")

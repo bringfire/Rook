@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -13,6 +14,13 @@ from typing import Any, Optional
 from aiohttp import web
 
 from ...bridge import rhino_request_context
+from ...providers.vertex_auth import VertexAuthError
+from ...providers.vertex_token_lease import (
+    VERTEX_IMAGE_LOCATION,
+    VERTEX_IMAGE_MODEL_KEY,
+    VertexTokenLease,
+    VertexTokenLeaseService,
+)
 from .conversation_store import ConversationStore
 from .prompt_builder import PromptBuilder
 from .chat_runner import ChatEvent, ChatRunner
@@ -46,9 +54,55 @@ _SESSION_NONCE_KEY: web.AppKey[str] = web.AppKey("_session_nonce", str)
 _WORKER_FIRST_APPLICATION_KEY: web.AppKey[object] = web.AppKey(
     "_worker_first_application", object
 )
+_VERTEX_TOKEN_SERVICE_KEY: web.AppKey[VertexTokenLeaseService] = web.AppKey(
+    "_vertex_token_service", VertexTokenLeaseService
+)
 
 _WORKER_FIRST_CSHARP_MODE = "worker_first_csharp_v1"
 _MAX_WORKER_FIRST_INTENT_BYTES = 16_384
+_VERTEX_INTERNAL_TOKEN_PATH = "/internal/providers/vertex/access-token"
+_VERTEX_INTERNAL_MESSAGES = {
+    "vertex_internal_access_denied": (
+        "The internal Vertex token route is unavailable to this caller."
+    ),
+    "vertex_internal_method_not_allowed": (
+        "The internal Vertex token route accepts POST requests only."
+    ),
+    "vertex_internal_request_invalid": "The internal Vertex token request is invalid.",
+    "vertex_image_model_unsupported": "The selected Vertex image model is unsupported.",
+    "vertex_model_region_unsupported": (
+        "Vertex AI Nano Banana 2 requires the global location."
+    ),
+    "vertex_signed_out": "Vertex AI is not configured for this Windows user.",
+    "vertex_authorization_revoked": "Google authorization must be renewed.",
+    "vertex_adc_unavailable": "Application Default Credentials are unavailable.",
+    "vertex_service_account_unavailable": (
+        "The selected service account is unavailable."
+    ),
+    "vertex_request_failed": (
+        "Vertex authorization is unavailable because its local configuration is invalid."
+    ),
+    "vertex_authorization_changed": (
+        "Vertex authorization changed during token issuance."
+    ),
+    "vertex_auth_dependency_missing": (
+        "The installed Google authorization dependency is unavailable."
+    ),
+    "vertex_token_issuance_timeout": "Vertex token issuance timed out.",
+    "vertex_token_issuance_failed": "Vertex token issuance failed.",
+}
+_VERTEX_INTERNAL_STATUSES = {
+    "vertex_image_model_unsupported": 400,
+    "vertex_model_region_unsupported": 400,
+    "vertex_signed_out": 409,
+    "vertex_authorization_revoked": 409,
+    "vertex_adc_unavailable": 409,
+    "vertex_service_account_unavailable": 409,
+    "vertex_request_failed": 409,
+    "vertex_authorization_changed": 409,
+    "vertex_auth_dependency_missing": 503,
+    "vertex_token_issuance_timeout": 504,
+}
 
 # Module-level singletons (initialized on first request or at startup)
 _store: Optional[ConversationStore] = None
@@ -419,6 +473,21 @@ async def cors_and_session_middleware(request: web.Request, handler):
     Health endpoint is exempt from nonce checks to allow the C# host to
     poll during startup before the nonce is configured in the WebView.
     """
+    if request.path == _VERTEX_INTERNAL_TOKEN_PATH:
+        if "Origin" in request.headers:
+            return _vertex_internal_failure("vertex_internal_access_denied", 403)
+        expected_nonce = request.app.get(_SESSION_NONCE_KEY, "")
+        provided_nonce = request.headers.get(SESSION_HEADER, "")
+        if not expected_nonce or provided_nonce != expected_nonce:
+            return _vertex_internal_failure("vertex_internal_access_denied", 403)
+        if request.method != "POST":
+            return _vertex_internal_failure(
+                "vertex_internal_method_not_allowed",
+                405,
+                headers={"Allow": "POST"},
+            )
+        return await handler(request)
+
     # Handle CORS preflight for all routes
     if request.method == "OPTIONS":
         return web.Response(status=204, headers=_CORS_HEADERS)
@@ -457,6 +526,91 @@ async def cors_and_session_middleware(request: web.Request, handler):
 
 
 # --- Handlers ---
+
+
+def _vertex_internal_failure(
+    code: str,
+    status: int,
+    *,
+    headers: dict[str, str] | None = None,
+) -> web.Response:
+    response_headers = {"Cache-Control": "no-store"}
+    if headers:
+        response_headers.update(headers)
+    return web.json_response(
+        {
+            "success": False,
+            "error": {
+                "code": code,
+                "message": _VERTEX_INTERNAL_MESSAGES[code],
+            },
+        },
+        status=status,
+        headers=response_headers,
+    )
+
+
+def _vertex_internal_success(lease: VertexTokenLease) -> web.Response:
+    return web.json_response(
+        {
+            "success": True,
+            "data": {
+                "access_token": lease.access_token,
+                "expires_at_unix_seconds": lease.expires_at_unix_seconds,
+                "project_id": lease.project_id,
+                "location": lease.location,
+                "generation": lease.generation,
+            },
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def handle_vertex_internal_access_token(request: web.Request) -> web.Response:
+    try:
+        payload = await request.json()
+    except (
+        web.HTTPRequestEntityTooLarge,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        ValueError,
+    ):
+        return _vertex_internal_failure("vertex_internal_request_invalid", 400)
+    if not isinstance(payload, dict) or set(payload) != {"model"}:
+        return _vertex_internal_failure("vertex_internal_request_invalid", 400)
+    model = payload.get("model")
+    if not isinstance(model, str):
+        return _vertex_internal_failure("vertex_internal_request_invalid", 400)
+    if model != VERTEX_IMAGE_MODEL_KEY:
+        return _vertex_internal_failure("vertex_image_model_unsupported", 400)
+
+    try:
+        lease = await request.app[_VERTEX_TOKEN_SERVICE_KEY].acquire(model)
+    except asyncio.CancelledError:
+        raise
+    except VertexAuthError as exc:
+        status = _VERTEX_INTERNAL_STATUSES.get(exc.code)
+        if status is None:
+            return _vertex_internal_failure("vertex_token_issuance_failed", 500)
+        return _vertex_internal_failure(exc.code, status)
+    except Exception:
+        return _vertex_internal_failure("vertex_token_issuance_failed", 500)
+
+    if (
+        not isinstance(lease, VertexTokenLease)
+        or not isinstance(lease.access_token, str)
+        or not lease.access_token
+        or type(lease.expires_at_unix_seconds) is not int
+        or lease.expires_at_unix_seconds <= time.time()
+        or not isinstance(lease.project_id, str)
+        or not lease.project_id
+        or lease.location != VERTEX_IMAGE_LOCATION
+        or not isinstance(lease.generation, str)
+        or not lease.generation
+    ):
+        return _vertex_internal_failure("vertex_token_issuance_failed", 500)
+    return _vertex_internal_success(lease)
+
 
 async def handle_personas(request: web.Request) -> web.Response:
     """GET /agent/chat/personas — list available agent personas."""
@@ -939,6 +1093,7 @@ def create_chat_app(
     rhino_process_id: int = 0,
     session_nonce: Optional[str] = None,
     worker_first_application: Optional[Callable[[str], Awaitable[Any]]] = None,
+    vertex_token_service: Optional[VertexTokenLeaseService] = None,
 ) -> web.Application:
     """Create the aiohttp application for the chat server.
 
@@ -962,6 +1117,7 @@ def create_chat_app(
         app[_RUNNER_KEY] = runner
     if worker_first_application is not None:
         app[_WORKER_FIRST_APPLICATION_KEY] = worker_first_application
+    app[_VERTEX_TOKEN_SERVICE_KEY] = vertex_token_service or VertexTokenLeaseService()
     app[_PORT_STATE_KEY] = {"value": port}
     app[_INCLUDE_GH_HEALTH_KEY] = include_gh_health
     app[_OWNER_KEY] = owner
@@ -977,6 +1133,11 @@ def create_chat_app(
     app.router.add_post("/agent/chat/message", handle_message)
     app.router.add_post("/agent/chat/stop", handle_stop)
     app.router.add_post("/agent/chat/ui-response", handle_ui_response)
+    app.router.add_route(
+        "*",
+        _VERTEX_INTERNAL_TOKEN_PATH,
+        handle_vertex_internal_access_token,
+    )
 
     # Knowledge graph routes (WebUI module, same nonce/CORS middleware)
     app.router.add_get("/knowledge/graph", handle_knowledge_graph)
