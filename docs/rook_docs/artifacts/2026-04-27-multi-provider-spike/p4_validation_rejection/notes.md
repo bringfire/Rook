@@ -1,5 +1,0 @@
-- poll 1: state=IN_QUEUE, status_code=202
-- poll 2: state=COMPLETED, status_code=200
-- fetch via provider API result_url status_code=422 content_type=application/json
-- cancel evidence recorded in cancel_evidence.md
-- submit elapsed_seconds=0.36; status_code=200

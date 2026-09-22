@@ -1,1 +1,0 @@
-https://dev.to/solo_dev_0101/technical-deep-dive-veo-31-json-prompt-engineering-1p0h

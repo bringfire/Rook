@@ -1,3 +1,0 @@
-- fetch represented by terminal response body; no separate result URL observed
-- cancel evidence recorded in cancel_evidence.md
-- submit elapsed_seconds=0.34; status_code=200

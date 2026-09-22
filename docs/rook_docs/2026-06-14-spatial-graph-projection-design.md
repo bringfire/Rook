@@ -93,7 +93,7 @@ graph alone; the topology-first requirement bites for circulation + zones. See F
 
 - **Space syntax / Justified Plan Graph (JPG)** — where the graph becomes *intelligence*.
   Once the circulation dual exists: depth-from-entrance, integration, connectivity,
-  choice, egress paths, isovist/visibility graphs. **These are the queries Safdie would
+  choice, egress paths, isovist/visibility graphs. **These are the queries a practice would
   actually value, and they are domain knowledge, not new geometry.** The graph's payoff
   is this analytics catalog, not the graph itself.
 
@@ -200,7 +200,7 @@ Decide the first-class queries: adjacency neighborhood, containment tree, egress
 accessible path, depth-from-entrance, integration/centrality, zone communities,
 change-impact propagation, visibility/isovist. Lean: start with adjacency + containment +
 egress (highest architectural value), then space-syntax metrics. These are domain
-knowledge to mine (Safdie's analyses, space-syntax literature).
+knowledge to mine (practice analyses, space-syntax literature).
 
 ---
 

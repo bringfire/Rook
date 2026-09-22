@@ -1,5 +1,0 @@
-- poll 1: state=processing, status_code=200
-- poll 2: state=succeeded, status_code=200
-- fetch represented by terminal response body; no separate result URL observed
-- cancel evidence recorded in cancel_evidence.md
-- submit elapsed_seconds=0.43; status_code=201

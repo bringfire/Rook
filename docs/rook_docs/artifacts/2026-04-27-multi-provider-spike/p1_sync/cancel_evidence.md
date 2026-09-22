@@ -1,1 +1,0 @@
-P1 image route completed synchronously or as a single submit/result exchange. No separate low-cost cancellation attempt was run; cancellation behavior is not load-bearing for synchronous image generation.
