@@ -61,13 +61,28 @@ TIER_TOKEN_ESTIMATES = {
 _mab_available: Optional[bool] = None
 _contextual_mab_available: Optional[bool] = None
 
+# Placeholders for the lazily bound names, so they always exist as module
+# attributes (tests patch e.g. ``rook.knowledge.encode_context`` directly, in
+# isolation, before any loader has run). The loaders replace them on first use.
+MAB = None
+LearningPolicy = None
+encode_context = None
+ContextHistory = None
+ScalerManager = None
+CONTEXT_HISTORY_PATH = None
+SCALER_PATH = None
+ContextualMAB = None
+MABConfig = None
+warm_start_mab = None
+CONTEXTUAL_MAB_PATH = None
+
 
 def _mab_ready() -> bool:
     """Import the context-free bandit on first use and report availability."""
     global _mab_available, MAB, LearningPolicy
     if _mab_available is False:
         return False
-    if _mab_available is None or "MAB" not in globals():
+    if _mab_available is None or MAB is None:
         try:
             from mabwiser.mab import MAB, LearningPolicy
             _mab_available = True
@@ -84,7 +99,7 @@ def _contextual_ready() -> bool:
     global ContextualMAB, MABConfig, warm_start_mab, CONTEXTUAL_MAB_PATH
     if _contextual_mab_available is False:
         return False
-    if _contextual_mab_available is None or "encode_context" not in globals():
+    if _contextual_mab_available is None or encode_context is None:
         try:
             from .context import encode_context
             from .context_storage import ContextHistory, ScalerManager, CONTEXT_HISTORY_PATH, SCALER_PATH

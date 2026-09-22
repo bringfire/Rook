@@ -260,6 +260,10 @@ class _LazyCommandLearner:
 
     def _real(self):
         if self._learner is None:
+            # Learning boundary: DSPy used to be configured at server startup;
+            # the learner's extraction / consolidation / intent mapping modules
+            # need a configured LM, so configure it here before first use.
+            _configure_dspy_if_available()
             from .learning.command_learner import CommandLearner
             self._learner = CommandLearner(
                 observation_store=self._observation_store,
@@ -16266,6 +16270,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                             # 2. Extract recipe using existing tool logic
                             try:
                                 from .learning.recipe_extraction import extract_recipe
+                                _configure_dspy_if_available()  # learning boundary (classify_recipe uses DSPy first)
                                 from .learning.recipe_classification import classify_recipe
 
                                 # Get canvas state
@@ -20281,6 +20286,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "gh_add_pattern":
             from rook.learning.pattern_store import PatternStore
             from rook.learning.pattern_memory import PatternNote
+            _configure_dspy_if_available()  # learning boundary (metadata extraction needs a configured LM)
             from rook.learning.dspy_modules import PatternMetadataExtractor
             from datetime import datetime as dt
 
