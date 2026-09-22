@@ -35,7 +35,7 @@ GUIDANCE_FILES = (
     ROOT / "docs" / "TROUBLESHOOTING.md",
     ROOT / "docs" / "AGENT_ARCHITECTURE.md",
     ROOT / "docs" / "CURRENT_ARCHITECTURE.md",
-    ROOT / "docs" / "rook_docs" / "POSITIONING.md",
+    ROOT / "docs" / "rook_docs" / "README.md",
     ROOT / "scripts" / "session-start.sh",
     ROOT / "mcp_server" / "src" / "rook" / "learning" / "dspy_signatures.py",
 )
