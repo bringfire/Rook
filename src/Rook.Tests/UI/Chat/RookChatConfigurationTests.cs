@@ -18,6 +18,7 @@ using Xunit;
 
 namespace Rook.Tests.UI.Chat
 {
+    [Xunit.Collection(Rook.Tests.UI.EtoUiCollection.Name)]
     public sealed class RookChatConfigurationTests : IClassFixture<AgentChatProgressTests.PanelThread>
     {
         private readonly AgentChatProgressTests.PanelThread _ui;
@@ -538,7 +539,9 @@ namespace Rook.Tests.UI.Chat
                     .Invoke(tab, new object[] { "requested/b", "high" });
                 helper.GetMethod("Prompt", flags)!.Invoke(null, new object[] { tab });
                 Assert.Equal(1, handler.Count);
-                Assert.Contains("window.chatAPI.updateStreamingMessage('beforeafter')", scripts);
+                // Streaming is incremental now; the segment text is what must survive the
+                // session_status update in between.
+                Assert.Equal(new[] { "beforeafter" }, AgentChatProgressTests.Segments(scripts));
                 var label = typeof(AgentChatTab).GetField("_effectiveSettingsLabel", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(tab) as Label;
                 Assert.NotNull(label);
                 Assert.Contains("Requested model: requested/b", label!.Text);
@@ -1305,7 +1308,7 @@ namespace Rook.Tests.UI.Chat
             internal DialogFixture(RookChatConfigurationTests owner, bool available = true)
             {
                 _owner = owner; Client = RookChatConfigurationTests.Client(Handler, available);
-                _owner._ui.Run(() => { if (Application.Instance == null) _ = new Application(Eto.Platforms.Wpf); SynchronizationContext.SetSynchronizationContext(null); Dialog = new RookChatConfigurationDialog(Client, _queue.Enqueue, BrowserUrls.Add, _ => Discard); });
+                _owner._ui.Run(() => { Rook.Tests.UI.EtoTestPlatform.Ensure(); SynchronizationContext.SetSynchronizationContext(null); Dialog = new RookChatConfigurationDialog(Client, _queue.Enqueue, BrowserUrls.Add, _ => Discard); });
             }
             internal void Ui(Action<RookChatConfigurationDialog> action) => _owner._ui.Run(() => action(Dialog));
             internal Task Start(Func<RookChatConfigurationDialog, Task> run) { Task task = null!; Ui(d => task = run(d)); return task; }

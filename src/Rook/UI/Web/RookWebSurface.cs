@@ -30,7 +30,7 @@ namespace Rook.UI.Web
     /// Subclasses declare their resource root and entry page.
     /// The substrate owns the security boundary; modules own the content.
     /// </summary>
-    public abstract class RookWebSurface : IDisposable
+    public abstract class RookWebSurface : IDisposable, IScriptBackpressure
     {
         // ─── Virtual host ─────────────────────────────────────────────
         internal const string VirtualHostName = "app.rook.invalid";
@@ -50,7 +50,18 @@ namespace Rook.UI.Web
         private bool _webViewReady;
         private bool _disposed;
         private Action? _disposeWebView;
-        private readonly List<string> _pendingScripts = new();
+
+        // ─── Script admission (S4) ────────────────────────────────────
+        // UI thread only: readiness, both queues, the slot count and the display
+        // generation are touched only from UI-marshaled callbacks, so no locking.
+        // PostScript marshals first, whatever thread calls it.
+        public const int MaxInFlightScripts = 16;
+        public const int ScriptResumeThreshold = 8;
+        private readonly List<ScriptRequest> _pendingScripts = new();
+        private readonly Queue<ScriptRequest> _scriptQueue = new();
+        private int _inFlightScripts;
+        private int _displayGeneration;
+        private Action<Action> _uiScheduler = action => Application.Instance.AsyncInvoke(action);
 
         // ─── Bridge state ─────────────────────────────────────────────
         private readonly BridgeDispatcher _dispatcher;
@@ -1113,9 +1124,13 @@ namespace Rook.UI.Web
 #endif
 
         /// <summary>
-        /// Execute JavaScript in the WebView on the UI thread.
-        /// If the WebView is not yet ready, the script is buffered and
-        /// replayed automatically once the document finishes loading.
+        /// Execute JavaScript in the WebView synchronously on the UI thread and wait
+        /// for it (Eto pumps a nested message loop while waiting). Never call this from
+        /// a stream or event path: every chat presentation goes through
+        /// <see cref="PostScript"/>. Retained for callers that need the synchronous
+        /// contract (knowledge graph panel). If the WebView is not yet ready, the
+        /// script is buffered as a control script and replayed once the document
+        /// finishes loading.
         /// </summary>
         public void ExecuteScript(string script)
         {
@@ -1124,7 +1139,7 @@ namespace Rook.UI.Web
 
             if (!_webViewReady)
             {
-                _pendingScripts.Add(script);
+                _pendingScripts.Add(ScriptRequest.ForControl(script));
                 return;
             }
 
@@ -1139,6 +1154,136 @@ namespace Rook.UI.Web
             {
                 RhinoApp.WriteLine($"Rook: script error: {ex.Message}");
             }
+        }
+
+        // ─── Script admission (S4, plan §1) ───────────────────────────
+
+        /// <summary>
+        /// UI-thread marshaling used by script admission. Production: Eto's
+        /// AsyncInvoke. Tests inject a recording scheduler so admission can be
+        /// driven deterministically without a dispatcher.
+        /// </summary>
+        internal Action<Action> UiScheduler
+        {
+            get => _uiScheduler;
+            set => _uiScheduler = value ?? throw new ArgumentNullException(nameof(value));
+        }
+
+        /// <summary>Current display generation. Content scripts from an older generation are dropped.</summary>
+        public int DisplayGeneration => _displayGeneration;
+
+        /// <summary>
+        /// Invalidate all content posted so far (Clear, close). UI thread. Returns the
+        /// new generation. Control scripts are unaffected; in-flight scripts run to
+        /// completion; queued and buffered content of older generations is dropped at
+        /// its next checkpoint.
+        /// </summary>
+        public int InvalidateDisplay() => ++_displayGeneration;
+
+        /// <summary>Queued plus in-flight scripts.</summary>
+        public int Backlog => _scriptQueue.Count + _inFlightScripts;
+
+        /// <summary>Raised on the UI thread whenever the backlog is below <see cref="ScriptResumeThreshold"/> after admission progress.</summary>
+        public event Action? BacklogDrained;
+
+        internal int InFlightScripts => _inFlightScripts;
+        internal int QueuedScripts => _scriptQueue.Count;
+        internal int BufferedScripts => _pendingScripts.Count;
+
+        /// <summary>
+        /// Post a script without ever blocking the caller or the UI thread. Always
+        /// marshals to the UI thread first; there it is dropped if the surface is
+        /// disposed or (for content) its generation is stale, buffered if the document
+        /// is not ready, or queued for execution in submission order behind at most
+        /// <see cref="MaxInFlightScripts"/> concurrently executing scripts.
+        /// </summary>
+        public void PostScript(ScriptRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            _uiScheduler(() =>
+            {
+                if (_disposed || _webView == null) return;
+                if (!request.IsValidFor(_displayGeneration)) return;
+                if (!_webViewReady)
+                {
+                    _pendingScripts.Add(request);
+                    return;
+                }
+                _scriptQueue.Enqueue(request);
+                TryStartScripts();
+            });
+        }
+
+        private void TryStartScripts()
+        {
+            while (!_disposed && _webView != null && _webViewReady &&
+                   _inFlightScripts < MaxInFlightScripts && _scriptQueue.Count > 0)
+            {
+                var request = _scriptQueue.Dequeue();
+                if (!request.IsValidFor(_displayGeneration)) continue;
+                Task<string> task;
+                try
+                {
+                    task = ExecuteScriptAsyncCore(request.Script);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Rook: script error: {ex.Message}");
+                    continue;
+                }
+                if (task.IsCompleted)
+                {
+                    LogScriptFault(task);
+                    continue;
+                }
+                _inFlightScripts++;
+                task.ContinueWith(
+                    completed => _uiScheduler(() => OnScriptCompleted(completed)),
+                    TaskContinuationOptions.ExecuteSynchronously);
+            }
+            NotifyBacklogTransition();
+        }
+
+        private bool _backlogAboveResume;
+
+        /// <summary>
+        /// BacklogDrained is a transition event: it fires once each time the backlog
+        /// falls back below <see cref="ScriptResumeThreshold"/> after having reached it,
+        /// never on every admission.
+        /// </summary>
+        private void NotifyBacklogTransition()
+        {
+            var backlog = Backlog;
+            if (backlog >= ScriptResumeThreshold)
+            {
+                _backlogAboveResume = true;
+                return;
+            }
+            if (!_backlogAboveResume) return;
+            _backlogAboveResume = false;
+            BacklogDrained?.Invoke();
+        }
+
+        private void OnScriptCompleted(Task<string> task)
+        {
+            if (_inFlightScripts > 0) _inFlightScripts--;
+            LogScriptFault(task);
+            if (_disposed) return;
+            TryStartScripts();
+        }
+
+        private void LogScriptFault(Task<string> task)
+        {
+            if (task.IsFaulted)
+                Log($"Rook: script error: {task.Exception?.GetBaseException().Message}");
+        }
+
+        private Task<string> ExecuteScriptAsyncCore(string script)
+        {
+#if ROOK_WEBVIEW2
+            if (_coreWebView2 != null) return _coreWebView2.ExecuteScriptAsync(script);
+#endif
+            return _webView!.ExecuteScriptAsync(script);
         }
 
         /// <summary>
@@ -1166,23 +1311,21 @@ namespace Rook.UI.Web
             TraceWebViewFocus("document-loaded", e.Uri?.ToString());
 #endif
 
-            // Flush buffered scripts BEFORE marking ready, so any
-            // ExecuteScript call arriving during the flush still queues
-            // behind the buffer rather than overtaking it.
+            // Move buffered scripts into the admission queue BEFORE marking ready,
+            // so any PostScript arriving during the replay queues behind them
+            // rather than overtaking them. Stale content (an invalidated display
+            // generation) is dropped here; control scripts always replay. This
+            // recovers pending work only: content already executed in a previous
+            // document is not rebuilt (plan §1 reload limits).
             if (_pendingScripts.Count > 0 && _webView != null)
             {
-                Application.Instance.Invoke(() =>
-                {
-                    foreach (var script in _pendingScripts)
-                    {
-                        try { _webView.ExecuteScript(script); }
-                        catch (Exception ex) { RhinoApp.WriteLine($"Rook: buffered script error: {ex.Message}"); }
-                    }
-                    _pendingScripts.Clear();
-                });
+                foreach (var request in _pendingScripts)
+                    if (request.IsValidFor(_displayGeneration)) _scriptQueue.Enqueue(request);
+                _pendingScripts.Clear();
             }
 
             _webViewReady = true;
+            TryStartScripts();
 
             // Bridge availability finalized BEFORE OnWebViewReady so
             // subclasses can rely on IsBridgeAvailable in their override.
@@ -1887,6 +2030,8 @@ namespace Rook.UI.Web
             disposeWebView?.Invoke();
 
             _pendingScripts.Clear();
+            _scriptQueue.Clear();
+            _inFlightScripts = 0;
             _webViewReady = false;
             IsBridgeAvailable = false;
         }

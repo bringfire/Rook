@@ -205,7 +205,9 @@ namespace Rook.UI.Chat
         private bool _deleted;
         private bool _terminalSeen;
         private bool _promptOutcomeUnconfirmed;
+        private int _promptRequestId;
         private StringBuilder? _assistantBuffer;
+        internal const int MaxToolCardPayloadBytes = 8 * 1024;
         private Label? _effectiveSettingsLabel;
         private string? _requestedModel;
         private string? _requestedReasoning;
@@ -356,16 +358,24 @@ namespace Rook.UI.Chat
             if (baseUri == null || string.IsNullOrEmpty(conversationId))
                 throw new InvalidOperationException("Prime conversation is not open.");
 
+            // Request truth (Contract 1): reader-owned, synchronous, never queued.
+            var requestId = ActiveRequestId;
             lock (_promptGate)
             {
-                _assistantBuffer = new StringBuilder();
+                _promptRequestId = requestId;
                 _terminalSeen = false;
             }
+            // TurnStart: the assistant buffer is reset on the UI thread in queue order,
+            // behind any pending presentation of the previous turn.
+            EnqueueContent("turn:start", () => { lock (_promptGate) _assistantBuffer = new StringBuilder(); }, emitsScripts: false);
 
             var dispatched = false;
             try
             {
-                await RunOwnedPromptAsync(
+                // Explicit background boundary (plan §4): the read loop and every
+                // onEvent run on the thread pool whether or not reads complete
+                // synchronously, so no UI work ever nests inside a read.
+                await Task.Run(() => RunOwnedPromptAsync(
                     _client,
                     baseUri,
                     conversationId,
@@ -373,7 +383,7 @@ namespace Rook.UI.Chat
                     images,
                     HandleChatEvent,
                     CancellationToken.None,
-                    onDispatch: () => dispatched = true);
+                    onDispatch: () => dispatched = true));
             }
             catch (Exception ex)
             {
@@ -423,35 +433,47 @@ namespace Rook.UI.Chat
             }
         }
 
+        /// <summary>
+        /// Runs on the reader (thread-pool) thread. Every effect is a queued
+        /// presentation item; nothing here touches the UI or blocks. Request truth
+        /// (<c>_terminalSeen</c>) is recorded inline before its visual is queued.
+        /// </summary>
         private void HandleChatEvent(ChatEvent evt)
         {
             if (!_uiAttached) return;
+            int requestId;
+            lock (_promptGate) requestId = _promptRequestId;
             switch (evt.Type)
             {
                 case "session_status":
-                    Application.Instance.Invoke(() => ApplyReportedSettings(evt.EffectiveSettings));
+                    EnqueueControl(requestId, "session_status",
+                        () => { if (_uiAttached) ApplyReportedSettings(evt.EffectiveSettings); },
+                        emitsScripts: false);
                     break;
                 case "text_delta":
-                    lock (_promptGate) _assistantBuffer?.Append(evt.Text);
-                    Application.Instance.Invoke(() =>
-                    {
-                        if (_uiAttached) UpdateStreamingChat(_assistantBuffer?.ToString() ?? string.Empty);
-                    });
+                    EnqueueTextDelta(evt.Text ?? string.Empty);
                     break;
                 case "thought_delta":
-                    Application.Instance.Invoke(() =>
-                    {
-                        if (_uiAttached) SetStatus("Prime is reasoning...", Colors.Blue);
-                    });
+                    EnqueueThought("Prime is reasoning...");
                     break;
                 case "tool_update":
                     HandleToolUpdate(evt);
                     break;
                 case "terminal":
                     lock (_promptGate) _terminalSeen = true;
-                    Application.Instance.Invoke(() => ApplyTerminal(evt));
+                    // End marker (Contract 3): TranscriptFinalize (history) then
+                    // ControlSettle (active request only). Neither invalidates anything.
+                    ShowTypingIndicator(false);
+                    FinalizeStreaming();
+                    EnqueueControl(requestId, "settle:terminal", () => ApplyTerminalControls(evt));
                     break;
             }
+        }
+
+        /// <summary>The assistant buffer follows the queue order (UI thread).</summary>
+        protected override void OnStreamingTextApplied(string mergedDelta)
+        {
+            lock (_promptGate) _assistantBuffer?.Append(mergedDelta);
         }
 
         private void HandleToolUpdate(ChatEvent evt)
@@ -463,32 +485,66 @@ namespace Rook.UI.Chat
 
             var id = EscapeForJavaScript(evt.MessageId ?? string.Empty);
             var name = EscapeForJavaScript(evt.Text ?? evt.Kind ?? "Tool");
-            var payload = evt.Payload?.GetRawText() ?? "{}";
             var status = ReadPayloadString(evt.Payload, "status");
-            Application.Instance.Invoke(() =>
+            if (status == "completed" || status == "failed")
             {
-                if (!_uiAttached) return;
-                if (status == "completed" || status == "failed")
-                {
-                    var summary = EscapeForJavaScript(evt.Text ?? status);
-                    ExecuteScript(
-                        $"window.chatAPI.finalizeToolCard('{id}', null, null, '{summary}', '{EscapeForJavaScript(status == "completed" ? "success" : "failed")}')");
-                }
-                else
-                {
-                    // renderToolCard finalizes the current bubble; subsequent text starts a new segment.
-                    lock (_promptGate) _assistantBuffer?.Clear();
-                    ExecuteScript($"window.chatAPI.renderToolCard('{name}', {payload}, '{id}')");
-                }
-            });
+                // Finalization keeps the active text bubble (today's behaviour).
+                var summary = EscapeForJavaScript(evt.Text ?? status);
+                var badge = EscapeForJavaScript(status == "completed" ? "success" : "failed");
+                EnqueueContent("tool:finalize", () =>
+                    PostContentScript($"window.chatAPI.finalizeToolCard('{id}', null, null, '{summary}', '{badge}')"));
+            }
+            else
+            {
+                // A rendered card finalizes the current bubble; subsequent text starts a
+                // new segment. The buffer clear is itself an ordered item, so a delta
+                // that arrives after this event can never be wiped by it.
+                var payload = BoundToolCardPayload(evt.Payload);
+                EnqueueContent("segment-break", () => { lock (_promptGate) _assistantBuffer?.Clear(); }, emitsScripts: false);
+                EnqueueContent("tool:card", () =>
+                    PostContentScript($"window.chatAPI.renderToolCard('{name}', {payload}, '{id}')"));
+            }
         }
 
+        /// <summary>
+        /// Tool cards show at most three keys, so payloads over
+        /// <see cref="MaxToolCardPayloadBytes"/> are summarized before they become a
+        /// script literal (a 65 KB catalog was one synchronous script before this).
+        /// </summary>
+        internal static string BoundToolCardPayload(JsonElement? payload)
+        {
+            var raw = payload?.GetRawText() ?? "{}";
+            if (raw.Length <= MaxToolCardPayloadBytes) return raw;
+            var keys = new List<string>();
+            if (payload.HasValue && payload.Value.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in payload.Value.EnumerateObject())
+                {
+                    keys.Add(property.Name);
+                    if (keys.Count == 3) break;
+                }
+            }
+            return JsonSerializer.Serialize(new { truncated = true, bytes = raw.Length, keys });
+        }
+
+        /// <summary>
+        /// Apply a terminal presentation immediately from the UI thread: the history
+        /// half (typing off, finalize) followed by the control half. The stream path
+        /// queues these as separate items via <see cref="HandleChatEvent"/>; this
+        /// entry exists for callers that already hold the UI thread and for tests.
+        /// </summary>
         private void ApplyTerminal(ChatEvent evt)
         {
-            if (!_uiAttached) return;
             ShowTypingIndicator(false);
             FinalizeStreaming();
-            SetProcessing(false);
+            ApplyTerminalControls(evt);
+        }
+
+        /// <summary>Control half of the end marker: applied only while its request is active. UI thread.</summary>
+        private void ApplyTerminalControls(ChatEvent evt)
+        {
+            if (!_uiAttached) return;
+            SetProcessingUi(false);
             var status = evt.Outcome switch
             {
                 "settled" => "Ready",
@@ -508,7 +564,7 @@ namespace Rook.UI.Chat
             };
             if (evt.PresentationOutcome == "stream_failed" && !status.Contains("live presentation failed"))
                 status += " (live presentation failed)";
-            SetStatus(status, evt.Outcome == "settled" ? Colors.Green : Colors.Orange);
+            SetStatusUi(status, evt.Outcome == "settled" ? Colors.Green : Colors.Orange);
             if (evt.Outcome == "settled")
             {
                 _hasCompletedTurn = true;

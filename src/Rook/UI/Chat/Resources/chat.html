@@ -272,13 +272,77 @@
         }
 
         // ═══ Streaming ═══
-        function updateStreamingMessage(content) {
+        // The streaming bubble keeps its own accumulated text. appendStreaming is
+        // O(delta): it appends a text node immediately and re-renders markdown at most
+        // every STREAMING_RENDER_INTERVAL_MS, plus always on finalize, so the final DOM
+        // equals a single updateStreamingMessage(full) render.
+        var STREAMING_RENDER_INTERVAL_MS = 250;
+        var _streamingText = '';
+        var _streamingRenderTimer = null;
+        var _streamingLastRender = 0;
+        var _scrollScheduled = false;
+
+        function scheduleScroll() {
+            if (_scrollScheduled) return;
+            _scrollScheduled = true;
+            var raf = window.requestAnimationFrame || function(cb) { return setTimeout(cb, 16); };
+            raf(function() { _scrollScheduled = false; scrollToBottom(); });
+        }
+
+        function renderStreamingNow() {
+            if (_streamingRenderTimer !== null) {
+                clearTimeout(_streamingRenderTimer);
+                _streamingRenderTimer = null;
+            }
+            var messageDiv = document.getElementById('streaming-message');
+            if (!messageDiv) return;
+            messageDiv.innerHTML = renderMarkdown(_streamingText);
+            addCopyButtons(messageDiv);
+            _streamingLastRender = (window.performance && performance.now) ? performance.now() : Date.now();
+            scheduleScroll();
+        }
+
+        function scheduleStreamingRender() {
+            if (_streamingRenderTimer !== null) return;
+            var now = (window.performance && performance.now) ? performance.now() : Date.now();
+            var wait = Math.max(0, STREAMING_RENDER_INTERVAL_MS - (now - _streamingLastRender));
+            _streamingRenderTimer = setTimeout(function() {
+                _streamingRenderTimer = null;
+                renderStreamingNow();
+            }, wait);
+        }
+
+        function appendStreaming(delta) {
+            if (typeof delta !== 'string' || delta.length === 0) return;
             var messageDiv = document.getElementById('streaming-message');
             if (!messageDiv) {
-                messageDiv = addMessage('assistant', content, true);
+                _streamingText = '';
+                messageDiv = addMessage('assistant', '', true);
+                _streamingLastRender = 0;
+            }
+            _streamingText += delta;
+            // Immediate O(delta) feedback: append raw text into a tail node that the
+            // next markdown render replaces.
+            var tail = messageDiv.querySelector(':scope > .streaming-tail');
+            if (!tail) {
+                tail = document.createElement('span');
+                tail.className = 'streaming-tail';
+                messageDiv.appendChild(tail);
+            }
+            tail.appendChild(document.createTextNode(delta));
+            scheduleStreamingRender();
+            scheduleScroll();
+        }
+
+        function updateStreamingMessage(content) {
+            _streamingText = content || '';
+            var messageDiv = document.getElementById('streaming-message');
+            if (!messageDiv) {
+                messageDiv = addMessage('assistant', _streamingText, true);
+                _streamingLastRender = (window.performance && performance.now) ? performance.now() : Date.now();
+                if (_streamingRenderTimer !== null) { clearTimeout(_streamingRenderTimer); _streamingRenderTimer = null; }
             } else {
-                messageDiv.innerHTML = renderMarkdown(content);
-                addCopyButtons(messageDiv);
+                renderStreamingNow();
             }
             scrollToBottom();
         }
@@ -286,8 +350,13 @@
         function finalizeStreamingMessage() {
             var messageDiv = document.getElementById('streaming-message');
             if (messageDiv) {
+                renderStreamingNow();
                 messageDiv.removeAttribute('id');
+            } else if (_streamingRenderTimer !== null) {
+                clearTimeout(_streamingRenderTimer);
+                _streamingRenderTimer = null;
             }
+            _streamingText = '';
         }
 
         // ═══ Copy buttons ═══
@@ -321,6 +390,11 @@
         }
 
         function clearMessages() {
+            if (_streamingRenderTimer !== null) {
+                clearTimeout(_streamingRenderTimer);
+                _streamingRenderTimer = null;
+            }
+            _streamingText = '';
             messagesContainer.innerHTML = '';
             _toolCardCounter = 0;
         }
@@ -482,6 +556,7 @@
             // ── Existing (preserved) ──
             addMessage: addMessage,
             updateStreamingMessage: updateStreamingMessage,
+            appendStreaming: appendStreaming,
             finalizeStreamingMessage: finalizeStreamingMessage,
             showTypingIndicator: showTypingIndicator,
             clearMessages: clearMessages,
