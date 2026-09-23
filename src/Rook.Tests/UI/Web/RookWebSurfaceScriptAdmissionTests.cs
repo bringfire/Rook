@@ -49,11 +49,16 @@ namespace Rook.Tests.UI.Web
                 Surface.BacklogDrained += () => DrainedEvents++;
             }
 
+            /// <summary>Runs inside the executor before it returns its task, like a
+            /// CoreWebView2.ExecuteScriptAsync call that pumps messages (#581).</summary>
+            public Action? BeforeReturn;
+
             public Task<string> Execute(string script)
             {
                 Started.Add(script);
                 var tcs = new TaskCompletionSource<string>();
                 Held.Add(tcs);
+                BeforeReturn?.Invoke();
                 return tcs.Task;
             }
 
@@ -109,6 +114,49 @@ namespace Rook.Tests.UI.Web
             Assert.Equal(scripts, h.Started);                // execution order == submission order
             Assert.Equal(0, h.Surface.Backlog);
             Assert.True(h.DrainedEvents > 0);                // fired once the backlog fell below the resume threshold
+        }
+
+        [Fact]
+        public void Admission_limit_holds_when_the_executor_pumps_callbacks_before_returning()
+        {
+            // Review finding: the slot used to be reserved only after the executor
+            // returned. If the executor pumps UI callbacks first (as ExecuteScriptAsync
+            // can), a nested PostScript -> TryStartScripts saw an unreserved slot:
+            // 17 started, 17 in flight, limit 16.
+            var h = new Harness();
+            var maxStartedInsideExecutor = 0;
+            var maxInFlightInsideExecutor = 0;
+            var nestedCalls = 0;
+            h.BeforeReturn = () =>
+            {
+                nestedCalls++;
+                h.Pump();                                    // marshaled PostScript / completion callbacks run here
+                maxStartedInsideExecutor = Math.Max(maxStartedInsideExecutor, h.Started.Count);
+                maxInFlightInsideExecutor = Math.Max(maxInFlightInsideExecutor, h.InFlight);
+            };
+            var scripts = Enumerable.Range(0, 40).Select(i => "s" + i).ToList();
+            foreach (var s in scripts) h.Post(0, s);
+            h.Pump();
+
+            Assert.True(nestedCalls >= RookWebSurface.MaxInFlightScripts);
+            Assert.Equal(RookWebSurface.MaxInFlightScripts, h.Started.Count);
+            Assert.Equal(RookWebSurface.MaxInFlightScripts, h.InFlight);
+            Assert.True(maxStartedInsideExecutor <= RookWebSurface.MaxInFlightScripts,
+                $"{maxStartedInsideExecutor} scripts started while the executor was still inside a call");
+            Assert.True(maxInFlightInsideExecutor <= RookWebSurface.MaxInFlightScripts,
+                $"{maxInFlightInsideExecutor} in flight while the executor was still inside a call");
+            Assert.Equal(40, h.Surface.Backlog);             // reserved slot counts in the backlog
+
+            // Completions delivered while the executor is inside a call (pumped by
+            // BeforeReturn) must release exactly one slot each and keep order.
+            for (var i = 0; i < 40; i++)
+            {
+                h.Complete(i);
+                Assert.True(h.InFlight <= RookWebSurface.MaxInFlightScripts, $"in flight {h.InFlight} after completing {i}");
+            }
+            Assert.Equal(scripts, h.Started);
+            Assert.Equal(0, h.InFlight);
+            Assert.Equal(0, h.Surface.Backlog);
         }
 
         [Fact]

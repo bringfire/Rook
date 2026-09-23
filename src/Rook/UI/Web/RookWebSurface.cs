@@ -1214,32 +1214,51 @@ namespace Rook.UI.Web
             });
         }
 
+        private bool _startingScripts;
+
         private void TryStartScripts()
         {
-            while (!_disposed && _webView != null && _webViewReady &&
-                   _inFlightScripts < MaxInFlightScripts && _scriptQueue.Count > 0)
+            // The executor (CoreWebView2.ExecuteScriptAsync) may pump messages before it
+            // returns, so UI callbacks can re-enter here from inside the call. Two
+            // rules keep the limit exact under that re-entry: the slot is reserved
+            // BEFORE the executor is called, and a nested call does not admit at all;
+            // the outer loop observes any work queued meanwhile once the executor
+            // returns.
+            if (_startingScripts) return;
+            _startingScripts = true;
+            try
             {
-                var request = _scriptQueue.Dequeue();
-                if (!request.IsValidFor(_displayGeneration)) continue;
-                Task<string> task;
-                try
+                while (!_disposed && _webView != null && _webViewReady &&
+                       _inFlightScripts < MaxInFlightScripts && _scriptQueue.Count > 0)
                 {
-                    task = ExecuteScriptAsyncCore(request.Script);
+                    var request = _scriptQueue.Dequeue();
+                    if (!request.IsValidFor(_displayGeneration)) continue;
+                    _inFlightScripts++;
+                    Task<string> task;
+                    try
+                    {
+                        task = ExecuteScriptAsyncCore(request.Script);
+                    }
+                    catch (Exception ex)
+                    {
+                        _inFlightScripts--;
+                        Log($"Rook: script error: {ex.Message}");
+                        continue;
+                    }
+                    if (task.IsCompleted)
+                    {
+                        _inFlightScripts--;
+                        LogScriptFault(task);
+                        continue;
+                    }
+                    task.ContinueWith(
+                        completed => _uiScheduler(() => OnScriptCompleted(completed)),
+                        TaskContinuationOptions.ExecuteSynchronously);
                 }
-                catch (Exception ex)
-                {
-                    Log($"Rook: script error: {ex.Message}");
-                    continue;
-                }
-                if (task.IsCompleted)
-                {
-                    LogScriptFault(task);
-                    continue;
-                }
-                _inFlightScripts++;
-                task.ContinueWith(
-                    completed => _uiScheduler(() => OnScriptCompleted(completed)),
-                    TaskContinuationOptions.ExecuteSynchronously);
+            }
+            finally
+            {
+                _startingScripts = false;
             }
             NotifyBacklogTransition();
         }
