@@ -421,7 +421,7 @@ static CRookNativePlugin thePlugIn;
 // --- Plugin Implementation ---
 
 CRookNativePlugin::CRookNativePlugin()
-    : m_plugin_version(L"1.5.18")
+    : m_plugin_version(L"1.6.0")
 {
     // The constructor is called before OnLoadPlugIn.
     // Do NOT access Rhino SDK objects here.

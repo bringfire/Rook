@@ -167,9 +167,11 @@ function Test-Guidance {
     }
 
     Assert-NotContains -Text $combined -Unexpected 'https://github.com/bringfire/Rook/releases' -Message 'User-facing releases must use rook-release.'
-    Assert-NotContains -Text $combined -Unexpected 'https://github.com/bringfire/Rook/issues' -Message 'User-facing support must use rook-release.'
+    # Bug reports and contributions go to the public source repository (open source since 2026-09);
+    # installer releases stay on rook-release, asserted above.
 
     $readme = Get-Text 'README.md'
+    Assert-Contains -Text $readme -Expected 'https://github.com/bringfire/Rook/issues' -Message 'README support must point to the public source repository issues.'
     Assert-NotContains -Text $readme -Unexpected '**Rook requires [Claude Code]' -Message 'README must not require Claude Code.'
     Assert-Contains -Text $readme -Expected 'bundled CPython 3.11.9' -Message 'README must describe bundled Python.'
     Assert-Contains -Text $readme -Expected 'Codex skills' -Message 'README must describe installer-owned Codex skills.'
