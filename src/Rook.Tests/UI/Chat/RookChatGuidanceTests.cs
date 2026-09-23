@@ -16,6 +16,7 @@ using Xunit;
 
 namespace Rook.Tests.UI.Chat
 {
+    [Xunit.Collection(Rook.Tests.UI.EtoUiCollection.Name)]
     public sealed class RookChatGuidanceTests : IClassFixture<AgentChatProgressTests.PanelThread>
     {
         private readonly AgentChatProgressTests.PanelThread _ui;
@@ -379,7 +380,7 @@ namespace Rook.Tests.UI.Chat
             {
                 _ui = ui; _context = new QueueContext(_queue);
                 Client = AgentChatClient.ForTests(Handler, Health.BaseUri!, Health); Client.SetSessionNonce("synthetic");
-                Ui(() => { if (Application.Instance == null) _ = new Application(Eto.Platforms.Wpf); Panel = new RookChatPanel(1); });
+                Ui(() => { Rook.Tests.UI.EtoTestPlatform.Ensure(); Panel = new RookChatPanel(1); });
             }
             internal void Ui(Action action) => _ui.Run(() => { SynchronizationContext.SetSynchronizationContext(_context); action(); });
             internal Task Start(Func<Task> action) { Task t = null!; Ui(() => t = action()); return t; }

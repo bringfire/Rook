@@ -12,6 +12,7 @@ using Xunit;
 
 namespace Rook.Tests.UI.Chat
 {
+    [Xunit.Collection(Rook.Tests.UI.EtoUiCollection.Name)]
     public sealed class AgentChatClientParseTests
     {
         private static readonly Uri BaseUri = new("http://127.0.0.1:8765");
@@ -569,8 +570,7 @@ namespace Rook.Tests.UI.Chat
 
         private static void EnsureEtoApplication()
         {
-            if (Eto.Forms.Application.Instance == null)
-                _ = new Eto.Forms.Application(Eto.Platforms.Wpf);
+            Rook.Tests.UI.EtoTestPlatform.Ensure();
             SynchronizationContext.SetSynchronizationContext(null);
         }
 

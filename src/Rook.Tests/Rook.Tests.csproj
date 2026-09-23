@@ -26,6 +26,11 @@
     <ProjectReference Include="..\Rook\Rook.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Real WPF dispatcher for the chat responsiveness test (System.Windows.Threading). -->
+    <Reference Include="WindowsBase" />
+  </ItemGroup>
+
   <!-- Rook.csproj outputs Rook.rhp (Rhino plugin convention), but the .NET
        runtime probes for Rook.dll during assembly resolution. Mirror the
        .rhp as .dll in the test bin so xUnit can load Rook types. -->

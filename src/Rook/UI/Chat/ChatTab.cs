@@ -25,6 +25,13 @@ namespace Rook.UI.Chat
         // ─── Web surface (substrate) ──────────────────────────────────
         private readonly ChatWebSurface _webSurface;
 
+        // ─── Presentation (S2/S3): one ordered projection, one consumer ───
+        // Request truth (processing, request id) is owned by the submit paths and
+        // the reader lifecycle; the queue carries only its visual effects.
+        private readonly PresentationQueue _presentation;
+        private int _activeRequestId;
+        private Action<Action> _uiScheduler = action => Application.Instance.AsyncInvoke(action);
+
         // ─── Eto controls ─────────────────────────────────────────────
         private TextArea _inputArea = null!;
         private Button _sendButton = null!;
@@ -132,6 +139,13 @@ namespace Rook.UI.Chat
                 hostedSurfaceType + ":" +
                 Interlocked.Increment(ref s_nextHostedSurfaceId).ToString();
             _webSurface = new ChatWebSurface(this);
+            _presentation = new PresentationQueue(
+                schedule: action => _uiScheduler(action),
+                currentDisplayGeneration: () => _webSurface.DisplayGeneration,
+                activeRequestId: () => _activeRequestId,
+                backpressure: _webSurface,
+                applyText: ApplyStreamingText,
+                applyThought: status => SetStatusUi(status, Colors.Blue));
             if (!initializePresentation) return;
             InitializeComponents();
             LayoutControls();
@@ -208,15 +222,61 @@ namespace Rook.UI.Chat
             Content = layout;
         }
 
-        // ─── JavaScript helpers ──────────────────────────────────────
+        // ─── Presentation helpers (S2 → S3 → S4) ─────────────────────
 
         /// <summary>
-        /// Execute JavaScript in the WebView on the UI thread.
+        /// UI-thread marshaling for presentation. Production: Eto's AsyncInvoke.
+        /// Tests inject a recording scheduler and pump it deterministically. The
+        /// surface's script admission shares the same scheduler.
         /// </summary>
-        protected void ExecuteScript(string script)
+        internal Action<Action> UiScheduler
         {
-            _webSurface.ExecuteScript(script);
+            get => _uiScheduler;
+            set
+            {
+                _uiScheduler = value ?? throw new ArgumentNullException(nameof(value));
+                _webSurface.UiScheduler = _uiScheduler;
+            }
         }
+
+        /// <summary>Display generation of the surface; content is dropped once it changes (Clear, close).</summary>
+        protected int DisplayGeneration => _webSurface.DisplayGeneration;
+
+        /// <summary>Id of the request currently allowed to update controls.</summary>
+        protected int ActiveRequestId => _activeRequestId;
+
+        internal PresentationQueue Presentation => _presentation;
+
+        /// <summary>Queue a transcript/history operation for the current display generation, in event order.</summary>
+        protected void EnqueueContent(string name, Action apply, bool emitsScripts = true)
+            => _presentation.Push(new PresentationItem.Content(DisplayGeneration, name, apply, emitsScripts));
+
+        /// <summary>Queue a transcript/history operation tagged with an explicit display generation.</summary>
+        protected void EnqueueContent(int displayGeneration, string name, Action apply, bool emitsScripts = true)
+            => _presentation.Push(new PresentationItem.Content(displayGeneration, name, apply, emitsScripts));
+
+        /// <summary>Queue a control-state operation for the given request, in event order.</summary>
+        protected void EnqueueControl(int requestId, string name, Action apply, bool emitsScripts = true)
+            => _presentation.Push(new PresentationItem.Control(requestId, name, apply, emitsScripts));
+
+        /// <summary>Queue one streamed assistant text delta (merged per drain).</summary>
+        protected void EnqueueTextDelta(string delta)
+            => _presentation.Push(new PresentationItem.Text(DisplayGeneration, delta));
+
+        /// <summary>Queue a reasoning-status update (last-wins per drain).</summary>
+        protected void EnqueueThought(string status)
+            => _presentation.Push(new PresentationItem.Thought(DisplayGeneration, status));
+
+        /// <summary>
+        /// Post a content script for the current display generation. Only called
+        /// from queue appliers on the UI thread; never blocks.
+        /// </summary>
+        protected void PostContentScript(string script)
+            => _webSurface.PostScript(ScriptRequest.ForContent(DisplayGeneration, script));
+
+        /// <summary>Post a control script (survives Clear and document replay). Never blocks.</summary>
+        protected void PostControlScript(string script)
+            => _webSurface.PostScript(ScriptRequest.ForControl(script));
 
         protected void EnableWebComposer()
         {
@@ -233,6 +293,9 @@ namespace Rook.UI.Chat
             if (_tabClosed) return false;
             _tabClosed = true;
             Content = null;
+            // Close is an explicit discard of all pending presentation (plan §A row 8).
+            _webSurface.InvalidateDisplay();
+            _presentation.Discard();
             _webSurface.Dispose();
             return true;
         }
@@ -278,55 +341,81 @@ namespace Rook.UI.Chat
 
         // ─── Chat display methods ────────────────────────────────────
 
+        // Every transcript operation below is a queued content item (plan §2b): none
+        // may reach the script queue directly, so nothing can overtake older work.
+        // The fallback TextArea path (no WebView) is applied inside the same item.
+
         /// <summary>
         /// Add a message bubble to the chat display.
         /// </summary>
         protected void AddMessageToChat(string role, string content)
         {
-            if (_webSurface.IsWebViewReady)
+            EnqueueContent("bubble:" + role, () =>
             {
-                var escapedContent = EscapeForJavaScript(content);
-                ExecuteScript($"window.chatAPI.addMessage('{role}', '{escapedContent}')");
-            }
-            else if (_fallbackChat != null)
-            {
-                var prefix = role == "user" ? "You: " : role == "assistant" ? "Rook: " : $"[{role}]: ";
-                _fallbackChat.Append($"{prefix}{content}\n\n");
-            }
+                if (_webSurface.IsWebViewReady || _fallbackChat == null)
+                {
+                    var escapedContent = EscapeForJavaScript(content);
+                    PostContentScript($"window.chatAPI.addMessage('{role}', '{escapedContent}')");
+                }
+                else
+                {
+                    var prefix = role == "user" ? "You: " : role == "assistant" ? "Rook: " : $"[{role}]: ";
+                    _fallbackChat.Append($"{prefix}{content}\n\n");
+                }
+            });
         }
 
         /// <summary>
-        /// Update (or create) the currently-streaming assistant message.
+        /// Replace the currently-streaming assistant message with the full content
+        /// (redraw primitive). Streaming itself uses <see cref="EnqueueTextDelta"/>.
         /// </summary>
         protected void UpdateStreamingChat(string content)
         {
-            if (_webSurface.IsWebViewReady)
+            EnqueueContent("streaming:replace", () =>
             {
                 var escapedContent = EscapeForJavaScript(content);
-                ExecuteScript($"window.chatAPI.updateStreamingMessage('{escapedContent}')");
-            }
+                PostContentScript($"window.chatAPI.updateStreamingMessage('{escapedContent}')");
+            });
+        }
+
+        /// <summary>UI-thread applier for merged text deltas (called by the queue).</summary>
+        private void ApplyStreamingText(string mergedDelta)
+        {
+            if (mergedDelta.Length == 0) return;
+            OnStreamingTextApplied(mergedDelta);
+            var escaped = EscapeForJavaScript(mergedDelta);
+            PostContentScript($"window.chatAPI.appendStreaming('{escaped}')");
         }
 
         /// <summary>
-        /// Show or hide the typing indicator dots.
+        /// Called on the UI thread, in queue order, with each merged text delta before it
+        /// is posted. Subclasses keep their assistant buffer here.
+        /// </summary>
+        protected virtual void OnStreamingTextApplied(string mergedDelta)
+        {
+        }
+
+        /// <summary>
+        /// Show or hide the typing indicator dots. Typing visibility is request-control
+        /// state, not transcript content: it lives outside the message list, so
+        /// clearMessages() does not touch it, and a queued hide must survive a Clear
+        /// (otherwise a Clear between terminal-read and drain leaves the dots running).
         /// </summary>
         protected void ShowTypingIndicator(bool show)
         {
-            if (_webSurface.IsWebViewReady)
-            {
-                ExecuteScript($"window.chatAPI.showTypingIndicator({(show ? "true" : "false")})");
-            }
+            EnqueueControl(_activeRequestId, "typing", () => PostTypingIndicator(show));
         }
 
+        private void PostTypingIndicator(bool show)
+            => PostControlScript($"window.chatAPI.showTypingIndicator({(show ? "true" : "false")})");
+
         /// <summary>
-        /// End the current streaming message.
+        /// End the current streaming message (history finalization).
         /// </summary>
         protected void FinalizeStreaming()
         {
-            if (_webSurface.IsWebViewReady)
-            {
-                ExecuteScript("window.chatAPI.finalizeStreamingMessage()");
-            }
+            EnqueueContent("streaming:finalize", () =>
+                PostContentScript("window.chatAPI.finalizeStreamingMessage()"));
         }
 
         /// <summary>
@@ -334,21 +423,25 @@ namespace Rook.UI.Chat
         /// </summary>
         protected void AddImageToChat(string base64Data)
         {
-            if (_webSurface.IsWebViewReady)
-            {
-                ExecuteScript($"window.chatAPI.addImage('{base64Data}')");
-            }
+            EnqueueContent("image", () => PostContentScript($"window.chatAPI.addImage('{base64Data}')"));
         }
 
         // ─── Status helpers ──────────────────────────────────────────
 
+        /// <summary>
+        /// Set the status label from any thread. Never blocks. Status rides the same
+        /// ordered stream as everything else, as a control item of the request that is
+        /// active when it is requested: a "Sending..." queued for request N can never
+        /// overwrite N's settlement or N+1's status (plan §2b).
+        /// </summary>
         protected void SetStatus(string text, Color color)
+            => EnqueueControl(_activeRequestId, "status", () => SetStatusUi(text, color), emitsScripts: false);
+
+        /// <summary>Set the status label directly. UI thread only.</summary>
+        protected void SetStatusUi(string text, Color color)
         {
-            Application.Instance.Invoke(() =>
-            {
-                _statusLabel.Text = text;
-                _statusLabel.TextColor = color;
-            });
+            _statusLabel.Text = text;
+            _statusLabel.TextColor = color;
         }
 
         /// <summary>
@@ -404,13 +497,22 @@ namespace Rook.UI.Chat
                 new TableRow(_sendButton, _secondaryActionButton, _stopButton, _clearButton, null));
         }
 
+        /// <summary>
+        /// Set the processing flag from any thread and refresh controls without
+        /// blocking. Stream settlement uses <see cref="SetProcessingUi"/> from a
+        /// queued control item instead, so the refresh stays in presentation order.
+        /// </summary>
         protected void SetProcessing(bool processing)
         {
             _isProcessing = processing;
-            Application.Instance.Invoke(() =>
-            {
-                UpdateUIState();
-            });
+            _uiScheduler(UpdateUIState);
+        }
+
+        /// <summary>Set the processing flag and refresh controls. UI thread only.</summary>
+        protected void SetProcessingUi(bool processing)
+        {
+            _isProcessing = processing;
+            UpdateUIState();
         }
 
         // ─── Event wiring ────────────────────────────────────────────
@@ -451,14 +553,17 @@ namespace Rook.UI.Chat
                 return;
             var acceptedIntent = message!;
 
+            // Immediate request-admission bookkeeping (Contract 1): synchronous, on
+            // the submitting (UI) thread, before any presentation is queued.
             _isProcessing = true;
+            var requestId = ++_activeRequestId;
             UpdateUIState();
-
             _inputArea.Text = "";
 
+            // Presentation of the submission goes through the same ordered stream as
+            // everything else (plan §2b), so it can never overtake older pending work.
             AddMessageToChat("user", acceptedIntent);
             ShowTypingIndicator(true);
-
             SetStatus("Sending...", Colors.Blue);
 
             try
@@ -467,15 +572,25 @@ namespace Rook.UI.Chat
             }
             catch (Exception ex)
             {
-                Application.Instance.Invoke(() =>
-                {
-                    ShowTypingIndicator(false);
-                    AddMessageToChat("error", ex.Message);
-                    _isProcessing = false;
-                    UpdateUIState();
-                    SetStatus(SubmissionBlockReason ?? "Error", Colors.Red);
-                });
+                PresentRequestFailure(requestId, ex.Message);
             }
+        }
+
+        /// <summary>
+        /// End marker for a failed request: TranscriptFinalize → ErrorBubble →
+        /// ControlSettle, preserving all preceding content (plan §2b). Request state
+        /// (uncertain / refused) has already been recorded inline by the caller.
+        /// </summary>
+        protected void PresentRequestFailure(int requestId, string message)
+        {
+            FinalizeStreaming();
+            ShowTypingIndicator(false);
+            AddMessageToChat("error", message);
+            EnqueueControl(requestId, "settle:failure", () =>
+            {
+                SetProcessingUi(false);
+                SetStatusUi(SubmissionBlockReason ?? "Error", Colors.Red);
+            });
         }
 
         private void OnStopClicked(object? sender, EventArgs e)
@@ -486,23 +601,39 @@ namespace Rook.UI.Chat
                 SetStatus("Stopping...", Colors.Orange);
                 return;
             }
+            var requestId = _activeRequestId;
             ShowTypingIndicator(false);
             FinalizeStreaming();
-            _isProcessing = false;
-            UpdateUIState();
-            SetStatus("Stopped", Colors.Orange);
+            EnqueueControl(requestId, "settle:stopped", () =>
+            {
+                SetProcessingUi(false);
+                SetStatusUi("Stopped", Colors.Orange);
+            });
         }
 
         private void OnClearClicked(object? sender, EventArgs e)
         {
-            if (_webSurface.IsWebViewReady)
+            // Explicit discard (Contract 3): invalidate pending content at every stage,
+            // then clear the transcript under the new generation. Request state and
+            // control items are untouched; a control refresh follows so the composer
+            // mirrors _isProcessing whatever happened to in-flight scripts.
+            var generation = _webSurface.InvalidateDisplay();
+            _presentation.Discard();
+            EnqueueContent(generation, "clear", () =>
             {
-                ExecuteScript("window.chatAPI.clearMessages()");
-            }
-            else if (_fallbackChat != null)
+                if (_webSurface.IsWebViewReady || _fallbackChat == null)
+                    PostContentScript("window.chatAPI.clearMessages()");
+                else
+                    _fallbackChat.Text = "";
+            });
+            EnqueueControl(_activeRequestId, "control:refresh", () =>
             {
-                _fallbackChat.Text = "";
-            }
+                UpdateUIState();
+                // The indicator is outside the cleared message list; mirror processing state.
+               
+                PostTypingIndicator(_isProcessing);
+               
+            });
 
             OnClearRequested();
 
@@ -523,8 +654,9 @@ namespace Rook.UI.Chat
 
         private void UpdateComposerState()
         {
+            // Control script: mirrors request state, survives Clear and document replay.
             if (_useWebComposer)
-                ExecuteScript($"window.chatAPI.setComposerEnabled(true, {(!_isProcessing && SubmissionBlockReason == null ? "true" : "false")})");
+                PostControlScript($"window.chatAPI.setComposerEnabled(true, {(!_isProcessing && SubmissionBlockReason == null ? "true" : "false")})");
         }
 
         /// <summary>
@@ -760,25 +892,26 @@ namespace Rook.UI.Chat
 
             protected override void OnWebViewReady()
             {
-                Application.Instance.Invoke(() =>
+                // Raised from the DocumentLoaded handler on the UI thread; no marshaling.
+                _owner.SetStatusUi(_owner.SubmissionBlockReason ?? "Ready", _owner.SubmissionBlockReason == null ? Colors.Green : Colors.Orange);
+                if (_owner._useWebComposer)
                 {
-                    _owner.SetStatus(_owner.SubmissionBlockReason ?? "Ready", _owner.SubmissionBlockReason == null ? Colors.Green : Colors.Orange);
-                    if (_owner._useWebComposer)
-                    {
-                        _owner._inputArea.Visible = false;
-                        _owner._sendButton.Visible = false;
-                        _owner._actionButtonLayout.Visible = true;
-                        _owner.UpdateComposerState();
-                    }
-                });
+                    _owner._inputArea.Visible = false;
+                    _owner._sendButton.Visible = false;
+                    _owner._actionButtonLayout.Visible = true;
+                    _owner.UpdateComposerState();
+                }
             }
         }
 
         private async Task<bool> SubmitWebInputAsync(string text, IReadOnlyList<ChatImageInput> images)
         {
             if (_isProcessing || SubmissionBlockReason != null) return false;
+            // Immediate request-admission bookkeeping (Contract 1).
             _isProcessing = true;
+            var requestId = ++_activeRequestId;
             UpdateUIState();
+            // Submission presentation through the ordered stream (plan §2b).
             if (!string.IsNullOrEmpty(text)) AddMessageToChat("user", text);
             ShowTypingIndicator(true);
             SetStatus("Sending...", Colors.Blue);
@@ -788,14 +921,7 @@ namespace Rook.UI.Chat
             }
             catch (Exception ex)
             {
-                Application.Instance.Invoke(() =>
-                {
-                    ShowTypingIndicator(false);
-                    AddMessageToChat("error", ex.Message);
-                    _isProcessing = false;
-                    UpdateUIState();
-                    SetStatus(SubmissionBlockReason ?? "Error", Colors.Red);
-                });
+                PresentRequestFailure(requestId, ex.Message);
             }
             // Acceptance describes handling of this draft, not the model/settlement outcome.
             return true;
