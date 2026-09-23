@@ -7,6 +7,7 @@ import os
 from typing import Any
 
 import httpx
+from rook.bridge import NATIVE_CLIENT_HEADERS
 import pytest
 
 from rook.server import _mcp_tool_executor
@@ -40,7 +41,7 @@ def _guid(result: Any) -> str:
 
 
 async def _prepare_blank_grasshopper_document(base_url: str) -> None:
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, headers=NATIVE_CLIENT_HEADERS) as client:
         open_response = await client.post(
             f"{base_url}/command",
             json={"command": "_Grasshopper"},
@@ -81,7 +82,7 @@ async def _prepare_blank_grasshopper_document(base_url: str) -> None:
 
 
 async def _raw_post(base_url: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, headers=NATIVE_CLIENT_HEADERS) as client:
         response = await client.post(f"{base_url}{path}", json=body)
     return response.json()
 
@@ -139,7 +140,7 @@ async def _assert_no_preexisting_gh_documents(base_url: str) -> None:
 
 
 async def _connections(base_url: str, guid: str) -> list[dict[str, Any]]:
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, headers=NATIVE_CLIENT_HEADERS) as client:
         response = await client.get(f"{base_url}/gh/connections", params={"guid": guid})
     envelope = response.json()
     assert envelope.get("success") is True, envelope

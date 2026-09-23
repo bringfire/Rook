@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 import httpx
+from ..bridge import NATIVE_CLIENT_HEADERS
 
 from ..bridge import get_rhino_host
 from ..runtime_paths import resolve_readable_knowledge_path, resolve_writable_knowledge_path
@@ -45,7 +46,7 @@ def fetch_audit(port: int | None = None) -> dict:
     resp = httpx.get(
         f"{base}/gh/library",
         params={"audit": "true"},
-        timeout=60.0,
+        timeout=60.0, headers=NATIVE_CLIENT_HEADERS
     )
     resp.raise_for_status()
     result = resp.json()
@@ -60,7 +61,7 @@ def fetch_all_components(port: int | None = None) -> list[dict]:
     resp = httpx.get(
         f"{base}/gh/library",
         params={"limit": "10000"},
-        timeout=60.0,
+        timeout=60.0, headers=NATIVE_CLIENT_HEADERS
     )
     resp.raise_for_status()
     result = resp.json()

@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-10  
 **Status:** Phase 2 implementation spec  
-**Authors:** Codex + aryan  
+**Authors:** Codex + Bringfire  
 **Depends on:** `94d88cf fix(chat): harden WebUI trust model (#4)`  
 **Related:**
 - `<repos>\rook_docs\2026-04-09-webui-substrate-module-boundaries.md`

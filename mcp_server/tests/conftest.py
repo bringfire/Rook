@@ -38,6 +38,13 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 
+def _native_headers() -> dict:
+    """The native server's required client header (lazy: rook is on sys.path only after the block above)."""
+    from rook.bridge import NATIVE_CLIENT_HEADERS
+
+    return dict(NATIVE_CLIENT_HEADERS)
+
+
 def _get_harness_scope_from_env() -> tuple[int, int] | None:
     port_raw = os.environ.get("ROOK_RHINO_PORT")
     pid_raw = os.environ.get("ROOK_RHINO_PROCESS_ID")
@@ -230,7 +237,7 @@ async def assert_new_slot(
 
     url = f"{base_url}/block/_debug/basepoint-userdata"
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, headers=_native_headers()) as client:
             resp = await client.post(url, json={"name": block_name})
     except Exception as ex:
         pytest.fail(f"POST {url} failed: {ex!r}")
@@ -307,7 +314,7 @@ async def set_legacy_basepoint_for_test(
 
     url = f"{base_url}/block/_debug/set-legacy-basepoint"
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, headers=_native_headers()) as client:
             resp = await client.post(
                 url,
                 json={"name": block_name, "basePoint": list(base_point)},
@@ -353,7 +360,7 @@ async def assert_no_new_slot(block_name: str) -> None:
 
     url = f"{base_url}/block/_debug/basepoint-userdata"
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, headers=_native_headers()) as client:
             resp = await client.post(url, json={"name": block_name})
     except Exception as ex:
         pytest.fail(f"POST {url} failed: {ex!r}")

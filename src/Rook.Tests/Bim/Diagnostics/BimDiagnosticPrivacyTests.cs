@@ -55,7 +55,7 @@ namespace Rook.Tests.Bim.Diagnostics
             const string Hyphenated = "01234567-89ab-cdef-0123-456789abcdef";
             const string Compact = "0123456789abcdef0123456789abcdef";
             var stack =
-                "at Example.Type.Drive() in C:\\Users\\aryan\\Model.rvt:line 42\n" +
+                "at Example.Type.Drive() in C:\\Users\\example\\Model.rvt:line 42\n" +
                 "at Example.Type.Unc() in \\\\server\\share\\Other.rvt:line 17\n" +
                 "at Example.Type.Uris() file:///C:/Models/File.rvt " +
                 "rsn://server/project/model.rvt cloud://tenant/model/" +

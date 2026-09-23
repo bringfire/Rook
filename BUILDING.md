@@ -243,6 +243,16 @@ Get-Item src\RookNative\bin\Release\x64\RookNative.rhp
 
 ---
 
+
+Calling the native server by hand (curl, a REPL, a script) requires the
+`X-Rook-Client` header on every request; the server refuses requests without
+it, and any request carrying browser fetch metadata, with HTTP 403 (see
+`SECURITY.md`, "Local HTTP surfaces"). Rook's own clients add it for you.
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:$port/ping" -Headers @{ 'X-Rook-Client' = 'manual' }
+```
+
 ## Manual Build: C# Companion Plugin (Rook)
 
 The C# companion handles Grasshopper operations and the embedded chat panel.

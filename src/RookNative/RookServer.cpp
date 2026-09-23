@@ -61,6 +61,8 @@ namespace fs = std::filesystem;
 namespace
 {
     constexpr const char* kNativeBindHost = "127.0.0.1";
+    // Required on every request (see the local-client gate in Start()).
+    constexpr const char* kRookClientHeader = "X-Rook-Client";
 
     struct DiscoveryRootInfo
     {
@@ -2531,19 +2533,35 @@ bool CRookServer::Start()
     // Let the OS assign a free port (port 0). No range scanning needed.
     m_server = std::make_unique<httplib::Server>();
 
-    // Browser-origin guard. The server binds 127.0.0.1 and has no client token:
-    // any local process may call it (that is the local-MCP design). A web page
-    // in the user's browser must not be able to, even blind: cross-origin
-    // "simple" POSTs (text/plain, form) reach a loopback server without a CORS
-    // preflight, and several routes execute code. Browsers always attach an
-    // Origin header to such requests; Rook's own clients (Python bridge, chat
-    // service, companion HttpClient) never do. Reject on Origin, before routing.
+    // Local-client gate. The server binds 127.0.0.1 and any process running as
+    // the user may call it (that is the local-MCP design), but nothing a web page
+    // does may reach it: several routes execute code or write files, and a
+    // loopback server is reachable from a browser tab through cross-origin
+    // "simple" requests, <img>/<script> loads and navigations, none of which
+    // need a CORS preflight and not all of which carry an Origin header.
+    //
+    // Two layers, evaluated before routing:
+    //  1. Positive: every request must carry the X-Rook-Client header. A page
+    //     can only add a custom header through a CORS-preflighted request, and
+    //     this server never answers a preflight; <img>, <script>, forms and
+    //     navigations cannot set headers at all. Rook's own clients (Python
+    //     bridge, chat service, companion HttpClient) send it.
+    //  2. Negative, defense in depth: any request carrying Origin or the
+    //     browser-set fetch-metadata headers (Sec-Fetch-*) is rejected even if
+    //     it somehow carried the client header.
     m_server->set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
-        if (req.has_header("Origin")) {
+        const bool browser_marked = req.has_header("Origin") ||
+                                    req.has_header("Sec-Fetch-Mode") ||
+                                    req.has_header("Sec-Fetch-Site") ||
+                                    req.has_header("Sec-Fetch-Dest");
+        const bool client_marked = !req.get_header_value(kRookClientHeader).empty();
+        if (browser_marked || !client_marked) {
             res.status = 403;
             res.set_content(
-                "{\"success\":false,\"error\":\"cross_origin_request_rejected\","
-                "\"detail\":\"The Rook native server does not accept browser-originated requests.\"}",
+                std::string("{\"success\":false,\"error\":\"") +
+                (browser_marked ? "browser_request_rejected" : "client_header_required") +
+                "\",\"detail\":\"The Rook native server accepts only local Rook clients: send the " +
+                kRookClientHeader + " header and no browser fetch metadata.\"}",
                 "application/json");
             return httplib::Server::HandlerResponse::Handled;
         }

@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-09  
 **Status:** Working architecture contract / Phase 2 guidance  
-**Authors:** Codex + aryan (based on locked Phase 1 decisions)  
+**Authors:** Codex + Bringfire (based on locked Phase 1 decisions)  
 **Related:**
 - `<repo>\src\Rook\UI\Chat\ChatTab.cs`
 - `<repo>\src\Rook\UI\Chat\RookChatPanel.cs`

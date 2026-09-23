@@ -1081,9 +1081,9 @@ class CommandLearner:
             Dict with observation and learning results
         """
         # Create a temporary HTTP client if we don't have one
-        import httpx
+        from ..bridge import native_client
 
-        async with httpx.AsyncClient() as client:
+        async with native_client() as client:
             observer = CommandObserver(client, store=self.observation_store)
             observation = await observer.execute_interactive(
                 command=command,

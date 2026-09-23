@@ -38,22 +38,29 @@ Rook runs two local HTTP servers. Neither is reachable from the network.
 
 - **Native server** (`src/RookNative`, inside Rhino). Binds `127.0.0.1` on an
   OS-assigned port published through a discovery file under
-  `%LOCALAPPDATA%\Rook\discovery`. It has **no client token**: any process
-  running as the same user can call it, which is how the MCP server, the chat
-  service and the companion plugin reach Rhino. Several routes execute code in
-  Rhino by design (`/execute`, `/command`, Grasshopper edits). To keep a web
-  page in your browser from driving it blind through a cross-origin "simple"
-  request, the server rejects (HTTP 403) every request that carries an
-  `Origin` header before routing; browsers always attach one, Rook's own
-  clients never do. It sends no CORS headers.
+  `%LOCALAPPDATA%\Rook\discovery`. Several routes execute code in Rhino by
+  design (`/execute`, `/command`, Grasshopper edits) and others write files.
+  Any process running as the same user can call it; that is how the MCP
+  server, the chat service and the companion plug-in reach Rhino. What it
+  refuses is anything a web page can make your browser send. Before routing,
+  every request must carry the `X-Rook-Client` header: a page can only add a
+  custom header through a CORS-preflighted request and the server never
+  answers a preflight, while `<img>`/`<script>` loads, form posts and
+  navigations cannot set headers at all. As a second layer it rejects any
+  request carrying `Origin` or the browser-set `Sec-Fetch-*` headers. Refusals
+  are HTTP 403 (`client_header_required` / `browser_request_rejected`). It
+  sends no CORS headers. Rook's own clients send the header; if you script the
+  server yourself, add `X-Rook-Client: <anything>` to each request.
 - **Chat service** (`mcp_server/src/rook/agent/chat`, a separate Python
   process spawned by the companion). Binds `127.0.0.1` on an OS-assigned port
   and requires a per-launch session nonce (`X-Rook-Session`) on every request
   except `/agent/chat/health`; the RookChat WebView pages send it.
 
 The threat model is therefore: anything already running as your user can do
-what Rook can do in Rhino, and nothing in a browser tab can. If you find a way
-around either statement, please report it privately.
+what Rook can do in Rhino; a web page cannot, because no request a browser
+issues without a CORS grant carries the client header, and the native server
+grants none. If you find a request a browser can make that gets past either
+server, please report it privately.
 
 ## Supported versions
 

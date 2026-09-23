@@ -740,7 +740,7 @@ async def ensure_chirp_running(required_model: str | None = None) -> dict:
                 "port": 0,
                 "error": (
                     "Cannot find Chirp repo. Set CHIRP_HOME environment variable "
-                    "to the Chirp repository root (e.g., C:\\Users\\aryan\\source\\repos\\Chirp)"
+                    "to the Chirp repository root (the sibling checkout next to Rook, e.g. ..\\Chirp)"
                 ),
             }
 

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import httpx
+from .bridge import NATIVE_CLIENT_HEADERS
 
 from .bridge import resolve_discovery_folder
 from .rhino_launch import (  # noqa: F401  canonical home is rhino_launch; re-exported for back-compat
@@ -515,7 +516,7 @@ def save_owned_document_for_cleanup(
         response = httpx.post(
             url,
             json={"path": str(save_path), "small": True},
-            timeout=timeout_seconds,
+            timeout=timeout_seconds, headers=NATIVE_CLIENT_HEADERS
         )
     except httpx.HTTPError as exc:
         warnings.append(f"cleanup document save failed: {exc}")

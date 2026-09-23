@@ -80,7 +80,7 @@ async def main():
         "actor_set_id": "actor_a28cbdb551fa",
         "block_name": "3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL",
         "source_top_level_object_id": "a28cbdb5-51fa-46b2-b18b-ab880b54ded7",
-        "output_root": SCRATCH,
+        "output_root": str(SCRATCH),   # package_take requires a string
         "frame_count": FRAME_COUNT, "fps": 24, "units": doc.get("units", "millimeters"),
         "clock_denominator": 240,
         # SOH-Rendered-2_NO EDGES by NAME — package_take validates display_modes by
