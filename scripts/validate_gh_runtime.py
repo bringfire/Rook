@@ -10,12 +10,12 @@ import httpx
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "mcp_server", "src"))
 
-from rook.bridge import call_rhino, discover_instances, select_rhino_instance  # noqa: E402
+from rook.bridge import call_rhino, discover_instances, native_client, select_rhino_instance  # noqa: E402
 from rook.server import _mcp_tool_executor  # noqa: E402
 
 
 async def _get_json(url: str) -> tuple[int | None, dict | str]:
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with native_client(timeout=10.0) as client:
         try:
             response = await client.get(url)
             try:

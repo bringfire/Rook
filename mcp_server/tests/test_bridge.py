@@ -497,7 +497,10 @@ class _FakeHttpResponse:
 
 
 class _CapturingHttpClient:
-    def __init__(self, captured: dict, payload: dict | None = None):
+    def __init__(self, headers, captured: dict, payload: dict | None = None):
+        # call_rhino must build its client through bridge.native_client, which
+        # adds the X-Rook-Client header the native server now requires.
+        assert headers and headers.get("X-Rook-Client"), headers
         self._captured = captured
         self._payload = payload or {"success": True, "data": {"ok": True}}
 
@@ -721,7 +724,7 @@ async def test_call_rhino_defaults_to_panel_locked_process(discovery_dir: Path, 
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _CapturingHttpClient(captured),
+        lambda timeout=None, headers=None: _CapturingHttpClient(headers, captured),
     )
 
     result = await bridge.call_rhino("/document", "GET", {})
@@ -800,7 +803,7 @@ async def test_call_rhino_panel_lock_routes_rc_to_same_process_peer(discovery_di
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _CapturingHttpClient(captured, {"success": True, "data": {"roads": []}}),
+        lambda timeout=None, headers=None: _CapturingHttpClient(headers, captured, {"success": True, "data": {"roads": []}}),
     )
 
     result = await bridge.call_rhino("/rc/roads")
@@ -830,7 +833,7 @@ async def test_call_rhino_panel_lock_canonicalizes_same_process_extension_port_f
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _CapturingHttpClient(captured, {"success": True, "data": {"name": "A.3dm"}}),
+        lambda timeout=None, headers=None: _CapturingHttpClient(headers, captured, {"success": True, "data": {"name": "A.3dm"}}),
     )
 
     result = await bridge.call_rhino("/document", port=9960)

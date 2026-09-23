@@ -13,7 +13,7 @@ import httpx
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "mcp_server" / "src"))
 
-from rook.bridge import get_rhino_host  # noqa: E402
+from rook.bridge import get_rhino_host, native_client  # noqa: E402
 from rook.server import _mcp_tool_executor  # noqa: E402
 
 
@@ -92,7 +92,7 @@ class Suite:
 
 
 async def call_native(endpoint: str, method: str = "GET", data: dict[str, Any] | None = None) -> tuple[int, dict[str, Any], httpx.Headers]:
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with native_client(timeout=30.0) as client:
         url = f"{NATIVE_BASE_URL}{endpoint}"
         if method == "GET":
             response = await client.get(url, params=data)

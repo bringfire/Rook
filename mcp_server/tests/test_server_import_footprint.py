@@ -59,11 +59,15 @@ def test_importing_rook_server_does_not_load_the_learning_stack():
     )
 
 
-def test_lazy_learner_proxy_serves_the_knowledge_store_without_building_the_learner():
+def test_lazy_learner_proxy_serves_the_knowledge_store_without_building_the_learner(monkeypatch):
     import rook.server as server
 
     proxy = server.command_learner
     assert isinstance(proxy, server._LazyCommandLearner)
+    # Earlier tests in the same session may have built the learner through a
+    # learning operation; start from the fresh-import state (restored on exit).
+    monkeypatch.setattr(proxy, "_learner", None)
+    monkeypatch.setattr(proxy, "_knowledge_store", server._LazyCommandLearner._UNSET)
     assert proxy._learner is None
     store = proxy.knowledge_store
     assert store is proxy.knowledge_store

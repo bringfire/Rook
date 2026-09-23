@@ -6,7 +6,7 @@ import sys, asyncio, uuid, json, os, time, hashlib, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp_server" / "src"))
 import httpx
-from rook.bridge import get_rhino_host
+from rook.bridge import get_rhino_host, native_client
 from rook import director_simulation_export as sx
 from rook import director_video
 
@@ -60,7 +60,7 @@ async def call_native(endpoint, method="GET", data=None, *, port=None):
         base = get_rhino_host()
         if not base:
             raise RuntimeError("No active Rhino host found")
-        async with httpx.AsyncClient(timeout=3600.0) as c:  # 1h: heavy SOH capture must not client-timeout
+        async with native_client(timeout=3600.0) as c:  # 1h: heavy SOH capture must not client-timeout
             resp = (await c.get(f"{base}{endpoint}", params=data or None) if method == "GET"
                     else await c.post(f"{base}{endpoint}", json=data or {}))
         return resp.json()
