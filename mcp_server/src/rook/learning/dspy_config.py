@@ -41,6 +41,13 @@ def ensure_configured() -> bool:
     if _ensure_attempted:
         return _ensure_result
     _ensure_attempted = True
+    # Never override an explicit configuration: one made through configure_dspy()
+    # (tracked in _lm) or directly through dspy.configure(lm=...) by the host or a
+    # test. Profile defaults apply only when nothing is configured yet.
+    if is_configured() or getattr(dspy.settings, "lm", None) is not None:
+        logger.debug("DSPy already configured; leaving the existing LM in place")
+        _ensure_result = True
+        return _ensure_result
     try:
         configure_dspy()
         logger.info("DSPy configured successfully")

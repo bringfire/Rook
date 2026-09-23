@@ -123,6 +123,46 @@ def test_first_learning_use_configures_dspy_in_a_fresh_process():
     assert report["learner_built"] is True
 
 
+_EXPLICIT_CONFIG_PROBE = r"""
+import json, sys
+import rook.server as server                      # lazy: no dspy yet
+import dspy
+import rook.learning.dspy_config as dspy_config
+calls = []
+real_configure = dspy_config.configure_dspy
+def recording_configure(*args, **kwargs):
+    calls.append("configure_dspy")
+    return real_configure(*args, **kwargs)
+dspy_config.configure_dspy = recording_configure
+# The host (or a test) configures an explicit model directly, bypassing configure_dspy.
+explicit = dspy.LM("openai/explicit-model-for-test", api_key="not-a-real-key")
+dspy.configure(lm=explicit)
+import rook.learning.recipe_classification         # first LM-running import: crosses the boundary
+server.command_learner.select_command              # and the learner
+lm = dspy.settings.lm
+print(json.dumps({"same_object": lm is explicit, "model": getattr(lm, "model", None),
+                  "configure_calls": calls, "helper": server._configure_dspy_if_available()}))
+"""
+
+
+def test_learning_boundary_preserves_an_explicitly_configured_model():
+    """Review finding: the boundary must not replace a model the host configured
+    directly through dspy.configure(lm=...) with the profile default. main
+    preserved it (startup ran first); the lazy boundary must too."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(_SRC)
+    result = subprocess.run(
+        [sys.executable, "-c", _EXPLICIT_CONFIG_PROBE],
+        capture_output=True, text=True, env=env, timeout=300, check=False,
+    )
+    assert result.returncode == 0, result.stderr[-3000:]
+    report = json.loads(result.stdout.strip().splitlines()[-1])
+    assert report["same_object"] is True, report
+    assert report["model"] == "openai/explicit-model-for-test"
+    assert report["configure_calls"] == []
+    assert report["helper"] is True
+
+
 # Modules that import dspy at module level but do not run an LM program themselves,
 # or that guard every LM use with their own is_configured()/configure_dspy() call.
 _BOUNDARY_EXEMPT = {"dspy_config.py", "dspy_signatures.py", "hybrid_investigator.py", "intent_planner.py"}
