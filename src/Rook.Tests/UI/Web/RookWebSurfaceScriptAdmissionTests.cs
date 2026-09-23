@@ -52,6 +52,8 @@ namespace Rook.Tests.UI.Web
             /// <summary>Runs inside the executor before it returns its task, like a
             /// CoreWebView2.ExecuteScriptAsync call that pumps messages (#581).</summary>
             public Action? BeforeReturn;
+            /// <summary>Throw from the executor after BeforeReturn ran (synchronous failure).</summary>
+            public bool ThrowAfterBeforeReturn;
 
             public Task<string> Execute(string script)
             {
@@ -59,6 +61,7 @@ namespace Rook.Tests.UI.Web
                 var tcs = new TaskCompletionSource<string>();
                 Held.Add(tcs);
                 BeforeReturn?.Invoke();
+                if (ThrowAfterBeforeReturn) throw new InvalidOperationException("executor failed synchronously");
                 return tcs.Task;
             }
 
@@ -157,6 +160,34 @@ namespace Rook.Tests.UI.Web
             Assert.Equal(scripts, h.Started);
             Assert.Equal(0, h.InFlight);
             Assert.Equal(0, h.Surface.Backlog);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Disposal_inside_the_executor_does_not_drive_the_in_flight_count_negative(bool executorThrows)
+        {
+            // P3 review finding: Dispose (which resets the counter) can run inside the
+            // executor call; the subsequent release for a completed task or a
+            // synchronous throw must not take the count to -1.
+            var h = new Harness();
+            h.ThrowAfterBeforeReturn = executorThrows;
+            h.BeforeReturn = () =>
+            {
+                h.Surface.Dispose();                         // re-entrant disposal
+                if (!executorThrows) h.Held[h.Held.Count - 1].TrySetResult(string.Empty); // executor returns a completed task
+            };
+            h.Post(0, "s0");
+            h.Post(0, "s1");
+            h.Pump();
+            Assert.Single(h.Started);                        // the loop stops once disposed
+            Assert.Equal(0, h.InFlight);
+            Assert.Equal(0, h.Surface.Backlog);
+            Assert.True(h.Surface.IsDisposed);
+            h.Post(0, "after-dispose");                      // dropped, still no negative bookkeeping
+            h.Pump();
+            Assert.Single(h.Started);
+            Assert.Equal(0, h.InFlight);
         }
 
         [Fact]

@@ -1241,13 +1241,13 @@ namespace Rook.UI.Web
                     }
                     catch (Exception ex)
                     {
-                        _inFlightScripts--;
+                        ReleaseReservedSlot();
                         Log($"Rook: script error: {ex.Message}");
                         continue;
                     }
                     if (task.IsCompleted)
                     {
-                        _inFlightScripts--;
+                        ReleaseReservedSlot();
                         LogScriptFault(task);
                         continue;
                     }
@@ -1261,6 +1261,16 @@ namespace Rook.UI.Web
                 _startingScripts = false;
             }
             NotifyBacklogTransition();
+        }
+
+        /// <summary>
+        /// Release a slot reserved before the executor call. Dispose can run inside
+        /// that call (the executor may pump messages) and resets the counter, so the
+        /// release must never take it below zero.
+        /// </summary>
+        private void ReleaseReservedSlot()
+        {
+            if (_inFlightScripts > 0) _inFlightScripts--;
         }
 
         private bool _backlogAboveResume;
