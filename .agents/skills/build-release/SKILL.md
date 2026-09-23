@@ -263,7 +263,7 @@ msbuild "%~1" /p:Configuration=Release /p:Platform=x64 /p:VCToolsVersion=14.44.3
 echo EXIT_CODE=%ERRORLEVEL%
 '@ | Set-Content -Path $buildBat -Encoding ASCII
 
-& $buildBat "C:\Users\aryan\source\repos\Rook\src\RookNative\RookNative.vcxproj" 2>&1 |
+& $buildBat "$Repo\src\RookNative\RookNative.vcxproj" 2>&1 |
   Select-String -Pattern "EXIT_CODE|Build succeeded|Build FAILED|error MSB|error C[0-9]"
 ```
 

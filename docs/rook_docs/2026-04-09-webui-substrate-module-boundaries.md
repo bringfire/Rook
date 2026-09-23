@@ -4,11 +4,11 @@
 **Status:** Working architecture contract / Phase 2 guidance  
 **Authors:** Codex + aryan (based on locked Phase 1 decisions)  
 **Related:**
-- `C:\Users\aryan\source\repos\Rook\src\Rook\UI\Chat\ChatTab.cs`
-- `C:\Users\aryan\source\repos\Rook\src\Rook\UI\Chat\RookChatPanel.cs`
-- `C:\Users\aryan\source\repos\Rook\mcp_server\src\rook\agent\chat\server.py`
-- `C:\Users\aryan\source\repos\rook_docs\2026-04-08-sa-banana-integration.md`
-- `C:\Users\aryan\source\repos\rook_docs\2026-04-09-grasshopper-video-nle.md`
+- `<repo>\src\Rook\UI\Chat\ChatTab.cs`
+- `<repo>\src\Rook\UI\Chat\RookChatPanel.cs`
+- `<repo>\mcp_server\src\rook\agent\chat\server.py`
+- `<repos>\rook_docs\2026-04-08-sa-banana-integration.md`
+- `<repos>\rook_docs\2026-04-09-grasshopper-video-nle.md`
 
 ---
 

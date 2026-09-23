@@ -53,7 +53,7 @@ deferred only because the build is a 30-60 min external compile and the migratio
 proven on the known-good V8_0_0.
 
 When picked up:
-1. **Do NOT switch the shared `C:/Users/aryan/source/repos/OCCT` checkout off `V8_0_0`.** Use a
+1. **Do NOT switch the shared `<repos>/OCCT` checkout off `V8_0_0`.** Use a
    separate OCCT **source worktree** (or clone) at `V7_9_3`, built into a separate dir
    (e.g. `build-rook-793`). This keeps the verified V8_0_0 tree intact as a manual fallback.
 2. `git fetch` the `V7_9_3` tag (not present locally today), checkout in the worktree.

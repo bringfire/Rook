@@ -2,16 +2,15 @@
 per-member simulation export, then assemble the video. Requires Rhino open with
 Pearson active + saved and the animation canvas loaded (C42 emits samples on H).
 """
-import sys, asyncio, uuid, json, os, time, hashlib
+import sys, asyncio, uuid, json, os, time, hashlib, tempfile
 from pathlib import Path
-sys.path.insert(0, r"C:\Users\aryan\source\repos\Rook\.claude\worktrees\director-v3-sim-export\mcp_server\src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp_server" / "src"))
 import httpx
 from rook.bridge import get_rhino_host
 from rook import director_simulation_export as sx
 from rook import director_video
 
-SCRATCH = (r"C:\Users\aryan\AppData\Local\Temp\claude\C--Users-aryan-source-repos-Rook"
-           r"\51f4797b-8702-43db-9b2d-245df8501f2f\scratchpad\sim_take")
+SCRATCH = Path(os.environ.get("ROOK_SIM_EXPORT_SCRATCH") or Path(tempfile.gettempdir()) / "rook-sim-export" / "sim_take")
 FRAME_COUNT = int(os.environ.get("SIM_FRAMES", "48"))
 HARVEST_CACHE_DIR = Path(SCRATCH) / "harvest_cache"
 

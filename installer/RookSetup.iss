@@ -48,7 +48,7 @@
 #define VcRedistCrtDir VcRedistRoot + "\Microsoft.VC143.CRT"
 #define VcRedistMfcDir VcRedistRoot + "\Microsoft.VC143.MFC"
 #ifndef OcctRuntimeRoot
-#define OcctRuntimeRoot "C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin"
+#define OcctRuntimeRoot RepoRoot + "\..\OCCT\build-rook\win64\vc14\bin"
 #endif
 
 [Setup]

@@ -11,7 +11,7 @@
 > Spikes A–E (Python/OCP on real geometry) + Spike G (OCCT linked & running inside
 > RookNative) all PASS. Remaining = bounded engineering, not open questions.
 > Nothing merged to `main`. All work on branch `feature/spatial-intelligence`
-> (worktree `C:/Users/aryan/source/repos/rook-spatial`).
+> (worktree `<repos>/rook-spatial`).
 
 ---
 
@@ -93,7 +93,7 @@ that handles planar + curved + open + closed geometry uniformly.
 3. Memory: `project_spatial_intelligence_topology` (lineage), `project_gh_edit_deferred_solve` (unrelated), `project_freecad_bim_architecture` (kernel licensing matrix).
 4. Gate 4 spec/plan: `docs/superpowers/specs/2026-06-14-gate4-exact-adjacency-design.md`, `docs/superpowers/plans/2026-06-14-gate4-exact-adjacency.md`.
 
-**Verify branch before EVERY commit:** `git -C C:/Users/aryan/source/repos/rook-spatial branch --show-current` must print `feature/spatial-intelligence` (the primary `Rook` dir bounces between Codex worktrees; a prior commit once mis-landed).
+**Verify branch before EVERY commit:** `git -C <repos>/rook-spatial branch --show-current` must print `feature/spatial-intelligence` (the primary `Rook` dir bounces between Codex worktrees; a prior commit once mis-landed).
 
 **Immediate next work (the two strengtheners the user wants, then productionize):**
 - **Strengthener 1 — direct converter** (`ON_Brep`→OCCT, off-disk, off-main-thread, ~15 MB footprint). Surface translation already proven; remaining = trims (pcurves→wire→`MakeFace`+`ShapeFix`) + face assembly.
@@ -180,7 +180,7 @@ that handles planar + curved + open + closed geometry uniformly.
 >    - **STATUS:** Task 6 code committed (`690d835b`,`40442ba8`,`08118ba2`); offline matrix 9/9; converter proven (Task 5). The ONLY gap is the in-plugin OCCT-thread/signal architecture above. Tasks 7–10 should NOT start until this is fixed (Task 8 wires this same engine into the production route — the crash would follow it in).
 >
 > - **(superseded) earlier next-step note:** deploy/validate Task 6's in-plugin `Evaluate` (`POST /scene/occt_validate_adjacency`, source `08d4dedf` + abutment candidates → expect edge to wall `71065f57` ~3312 in², facePairs summing, `exact_brep`). Then **Task 7** (engine diagnostic propagation — mostly landed in the kernel; validate mesh/SubD→unsupported in-plugin), **Task 8** (single-commit Phase-2 integration: freeze-out old engine, STRIP `ExactAdjacencyTypes.h`, migrate service+handler to `ObjectBrepPayload`+OCCT engine + `fuzzMm`, retire Clipper+`occt_probe`+dev routes), **Task 9** (pin OCCT 7.9.3, `$(OcctRoot)`, dumpbin-measured DLL closure, LGPL), **Task 10** (live verify on the real `/scene/graph/adjacency/exact` route).
-> - **Validation loop is deploy-cycled:** build writes to `bin/` (Rhino may stay open); deploy (`scripts/deploy-native.bat`) needs Rhino CLOSED; live route test needs Rhino OPEN on `C:\Users\aryan\Desktop\SpatialTest.3dm`. Native port per-session — find via Rhino pid's listening port answering `/scene/graph/stats`. HTTP via Python `urllib`, never curl.
+> - **Validation loop is deploy-cycled:** build writes to `bin/` (Rhino may stay open); deploy (`scripts/deploy-native.bat`) needs Rhino CLOSED; live route test needs Rhino OPEN on `SpatialTest.3dm (a local test model)`. Native port per-session — find via Rhino pid's listening port answering `/scene/graph/stats`. HTTP via Python `urllib`, never curl.
 
 ---
 
@@ -245,7 +245,7 @@ The Gate 4 service architecture is engine-agnostic chassis — almost all of it 
 
 ## 3. Spike campaign — evidence
 
-All spikes ran on the real model **`C:\Users\aryan\Desktop\SpatialTest.3dm`** (61 active
+All spikes ran on the real model **`SpatialTest.3dm (a local test model)`** (61 active
 objects: A-WALL/I-WALL/A-FLOR/A-DOOR/stairs/handrails/columns/slabs; the .3dm has 4506
 objects incl. block instances). **Units = inches; STEP export = mm; in²→mm² = 645.16.**
 Scripts: `docs/rook_docs/occt-spike/spike_*.py` (committed). STEP geometry under
@@ -312,7 +312,7 @@ not-thread-safe by default → serialize for v1 (see §2 concurrency policy).
 `rhino3dm`. (`pip install cadquery-ocp rhino3dm`.)
 
 **OCCT source build (Spike G):**
-- Source: `C:/Users/aryan/source/repos/OCCT` (shallow @ **V8_0_0** — for production, fetch/checkout **V7_9_3**).
+- Source: `<repos>/OCCT` (shallow @ **V8_0_0** — for production, fetch/checkout **V7_9_3**).
 - Configure (VS2022 cmake): modeling + DataExchange modules, viz/OCAF/Draw off, `BUILD_LIBRARY_TYPE=Shared`, all `USE_*` 3rd-party OFF. (DataExchange still pulled XCAF/viz toolkits transitively.)
 - Build: `cmake --build build-rook --config Release --target install --parallel` (note: `INSTALL_DIR` var failed to expand → use the **build tree** directly).
 - Outputs: headers `build-rook/inc`, libs `build-rook/win64/vc14/lib`, dlls `build-rook/win64/vc14/bin` (48 TK*.dll / 49 MB built).

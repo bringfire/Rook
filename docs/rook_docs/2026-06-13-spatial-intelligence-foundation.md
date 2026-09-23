@@ -70,7 +70,7 @@ more capable in general. State this every time the claim is repeated.
 
 ### VERIFIED (this session — evidence in repo)
 - **GATE 0 PASSED — Topologic's hard geometry is OCCT all the way down** (read
-  `Topologic` C++ core, repo `C:/Users/aryan/source/repos/Topologic`, AGPL v3).
+  `Topologic` C++ core, repo `<repos>/Topologic`, AGPL v3).
   `TopologicCore` (12.7k LOC, 73/105 files reference OCCT). Traced:
   shared-topology = `DownwardNavigation` (`TopExp_Explorer`) + **`IsSame()`**
   (`Topology.cpp:831-868, 3284`); coboundary = `TopExp::MapShapesAndUniqueAncestors`

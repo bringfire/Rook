@@ -119,7 +119,7 @@ function New-ValidatorFixture {
                 [ordered]@{
                     name = 'rook-mcp'
                     version = $Version
-                    license = 'Proprietary'
+                    license = 'MIT'
                 }
             )
         }

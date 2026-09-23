@@ -8,7 +8,7 @@ default — no network calls, no spend in CI.
 ## PowerShell setup
 
 ```powershell
-cd C:/Users/aryan/source/repos/Rook/.worktrees/codex-openrouter/mcp_server
+cd <repo>/.worktrees/codex-openrouter/mcp_server
 $env:OPENROUTER_API_KEY="sk-or-..."
 ```
 

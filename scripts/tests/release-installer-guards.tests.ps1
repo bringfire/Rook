@@ -376,9 +376,9 @@ function Test-InstallerPackagesOcctRuntimeAppLocal {
     ) -join "`n"
 
     Assert-Contains -Text $content -Expected '#ifndef OcctRuntimeRoot' -Message 'Installer must allow the OCCT runtime root to be overridden at compile time.'
-    Assert-Contains -Text $content -Expected '#define OcctRuntimeRoot "C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin"' -Message 'Installer must pin the OCCT 8 runtime bin source used by the native build.'
+    Assert-Contains -Text $content -Expected '#define OcctRuntimeRoot RepoRoot + "\..\OCCT\build-rook\win64\vc14\bin"' -Message 'Installer must pin the OCCT 8 runtime bin source used by the native build.'
     Assert-Contains -Text $releaseDocs -Expected 'Native OCCT Runtime Payload (build-machine prerequisite)' -Message 'Release source checklist must document the native OCCT runtime payload.'
-    Assert-Contains -Text $releaseDocs -Expected '$OcctRuntimeRoot = "C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin"' -Message 'Release source verification script must check the OCCT runtime root.'
+    Assert-Contains -Text $releaseDocs -Expected '$OcctRuntimeRoot = "$Repo\..\OCCT\build-rook\win64\vc14\bin"' -Message 'Release source verification script must check the OCCT runtime root.'
 
     foreach ($dll in @(
         'TKernel.dll',

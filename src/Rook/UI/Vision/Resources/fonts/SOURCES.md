@@ -5,7 +5,7 @@ so external font hosts (Google Fonts, etc.) are blocked. These files are vendore
 in so the panel renders in its intended typography rather than system fallbacks.
 
 Both families are licensed under the SIL Open Font License 1.1, which permits
-bundling and redistribution within Rook's proprietary distribution. The OFL text
+bundling and redistribution with Rook (MIT-licensed). The OFL text
 from each upstream is preserved verbatim alongside the fonts.
 
 ## Provenance

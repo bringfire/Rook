@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -13,8 +14,9 @@ from rook.scene.scene_graph import SceneGraphAnalytics
 
 pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
 
-MODEL_3DM = Path("C:/Users/aryan/AppData/Local/Temp/rookbim_preset_live_fix/shell-preset.3dm")
-SIDECAR_JSON = Path("C:/Users/aryan/AppData/Local/Temp/rookbim_preset_live_fix/shell-preset.sidecar.json")
+_LIVE_FIXTURE_DIR = Path(os.environ.get("ROOK_BIM_LIVE_FIXTURE_DIR") or Path(tempfile.gettempdir()) / "rookbim_preset_live_fix")
+MODEL_3DM = _LIVE_FIXTURE_DIR / "shell-preset.3dm"
+SIDECAR_JSON = _LIVE_FIXTURE_DIR / "shell-preset.sidecar.json"
 
 
 def _native_port_or_skip() -> int:

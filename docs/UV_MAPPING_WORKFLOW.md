@@ -8,7 +8,7 @@ for wood grain, stone, tile, fabric, and other repeating materials where an
 object's size should not change the apparent size of the texture.
 
 The first increment evolves the ideas in the local prototype
-`C:/Users/aryan/Documents/RhinoScripts/UVBoxMapping_02.py`. The prototype itself
+`~/Documents/RhinoScripts/UVBoxMapping_02.py`. The prototype itself
 has not been replaced. The implementation lives in Rook's native
 `POST /material/uv-box` route, exposed as `rhino_apply_uv_box_mapping` in MCP.
 

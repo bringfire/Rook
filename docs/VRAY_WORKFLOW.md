@@ -388,7 +388,7 @@ Added models: **Lavandula pinnata Sidonie 004**, **Lavandula pinnata Sidonie
 005**, and **Mirror 001**. Environment: **HDR Map 721**.
 
 Downloaded model packages were under
-`C:/Users/aryan/Documents/Chaos Cosmos/Packages/3D_Models/`, with package folders
+`~/Documents/Chaos Cosmos/Packages/3D_Models/`, with package folders
 `Lavandula_pinnata_Sidonie_004_5f413a7b`,
 `Lavandula_pinnata_Sidonie_005_9e42c2ff`, and `Mirror_001_73ed4bef`.
 

@@ -5,13 +5,13 @@
 **Authors:** Codex + aryan  
 **Depends on:** `94d88cf fix(chat): harden WebUI trust model (#4)`  
 **Related:**
-- `C:\Users\aryan\source\repos\rook_docs\2026-04-09-webui-substrate-module-boundaries.md`
-- `C:\Users\aryan\source\repos\Rook\src\Rook\UI\Chat\ChatTab.cs`
-- `C:\Users\aryan\source\repos\Rook\src\Rook\UI\Chat\RookChatPanel.cs`
-- `C:\Users\aryan\source\repos\Rook\src\Rook\RookPlugin.cs`
-- `C:\Users\aryan\source\repos\Rook\mcp_server\src\rook\agent\chat\server.py`
-- `C:\Users\aryan\source\repos\Rook\mcp_server\src\rook\learning\unified_store.py`
-- `C:\Users\aryan\source\repos\Rook\mcp_server\src\rook\learning\knowledge_note.py`
+- `<repos>\rook_docs\2026-04-09-webui-substrate-module-boundaries.md`
+- `<repo>\src\Rook\UI\Chat\ChatTab.cs`
+- `<repo>\src\Rook\UI\Chat\RookChatPanel.cs`
+- `<repo>\src\Rook\RookPlugin.cs`
+- `<repo>\mcp_server\src\rook\agent\chat\server.py`
+- `<repo>\mcp_server\src\rook\learning\unified_store.py`
+- `<repo>\mcp_server\src\rook\learning\knowledge_note.py`
 
 ---
 

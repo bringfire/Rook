@@ -2531,6 +2531,25 @@ bool CRookServer::Start()
     // Let the OS assign a free port (port 0). No range scanning needed.
     m_server = std::make_unique<httplib::Server>();
 
+    // Browser-origin guard. The server binds 127.0.0.1 and has no client token:
+    // any local process may call it (that is the local-MCP design). A web page
+    // in the user's browser must not be able to, even blind: cross-origin
+    // "simple" POSTs (text/plain, form) reach a loopback server without a CORS
+    // preflight, and several routes execute code. Browsers always attach an
+    // Origin header to such requests; Rook's own clients (Python bridge, chat
+    // service, companion HttpClient) never do. Reject on Origin, before routing.
+    m_server->set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+        if (req.has_header("Origin")) {
+            res.status = 403;
+            res.set_content(
+                "{\"success\":false,\"error\":\"cross_origin_request_rejected\","
+                "\"detail\":\"The Rook native server does not accept browser-originated requests.\"}",
+                "application/json");
+            return httplib::Server::HandlerResponse::Handled;
+        }
+        return httplib::Server::HandlerResponse::Unhandled;
+    });
+
     // Cap thread pool at 8. Default is hardware_concurrency-1, which on
     // a 32-core workstation creates 31 threads — wasteful since requests
     // serialize through the main thread dispatcher anyway.
