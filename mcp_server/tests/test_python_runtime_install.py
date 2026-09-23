@@ -59,6 +59,7 @@ def test_pip_command_is_offline_and_hash_locked(tmp_path: Path) -> None:
     assert "--no-index" in command
     assert "--find-links" in command
     assert "--require-hashes" in command
+    assert "--no-warn-script-location" in command
     assert "--index-url" not in command
     assert "--extra-index-url" not in command
 
@@ -76,6 +77,37 @@ def test_bootstrap_pip_command_is_offline_and_hash_locked(tmp_path: Path) -> Non
     assert "--no-index" in command
     assert "--find-links" in command
     assert "--require-hashes" in command
+    assert "--no-warn-script-location" in command
+
+
+def test_sanitized_env_drops_user_profile_path_entries(monkeypatch) -> None:
+    """pip resolves every PATH entry; a user-profile junction (scoop, etc.) raises
+    WinError 448 on Windows 11 25H2 and aborted the venv install (1.6.0 install smoke)."""
+    runtime = load_runtime_install()
+    profile = r"C:\Users\example"
+    monkeypatch.setenv("USERPROFILE", profile)
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join([
+            r"C:\Windows\system32",
+            r"C:\Users\example\scoop\apps\git\current\cmd",
+            r"C:\Program Files\Git\cmd",
+            r"c:\users\EXAMPLE\AppData\Local\Programs\Python\Python313",
+            "",
+            r"C:\Users\example-other\bin",
+        ]),
+    )
+    monkeypatch.setenv("PYTHONPATH", r"C:\Users\example\src")
+
+    env = runtime.build_sanitized_python_env(require_virtualenv=True)
+
+    assert env["PATH"].split(os.pathsep) == [
+        r"C:\Windows\system32",
+        r"C:\Program Files\Git\cmd",
+        r"C:\Users\example-other\bin",  # a different profile prefix is not ours
+    ]
+    assert "PYTHONPATH" not in env
+    assert env["PIP_REQUIRE_VIRTUALENV"] == "1"
 
 
 def test_bootstrap_tool_requirements_pin_patched_pip_and_setuptools() -> None:

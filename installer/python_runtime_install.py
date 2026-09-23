@@ -54,8 +54,35 @@ class RuntimeLayout:
         )
 
 
+def _is_under_user_profile(entry: str) -> bool:
+    profile = os.environ.get("USERPROFILE")
+    if not profile or not entry:
+        return False
+    try:
+        return os.path.normcase(os.path.normpath(entry)).startswith(
+            os.path.normcase(os.path.normpath(profile)) + os.sep
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def sanitized_path_entries(path_value: str) -> list[str]:
+    """PATH entries pip may see: everything outside the user profile.
+
+    pip resolves every PATH entry (``Path(i).resolve()``) when it checks whether
+    installed scripts are on PATH. On Windows 11 25H2 that traversal is refused
+    for junctions under the user profile (e.g. scoop's ``apps\\<tool>\\current``)
+    with ``[WinError 448] The path cannot be traversed because it contains an
+    untrusted mount point``, which aborted the Rook venv install for a user with
+    scoop on PATH. Nothing pip runs here needs a user-profile PATH entry: the
+    interpreter, wheelhouse and lockfiles are all passed as absolute paths.
+    """
+    return [entry for entry in path_value.split(os.pathsep) if entry and not _is_under_user_profile(entry)]
+
+
 def build_sanitized_python_env(require_virtualenv: bool) -> dict[str, str]:
     env = os.environ.copy()
+    env["PATH"] = os.pathsep.join(sanitized_path_entries(env.get("PATH", "")))
     for key in (
         "PYTHONHOME",
         "PYTHONPATH",
@@ -88,6 +115,9 @@ def build_offline_pip_install_command(
         "--find-links",
         str(wheelhouse_dir),
         "--require-hashes",
+        # Skip pip's "scripts not on PATH" scan: it resolves every PATH entry and
+        # fails on user-profile junctions (WinError 448); see sanitized_path_entries.
+        "--no-warn-script-location",
         "-r",
         str(requirements_lock),
     ]
