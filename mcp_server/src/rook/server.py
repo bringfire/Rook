@@ -191,16 +191,12 @@ _dspy_configured = None  # type: bool | None
 
 
 def _configure_dspy_if_available() -> bool:
-    """Configure DSPy from model profiles once. Supports both cloud and local models."""
+    """Configure DSPy from model profiles once (delegates to the learning boundary
+    in rook.learning.dspy_config, which every LM-running module also crosses at
+    import). Supports both cloud and local models."""
     global _dspy_configured
-    if _dspy_configured is None:
-        try:
-            configure_dspy()
-            logger.info("DSPy configured successfully")
-            _dspy_configured = True
-        except Exception as e:
-            logger.warning(f"Failed to configure DSPy: {e}")
-            _dspy_configured = False
+    from .learning.dspy_config import ensure_configured
+    _dspy_configured = ensure_configured()
     return _dspy_configured
 
 # NOTE: TIMEOUT, DISCOVERY_FOLDER, call_rhino, get_rhino_host,
@@ -260,10 +256,8 @@ class _LazyCommandLearner:
 
     def _real(self):
         if self._learner is None:
-            # Learning boundary: DSPy used to be configured at server startup;
-            # the learner's extraction / consolidation / intent mapping modules
-            # need a configured LM, so configure it here before first use.
-            _configure_dspy_if_available()
+            # Importing the learner crosses the learning boundary (DSPy is
+            # configured once at that import); nothing else to do here.
             from .learning.command_learner import CommandLearner
             self._learner = CommandLearner(
                 observation_store=self._observation_store,
@@ -16270,7 +16264,6 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                             # 2. Extract recipe using existing tool logic
                             try:
                                 from .learning.recipe_extraction import extract_recipe
-                                _configure_dspy_if_available()  # learning boundary (classify_recipe uses DSPy first)
                                 from .learning.recipe_classification import classify_recipe
 
                                 # Get canvas state
@@ -20286,7 +20279,6 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
         case "gh_add_pattern":
             from rook.learning.pattern_store import PatternStore
             from rook.learning.pattern_memory import PatternNote
-            _configure_dspy_if_available()  # learning boundary (metadata extraction needs a configured LM)
             from rook.learning.dspy_modules import PatternMetadataExtractor
             from datetime import datetime as dt
 

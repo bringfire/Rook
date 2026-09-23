@@ -15,6 +15,10 @@ from typing import Any, Optional
 
 import dspy
 
+# Learning boundary: configure DSPy once, on first import of any module that runs an LM.
+from .dspy_config import ensure_configured as _ensure_dspy_configured
+_ensure_dspy_configured()
+
 from .dspy_signatures import (
     # Strategic Layer (MCP tools)
     OrientSession,

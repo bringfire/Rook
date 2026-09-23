@@ -23,6 +23,34 @@ _cache_configured = False
 
 
 DEFAULT_MODEL = "claude-sonnet-5"
+
+_ensure_attempted = False
+_ensure_result = False
+
+
+def ensure_configured() -> bool:
+    """Configure DSPy from the model profiles once per process; never raises.
+
+    The learning boundary. Until 2026-09 the MCP server configured DSPy at
+    import time; that import now happens lazily (the learning stack costs tens
+    of seconds cold), so every module that runs a DSPy program calls this at
+    its own import, which is exactly "first learning use". Idempotent: a failed
+    attempt (no key, no local profile) is remembered and logged once.
+    """
+    global _ensure_attempted, _ensure_result
+    if _ensure_attempted:
+        return _ensure_result
+    _ensure_attempted = True
+    try:
+        configure_dspy()
+        logger.info("DSPy configured successfully")
+        _ensure_result = True
+    except Exception as e:  # pragma: no cover - environment dependent
+        logger.warning(f"Failed to configure DSPy: {e}")
+        _ensure_result = False
+    return _ensure_result
+
+
 _VERTEX_RUNTIME_FIELDS = frozenset(
     {"vertex_project", "vertex_location", "vertex_credentials"}
 )

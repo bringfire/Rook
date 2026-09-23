@@ -35,6 +35,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 import dspy
+
+# Learning boundary: configure DSPy once, on first import of any module that runs an LM.
+from .dspy_config import ensure_configured as _ensure_dspy_configured
+_ensure_dspy_configured()
 from dotenv import load_dotenv
 from ..runtime_paths import resolve_readable_knowledge_path, resolve_writable_knowledge_path
 

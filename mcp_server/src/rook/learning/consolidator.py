@@ -30,6 +30,10 @@ from pathlib import Path
 from typing import Any
 
 import dspy
+
+# Learning boundary: configure DSPy once, on first import of any module that runs an LM.
+from .dspy_config import ensure_configured as _ensure_dspy_configured
+_ensure_dspy_configured()
 from ..runtime_paths import resolve_readable_knowledge_path, resolve_writable_knowledge_path
 
 from rook.learning.dspy_config import _get_default_model

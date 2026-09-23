@@ -28,6 +28,11 @@ try:
 except ImportError:
     DSPY_AVAILABLE = False
 
+if DSPY_AVAILABLE:
+    # Learning boundary: configure DSPy once, on first import of any module that runs an LM.
+    from .dspy_config import ensure_configured as _ensure_dspy_configured
+    _ensure_dspy_configured()
+
 
 def is_dspy_configured() -> bool:
     """Check if DSPy has an LM configured."""

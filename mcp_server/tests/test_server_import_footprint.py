@@ -71,32 +71,40 @@ def test_lazy_learner_proxy_serves_the_knowledge_store_without_building_the_lear
 
 
 _FIRST_USE_PROBE = r"""
-import json, sys
+import importlib, json, sys
 import rook.server as server
-report = {"dspy_loaded_at_import": "dspy" in sys.modules}
+report = {"dspy_loaded_at_import": "dspy" in sys.modules}   # measured BEFORE dspy_config is imported
+import rook.learning.dspy_config as dspy_config             # (this import loads dspy; the recorder below still sees first use)
 calls = []
 def recording_configure(*args, **kwargs):
     calls.append("configure_dspy")
-server.configure_dspy = recording_configure          # what _configure_dspy_if_available calls
+dspy_config.configure_dspy = recording_configure     # what ensure_configured() calls
 report["configured_before_first_use"] = server._dspy_configured
 server.command_learner.knowledge_store              # cheap path: must NOT configure or build
 report["calls_after_knowledge_store"] = list(calls)
 report["learner_built_after_knowledge_store"] = server.command_learner._learner is not None
-server.command_learner.select_command               # first learning use: builds the learner
-report["calls_after_first_learning_use"] = list(calls)
-report["configured_after_first_use"] = server._dspy_configured
+# An INDIRECT first use: gh_extract_recipe imports recipe_extraction, which imports
+# recipe_classification (runs an LM). No server call site is involved.
+importlib.import_module("rook.learning.recipe_extraction")
+report["calls_after_indirect_first_use"] = list(calls)
+# More indirect chains reached by many tools: pattern_store -> pattern_evolution -> dspy_modules,
+# the command tiering system, the GH consolidator. None may reconfigure.
+importlib.import_module("rook.learning.pattern_store")
+importlib.import_module("rook.learning.command_consolidator")
+importlib.import_module("rook.learning.gh_consolidator")
+server.command_learner.select_command               # builds the learner (imports command_learner)
+report["calls_after_all_paths"] = list(calls)
+report["helper_reports_configured"] = server._configure_dspy_if_available()
 report["learner_built"] = server.command_learner._learner is not None
-server.command_learner.consolidate_command          # second use: no reconfiguration
-report["calls_after_second_use"] = list(calls)
 print(json.dumps(report))
 """
 
 
 def test_first_learning_use_configures_dspy_in_a_fresh_process():
-    """DSPy used to be configured at server startup. Deferring it must not lose it:
-    the first use of the command learner (the learning boundary) has to configure
-    DSPy exactly once, before the learner is built, while the cheap knowledge-store
-    path stays free of it."""
+    """DSPy used to be configured at server startup. Deferring the learning
+    stack must not lose that: the first import of ANY module that runs an LM,
+    however indirect the path, configures DSPy exactly once, while the cheap
+    knowledge-store path stays free of it."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(_SRC)
     result = subprocess.run(
@@ -109,25 +117,35 @@ def test_first_learning_use_configures_dspy_in_a_fresh_process():
     assert report["configured_before_first_use"] is None
     assert report["calls_after_knowledge_store"] == []
     assert report["learner_built_after_knowledge_store"] is False
-    assert report["calls_after_first_learning_use"] == ["configure_dspy"]
-    assert report["configured_after_first_use"] is True
+    assert report["calls_after_indirect_first_use"] == ["configure_dspy"]
+    assert report["calls_after_all_paths"] == ["configure_dspy"]
+    assert report["helper_reports_configured"] is True
     assert report["learner_built"] is True
-    assert report["calls_after_second_use"] == ["configure_dspy"]
 
 
-def test_every_dspy_consuming_tool_path_configures_dspy_first():
-    """Tool branches that import DSPy-backed modules without their own
-    is_configured()/configure_dspy() guard must cross the learning boundary."""
-    source = (_SRC / "rook" / "server.py").read_text(encoding="utf-8")
-    for case_label, dspy_import in (
-        ('case "gh_learn_directory":', "from .learning.recipe_classification import classify_recipe"),
-        ('case "gh_add_pattern":', "from rook.learning.dspy_modules import PatternMetadataExtractor"),
-        ('case "gh_consolidate":', "from rook.learning.gh_consolidator import GHConsolidator"),
-    ):
-        start = source.index(case_label)
-        use = source.index(dspy_import, start)
-        block = source[start:use]
-        assert "_configure_dspy_if_available()" in block, f"{case_label} imports {dspy_import} before configuring DSPy"
+# Modules that import dspy at module level but do not run an LM program themselves,
+# or that guard every LM use with their own is_configured()/configure_dspy() call.
+_BOUNDARY_EXEMPT = {"dspy_config.py", "dspy_signatures.py", "hybrid_investigator.py", "intent_planner.py"}
+
+
+def test_every_lm_running_module_crosses_the_learning_boundary_at_import():
+    """No call-site list: any module under rook.learning that imports dspy at
+    module level must call ensure_configured() at import (or be exempt above),
+    so indirect chains such as gh_extract_recipe -> recipe_extraction ->
+    recipe_classification, or pattern_store -> pattern_evolution -> dspy_modules,
+    always find DSPy configured."""
+    learning = _SRC / "rook" / "learning"
+    offenders = []
+    for path in sorted(learning.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        imports_dspy = any(line.strip() in ("import dspy", "from dspy import *") or line.startswith("import dspy")
+                           or line.startswith("from dspy ") or line.strip().startswith("import dspy")
+                           for line in text.splitlines())
+        if not imports_dspy or path.name in _BOUNDARY_EXEMPT:
+            continue
+        if "_ensure_dspy_configured()" not in text and "ensure_configured()" not in text:
+            offenders.append(path.name)
+    assert offenders == [], f"modules import dspy without crossing the learning boundary: {offenders}"
 
 
 def test_lazy_learner_proxy_accepts_store_assignment_like_the_real_learner(monkeypatch):
