@@ -76,6 +76,18 @@ def test_native_server_source_requires_client_header_rejects_browser_metadata_an
         assert needle in body, needle
 
 
+def test_vendored_httplib_drains_a_refused_body_before_the_socket_closes():
+    """The ROOK PATCH in Server::routing (see vendor/httplib/ROOK-PATCHES.md)."""
+    httplib = (_REPO / "src" / "RookNative" / "vendor" / "httplib" / "httplib.h").read_text(encoding="utf-8")
+    start = httplib.index("inline bool Server::routing(")
+    body = httplib[start : start + 1500]
+    assert "ROOK PATCH" in body
+    assert 'req.has_header("Content-Length")' in body
+    assert "detail::skip_content_with_length(strm, len)" in body
+    assert "is_chunked_transfer_encoding(req.headers)" in body
+    assert (_REPO / "src" / "RookNative" / "vendor" / "httplib" / "ROOK-PATCHES.md").is_file()
+
+
 def test_client_header_names_agree_across_python_cpp_and_csharp():
     assert NATIVE_CLIENT_HEADER == "X-Rook-Client"
     cs = (_REPO / "src" / "Rook" / "Services" / "Reconstruction" / "ReconstructionImportClient.cs").read_text(encoding="utf-8")
