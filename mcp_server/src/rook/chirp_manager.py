@@ -247,6 +247,89 @@ def _is_pid_alive(pid: int) -> bool:
         ctypes.windll.kernel32.CloseHandle(handle)
 
 
+class _PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("cntUsage", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD),
+        ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+        ("th32ModuleID", wintypes.DWORD),
+        ("cntThreads", wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase", ctypes.c_long),
+        ("dwFlags", wintypes.DWORD),
+        ("szExeFile", ctypes.c_wchar * 260),
+    ]
+
+
+def _parent_pid_map() -> dict[int, int]:
+    """Snapshot ``pid -> parent pid`` for every live process (Toolhelp32)."""
+    TH32CS_SNAPPROCESS = 0x00000002
+    INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+    kernel32 = ctypes.windll.kernel32
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snapshot == INVALID_HANDLE_VALUE or not snapshot:
+        return {}
+    parents: dict[int, int] = {}
+    try:
+        entry = _PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(_PROCESSENTRY32W)
+        if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+            return {}
+        while True:
+            parents[int(entry.th32ProcessID)] = int(entry.th32ParentProcessID)
+            if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                break
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return parents
+
+
+_MAX_LAUNCHER_DEPTH = 4
+
+
+def _process_owns_pid(process, pid) -> bool:
+    """True when ``pid`` is the managed child itself or a live descendant of it.
+
+    A venv ``python.exe`` on Windows is a launcher: it starts the real interpreter
+    as a child and waits for it, so the pid Chirp records in its discovery file is
+    the launcher's child, never the ``Popen`` pid. Ownership therefore means "the
+    discovered process descends from the process we started", bounded to a few
+    launcher hops. The launcher must still be alive (it outlives its child), which
+    also guards against a recycled parent pid.
+    """
+    own_pid = getattr(process, "pid", None)
+    if type(own_pid) is not int or type(pid) is not int or pid <= 0:
+        return False
+    if pid == own_pid:
+        return True
+    if process.poll() is not None:
+        return False
+    parents = _parent_pid_map()
+    current = pid
+    for _ in range(_MAX_LAUNCHER_DEPTH):
+        parent = parents.get(current)
+        if parent is None or parent == current:
+            return False
+        if parent == own_pid:
+            return True
+        current = parent
+    return False
+
+
+def _terminate_pid(pid: int) -> None:
+    """Terminate a descendant process the launcher would otherwise leave running."""
+    PROCESS_TERMINATE = 0x0001
+    handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+    if not handle:
+        raise OSError(ctypes.get_last_error(), f"OpenProcess({pid}) failed")
+    try:
+        if not ctypes.windll.kernel32.TerminateProcess(handle, 1):
+            raise OSError(ctypes.get_last_error(), f"TerminateProcess({pid}) failed")
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
 def _restart_required() -> VertexAuthError:
     return VertexAuthError("vertex_restart_required", VERTEX_RESTART_MESSAGE)
 
@@ -348,8 +431,8 @@ def _retire_discovered_process(
         current = _read_discovery_for_port(port)
         owns_exact_process = (
             process is not None
-            and getattr(process, "pid", None) == pid
             and process.poll() is None
+            and _process_owns_pid(process, pid)
             and isinstance(current, dict)
             and current.get("pid") == pid
             and current.get("port") == port
@@ -358,7 +441,12 @@ def _retire_discovered_process(
         if not owns_exact_process:
             raise _restart_required()
         try:
-            process.terminate()
+            if pid == getattr(process, "pid", None):
+                process.terminate()
+            else:
+                # The discovered server is the launcher's child; terminating the
+                # launcher alone would leave it running.
+                _terminate_pid(pid)
         except Exception as exc:
             raise _restart_required() from exc
         if not _wait_for_retirement(discovery, RETIREMENT_FORCE_WAIT):
@@ -370,7 +458,10 @@ def _retire_discovered_process(
         _reset_retirement_event()
     except Exception as exc:
         raise _restart_required() from exc
-    if _chirp_process is not None and getattr(_chirp_process, "pid", None) == pid:
+    if _chirp_process is not None and (
+        getattr(_chirp_process, "pid", None) == pid
+        or getattr(_chirp_process, "poll", lambda: None)() is not None
+    ):
         _chirp_process = None
     return host, port
 
@@ -528,7 +619,7 @@ def _wait_for_started_process_sync(
         if process.poll() is not None:
             raise _restart_required()
         discovery = _read_discovery_for_port(port)
-        if isinstance(discovery, dict) and discovery.get("pid") == process.pid:
+        if isinstance(discovery, dict) and _process_owns_pid(process, discovery.get("pid")):
             classified = _classify_model_health(
                 host,
                 port,
@@ -785,7 +876,7 @@ async def ensure_chirp_running(required_model: str | None = None) -> dict:
 
             # Check for discovery file
             disc = _find_live_discovery()
-            if disc and disc.get("pid") == getattr(_chirp_process, "pid", None):
+            if disc and _process_owns_pid(_chirp_process, disc.get("pid")):
                 host = disc.get("host", "127.0.0.1")
                 port = disc["port"]
                 # Discovery file appeared — now wait for health
