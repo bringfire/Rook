@@ -1,3 +1,0 @@
-Replicate exposes `urls.cancel` in the prediction submit response (e.g., `https://api.replicate.com/v1/predictions/{id}/cancel`). Live cancellation was not exercised against the running prediction. Cancellation remains an open follow-on (see spike doc Open Follow-Ons) and does NOT block the Phase 1 lifecycle binding for Decision 1 — the cancel URL's existence is sufficient evidence that Replicate supports cancellation; the HTTP method (POST per Replicate docs) and billing/idempotency semantics can be characterized at Phase 1 implementation time.
-
-(p3_official_model is a snapshot of p3 taken before any future re-runs; cancel evidence applies identically.)

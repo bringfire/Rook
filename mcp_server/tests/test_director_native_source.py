@@ -436,8 +436,9 @@ def test_director_instance_restore_diagnostics_use_native_instance_state():
 def test_director_instance_restore_slice_keeps_tolerance_and_canvasdirector_parked():
     source = DIRECTOR_FRAME.read_text(encoding="utf-8")
     lower_source = source.lower()
-    plan = (REPO_ROOT / "docs" / "superpowers" / "plans" / "2026-07-03-director-instance-restore-semantics.md").read_text(encoding="utf-8")
-    file_structure = plan[plan.index("## File Structure"):plan.index("## Safety Rules")]
+    # The implementation plan that used to declare the file structure was pruned from
+    # the public tree (2026-09-22); the parked-module guarantee is now checked
+    # directly against the repository instead of against the plan text.
 
     for token in [
         "kDirectorRestoreSerializationFloor",
@@ -460,12 +461,11 @@ def test_director_instance_restore_slice_keeps_tolerance_and_canvasdirector_park
     ]:
         assert token not in lower_source
 
-    for forbidden_path in [
-        "mcp_server/src/rook/canvas_director.py",
-        "src/Rook/Services/Vision/CanvasDirector",
-        "src/Rook/Services/Vision/CanvasDirector/",
-    ]:
-        assert forbidden_path not in file_structure
+    # The parked CanvasDirector modules stay untouched by the restore slice: the
+    # native frame must not reference them (the pruned plan's file structure used to
+    # guarantee the same thing).
+    for token in ["canvasdirector", "canvas_director"]:
+        assert token not in lower_source
 
 
 def test_director_instance_restore_live_repro_is_scratch_and_two_frame():

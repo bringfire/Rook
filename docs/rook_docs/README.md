@@ -1,40 +1,42 @@
 # rook_docs
 
-Rook's architecture notes, design memos, scope passes, post-mortems, and
-shareable framing docs. Formerly a sibling repo at `~/source/repos/rook_docs`;
-imported into the Rook tree on 2026-04-26 so docs diff alongside the code
-they describe.
+Architecture notes and design decision records for shipped Rook subsystems.
+Each dated memo (`2026-MM-DD-<topic>.md`) is self-contained and names the PR(s)
+it applies to; date-first naming keeps `ls` chronological.
 
 ## What's here
 
-- **Date-prefixed design docs** (`2026-MM-DD-<topic>.md`) — per-topic memos
-  written before, during, or after a PR cycle. Each is self-contained and
-  references the PR(s) it applies to. The naming convention is firm:
-  date-first lets `ls` sort chronologically.
-- **`work-queue.md`** — the rolling triage list. Updated after each ship.
-- **`POSITIONING.md`** — collaborator-facing version of the positioning
-  thesis. Kept aligned with the `project_positioning_thesis.md` memory entry.
-- **`script-reference/`** — see the README inside; only `promoted/` (our
-  adapted scripts) and the README itself are tracked. The 9 external clones
-  (`rhino-developer-samples`, `rhinoscriptsyntax`, etc.) live under
-  `.gitignore`.
-- **`1284_74915_en.pdf`** — Tencent agent paper, kept as a small reference.
-  The extracted-text directory `tencent_api_md/` is gitignored.
-- **`typed-route-phase1-spike.*`** — the empirical spike artifacts that
-  fed the Phase 1 typed-route gap analysis.
+- **Design records** for shipped systems: the WebUI substrate contract and
+  module boundaries, the typed-route gap analysis that drove the typed geometry
+  routes, the batch block/layer tool designs, GH script-component routing,
+  capability routing, exotic-capability promotion doctrine, the generation
+  provider framework, the video NLE bridge and v3 video decisions, the
+  vision artifact model, the knowledge-graph visualizer, and the spatial
+  intelligence foundation with its OCCT engine decision.
+- **`DEVELOPMENT_PRACTICES.md`** — how changes are scoped, reviewed, and
+  smoke-tested in this repo. Read it before opening a PR.
+- **`occt-build.md`** — how the vendored OCCT subset is built; referenced from
+  `THIRD_PARTY_NOTICES.md`.
+- **`video-provider-payload-audit.md`** + `fixtures/video-provider-payload-audit/`
+  — provider payload contract with sanitized examples; covered by tests.
+- **`rookbim-export-spike/`** — live calibration and verification scripts for
+  the RookBIM export path; `live_calibrate_containment_fixture.py` is exercised
+  by the test suite.
+- **`script-reference/`** — only `promoted/` (Rook-adapted scripts) and the
+  README are tracked; external script clones are gitignored.
 
 ## Editing convention
 
-Treat these docs like code: scope-pass them before a substantive rewrite,
-diff them in the PR they're paired with, and reference them by relative
-path (`docs/rook_docs/<file>.md`) from CLAUDE.md, memory entries, and
-commit messages. Don't rewrite locked docs (e.g. `2026-04-22-v3-video-
-decisions.md` v3.1 contract) — append a Changelog or supersede with a
-new dated doc that links back.
+Treat these docs like code: diff them in the PR they pair with and reference
+them by relative path (`docs/rook_docs/<file>.md`) from `CLAUDE.md`, memory
+entries, and commit messages. Don't rewrite locked decision records such as
+`2026-04-22-v3-video-decisions.md`; append a changelog or supersede with a new
+dated doc that links back.
 
-## What's NOT here
+## What's not here
 
-Plans/post-mortems that touch private knowledge stores or Engram-internal
-work live under `docs/plans/` and `docs/engram-reference/` (gitignored —
-they describe ongoing experiments with private data shapes). These rook_docs
-are the publicly-shareable architecture surface.
+Implementation plans, specs from the design-then-plan workflow, roadmaps,
+spikes, and internal strategy notes are kept outside the public tree
+(`docs/superpowers/`, `docs/plans/`, and `docs/roadmaps/` are gitignored).
+Source docstrings that cite a `docs/superpowers/specs/...` path refer to that
+private record.

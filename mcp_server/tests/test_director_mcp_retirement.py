@@ -49,78 +49,18 @@ DIRECTOR_DOC_PATTERN = re.compile(
     r"test_director_mcp_tools\.py",
     re.IGNORECASE,
 )
-CURRENT_DIRECTOR_RETIREMENT_DOCS = frozenset(
-    {
-        "docs/superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md",
-        "docs/superpowers/plans/2026-07-13-director-mcp-surface-retirement.md",
-    }
-)
+# The retirement design/plan and the superpowers evidence docs were pruned from the
+# public tree on 2026-09-22 (preserved in the private archive); only the docs that
+# remain tracked are classified here.
+CURRENT_DIRECTOR_RETIREMENT_DOCS = frozenset()
 HISTORICAL_DIRECTOR_EVIDENCE_DOCS = frozenset(
     {
         "docs/TROUBLESHOOTING.md",
-        "docs/superpowers/2026-06-24-replay-live-gate-postmortem.md",
-        "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md",
-        "docs/superpowers/plans/2026-06-23-hunyuan-3d-pro-image-to-3d.md",
     }
 )
 ACTIONABLE_DIRECTOR_DOCS = frozenset(
     {
         "docs/rook_docs/2026-04-15-typed-route-gap-analysis.md",
-        "docs/rook_docs/work-queue.md",
-        "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-implementation.md",
-        "docs/superpowers/plans/2026-05-20-mcp-schema-array-hardening.md",
-        "docs/superpowers/plans/2026-05-20-rookvisiondirector-camera-planning-contract-extraction.md",
-        "docs/superpowers/plans/2026-05-20-rookvisiondirector-curve-samples.md",
-        "docs/superpowers/plans/2026-05-20-rookvisiondirector-timeline-contract.md",
-        "docs/superpowers/plans/2026-05-21-rookvisiondirector-curve-follow-target.md",
-        "docs/superpowers/plans/2026-05-21-rookvisiondirector-native-video-assembly.md",
-        "docs/superpowers/plans/2026-05-21-rookvisiondirector-video-publish.md",
-        "docs/superpowers/plans/2026-06-24-rookvisiondirector-animation-compiler.md",
-        "docs/superpowers/plans/2026-06-24-rookvisiondirector-replay-decomposition.md",
-        "docs/superpowers/plans/2026-06-24-rookvisiondirector-replay-native.md",
-        "docs/superpowers/plans/2026-06-24-rookvisiondirector-replay-pumpspike.md",
-        "docs/superpowers/plans/2026-06-25-rookvisiondirector-preview-loop.md",
-        "docs/superpowers/plans/2026-06-29-mcp-tool-exposure-profile.md",
-        "docs/superpowers/plans/2026-06-30-capability-index-progressive-disclosure.md",
-        "docs/superpowers/plans/2026-07-02-director-v2-relative-actor-metadata.md",
-        "docs/superpowers/plans/2026-07-03-director-instance-restore-semantics.md",
-        "docs/superpowers/plans/2026-07-03-director-pose-bbox.md",
-        "docs/superpowers/plans/2026-07-03-director-restore-hardening.md",
-        "docs/superpowers/plans/2026-07-03-rookvision-canvas-director.md",
-        "docs/superpowers/plans/2026-07-04-canvas-director-template-promotion.md",
-        "docs/superpowers/plans/2026-07-06-director-short-ref-storage-cutover.md",
-        "docs/superpowers/plans/2026-07-06-director-v3-slice1-take-package.md",
-        "docs/superpowers/plans/2026-07-06-director-v3-slice2-worker-prepare.md",
-        "docs/superpowers/plans/2026-07-06-director-v3-slice3-compile-playback.md",
-        "docs/superpowers/plans/2026-07-06-director-v3-slice4a-capture-passes.md",
-        "docs/superpowers/plans/2026-07-07-director-build-actor-set-from-source-occurrence.md",
-        "docs/superpowers/plans/2026-07-07-director-v3-simulation-export.md",
-        "docs/superpowers/specs/2026-05-19-rookvisiondirector-slice1-design.md",
-        "docs/superpowers/specs/2026-05-20-mcp-schema-array-hardening-design.md",
-        "docs/superpowers/specs/2026-05-20-rookvisiondirector-camera-video-roadmap.md",
-        "docs/superpowers/specs/2026-05-21-rookvisiondirector-curve-follow-target-design.md",
-        "docs/superpowers/specs/2026-05-21-rookvisiondirector-native-video-assembly-design.md",
-        "docs/superpowers/specs/2026-05-21-rookvisiondirector-video-publish-design.md",
-        "docs/superpowers/specs/2026-05-31-rook-ecosystem-architecture-roadmap.md",
-        "docs/superpowers/specs/2026-06-24-rookvisiondirector-animation-authoring-roadmap.md",
-        "docs/superpowers/specs/2026-06-24-rookvisiondirector-animation-compiler-design.md",
-        "docs/superpowers/specs/2026-06-24-rookvisiondirector-replay-decomposition-design.md",
-        "docs/superpowers/specs/2026-06-24-rookvisiondirector-replay-native-design.md",
-        "docs/superpowers/specs/2026-06-24-rookvisiondirector-replay-pumpspike-design.md",
-        "docs/superpowers/specs/2026-06-25-rookvisiondirector-preview-loop-design.md",
-        "docs/superpowers/specs/2026-06-29-mcp-tool-exposure-profile-design.md",
-        "docs/superpowers/specs/2026-06-30-capability-index-progressive-disclosure-design.md",
-        "docs/superpowers/specs/2026-07-02-director-v2-relative-actor-metadata-design.md",
-        "docs/superpowers/specs/2026-07-03-director-instance-restore-semantics-design.md",
-        "docs/superpowers/specs/2026-07-03-director-pose-bbox-design.md",
-        "docs/superpowers/specs/2026-07-03-director-restore-hardening-design.md",
-        "docs/superpowers/specs/2026-07-03-rookvision-canvas-director-design.md",
-        "docs/superpowers/specs/2026-07-04-canvas-director-template-promotion-design.md",
-        "docs/superpowers/specs/2026-07-06-director-v3-slice3-compile-playback-design.md",
-        "docs/superpowers/specs/2026-07-06-director-v3-slice4a-capture-passes-design.md",
-        "docs/superpowers/specs/2026-07-06-director-v3-snapshot-boundary-design.md",
-        "docs/superpowers/specs/2026-07-07-director-build-actor-set-from-source-occurrence-design.md",
-        "docs/superpowers/specs/2026-07-07-director-v3-simulation-export-design.md",
     }
 )
 PARTIAL_SUPERSESSION_NOTICE = "\n".join(
@@ -144,14 +84,6 @@ HISTORICAL_EVIDENCE_NOTICE = "\n".join(
     )
 )
 PARTIAL_REFERENCE_BY_DIRECTORY = {
-    "docs/superpowers/specs/": (
-        "[director-mcp-retirement]: "
-        "2026-07-13-director-mcp-surface-retirement-design.md"
-    ),
-    "docs/superpowers/plans/": (
-        "[director-mcp-retirement]: "
-        "../specs/2026-07-13-director-mcp-surface-retirement-design.md"
-    ),
     "docs/rook_docs/": (
         "[director-mcp-retirement]: "
         "../superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md"
@@ -161,18 +93,6 @@ HISTORICAL_REFERENCE_BY_DOCUMENT = {
     "docs/TROUBLESHOOTING.md": (
         "[director-mcp-retirement]: "
         "superpowers/specs/2026-07-13-director-mcp-surface-retirement-design.md"
-    ),
-    "docs/superpowers/2026-06-24-replay-live-gate-postmortem.md": (
-        "[director-mcp-retirement]: "
-        "specs/2026-07-13-director-mcp-surface-retirement-design.md"
-    ),
-    "docs/superpowers/plans/2026-05-19-rookvisiondirector-slice1-phase0-inventory.md": (
-        "[director-mcp-retirement]: "
-        "../specs/2026-07-13-director-mcp-surface-retirement-design.md"
-    ),
-    "docs/superpowers/plans/2026-06-23-hunyuan-3d-pro-image-to-3d.md": (
-        "[director-mcp-retirement]: "
-        "../specs/2026-07-13-director-mcp-surface-retirement-design.md"
     ),
 }
 TRACKED_GUIDANCE_ROOTS = (
@@ -585,12 +505,12 @@ def test_every_route_aware_director_document_is_classified():
         HISTORICAL_DIRECTOR_EVIDENCE_DOCS,
         ACTIONABLE_DIRECTOR_DOCS,
     )
-    assert [len(group) for group in groups] == [2, 2, 4, 56]
+    assert [len(group) for group in groups] == [2, 0, 1, 1]
     for index, group in enumerate(groups):
         for other in groups[index + 1 :]:
             assert group.isdisjoint(other)
     expected_documents = frozenset().union(*groups)
-    assert len(expected_documents) == 64
+    assert len(expected_documents) == 4
     assert set(documents) == expected_documents
     assert set(HISTORICAL_REFERENCE_BY_DOCUMENT) == (
         HISTORICAL_DIRECTOR_EVIDENCE_DOCS
