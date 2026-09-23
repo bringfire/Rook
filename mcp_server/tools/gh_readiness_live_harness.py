@@ -30,7 +30,7 @@ HARNESS_PORT_ENV_KEYS = ("ROOK_RHINO_PORT", "NATIVE_PORT")
 
 def _ensure_import_path() -> None:
     src = Path(__file__).resolve().parents[1] / "src"
-    if src.is_dir():
+    if src.is_dir() and str(src) not in sys.path:
         sys.path.insert(0, str(src))
 
 
@@ -86,7 +86,10 @@ def call(
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     url = f"{base_url.rstrip('/')}{path}"
-    with httpx.Client(timeout=30.0) as client:
+    _ensure_import_path()
+    from rook.bridge import NATIVE_CLIENT_HEADERS  # the native server requires X-Rook-Client
+
+    with httpx.Client(timeout=30.0, headers=NATIVE_CLIENT_HEADERS) as client:
         try:
             if method == "GET":
                 response = client.get(url, params=payload or {})

@@ -19,7 +19,12 @@ import httpx
 # or override via environment: CPP_PORT=12345 python benchmark_native_vs_csharp.py
 import glob
 import os
+import sys
 import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "mcp_server" / "src"))
+from rook.bridge import NATIVE_CLIENT_HEADERS  # the native server requires X-Rook-Client
 
 def _discover_native_port() -> int | None:
     disc_dir = os.path.join(tempfile.gettempdir(), "rook")
@@ -59,6 +64,7 @@ def _client(port: int) -> httpx.Client:
     if port not in _clients:
         _clients[port] = httpx.Client(
             base_url=f"http://127.0.0.1:{port}",
+            headers=NATIVE_CLIENT_HEADERS,
             timeout=httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0),
         )
     return _clients[port]

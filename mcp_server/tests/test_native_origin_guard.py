@@ -33,6 +33,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import urllib.request
 from pathlib import Path
 
@@ -132,6 +133,28 @@ def test_bootstrap_http_executor_sends_the_header_on_ping_get_and_post(monkeypat
     assert create_http_executor("http://127.0.0.1:1") is not None
 
 
+def test_gh_readiness_harness_sends_the_header_on_its_sync_client(monkeypatch):
+    """`--smoke gh-readiness` / `gh-python-geometry-output` call the native server through this helper."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("gh_readiness_live_harness", _REPO / "mcp_server" / "tools" / "gh_readiness_live_harness.py")
+    harness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harness)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"success": True, "data": {}})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(harness.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    harness.call("http://127.0.0.1:1", "GET", "/gh/status")
+    harness.call("http://127.0.0.1:1", "POST", "/gh/edit", {"epoch": 1})
+    assert [r.method for r in seen] == ["GET", "POST"]
+    for request in seen:
+        assert request.headers.get(NATIVE_CLIENT_HEADER) == NATIVE_CLIENT_HEADERS[NATIVE_CLIENT_HEADER]
+
+
 _NATIVE_CALLING_SCRIPTS = (
     "scripts/run_simulation_export.py",
     "scripts/validate_rhino_operational_suite.py",
@@ -150,9 +173,13 @@ def test_standalone_scripts_build_their_native_clients_through_the_factory(scrip
 
 
 # Files allowed to construct raw HTTP clients because they never talk to the
-# native server (Chirp, model providers, LLM probes). Anything else that grows
-# a raw constructor must route through native_client / NATIVE_CLIENT_HEADERS.
+# native server (Chirp, model providers, LLM/API probes, a local fake provider)
+# or do so deliberately (this file's live test crafts hostile requests).
+# Anything else that grows a raw constructor must route through
+# native_client / NATIVE_CLIENT_HEADERS (or conftest's _native_headers()).
 _RAW_CLIENT_ALLOWLIST = {
+    "mcp_server/tests/test_native_origin_guard.py",
+    "mcp_server/tests/test_local_testing_proof.py",   # posts to its own fake slow provider
     "mcp_server/src/rook/bridge.py",                  # the factory itself
     "mcp_server/src/rook/chirp_manager.py",           # Chirp health checks
     "mcp_server/src/rook/server.py",                  # chirp_client (Chirp, not native)
@@ -164,26 +191,38 @@ _RAW_CLIENT_ALLOWLIST = {
     "scripts/lm5r_two_pass_publication_probe.py",
     "scripts/lm_worker_two_pass_publication.py",
 }
+_RAW_CLIENT_ALLOWED_PREFIXES = ("tools/spikes/",)   # third-party API probes (fal, Gemini, Replicate)
+_HEADER_MARKERS = ("native_client", "NATIVE_CLIENT_HEADERS", "_native_headers(")
 _RAW_CLIENT = re.compile(
     r"httpx\.(?:AsyncClient|Client)\(|httpx\.(?:get|post|put|delete)\(|urllib\.request\.Request\("
 )
 
 
+def _tracked_python_files() -> list[Path]:
+    """Every tracked .py file: package, tests, tools, scripts, docs spikes, benchmarks."""
+    try:
+        out = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=_REPO, capture_output=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover - no git in the sandbox
+        pytest.skip(f"git ls-files unavailable: {exc}")
+    return [_REPO / rel for rel in out.decode("utf-8").split("\0") if rel]
+
+
 def test_no_new_raw_http_clients_outside_the_allowlist():
     offenders: list[str] = []
-    for folder in ("mcp_server/src/rook", "scripts"):
-        for path in sorted((_REPO / folder).rglob("*.py")):
-            rel = path.relative_to(_REPO).as_posix()
-            if rel in _RAW_CLIENT_ALLOWLIST:
+    files = _tracked_python_files()
+    assert any(p.as_posix().endswith("mcp_server/tools/gh_readiness_live_harness.py") for p in files)
+    for path in files:
+        rel = path.relative_to(_REPO).as_posix()
+        if rel in _RAW_CLIENT_ALLOWLIST or rel.startswith(_RAW_CLIENT_ALLOWED_PREFIXES) or not path.is_file():
+            continue
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for n, line in enumerate(lines, 1):
+            if not _RAW_CLIENT.search(line):
                 continue
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-            for n, line in enumerate(lines, 1):
-                if not _RAW_CLIENT.search(line):
-                    continue
-                # A multi-line call may pass headers=NATIVE_CLIENT_HEADERS on a later line.
-                call = " ".join(lines[n - 1 : n + 8])
-                if "NATIVE_CLIENT_HEADERS" not in call and "native_client" not in call:
-                    offenders.append(f"{rel}:{n}: {line.strip()}")
+            # A multi-line call may pass headers=NATIVE_CLIENT_HEADERS on a later line.
+            call = " ".join(lines[n - 1 : n + 8])
+            if not any(marker in call for marker in _HEADER_MARKERS):
+                offenders.append(f"{rel}:{n}: {line.strip()}")
     assert not offenders, (
         "raw HTTP client construction outside the allowlist; native-server callers must use "
         "rook.bridge.native_client (httpx) or send NATIVE_CLIENT_HEADERS (urllib):\n" + "\n".join(offenders)

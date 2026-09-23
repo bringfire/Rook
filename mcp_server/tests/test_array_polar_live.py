@@ -27,7 +27,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-import httpx
+from rook.bridge import native_client
 import pytest
 
 from .conftest import fresh_document, _is_error
@@ -81,7 +81,7 @@ async def _post_array_polar_raw(body: dict[str, Any]) -> tuple[int, dict[str, An
     if base_url is None:
         pytest.skip("Native plugin not discoverable; skipping live test.")
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with native_client(timeout=15.0) as client:
         resp = await client.post(f"{base_url}/array/polar", json=body)
     try:
         envelope = resp.json()
@@ -97,7 +97,7 @@ async def _get_objects_raw(params: dict[str, Any] | None = None) -> tuple[int, d
     if base_url is None:
         pytest.skip("Native plugin not discoverable; skipping live test.")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with native_client(timeout=10.0) as client:
         resp = await client.get(f"{base_url}/objects", params=params or {})
     try:
         envelope = resp.json()
@@ -113,7 +113,7 @@ async def _arm_fail_next_copy(index: int) -> None:
     if base_url is None:
         pytest.skip("Native plugin not discoverable; skipping live test.")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with native_client(timeout=10.0) as client:
         resp = await client.post(f"{base_url}/array/_debug/fail-next-copy", json={"index": index})
 
     if resp.status_code == 403:

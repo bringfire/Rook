@@ -25,7 +25,7 @@ import json
 import time
 import urllib.request
 
-from rook.bridge import get_rhino_host
+from rook.bridge import NATIVE_CLIENT_HEADERS, get_rhino_host
 
 
 def api(path, method="GET", body=None):
@@ -34,7 +34,7 @@ def api(path, method="GET", body=None):
     if host is None:
         raise RuntimeError("No Rhino instance discovered for integration test")
     data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(f"{host}{path}", data=data, method=method)
+    req = urllib.request.Request(f"{host}{path}", data=data, method=method, headers=dict(NATIVE_CLIENT_HEADERS))
     req.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())

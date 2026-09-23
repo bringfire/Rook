@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from rook.bridge import native_client
 import pytest
 
 
@@ -65,7 +65,7 @@ async def _post_video(
     timeout_seconds: float = _DEFAULT_TIMEOUT_S,
 ) -> tuple[int, dict[str, Any], dict[str, str]]:
     base_url = _require_host()
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+    async with native_client(timeout=timeout_seconds) as client:
         resp = await client.post(f"{base_url}/vision/video/{route}", json=body)
     try:
         envelope = resp.json()
@@ -81,7 +81,7 @@ async def _get_video(
     timeout_seconds: float = _DEFAULT_TIMEOUT_S,
 ) -> tuple[int, dict[str, Any], dict[str, str]]:
     base_url = _require_host()
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+    async with native_client(timeout=timeout_seconds) as client:
         resp = await client.get(
             f"{base_url}/vision/video/{route}", params=params or {}
         )
