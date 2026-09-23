@@ -12,7 +12,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from rook.bridge import discover_instances
+from rook.bridge import NATIVE_CLIENT_HEADERS, discover_instances
 
 
 def _native_port() -> int:
@@ -30,7 +30,7 @@ def _post(port: int, path: str, payload: dict) -> dict:
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}{path}",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **NATIVE_CLIENT_HEADERS},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=180) as resp:

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from rook.bridge import NATIVE_CLIENT_HEADERS
 import pytest
 
 
@@ -260,7 +261,7 @@ async def test_prompt_send_and_cancel_survive_normal_dispatch_worker_pressure() 
     started = asyncio.Event()
     stop = asyncio.Event()
 
-    async with httpx.AsyncClient(base_url=_base_url()) as client:
+    async with httpx.AsyncClient(base_url=_base_url(), headers=NATIVE_CLIENT_HEADERS) as client:
         try:
             await _start_line_command(client)
 

@@ -2,16 +2,15 @@
 per-member simulation export, then assemble the video. Requires Rhino open with
 Pearson active + saved and the animation canvas loaded (C42 emits samples on H).
 """
-import sys, asyncio, uuid, json, os, time, hashlib
+import sys, asyncio, uuid, json, os, time, hashlib, tempfile
 from pathlib import Path
-sys.path.insert(0, r"C:\Users\aryan\source\repos\Rook\.claude\worktrees\director-v3-sim-export\mcp_server\src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp_server" / "src"))
 import httpx
-from rook.bridge import get_rhino_host
+from rook.bridge import get_rhino_host, native_client
 from rook import director_simulation_export as sx
 from rook import director_video
 
-SCRATCH = (r"C:\Users\aryan\AppData\Local\Temp\claude\C--Users-aryan-source-repos-Rook"
-           r"\51f4797b-8702-43db-9b2d-245df8501f2f\scratchpad\sim_take")
+SCRATCH = Path(os.environ.get("ROOK_SIM_EXPORT_SCRATCH") or Path(tempfile.gettempdir()) / "rook-sim-export" / "sim_take")
 FRAME_COUNT = int(os.environ.get("SIM_FRAMES", "48"))
 HARVEST_CACHE_DIR = Path(SCRATCH) / "harvest_cache"
 
@@ -61,7 +60,7 @@ async def call_native(endpoint, method="GET", data=None, *, port=None):
         base = get_rhino_host()
         if not base:
             raise RuntimeError("No active Rhino host found")
-        async with httpx.AsyncClient(timeout=3600.0) as c:  # 1h: heavy SOH capture must not client-timeout
+        async with native_client(timeout=3600.0) as c:  # 1h: heavy SOH capture must not client-timeout
             resp = (await c.get(f"{base}{endpoint}", params=data or None) if method == "GET"
                     else await c.post(f"{base}{endpoint}", json=data or {}))
         return resp.json()
@@ -81,7 +80,7 @@ async def main():
         "actor_set_id": "actor_a28cbdb551fa",
         "block_name": "3D_BLOCK_ARCH_ROOF_0502 UPLIFT ROOF - VERTICAL",
         "source_top_level_object_id": "a28cbdb5-51fa-46b2-b18b-ab880b54ded7",
-        "output_root": SCRATCH,
+        "output_root": str(SCRATCH),   # package_take requires a string
         "frame_count": FRAME_COUNT, "fps": 24, "units": doc.get("units", "millimeters"),
         "clock_denominator": 240,
         # SOH-Rendered-2_NO EDGES by NAME — package_take validates display_modes by

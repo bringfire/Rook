@@ -56,7 +56,7 @@ int main() {
     ON::Begin();
 
     ONX_Model model;
-    const wchar_t* path = L"C:\\Users\\aryan\\Desktop\\SpatialTest.3dm";
+    const wchar_t* path = L"C:\\Models\\SpatialTest.3dm"  // any local test model;
     if (!model.Read(path)) {
         printf("READ FAIL: %ls\n", path);
         ON::End();

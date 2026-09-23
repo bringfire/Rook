@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from rook.bridge import native_client
 import pytest
 
 from .conftest import fresh_document, _is_error
@@ -129,7 +129,7 @@ async def _wire(
     if source_param is not None:
         body["sourceParam"] = source_param
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with native_client(timeout=10.0) as client:
         resp = await client.post(f"{base_url}/gh/connect", json=body)
     envelope = resp.json()
     assert envelope.get("success") is True, f"POST /gh/connect failed: {envelope!r}"
@@ -143,7 +143,7 @@ async def _get_connections(guid: str) -> dict[str, Any]:
     if base_url is None:
         pytest.skip("Native plugin not discoverable; skipping live test.")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with native_client(timeout=10.0) as client:
         resp = await client.get(f"{base_url}/gh/connections", params={"guid": guid})
     envelope = resp.json()
     assert envelope.get("success") is True, f"/gh/connections returned failure: {envelope!r}"
@@ -160,7 +160,7 @@ async def _post_script_params_raw(body: Any) -> tuple[int, dict[str, Any]]:
     if base_url is None:
         pytest.skip("Native plugin not discoverable; skipping live test.")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with native_client(timeout=10.0) as client:
         resp = await client.post(f"{base_url}/gh/script-params", json=body)
     try:
         envelope = resp.json()

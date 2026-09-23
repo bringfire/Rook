@@ -81,11 +81,13 @@ namespace Rook.Tests.Services.Reconstruction
             public string? RequestUri;
             public string? RequestBody;
             public string? RequestContentType;
+            public string? ClientHeader;
             public CapturingHandler(HttpStatusCode status, string body) { _status = status; _body = body; }
             protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
             {
                 RequestUri = request.RequestUri!.AbsoluteUri;
                 RequestContentType = request.Content?.Headers?.ContentType?.MediaType;
+                ClientHeader = request.Headers.TryGetValues(NativeReconstructionImportClient.NativeClientHeader, out var values) ? string.Join(",", values) : null;
                 RequestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync().ConfigureAwait(false);
                 return new HttpResponseMessage(_status) { Content = new StringContent(_body) };
             }
@@ -111,6 +113,8 @@ namespace Rook.Tests.Services.Reconstruction
             // Always the fixed loopback URL with the discovered port — no arbitrary host.
             Assert.Equal("http://127.0.0.1:51000/reconstruction/2d-to-3d/import", cap.RequestUri);
             Assert.Equal("application/json", cap.RequestContentType);
+            // The native server admits only requests carrying the Rook client header.
+            Assert.Equal(NativeReconstructionImportClient.NativeClientHeaderValue, cap.ClientHeader);
             Assert.Contains(pkg.ToString("D"), cap.RequestBody);
             Assert.Equal("model_obj", (string?)outcome.Data!["asset_role"]);
             Assert.Equal(2, outcome.Data!["imported_ids"]!.AsArray().Count);

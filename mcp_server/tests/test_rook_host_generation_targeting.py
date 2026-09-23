@@ -150,7 +150,7 @@ async def test_live_generation_refusal_precedes_requested_operation(
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _SequencedClient(calls, live_capabilities),
+        lambda timeout=None, headers=None: _SequencedClient(calls, live_capabilities),
     )
 
     result = await bridge.call_rhino("/document", "GET", {})
@@ -170,7 +170,7 @@ async def test_matching_live_generation_dispatches_with_locked_document(monkeypa
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _SequencedClient(
+        lambda timeout=None, headers=None: _SequencedClient(
             calls,
             {"domains": [], "hostGenerationId": HOST_GENERATION},
         ),
@@ -246,7 +246,7 @@ async def test_discovery_churn_cannot_split_verification_and_operation(monkeypat
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _DestinationClient(calls),
+        lambda timeout=None, headers=None: _DestinationClient(calls),
     )
 
     result = await bridge.call_rhino("/document", "GET", {})
@@ -306,7 +306,7 @@ async def test_forged_discovery_live_endpoint_cannot_change_verification_route(
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _DestinationClient(calls),
+        lambda timeout=None, headers=None: _DestinationClient(calls),
     )
 
     result = await bridge.call_rhino("/document", "GET", {})
@@ -381,7 +381,7 @@ async def test_panel_session_capabilities_uses_bound_discovery_generation(
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _CapabilityClient(
+        lambda timeout=None, headers=None: _CapabilityClient(
             calls,
             payload={"domains": [], "hostGenerationId": HOST_GENERATION},
         ),
@@ -417,7 +417,7 @@ async def test_panel_session_capabilities_requires_exact_live_generation(
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _CapabilityClient(calls, payload=live_capabilities),
+        lambda timeout=None, headers=None: _CapabilityClient(calls, payload=live_capabilities),
     )
 
     result = await bridge.get_session_capabilities("rhino-1234")
@@ -441,7 +441,7 @@ async def test_panel_session_capabilities_rejects_malformed_live_response(
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _CapabilityClient(
+        lambda timeout=None, headers=None: _CapabilityClient(
             [], payload={"hostGenerationId": HOST_GENERATION}
         ),
     )
@@ -468,7 +468,7 @@ async def test_panel_session_capabilities_transport_failure_never_uses_legacy_fa
     monkeypatch.setattr(
         bridge.httpx,
         "AsyncClient",
-        lambda timeout=None: _CapabilityClient([], error=RuntimeError("offline")),
+        lambda timeout=None, headers=None: _CapabilityClient([], error=RuntimeError("offline")),
     )
 
     result = await bridge.get_session_capabilities("rhino-1234")

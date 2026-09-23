@@ -82,7 +82,10 @@ class FakeAsyncClient:
     urls: list[str] = []
     exception: Exception | None = None
 
-    def __init__(self, timeout: float):
+    def __init__(self, timeout: float, headers: dict | None = None):
+        # ping_native goes through bridge.native_client: the X-Rook-Client
+        # header must be on the client, or the native server answers 403.
+        assert headers and headers.get("X-Rook-Client"), headers
         self.timeout = timeout
 
     async def __aenter__(self):
@@ -1481,7 +1484,7 @@ def test_runtime_harness_passes_artifact_dir_and_timeout_to_smoke(
     monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
     monkeypatch.setattr(
         "rook.runtime_harness.httpx.post",
-        lambda url, json, timeout: httpx.Response(200, json={"success": True}),
+        lambda url, json, timeout, headers: httpx.Response(200, json={"success": True}),
     )
     monkeypatch.setattr(
         "rook.runtime_harness.request_external_graceful_close",
@@ -1542,7 +1545,7 @@ def test_runtime_harness_applies_rhino_launch_env_overrides(
     monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
     monkeypatch.setattr(
         "rook.runtime_harness.httpx.post",
-        lambda url, json, timeout: httpx.Response(200, json={"success": True}),
+        lambda url, json, timeout, headers: httpx.Response(200, json={"success": True}),
     )
     monkeypatch.setattr(
         "rook.runtime_harness.request_external_graceful_close",
@@ -1621,7 +1624,7 @@ def test_runtime_harness_applies_overrides_before_build_launch_env(
     monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
     monkeypatch.setattr(
         "rook.runtime_harness.httpx.post",
-        lambda url, json, timeout: httpx.Response(200, json={"success": True}),
+        lambda url, json, timeout, headers: httpx.Response(200, json={"success": True}),
     )
     monkeypatch.setattr(
         "rook.runtime_harness.request_external_graceful_close",
@@ -1836,7 +1839,7 @@ def test_runtime_harness_saves_owned_document_before_external_close(
     monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
     monkeypatch.setattr(
         "rook.runtime_harness.httpx.post",
-        lambda url, json, timeout: save_calls.append((url, json))
+        lambda url, json, timeout, headers: save_calls.append((url, json))
         or httpx.Response(200, json={"success": True, "data": {"path": json["path"]}}),
     )
     monkeypatch.setattr(
@@ -1921,7 +1924,7 @@ def test_runtime_harness_warns_when_cleanup_document_save_fails_but_still_closes
     monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
     monkeypatch.setattr(
         "rook.runtime_harness.httpx.post",
-        lambda url, json, timeout: httpx.Response(
+        lambda url, json, timeout, headers: httpx.Response(
             200,
             json={"success": False, "error": "save rejected"},
         ),

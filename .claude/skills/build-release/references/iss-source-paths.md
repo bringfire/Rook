@@ -84,7 +84,7 @@ do not rely on a prior developer deploy, PATH entry, or machine-wide OCCT
 installation.
 
 Default source root:
-`C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin`
+`<repo>\..\OCCT\build-rook\win64\vc14\bin` (sibling checkout; override with `/DOcctRuntimeRoot=...` at ISCC time)
 
 | File | Source |
 |------|--------|
@@ -213,9 +213,9 @@ installed CLAUDE.md.
 Run this to check all paths at once:
 
 ```powershell
-$Repo = "C:\Users\aryan\source\repos\Rook"
+$Repo = (git rev-parse --show-toplevel) -replace "/", "\"   # the Rook checkout
 $VcRedistRoot = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\14.44.35112\x64"
-$OcctRuntimeRoot = "C:\Users\aryan\source\repos\OCCT\build-rook\win64\vc14\bin"
+$OcctRuntimeRoot = "$Repo\..\OCCT\build-rook\win64\vc14\bin"
 $missing = New-Object System.Collections.Generic.List[string]
 
 $files = @(

@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
-import httpx
+from rook.bridge import native_client
 import pytest
 
 from rook import director, director_publish, director_video, server
@@ -30,7 +30,7 @@ def _require_host() -> str:
 
 async def _post_director(route: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     base_url = _require_host()
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with native_client(timeout=30.0) as client:
         resp = await client.post(f"{base_url}/director/{route}", json=body)
     try:
         envelope = resp.json()

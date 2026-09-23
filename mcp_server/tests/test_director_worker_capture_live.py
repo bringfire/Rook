@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import httpx
+from rook.bridge import native_client
 import pytest
 
 from rook import director_take_package as dtp
@@ -59,7 +59,7 @@ async def _call_live_native(endpoint: str, method: str = "GET",
                             port: int | None = None) -> dict[str, Any]:
     del port
     base_url = _require_host()
-    async with httpx.AsyncClient(timeout=900.0) as client:
+    async with native_client(timeout=900.0) as client:
         if method == "GET":
             resp = await client.get(f"{base_url}{endpoint}")
         elif method == "DELETE":

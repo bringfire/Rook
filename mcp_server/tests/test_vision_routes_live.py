@@ -32,7 +32,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import httpx
+from rook.bridge import native_client
 import pytest
 
 
@@ -63,7 +63,7 @@ async def _post_vision(
     timeout_seconds: float = _DEFAULT_TIMEOUT_S,
 ) -> tuple[int, dict[str, Any], dict[str, str]]:
     base_url = _require_host()
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+    async with native_client(timeout=timeout_seconds) as client:
         resp = await client.post(f"{base_url}/vision/{route}", json=body)
     try:
         envelope = resp.json()
@@ -79,7 +79,7 @@ async def _get_vision(
     timeout_seconds: float = _DEFAULT_TIMEOUT_S,
 ) -> tuple[int, dict[str, Any], dict[str, str]]:
     base_url = _require_host()
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+    async with native_client(timeout=timeout_seconds) as client:
         resp = await client.get(f"{base_url}/vision/{route}", params=params or {})
     try:
         envelope = resp.json()
@@ -94,7 +94,7 @@ async def _delete_vision(
     timeout_seconds: float = _DEFAULT_TIMEOUT_S,
 ) -> tuple[int, dict[str, Any], dict[str, str]]:
     base_url = _require_host()
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+    async with native_client(timeout=timeout_seconds) as client:
         resp = await client.delete(f"{base_url}/vision/{route}")
     try:
         envelope = resp.json()

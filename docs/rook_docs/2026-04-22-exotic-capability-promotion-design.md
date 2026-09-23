@@ -431,7 +431,7 @@ an informal script path**.
 ## Worked Example: `DistributeBlocksAlongCurve.py`
 
 Source artifact:
-`C:\Users\aryan\Documents\RhinoScripts\DistributeBlocksAlongCurve.py`
+`%USERPROFILE%\Documents\RhinoScripts\DistributeBlocksAlongCurve.py`
 
 ### What the script gets right
 

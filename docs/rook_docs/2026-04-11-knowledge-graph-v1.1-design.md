@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-11  
 **Status:** Approved design  
-**Authors:** Claude + aryan + Codex  
+**Authors:** Claude + Bringfire + Codex  
 **Builds on:** `d9f7aa8 feat(knowledge): add Knowledge Graph visualizer panel (#5)`  
 **Contract:** `2026-04-10-webui-substrate-contract.md`
 

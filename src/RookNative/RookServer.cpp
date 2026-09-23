@@ -2,6 +2,7 @@
 
 #include "stdafx.h"
 #include "RookServer.h"
+#include <cctype>
 #include "Handlers/DocumentHandler.h"
 #include "Handlers/LayersHandler.h"
 #include "Handlers/ObjectsHandler.h"
@@ -61,6 +62,34 @@ namespace fs = std::filesystem;
 namespace
 {
     constexpr const char* kNativeBindHost = "127.0.0.1";
+    // Required on every request (see the local-client gate in Start()).
+    constexpr const char* kRookClientHeader = "X-Rook-Client";
+
+    // The request authority must name this loopback server. A DNS-rebinding
+    // page (attacker hostname resolving to 127.0.0.1) is same-origin with the
+    // server as far as the browser is concerned, so it can add custom headers
+    // without a preflight and sends no Origin or fetch metadata over plain
+    // HTTP. Such a request still arrives with Host: <attacker hostname>.
+    bool IsAllowedLoopbackAuthority(const std::string& host)
+    {
+        std::string name = host;
+        const auto colon = name.find(':');
+        if (colon != std::string::npos)
+        {
+            const std::string port = name.substr(colon + 1);
+            if (port.empty() || port.size() > 5 ||
+                port.find_first_not_of("0123456789") != std::string::npos)
+                return false;
+            name.erase(colon);
+        }
+        if (name == kNativeBindHost)
+            return true;
+        if (name.size() != 9)
+            return false;
+        for (auto& c : name)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return name == "localhost";
+    }
 
     struct DiscoveryRootInfo
     {
@@ -2530,6 +2559,62 @@ bool CRookServer::Start()
 
     // Let the OS assign a free port (port 0). No range scanning needed.
     m_server = std::make_unique<httplib::Server>();
+
+    // Local-client gate. The server binds 127.0.0.1 and any process running as
+    // the user may call it (that is the local-MCP design), but nothing a web page
+    // does may reach it: several routes execute code or write files, and a
+    // loopback server is reachable from a browser tab through cross-origin
+    // "simple" requests, <img>/<script> loads and navigations, none of which
+    // need a CORS preflight and not all of which carry an Origin header.
+    //
+    // Two layers, evaluated before routing:
+    //  1. Positive: every request must carry the X-Rook-Client header. A page
+    //     can only add a custom header through a CORS-preflighted request, and
+    //     this server never answers a preflight; <img>, <script>, forms and
+    //     navigations cannot set headers at all. Rook's own clients (Python
+    //     bridge, chat service, companion HttpClient) send it.
+    //  2. Negative, defense in depth: any request carrying Origin or the
+    //     browser-set fetch-metadata headers (Sec-Fetch-*) is rejected even if
+    //     it somehow carried the client header.
+    //  3. Authority: Host must be 127.0.0.1 or localhost (optionally :port).
+    //     Rule 1 only forces a preflight for CROSS-origin requests; DNS
+    //     rebinding makes a page same-origin with this server, and a
+    //     same-origin request may add custom headers freely and carries no
+    //     Origin or Sec-Fetch-* over plain HTTP. Its Host header still names
+    //     the attacker's hostname, which this rule refuses.
+    m_server->set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+        const bool browser_marked = req.has_header("Origin") ||
+                                    req.has_header("Sec-Fetch-Mode") ||
+                                    req.has_header("Sec-Fetch-Site") ||
+                                    req.has_header("Sec-Fetch-Dest");
+        const bool client_marked = !req.get_header_value(kRookClientHeader).empty();
+        const bool host_allowed = req.has_header("Host") &&
+                                  IsAllowedLoopbackAuthority(req.get_header_value("Host"));
+        if (browser_marked || !client_marked || !host_allowed) {
+            const char* code = browser_marked ? "browser_request_rejected"
+                             : !client_marked ? "client_header_required"
+                                              : "host_not_allowed";
+            res.status = 403;
+            res.set_content(
+                std::string("{\"success\":false,\"error\":\"") + code +
+                "\",\"detail\":\"The Rook native server accepts only local Rook clients: send the " +
+                kRookClientHeader + " header, address 127.0.0.1 or localhost, and no browser fetch metadata.\"}",
+                "application/json");
+            return httplib::Server::HandlerResponse::Handled;
+        }
+        return httplib::Server::HandlerResponse::Unhandled;
+    });
+
+    // One request per connection. httplib reads a request body only AFTER the
+    // pre-routing gate, and its keep-alive loop ignores the response's
+    // Connection header, so a refused POST would leave its unread body on the
+    // socket to be parsed as the NEXT request. A blind cross-origin text/plain
+    // POST from a web page can make that body a complete request carrying the
+    // client header and a loopback Host, which would pass the gate (request
+    // smuggling). With a keep-alive budget of one, the server closes the
+    // socket after the single response and never reads the leftovers. Every
+    // response carries Connection: close; Rook's clients reconnect per call.
+    m_server->set_keep_alive_max_count(1);
 
     // Cap thread pool at 8. Default is hardware_concurrency-1, which on
     // a 32-core workstation creates 31 threads — wasteful since requests

@@ -6828,6 +6828,18 @@ inline bool Server::listen_internal() {
 inline bool Server::routing(Request &req, Response &res, Stream &strm) {
   if (pre_routing_handler_ &&
       pre_routing_handler_(req, res) == HandlerResponse::Handled) {
+    // ROOK PATCH (see ROOK-PATCHES.md): the pre-routing handler runs BEFORE
+    // the body is read. When it refuses a request that declared a body,
+    // consume and discard that body (bounded) so the refusal response is
+    // delivered and the socket closes cleanly instead of resetting with
+    // unread data. The bytes are never parsed or dispatched.
+    if (!detail::is_chunked_transfer_encoding(req.headers) &&
+        req.has_header("Content-Length")) {
+      auto len = detail::get_header_value_u64(req.headers, "Content-Length", 0, 0);
+      if (len > 0 && len <= (8u * 1024u * 1024u)) {
+        detail::skip_content_with_length(strm, len);
+      }
+    }
     return true;
   }
 

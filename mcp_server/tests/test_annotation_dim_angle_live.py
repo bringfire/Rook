@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-import httpx
+from rook.bridge import native_client
 import pytest
 
 from .conftest import fresh_document, _is_error
@@ -50,7 +50,7 @@ async def _post_dim_angle_raw(body: dict[str, Any]) -> tuple[int, dict[str, Any]
     if base_url is None:
         pytest.skip("Native plugin not discoverable; skipping live test.")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with native_client(timeout=10.0) as client:
         resp = await client.post(f"{base_url}/annotation/dim-angle", json=body)
     try:
         envelope = resp.json()

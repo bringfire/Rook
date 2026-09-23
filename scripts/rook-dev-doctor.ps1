@@ -265,8 +265,8 @@ function Invoke-OcctChecks {
     $header = Join-Path $includeRoot 'Standard.hxx'
     if (Test-Path $header) {
         $firstLines = (Get-Content -Path $header -TotalCount 20) -join "`n"
-        if ($firstLines -match [regex]::Escape('C:\Users\aryan\source\repos\OCCT')) {
-            Write-CheckResult -Status FAIL -Name 'OCCT header forwarding' -Detail 'inc\Standard.hxx appears to forward to C:\Users\aryan\source\repos\OCCT.'
+        if ($firstLines -match '[A-Za-z]:\\[^\n]*\\OCCT\\') {
+            Write-CheckResult -Status FAIL -Name 'OCCT header forwarding' -Detail 'inc\Standard.hxx appears to forward to an absolute OCCT source tree on this machine.'
         } else {
             Write-CheckResult -Status PASS -Name 'OCCT header forwarding' -Detail 'inc\Standard.hxx does not expose a local source-tree forwarding path in its first lines.'
         }

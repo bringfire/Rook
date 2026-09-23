@@ -25,7 +25,7 @@
 - `src/RookBim/RookBim.csproj` is a net48 module that copies `RookBim.dll` into `src/Rook/bin/<Configuration>/net48`; release/local deploy workflows must build it after `src/Rook/Rook.csproj`
 
 ## Codex App Notes
-- When emitting Codex app directives in final responses, use forward-slash absolute Windows paths, for example `C:/Users/aryan/source/repos/Rook`. Do not use backslash paths like `C:\Users\...` inside directive attributes; they can be parsed as invalid escapes by the app after task completion.
+- When emitting Codex app directives in final responses, use forward-slash absolute Windows paths, for example `<repo>`. Do not use backslash paths like `C:\Users\...` inside directive attributes; they can be parsed as invalid escapes by the app after task completion.
 
 ## Project Structure
 - `src/RookNative/RookNativePlugin.cpp` — plugin entry point

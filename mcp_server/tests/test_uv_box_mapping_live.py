@@ -10,6 +10,7 @@ import os
 import uuid
 
 import httpx
+from rook.bridge import NATIVE_CLIENT_HEADERS
 import pytest
 
 pytestmark = pytest.mark.requires_rhino
@@ -20,7 +21,7 @@ def client():
     port = os.environ.get("ROOK_UV_TEST_PORT")
     if not port:
         pytest.skip("Set ROOK_UV_TEST_PORT to an explicitly chosen test runtime")
-    with httpx.Client(base_url=f"http://127.0.0.1:{int(port)}", timeout=15) as c:
+    with httpx.Client(base_url=f"http://127.0.0.1:{int(port)}", timeout=15, headers=NATIVE_CLIENT_HEADERS) as c:
         assert c.get("/ping").is_success
         yield c
 

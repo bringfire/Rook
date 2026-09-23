@@ -381,7 +381,7 @@ function Test-OcctRootRequiresExplicitConfiguration {
 
     foreach ($path in $activeFiles) {
         $content = Get-Content -Path $path -Raw
-        Assert-NotContains -Text $content -Unexpected 'C:\Users\aryan\source\repos\OCCT\build-rook' -Message "Active OCCT config must not contain hardcoded fallback path: $path"
+        Assert-NotContains -Text $content -Unexpected '\repos\OCCT\build-rook' -Message "Active OCCT config must not contain hardcoded fallback path: $path"
     }
 
     foreach ($path in @($RookNativeProject, $OcctPrimitiveTestsProject, $OcctOfflineReproProject)) {

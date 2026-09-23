@@ -32,6 +32,20 @@ DEFAULT_HOST = "127.0.0.1"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=60.0, pool=5.0)
 
+# The native server accepts only local Rook clients: every request must carry
+# this header (a browser cannot add it without a CORS grant, which the native
+# server never gives). Every httpx client that talks to the native server is
+# created through native_client() so the header cannot be forgotten.
+NATIVE_CLIENT_HEADER = "X-Rook-Client"
+NATIVE_CLIENT_HEADERS = {NATIVE_CLIENT_HEADER: "rook-mcp"}
+
+
+def native_client(**kwargs: Any) -> httpx.AsyncClient:
+    """An httpx.AsyncClient pre-armed with the native server's client header."""
+    headers = dict(NATIVE_CLIENT_HEADERS)
+    headers.update(kwargs.pop("headers", None) or {})
+    return httpx.AsyncClient(headers=headers, **kwargs)
+
 # A session is a stable, legible name over a discovered Rhino process.
 _SESSION_ID_PREFIX = "rhino-"
 
@@ -245,7 +259,7 @@ async def _fetch_live_capabilities(
         raise RuntimeError("discovery instance has no port")
 
     url = f"http://{host}:{port}{endpoint}"
-    async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as client:
+    async with native_client(timeout=timeout or TIMEOUT) as client:
         response = await client.get(url)
         response.raise_for_status()
         payload = response.json()
@@ -751,7 +765,7 @@ async def get_session_capabilities(session_id: Any) -> dict[str, Any]:
 
     if lock is not None:
         try:
-            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            async with native_client(timeout=TIMEOUT) as client:
                 live_capabilities = await _fetch_verified_panel_capabilities(
                     client, instance, lock
                 )
@@ -1206,7 +1220,7 @@ async def call_rhino(
     }
     url = f"http://{target['host']}:{target['port']}{endpoint}"
 
-    async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as client:
+    async with native_client(timeout=timeout or TIMEOUT) as client:
         try:
             lock, _ = _panel_lock_state()
             if lock is not None:

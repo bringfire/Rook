@@ -284,5 +284,5 @@ def test_no_hardcoded_developer_local_repo_path():
 
     source = Path(executable.__file__).read_text(encoding="utf-8")
 
-    assert "C:/Users/aryan/source/repos/Rook" not in source
-    assert "C:\\Users\\aryan\\source\\repos\\Rook" not in source
+    # No developer-machine absolute path may be baked into the module.
+    assert "C:/Users/" not in source and ("C:" + chr(92) + "Users" + chr(92)) not in source

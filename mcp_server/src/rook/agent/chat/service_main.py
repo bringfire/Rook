@@ -13,7 +13,7 @@ from types import MappingProxyType
 
 import httpx
 
-from rook.bridge import _fetch_verified_panel_capabilities, discover_instances
+from rook.bridge import _fetch_verified_panel_capabilities, discover_instances, native_client
 from rook.runtime_paths import get_acp_data_paths, resolve_runtime_paths
 from rook.targeting import PanelTargetLock, resolve_panel_target_instance
 
@@ -55,7 +55,7 @@ async def _target_available(binding: RookBinding) -> bool:
     if instance is None:
         return False
     # Availability is a bounded snapshot, never a fallback to another document.
-    async with asyncio.timeout(2), httpx.AsyncClient(timeout=2, trust_env=False) as client:
+    async with asyncio.timeout(2), native_client(timeout=2, trust_env=False) as client:
         await _fetch_verified_panel_capabilities(client, instance, lock)
         host = instance.get("host") or "127.0.0.1"
         response = await client.get(

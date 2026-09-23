@@ -32,11 +32,11 @@ After installation:
 
 --------------------------------------------------------------------------------
 
-(c) 2026 Bringfire Games, LLC. All rights reserved.
+(c) 2026 Bringfire Games, LLC. Released under the MIT License.
 
-Rook is provided as a free public release. The Rook source repository remains
-private. This installer includes runtime implementation files required for the
-local MCP server and related Python-based components.
+Rook is open source: https://github.com/bringfire/Rook. This installer includes
+runtime implementation files required for the local MCP server and related
+Python-based components; bundled third-party components keep their own licenses.
 
 Rook includes third-party open-source components, including FFmpeg, which are
 provided under their own licenses and notices.

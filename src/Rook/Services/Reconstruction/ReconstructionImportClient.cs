@@ -41,6 +41,15 @@ namespace Rook.Services.Reconstruction
     {
         private const string ImportPath = "/reconstruction/2d-to-3d/import";
 
+        /// <summary>
+        /// The native server accepts only local Rook clients: every request must carry
+        /// this header (a browser cannot add it without a CORS grant the native server
+        /// never gives). Keep in sync with kRookClientHeader in RookServer.cpp and
+        /// NATIVE_CLIENT_HEADER in the Python bridge.
+        /// </summary>
+        internal const string NativeClientHeader = "X-Rook-Client";
+        internal const string NativeClientHeaderValue = "rook-companion";
+
         private readonly HttpClient _http;
         private readonly INativeEndpointResolver _resolver;
 
@@ -66,7 +75,9 @@ namespace Rook.Services.Reconstruction
             try
             {
                 using var content = new StringContent(requestBody, System.Text.Encoding.UTF8, "application/json");
-                response = await _http.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+                using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+                request.Headers.TryAddWithoutValidation(NativeClientHeader, NativeClientHeaderValue);
+                response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException) && !cancellationToken.IsCancellationRequested)
             {

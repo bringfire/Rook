@@ -12,7 +12,7 @@ import urllib.request
 import urllib.error
 from typing import Any, Callable
 
-from ..bridge import get_rhino_host
+from ..bridge import NATIVE_CLIENT_HEADERS, get_rhino_host
 from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 logger = logging.getLogger("rook.bootstrap")
@@ -41,7 +41,7 @@ class HttpExecutor:
     def ping(self) -> bool:
         """Check if Rhino is reachable."""
         try:
-            req = urllib.request.Request(f"{self.base_url}/ping")
+            req = urllib.request.Request(f"{self.base_url}/ping", headers=dict(NATIVE_CLIENT_HEADERS))
             with urllib.request.urlopen(req, timeout=5) as response:
                 return response.status == 200
         except Exception as e:
@@ -200,14 +200,14 @@ class HttpExecutor:
                     params = {k: str(v) for k, v in body.items() if v is not None}
                     if params:
                         url = f"{url}?{urllib.parse.urlencode(params)}"
-                req = urllib.request.Request(url)
+                req = urllib.request.Request(url, headers=dict(NATIVE_CLIENT_HEADERS))
             else:
                 # POST/DELETE/PUT with JSON body
                 data = json.dumps(body or {}).encode("utf-8")
                 req = urllib.request.Request(
                     url,
                     data=data,
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": "application/json", **NATIVE_CLIENT_HEADERS},
                     method=method
                 )
 

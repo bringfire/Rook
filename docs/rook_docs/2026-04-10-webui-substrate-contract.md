@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-10  
 **Status:** Post-implementation contract (proven, not speculative)  
-**Authors:** Claude + aryan + Codex  
+**Authors:** Claude + Bringfire + Codex  
 **Proves:** `2026-04-09-webui-substrate-module-boundaries.md`  
 **PRs:** `#4 fix(chat): harden WebUI trust model`, `#5 feat(knowledge): add Knowledge Graph visualizer panel`
 

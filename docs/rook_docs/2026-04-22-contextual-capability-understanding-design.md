@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-22
 **Status:** Draft for debate and iteration
-**Audience:** aryan, Codex, Claude, future implementation work
+**Audience:** Bringfire, Codex, Claude, future implementation work
 **Builds on:**
 - `2026-04-22-human-facing-capability-surfacing-notes.md`
 - `2026-04-22-route-discovery-and-compose-exploration.md`

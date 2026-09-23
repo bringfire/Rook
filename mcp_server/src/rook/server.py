@@ -82,6 +82,7 @@ if logger.isEnabledFor(logging.DEBUG):
     )
 
 from .bridge import (
+    native_client,
     DISCOVERY_FOLDER,
     TIMEOUT,
     call_rhino as _bridge_call_rhino,
@@ -15544,7 +15545,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     if rhino_url is None:
                         result = {"success": False, "data": "No Rhino instance discovered. Ensure Rhino is running with RookNative loaded."}
                     else:
-                        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                        async with native_client(timeout=TIMEOUT) as client:
                             observer = CommandObserver(
                                 http_client=client,
                                 base_url=rhino_url,
@@ -15711,7 +15712,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     """Execute command dialogue using CommandObserver."""
                     from .learning.command_observer import CommandObserver
 
-                    async with httpx.AsyncClient() as client:
+                    async with native_client() as client:
                         observer = CommandObserver(client, store=observation_store)
 
                         # Execute using the observer which handles dialogue properly
@@ -19840,7 +19841,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     preparation_info = None
                     actual_inputs = inputs
 
-                    async with httpx.AsyncClient() as client:
+                    async with native_client() as client:
                         observer = CommandObserver(client, store=observation_store)
 
                         # FIRST: Check if objects are already selected (before starting command)
@@ -20006,7 +20007,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                     geometry_prepared = False
                     preparation_info = None
 
-                    async with httpx.AsyncClient() as client:
+                    async with native_client() as client:
                         observer = CommandObserver(client, store=observation_store)
 
                         # SMART GEOMETRY DETECTION: Check if command needs geometry ONCE
@@ -20159,7 +20160,7 @@ async def _call_tool_dispatch(name: str, arguments: dict[str, Any]) -> dict[str,
                         cmd = creation_info["command"]
                         inputs = creation_info["inputs"]
 
-                        async with httpx.AsyncClient() as client:
+                        async with native_client() as client:
                             from .learning.command_observer import CommandObserver
                             observer = CommandObserver(client, store=observation_store)
 

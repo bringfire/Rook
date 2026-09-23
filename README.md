@@ -343,23 +343,24 @@ Rook/
 
 ## Support & Feedback
 
-Rook is proprietary software and its source is not open for outside contributions —
-but your bug reports, questions, and feature ideas are very welcome. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for how to reach us.
+Rook is open source. Bug reports, questions, feature ideas and pull requests are
+all welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved and
+[BUILDING.md](BUILDING.md) for building every component from source.
 
-- **Bugs & feature requests** — [GitHub Issues](https://github.com/bringfire/rook-release/issues)
+- **Bugs & feature requests** — [GitHub Issues](https://github.com/bringfire/Rook/issues)
 - **Security** — [SECURITY.md](SECURITY.md) (please don't file public issues for vulnerabilities)
 - **Email** — bringfiregames@gmail.com
 
 ## License
 
-Rook is proprietary software, licensed (not sold) under the
-**[Rook End User License Agreement](LICENSE)**. By installing or using Rook you
-agree to that Agreement. The source code is not licensed for redistribution or
-derivative works.
+Rook is released under the **[MIT License](LICENSE)**.
 
-Bundled third-party open-source components remain governed by their own licenses
-(see the accompanying notices and the `third_party/` directory).
+Bundled third-party components keep their own licenses: the minimal LGPL-only
+FFmpeg build in `third_party/ffmpeg`, the MIT-licensed Prime agent runtime
+(`third_party/prime-agent`), the MIT-licensed `httplib` and `nlohmann/json`
+sources under `src/RookNative/vendor`, and the OFL-licensed fonts under
+`src/Rook/UI/Vision/Resources/fonts`. See the accompanying notices in each
+directory.
 
 ## Acknowledgments
 

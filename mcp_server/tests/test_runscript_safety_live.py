@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx
+from rook.bridge import NATIVE_CLIENT_HEADERS
 import pytest
 
 
@@ -87,7 +88,7 @@ def _assert_not_parallel(config: pytest.Config | None = None) -> None:
 def _native_request(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
     url = f"{_base_url()}{path}"
     try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+        with httpx.Client(timeout=REQUEST_TIMEOUT, headers=NATIVE_CLIENT_HEADERS) as client:
             if method == "GET":
                 response = client.get(url)
             elif method == "POST":
@@ -118,7 +119,7 @@ def _native_post(path: str, body: dict[str, Any] | None = None) -> dict[str, Any
 
 def _native_ping() -> None:
     try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+        with httpx.Client(timeout=REQUEST_TIMEOUT, headers=NATIVE_CLIENT_HEADERS) as client:
             response = client.get(f"{_base_url()}/ping")
     except httpx.HTTPError as exc:
         pytest.fail(f"GET /ping failed: {exc!r}")

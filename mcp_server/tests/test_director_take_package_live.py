@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import httpx
+from rook.bridge import native_client
 import pytest
 
 from rook import director_take_package as dtp
@@ -25,14 +25,14 @@ def _require_host() -> str:
 
 async def _post(route: str, body: dict[str, Any]) -> dict[str, Any]:
     base_url = _require_host()
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with native_client(timeout=120.0) as client:
         resp = await client.post(f"{base_url}{route}", json=body)
     return resp.json()
 
 
 async def _get(route: str) -> dict[str, Any]:
     base_url = _require_host()
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with native_client(timeout=30.0) as client:
         resp = await client.get(f"{base_url}{route}")
     return resp.json()
 

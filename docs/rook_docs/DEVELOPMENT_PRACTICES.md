@@ -82,7 +82,7 @@ During the audit session, `main` was the only working branch because the staging
 ### The workflow in concrete steps
 
 ```powershell
-cd C:\Users\aryan\source\repos\Rook   # (or Rook-public-staging until renamed)
+cd <repo>   # (or Rook-public-staging until renamed)
 
 # Start a feature branch for whatever you're working on
 git checkout -b feat/new-mcp-tool-rhino-annotations
@@ -296,7 +296,7 @@ The April 2026 audit caught a leaked Anthropic API key that had been committed t
 Install [gitleaks](https://github.com/gitleaks/gitleaks) as a pre-commit hook. Every time you `git commit`, gitleaks scans the staged files for secret patterns and blocks the commit if it finds one.
 
 ```powershell
-cd C:\Users\aryan\source\repos\Rook
+cd <repo>
 
 # Create a pre-commit hook
 @"
@@ -454,7 +454,7 @@ This habit is annoying to start and invaluable after 6 months. It becomes the ca
 #    - installer/RookSetup.iss (#define MyAppVersion)
 # 4. Merge the version-bump PR to main
 # 5. Build the installer EXE locally from main
-cd C:\Users\aryan\source\repos\Rook
+cd <repo>
 .\build_native.ps1 -Configuration Release
 dotnet build src/Rook -c Release -p:Platform=x64
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\RookSetup.iss
@@ -721,11 +721,11 @@ After the public flip is stable (say, a week after launch), clean up the local d
 ### Current state
 
 ```
-C:\Users\aryan\source\repos\Rook\                    ← original private dev clone
+<repo>\                    ← original private dev clone
   remote: bringfire/Rook (redirects to bringfire/Rook-private-archive)
   614 commits, at d5d93e64
 
-C:\Users\aryan\source\repos\Rook-public-staging\     ← the clean snapshot
+<repos>\Rook-public-staging\     ← the clean snapshot
   remote: bringfire/Rook (directly)
   1 commit, at afa94303 (current as of launch)
 ```
@@ -733,17 +733,17 @@ C:\Users\aryan\source\repos\Rook-public-staging\     ← the clean snapshot
 ### Target state
 
 ```
-C:\Users\aryan\source\repos\Rook\                    ← public dev (the canonical ongoing dir)
+<repo>\                    ← public dev (the canonical ongoing dir)
   remote: bringfire/Rook (the public repo)
 
-C:\Users\aryan\source\repos\Rook-private-archive\    ← frozen archive (read-only reference)
+<repos>\Rook-private-archive\    ← frozen archive (read-only reference)
   remote: bringfire/Rook-private-archive
 ```
 
 ### Steps
 
 ```powershell
-cd C:\Users\aryan\source\repos
+cd <repos>
 
 # Rename the original dev clone to match the archive repo name
 Rename-Item Rook Rook-private-archive
@@ -777,7 +777,7 @@ If you don't need the historical working tree on your local machine, you can del
 
 ## 17. Preserving audit artifacts <a id="audit-artifacts"></a>
 
-The April 2026 audit directory at `C:\Users\aryan\rook-audit-2026-04-07\` contains the full session state:
+The April 2026 audit directory at `%USERPROFILE%\rook-audit-2026-04-07\` contains the full session state:
 
 - `SUMMARY.md` — original security audit findings
 - `STAGING_REPORT.md` — final cutover report with all fixes
@@ -796,7 +796,7 @@ The April 2026 audit directory at `C:\Users\aryan\rook-audit-2026-04-07\` contai
 
 ### Where to keep it
 
-- **Leave it local** (simplest) — at `C:\Users\aryan\rook-audit-2026-04-07\`
+- **Leave it local** (simplest) — at `%USERPROFILE%\rook-audit-2026-04-07\`
 - **Move to a private archive location** (OneDrive, external drive, Time Machine) — if you want an off-machine backup
 - **Commit it to a separate private repo** for "Rook administrative history" — if you want it versioned
 
@@ -910,4 +910,4 @@ The Claude + Codex partnership pattern documented in section 15 emerged from thi
 
 **Final commit of the v1.4.5 release candidate:** `afa943030f09c3549d4bd55a3a181196c2d0089b`
 
-**Audit artifacts location:** `C:\Users\aryan\rook-audit-2026-04-07\`
+**Audit artifacts location:** `%USERPROFILE%\rook-audit-2026-04-07\`

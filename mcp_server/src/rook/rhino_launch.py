@@ -148,7 +148,9 @@ def _run_awaitable_sync(awaitable: Awaitable[bool]) -> bool:
 
 
 async def ping_native(host: str, port: int) -> bool:
-    async with httpx.AsyncClient(timeout=3.0) as client:
+    from .bridge import native_client  # local import: bridge imports this module
+
+    async with native_client(timeout=3.0) as client:
         try:
             response = await client.get(f"http://{host}:{port}/ping")
         except httpx.HTTPError:

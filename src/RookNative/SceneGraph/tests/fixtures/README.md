@@ -16,7 +16,7 @@ the committed record of what they are and how to regenerate them.
 
 ## Source
 
-All exported from `C:\Users\aryan\Desktop\SpatialTest.3dm` (units = **inches**;
+All exported from `SpatialTest.3dm (a local test model)` (units = **inches**;
 STEP export writes **millimeters**, so model-units² × 645.16 = mm² when comparing
 the direct converter (model units) against a STEP-read area).
 

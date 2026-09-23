@@ -32,6 +32,47 @@ Out of scope:
 - Issues that require local administrator access on the user's machine
 - Theoretical attacks without a demonstrated impact path
 
+## Local HTTP surfaces (what Rook exposes on your machine)
+
+Rook runs two local HTTP servers. Neither is reachable from the network.
+
+- **Native server** (`src/RookNative`, inside Rhino). Binds `127.0.0.1` on an
+  OS-assigned port published through a discovery file under
+  `%LOCALAPPDATA%\Rook\discovery`. Several routes execute code in Rhino by
+  design (`/execute`, `/command`, Grasshopper edits) and others write files.
+  Any process running as the same user can call it; that is how the MCP
+  server, the chat service and the companion plug-in reach Rhino. What it
+  refuses is anything a web page can make your browser send. Before routing,
+  every request must pass three checks. It must carry the `X-Rook-Client`
+  header: a *cross-origin* page can only add a custom header through a
+  CORS-preflighted request, the server never answers a preflight, and
+  `<img>`/`<script>` loads, form posts and navigations cannot set headers at
+  all. It must not carry `Origin` or the browser-set `Sec-Fetch-*` headers.
+  And its `Host` must be `127.0.0.1` or `localhost` (optionally with a port):
+  the header rule does not cover DNS rebinding, where an attacker's hostname
+  resolves to `127.0.0.1` and the page becomes *same-origin* with the server,
+  free to add custom headers without a preflight and sending no `Origin` or
+  fetch metadata over plain HTTP; such a request still names the attacker's
+  hostname in `Host`, so it is refused. Refusals are HTTP 403
+  (`client_header_required` / `browser_request_rejected` / `host_not_allowed`).
+  The server handles one request per connection and closes it after the
+  response, so the unread body of a refused request can never be parsed as a
+  further request (a blind cross-origin POST cannot smuggle a header-carrying
+  request inside its body). It sends no CORS headers. Rook's own clients send
+  the header; if you script the server yourself, address `127.0.0.1` and add
+  `X-Rook-Client: <anything>` to each request.
+- **Chat service** (`mcp_server/src/rook/agent/chat`, a separate Python
+  process spawned by the companion). Binds `127.0.0.1` on an OS-assigned port
+  and requires a per-launch session nonce (`X-Rook-Session`) on every request
+  except `/agent/chat/health`; the RookChat WebView pages send it.
+
+The threat model is therefore: anything already running as your user can do
+what Rook can do in Rhino; a web page cannot, because a cross-origin request
+cannot carry the client header without a CORS grant the native server never
+gives, and a rebinding page's requests fail the `Host` check. If you find a
+request a browser can make that gets past either server, please report it
+privately.
+
 ## Supported versions
 
 Only the latest released version of Rook receives security fixes. Users on older versions should upgrade.

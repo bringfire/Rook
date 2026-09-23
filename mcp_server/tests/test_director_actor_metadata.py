@@ -1421,7 +1421,7 @@ def test_write_actor_metadata_bundle_v2_rejects_legacy_input_path_field():
             metadata.write_actor_metadata_bundle_v2(
                 bundle,
                 call_native=FakeDocumentNative(
-                    r"C:\Users\aryan\V2\Axon_Pearson_Experimental_TESTING.3dm"
+                    r"C:\Models\V2\Axon_Pearson_Experimental_TESTING.3dm"
                 ),
                 port=None,
             )

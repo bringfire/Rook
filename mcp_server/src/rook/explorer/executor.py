@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from ..bridge import native_client
 from ..tool_lifecycle_runtime import DispatchOrigin, deny_if_contained
 
 logger = logging.getLogger("explorer.executor")
@@ -51,7 +52,7 @@ class HttpExecutor:
     async def ping(self) -> bool:
         """Check if Rhino is reachable."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with native_client(timeout=5.0) as client:
                 response = await client.get(f"{self.base_url}/ping")
                 return response.status_code == 200
         except Exception:
@@ -88,7 +89,7 @@ class HttpExecutor:
                 )
 
             # Make the HTTP request
-            async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
+            async with native_client(timeout=self.TIMEOUT) as client:
                 if method == "GET":
                     if params:
                         response = await client.request(

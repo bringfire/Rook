@@ -138,19 +138,19 @@ def test_verify_chirp_runtime_rejects_source_import_under_chirp_home(monkeypatch
 def test_load_codex_toml_fallback_parses_rook_entry(monkeypatch):
     text = """
 [mcp_servers.rook]
-command = "C:/Users/aryan/AppData/Local/Rook/venv/Scripts/python.exe"
+command = "C:/Users/example/AppData/Local/Rook/venv/Scripts/python.exe"
 args = ["-m", "rook"]
-cwd = "C:/Users/aryan/AppData/Local/Rook/app/mcp_server"
+cwd = "C:/Users/example/AppData/Local/Rook/app/mcp_server"
 
 [mcp_servers.rook.env]
-ROOK_INSTALL_ROOT = "C:/Users/aryan/AppData/Local/Rook/app"
-ROOK_DATA_DIR = "C:/Users/aryan/AppData/Local/Rook/data"
+ROOK_INSTALL_ROOT = "C:/Users/example/AppData/Local/Rook/app"
+ROOK_DATA_DIR = "C:/Users/example/AppData/Local/Rook/data"
 ROOK_MODE = "release"
 PYTHONHOME = ""
 PYTHONPATH = ""
-DSPY_CACHEDIR = "C:/Users/aryan/AppData/Local/Rook/data/dspy-cache"
+DSPY_CACHEDIR = "C:/Users/example/AppData/Local/Rook/data/dspy-cache"
 ROOK_DSPY_RESTRICT_PICKLE = "1"
-CHIRP_HOME = "C:/Users/aryan/AppData/Local/Rook/app/chirp"
+CHIRP_HOME = "C:/Users/example/AppData/Local/Rook/app/chirp"
 """
     monkeypatch.setattr(proof, "tomllib", None)
 

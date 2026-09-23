@@ -127,4 +127,4 @@ Questions or requests regarding this Privacy Policy may be sent to:
 
 ---
 
-See also the End User License Agreement ([LICENSE](LICENSE)).
+See also the software license ([LICENSE](LICENSE), MIT).
