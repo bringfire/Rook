@@ -103,7 +103,10 @@ function Test-Metadata {
     Assert-Contains -Text $resource -Expected "VALUE `"ProductVersion`", `"$expectedVersion.0`"" -Message 'Native ProductVersion string must match pyproject.'
 
     Assert-True -Condition ($plugin.skills -eq './.claude/skills/') -Message 'Claude plugin skills path must be plugin-root-relative.'
-    Assert-True -Condition ($plugin.hooks -eq './hooks/hooks.json') -Message 'Claude plugin hooks path must be plugin-root-relative.'
+    # Claude Code loads the plugin's hooks/hooks.json automatically; a manifest 'hooks' entry pointing at it is
+    # rejected as a duplicate ('Duplicate hooks file detected', Claude Code 2.1.x) and the whole plugin fails to load.
+    Assert-True -Condition ($null -eq $plugin.PSObject.Properties['hooks']) -Message 'Claude plugin manifest must not declare hooks/hooks.json; Claude Code auto-loads it and rejects the duplicate.'
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $RepoRoot 'hooks\hooks.json') -PathType Leaf) -Message 'hooks/hooks.json must exist for auto-loading.'
     Assert-True -Condition ($plugin.repository -eq $PublicRepository) -Message 'Claude plugin repository must be public.'
     Assert-True -Condition ($marketplace.plugins[0].repository -eq $PublicRepository) -Message 'Marketplace plugin repository must be public.'
 
