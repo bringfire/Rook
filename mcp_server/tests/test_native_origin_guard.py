@@ -33,7 +33,9 @@ import io
 import json
 import os
 import re
+import socket
 import subprocess
+import time
 import urllib.request
 from pathlib import Path
 
@@ -64,7 +66,7 @@ def test_native_server_source_requires_client_header_rejects_browser_metadata_an
         'IsAllowedLoopbackAuthority(req.get_header_value("Host"))',
         "browser_marked || !client_marked || !host_allowed",
         "res.status = 403",
-        'set_header("Connection", "close")',
+        "set_keep_alive_max_count(1)",
         "browser_request_rejected",
         "client_header_required",
         "host_not_allowed",
@@ -285,9 +287,9 @@ def test_live_native_server_admits_only_rook_clients():
             headers={"Origin": "https://evil.example", "Content-Type": "text/plain"},
         )
         assert blind_post.status_code == 403
-        # httplib reads bodies after the gate, so a refused POST must close the
-        # connection or its unread body becomes the "next request" (HTTP 400).
+        # One request per connection: every response says so.
         assert blind_post.headers.get("connection", "").lower() == "close"
+        assert ok.headers.get("connection", "").lower() == "close"
 
         # Even with the client header, browser metadata is refused (defense in depth).
         marked = client.get(f"{base}/ping", headers={**NATIVE_CLIENT_HEADERS, "Origin": "http://127.0.0.1:1"})
@@ -299,3 +301,34 @@ def test_live_native_server_admits_only_rook_clients():
         refused = client.post(f"{base}/ping", content="abc", headers={"Content-Type": "text/plain"})
         assert refused.status_code == 403
         assert client.get(f"{base}/ping", headers=NATIVE_CLIENT_HEADERS).status_code == 200
+
+    # Request smuggling through the body of a refused POST. httplib reads the
+    # body only after the gate; if the server kept the connection open it would
+    # parse the body as the next request, and that inner request carries the
+    # client header and a loopback Host, so it would pass the gate. The body is
+    # sent separately from the headers, after the 403 has been issued.
+    smuggled = b"GET /ping HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Rook-Client: smuggled\r\n\r\n"
+    outer = (
+        f"POST /ping HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: https://evil.example\r\n"
+        f"Content-Type: text/plain\r\nContent-Length: {len(smuggled)}\r\n\r\n"
+    ).encode()
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+        sock.sendall(outer)
+        time.sleep(0.3)
+        sock.sendall(smuggled)
+        sock.settimeout(3)
+        data = b""
+        closed_by_server = False
+        try:
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    closed_by_server = True
+                    break
+                data += chunk
+        except socket.timeout:
+            pass
+    assert data.startswith(b"HTTP/1.1 403"), data[:200]
+    assert data.count(b"HTTP/1.1 ") == 1, data
+    assert b"pong" not in data, data
+    assert closed_by_server, "server must close the connection after the refusal"

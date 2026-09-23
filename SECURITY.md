@@ -55,9 +55,12 @@ Rook runs two local HTTP servers. Neither is reachable from the network.
   fetch metadata over plain HTTP; such a request still names the attacker's
   hostname in `Host`, so it is refused. Refusals are HTTP 403
   (`client_header_required` / `browser_request_rejected` / `host_not_allowed`).
-  It sends no CORS headers. Rook's own clients send the header; if you script
-  the server yourself, address `127.0.0.1` and add `X-Rook-Client: <anything>`
-  to each request.
+  The server handles one request per connection and closes it after the
+  response, so the unread body of a refused request can never be parsed as a
+  further request (a blind cross-origin POST cannot smuggle a header-carrying
+  request inside its body). It sends no CORS headers. Rook's own clients send
+  the header; if you script the server yourself, address `127.0.0.1` and add
+  `X-Rook-Client: <anything>` to each request.
 - **Chat service** (`mcp_server/src/rook/agent/chat`, a separate Python
   process spawned by the companion). Binds `127.0.0.1` on an OS-assigned port
   and requires a per-launch session nonce (`X-Rook-Session`) on every request

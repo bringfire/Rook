@@ -2595,11 +2595,6 @@ bool CRookServer::Start()
                              : !client_marked ? "client_header_required"
                                               : "host_not_allowed";
             res.status = 403;
-            // httplib reads a request body only after this handler runs, so a
-            // refused POST would leave its body on a keep-alive socket and the
-            // next request on that connection would be parsed from the leftovers
-            // (HTTP 400). Tell the client to drop the connection instead.
-            res.set_header("Connection", "close");
             res.set_content(
                 std::string("{\"success\":false,\"error\":\"") + code +
                 "\",\"detail\":\"The Rook native server accepts only local Rook clients: send the " +
@@ -2609,6 +2604,17 @@ bool CRookServer::Start()
         }
         return httplib::Server::HandlerResponse::Unhandled;
     });
+
+    // One request per connection. httplib reads a request body only AFTER the
+    // pre-routing gate, and its keep-alive loop ignores the response's
+    // Connection header, so a refused POST would leave its unread body on the
+    // socket to be parsed as the NEXT request. A blind cross-origin text/plain
+    // POST from a web page can make that body a complete request carrying the
+    // client header and a loopback Host, which would pass the gate (request
+    // smuggling). With a keep-alive budget of one, the server closes the
+    // socket after the single response and never reads the leftovers. Every
+    // response carries Connection: close; Rook's clients reconnect per call.
+    m_server->set_keep_alive_max_count(1);
 
     // Cap thread pool at 8. Default is hardware_concurrency-1, which on
     // a 32-core workstation creates 31 threads — wasteful since requests
