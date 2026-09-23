@@ -2595,6 +2595,11 @@ bool CRookServer::Start()
                              : !client_marked ? "client_header_required"
                                               : "host_not_allowed";
             res.status = 403;
+            // httplib reads a request body only after this handler runs, so a
+            // refused POST would leave its body on a keep-alive socket and the
+            // next request on that connection would be parsed from the leftovers
+            // (HTTP 400). Tell the client to drop the connection instead.
+            res.set_header("Connection", "close");
             res.set_content(
                 std::string("{\"success\":false,\"error\":\"") + code +
                 "\",\"detail\":\"The Rook native server accepts only local Rook clients: send the " +

@@ -64,6 +64,7 @@ def test_native_server_source_requires_client_header_rejects_browser_metadata_an
         'IsAllowedLoopbackAuthority(req.get_header_value("Host"))',
         "browser_marked || !client_marked || !host_allowed",
         "res.status = 403",
+        'set_header("Connection", "close")',
         "browser_request_rejected",
         "client_header_required",
         "host_not_allowed",
@@ -284,8 +285,17 @@ def test_live_native_server_admits_only_rook_clients():
             headers={"Origin": "https://evil.example", "Content-Type": "text/plain"},
         )
         assert blind_post.status_code == 403
+        # httplib reads bodies after the gate, so a refused POST must close the
+        # connection or its unread body becomes the "next request" (HTTP 400).
+        assert blind_post.headers.get("connection", "").lower() == "close"
 
         # Even with the client header, browser metadata is refused (defense in depth).
         marked = client.get(f"{base}/ping", headers={**NATIVE_CLIENT_HEADERS, "Origin": "http://127.0.0.1:1"})
         assert marked.status_code == 403
         assert marked.json()["error"] == "browser_request_rejected"
+
+        # A refused request with a body followed by a legitimate one on the same
+        # client must not disturb the legitimate one.
+        refused = client.post(f"{base}/ping", content="abc", headers={"Content-Type": "text/plain"})
+        assert refused.status_code == 403
+        assert client.get(f"{base}/ping", headers=NATIVE_CLIENT_HEADERS).status_code == 200
