@@ -21673,6 +21673,12 @@ def main():
     # Prevent stale .pyc bytecode caches from masking source edits
     sys.dont_write_bytecode = True
 
+    # Windows: the stdio reader must never leave a ReadFile pending on the stdin pipe,
+    # or the first lazy import of a BLAS-bearing extension deadlocks in LoadLibrary.
+    from .win_stdio import install_polling_stdin
+
+    install_polling_stdin()
+
     async def run():
         async with stdio_server() as (read_stream, write_stream):
             await mcp.run(read_stream, write_stream, mcp.create_initialization_options())
