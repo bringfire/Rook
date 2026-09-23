@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>1.5.18</Version>
+    <Version>1.6.0</Version>
     <Title>Rook</Title>
     <Company>Bringfire</Company>
     <Description>Rook for Rhino 3D - HTTP server enabling AI-powered CAD operations</Description>

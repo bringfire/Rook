@@ -208,7 +208,7 @@ Real-time spatial intelligence that gives AI agents a structured understanding o
 | **Rhino** | 8.x | Windows only (macOS planned) |
 | **An MCP client** | Latest | Claude Code, Claude Desktop, Codex CLI, Cursor, Windsurf, etc. |
 
-The Windows installer includes a sealed CPython 3.11.9 runtime for the MCP server
+The Windows installer includes a sealed, bundled CPython 3.11.9 runtime for the MCP server
 and an exact manifest-verified Prime runtime with its pinned `uv` executable. A
 system Python, Prime, Node, Bun, or separate `uv` installation is not required for
 a release install.

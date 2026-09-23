@@ -1,6 +1,6 @@
 [project]
 name = "rook-mcp"
-version = "1.5.18"
+version = "1.6.0"
 description = "MCP server for Claude AI to interact with Rhino 3D"
 readme = "README.md"
 license = "MIT"

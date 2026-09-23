@@ -14,8 +14,8 @@
 // Rhino reads this to display plugin info in the Plugin Manager.
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,5,18,0
- PRODUCTVERSION 1,5,18,0
+ FILEVERSION 1,6,0,0
+ PRODUCTVERSION 1,6,0,0
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
  FILEFLAGS VS_FF_DEBUG
@@ -32,12 +32,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Bringfire"
             VALUE "FileDescription", "RookNative - High-performance Rhino bridge for Claude Code"
-            VALUE "FileVersion", "1.5.18.0"
+            VALUE "FileVersion", "1.6.0.0"
             VALUE "InternalName", "RookNative"
             VALUE "LegalCopyright", "Copyright (C) 2024-2026 Bringfire"
             VALUE "OriginalFilename", "RookNative.rhp"
             VALUE "ProductName", "Rook"
-            VALUE "ProductVersion", "1.5.18.0"
+            VALUE "ProductVersion", "1.6.0.0"
         END
     END
     BLOCK "VarFileInfo"
