@@ -111,6 +111,11 @@ def temp_knowledge_dir(tmp_path):
 @pytest.fixture
 def mock_context_available():
     """Mock contextual MAB as available."""
+    import rook.knowledge as knowledge
+
+    # The contextual stack is bound lazily; initialize it explicitly so the
+    # patched names below refer to the same module attributes in isolation.
+    knowledge._contextual_ready()
     with patch('rook.knowledge._contextual_mab_available', True):
         yield
 
