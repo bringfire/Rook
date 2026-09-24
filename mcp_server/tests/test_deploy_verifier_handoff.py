@@ -69,8 +69,10 @@ def run_case(tmp_path, case):
     payload = tmp_path / "runtimes" / ("A" * 64)
     payload.mkdir(parents=True)
     record = {
-        "pip_install_no_index": True, "pip_install_looked_in_links": True,
-        "pip_install_looked_in_indexes": False, "pip_check": "No broken requirements found.",
+        "installer_tool": {"name": "uv", "version": "0.12.5", "wheel": "uv.whl", "wheel_sha256": "e" * 64},
+        "uv_install_offline_contract": True, "uv_cache_removed_before_checks": True,
+        "freeze_matches_locks": True, "bytecode_compiled": True,
+        "pip_check": "No broken requirements found.",
         "import_record": {"module": "rook", "origin": "site-packages"},
     }
     for root in (tmp_path / "fresh", tmp_path / "artifacts/python-wheelhouse"):

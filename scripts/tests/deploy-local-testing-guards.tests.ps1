@@ -269,6 +269,7 @@ function Test-DeployScriptSyncsSealedReleasePythonPayload {
 
     foreach ($file in @(
         'requirements-bootstrap-lock.txt',
+        'requirements-installer-tools-lock.txt',
         'requirements-rook-lock.txt',
         'requirements-chirp-lock.txt',
         'python-runtime-manifest.json'

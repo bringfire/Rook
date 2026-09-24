@@ -37,6 +37,7 @@
 #define PythonWheelhouseDir RepoRoot + "\installer\runtime\python-wheelhouse"
 #define PythonRuntimeManifest RepoRoot + "\installer\runtime\python-runtime-manifest.json"
 #define BootstrapLockfile RepoRoot + "\installer\runtime\requirements-bootstrap-lock.txt"
+#define InstallerToolsLockfile RepoRoot + "\installer\runtime\requirements-installer-tools-lock.txt"
 #define RookLockfile RepoRoot + "\installer\runtime\requirements-rook-lock.txt"
 #define ChirpLockfile RepoRoot + "\installer\runtime\requirements-chirp-lock.txt"
 #ifndef PrimeRuntimePayload
@@ -185,6 +186,7 @@ Source: "{#PythonRuntimeDir}\*"; DestDir: "{localappdata}\Rook\python\cpython-3.
 Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"; Components: mcp chirp; Flags: ignoreversion
 Source: "{#PythonRuntimeManifest}"; DestDir: "{app}"; Components: mcp; Flags: ignoreversion
 Source: "{#BootstrapLockfile}"; DestDir: "{app}"; Components: mcp chirp; Flags: ignoreversion
+Source: "{#InstallerToolsLockfile}"; DestDir: "{app}"; Components: mcp chirp; Flags: ignoreversion
 Source: "{#RookLockfile}"; DestDir: "{app}"; Components: mcp; Flags: ignoreversion
 Source: "{#ChirpLockfile}"; DestDir: "{app}"; Components: chirp; Flags: ignoreversion
 
@@ -305,6 +307,7 @@ Type: filesandordirs; Name: "{app}\knowledge"
 Type: filesandordirs; Name: "{localappdata}\Rook\app"
 Type: filesandordirs; Name: "{localappdata}\Rook\python"
 Type: filesandordirs; Name: "{localappdata}\Rook\venv"
+Type: filesandordirs; Name: "{localappdata}\Rook\installer-cache"
 Type: filesandordirs; Name: "{localappdata}\Rook\logs"
 Type: filesandordirs; Name: "{localappdata}\Rook\discovery"
 Type: filesandordirs; Name: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"

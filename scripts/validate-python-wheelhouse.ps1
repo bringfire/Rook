@@ -180,7 +180,7 @@ if ($rookWheelOnDisk.Count -eq 0) {
 
 # --- Lockfiles ------------------------------------------------------------
 
-foreach ($lockName in @('bootstrap', 'rook', 'chirp')) {
+foreach ($lockName in @('bootstrap', 'installer_tools', 'rook', 'chirp')) {
     Require-NonEmptyField -Object $manifest.lockfiles -Field $lockName -Context 'manifest lockfiles'
     $lock = $manifest.lockfiles.$lockName
     Require-NonEmptyField -Object $lock -Field 'path' -Context "manifest lockfile '$lockName'"
@@ -236,6 +236,7 @@ function Assert-InstallerSourceEntry {
 Assert-InstallerSourceEntry -SourceLines $installerSourceLines -Needle 'PythonWheelhouseDir' -Label 'the python wheelhouse'
 Assert-InstallerSourceEntry -SourceLines $installerSourceLines -Needle 'PythonRuntimeManifest' -Label 'the python runtime manifest'
 Assert-InstallerSourceEntry -SourceLines $installerSourceLines -Needle 'BootstrapLockfile' -Label 'the bootstrap lockfile'
+Assert-InstallerSourceEntry -SourceLines $installerSourceLines -Needle 'InstallerToolsLockfile' -Label 'the installer tools lockfile'
 Assert-InstallerSourceEntry -SourceLines $installerSourceLines -Needle 'RookLockfile' -Label 'the rook lockfile'
 Assert-InstallerSourceEntry -SourceLines $installerSourceLines -Needle 'ChirpLockfile' -Label 'the chirp lockfile'
 

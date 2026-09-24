@@ -193,6 +193,9 @@ function Test-InstallerPackagesBundledPythonRuntime {
     Assert-Contains -Text $content -Expected 'Source: "{#PythonRuntimeDir}\*"; DestDir: "{localappdata}\Rook\python\cpython-3.11.9"' -Message 'Installer must package private Python runtime.'
     Assert-Contains -Text $content -Expected 'Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"' -Message 'Installer must package offline wheelhouse.'
     Assert-Contains -Text $content -Expected 'requirements-bootstrap-lock.txt' -Message 'Installer must package bootstrap lockfile.'
+    Assert-Contains -Text $content -Expected 'requirements-installer-tools-lock.txt' -Message 'Installer must package installer tools lockfile.'
+    Assert-Contains -Text $content -Expected 'Source: "{#InstallerToolsLockfile}"; DestDir: "{app}"; Components: mcp chirp' -Message 'Installer tools lockfile must ship with every Python runtime component.'
+    Assert-Contains -Text $content -Expected 'Name: "{localappdata}\Rook\installer-cache"' -Message 'Uninstall must remove the finalizer installer cache.'
     Assert-Contains -Text $content -Expected 'requirements-rook-lock.txt' -Message 'Installer must package Rook lockfile.'
     Assert-Contains -Text $content -Expected 'requirements-chirp-lock.txt' -Message 'Installer must package Chirp lockfile.'
     Assert-Contains -Text $content -Expected 'python-runtime-manifest.json' -Message 'Installer must package Python runtime manifest.'
@@ -578,6 +581,7 @@ function Test-BuildReleaseDocsRequireBundledPythonPayload {
     Assert-Contains -Text $combined -Expected 'installer\runtime\python\cpython-3.11.9\python.exe' -Message 'Source checklist must require staged private Python runtime.'
     Assert-Contains -Text $combined -Expected 'installer\runtime\python-wheelhouse' -Message 'Source checklist must require staged wheelhouse.'
     Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-bootstrap-lock.txt' -Message 'Source checklist must require bootstrap lockfile.'
+    Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-installer-tools-lock.txt' -Message 'Source checklist must require installer tools lockfile.'
     Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-rook-lock.txt' -Message 'Source checklist must require Rook lockfile.'
     Assert-Contains -Text $combined -Expected 'installer\runtime\requirements-chirp-lock.txt' -Message 'Source checklist must require Chirp lockfile.'
     Assert-Contains -Text $combined -Expected 'installer\runtime\python-runtime-manifest.json' -Message 'Source checklist must require Python runtime manifest.'
@@ -866,8 +870,9 @@ function Test-PrimeIncomingPromotionConsumers {
     Assert-Contains $verification[0].Extent.Text '& $verificationPython -I -m rook.agent.chat.prime_runtime_artifact verify' 'Only sealed-wheel Python can admit the incoming runtime.'
     Assert-Contains $gate 'verify-rook-venv/Scripts/python.exe' 'Verifier interpreter must be the exact wheelhouse environment.'
     foreach ($consumer in @($gate, (Get-Content -LiteralPath (Join-Path $RepoRoot 'scripts/deploy-local-testing.ps1') -Raw))) {
-        foreach ($check in @('record["audit_site_packages"]', 'record["pip_install_no_index"] is True',
-            'record["pip_install_looked_in_links"] is True', 'record["pip_install_looked_in_indexes"] is False',
+        foreach ($check in @('record["audit_site_packages"]', 'record["installer_tool"]["name"] == "uv"',
+            'record["uv_install_offline_contract"] is True', 'record["uv_cache_removed_before_checks"] is True',
+            'record["freeze_matches_locks"] is True', 'record["bytecode_compiled"] is True',
             'record["pip_check"] == "No broken requirements found."', 'record["import_record"]["origin"] == "site-packages"')) {
             Assert-Contains $consumer $check 'Both consumers must validate existing sealed-wheel verification results before runtime admission.'
         }

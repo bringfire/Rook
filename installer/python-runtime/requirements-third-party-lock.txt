@@ -3,6 +3,8 @@
 # SHA256 9903E2287BE3F376A306E4775C2D42B420E2739B2C82EE62CD5A9FD51FD4DF22
 # Includes transitive dependencies; Rook and Chirp are built separately from source.
 # Change versions/hashes only through reviewed dependency maintenance and audits.
+# uv is the installer's own tool (bringfire/Rook#595): extracted at install time from
+# this wheel, never installed into a venv. Hash = PyPI's published win_amd64 digest.
 agent-client-protocol==0.12.1 --hash=sha256:aaf3cc301ed87d9e2c4ccb91adfe1cd58784355f6ce7e513f50e7ca2391862ef
 aiohappyeyeballs==2.7.1 --hash=sha256:9243213661e29250eb41368e5daa826fc017156c3b8a11440826b2e3ed376472
 aiohttp==3.14.3 --hash=sha256:e1e74298bab6ee0d6e749ed4fd1901c7e604bdda32c03d787a2cc71c46d0433d
@@ -103,6 +105,7 @@ typing-extensions==4.16.0 --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539
 typing-inspection==0.4.4 --hash=sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147
 tzdata==2026.4 --hash=sha256:c2169a8b0a7a5e9674da5a135ccdfb2b3e671b333ed9fed17b41f73c34476e81
 urllib3==2.8.0 --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3
+uv==0.12.5 --hash=sha256:455c3e57602e2141e66e2f0bf685898c9c5e5a70377d14c9a71554a3baf3ddbf
 uvicorn==0.53.0 --hash=sha256:e8dca71ec86dce5f04e333f0d56cdedf942446e6643b9cea1af0d6d3a02cb03e
 watchfiles==1.2.0 --hash=sha256:dbd6c97045dad81227c8d040173da044c1de08de64a5ea8b555da4aee1d5fa22
 websockets==17.1 --hash=sha256:b1bc819c6db90e8f91a38250a1ab4c058261871aa52d2fe36382eddedf146dee

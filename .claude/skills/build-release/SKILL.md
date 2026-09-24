@@ -347,8 +347,9 @@ import importlib.util, json, pathlib, sys
 site = pathlib.Path(sys.argv[1]).resolve() / 'Lib' / 'site-packages'
 record = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
 assert pathlib.Path(record["audit_site_packages"]).resolve() == site
-assert record["pip_install_no_index"] is True and record["pip_install_looked_in_links"] is True
-assert record["pip_install_looked_in_indexes"] is False
+assert record["installer_tool"]["name"] == "uv" and record["uv_install_offline_contract"] is True
+assert record["uv_cache_removed_before_checks"] is True and record["freeze_matches_locks"] is True
+assert record["bytecode_compiled"] is True
 assert record["pip_check"] == "No broken requirements found."
 assert record["import_record"]["module"] == "rook" and record["import_record"]["origin"] == "site-packages"
 spec = importlib.util.find_spec('rook.agent.chat.prime_runtime_artifact')
