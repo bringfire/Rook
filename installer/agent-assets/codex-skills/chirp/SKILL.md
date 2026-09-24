@@ -41,11 +41,12 @@ a Chirp component without selecting a category from the list below.
   When connected to a Panel with text, the LLM prioritizes it over upstream
   assumptions and explains the reconciliation in its Reasoning output.
 - `Freeze` (bool, optional) — When true, the component replays its frozen result
-  and never calls the model. Default false.
-- `Frozen` (string, optional) — The frozen result: the last successful model
-  response, written by the component itself into this pin's persistent data so it
-  is saved in the `.gh` file and travels with it. Leave it unconnected; wire a
-  Panel only to supply a snapshot by hand.
+  and never calls the model; with no frozen result it uses deterministic defaults
+  and warns. Default false.
+- `Frozen` (string, optional) — The frozen store: one entry per list item (the
+  last successful model response for that item), written by the component itself
+  into this pin's persistent data so it is saved in the `.gh` file and travels with
+  it. Leave it unconnected; wire a Panel only to supply a store by hand.
 
 `Freeze` and `Frozen` are reserved names. `deterministic_only` components get
 neither (they never call the model).
@@ -138,7 +139,11 @@ and the Reasoning output says which:
 | live | model answered | none; the component then stores the response as its frozen result |
 | frozen | `Freeze` is true and a frozen result exists | `[frozen]` |
 | frozen replay | model unreachable or unavailable, frozen result exists | `[frozen replay: reason]` plus a runtime warning; adds "inputs changed since capture" when they did |
-| deterministic fallback | model unavailable and nothing frozen | `[deterministic fallback: reason]` plus a runtime warning; outputs are typed zero values (0, 0.0, false, "") |
+| deterministic fallback | model unavailable and nothing frozen, or `Freeze` is true with nothing frozen for that item | `[deterministic fallback: reason]` plus a runtime warning; outputs are typed zero values (0, 0.0, false, "") |
+
+Each path is decided per list item: a component fed three briefs keeps three frozen entries and
+can replay some items while others run live. Inference and transport timeouts are not fallbacks;
+they remain hard errors (`chirp_inference_timeout`, `chirp_transport_timeout`) for the failure handling above.
 
 Author `deterministic_code` runs after outputs on every path, so it can supply real defaults.
 When creating a component that must solve on machines without a model, give it
