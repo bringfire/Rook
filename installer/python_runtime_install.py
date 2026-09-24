@@ -162,6 +162,9 @@ def assert_offline_pip_command(command: list[str]) -> None:
 # what made the pip install slow. Bytecode is compiled at install because the MCP
 # server runs with sys.dont_write_bytecode (#579).
 UV_LINK_MODE = "hardlink"
+# Plain output: FORCE_COLOR / CLICOLOR_FORCE would otherwise wrap uv's summary in
+# ANSI escapes and fail assert_uv_install_output on a successful install.
+UV_COLOR = "never"
 UV_INSTALL_SWITCHES = (
     "--offline",
     "--no-index",
@@ -173,7 +176,8 @@ UV_INSTALL_SWITCHES = (
 )
 # Options that take a value; every path-valued one must be absolute.
 UV_INSTALL_PATH_OPTIONS = ("--python", "--find-links", "--cache-dir", "-r")
-UV_INSTALL_OPTIONS = UV_INSTALL_PATH_OPTIONS + ("--link-mode",)
+UV_INSTALL_FIXED_OPTIONS = {"--link-mode": UV_LINK_MODE, "--color": UV_COLOR}
+UV_INSTALL_OPTIONS = UV_INSTALL_PATH_OPTIONS + tuple(UV_INSTALL_FIXED_OPTIONS)
 _UV_OUTPUT_SUMMARY = re.compile(r"^(Resolved|Checked|Audited) \d+ packages?\b", re.MULTILINE)
 
 
@@ -203,6 +207,8 @@ def build_offline_uv_install_command(
         "--link-mode",
         UV_LINK_MODE,
         "--no-progress",
+        "--color",
+        UV_COLOR,
         "-r",
         str(requirements_lock),
     ]
@@ -246,19 +252,22 @@ def assert_offline_uv_command(command: list[str]) -> None:
     for option in UV_INSTALL_PATH_OPTIONS:
         if not Path(options[option]).is_absolute():
             raise ValueError(f"uv command {option} must be an absolute path: {options[option]}")
-    if options["--link-mode"] != UV_LINK_MODE:
-        raise ValueError(f"uv command --link-mode must be {UV_LINK_MODE}")
+    for option, required in UV_INSTALL_FIXED_OPTIONS.items():
+        if options[option] != required:
+            raise ValueError(f"uv command {option} must be {required}")
 
 
 def build_sanitized_uv_env() -> dict[str, str]:
-    """Environment for uv: the pip sanitisation plus no UV_* or active-venv state.
+    """Environment for uv: the pip sanitisation plus no UV_*, colour or active-venv state.
 
     ``--no-config`` already ignores uv.toml files; dropping every ``UV_*`` variable
     covers the environment half (UV_INDEX_URL, UV_CACHE_DIR, UV_LINK_MODE, ...).
+    ``--color never`` wins over the colour variables; dropping them is belt and braces.
     """
     env = build_sanitized_python_env(require_virtualenv=True)
+    dropped = {"VIRTUAL_ENV", "CONDA_PREFIX", "FORCE_COLOR", "CLICOLOR_FORCE"}
     for key in list(env):
-        if key.upper().startswith("UV_") or key.upper() in {"VIRTUAL_ENV", "CONDA_PREFIX"}:
+        if key.upper().startswith("UV_") or key.upper() in dropped:
             del env[key]
     return env
 

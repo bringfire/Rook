@@ -41,6 +41,7 @@ def test_uv_command_is_the_offline_hash_locked_contract(tmp_path: Path) -> None:
     assert command[command.index("--find-links") + 1] == str(tmp_path / "wheelhouse")
     assert command[command.index("--cache-dir") + 1] == str(tmp_path / "installer-cache" / "uv-rook")
     assert command[command.index("--link-mode") + 1] == "hardlink"
+    assert command[command.index("--color") + 1] == "never"
     assert command[-2:] == ["-r", str(tmp_path / "requirements-rook-lock.txt")]
     for switch in ("--offline", "--no-index", "--no-build", "--require-hashes", "--no-config", "--compile-bytecode"):
         assert switch in command
@@ -61,6 +62,8 @@ def test_uv_command_is_the_offline_hash_locked_contract(tmp_path: Path) -> None:
         pytest.param(lambda c: [t for t in c if t != "--no-config"], id="missing-no-config"),
         pytest.param(lambda c: [t for t in c if t != "--compile-bytecode"], id="missing-compile"),
         pytest.param(lambda c: [t if t != "hardlink" else "copy" for t in c], id="copy-link-mode"),
+        pytest.param(lambda c: [t if t != "never" else "always" for t in c], id="color-always"),
+        pytest.param(lambda c: [t for i, t in enumerate(c) if t != "--color" and c[i - 1] != "--color"], id="missing-color"),
         pytest.param(lambda c: c[:-1] + ["requirements-rook-lock.txt"], id="relative-lock"),
         pytest.param(lambda c: ["uv.exe"] + c[1:], id="relative-uv"),
         pytest.param(lambda c: [c[0].replace("uv.exe", "pip.exe")] + c[1:], id="not-uv"),
@@ -83,6 +86,8 @@ def test_uv_env_drops_uv_and_active_venv_state(monkeypatch) -> None:
         "UV_CACHE_DIR": "C:/elsewhere",
         "UV_LINK_MODE": "copy",
         "UV_OFFLINE": "0",
+        "FORCE_COLOR": "1",
+        "CLICOLOR_FORCE": "1",
         "VIRTUAL_ENV": "C:/someone-elses-venv",
         "CONDA_PREFIX": "C:/conda",
         "PYTHONPATH": "C:/vray/python",
@@ -93,7 +98,7 @@ def test_uv_env_drops_uv_and_active_venv_state(monkeypatch) -> None:
     env = runtime.build_sanitized_uv_env()
 
     assert not [key for key in env if key.upper().startswith("UV_")]
-    for key in ("VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONPATH", "PIP_INDEX_URL"):
+    for key in ("VIRTUAL_ENV", "CONDA_PREFIX", "FORCE_COLOR", "CLICOLOR_FORCE", "PYTHONPATH", "PIP_INDEX_URL"):
         assert key not in env
     assert env["PIP_NO_INDEX"] == "1"
 
@@ -240,3 +245,21 @@ def test_live_uv_contract_never_reaches_for_an_index(uv_fixture, monkeypatch) ->
     assert result.returncode != 0
     assert "rookmissing" in result.stderr
     assert "127.0.0.1" not in result.stdout + result.stderr
+
+
+@live_uv
+def test_live_uv_output_stays_plain_under_forced_color(uv_fixture, monkeypatch) -> None:
+    """FORCE_COLOR / CLICOLOR_FORCE must not wrap the summary in ANSI escapes.
+
+    The environment is deliberately NOT sanitised: --color never alone must hold.
+    """
+    runtime = load_runtime_install()
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("CLICOLOR_FORCE", "1")
+    lock = f"rookfixture==1.0 --hash=sha256:{uv_fixture['wheel_sha256']}\n"
+
+    result = _run_uv(runtime, uv_fixture, lock, "color", env=os.environ.copy())
+
+    assert result.returncode == 0, result.stderr
+    assert "\x1b[" not in result.stdout + result.stderr
+    runtime.assert_uv_install_output(result.stdout + result.stderr)
