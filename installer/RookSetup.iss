@@ -183,7 +183,10 @@ Source: "{#McpServerDir}\pyproject.toml"; DestDir: "{app}\mcp_server"; Component
 Source: "{#McpServerDir}\README.md"; DestDir: "{app}\mcp_server"; Components: mcp; Flags: ignoreversion
 Source: "{#McpServerDir}\src\rook\*"; DestDir: "{app}\mcp_server\src\rook"; Components: mcp; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PythonRuntimeDir}\*"; DestDir: "{localappdata}\Rook\python\cpython-3.11.9"; Components: mcp; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"; Components: mcp chirp; Flags: ignoreversion
+; Wheels are already zip-compressed: lzma2 saves ~1.5% (219 -> 216 MB) for ~75 s of ISCC time
+; and matching extraction work, so store them (#595). Prime, FFmpeg and the private Python
+; stay compressed: they are raw executables that lzma2 shrinks by ~73%.
+Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"; Components: mcp chirp; Flags: ignoreversion nocompression
 Source: "{#PythonRuntimeManifest}"; DestDir: "{app}"; Components: mcp; Flags: ignoreversion
 Source: "{#BootstrapLockfile}"; DestDir: "{app}"; Components: mcp chirp; Flags: ignoreversion
 Source: "{#InstallerToolsLockfile}"; DestDir: "{app}"; Components: mcp chirp; Flags: ignoreversion

@@ -194,6 +194,14 @@ function Test-InstallerPackagesBundledPythonRuntime {
     Assert-Contains -Text $content -Expected 'Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"' -Message 'Installer must package offline wheelhouse.'
     Assert-Contains -Text $content -Expected 'requirements-bootstrap-lock.txt' -Message 'Installer must package bootstrap lockfile.'
     Assert-Contains -Text $content -Expected 'requirements-installer-tools-lock.txt' -Message 'Installer must package installer tools lockfile.'
+    # Only already-compressed payloads are stored; raw executables stay lzma2-compressed (#595).
+    $sourceLines = @($content -split "`r?`n" | Where-Object { $_ -match '^\s*Source:' })
+    $stored = @($sourceLines | Where-Object { $_ -match '\bnocompression\b' })
+    Assert-True ($stored.Count -eq 1 -and $stored[0] -match '\{#PythonWheelhouseDir\}') 'Only the wheelhouse may be marked nocompression.'
+    foreach ($compressed in @('{#PrimeRuntimePayload}', '{#FfmpegDir}\ffmpeg.exe', '{#PythonRuntimeDir}')) {
+        $line = @($sourceLines | Where-Object { $_.Contains($compressed) })
+        Assert-True ($line.Count -ge 1 -and -not ($line -match '\bnocompression\b')) "$compressed must stay compressed (lzma2 saves ~73%)."
+    }
     Assert-Contains -Text $content -Expected 'Source: "{#InstallerToolsLockfile}"; DestDir: "{app}"; Components: mcp chirp' -Message 'Installer tools lockfile must ship with every Python runtime component.'
     Assert-Contains -Text $content -Expected 'Name: "{localappdata}\Rook\installer-cache"' -Message 'Uninstall must remove the finalizer installer cache.'
     Assert-Contains -Text $content -Expected 'requirements-rook-lock.txt' -Message 'Installer must package Rook lockfile.'
@@ -828,7 +836,7 @@ function Test-InstallerExactRefreshesPythonWheelhouse {
     Assert-True -Condition $filesMatch.Success -Message 'Installer must contain a [Files] section.'
 
     $deleteLine = 'Type: filesandordirs; Name: "{app}\python-wheelhouse"; Components: mcp chirp'
-    $copyLine = 'Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"; Components: mcp chirp; Flags: ignoreversion'
+    $copyLine = 'Source: "{#PythonWheelhouseDir}\*"; DestDir: "{app}\python-wheelhouse"; Components: mcp chirp; Flags: ignoreversion nocompression'
     $deleteLines = @(
         $installDeleteMatch.Groups['block'].Value -split '\r?\n' |
             Where-Object { $_ -match 'python-wheelhouse' } |
