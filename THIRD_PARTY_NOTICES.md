@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Rook is licensed under the terms in [LICENSE](LICENSE). The Rook plugins bundle and/or
+Rook is licensed under the [MIT License](LICENSE). The Rook plugins bundle and/or
 dynamically link the following third-party components. This list covers the components Rook
 ships or links directly; it is not an exhaustive enumeration of transitive dependencies.
 
@@ -31,3 +31,11 @@ Associates as part of Rhino 3D, under McNeel's SDK license terms.
 
 The bundled FFmpeg binary is covered by its own notice — see
 [third_party/ffmpeg/NOTICE.FFmpeg.txt](third_party/ffmpeg/NOTICE.FFmpeg.txt).
+
+## Other bundled components
+
+- `third_party/prime-agent` — Prime agent runtime, MIT (see `third_party/prime-agent/LICENSE`).
+- `src/RookNative/vendor/httplib`, `src/RookNative/vendor/nlohmann` — MIT (see the notices in each directory).
+- `src/Rook/UI/Vision/Resources/fonts` — SIL Open Font License 1.1 (see `SOURCES.md` there).
+- Python wheels installed by the release runtime carry the licenses recorded in the release
+  license/provenance manifests.

@@ -360,8 +360,8 @@ Bundled third-party components keep their own licenses: the minimal LGPL-only
 FFmpeg build in `third_party/ffmpeg`, the MIT-licensed Prime agent runtime
 (`third_party/prime-agent`), the MIT-licensed `httplib` and `nlohmann/json`
 sources under `src/RookNative/vendor`, and the OFL-licensed fonts under
-`src/Rook/UI/Vision/Resources/fonts`. See the accompanying notices in each
-directory.
+`src/Rook/UI/Vision/Resources/fonts`. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+and the accompanying notices in each directory.
 
 ## Acknowledgments
 
