@@ -343,9 +343,10 @@ Rook/
 
 ## Support & Feedback
 
-Rook is open source. Bug reports, questions, feature ideas and pull requests are
-all welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved and
-[BUILDING.md](BUILDING.md) for building every component from source.
+Rook is open source under the MIT License. Bug reports, questions and feature
+ideas are welcome; pull requests are accepted by invitation, for issues marked
+`accepted` or `help wanted`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+policy and [BUILDING.md](BUILDING.md) for building every component from source.
 
 - **Bugs & feature requests** — [GitHub Issues](https://github.com/bringfire/Rook/issues)
 - **Security** — [SECURITY.md](SECURITY.md) (please don't file public issues for vulnerabilities)

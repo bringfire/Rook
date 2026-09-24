@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in Rook did not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Questions belong in [Discussions](https://github.com/bringfire/Rook/discussions);
+        security problems go to SECURITY.md, not a public issue.
+  - type: input
+    id: rook-version
+    attributes:
+      label: Rook version
+      description: From the Rhino plug-in manager, or the installer file name (for example 1.6.0).
+    validations:
+      required: true
+  - type: input
+    id: rhino-version
+    attributes:
+      label: Rhino version
+      description: Rhino → Help → About (for example 8.35.26251). Say if this is Rhino.Inside.Revit, and which Revit.
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: AI client
+      options:
+        - Claude Code
+        - Codex
+        - Cursor
+        - RookChat panel
+        - Other (say which below)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What you asked Rook to do, what you expected, and what happened
+    validations:
+      required: true
+  - type: textarea
+    id: errors
+    attributes:
+      label: Error text
+      description: Anything from the Rhino command line, the MCP client, RookChat, or `%LOCALAPPDATA%\Rook\logs`.
+      render: text
