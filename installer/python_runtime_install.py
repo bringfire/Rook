@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,6 +53,15 @@ class RuntimeLayout:
             runtime_manifest=app_dir / "python-runtime-manifest.json",
             install_state=data_dir / "install-state.json",
         )
+
+    def uv_cache_dir(self, runtime_name: str) -> Path:
+        """Per-venv uv cache under the runtime root.
+
+        Same volume as the venvs, so ``--link-mode hardlink`` never falls back to
+        copying; one cache per venv, so the Rook and Chirp venvs share no files.
+        The installer deletes it once that venv is installed.
+        """
+        return self.rook_root / "installer-cache" / f"uv-{runtime_name}"
 
 
 def _is_under_user_profile(entry: str) -> bool:
@@ -145,6 +155,120 @@ def assert_offline_pip_command(command: list[str]) -> None:
         raise ValueError(
             f"offline pip command contains network index flags: {sorted(present_forbidden)}"
         )
+
+
+# uv install contract (#595). Hardlinking from the per-venv cache writes each file
+# once instead of twice; on Windows each new file costs a Defender scan, which is
+# what made the pip install slow. Bytecode is compiled at install because the MCP
+# server runs with sys.dont_write_bytecode (#579).
+UV_LINK_MODE = "hardlink"
+UV_INSTALL_SWITCHES = (
+    "--offline",
+    "--no-index",
+    "--no-build",
+    "--require-hashes",
+    "--no-config",
+    "--compile-bytecode",
+    "--no-progress",
+)
+# Options that take a value; every path-valued one must be absolute.
+UV_INSTALL_PATH_OPTIONS = ("--python", "--find-links", "--cache-dir", "-r")
+UV_INSTALL_OPTIONS = UV_INSTALL_PATH_OPTIONS + ("--link-mode",)
+_UV_OUTPUT_SUMMARY = re.compile(r"^(Resolved|Checked|Audited) \d+ packages?\b", re.MULTILINE)
+
+
+def build_offline_uv_install_command(
+    uv_exe: Path,
+    venv_python: Path,
+    wheelhouse_dir: Path,
+    requirements_lock: Path,
+    cache_dir: Path,
+) -> list[str]:
+    return [
+        str(uv_exe),
+        "pip",
+        "install",
+        "--python",
+        str(venv_python),
+        "--offline",
+        "--no-index",
+        "--find-links",
+        str(wheelhouse_dir),
+        "--no-build",
+        "--require-hashes",
+        "--no-config",
+        "--compile-bytecode",
+        "--cache-dir",
+        str(cache_dir),
+        "--link-mode",
+        UV_LINK_MODE,
+        "--no-progress",
+        "-r",
+        str(requirements_lock),
+    ]
+
+
+def assert_offline_uv_command(command: list[str]) -> None:
+    """Reject any uv command that is not exactly the sealed-wheelhouse contract.
+
+    An allowlist, not a denylist: every token must be a known switch or a known
+    option with its value, each exactly once, so an index URL, a relative path or
+    a stray flag cannot slip in through any spelling.
+    """
+    if len(command) < 3 or command[1:3] != ["pip", "install"]:
+        raise ValueError("uv command must be '<uv.exe> pip install ...'")
+    uv_exe = Path(command[0])
+    if not uv_exe.is_absolute() or uv_exe.name.lower() != "uv.exe":
+        raise ValueError(f"uv command must start with an absolute uv.exe path: {command[0]}")
+
+    switches: list[str] = []
+    options: dict[str, str] = {}
+    tokens = iter(command[3:])
+    for token in tokens:
+        if token in UV_INSTALL_SWITCHES:
+            if token in switches:
+                raise ValueError(f"uv command repeats {token}")
+            switches.append(token)
+        elif token in UV_INSTALL_OPTIONS:
+            if token in options:
+                raise ValueError(f"uv command repeats {token}")
+            value = next(tokens, None)
+            if value is None or value.startswith("-"):
+                raise ValueError(f"uv command option {token} has no value")
+            options[token] = value
+        else:
+            raise ValueError(f"uv command contains a token outside the offline contract: {token}")
+
+    missing = [s for s in UV_INSTALL_SWITCHES if s not in switches]
+    missing += [o for o in UV_INSTALL_OPTIONS if o not in options]
+    if missing:
+        raise ValueError(f"offline uv command missing required flags: {missing}")
+    for option in UV_INSTALL_PATH_OPTIONS:
+        if not Path(options[option]).is_absolute():
+            raise ValueError(f"uv command {option} must be an absolute path: {options[option]}")
+    if options["--link-mode"] != UV_LINK_MODE:
+        raise ValueError(f"uv command --link-mode must be {UV_LINK_MODE}")
+
+
+def build_sanitized_uv_env() -> dict[str, str]:
+    """Environment for uv: the pip sanitisation plus no UV_* or active-venv state.
+
+    ``--no-config`` already ignores uv.toml files; dropping every ``UV_*`` variable
+    covers the environment half (UV_INDEX_URL, UV_CACHE_DIR, UV_LINK_MODE, ...).
+    """
+    env = build_sanitized_python_env(require_virtualenv=True)
+    for key in list(env):
+        if key.upper().startswith("UV_") or key.upper() in {"VIRTUAL_ENV", "CONDA_PREFIX"}:
+            del env[key]
+    return env
+
+
+def assert_uv_install_output(output: str) -> None:
+    """uv prints no index lines offline; require its summary and no URL at all."""
+    if "http://" in output or "https://" in output:
+        raise ValueError("uv output mentions a URL during an offline install")
+    if not _UV_OUTPUT_SUMMARY.search(output):
+        raise ValueError("uv output does not show a resolved or checked lock")
 
 
 def assert_local_wheelhouse_output(output: str) -> None:
