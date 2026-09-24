@@ -1,0 +1,31 @@
+name: Feature request
+description: An outcome you want Rook to deliver.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the outcome, not the implementation. If a maintainer marks the issue `accepted` or
+        `help wanted`, a pull request for it is welcome; see CONTRIBUTING.md.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What you want to be able to do
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today instead
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Rhino geometry tools
+        - Grasshopper / Chirp
+        - RookChat / agents
+        - RookBIM / Revit
+        - RookVision (images, video)
+        - Installer / setup
+        - Other
