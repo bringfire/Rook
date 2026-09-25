@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import py_compile
 import re
 import subprocess
 import sys
@@ -40,6 +41,19 @@ def load_post_install():
         return module
     finally:
         sys.path.remove(str(installer_dir))
+
+
+def load_verification_script() -> dict:
+    """Namespace of the build's embedded verify_temp_runtime_install.py (not run as __main__)."""
+    builder = Path(__file__).resolve().parents[2] / "scripts/python-runtime/build-rook-python-wheelhouse.ps1"
+    source = builder.read_text(encoding="utf-8-sig")
+    scripts = [body for body, name in re.findall(
+        r"(?ms)^@'\r?\n(.*?)\r?\n'@ \| Set-Content -LiteralPath \$(\w+)", source,
+    ) if name == "verificationScript"]
+    assert len(scripts) == 1
+    ns = {"__name__": "bootstrap_verification_fixture"}
+    exec(compile(scripts[0], str(builder) + ":verificationScript", "exec"), ns)
+    return ns
 
 
 def seed_runtime_inputs(layout) -> None:
@@ -178,13 +192,7 @@ $text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.Sta
     assert f"uv=={runtime.INSTALLER_TOOL_REQUIREMENTS[0].split('==')[1]}" == "uv==0.12.5"
 
     # Execute the actual generated verification entrypoint with subprocess.run faked.
-    source = builder.read_text(encoding="utf-8-sig")
-    scripts = [body for body, name in re.findall(
-        r"(?ms)^@'\r?\n(.*?)\r?\n'@ \| Set-Content -LiteralPath \$(\w+)", source,
-    ) if name == "verificationScript"]
-    assert len(scripts) == 1
-    ns = {"__name__": "bootstrap_verification_fixture"}
-    exec(compile(scripts[0], str(builder) + ":verificationScript", "exec"), ns)
+    ns = load_verification_script()
     venv = tmp_path / "verification"
     site = venv / "Lib/site-packages"
     package_lock = layout.rook_lock if module == "rook" else layout.chirp_lock
@@ -207,11 +215,14 @@ $text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.Sta
         if command[-2:] == ["freeze", "--all"]:
             rows = [f"{n}=={v}" for lock in (layout.bootstrap_lock, package_lock) for n, v, _ in runtime.read_hash_lock(lock)]
             return subprocess.CompletedProcess(command, 0, "\n".join(rows), "")
+        if command[1:3] == ["-B", "-c"]:
+            # The bytecode probe; its real behaviour is pinned by
+            # test_build_bytecode_probe_cannot_create_its_own_evidence.
+            assert "find_spec" in command[3] and "cache_from_source" in command[3]
+            return subprocess.CompletedProcess(command, 0, "true", "")
         if command[1] == "-c":
             code = command[2]
-            if "cache_from_source" in code:
-                output = "true"
-            elif "sysconfig" in code:
+            if "sysconfig" in code:
                 output = str(site)
             elif "configure_secure_dspy_cache" in code:
                 output = json.dumps({"restrict_pickle": True, "disk_cache_dir": str(venv / "cache")})
@@ -246,6 +257,30 @@ $text=$ast.Extent.Text.Substring($start[0].Extent.StartOffset,$end[0].Extent.Sta
         module, layout, installed_venv, package_lock, module, "fixture-python", "fixture-lock",
     ) == (installed_python, None)
     assert selected == [(layout.bootstrap_lock, layout.bootstrap_lock.read_bytes()), (package_lock, package_lock.read_bytes())]
+
+
+def test_build_bytecode_probe_cannot_create_its_own_evidence(tmp_path: Path) -> None:
+    """The verification's bytecode probe, run for real: a package without install-time
+    .pyc must fail, the probe must write none itself, and compiled bytecode must pass."""
+    probe_args = load_verification_script()["bytecode_probe"]("probepkg")
+    package = tmp_path / "probepkg"
+    package.mkdir()
+    source = package / "__init__.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in {"PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"}}
+    env["PYTHONPATH"] = str(tmp_path)
+
+    def probe() -> bool:
+        result = subprocess.run(
+            [sys.executable, *probe_args], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    assert probe() is False
+    assert not (package / "__pycache__").exists(), "the probe wrote the bytecode it was checking for"
+    py_compile.compile(str(source), cfile=importlib.util.cache_from_source(str(source)), doraise=True)
+    assert probe() is True
 
 
 def test_sanitized_install_env_removes_python_and_pip_index_state(monkeypatch) -> None:

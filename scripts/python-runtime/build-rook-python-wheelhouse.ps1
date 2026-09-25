@@ -480,6 +480,24 @@ def load_runtime_install(path: str):
     return module
 
 
+def bytecode_probe(module: str) -> list[str]:
+    """Interpreter args that report whether install-time bytecode exists for a module.
+
+    The probe must not create its own evidence: find_spec locates the module
+    without executing or importing it, and -B keeps Python from writing a .pyc.
+    """
+    return [
+        "-B",
+        "-c",
+        (
+            "import importlib.util, json, pathlib; "
+            "spec = importlib.util.find_spec({module!r}); "
+            "print(json.dumps(spec is not None and spec.origin is not None and "
+            "pathlib.Path(importlib.util.cache_from_source(spec.origin)).is_file()))"
+        ).format(module=module),
+    ]
+
+
 def run(cmd: list[str], env: dict[str, str] | None = None, *, timeout: int, with_stderr: bool = False) -> str:
     try:
         result = subprocess.run(cmd, text=True, capture_output=True, env=env, timeout=timeout)
@@ -567,11 +585,8 @@ def main() -> int:
     mismatches = runtime.freeze_mismatches(freeze, [Path(args.bootstrap_lock), Path(args.lockfile)])
     if mismatches:
         raise SystemExit(f"{args.module} temp venv differs from its locks: {mismatches}")
-    bytecode_expr = (
-        "import importlib.util, json, pathlib, {module}; "
-        "print(json.dumps(pathlib.Path(importlib.util.cache_from_source({module}.__file__)).is_file()))"
-    ).format(module=args.module)
-    if json.loads(run([str(venv_python), "-c", bytecode_expr], env=env, timeout=args.command_timeout_seconds)) is not True:
+    probe = bytecode_probe(args.module)
+    if json.loads(run([str(venv_python), *probe], env=env, timeout=args.command_timeout_seconds)) is not True:
         raise SystemExit(f"{args.module} was installed without compiled bytecode")
     module_expr = (
         "import json, pathlib, {module}; "

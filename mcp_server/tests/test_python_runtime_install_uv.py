@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_python_runtime_install import load_post_install, load_runtime_install
+from tests.test_python_runtime_install import load_post_install, load_runtime_install, load_verification_script
 
 REPO = Path(__file__).resolve().parents[2]
 STAGED_RUNTIME = REPO / "installer" / "runtime"
@@ -407,11 +407,18 @@ def test_live_venv_stands_alone_after_its_cache_is_deleted(uv_fixture) -> None:
     assert result.returncode == 0, result.stderr
     shutil.rmtree(uv_fixture["root"] / "cache" / "alone")
 
-    probe = subprocess.run(
-        [str(uv_fixture["python"]), "-c",
-         "import importlib.util, pathlib, rookfixture; "
-         "print(rookfixture.VALUE, pathlib.Path(importlib.util.cache_from_source(rookfixture.__file__)).is_file())"],
+    python = str(uv_fixture["python"])
+    # Bytecode first, with the build's own probe (-B, find_spec): nothing may be
+    # written by the check itself, so a True here can only come from uv's install.
+    bytecode = subprocess.run(
+        [python, *load_verification_script()["bytecode_probe"]("rookfixture")],
         capture_output=True, text=True, timeout=60,
     )
-    assert probe.returncode == 0, probe.stderr
-    assert probe.stdout.split() == ["1", "True"]
+    assert bytecode.returncode == 0, bytecode.stderr
+    assert bytecode.stdout.strip() == "true"
+    imported = subprocess.run(
+        [python, "-B", "-c", "import rookfixture; print(rookfixture.VALUE)"],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert imported.returncode == 0, imported.stderr
+    assert imported.stdout.strip() == "1"
