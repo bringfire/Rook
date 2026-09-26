@@ -972,6 +972,8 @@ def create_env_examples(install_dir: Path, chirp_dir: Path | None = None) -> Non
                 "\n"
                 "# Optional overrides\n"
                 "CHIRP_INFERENCE_TIMEOUT_SECONDS=300\n"
+                "# Defaults: anthropic/claude-opus-5 for planners, anthropic/claude-sonnet-5\n"
+                "# for the other categories. CHIRP_MODEL replaces both:\n"
                 "# CHIRP_MODEL=anthropic/claude-sonnet-5\n"
                 "# Other OpenAI-compatible endpoints (model -> api_base + key variable):\n"
                 "# CHIRP_PROVIDERS={\"openai/my-model\": {\"api_base\": \"https://example.invalid/v1\", \"api_key_env\": \"MY_KEY\"}}\n"

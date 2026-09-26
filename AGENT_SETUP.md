@@ -338,7 +338,7 @@ the adapter. Values already set in the environment take precedence.
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` / `GEMINI_API_KEY` | Credential for the model's provider (`anthropic/`, `openai/`, `openrouter/`, `gemini/` prefixes) | None: components return typed defaults with a warning |
-| `CHIRP_MODEL` | Default LiteLLM model for Chirp components | `anthropic/claude-sonnet-5` |
+| `CHIRP_MODEL` | Default LiteLLM model for Chirp components; replaces both built-in defaults (a component's own `model` still wins) | `anthropic/claude-opus-5` for planner components, `anthropic/claude-sonnet-5` for the other categories |
 | `CHIRP_PROVIDERS` | JSON map for other OpenAI-compatible endpoints: `{"<model>": {"api_base": "...", "api_key_env": "<VAR>"}}` | None |
 | `CHIRP_INFERENCE_TIMEOUT_SECONDS` | Per-call inference timeout | `300` (installer template) |
 
