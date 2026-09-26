@@ -30,6 +30,7 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 | 2 | Merge the release PR and check out the exact main SHA to tag | Main HEAD is not the intended release commit |
 | 3A | Build **and validate** bundled private Python runtime and offline wheelhouse | Build or wheelhouse validation fails |
 | 3 | Validate the committed FFmpeg payload (never replaced) and the staged source bundle | Validation fails |
+| 3B | Validate the shipped OCCT DLLs and notices; build and validate the OCCT source bundle | Validation fails |
 | 4 | Build C++ native plugin | Exit code != 0 |
 | 5 | Build C# companion plugin for all managed runtimes | Exit code != 0 |
 | 6 | Verify all .iss source paths | Any required file missing or stale |
@@ -272,6 +273,46 @@ if (-not (Test-Path -LiteralPath $ffmpegManifest -PathType Leaf)) {
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-ffmpeg-bundle.ps1 -SourceBundleManifestPath $ffmpegManifest
 ```
 
+## Step 3B: Validate the OCCT Payload and Build Its Source Bundle
+
+Rook ships 11 OCCT DLLs (LGPL-2.1 with the Open CASCADE exception) from a local
+OCCT build. `third_party\occt\occt-provenance.json` pins the upstream commit, the
+digest of that commit's full file listing, the build recipe, and the sha256 of
+every shipped DLL. The provenance is reconstructed; see
+`docs\rook_docs\occt-build.md` for the evidence and its limitation. The
+corresponding source is published beside the installer as a separate zip. It is
+never packaged into the installer.
+
+Resolve the OCCT runtime directory **once**. The validator here and ISCC in Step 7
+must both use this exact `$OcctRuntimeRoot`, so the DLLs that were validated are
+the DLLs that get packaged:
+
+Run from the exact release repository root:
+
+```powershell
+$repoRoot = (Resolve-Path .).Path
+$OcctRuntimeRoot = (Resolve-Path -LiteralPath (Join-Path $repoRoot '..\OCCT\build-rook\win64\vc14\bin')).Path
+$bundlePython = Join-Path $repoRoot 'installer\runtime\python\cpython-3.11.9\python.exe'
+& $bundlePython -I scripts\occt\rook_occt_bundle.py build --occt-repo (Join-Path $repoRoot '..\OCCT')
+if ($LASTEXITCODE -ne 0) { throw 'OCCT source bundle build failed.' }
+& $bundlePython -I scripts\occt\rook_occt_bundle.py validate --manifest artifacts\occt\rook-occt-source-bundle-manifest.json --occt-runtime-root $OcctRuntimeRoot
+if ($LASTEXITCODE -ne 0) { throw 'OCCT payload or source bundle validation failed.' }
+```
+
+The build refuses unless tag `V8_0_0` still names the pinned commit. It archives
+that commit from a private bare clone with line-ending conversion disabled, so the
+published source is the commit's blobs byte for byte. It writes
+`artifacts\occt\rook-occt-8.0.0-source-bundle.zip` and
+`rook-occt-source-bundle-manifest.json`.
+
+Validation fails closed when any of these is true:
+- a DLL in `$OcctRuntimeRoot` differs from its pinned sha256;
+- the `.iss` ships a different DLL set;
+- the OCCT licence texts differ from their pins;
+- a notice file is not installed with the plugins component;
+- the bundle's bytes, commit or members differ from the pin;
+- a single source file in the archive differs from the pinned commit's listing.
+
 ## Step 4: Build C++ Native Plugin
 
 Write an ephemeral batch file and execute it from PowerShell:
@@ -416,7 +457,7 @@ if ($LASTEXITCODE -ne 0) { throw "Release-installer payload guard failed" }
 ## Step 7: Run Inno Setup Compiler
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DPrimeRuntimePayload=$PrimeRuntimePayload" (Join-Path $repoRoot 'installer/RookSetup.iss')
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DPrimeRuntimePayload=$PrimeRuntimePayload" "/DOcctRuntimeRoot=$OcctRuntimeRoot" (Join-Path $repoRoot 'installer/RookSetup.iss')
 if ($LASTEXITCODE -ne 0) { throw 'ISCC failed; no runtime is published.' }
 ```
 
@@ -453,6 +494,23 @@ installer shape. Record the Rhino, Revit, Rhino.Inside.Revit, Rook versions,
 and companion self-report evidence in the release notes. Do not use registry
 `FileName` values or `Get-Process.Modules` absence as proof of managed
 companion load.
+
+Verify the licence and third-party notices the installation actually carries (#598).
+Every directly installed notice must exist at its installed location with exactly
+the bytes of the repository file the `.iss` packages: Rook's `LICENSE`, the notice
+index, and the OCCT, cpp-httplib, nlohmann/json, font and FFmpeg notices.
+"When installed" entries (the Prime runtime and private Python notices) must exist
+because this smoke installs the full product. Keep the evidence file with the smoke
+manifest:
+
+```powershell
+& $bundlePython -I scripts\verify_installed_notices.py --output installer\output\installed-notices-X.Y.Z.json
+if ($LASTEXITCODE -ne 0) { throw 'Installed licence/notice files are missing or differ from their sources.' }
+```
+
+This checks the installed files from the full smoke install. A plugins-only
+installation is not exercised; its notice selection is covered by the `.iss`
+guard tests.
 
 Generate the Python/runtime evidence from the installed private Rook venv before
 writing the smoke manifest:
@@ -562,6 +620,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-release-art
   -GitSha $gitSha `
   -InstallerPath installer\output\Rook-Setup-X.Y.Z.exe `
   -FfmpegSourceBundleManifestPath artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json `
+  -OcctSourceBundleManifestPath artifacts\occt\rook-occt-source-bundle-manifest.json `
   -SmokeManifestPath installer\output\release-smoke-X.Y.Z.json `
   -OutputManifestPath installer\output\release-manifest-X.Y.Z.json `
   -BuildStartedAt $buildStartedAt `
@@ -569,7 +628,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\validate-release-art
 ```
 
 The release manifest must include `git_sha`, `installer_sha256`,
-`ffmpeg_source_bundle_sha256`, and smoke evidence. Do not create the GitHub
+`ffmpeg_source_bundle_sha256`, `occt_source_bundle_sha256`, `occt_source_commit`, and smoke evidence. Do not create the GitHub
 release if validation fails.
 
 ## Step 9: Public Promotion PR and Release
@@ -642,7 +701,8 @@ exactly before committing or opening the public PR. The public PR must record:
 
 - private release SHA and public base SHA;
 - public promotion commit SHA;
-- installer, FFmpeg source-bundle, smoke-manifest, and release-manifest hashes; and
+- installer, FFmpeg source-bundle, OCCT source-bundle, smoke-manifest, release-manifest, and
+  installed-notices evidence (`installer\output\installed-notices-X.Y.Z.json`) hashes; and
 - the complete promotion inventory.
 
 After that PR is reviewed and merged, create the release in the public repository and
@@ -653,11 +713,16 @@ $publicPromotionSha = '<reviewed rook-release merge SHA>'
 $sourceBundleManifestPath = "artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json"
 $sourceBundleZip = (Get-Content $sourceBundleManifestPath -Raw | ConvertFrom-Json).bundle_path
 if ((Split-Path -Leaf $sourceBundleZip) -ne "rook-ffmpeg-8.1.1-source-bundle.zip") { throw "Unexpected FFmpeg source bundle path: $sourceBundleZip" }
+$occtBundleManifestPath = "artifacts\occt\rook-occt-source-bundle-manifest.json"
+$occtBundleZip = (Get-Content $occtBundleManifestPath -Raw | ConvertFrom-Json).bundle_path
+if ((Split-Path -Leaf $occtBundleZip) -ne "rook-occt-8.0.0-source-bundle.zip") { throw "Unexpected OCCT source bundle path: $occtBundleZip" }
 
 gh -R bringfire/rook-release release create "v$Version" `
   "installer/output/Rook-Setup-$Version.exe" `
   $sourceBundleZip `
   $sourceBundleManifestPath `
+  $occtBundleZip `
+  $occtBundleManifestPath `
   "installer/output/release-smoke-$Version.json" `
   "installer/output/release-manifest-$Version.json" `
   --target $publicPromotionSha `

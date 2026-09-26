@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "name": "Open CASCADE Technology (OCCT)",
+  "version": "8.0.0",
+  "license": "LGPL-2.1-only WITH OCCT-exception-1.0",
+  "upstream": "https://github.com/Open-Cascade-SAS/OCCT",
+  "source": {
+    "tag": "V8_0_0",
+    "commit": "d3056ef80c9668f395da40f5fd7be186cae4501f",
+    "tree": "b3ffb8a91468845b63675057957209032b5806b1",
+    "file_count": 35374,
+    "tree_listing_sha256": "cd2d1ed26a8b4d1663970320019e33924ffd0824ac10b827bb978dc7c2c75726",
+    "tree_listing_format": "sha256 of the sorted lines '<mode> <git-blob-sha1> <path>\\n' for every file in the commit",
+    "archive_name": "occt-8.0.0-source.zip"
+  },
+  "source_bundle_name": "rook-occt-8.0.0-source-bundle.zip",
+  "build": {
+    "recipe_path": "scripts/occt/rook-occt-configure.txt",
+    "generator": "Visual Studio 17 2022",
+    "platform": "x64",
+    "configuration": "Release",
+    "msvc_toolset": "14.38.33130",
+    "cl_version": "19.38.33145.0",
+    "linker_version": "14.38",
+    "cxx_flags": "/DWIN32 /D_WINDOWS /W3 /GR /EHsc",
+    "cxx_flags_release": "/MD /O2 /Ob2 /DNDEBUG",
+    "runtime_dir": "win64/vc14/bin"
+  },
+  "shipped_dlls": {
+    "TKernel.dll": "C210E7C2386FB55A60E4BBA9D121682A471BCCF799B43311FC090FDFE9B6B57C",
+    "TKMath.dll": "F2E7030A50159F5828A2C76F377B6CB0ACF64C7F1E7D81EF63C8CCA796089E9C",
+    "TKG2d.dll": "004F27C9F7D6F6DC9CF98C06AFA9322065FCB817E0B43718A77E55D077EBBD45",
+    "TKG3d.dll": "0B1C37E4AC2DF0FDDC1A19F0EA6FC82C29013947B3CC7CC958A9B5D0DE6B436A",
+    "TKGeomBase.dll": "050B69CDEE1A3E096B67E380540974F1508671F497A3CE70350B250BC788386B",
+    "TKGeomAlgo.dll": "2BAC443F9B2060A59937A76FDA17A4BEC737FB71CB84747EE37BFFDAB967B42F",
+    "TKBRep.dll": "236AB7EB5126BC4BBA9E774D70115C9A42F524688C5312DABCCD200C78A889FA",
+    "TKTopAlgo.dll": "9A87E34BFD035B653223FA3C75BE51CFCE53A6AAA229AC1C3539BBF13CD09634",
+    "TKPrim.dll": "44B01805396BDA615135DB51544E4160DA6C23DC86532D6E16FFED51045A4F2E",
+    "TKBO.dll": "78C604C119862A695424514D9BA4F593057B8B43D089069B0A6B2BF91FF7EBC3",
+    "TKShHealing.dll": "412F727CE87519A410829CA5C89236EDE78A8172EAAF2103D82A692D37F689E1"
+  },
+  "notice_files": {
+    "LICENSE_LGPL_21.txt": "E237FA56668030E928551DDD60F05DF5FE957F75EAB874BBD017E085ED722E7C",
+    "OCCT_LGPL_EXCEPTION.txt": "04580A884EA6CEA294402649FF7B5CBB167D47462D1340A4ED33E550DB10A81B",
+    "NOTICE.OCCT.txt": "",
+    "SOURCE.OCCT.txt": ""
+  },
+  "provenance": {
+    "status": "reconstructed",
+    "reconstructed_on": "2026-09-26",
+    "evidence": [
+      "The 11 DLLs installed by the Rook 1.6.0 installer are byte-identical (sha256) to <OCCT>/build-rook/win64/vc14/bin.",
+      "The OCCT checkout is at the V8_0_0 tag commit; its only reflog entry is the clone (2026-06-14 08:48 -0400).",
+      "The working tree is clean, has no patch directory, and no source file under src/, adm/ or CMakeLists.txt was modified after the clone.",
+      "The DLLs were linked on 2026-06-14 between 19:47 and 20:01 local time, after the clone, by MSVC linker 14.38.",
+      "Build options and toolchain are read from that build directory's CMakeCache.txt and CMakeCXXCompiler.cmake."
+    ],
+    "limitation": "A clean tree, a clone-only reflog and file timestamps cannot exclude source edits that were made and reverted during the original build. No such edits are known."
+  }
+}

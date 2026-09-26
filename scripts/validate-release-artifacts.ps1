@@ -6,6 +6,7 @@ param(
     [string]$GitSha = '',
     [string]$InstallerPath = '',
     [string]$FfmpegSourceBundleManifestPath = '',
+    [string]$OcctSourceBundleManifestPath = '',
     [Parameter(Mandatory = $true)]
     [string]$SmokeManifestPath,
     [string]$OutputManifestPath = '',
@@ -558,6 +559,9 @@ if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
 if ([string]::IsNullOrWhiteSpace($FfmpegSourceBundleManifestPath)) {
     $FfmpegSourceBundleManifestPath = Join-Path $RepoRoot 'artifacts\ffmpeg\ffmpeg-8.1.1-rook-minimal\rook-ffmpeg-source-bundle-manifest.json'
 }
+if ([string]::IsNullOrWhiteSpace($OcctSourceBundleManifestPath)) {
+    $OcctSourceBundleManifestPath = Join-Path $RepoRoot 'artifacts\occt\rook-occt-source-bundle-manifest.json'
+}
 if ([string]::IsNullOrWhiteSpace($OutputManifestPath)) {
     $OutputManifestPath = Join-Path $RepoRoot "installer\output\release-manifest-$Version.json"
 }
@@ -620,6 +624,27 @@ if ($sourceBundleSha256 -ne $manifestSourceBundleSha) {
     Fail "FFmpeg source bundle checksum mismatch. Expected $manifestSourceBundleSha, actual $sourceBundleSha256"
 }
 
+# OCCT corresponding source (#598): the separate bundle published beside the installer.
+# Its contents were validated against the pinned commit by scripts\occt\rook_occt_bundle.py;
+# here the release binds that exact bundle file to the provenance commit.
+$occtProvenancePath = Require-File -Path (Join-Path $RepoRoot 'third_party\occt\occt-provenance.json') -Label 'OCCT provenance'
+$occtProvenance = Get-Content -LiteralPath $occtProvenancePath -Raw | ConvertFrom-Json
+$occtManifestPathResolved = Require-File -Path $OcctSourceBundleManifestPath -Label 'OCCT source-bundle manifest'
+$occtManifest = Get-Content -LiteralPath $occtManifestPathResolved -Raw | ConvertFrom-Json
+$occtBundlePath = Require-File -Path (Require-JsonField -Json $occtManifest -Field 'bundle_path' -Label 'OCCT source-bundle manifest') -Label 'OCCT source bundle'
+if ((Split-Path -Leaf $occtBundlePath) -cne [string]$occtProvenance.source_bundle_name) {
+    Fail "OCCT source bundle must be named $($occtProvenance.source_bundle_name); actual $(Split-Path -Leaf $occtBundlePath)"
+}
+$occtBundleSha256 = Get-Sha256 -Path $occtBundlePath
+$manifestOcctBundleSha = ([string](Require-JsonField -Json $occtManifest -Field 'bundle_sha256' -Label 'OCCT source-bundle manifest')).ToUpperInvariant()
+if ($occtBundleSha256 -ne $manifestOcctBundleSha) {
+    Fail "OCCT source bundle checksum mismatch. Expected $manifestOcctBundleSha, actual $occtBundleSha256"
+}
+$occtSourceCommit = [string](Require-JsonField -Json $occtManifest -Field 'source_commit' -Label 'OCCT source-bundle manifest')
+if ($occtSourceCommit -cne [string]$occtProvenance.source.commit) {
+    Fail "OCCT source bundle commit $occtSourceCommit does not match the provenance commit $($occtProvenance.source.commit)"
+}
+
 $smokeManifestPathResolved = Require-File -Path $SmokeManifestPath -Label 'release smoke manifest'
 $smokeManifest = Get-Content -LiteralPath $smokeManifestPathResolved -Raw | ConvertFrom-Json
 foreach ($field in @(
@@ -663,6 +688,10 @@ $releaseManifest = [ordered]@{
     ffmpeg_source_bundle_path = $sourceBundlePath
     ffmpeg_source_bundle_sha256 = $sourceBundleSha256
     ffmpeg_source_bundle_manifest_path = $sourceBundleManifestPathResolved
+    occt_source_bundle_path = $occtBundlePath
+    occt_source_bundle_sha256 = $occtBundleSha256
+    occt_source_bundle_manifest_path = $occtManifestPathResolved
+    occt_source_commit = $occtSourceCommit
     smoke_manifest_path = $smokeManifestPathResolved
     smoke = $smokeManifest
     python_runtime = $pythonRuntimeEvidence

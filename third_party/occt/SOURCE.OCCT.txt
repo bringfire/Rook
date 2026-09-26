@@ -1,0 +1,26 @@
+Corresponding source for the OCCT DLLs shipped with Rook
+
+Rook publishes the complete corresponding source of the bundled OCCT DLLs beside
+every Rook installer on the same release page:
+
+  rook-occt-8.0.0-source-bundle.zip
+  rook-occt-source-bundle-manifest.json  (its SHA-256 and contents)
+
+  https://github.com/bringfire/rook-release/releases
+
+The bundle contains:
+
+  occt-8.0.0-source.zip     the unmodified OCCT source at the pinned commit
+  rook-occt-configure.txt   the CMake configure and build recipe
+  occt-provenance.json      commit, file-listing digest, toolchain and DLL SHA-256s
+  occt-build.md             how RookNative uses and deploys OCCT
+  LICENSE_LGPL_21.txt, OCCT_LGPL_EXCEPTION.txt, SOURCE.OCCT.txt
+
+Upstream:  https://github.com/Open-Cascade-SAS/OCCT
+Tag:       V8_0_0
+Commit:    d3056ef80c9668f395da40f5fd7be186cae4501f
+Toolchain: Visual Studio 2022 17.8, MSVC 14.38.33130, x64, Release, shared libraries
+
+The build provenance was reconstructed after the fact from the build directory
+that produced the shipped DLLs; occt-provenance.json records the evidence and its
+limitation.

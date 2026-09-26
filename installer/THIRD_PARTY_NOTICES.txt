@@ -1,0 +1,58 @@
+Rook: licence and third-party notices
+======================================
+
+Rook is licensed under the MIT License.
+
+  Notice: %LOCALAPPDATA%\Rook\app\LICENSE  [every installation]
+
+Rook installs the third-party components below. Each "Notice" line gives the
+installed location of a licence or notice file and the installer component that
+puts it there. Lines marked "when installed" exist only if that component or
+payload is on this machine.
+
+Open CASCADE Technology (OCCT) 8.0.0
+  LGPL-2.1 with the Open CASCADE exception. Loaded by RookNative.rhp.
+  The corresponding source of the shipped DLLs is published beside every Rook
+  installer as rook-occt-8.0.0-source-bundle.zip:
+  https://github.com/bringfire/rook-release/releases
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\occt\LICENSE_LGPL_21.txt  [plugins]
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\occt\OCCT_LGPL_EXCEPTION.txt  [plugins]
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\occt\NOTICE.OCCT.txt  [plugins]
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\occt\SOURCE.OCCT.txt  [plugins]
+
+cpp-httplib 0.18.3
+  MIT. Compiled into RookNative.rhp, with local changes documented in the Rook
+  repository at src/RookNative/vendor/httplib/ROOK-PATCHES.md.
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\cpp-httplib\LICENSE  [plugins]
+
+JSON for Modern C++ (nlohmann/json) 3.11.3
+  MIT. Compiled into RookNative.rhp.
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\nlohmann-json\LICENSE.MIT  [plugins]
+
+Fonts: Archivo, Cormorant Garamond, EB Garamond, JetBrains Mono
+  SIL Open Font License 1.1. Embedded in Rook.rhp for the Vision panel.
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts\OFL-Archivo.txt  [plugins]
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts\OFL-CormorantGaramond.txt  [plugins]
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts\OFL-EBGaramond.txt  [plugins]
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts\OFL-JetBrainsMono.txt  [plugins]
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\notices\fonts\SOURCES.md  [plugins]
+
+FFmpeg 8.1.1
+  LGPL-2.1 or later. Run as ffmpeg.exe by RookNative for video frame extraction.
+  Its source bundle is published beside every Rook installer.
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg\LICENSE.FFmpeg.txt  [plugins]
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg\NOTICE.FFmpeg.txt  [plugins]
+  Notice: %APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\ffmpeg\SOURCE.FFmpeg.txt  [plugins]
+
+Prime agent runtime (RookChat)
+  MIT. Includes uv (MIT or Apache-2.0).
+  Notice: %LOCALAPPDATA%\Rook\app\prime\runtimes\<runtime-id>\notices\prime-agent\LICENSE  [when installed: Prime runtime payload]
+  Notice: %LOCALAPPDATA%\Rook\app\prime\runtimes\<runtime-id>\tools\uv\LICENSE-MIT  [when installed: Prime runtime payload]
+  Notice: %LOCALAPPDATA%\Rook\app\prime\runtimes\<runtime-id>\tools\uv\LICENSE-APACHE  [when installed: Prime runtime payload]
+
+Python 3.11.9 and Python packages
+  The private CPython runtime is under the PSF License. Each Python package
+  installed into Rook's runtimes keeps its licence in its *.dist-info folder;
+  all of them are recorded in the Python runtime manifest.
+  Notice: %LOCALAPPDATA%\Rook\python\cpython-3.11.9\LICENSE.txt  [when installed: private Python runtime]
+  Notice: %LOCALAPPDATA%\Rook\app\python-runtime-manifest.json  [when installed: private Python runtime]
