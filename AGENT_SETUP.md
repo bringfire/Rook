@@ -343,11 +343,27 @@ the adapter. Values already set in the environment take precedence.
 | `CHIRP_INFERENCE_TIMEOUT_SECONDS` | Per-call inference timeout | `300` (installer template) |
 
 The adapter reads `.env` only when it starts, and a running adapter outlives Rhino and the
-process that launched it. After editing `.env`, end the running adapter: the `python.exe`
-processes whose command line is `-m chirp --rook-managed` (Task Manager → Details, or sign out
-and back in). The next Chirp use starts a fresh adapter with the new values. Installing a newer
-Rook over an existing one keeps both `.env` files; uninstalling Rook deletes them, so keep a
-copy of your keys.
+process that launched it. Set the key before you create Chirp components where you can.
+
+To apply a changed `.env`, end the running adapter: the `python.exe` processes whose command
+line is `-m chirp --rook-managed` (Task Manager → Details, or sign out and back in). The next
+`chirp_create` starts a fresh adapter with the new values. **Existing components do not
+reconnect by themselves:**
+
+- Each generated component calls a fixed `http://localhost:<port>/chirp/call` address, and
+  every fresh adapter gets a new OS-assigned port. This applies to any adapter restart,
+  including a reboot.
+- Recomputing an existing component does not start an adapter. It falls back to its frozen
+  result or typed defaults, with the warning `adapter not running on localhost:<old port>`.
+- To reconnect one, change the old port to the new one in its script. The new port is in the
+  address a freshly created component uses, or in `%TEMP%\rook\chirp-service-<port>.json`.
+  Ask your agent to read the script with `gh_set_script` (guid only) and write it back with
+  both `localhost:<old port>` occurrences replaced. This keeps its wiring and its Frozen
+  data. Recreating it with `chirp_create` also works, but you must rewire it, and it starts
+  with no frozen results.
+
+Tracked in [#603](https://github.com/bringfire/Rook/issues/603). Installing a newer Rook over an existing one keeps both `.env` files;
+uninstalling Rook deletes them, so keep a copy of your keys.
 
 ## Troubleshooting
 
