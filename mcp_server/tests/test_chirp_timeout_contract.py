@@ -27,15 +27,25 @@ def _tree_bytes(relative: str) -> dict[str, bytes]:
 
 def test_active_chirp_contract_uses_component_errors_only():
     server_source = _source("mcp_server/src/rook/server.py")
-    chirp_block = _slice(server_source, 'case "chirp_create":', 'case "gh_errors":')
+    # The dispatch case delegates; the contract lives in _execute_chirp_create (300e8816).
+    dispatch_case = _slice(server_source, 'case "chirp_create":', 'case "gh_errors":')
+    assert "await _execute_chirp_create(" in dispatch_case
+    chirp_block = _slice(
+        server_source,
+        "async def _execute_chirp_create(",
+        "async def _call_tool_dispatch_with_gh_context(",
+    )
     create_script_block = _slice(
         server_source,
         "async def _execute_gh_create_script(",
         "async def _execute_gh_set_script_pins(",
     )
 
-    assert "component_errors" in chirp_block
-    assert "compilation_errors" not in chirp_block
+    # Chirp re-labels the script layer's compilation_errors as component_errors: the
+    # only mention is the pop that renames them, so the raw key never passes through.
+    assert 'data["component_errors"] = component_errors' in chirp_block
+    assert chirp_block.count("compilation_errors") == 1
+    assert 'component_errors = data.pop("compilation_errors", None)' in chirp_block
     assert "compilation_errors" in create_script_block
 
     proof_source = _source("mcp_server/src/rook/local_testing_proof.py")

@@ -328,6 +328,27 @@ bundled CPython 3.11.9 runtime:
 
 Set these in `mcp_server/.env` or as system environment variables.
 
+### Chirp components
+
+Chirp reads `%LOCALAPPDATA%\Rook\app\chirp\.env` (its `CHIRP_HOME`) when its adapter starts,
+so a key placed there works whichever process starts Chirp. Copy `.env.example` in that
+folder to `.env`. A key in `mcp_server/.env` also reaches Chirp when Rook's MCP server starts
+the adapter. Values already set in the environment take precedence.
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` / `GEMINI_API_KEY` | Credential for the model's provider (`anthropic/`, `openai/`, `openrouter/`, `gemini/` prefixes) | None: components return typed defaults with a warning |
+| `CHIRP_MODEL` | Default LiteLLM model for Chirp components | `anthropic/claude-sonnet-5` |
+| `CHIRP_PROVIDERS` | JSON map for other OpenAI-compatible endpoints: `{"<model>": {"api_base": "...", "api_key_env": "<VAR>"}}` | None |
+| `CHIRP_INFERENCE_TIMEOUT_SECONDS` | Per-call inference timeout | `300` (installer template) |
+
+The adapter reads `.env` only when it starts, and a running adapter outlives Rhino and the
+process that launched it. After editing `.env`, end the running adapter: the `python.exe`
+processes whose command line is `-m chirp --rook-managed` (Task Manager → Details, or sign out
+and back in). The next Chirp use starts a fresh adapter with the new values. Installing a newer
+Rook over an existing one keeps both `.env` files; uninstalling Rook deletes them, so keep a
+copy of your keys.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

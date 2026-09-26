@@ -24,7 +24,7 @@
 | **.NET SDK** | 8.x | Managed companion build for `net8.0`, `net7.0`, and `net48` targets | `dotnet --list-sdks` |
 | **.NET Framework 4.8** | Targeting pack | C# companion plugin target | `ls "C:/Program Files (x86)/Reference Assemblies/Microsoft/Framework/.NETFramework/v4.8/"` |
 | **Python 3.10+** | 3.10, 3.11, 3.12, or 3.13 | MCP server runtime | `python --version` |
-| **Chirp sibling repo** | `main` | LLM-powered Grasshopper components; required by the wheelhouse/installer build | `ls ../Chirp/pyproject.toml` (see *Sibling Repository: Chirp*) |
+| **Chirp sibling repo** | `master` (default branch) | LLM-powered Grasshopper components; required by the wheelhouse/installer build | `ls ../Chirp/pyproject.toml` (see *Sibling Repository: Chirp*) |
 | **Prime ACP runtime** | pinned in `scripts/prime/rook-prime-runtime-source.json` | RookChat backend; downloaded, not built | `scripts\prime\fetch-prime-runtime.ps1` (see *Prime Runtime (RookChat)*) |
 | **Inno Setup 6** | 6.x | Installer compiler (release builds only) | `ls "C:/Program Files (x86)/Inno Setup 6/ISCC.exe"` |
 
